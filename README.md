@@ -1,2 +1,2 @@
 # ONDRLax
-Optical Network Optimisation using DRL with Accelerated Environments in JAX
+Optical Network Optimisation using Deep Reinforcment Learning with Accelerated Environments in JAX
