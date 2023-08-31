@@ -3,7 +3,7 @@
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 [![codecov](https://codecov.io/gh/micdoh/ONDRLax/graph/badge.svg?token=UW9CCLRAFJ)](https://codecov.io/gh/micdoh/ONDRLax)
 
-See the documentation at https://micdoh.gitlab.io/ondrlax
+See the documentation at https://micdoh.github.io/ONDRLax/
 ___
 
 ### _Exploring optimisation problems in Optical Networks with Deep Reinforcement Learning and Accelerated Environments in JAX_
