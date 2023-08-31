@@ -2,7 +2,7 @@ site_name: "ONDRLax: Optical Network Optimisation with Deep Reinforcement Learni
 site_url: https://micdoh.github.io/ONDRLax/
 theme:
     name: material
-    logo: images/hx_white.png
+    logo: images/University_College_London_logo.svg
     features:
       - content.tabs.link
       - search.suggest
