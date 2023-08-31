@@ -1,5 +1,5 @@
 site_name: "ONDRLax: Optical Network Optimisation with Deep Reinforcement Learning and "
-site_url: https://micdoh.gitlab.io/ondrlax
+site_url: https://micdoh.github.io/ONDRLax/
 theme:
     name: material
     logo: images/hx_white.png
