@@ -29,7 +29,7 @@ jobs:
 #          ruff --format=github --target-version=py37 .
       - name: Test with chex
         run: |
-          PYTHONPATH=. python tests/env_test.py
+          PYTHONPATH=. pytest --cov ondrlax
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v3
         env:
