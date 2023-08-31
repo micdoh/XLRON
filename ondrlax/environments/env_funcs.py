@@ -1,7 +1,7 @@
 from itertools import combinations, islice
 from functools import partial
-from typing import Tuple, Sequence, Any, Dict, Union, Optional, Generic, TypeVar
-from gymnax.environments import environment, spaces
+from typing import Sequence, Union, Optional
+from gymnax.environments import environment
 import pathlib
 import networkx as nx
 import jax.numpy as jnp
