@@ -1,6 +1,7 @@
 # ONDRLax
 [<img src="https://img.shields.io/badge/license-MIT-blue">](https://github.com/micdoh/ONDRLax/LICENSE)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+[![codecov](https://codecov.io/gh/micdoh/ONDRLax/graph/badge.svg?token=UW9CCLRAFJ)](https://codecov.io/gh/micdoh/ONDRLax)
 
 See the documentation at https://micdoh.gitlab.io/ondrlax
 ___

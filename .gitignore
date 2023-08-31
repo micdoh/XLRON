@@ -10,3 +10,4 @@ models/
 figures/
 jax/
 site/
+.coverage
