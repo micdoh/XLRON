@@ -17,7 +17,7 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           cache: 'pip'
-      - run: pip install -r requirements.txt
+      - run: pip install --no-deps -r requirements.txt
       - run: pip test
       - name: Install dependencies
         run: |
@@ -29,7 +29,7 @@ jobs:
           ruff --format=github --select=E9,F63,F7,F82 --target-version=py37 .
           # default set of ruff rules with GitHub Annotations
           ruff --format=github --target-version=py37 .
-      - name: Test with pytest
+      - name: Test with chex
         run: |
           python tests/env_test.py
       - name: Upload coverage reports to Codecov
