@@ -10,8 +10,16 @@ ___
 
 This project provides a set of tools explore the application of Deep Reinforcement Learning (DRL) to combinatorial optimisation problems in Optical Networks.  It is a product of my PhD research, which is focused on the application of Reinforcement Learning (RL) to the same set of resource allocation problems. The project is currently in the early stages of development.
 
+---
+## Related work
+
+The gym-style environments follow the example set in [Gymnax](https://github.com/RobertTLange/gymnax), a project by Robert Lange.
+
+The PPO implementation in this project derives from the excellent [PureJaxRL](https://github.com/luchris429/purejaxrl) by Chris Lu.
+
+
 ___
 
 ## Acknowledgements
-The gym-style environments follow the example set in [Gymnax](https://github.com/RobertTLange/gymnax)), a project by Robert Lange.
-The PPO implementation in this project derives from the excellent [PureJaxRL](https://github.com/luchris429/purejaxrl) by Chris Lu.
+
+Financial support from EPSRC Centre for Doctoral Training in Connected Electronic and Photonic Systems (CEPS CDT) and EPSRC Programme Grant TRANSNET (EP/R035342/1) is gratefully acknowledged.
