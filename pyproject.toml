@@ -34,6 +34,8 @@ chex = "^0.1.82"
 distrax = "^0.1.4"
 mkdocs = "^1.5.2"
 ruff = "^0.0.286"
+mkdocs-material = "^9.2.6"
+mkdocstrings = "^0.22.0"
 
 [tool.poetry.extras]
 cuda = ["nvidia-cuda-runtime-cu11", "torch", "torchvision"]
