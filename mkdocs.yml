@@ -1,4 +1,4 @@
-site_name: "ONDRLax: Optical Network Optimisation with Deep Reinforcement Learning and "
+site_name: "ONDRLax: Optical Networks with Deep RL and Accelerated Environments in JAX"
 site_url: https://micdoh.github.io/ONDRLax/
 theme:
     name: material
