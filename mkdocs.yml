@@ -1,0 +1,33 @@
+site_name: "ONDRLax: Optical Network Optimisation with Deep Reinforcement Learning and "
+site_url: https://micdoh.gitlab.io/ondrlax
+theme:
+    name: material
+    logo: images/hx_white.png
+    features:
+      - content.tabs.link
+      - search.suggest
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - attr_list
+  - md_in_html
+plugins:
+  - search
+  - mkdocstrings:
+      default_handler: python
+      handlers:
+        python:
+          setup_commands:
+            - import sys
+nav:
+    - Home: 'index.md'
+    - About:
+        - 'License and Support': 'license.md'
+        - 'Change Log': 'changelog.md'

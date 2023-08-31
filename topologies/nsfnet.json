@@ -1,0 +1,170 @@
+{
+    "directed": false,
+    "multigraph": false,
+    "graph": {},
+    "nodes": [
+        {
+            "name": "C1",
+            "id": 1
+        },
+        {
+            "name": "WA",
+            "id": 2
+        },
+        {
+            "name": "IL",
+            "id": 3
+        },
+        {
+            "name": "NE",
+            "id": 4
+        },
+        {
+            "name": "CO",
+            "id": 5
+        },
+        {
+            "name": "UT",
+            "id": 6
+        },
+        {
+            "name": "MI",
+            "id": 7
+        },
+        {
+            "name": "NY",
+            "id": 8
+        },
+        {
+            "name": "NJ",
+            "id": 9
+        },
+        {
+            "name": "PA",
+            "id": 10
+        },
+        {
+            "name": "DC",
+            "id": 11
+        },
+        {
+            "name": "GA",
+            "id": 12
+        },
+        {
+            "name": "TX",
+            "id": 13
+        },
+        {
+            "name": "C2",
+            "id": 14
+        }
+    ],
+    "links": [
+        {
+            "weight": 19.0,
+            "source": 1,
+            "target": 2
+        },
+        {
+            "weight": 18.0,
+            "source": 1,
+            "target": 6
+        },
+        {
+            "weight": 13.0,
+            "source": 1,
+            "target": 4
+        },
+        {
+            "weight": 44.0,
+            "source": 2,
+            "target": 3
+        },
+        {
+            "weight": 27.0,
+            "source": 2,
+            "target": 14
+        },
+        {
+            "weight": 13.0,
+            "source": 3,
+            "target": 4
+        },
+        {
+            "weight": 13.0,
+            "source": 3,
+            "target": 10
+        },
+        {
+            "weight": 14.0,
+            "source": 4,
+            "target": 5
+        },
+        {
+            "weight": 11.0,
+            "source": 5,
+            "target": 6
+        },
+        {
+            "weight": 23.0,
+            "source": 5,
+            "target": 13
+        },
+        {
+            "weight": 37.0,
+            "source": 6,
+            "target": 7
+        },
+        {
+            "weight": 11.0,
+            "source": 7,
+            "target": 8
+        },
+        {
+            "weight": 15.0,
+            "source": 7,
+            "target": 9
+        },
+        {
+            "weight": 7.0,
+            "source": 8,
+            "target": 10
+        },
+        {
+            "weight": 7.0,
+            "source": 8,
+            "target": 11
+        },
+        {
+            "weight": 8.0,
+            "source": 9,
+            "target": 10
+        },
+        {
+            "weight": 5.0,
+            "source": 9,
+            "target": 11
+        },
+        {
+            "weight": 16.0,
+            "source": 10,
+            "target": 12
+        },
+        {
+            "weight": 31.0,
+            "source": 11,
+            "target": 13
+        },
+        {
+            "weight": 19.0,
+            "source": 12,
+            "target": 13
+        },
+        {
+            "weight": 33.0,
+            "source": 13,
+            "target": 14
+        }
+    ]
+}
