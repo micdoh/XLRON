@@ -1,0 +1,705 @@
+{
+    "directed": false,
+    "multigraph": false,
+    "graph": {},
+    "nodes": [
+        {
+            "name": "Abilene",
+            "id": 0
+        },
+        {
+            "name": "Albany",
+            "id": 1
+        },
+        {
+            "name": "Albuquerque",
+            "id": 2
+        },
+        {
+            "name": "Atlanta",
+            "id": 3
+        },
+        {
+            "name": "Austin",
+            "id": 4
+        },
+        {
+            "name": "Baltimore",
+            "id": 5
+        },
+        {
+            "name": "Baton Rouge",
+            "id": 6
+        },
+        {
+            "name": "Billings",
+            "id": 7
+        },
+        {
+            "name": "Birmingham",
+            "id": 8
+        },
+        {
+            "name": "Bismarck",
+            "id": 9
+        },
+        {
+            "name": "Boston",
+            "id": 10
+        },
+        {
+            "name": "Buffalo",
+            "id": 11
+        },
+        {
+            "name": "Charleston",
+            "id": 12
+        },
+        {
+            "name": "Charlotte",
+            "id": 13
+        },
+        {
+            "name": "Chicago",
+            "id": 14
+        },
+        {
+            "name": "Cincinnati",
+            "id": 15
+        },
+        {
+            "name": "Cleveland",
+            "id": 16
+        },
+        {
+            "name": "Columbus",
+            "id": 17
+        },
+        {
+            "name": "Dallas",
+            "id": 18
+        },
+        {
+            "name": "Denver",
+            "id": 19
+        },
+        {
+            "name": "Detroit",
+            "id": 20
+        },
+        {
+            "name": "El Paso",
+            "id": 21
+        },
+        {
+            "name": "Fresno",
+            "id": 22
+        },
+        {
+            "name": "Greensboro",
+            "id": 23
+        },
+        {
+            "name": "Hartford",
+            "id": 24
+        },
+        {
+            "name": "Houston",
+            "id": 25
+        },
+        {
+            "name": "Jacksonville",
+            "id": 26
+        },
+        {
+            "name": "Kansas City",
+            "id": 27
+        },
+        {
+            "name": "Las Vegas",
+            "id": 28
+        },
+        {
+            "name": "Little Rock",
+            "id": 29
+        },
+        {
+            "name": "Long Island",
+            "id": 30
+        },
+        {
+            "name": "Los Angeles",
+            "id": 31
+        },
+        {
+            "name": "Louisville",
+            "id": 32
+        },
+        {
+            "name": "Memphis",
+            "id": 33
+        },
+        {
+            "name": "Miami",
+            "id": 34
+        },
+        {
+            "name": "Milwaukee",
+            "id": 35
+        },
+        {
+            "name": "Minneapolis",
+            "id": 36
+        },
+        {
+            "name": "Nashville",
+            "id": 37
+        },
+        {
+            "name": "New Orleans",
+            "id": 38
+        },
+        {
+            "name": "New York",
+            "id": 39
+        },
+        {
+            "name": "Newark",
+            "id": 40
+        },
+        {
+            "name": "Norfolk",
+            "id": 41
+        },
+        {
+            "name": "Oakland",
+            "id": 42
+        },
+        {
+            "name": "Oklahoma City",
+            "id": 43
+        },
+        {
+            "name": "Omaha",
+            "id": 44
+        },
+        {
+            "name": "Orlando",
+            "id": 45
+        },
+        {
+            "name": "Philadelphia",
+            "id": 46
+        },
+        {
+            "name": "Phoenix",
+            "id": 47
+        },
+        {
+            "name": "Pittsburgh",
+            "id": 48
+        },
+        {
+            "name": "Portland",
+            "id": 49
+        },
+        {
+            "name": "Providence",
+            "id": 50
+        },
+        {
+            "name": "Raleigh",
+            "id": 51
+        },
+        {
+            "name": "Richmond",
+            "id": 52
+        },
+        {
+            "name": "Rochester",
+            "id": 53
+        },
+        {
+            "name": "Sacramento",
+            "id": 54
+        },
+        {
+            "name": "Salt Lake City",
+            "id": 55
+        },
+        {
+            "name": "San Antonio",
+            "id": 56
+        },
+        {
+            "name": "San Diego",
+            "id": 57
+        },
+        {
+            "name": "San Francisco",
+            "id": 58
+        },
+        {
+            "name": "San Jose",
+            "id": 59
+        },
+        {
+            "name": "Santa Barbara",
+            "id": 60
+        },
+        {
+            "name": "Scranton",
+            "id": 61
+        },
+        {
+            "name": "Seattle",
+            "id": 62
+        },
+        {
+            "name": "Spokane",
+            "id": 63
+        },
+        {
+            "name": "Springfield",
+            "id": 64
+        },
+        {
+            "name": "St Louis",
+            "id": 65
+        },
+        {
+            "name": "Syracuse",
+            "id": 66
+        },
+        {
+            "name": "Tallahassee",
+            "id": 67
+        },
+        {
+            "name": "Tampa",
+            "id": 68
+        },
+        {
+            "name": "Toledo",
+            "id": 69
+        },
+        {
+            "name": "Tucson",
+            "id": 70
+        },
+        {
+            "name": "Tulsa",
+            "id": 71
+        },
+        {
+            "name": "Washington DC",
+            "id": 72
+        },
+        {
+            "name": "West Palm Beach",
+            "id": 73
+        },
+        {
+            "name": "Wilmington",
+            "id": 74
+        }
+    ],
+    "links": [
+        {
+            "source": 0,
+            "target": 21
+        },
+        {
+            "source": 0,
+            "target": 18
+        },
+        {
+            "source": 1,
+            "target": 66
+        },
+        {
+            "source": 1,
+            "target": 10
+        },
+        {
+            "source": 2,
+            "target": 19
+        },
+        {
+            "source": 2,
+            "target": 18
+        },
+        {
+            "source": 2,
+            "target": 28
+        },
+        {
+            "source": 2,
+            "target": 21
+        },
+        {
+            "source": 3,
+            "target": 13
+        },
+        {
+            "source": 3,
+            "target": 8
+        },
+        {
+            "source": 3,
+            "target": 26
+        },
+        {
+            "source": 4,
+            "target": 56
+        },
+        {
+            "source": 4,
+            "target": 25
+        },
+        {
+            "source": 5,
+            "target": 72
+        },
+        {
+            "source": 5,
+            "target": 48
+        },
+        {
+            "source": 5,
+            "target": 46
+        },
+        {
+            "source": 6,
+            "target": 38
+        },
+        {
+            "source": 6,
+            "target": 25
+        },
+        {
+            "source": 7,
+            "target": 19
+        },
+        {
+            "source": 7,
+            "target": 9
+        },
+        {
+            "source": 7,
+            "target": 63
+        },
+        {
+            "source": 8,
+            "target": 37
+        },
+        {
+            "source": 8,
+            "target": 38
+        },
+        {
+            "source": 9,
+            "target": 36
+        },
+        {
+            "source": 10,
+            "target": 50
+        },
+        {
+            "source": 11,
+            "target": 16
+        },
+        {
+            "source": 11,
+            "target": 53
+        },
+        {
+            "source": 12,
+            "target": 26
+        },
+        {
+            "source": 12,
+            "target": 51
+        },
+        {
+            "source": 13,
+            "target": 23
+        },
+        {
+            "source": 14,
+            "target": 35
+        },
+        {
+            "source": 14,
+            "target": 64
+        },
+        {
+            "source": 14,
+            "target": 20
+        },
+        {
+            "source": 15,
+            "target": 17
+        },
+        {
+            "source": 15,
+            "target": 72
+        },
+        {
+            "source": 15,
+            "target": 32
+        },
+        {
+            "source": 16,
+            "target": 69
+        },
+        {
+            "source": 16,
+            "target": 17
+        },
+        {
+            "source": 17,
+            "target": 48
+        },
+        {
+            "source": 18,
+            "target": 29
+        },
+        {
+            "source": 18,
+            "target": 43
+        },
+        {
+            "source": 18,
+            "target": 25
+        },
+        {
+            "source": 19,
+            "target": 44
+        },
+        {
+            "source": 19,
+            "target": 55
+        },
+        {
+            "source": 20,
+            "target": 69
+        },
+        {
+            "source": 21,
+            "target": 56
+        },
+        {
+            "source": 21,
+            "target": 70
+        },
+        {
+            "source": 22,
+            "target": 42
+        },
+        {
+            "source": 22,
+            "target": 28
+        },
+        {
+            "source": 22,
+            "target": 31
+        },
+        {
+            "source": 23,
+            "target": 52
+        },
+        {
+            "source": 23,
+            "target": 51
+        },
+        {
+            "source": 23,
+            "target": 32
+        },
+        {
+            "source": 24,
+            "target": 30
+        },
+        {
+            "source": 24,
+            "target": 50
+        },
+        {
+            "source": 26,
+            "target": 45
+        },
+        {
+            "source": 27,
+            "target": 71
+        },
+        {
+            "source": 27,
+            "target": 44
+        },
+        {
+            "source": 27,
+            "target": 65
+        },
+        {
+            "source": 28,
+            "target": 47
+        },
+        {
+            "source": 28,
+            "target": 55
+        },
+        {
+            "source": 29,
+            "target": 33
+        },
+        {
+            "source": 30,
+            "target": 39
+        },
+        {
+            "source": 31,
+            "target": 60
+        },
+        {
+            "source": 31,
+            "target": 57
+        },
+        {
+            "source": 32,
+            "target": 37
+        },
+        {
+            "source": 32,
+            "target": 65
+        },
+        {
+            "source": 33,
+            "target": 37
+        },
+        {
+            "source": 34,
+            "target": 73
+        },
+        {
+            "source": 34,
+            "target": 68
+        },
+        {
+            "source": 35,
+            "target": 36
+        },
+        {
+            "source": 36,
+            "target": 44
+        },
+        {
+            "source": 38,
+            "target": 67
+        },
+        {
+            "source": 39,
+            "target": 61
+        },
+        {
+            "source": 39,
+            "target": 74
+        },
+        {
+            "source": 39,
+            "target": 40
+        },
+        {
+            "source": 40,
+            "target": 46
+        },
+        {
+            "source": 41,
+            "target": 74
+        },
+        {
+            "source": 41,
+            "target": 51
+        },
+        {
+            "source": 42,
+            "target": 54
+        },
+        {
+            "source": 42,
+            "target": 55
+        },
+        {
+            "source": 42,
+            "target": 58
+        },
+        {
+            "source": 43,
+            "target": 71
+        },
+        {
+            "source": 45,
+            "target": 73
+        },
+        {
+            "source": 46,
+            "target": 61
+        },
+        {
+            "source": 47,
+            "target": 70
+        },
+        {
+            "source": 47,
+            "target": 57
+        },
+        {
+            "source": 48,
+            "target": 61
+        },
+        {
+            "source": 49,
+            "target": 54
+        },
+        {
+            "source": 49,
+            "target": 62
+        },
+        {
+            "source": 49,
+            "target": 55
+        },
+        {
+            "source": 52,
+            "target": 72
+        },
+        {
+            "source": 53,
+            "target": 66
+        },
+        {
+            "source": 58,
+            "target": 59
+        },
+        {
+            "source": 59,
+            "target": 60
+        },
+        {
+            "source": 61,
+            "target": 66
+        },
+        {
+            "source": 62,
+            "target": 63
+        },
+        {
+            "source": 64,
+            "target": 65
+        },
+        {
+            "source": 67,
+            "target": 68
+        }
+    ]
+}
