@@ -32,3 +32,5 @@ ignore:
   - "examples/"
   - "docs/"
   - ".github/"
+  - "ondrlax/environments/*_test.py"
+  - "ondrlax/train/"
