@@ -1,12 +1,24 @@
-# ONDRLax
+# XLRON
 [<img src="https://img.shields.io/badge/license-MIT-blue">](https://github.com/micdoh/ONDRLax/LICENSE)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 [![codecov](https://codecov.io/gh/micdoh/ONDRLax/graph/badge.svg?token=UW9CCLRAFJ)](https://codecov.io/gh/micdoh/ONDRLax)
 
-See the documentation at https://micdoh.github.io/ONDRLax/
+See the documentation at https://micdoh.github.io/XLRON/
 ___
 
-### _Exploring optimisation problems in Optical Networks with Deep Reinforcement Learning and Accelerated Environments in JAX_
+### _Accelerated Learning and Resource Allocation for Optical Networks_
+
+## Overview
+
+XLRON is an open-source project that provides a suite of gym-style environments for simulating resource allocation problems in optical networks using reinforcement learning techniques. It is built on the JAX machine learning framework, enabling accelerated training on GPU and TPU hardware.
+
+### Key Features
+
+- Gym-style environments for optical network resource allocation problems.
+- Powered by JAX for accelerated training on GPU and TPU.
+- Facilitates the development and discovery of optimised resource allocation policies.
+- Ideal for research, experimentation, and innovation in optical network optimization.
+
 
 
 

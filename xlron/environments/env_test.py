@@ -13,9 +13,9 @@ from absl.testing import parameterized
 import chex
 import jax
 import numpy as np
-from ondrlax.environments.env_funcs import *
-from ondrlax.environments.vone import *
-from ondrlax.environments.rsa import *
+from xlron.environments.env_funcs import *
+from xlron.environments.vone import *
+from xlron.environments.rsa import *
 
 
 # Set the number of (emulated) host devices

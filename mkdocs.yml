@@ -1,8 +1,11 @@
-site_name: "ONDRLax: Optical Networks with Deep RL and Accelerated Environments in JAX"
-site_url: https://micdoh.github.io/ONDRLax/
+site_name: "XLRON - Accelerated Learning and Resource Allocation for Optical Networks"
+site_url: https://micdoh.github.io/XLRON/
 theme:
     name: material
     logo: images/University_College_London_logo.svg
+    palette:
+      accent: green
+      primary: yellow
     features:
       - content.tabs.link
       - search.suggest

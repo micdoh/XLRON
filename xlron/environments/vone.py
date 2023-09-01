@@ -5,7 +5,7 @@ import chex
 import jax
 import jax.numpy as jnp
 from gymnax.environments import environment, spaces
-from ondrlax.environments.env_funcs import (
+from xlron.environments.env_funcs import (
     HashableArrayWrapper, EnvState, EnvParams, init_vone_request_array, init_link_slot_array, init_path_link_array,
     init_values_slots, init_link_slot_mask, init_link_slot_departure_array, implement_vone_action,
     check_vone_action, undo_link_slot_action, finalise_vone_action, generate_vone_request, mask_slots, make_graph,

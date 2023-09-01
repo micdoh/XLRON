@@ -1,7 +1,7 @@
 [tool.poetry]
-name = "ONDRLax"
+name = "XLRON"
 version = "0.1.0"
-description = "Optical Network Optimisation with Deep Reinforcement Learning and Accelerated Environments in JAX"
+description = "Accelerated Learning and Resource Allocation for Optical Networks"
 authors = ["Michael Doherty"]
 readme = "README.md"
 

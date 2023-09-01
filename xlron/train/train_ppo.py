@@ -10,8 +10,8 @@ from flax.linen.initializers import constant, orthogonal
 from typing import Sequence, NamedTuple, Any
 from flax.training.train_state import TrainState
 from gymnax.wrappers.purerl import LogWrapper, FlattenObservationWrapper
-from ondrlax.environments.env_funcs import *
-from ondrlax.environments.vone import make_vone_env
+from xlron.environments.env_funcs import *
+from xlron.environments.vone import make_vone_env
 
 
 class ActorCritic(nn.Module):
