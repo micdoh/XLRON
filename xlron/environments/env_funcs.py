@@ -727,7 +727,7 @@ def implement_rsa_action(
     num_slots = jax.lax.dynamic_slice(state.request_array, (1, ), (1, ))
     node_d = jax.lax.dynamic_slice(state.request_array, (2, ), (1, ))
     nodes_sd = jnp.concatenate((node_s, node_d))
-    path_index = jnp.floor(action[0] / state.link_slot_array.shape[0]).astype(jnp.int32)
+    path_index = jnp.floor(action / state.link_slot_array.shape[0]).astype(jnp.int32)
     initial_slot_index = jnp.mod(action, state.link_slot_array.shape[0])
     path = get_paths(params, nodes_sd)[path_index]
     state = implement_path_action(state, path, initial_slot_index, num_slots)
