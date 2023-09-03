@@ -120,7 +120,7 @@ class RSAEnv(environment.Environment):
         info = {}
         return self.get_obs(state), state, reward, done, info
 
-    @partial(jax.jit, static_argnums=(0, 1,))
+    @partial(jax.jit, static_argnums=(0, 2,))
     def reset_env(
         self, key: chex.PRNGKey, params: RSAEnvParams
     ) -> Tuple[chex.Array, RSAEnvState]:
