@@ -1,11 +1,9 @@
+import os
 import jax
 import jax.numpy as jnp
 import flax.linen as nn
-import numpy as np
 import optax
 import distrax
-import gymnax
-import matplotlib.pyplot as plt
 from flax.linen.initializers import constant, orthogonal
 from typing import Sequence, NamedTuple, Any
 from flax.training.train_state import TrainState
@@ -72,34 +70,51 @@ class Transition(NamedTuple):
     action_mask_p: jnp.ndarray
     action_mask_d: jnp.ndarray
 
+
 def make_train(config):
-    config["NUM_UPDATES"] = (
-        config["TOTAL_TIMESTEPS"] // config["NUM_STEPS"] // config["NUM_ENVS"]
+    NUM_UPDATES = (
+        config.TOTAL_TIMESTEPS // config.NUM_STEPS // config.NUM_ENVS
     )
-    config["MINIBATCH_SIZE"] = (
-        config["NUM_ENVS"] * config["NUM_STEPS"] // config["NUM_MINIBATCHES"]
+    MINIBATCH_SIZE = (
+        config.NUM_ENVS * config.NUM_STEPS // config.NUM_MINIBATCHES
     )
-    env, env_params = make_vone_env(**config["ENV_CONFIG"])
+    #
+    env_params = {
+        "k": config.k,
+        "load": config.load,
+        "topology_name": config.topology_name,
+        "mean_service_holding_time": config.mean_service_holding_time,
+        "node_resources": config.node_resources,
+        "link_resources": config.link_resources,
+        "max_requests": config.max_requests,
+        "max_timesteps": config.max_timesteps,
+        "virtual_topologies": config.virtual_topologies,
+        "min_slots": config.min_slots,
+        "max_slots": config.max_slots,
+        "min_node_resources": config.min_node_resources,
+        "max_node_resources": config.max_node_resources,
+    }
+    env, env_params = make_vone_env(**env_params)
     env = LogWrapper(env)
 
     def linear_schedule(count):
-        frac = 1.0 - (count // (config["NUM_MINIBATCHES"] * config["UPDATE_EPOCHS"])) / config["NUM_UPDATES"]
-        return config["LR"] * frac
+        frac = 1.0 - (count // (config.NUM_MINIBATCHES * config.UPDATE_EPOCHS)) / NUM_UPDATES
+        return config.LR * frac
 
     def train(rng):
 
         # INIT NETWORK
-        network = ActorCritic([space.n for space in env.action_space(env_params).spaces], activation=config["ACTIVATION"])
+        network = ActorCritic([space.n for space in env.action_space(env_params).spaces], activation=config.ACTIVATION)
         rng, _rng = jax.random.split(rng)
         init_x = jnp.zeros(env.observation_space(env_params).n)
         network_params = network.init(_rng, init_x)
-        if config["ANNEAL_LR"]:
+        if config.ANNEAL_LR:
             tx = optax.chain(
-                optax.clip_by_global_norm(config["MAX_GRAD_NORM"]),
+                optax.clip_by_global_norm(config.MAX_GRAD_NORM),
                 optax.adam(learning_rate=linear_schedule, eps=1e-5),
             )
         else:
-            tx = optax.chain(optax.clip_by_global_norm(config["MAX_GRAD_NORM"]), optax.adam(config["LR"], eps=1e-5))
+            tx = optax.chain(optax.clip_by_global_norm(config.MAX_GRAD_NORM), optax.adam(config.LR, eps=1e-5))
         train_state = TrainState.create(
             apply_fn=network.apply,
             params=network_params,
@@ -108,7 +123,7 @@ def make_train(config):
 
         # INIT ENV
         rng, _rng = jax.random.split(rng)
-        reset_rng = jax.random.split(_rng, config["NUM_ENVS"])
+        reset_rng = jax.random.split(_rng, config.NUM_ENVS)
         obsv, env_state = jax.vmap(env.reset, in_axes=(0, None))(reset_rng, env_params)
 
         # TRAIN LOOP
@@ -122,17 +137,16 @@ def make_train(config):
                 pi_source, pi_path, pi_dest, value = network.apply(train_state.params, last_obs)
                 vmap_mask_nodes = jax.vmap(env.action_mask_nodes, in_axes=(0, None))
                 vmap_mask_slots = jax.vmap(env.action_mask_slots, in_axes=(0, None, 0))
-                # jax.debug.print("pi_source {}", pi_source._logits)
-                # jax.debug.print("pi_dest {}", pi_dest._logits)
+
                 env_state = env_state.replace(env_state=vmap_mask_nodes(env_state.env_state, env_params))
                 pi_source = distrax.Categorical(logits=jnp.where(env_state.env_state.node_mask_s, pi_source._logits, -1e8))
                 pi_dest = distrax.Categorical(logits=jnp.where(env_state.env_state.node_mask_d, pi_dest._logits, -1e8))
-                # jax.debug.print("pi_source new {}", pi_source._logits)
-                # jax.debug.print("pi_dest new {}", pi_dest._logits)
+
                 action_s = pi_source.sample(seed=_rng_s)
                 action_p = jnp.full(action_s.shape, 0)
                 action_d = pi_dest.sample(seed=_rng_d)
                 action = jnp.stack((action_s, action_p, action_d), axis=1)
+
                 env_state = env_state.replace(env_state=vmap_mask_slots(env_state.env_state, env_params, action))
                 pi_path = distrax.Categorical(logits=jnp.where(env_state.env_state.link_slot_mask, pi_path._logits, -1e8))
                 action_p = pi_path.sample(seed=_rng_p)
@@ -146,7 +160,7 @@ def make_train(config):
 
                 # STEP ENV
                 rng, _rng = jax.random.split(rng)
-                rng_step = jax.random.split(_rng, config["NUM_ENVS"])
+                rng_step = jax.random.split(_rng, config.NUM_ENVS)
                 obsv, env_state, reward, done, info = jax.vmap(env.step, in_axes=(0,0,0,None))(
                     rng_step, env_state, action, env_params
                 )
@@ -156,21 +170,24 @@ def make_train(config):
                     env_state.env_state.node_mask_d
                 )
                 runner_state = (train_state, env_state, obsv, rng)
-                # jax.debug.print("log_prob_source {}", log_prob_source, ordered=True)
-                # jax.debug.print("log_prob_path {}", log_prob_path, ordered=True)
-                # jax.debug.print("log_prob_dest {}", log_prob_dest, ordered=True)
-                # jax.debug.print("log_prob sum {}", log_prob, ordered=True)
-                # jax.debug.print("link_slot_array {}", env_state.env_state.link_slot_array, ordered=True)
-                # jax.debug.print("mask s {}", env_state.env_state.node_mask_s, ordered=True)
-                # jax.debug.print("mask p {}", env_state.env_state.link_slot_mask, ordered=True)
-                # jax.debug.print("mask d {}", env_state.env_state.node_mask_d, ordered=True)
-                # jax.debug.print("action history {}", env_state.env_state.action_history, ordered=True)
-                # jax.debug.print("action {}", action, ordered=True)
-                # jax.debug.print("reward {}", reward, ordered=True)
+
+                if config.DEBUG:
+                    jax.debug.print("log_prob_source {}", log_prob_source, ordered=config.ORDERED)
+                    jax.debug.print("log_prob_path {}", log_prob_path, ordered=config.ORDERED)
+                    jax.debug.print("log_prob_dest {}", log_prob_dest, ordered=config.ORDERED)
+                    jax.debug.print("log_prob sum {}", log_prob, ordered=config.ORDERED)
+                    jax.debug.print("link_slot_array {}", env_state.env_state.link_slot_array, ordered=config.ORDERED)
+                    jax.debug.print("mask s {}", env_state.env_state.node_mask_s, ordered=config.ORDERED)
+                    jax.debug.print("mask p {}", env_state.env_state.link_slot_mask, ordered=config.ORDERED)
+                    jax.debug.print("mask d {}", env_state.env_state.node_mask_d, ordered=config.ORDERED)
+                    jax.debug.print("action history {}", env_state.env_state.action_history, ordered=config.ORDERED)
+                    jax.debug.print("action {}", action, ordered=config.ORDERED)
+                    jax.debug.print("reward {}", reward, ordered=config.ORDERED)
+
                 return runner_state, transition
 
             runner_state, traj_batch = jax.lax.scan(
-                _env_step, runner_state, None, config["NUM_STEPS"]
+                _env_step, runner_state, None, config.NUM_STEPS
             )
 
             # CALCULATE ADVANTAGE
@@ -185,10 +202,10 @@ def make_train(config):
                         transition.value,
                         transition.reward,
                     )
-                    delta = reward + config["GAMMA"] * next_value * (1 - done) - value
+                    delta = reward + config.GAMMA * next_value * (1 - done) - value
                     gae = (
                         delta
-                        + config["GAMMA"] * config["GAE_LAMBDA"] * (1 - done) * gae
+                        + config.GAMMA * config.GAE_LAMBDA * (1 - done) * gae
                     )
                     return (gae, value), gae
 
@@ -228,7 +245,7 @@ def make_train(config):
                         # CALCULATE VALUE LOSS
                         value_pred_clipped = traj_batch.value + (
                             value - traj_batch.value
-                        ).clip(-config["CLIP_EPS"], config["CLIP_EPS"])
+                        ).clip(-config.CLIP_EPS, config.CLIP_EPS)
                         value_losses = jnp.square(value - targets)
                         value_losses_clipped = jnp.square(value_pred_clipped - targets)
                         value_loss = (
@@ -242,8 +259,8 @@ def make_train(config):
                         loss_actor2 = (
                             jnp.clip(
                                 ratio,
-                                1.0 - config["CLIP_EPS"],
-                                1.0 + config["CLIP_EPS"],
+                                1.0 - config.CLIP_EPS,
+                                1.0 + config.CLIP_EPS,
                             )
                             * gae
                         )
@@ -254,16 +271,18 @@ def make_train(config):
 
                         total_loss = (
                             loss_actor
-                            + config["VF_COEF"] * value_loss
-                            - config["ENT_COEF"] * entropy
+                            + config.VF_COEF * value_loss
+                            - config.ENT_COEF * entropy
                         )
-                        # jax.debug.print("value_loss {}", value_loss, ordered=True)
-                        # jax.debug.print("loss_actor {}", loss_actor, ordered=True)
-                        # jax.debug.print("entropy source {}", pi_source.entropy().mean(), ordered=True)
-                        # jax.debug.print("entropy path {}", pi_path.entropy().mean(), ordered=True)
-                        # jax.debug.print("entropy dest {}", pi_dest.entropy().mean(), ordered=True)
-                        # jax.debug.print("entropy {}", entropy, ordered=True)
-                        # jax.debug.print("total_loss {}", total_loss, ordered=True)
+                        if config.DEBUG:
+                            jax.debug.print("value_loss {}", value_loss, ordered=config.ORDERED)
+                            jax.debug.print("loss_actor {}", loss_actor, ordered=config.ORDERED)
+                            jax.debug.print("entropy source {}", pi_source.entropy().mean(), ordered=config.ORDERED)
+                            jax.debug.print("entropy path {}", pi_path.entropy().mean(), ordered=config.ORDERED)
+                            jax.debug.print("entropy dest {}", pi_dest.entropy().mean(), ordered=config.ORDERED)
+                            jax.debug.print("entropy {}", entropy, ordered=config.ORDERED)
+                            jax.debug.print("total_loss {}", total_loss, ordered=config.ORDERED)
+
                         return total_loss, (value_loss, loss_actor, entropy)
 
                     grad_fn = jax.value_and_grad(_loss_fn, has_aux=True)
@@ -275,9 +294,9 @@ def make_train(config):
 
                 train_state, traj_batch, advantages, targets, rng = update_state
                 rng, _rng = jax.random.split(rng)
-                batch_size = config["MINIBATCH_SIZE"] * config["NUM_MINIBATCHES"]
+                batch_size = MINIBATCH_SIZE * config.NUM_MINIBATCHES
                 assert (
-                    batch_size == config["NUM_STEPS"] * config["NUM_ENVS"]
+                    batch_size == config.NUM_STEPS * config.NUM_ENVS
                 ), "batch size must be equal to number of steps * number of envs"
                 permutation = jax.random.permutation(_rng, batch_size)
                 batch = (traj_batch, advantages, targets)
@@ -289,7 +308,7 @@ def make_train(config):
                 )
                 minibatches = jax.tree_util.tree_map(
                     lambda x: jnp.reshape(
-                        x, [config["NUM_MINIBATCHES"], -1] + list(x.shape[1:])
+                        x, [config.NUM_MINIBATCHES, -1] + list(x.shape[1:])
                     ),
                     shuffled_batch,
                 )
@@ -301,88 +320,23 @@ def make_train(config):
 
             update_state = (train_state, traj_batch, advantages, targets, rng)
             update_state, loss_info = jax.lax.scan(
-                _update_epoch, update_state, None, config["UPDATE_EPOCHS"]
+                _update_epoch, update_state, None, config.UPDATE_EPOCHS
             )
             train_state = update_state[0]
             metric = traj_batch.info
             rng = update_state[-1]
-            # jax.debug.print("metric {}", metric, ordered=True)
             runner_state = (train_state, env_state, last_obs, rng)
+
+            if config.DEBUG:
+                jax.debug.print("metric {}", metric, ordered=config.ORDERED)
+
             return runner_state, metric
 
         rng, _rng = jax.random.split(rng)
         runner_state = (train_state, env_state, obsv, _rng)
         runner_state, metric = jax.lax.scan(
-            _update_step, runner_state, None, config["NUM_UPDATES"]
+            _update_step, runner_state, None, NUM_UPDATES
         )
-        # jax.debug.print("metric {}", metric, ordered=True)
         return {"runner_state": runner_state, "metrics": metric}
 
     return train
-
-
-if __name__ == "__main__":
-
-    # TODO - Add absl flags
-    # TODO - Add wandb
-    # TODO - Options to save model (to wandb) and training data (to disk)
-
-    env_config = {
-        "load": 100,
-        "k": 2,
-        "topology_name": "4node",
-        "link_resources": 4,
-        "max_requests": 4,
-        "max_timesteps": 30,
-        "min_slots": 1,
-        "max_slots": 1,
-        "mean_service_holding_time": 10,
-        "node_resources": 4,
-        "virtual_topologies": ["3_ring"],
-        "min_node_resources": 1,
-        "max_node_resources": 1,
-    }
-    env_config = {
-        "load": 60,
-        "k": 5,
-        "topology_name": "conus",
-        "link_resources": 100,
-        "max_requests": 5e3,
-        "max_timesteps": 15e3,
-        "min_slots": 2,
-        "max_slots": 4,
-        "mean_service_holding_time": 10,
-        "node_resources": 30,
-        "virtual_topologies": ["3_ring"],
-        "min_node_resources": 1,
-        "max_node_resources": 2,
-    }
-    config = {
-        "LR": 1e-4,
-        "NUM_ENVS": 2000,
-        "NUM_STEPS": 150,
-        "TOTAL_TIMESTEPS": 3e4,
-        "UPDATE_EPOCHS": 10,
-        "NUM_MINIBATCHES": 1,
-        "GAMMA": 0.99,
-        "GAE_LAMBDA": 0.95,
-        "CLIP_EPS": 0.2,
-        "ENT_COEF": 0.01,
-        "VF_COEF": 0.5,
-        "MAX_GRAD_NORM": 0.5,
-        "ACTIVATION": "tanh",
-        "ANNEAL_LR": True,
-        "ENV_CONFIG": env_config
-    }
-    rng = jax.random.PRNGKey(42)
-    rng = jax.random.split(rng, jax.local_device_count())
-    with TimeIt(tag='COMPILATION'):
-        train_jit = jax.pmap(make_train(config), devices=jax.devices())
-    with TimeIt(tag='EXECUTION', frames=config["TOTAL_TIMESTEPS"]):
-        out = train_jit(rng)
-    jax.debug.print("config {}", config)
-    jax.debug.print("devices {}", jax.devices())
-    plt.plot(out["metrics"]["returned_episode_returns"].mean(-1).reshape(-1))
-    plt.xlabel("Update Step")
-    plt.ylabel("Return")
-    plt.show()
