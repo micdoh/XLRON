@@ -189,7 +189,10 @@ class RSAEnv(environment.Environment):
 
     def observation_space(self, params: RSAEnvParams):
         """Observation space of the environment."""
-        return spaces.Discrete(3 + params.num_nodes * params.link_resources)
+        return spaces.Discrete(
+            3 +  # Request array
+            params.num_links * params.link_resources  # Link slot array
+        )
 
     def state_space(self, params: RSAEnvParams):
         """State space of the environment."""
