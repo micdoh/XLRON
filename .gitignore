@@ -10,4 +10,5 @@ models/
 figures/
 jax/
 site/
+config/
 .coverage
