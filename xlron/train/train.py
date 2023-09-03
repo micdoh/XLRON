@@ -29,19 +29,20 @@ def main(argv):
 
     with TimeIt(tag='COMPILATION'):
         if FLAGS.USE_PMAP:
+            # TODO - Fix this to be like Anakin architecture (share gradients across devices)
             FLAGS.ORDERED = False
             rng = jax.random.split(rng, num_devices)
             train_jit = jax.pmap(make_train(FLAGS), devices=jax.devices()).lower(rng).compile()
         else:
             train_jit = jax.jit(make_train(FLAGS)).lower(rng).compile()
 
-    with TimeIt(tag='EXECUTION', frames=FLAGS.TOTAL_TIMESTEPS):
+    with TimeIt(tag='EXECUTION', frames=FLAGS.TOTAL_TIMESTEPS*num_devices):
         out = train_jit(rng)
 
     # Save model params
     if FLAGS.SAVE_MODEL:
-        state = out["runner_state"][0]
-        save_data = {"model": state, "config": FLAGS}
+        train_state = out["runner_state"][0]
+        save_data = {"model": train_state, "config": FLAGS}
         orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
         save_args = orbax_utils.save_args_from_target(save_data)
         orbax_checkpointer.save(FLAGS.MODEL_PATH, save_data, save_args=save_args)
