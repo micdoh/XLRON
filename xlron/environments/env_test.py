@@ -718,8 +718,8 @@ class ImplementRsaActionTest(parameterized.TestCase):
 
     @chex.all_variants()
     @parameterized.named_parameters(
-        ('case_base', jnp.array([0]), jnp.array([[0,0,0,0], [-1,0,0,0], [0,0,0,0], [0,0,0,0]])),
-        ('case_base_long_path', jnp.array([5]), jnp.array([[0,-1,0,0], [0,0,0,0], [0,-1,0,0], [0,-1,0,0]])),
+        ('case_base', jnp.array(0), jnp.array([[0,0,0,0], [-1,0,0,0], [0,0,0,0], [0,0,0,0]])),
+        ('case_base_long_path', jnp.array(5), jnp.array([[0,-1,0,0], [0,0,0,0], [0,-1,0,0], [0,-1,0,0]])),
     )
     def test_implement_rsa_action_slots(self, action, expected):
         updated_state = self.variant(implement_rsa_action, static_argnums=(2,))(self.state, action, self.params)
@@ -728,10 +728,10 @@ class ImplementRsaActionTest(parameterized.TestCase):
 
     @chex.all_variants()
     @parameterized.named_parameters(
-        ('case_base', jnp.array([0]), jnp.array(
+        ('case_base', jnp.array(0), jnp.array(
             [[jnp.inf, jnp.inf, jnp.inf, jnp.inf], [-2, jnp.inf, jnp.inf, jnp.inf],
              [jnp.inf, jnp.inf, jnp.inf, jnp.inf], [jnp.inf, jnp.inf, jnp.inf, jnp.inf]])),
-        ('case_base_long_path', jnp.array([5]), jnp.array(
+        ('case_base_long_path', jnp.array(5), jnp.array(
             [[jnp.inf, -2, jnp.inf, jnp.inf], [jnp.inf, jnp.inf, jnp.inf, jnp.inf],
              [jnp.inf, -2, jnp.inf, jnp.inf], [jnp.inf, -2, jnp.inf, jnp.inf]])),
 
@@ -936,8 +936,8 @@ class CheckRsaActionTest(parameterized.TestCase):
 
     @chex.all_variants()
     @parameterized.named_parameters(
-        ('case_pass', (jnp.array([0]), jnp.array([2])), jnp.array(False)),
-        ('case_fail', (jnp.array([0]), jnp.array([0])), jnp.array(True)),
+        ('case_pass', (jnp.array(0), jnp.array(2)), jnp.array(False)),
+        ('case_fail', (jnp.array(0), jnp.array(0)), jnp.array(True)),
     )
     def test_check_rsa_action(self, actions, expected):
         for action in actions:
@@ -983,7 +983,7 @@ class FinaliseRsaActionTest(parameterized.TestCase):
         super().setUp()
         self.key, self.env, self.obs, self.state, self.params = rsa_4node_test_setup()
         self.state = self.state.replace(current_time=1, holding_time=1)
-        self.state = implement_rsa_action(self.state, jnp.array([0]), self.params)
+        self.state = implement_rsa_action(self.state, jnp.array(0), self.params)
 
     @chex.all_variants()
     @parameterized.named_parameters(
@@ -1065,10 +1065,10 @@ class RsaStepTest(parameterized.TestCase):
 
     @chex.all_variants()
     @parameterized.named_parameters(
-        ("case_success", (jnp.array([0]),),
+        ("case_success", (jnp.array(0),),
          jnp.array([0.,  1.,  3., 0.,  0.,  0.,  0.,  -1.,  0.,  0.,  0., 0.,  0.,
                     0.,  0.,  0.,  0.,  0.,  0.])),
-        ("case_failure", (jnp.array([0]), jnp.array([0])),
+        ("case_failure", (jnp.array(0), jnp.array(0)),
          jnp.array([0., 1., 3., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
                     0., 0., 0., 0., 0., 0.]))
     )
