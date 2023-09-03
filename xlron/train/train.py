@@ -6,7 +6,7 @@ import orbax.checkpoint
 from flax.training import orbax_utils
 from absl import app, flags
 from xlron.environments.env_funcs import *
-from xlron.train.ppo_vone import make_train
+from xlron.train.ppo import make_train
 import xlron.train.parameter_flags
 
 
