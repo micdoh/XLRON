@@ -19,6 +19,9 @@ def main(argv):
     num_devices = FLAGS.NUM_DEVICES if FLAGS.NUM_DEVICES is not None else jax.local_device_count()
     os.environ['XLA_FLAGS'] = f"--xla_force_host_platform_device_count={num_devices}"
 
+    # Set the default device
+    jax.config.update("jax_default_device", FLAGS.DEFAULT_DEVICE)
+
     # Print every flag and its name
     if FLAGS.DEBUG:
         print('non-flag arguments:', argv)
