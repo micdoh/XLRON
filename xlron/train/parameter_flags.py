@@ -3,7 +3,7 @@ from absl import flags
 # N.B. Use can pass the flag --flagfile=PATH_TO_FLAGFILE to add flags without typing them out
 
 # Training hyperparameters
-flags.DEFINE_float("LR", 5e4, "Learning rate")
+flags.DEFINE_float("LR", 5e-4, "Learning rate")
 flags.DEFINE_integer("NUM_ENVS", 1, "Number of environments")
 flags.DEFINE_integer("NUM_STEPS", 150, "Number of steps per environment")
 flags.DEFINE_float("TOTAL_TIMESTEPS", 1e6, "Total number of timesteps")
