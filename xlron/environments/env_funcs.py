@@ -222,6 +222,7 @@ def init_virtual_topology_patterns(pattern_names):
     return jnp.array(patterns, dtype=jnp.int32)
 
 
+@partial(jax.jit, static_argnums=(1,))
 def init_traffic_matrix(key: chex.PRNGKey, params: EnvParams):
     traffic_matrix = jax.random.uniform(key, shape=(params.num_nodes, params.num_nodes))
     diag_elements = jnp.diag_indices_from(traffic_matrix)
@@ -248,16 +249,19 @@ def get_path_indices(s, d, k, N):
     return (N*s + d - jnp.sum(indices_to_s) - 2*s - 1) * k
 
 
+@partial(jax.jit, static_argnums=(0,))
 def init_node_capacity_array(params: EnvParams):
     """Initialize node array either with uniform resources"""
     return jnp.array([params.node_resources] * params.num_nodes)
 
 
+@partial(jax.jit, static_argnums=(0,))
 def init_link_slot_array(params: EnvParams):
     """Initialize link array either with uniform resources"""
     return jnp.zeros((params.num_links, params.link_resources))
 
 
+@partial(jax.jit, static_argnums=(0,))
 def init_vone_request_array(params: EnvParams):
     """Initialize request array either with uniform resources"""
     return jnp.zeros((2, params.max_edges*2+1, ))
@@ -268,11 +272,13 @@ def init_rsa_request_array():
     return jnp.zeros(3)
 
 
+@partial(jax.jit, static_argnums=(0,))
 def init_node_mask(params: EnvParams):
     """Initialize node mask"""
     return jnp.ones(params.num_nodes)
 
 
+@partial(jax.jit, static_argnums=(0,))
 def init_link_slot_mask(params: EnvParams):
     """Initialize link mask"""
     return jnp.ones(params.k_paths*params.link_resources)
@@ -284,7 +290,6 @@ def init_action_counter():
     return jnp.zeros(3, dtype=jnp.int32)
 
 
-@jax.jit
 def decrement_action_counter(state):
     """Decrement action counter in-place"""
     state.action_counter.at[-1].add(-1)
@@ -296,19 +301,23 @@ def decrease_last_element(array):
     return jnp.where(last_value_mask, array - 1, array)
 
 
+@partial(jax.jit, static_argnums=(0,))
 def init_node_departure_array(params: EnvParams):
     return jnp.full((params.num_nodes, params.node_resources), jnp.inf)
 
 
+@partial(jax.jit, static_argnums=(0,))
 def init_link_slot_departure_array(params: EnvParams):
     return jnp.full((params.num_links, params.link_resources), jnp.inf)
 
 
+@partial(jax.jit, static_argnums=(0,))
 def init_node_resource_array(params: EnvParams):
     """Array to track node resources occupied by virtual nodes"""
     return jnp.zeros((params.num_nodes, params.node_resources))
 
 
+@partial(jax.jit, static_argnums=(0,))
 def init_action_history(params: EnvParams):
     """Initialize action history"""
     return jnp.full(params.max_edges*2+1, -1)
@@ -320,6 +329,7 @@ def normalise_traffic_matrix(traffic_matrix):
     return traffic_matrix
 
 
+@partial(jax.jit, static_argnums=(2,))
 def generate_vone_request(key: chex.PRNGKey, state: EnvState, params: EnvParams):
     """Generate a new request for the VONE environment.
     The request has two rows. The first row shows the node and slot values. The second row shows the virtual topology.
@@ -356,6 +366,7 @@ def generate_vone_request(key: chex.PRNGKey, state: EnvState, params: EnvParams)
     return state
 
 
+@partial(jax.jit, static_argnums=(2,))
 def generate_rsa_request(key: chex.PRNGKey, state: EnvState, params: EnvParams) -> EnvState:
     # TODO - update this to be bitrate requests rather than slots
     # Flatten the probabilities to a 1D array
@@ -390,6 +401,7 @@ def get_paths(params, nodes):
     return jnp.take(params.path_link_array.val, index_array, axis=0)
 
 
+@partial(jax.jit, static_argnums=(1,))
 def generate_arrival_holding_times(key, params):
     """
     To understand how sampling from e^-x can be transformed to sample from lambda*e^-(x/lambda) see:
@@ -485,7 +497,7 @@ def remove_expired_slot_requests(state: EnvState) -> EnvState:
     return state
 
 
-def remove_expired_node_requests(state):
+def remove_expired_node_requests(state: EnvState) -> EnvState:
     mask = jnp.where(state.node_departure_array < jnp.squeeze(state.current_time), 1, 0)
     expired_resources = jnp.sum(jnp.where(mask == 1, state.node_resource_array, 0), axis=1)
     state = state.replace(
@@ -972,6 +984,7 @@ def mask_nodes(state: EnvState, num_nodes: chex.Scalar) -> EnvState:
     return state
 
 
+@partial(jax.jit, static_argnums=(1, 2, 3))
 def poisson(key: Union[Array, prng.PRNGKeyArray],
             lam: ArrayLike,
             shape: Shape = (),
@@ -1011,6 +1024,3 @@ def _poisson(key, lam, shape, dtype) -> Array:
     u = jax.random.uniform(key, shape, dtype)
     # taking 1 - u to move the domain of log to (0, 1] instead of [0, 1)
     return jax.lax.div(jax.lax.neg(jax.lax.log1p(jax.lax.neg(u))), lam)
-
-if __name__ == "__main__":
-    make_graph("conus")
