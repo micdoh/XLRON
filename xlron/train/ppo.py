@@ -7,7 +7,7 @@ import distrax
 from flax.linen.initializers import constant, orthogonal
 from typing import Sequence, NamedTuple, Any
 from flax.training.train_state import TrainState
-from gymnax.wrappers.purerl import LogWrapper, FlattenObservationWrapper
+from gymnax.wrappers.purerl import LogWrapper
 from xlron.environments.env_funcs import *
 from xlron.environments.vone import make_vone_env
 from xlron.environments.rsa import make_rsa_env
@@ -179,6 +179,8 @@ def make_train(config):
                     log_prob = log_prob_dest + log_prob_path + log_prob_source
 
                 elif config.env_type.lower() == "rsa":
+                    vmap_mask_slots = jax.vmap(env.action_mask, in_axes=(0, None))
+                    env_state = env_state.replace(env_state=vmap_mask_slots(env_state.env_state, env_params))
                     pi = distrax.Categorical(logits=jnp.where(env_state.env_state.link_slot_mask, pi[0]._logits, -1e8))
                     action = pi.sample(seed=rng[1])
                     log_prob = pi.log_prob(action)
