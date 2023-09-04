@@ -4,7 +4,6 @@ __pycache__
 __pycache__/
 runs/
 .vscode/
-eval/
 wandb/
 models/
 figures/

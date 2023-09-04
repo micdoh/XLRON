@@ -114,7 +114,6 @@ class RSAEnv(environment.Environment):
         )
         # Generate new request
         state = generate_rsa_request(key, state, params)
-        state = self.action_mask(state, params)
         state = state.replace(total_timesteps=state.total_timesteps + 1)
         done = self.is_terminal(state, params)
         info = {}
