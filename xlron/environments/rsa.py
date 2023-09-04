@@ -126,6 +126,7 @@ class RSAEnv(environment.Environment):
     ) -> Tuple[chex.Array, RSAEnvState]:
         """Environment-specific reset."""
         state = self.initial_state
+        # TODO - Experiment with initialising a new traffic matrix at each reset
         state = generate_rsa_request(key, state, params)
         return self.get_obs(state), state
 

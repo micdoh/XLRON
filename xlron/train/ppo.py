@@ -205,6 +205,7 @@ def make_train(config):
                 if config.DEBUG:
                     jax.debug.print("log_prob {}", log_prob, ordered=config.ORDERED)
                     jax.debug.print("link_slot_array {}", env_state.env_state.link_slot_array, ordered=config.ORDERED)
+                    jax.debug.print("link_slot_mask {}", env_state.env_state.link_slot_mask, ordered=config.ORDERED)
                     jax.debug.print("action {}", action, ordered=config.ORDERED)
                     jax.debug.print("reward {}", reward, ordered=config.ORDERED)
 
