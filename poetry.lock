@@ -938,6 +938,52 @@ url = "https://pypi.org/simple"
 reference = "pypi-public"
 
 [[package]]
+name = "dm-env"
+version = "1.6"
+description = "A Python interface for Reinforcement Learning environments."
+optional = false
+python-versions = ">=3.7"
+files = [
+    {file = "dm-env-1.6.tar.gz", hash = "sha256:a436eb1c654c39e0c986a516cee218bea7140b510fceff63f97eb4fcff3d93de"},
+    {file = "dm_env-1.6-py3-none-any.whl", hash = "sha256:0eabb6759dd453b625e041032f7ae0c1e87d4eb61b6a96b9ca586483837abf29"},
+]
+
+[package.dependencies]
+absl-py = "*"
+dm-tree = "*"
+numpy = "*"
+
+[package.source]
+type = "legacy"
+url = "https://pypi.org/simple"
+reference = "pypi-public"
+
+[[package]]
+name = "dm-haiku"
+version = "0.0.10"
+description = "Haiku is a library for building neural networks in JAX."
+optional = false
+python-versions = "*"
+files = [
+    {file = "dm-haiku-0.0.10.tar.gz", hash = "sha256:ca85e0a5eaafb2eb9111b954e56eff1595e55511482434a4d41e7969a0f31a20"},
+    {file = "dm_haiku-0.0.10-py3-none-any.whl", hash = "sha256:309eba85030c24a513e72b5711c31870619b48028dcb69ace99fe06a60d90668"},
+]
+
+[package.dependencies]
+absl-py = ">=0.7.1"
+jmp = ">=0.0.2"
+numpy = ">=1.18.0"
+tabulate = ">=0.8.9"
+
+[package.extras]
+jax = ["jax (>=0.4.13)", "jaxlib (>=0.4.13)"]
+
+[package.source]
+type = "legacy"
+url = "https://pypi.org/simple"
+reference = "pypi-public"
+
+[[package]]
 name = "dm-tree"
 version = "0.1.8"
 description = "Tree is a library for working with nested data structures."
@@ -1719,6 +1765,28 @@ MarkupSafe = ">=2.0"
 
 [package.extras]
 i18n = ["Babel (>=2.7)"]
+
+[package.source]
+type = "legacy"
+url = "https://pypi.org/simple"
+reference = "pypi-public"
+
+[[package]]
+name = "jmp"
+version = "0.0.4"
+description = "JMP is a Mixed Precision library for JAX."
+optional = false
+python-versions = "*"
+files = [
+    {file = "jmp-0.0.4-py3-none-any.whl", hash = "sha256:6aa7adbddf2bd574b28c7faf6e81a735eb11f53386447896909c6968dc36807d"},
+    {file = "jmp-0.0.4.tar.gz", hash = "sha256:5dfeb0fd7c7a9f72a70fff0aab9d0cbfae32a809c02f4037ff3485ceb33e1730"},
+]
+
+[package.dependencies]
+numpy = ">=1.19.5"
+
+[package.extras]
+jax = ["jax (>=0.2.20)", "jaxlib (>=0.1.71)"]
 
 [package.source]
 type = "legacy"
@@ -4556,6 +4624,31 @@ url = "https://pypi.org/simple"
 reference = "pypi-public"
 
 [[package]]
+name = "rlax"
+version = "0.1.6"
+description = "A library of reinforcement learning building blocks in JAX."
+optional = false
+python-versions = ">=3.9"
+files = [
+    {file = "rlax-0.1.6-py3-none-any.whl", hash = "sha256:a22fd6bcdd5d2fff17850817dac6fbbaaa0d687aec5ea68e9277a172705c91bc"},
+    {file = "rlax-0.1.6.tar.gz", hash = "sha256:0b79c53afff3c6f028cfa599d110197dfcc46f1231fd7ac669b3b840fc6b8a4f"},
+]
+
+[package.dependencies]
+absl-py = ">=0.9.0"
+chex = ">=0.0.8"
+distrax = ">=0.0.2"
+dm-env = "*"
+jax = ">=0.3.0"
+jaxlib = ">=0.1.37"
+numpy = ">=1.18.0"
+
+[package.source]
+type = "legacy"
+url = "https://pypi.org/simple"
+reference = "pypi-public"
+
+[[package]]
 name = "rpds-py"
 version = "0.10.0"
 description = "Python bindings to Rust's persistent data structures (rpds)"
@@ -5085,6 +5178,25 @@ url = "https://pypi.org/simple"
 reference = "pypi-public"
 
 [[package]]
+name = "tabulate"
+version = "0.9.0"
+description = "Pretty-print tabular data"
+optional = false
+python-versions = ">=3.7"
+files = [
+    {file = "tabulate-0.9.0-py3-none-any.whl", hash = "sha256:024ca478df22e9340661486f85298cff5f6dcdba14f3813e8830015b9ed1948f"},
+    {file = "tabulate-0.9.0.tar.gz", hash = "sha256:0095b12bf5966de529c0feb1fa08671671b3368eec77d7ef7ab114be2c068b3c"},
+]
+
+[package.extras]
+widechars = ["wcwidth"]
+
+[package.source]
+type = "legacy"
+url = "https://pypi.org/simple"
+reference = "pypi-public"
+
+[[package]]
 name = "tensorflow-probability"
 version = "0.21.0"
 description = "Probabilistic modeling and statistical inference in TensorFlow"
@@ -5590,4 +5702,4 @@ cuda = []
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.9,<3.12"
-content-hash = "fe771e6084873a88e690ed69c487174c115d133e8a60b3a006dfef51ca63ee75"
+content-hash = "4992b692df69d282ac0e1ae321adf1344c4610249c3b9852e2501c9b79b9118b"
