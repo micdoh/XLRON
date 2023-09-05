@@ -205,6 +205,11 @@ class RSAEnv(environment.Environment):
             }
         )
 
+    @property
+    def default_params(self) -> EnvParams:
+        """Default environment parameters."""
+        return make_rsa_env()[1]
+
 
 def make_rsa_env(
         k: int = 5,

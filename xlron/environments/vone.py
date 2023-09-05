@@ -49,6 +49,7 @@ class VONEEnvParams(EnvParams):
     min_node_resources: chex.Scalar = struct.field(pytree_node=False)
     max_node_resources: chex.Scalar = struct.field(pytree_node=False)
     path_link_array: chex.Array = struct.field(pytree_node=False)
+    # TODO - Add Laplacian matrix (for node heuristics and might be useful for GNNs)
 
 
 class VONEEnv(environment.Environment):
@@ -270,6 +271,11 @@ class VONEEnv(environment.Environment):
                 "link_slot_departure_array": spaces.Discrete(params.num_links * params.link_resources),
             }
         )
+
+    @property
+    def default_params(self) -> EnvParams:
+        """Default environment parameters."""
+        return make_vone_env()[1]
 
 
 def make_vone_env(
