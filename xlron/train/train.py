@@ -21,7 +21,8 @@ def main(argv):
     os.environ['XLA_FLAGS'] = f"--xla_force_host_platform_device_count={num_devices}"
 
     # Set the default device
-    jax.config.update("jax_default_device", jax.devices()[FLAGS.DEFAULT_DEVICE])
+    print(jax.devices())
+    jax.default_device = jax.devices()[FLAGS.DEFAULT_DEVICE]
 
     # Print every flag and its name
     if FLAGS.DEBUG:
