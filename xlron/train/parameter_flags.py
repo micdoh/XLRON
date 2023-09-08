@@ -20,7 +20,7 @@ flags.DEFINE_boolean("ANNEAL_LR", True, "Anneal learning rate")
 flags.DEFINE_integer("SEED", 42, "Random seed")
 flags.DEFINE_integer("NUM_SEEDS", 1, "Number of seeds")
 # Additional training parameters
-flags.DEFINE_integer("DEFAULT_DEVICE", 0, "Default device index")
+flags.DEFINE_integer("DEFAULT_DEVICE", None, "Default device index")
 flags.DEFINE_boolean("USE_PMAP", False, "Use pmap")
 flags.DEFINE_boolean("WANDB", False, "Use wandb")
 flags.DEFINE_boolean("SAVE_MODEL", False, "Save model")
