@@ -218,7 +218,7 @@ def make_rsa_env(
         mean_service_holding_time: float = 10.0,
         link_resources: int = 100,
         max_requests: int = 1e4,
-        max_timesteps: int = 3e4,
+        max_timesteps: int = 1e4,
         min_slots: int = 1,
         max_slots: int = 2,
         seed: int = 0,

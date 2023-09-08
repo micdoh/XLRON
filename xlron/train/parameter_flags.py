@@ -18,6 +18,7 @@ flags.DEFINE_float("MAX_GRAD_NORM", 0.5, "Maximum gradient norm")
 flags.DEFINE_string("ACTIVATION", "tanh", "Activation function")
 flags.DEFINE_boolean("ANNEAL_LR", True, "Anneal learning rate")
 flags.DEFINE_integer("SEED", 42, "Random seed")
+flags.DEFINE_integer("NUM_SEEDS", 1, "Number of seeds")
 # Additional training parameters
 flags.DEFINE_integer("DEFAULT_DEVICE", 0, "Default device index")
 flags.DEFINE_boolean("USE_PMAP", False, "Use pmap")
