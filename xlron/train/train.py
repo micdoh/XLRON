@@ -70,11 +70,10 @@ def main(argv):
         plt.plot(out["metrics"]["returned_episode_returns"].mean(-1).reshape(-1))
     plt.xlabel("Update Step")
     plt.ylabel("Return")
-    plt.savefig("ppo.png")
+    plt.savefig(f"{FLAGS.EXPERIMENT_NAME}.png")
     plt.show()
 
     print(out["metrics"]["returned_episode_returns"].mean(-1).reshape(-1))
-
 
 
 if __name__ == "__main__":
