@@ -29,6 +29,7 @@ flags.DEFINE_boolean("DEBUG", False, "Debug mode")
 flags.DEFINE_boolean("ORDERED", True, "Order print statements when debugging "
                                       "(must be false if using pmap)")
 flags.DEFINE_string("MODEL_PATH", ".", "Path to save/load model")
+flags.DEFINE_string("EXPERIMENT_NAME", "experiment", "Name of experiment")
 # Environment parameters
 flags.DEFINE_string("env_type", "vone", "Environment type")
 flags.DEFINE_integer("load", 100, "Load")
