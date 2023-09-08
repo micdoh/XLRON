@@ -15,6 +15,7 @@ FLAGS = flags.FLAGS
 
 def main(argv):
     # TODO - Add wandb
+    # TODO - For wandb, can run multiple seeds in parallel and log to same run (take mean/std of returns)
     # Set the number of (emulated) host devices
     num_devices = FLAGS.NUM_DEVICES if FLAGS.NUM_DEVICES is not None else jax.local_device_count()
     os.environ['XLA_FLAGS'] = f"--xla_force_host_platform_device_count={num_devices}"
@@ -34,13 +35,21 @@ def main(argv):
         if FLAGS.USE_PMAP:
             # TODO - Fix this to be like Anakin architecture (share gradients across devices)
             FLAGS.ORDERED = False
-            rng = jax.random.split(rng, num_devices)
-            train_jit = jax.pmap(make_train(FLAGS), devices=jax.devices()).lower(rng).compile()
+            rng = jax.random.split(rng, num_devices*FLAGS.NUM_SEEDS)
+            if FLAGS.NUM_SEEDS > 1:
+                train_jit = jax.pmap(jax.vmap(make_train(FLAGS)), devices=jax.devices()).lower(rng).compile()
+            else:
+                train_jit = jax.pmap(make_train(FLAGS), devices=jax.devices()).lower(rng).compile()
         else:
-            train_jit = jax.jit(make_train(FLAGS)).lower(rng).compile()
+            if FLAGS.NUM_SEEDS > 1:
+                rng = jax.random.split(rng, FLAGS.NUM_SEEDS)
+                train_jit = jax.jit(jax.vmap(make_train(FLAGS))).lower(rng).compile()
+            else:
+                train_jit = jax.jit(make_train(FLAGS)).lower(rng).compile()
 
-    with TimeIt(tag='EXECUTION', frames=FLAGS.TOTAL_TIMESTEPS*num_devices):
+    with TimeIt(tag='EXECUTION', frames=FLAGS.TOTAL_TIMESTEPS * num_devices * FLAGS.NUM_SEEDS):
         out = train_jit(rng)
+        out["metrics"]["returned_episode_returns"].block_until_ready()  # Wait for all devices to finish
 
     # Save model params
     if FLAGS.SAVE_MODEL:
@@ -50,10 +59,19 @@ def main(argv):
         save_args = orbax_utils.save_args_from_target(save_data)
         orbax_checkpointer.save(FLAGS.MODEL_PATH, save_data, save_args=save_args)
 
-    plt.plot(out["metrics"]["returned_episode_returns"].mean(-1).reshape(-1))
+    # TODO - Remve the initial 0s from the returns
+    if FLAGS.NUM_SEEDS > 1:
+        for i in range(FLAGS.NUM_SEEDS):
+            plt.plot(out["metrics"]["returned_episode_returns"][i].mean(-1).reshape(-1))
+    else:
+        plt.plot(out["metrics"]["returned_episode_returns"].mean(-1).reshape(-1))
     plt.xlabel("Update Step")
     plt.ylabel("Return")
+    #plt.savefig("ppo.png")
     plt.show()
+
+    print(out["metrics"]["returned_episode_returns"].mean(-1).reshape(-1))
+
 
 
 if __name__ == "__main__":
