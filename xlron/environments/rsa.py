@@ -115,7 +115,14 @@ class RSAEnv(environment.Environment):
         # Generate new request
         state = generate_rsa_request(key, state, params)
         state = state.replace(total_timesteps=state.total_timesteps + 1)
-        done = self.is_terminal(state, params)
+        # Terminate if max_timesteps or max_requests exceeded or, if consecutive loading,
+        # then terminate if reward is failure but not before min number of timesteps before update
+        done = self.is_terminal(state, params) \
+            if not params.consecutive_loading else (
+            jnp.logical_and(
+                jnp.array(reward == self.get_reward_failure()),
+                jnp.array(state.total_timesteps >= params.num_steps_per_update),
+            ))
         info = {}
         return self.get_obs(state), state, reward, done, info
 
@@ -222,13 +229,34 @@ def make_rsa_env(
         min_slots: int = 1,
         max_slots: int = 2,
         seed: int = 0,
+        consecutive_loading: bool = False,
+        num_steps_per_update: int = 0,
 ):
+    """Create RSA environment.
+    Args:
+        k: number of paths to consider
+        load: load in Erlangs
+        topology_name: name of topology to use
+        mean_service_holding_time: mean service holding time
+        link_resources: number of resources per link
+        max_requests: maximum number of requests
+        min_slots: minimum number of slots per link
+        max_slots: maximum number of slots per link
+        consecutive_loading: whether to use consecutive loading
+        num_steps_per_update: number of steps per update (used for termination condition in consecutive loading)
+    Returns:
+        env: RSA environment
+        params: RSA environment parameters
+    """
     rng = jax.random.PRNGKey(seed)
     rng, _, _, _, _ = jax.random.split(rng, 5)
     graph = make_graph(topology_name)
     arrival_rate = load / mean_service_holding_time
     num_nodes = len(graph.nodes)
     num_links = len(graph.edges)
+
+    if consecutive_loading:
+        mean_service_holding_time = load = 1e6
 
     params = RSAEnvParams(
         max_requests=max_requests,
@@ -243,6 +271,8 @@ def make_rsa_env(
         min_slots=min_slots,
         max_slots=max_slots,
         path_link_array=HashableArrayWrapper(init_path_link_array(graph, k)),
+        consecutive_loading=consecutive_loading,
+        num_steps_per_update=num_steps_per_update,
     )
 
     env = RSAEnv(rng, params)

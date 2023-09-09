@@ -161,7 +161,14 @@ class VONEEnv(environment.Environment):
             lambda x: x[1],
             (key, state, params)
         )
-        done = self.is_terminal(state, params)
+        # Terminate if max_timesteps or max_requests exceeded or, if consecutive loading,
+        # then terminate if reward is failure but not before min number of timesteps before update
+        done = self.is_terminal(state, params) \
+            if not params.consecutive_loading else (
+            jnp.logical_and(
+                jnp.array(reward == self.get_reward_failure()),
+                jnp.array(state.total_timesteps >= params.num_steps_per_update),
+            ))
         info = {}
         return self.get_obs(state), state, reward, done, info
 
@@ -292,6 +299,8 @@ def make_vone_env(
         max_slots: int = 2,
         min_node_resources: int = 1,
         max_node_resources: int = 2,
+        consecutive_loading: bool = False,
+        num_steps_per_update: int = 0,
 ):
     """Create VONE environment.
     Args:
@@ -307,6 +316,8 @@ def make_vone_env(
         max_slots: maximum number of slots per link
         min_node_resources: minimum number of resources per node
         max_node_resources: maximum number of resources per node
+        consecutive_loading: whether to use consecutive loading
+        num_steps_per_update: number of steps per update (used for termination condition in consecutive loading)
     Returns:
         env: VONE environment
         params: VONE environment parameters
@@ -321,6 +332,9 @@ def make_vone_env(
     for topology in virtual_topologies:
         num, shape = topology.split("_")
         max_edges = max(max_edges, int(num) - (0 if shape == "ring" else 1))
+
+    if consecutive_loading:
+        mean_service_holding_time = load = 1e6
 
     params = VONEEnvParams(
         max_requests=max_requests,
@@ -339,6 +353,8 @@ def make_vone_env(
         min_node_resources=min_node_resources,
         max_node_resources=max_node_resources,
         path_link_array=HashableArrayWrapper(init_path_link_array(graph, k)),
+        consecutive_loading=consecutive_loading,
+        num_steps_per_update=num_steps_per_update,
     )
 
     env = VONEEnv(params, virtual_topologies=virtual_topologies)

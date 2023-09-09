@@ -97,6 +97,8 @@ def make_train(config):
         "max_timesteps": config.max_timesteps,
         "min_slots": config.min_slots,
         "max_slots": config.max_slots,
+        "consecutive_loading": config.consecutive_loading,
+        "num_steps_per_update": config.NUM_STEPS,
     }
     if config.env_type.lower() == "vone":
         env_params["virtual_topologies"] = config.virtual_topologies

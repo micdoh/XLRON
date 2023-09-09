@@ -60,6 +60,8 @@ class EnvState:
 class EnvParams:
     max_requests: chex.Scalar = struct.field(pytree_node=False)
     max_timesteps: chex.Scalar = struct.field(pytree_node=False)
+    consecutive_loading: chex.Scalar = struct.field(pytree_node=False)
+    num_steps_per_update: chex.Scalar = struct.field(pytree_node=False)
 
 
 class RolloutWrapper(object):
@@ -179,7 +181,7 @@ def init_path_link_array(graph, k):
         )
 
     paths = []
-    edges = graph.edges
+    edges = sorted(graph.edges)
     for node_pair in combinations(graph.nodes, 2):
         k_paths = get_k_shortest_paths(
             graph, node_pair[0], node_pair[1], k
@@ -252,7 +254,7 @@ def get_path_indices(s, d, k, N):
 @partial(jax.jit, static_argnums=(0,))
 def init_node_capacity_array(params: EnvParams):
     """Initialize node array either with uniform resources"""
-    return jnp.array([params.node_resources] * params.num_nodes)
+    return jnp.array([params.node_resources] * params.num_nodes, dtype=jnp.float32)
 
 
 @partial(jax.jit, static_argnums=(0,))
@@ -314,7 +316,7 @@ def init_link_slot_departure_array(params: EnvParams):
 @partial(jax.jit, static_argnums=(0,))
 def init_node_resource_array(params: EnvParams):
     """Array to track node resources occupied by virtual nodes"""
-    return jnp.zeros((params.num_nodes, params.node_resources))
+    return jnp.zeros((params.num_nodes, params.node_resources), dtype=jnp.float32)
 
 
 @partial(jax.jit, static_argnums=(0,))
@@ -361,8 +363,8 @@ def generate_vone_request(key: chex.PRNGKey, state: EnvState, params: EnvParams)
         action_history=init_action_history(params),
         total_requests=state.total_requests + 1
     )
-    state = remove_expired_node_requests(state)
-    state = remove_expired_slot_requests(state)
+    state = remove_expired_node_requests(state) if params.consecutive_loading else state
+    state = remove_expired_slot_requests(state) if params.consecutive_loading else state
     return state
 
 
@@ -387,7 +389,7 @@ def generate_rsa_request(key: chex.PRNGKey, state: EnvState, params: EnvParams) 
         request_array=jnp.stack((source, slots, dest)),
         total_requests=state.total_requests + 1
     )
-    state = remove_expired_slot_requests(state)
+    state = remove_expired_slot_requests(state) if params.consecutive_loading else state
     return state
 
 
@@ -621,9 +623,11 @@ def implement_node_action(state: EnvState, s_node: chex.Array, d_node: chex.Arra
     node_indices = jnp.arange(state.node_capacity_array.shape[0])
 
     curr_selected_nodes = jnp.zeros(state.node_capacity_array.shape[0])
-    curr_selected_nodes = update_node_array(node_indices, curr_selected_nodes, d_node, -d_request)  # -ve so that selected node is +ve (so that argmin works correctly for node resource array update)
+    # d_request -ve so that selected node is +ve (so that argmin works correctly for node resource array update)
+    curr_selected_nodes = update_node_array(node_indices, curr_selected_nodes, d_node, -d_request)
     curr_selected_nodes = jax.lax.cond(n == 2, lambda x: update_node_array(*x), lambda x: x[1], (node_indices, curr_selected_nodes, s_node, -s_request))
     # TODO - experiment with jax.lax.fori_loop here to replace cond
+    # e.g. curr_selected_nodes = jax.lax.scan(lambda c, x: update_node_array(*x), jnp.concatenate(...requests...), (node_indices, curr_selected_nodes, s_node, -s_request))
 
     node_capacity_array = state.node_capacity_array - curr_selected_nodes
 

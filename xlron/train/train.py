@@ -14,11 +14,9 @@ FLAGS = flags.FLAGS
 
 
 def main(argv):
-    # TODO - Add wandb
-    # TODO - For wandb, can run multiple seeds in parallel and log to same run (take mean/std of returns)
-    # Set the number of (emulated) host devices
+
+    # Set the number of host devices
     num_devices = FLAGS.NUM_DEVICES if FLAGS.NUM_DEVICES is not None else jax.local_device_count()
-    os.environ['XLA_FLAGS'] = f"--xla_force_host_platform_device_count={num_devices}"
 
     # Set the default device
     print(f"Available devices: {jax.devices()}")
@@ -32,11 +30,17 @@ def main(argv):
     for name in FLAGS:
         print(name, FLAGS[name].value)
 
+    # Check that downsample factor is a factor of no. of update steps
+    NUM_UPDATES = FLAGS.TOTAL_TIMESTEPS // FLAGS.NUM_STEPS // FLAGS.NUM_ENVS
+    if NUM_UPDATES % FLAGS.DOWNSAMPLE_FACTOR != 0:
+        raise ValueError("Downsample factor must be a factor of total_timesteps * NUM_SEEDS")
+
     rng = jax.random.PRNGKey(FLAGS.SEED)
 
     with TimeIt(tag='COMPILATION'):
         if FLAGS.USE_PMAP:
             # TODO - Fix this to be like Anakin architecture (share gradients across devices)
+            # TODO - Retrieve the output using pmean/sum etc.
             FLAGS.ORDERED = False
             rng = jax.random.split(rng, num_devices*FLAGS.NUM_SEEDS)
             if FLAGS.NUM_SEEDS > 1:
@@ -50,6 +54,8 @@ def main(argv):
             else:
                 train_jit = jax.jit(make_train(FLAGS)).lower(rng).compile()
 
+    # N.B. that increasing number of seeds or devices will increase the number of steps
+    # (essentially training separately per device/seed)
     with TimeIt(tag='EXECUTION', frames=FLAGS.TOTAL_TIMESTEPS * num_devices * FLAGS.NUM_SEEDS):
         out = train_jit(rng)
         out["metrics"]["returned_episode_returns"].block_until_ready()  # Wait for all devices to finish
@@ -62,18 +68,70 @@ def main(argv):
         save_args = orbax_utils.save_args_from_target(save_data)
         orbax_checkpointer.save(FLAGS.MODEL_PATH, save_data, save_args=save_args)
 
-    # TODO - Remve the initial 0s from the returns
+    # Summarise the returns
     if FLAGS.NUM_SEEDS > 1:
-        for i in range(FLAGS.NUM_SEEDS):
-            plt.plot(out["metrics"]["returned_episode_returns"][i].mean(-1).reshape(-1))
+        # Take mean on env dimension (-1) then seed dimension (0)
+        # For ref, dimension order is (num_seeds, num_updates, num_steps, num_envs)
+        returned_episode_returns_mean = out["metrics"]["returned_episode_returns"].mean(-1).mean(0).reshape(-1)
+        returned_episode_returns_std = out["metrics"]["returned_episode_returns"].mean(-1).std(0).reshape(-1)
+        returned_episode_lengths_mean = out["metrics"]["returned_episode_lengths"].mean(-1).mean(0).reshape(-1)
+        returned_episode_lengths_std = out["metrics"]["returned_episode_lengths"].mean(-1).std(-1).reshape(-1)
     else:
-        plt.plot(out["metrics"]["returned_episode_returns"].mean(-1).reshape(-1))
+        # N.B. This is the same as the above code, but without the mean on the seed dimension
+        # This means the results are still per update step
+        returned_episode_returns_mean = out["metrics"]["returned_episode_returns"].mean(-1).reshape(-1)
+        returned_episode_returns_std = out["metrics"]["returned_episode_returns"].std(-1).reshape(-1)
+        returned_episode_lengths_mean = out["metrics"]["returned_episode_lengths"].mean(-1).reshape(-1)
+        returned_episode_lengths_std = out["metrics"]["returned_episode_lengths"].std(-1).reshape(-1)
+
+    # Remove initial zeros before an episode is returned
+    if not FLAGS.consecutive_loading:
+        mask = jnp.array(returned_episode_lengths_mean) > 0
+        returned_episode_returns_mean = returned_episode_returns_mean[mask]
+        returned_episode_returns_std = returned_episode_returns_std[mask]
+
+    plt.plot(returned_episode_returns_mean)
+    plt.fill_between(
+        range(len(returned_episode_returns_mean)),
+        returned_episode_returns_mean - returned_episode_returns_std,
+        returned_episode_returns_mean + returned_episode_returns_std,
+        alpha=0.2
+    )
     plt.xlabel("Update Step")
     plt.ylabel("Return")
     plt.savefig(f"{FLAGS.EXPERIMENT_NAME}.png")
     plt.show()
 
-    print(out["metrics"]["returned_episode_returns"].mean(-1).reshape(-1))
+    if FLAGS.WANDB:
+        wandb.setup(wandb.Settings(program="train.py", program_relpath="train.py"))
+        run = wandb.init(
+            project=FLAGS.PROJECT,
+            save_code=True,  # optional
+        )
+        wandb.config.update(FLAGS)
+        run.name = FLAGS.EXPERIMENT_NAME if FLAGS.EXPERIMENT_NAME else run.id
+
+        wandb.define_metric("update_step")
+        wandb.define_metric("returned_episode_returns_mean", step_metric="update_step", summary="max")
+        wandb.define_metric("returned_episode_returns_std", step_metric="update_step")
+        wandb.define_metric("returned_episode_lengths_mean", step_metric="update_step")
+        wandb.define_metric("returned_episode_lengths_std", step_metric="update_step")
+
+        # Define the downsample factor to speed up upload to wandb
+        # Then reshape the array and compute the mean
+        returned_episode_returns_mean = returned_episode_returns_mean.reshape(-1, FLAGS.DOWNSAMPLE_FACTOR).mean(axis=1)
+        returned_episode_returns_std = returned_episode_returns_std.reshape(-1, FLAGS.DOWNSAMPLE_FACTOR).mean(axis=1)
+        returned_episode_lengths_mean = returned_episode_lengths_mean.reshape(-1, FLAGS.DOWNSAMPLE_FACTOR).mean(axis=1)
+        returned_episode_lengths_std = returned_episode_lengths_std.reshape(-1, FLAGS.DOWNSAMPLE_FACTOR).mean(axis=1)
+
+        for i in range(len(returned_episode_returns_mean)):
+            # Log the data
+            log_dict = {"update_step": i*FLAGS.DOWNSAMPLE_FACTOR,
+                        "returned_episode_returns_mean": returned_episode_returns_mean[i],
+                        "returned_episode_returns_std": returned_episode_returns_std[i],
+                        "returned_episode_lengths_mean": returned_episode_lengths_mean[i],
+                        "returned_episode_lengths_std": returned_episode_lengths_std[i]}
+            wandb.log(log_dict)
 
 
 if __name__ == "__main__":
