@@ -19,6 +19,8 @@ flags.DEFINE_string("ACTIVATION", "tanh", "Activation function")
 flags.DEFINE_boolean("ANNEAL_LR", True, "Anneal learning rate")
 flags.DEFINE_integer("SEED", 42, "Random seed")
 flags.DEFINE_integer("NUM_SEEDS", 1, "Number of seeds")
+flags.DEFINE_integer("NUM_LAYERS", 2, "Number of layers in actor and critic networks")
+flags.DEFINE_integer("NUM_UNITS", 64, "Number of hidden units in actor and critic networks")
 # Additional training parameters
 flags.DEFINE_integer("DEFAULT_DEVICE", None, "Default device index")
 flags.DEFINE_boolean("USE_PMAP", False, "Use pmap")

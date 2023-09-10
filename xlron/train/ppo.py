@@ -17,6 +17,8 @@ from xlron.environments.rsa import make_rsa_env
 class ActorCritic(nn.Module):
     action_dim: Sequence[int]
     activation: str = "tanh"
+    num_layers: int = 2
+    num_units: int = 64
 
     @nn.compact
     def __call__(self, x):
@@ -24,15 +26,20 @@ class ActorCritic(nn.Module):
             activation = nn.relu
         else:
             activation = nn.tanh
-        actor_mean = nn.Dense(
-            64, kernel_init=orthogonal(np.sqrt(2)), bias_init=constant(0.0)
-        )(x)
-        actor_mean = activation(actor_mean)
-        actor_mean = nn.Dense(
-            64, kernel_init=orthogonal(np.sqrt(2)), bias_init=constant(0.0)
-        )(actor_mean)
-        actor_mean = activation(actor_mean)
 
+        def make_layers(x):
+            layer = nn.Dense(
+                self.num_units, kernel_init=orthogonal(np.sqrt(2)), bias_init=constant(0.0)
+            )(x)
+            layer = activation(layer)
+            for _ in range(self.num_layers-1):
+                layer = nn.Dense(
+                    self.num_units, kernel_init=orthogonal(np.sqrt(2)), bias_init=constant(0.0)
+                )(layer)
+                layer = activation(layer)
+            return layer
+
+        actor_mean = make_layers(x)
         action_dists = []
         for dim in self.action_dim:
             actor_mean_dim = nn.Dense(
@@ -41,14 +48,7 @@ class ActorCritic(nn.Module):
             pi_dim = distrax.Categorical(logits=actor_mean_dim)
             action_dists.append(pi_dim)
 
-        critic = nn.Dense(
-            64, kernel_init=orthogonal(np.sqrt(2)), bias_init=constant(0.0)
-        )(x)
-        critic = activation(critic)
-        critic = nn.Dense(
-            64, kernel_init=orthogonal(np.sqrt(2)), bias_init=constant(0.0)
-        )(critic)
-        critic = activation(critic)
+        critic = make_layers(x)
         critic = nn.Dense(1, kernel_init=orthogonal(1.0), bias_init=constant(0.0))(
             critic
         )
@@ -120,9 +120,15 @@ def make_train(config):
 
         # INIT NETWORK
         if config.env_type.lower() == "vone":
-            network = ActorCritic([space.n for space in env.action_space(env_params).spaces], activation=config.ACTIVATION)
+            network = ActorCritic([space.n for space in env.action_space(env_params).spaces],
+                                  activation=config.ACTIVATION,
+                                  num_layers=config.NUM_LAYERS,
+                                  num_units=config.NUM_UNITS)
         elif config.env_type.lower() == "rsa":
-            network = ActorCritic([env.action_space(env_params).n], activation=config.ACTIVATION)
+            network = ActorCritic([env.action_space(env_params).n],
+                                  activation=config.ACTIVATION,
+                                  num_layers=config.NUM_LAYERS,
+                                  num_units=config.NUM_UNITS)
         else:
             raise ValueError(f"Invalid environment type {config.env_type}")
         rng, _rng = jax.random.split(rng)
@@ -162,11 +168,18 @@ def make_train(config):
 
                     env_state = env_state.replace(env_state=vmap_mask_nodes(env_state.env_state, env_params))
                     pi_source = distrax.Categorical(logits=jnp.where(env_state.env_state.node_mask_s, pi[0]._logits, -1e8))
-                    pi_dest = distrax.Categorical(logits=jnp.where(env_state.env_state.node_mask_d, pi[2]._logits, -1e8))
 
                     action_s = pi_source.sample(seed=rng[1])
                     action_p = jnp.full(action_s.shape, 0)
+
+                    # Update destination mask now source has been selected
+                    empty_mask = jnp.ones_like(env_state.env_state.node_mask_d)
+                    mask_source_node = jax.lax.dynamic_update_slice(empty_mask, jnp.array([[0.]]), (0, action_s[0]))
+                    node_mask_d = jnp.min(jnp.stack((env_state.env_state.node_mask_d, mask_source_node)), axis=0)
+                    pi_dest = distrax.Categorical(
+                        logits=jnp.where(node_mask_d, pi[2]._logits, -1e8))
                     action_d = pi_dest.sample(seed=rng[3])
+
                     action = jnp.stack((action_s, action_p, action_d), axis=1)
 
                     env_state = env_state.replace(env_state=vmap_mask_slots(env_state.env_state, env_params, action))
@@ -200,7 +213,7 @@ def make_train(config):
                 transition = VONETransition(
                     done, action, value, reward, log_prob, last_obs, info, env_state.env_state.node_mask_s,
                     env_state.env_state.link_slot_mask,
-                    env_state.env_state.node_mask_d
+                    node_mask_d
                 ) if config.env_type.lower() == "vone" else RSATransition(
                     done, action, value, reward, log_prob, last_obs, info, env_state.env_state.link_slot_mask
                 )
@@ -210,6 +223,12 @@ def make_train(config):
                     jax.debug.print("log_prob {}", log_prob, ordered=config.ORDERED)
                     jax.debug.print("link_slot_array {}", env_state.env_state.link_slot_array, ordered=config.ORDERED)
                     jax.debug.print("link_slot_mask {}", env_state.env_state.link_slot_mask, ordered=config.ORDERED)
+                    if config.env_type.lower() == "vone":
+                        jax.debug.print("node_mask_s {}", env_state.env_state.node_mask_s, ordered=config.ORDERED)
+                        jax.debug.print("node_mask_d {}", node_mask_d, ordered=config.ORDERED)
+                        jax.debug.print("action_history {}", env_state.env_state.action_history, ordered=config.ORDERED)
+                        jax.debug.print("action_counter {}", env_state.env_state.action_counter, ordered=config.ORDERED)
+                        jax.debug.print("request_array {}", env_state.env_state.request_array, ordered=config.ORDERED)
                     jax.debug.print("action {}", action, ordered=config.ORDERED)
                     jax.debug.print("reward {}", reward, ordered=config.ORDERED)
 
