@@ -15,6 +15,21 @@ FLAGS = flags.FLAGS
 
 def main(argv):
 
+    if FLAGS.WANDB:
+        wandb.setup(wandb.Settings(program="train.py", program_relpath="train.py"))
+        run = wandb.init(
+            project=FLAGS.PROJECT,
+            save_code=True,  # optional
+        )
+        wandb.config.update(FLAGS)
+        run.name = FLAGS.EXPERIMENT_NAME if FLAGS.EXPERIMENT_NAME else run.id
+        wandb.define_metric("update_step")
+        wandb.define_metric("returned_episode_returns_mean", step_metric="update_step")
+        wandb.define_metric("returned_episode_returns_std", step_metric="update_step")
+        wandb.define_metric("returned_episode_lengths_mean", step_metric="update_step")
+        wandb.define_metric("returned_episode_lengths_std", step_metric="update_step")
+
+
     # Set the number of host devices
     num_devices = FLAGS.NUM_DEVICES if FLAGS.NUM_DEVICES is not None else jax.local_device_count()
 
@@ -80,10 +95,10 @@ def main(argv):
         returned_episode_lengths_std = out["metrics"]["returned_episode_lengths"].std(-1).reshape(-1)
 
     # Remove initial zeros before an episode is returned
-    if not FLAGS.consecutive_loading:
-        mask = jnp.array(returned_episode_lengths_mean) > 0
-        returned_episode_returns_mean = returned_episode_returns_mean[mask]
-        returned_episode_returns_std = returned_episode_returns_std[mask]
+    # if not FLAGS.consecutive_loading:
+    #     mask = jnp.array(returned_episode_lengths_mean) > 0
+    #     returned_episode_returns_mean = returned_episode_returns_mean[mask]
+    #     returned_episode_returns_std = returned_episode_returns_std[mask]
 
     plt.plot(returned_episode_returns_mean)
     plt.fill_between(
@@ -100,20 +115,7 @@ def main(argv):
     # TODO - Define blocking probability metric
 
     if FLAGS.WANDB:
-        wandb.setup(wandb.Settings(program="train.py", program_relpath="train.py"))
-        run = wandb.init(
-            project=FLAGS.PROJECT,
-            save_code=True,  # optional
-        )
-        wandb.config.update(FLAGS)
-        run.name = FLAGS.EXPERIMENT_NAME if FLAGS.EXPERIMENT_NAME else run.id
-
-        wandb.define_metric("update_step")
-        wandb.define_metric("returned_episode_returns_mean", step_metric="update_step", summary="max")
-        wandb.define_metric("returned_episode_returns_std", step_metric="update_step")
-        wandb.define_metric("returned_episode_lengths_mean", step_metric="update_step")
-        wandb.define_metric("returned_episode_lengths_std", step_metric="update_step")
-
+        # Log the data to wandb
         # Define the downsample factor to speed up upload to wandb
         # Then reshape the array and compute the mean
         chop = len(returned_episode_returns_mean) % FLAGS.DOWNSAMPLE_FACTOR
