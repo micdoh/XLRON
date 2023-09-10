@@ -165,6 +165,7 @@ def make_train(config):
                 if config.env_type.lower() == "vone":
                     vmap_mask_nodes = jax.vmap(env.action_mask_nodes, in_axes=(0, None))
                     vmap_mask_slots = jax.vmap(env.action_mask_slots, in_axes=(0, None, 0))
+                    vmap_mask_dest_node = jax.vmap(env.action_mask_dest_node, in_axes=(0, None, 0))
 
                     env_state = env_state.replace(env_state=vmap_mask_nodes(env_state.env_state, env_params))
                     pi_source = distrax.Categorical(logits=jnp.where(env_state.env_state.node_mask_s, pi[0]._logits, -1e8))
@@ -172,11 +173,9 @@ def make_train(config):
                     action_s = pi_source.sample(seed=rng[1])
 
                     # Update destination mask now source has been selected
-                    empty_mask = jnp.ones_like(env_state.env_state.node_mask_d)
-                    mask_source_node = jax.lax.dynamic_update_slice(empty_mask, jnp.array([[0.]]), (0, action_s[0]))
-                    node_mask_d = jnp.min(jnp.stack((env_state.env_state.node_mask_d, mask_source_node)), axis=0)
+                    env_state = env_state.replace(env_state=vmap_mask_dest_node(env_state.env_state, env_params, action_s))
                     pi_dest = distrax.Categorical(
-                        logits=jnp.where(node_mask_d, pi[2]._logits, -1e8))
+                        logits=jnp.where(env_state.env_state.node_mask_d, pi[2]._logits, -1e8))
 
                     action_p = jnp.full(action_s.shape, 0)
                     action_d = pi_dest.sample(seed=rng[3])
@@ -196,9 +195,10 @@ def make_train(config):
                 elif config.env_type.lower() == "rsa":
                     vmap_mask_slots = jax.vmap(env.action_mask, in_axes=(0, None))
                     env_state = env_state.replace(env_state=vmap_mask_slots(env_state.env_state, env_params))
-                    pi = distrax.Categorical(logits=jnp.where(env_state.env_state.link_slot_mask, pi[0]._logits, -1e8))
-                    action = pi.sample(seed=rng[1])
-                    log_prob = pi.log_prob(action)
+                    pi_masked = distrax.Categorical(logits=jnp.where(env_state.env_state.link_slot_mask, pi[0]._logits, -1e8))
+                    action = pi_masked.sample(seed=rng[1])
+                    log_prob = pi_masked.log_prob(action)
+                    jax.debug.print("masked logits {}", pi_masked._logits, ordered=config.ORDERED)
 
                 else:
                     raise ValueError(f"Invalid environment type {config.env_type}")
@@ -213,7 +213,7 @@ def make_train(config):
                 transition = VONETransition(
                     done, action, value, reward, log_prob, last_obs, info, env_state.env_state.node_mask_s,
                     env_state.env_state.link_slot_mask,
-                    node_mask_d
+                    env_state.env_state.node_mask_d
                 ) if config.env_type.lower() == "vone" else RSATransition(
                     done, action, value, reward, log_prob, last_obs, info, env_state.env_state.link_slot_mask
                 )
@@ -221,16 +221,17 @@ def make_train(config):
 
                 if config.DEBUG:
                     jax.debug.print("log_prob {}", log_prob, ordered=config.ORDERED)
+                    jax.debug.print("action {}", action, ordered=config.ORDERED)
+                    jax.debug.print("reward {}", reward, ordered=config.ORDERED)
                     jax.debug.print("link_slot_array {}", env_state.env_state.link_slot_array, ordered=config.ORDERED)
                     jax.debug.print("link_slot_mask {}", env_state.env_state.link_slot_mask, ordered=config.ORDERED)
                     if config.env_type.lower() == "vone":
                         jax.debug.print("node_mask_s {}", env_state.env_state.node_mask_s, ordered=config.ORDERED)
-                        jax.debug.print("node_mask_d {}", node_mask_d, ordered=config.ORDERED)
+                        jax.debug.print("node_mask_d {}", env_state.env_state.node_mask_d, ordered=config.ORDERED)
                         jax.debug.print("action_history {}", env_state.env_state.action_history, ordered=config.ORDERED)
                         jax.debug.print("action_counter {}", env_state.env_state.action_counter, ordered=config.ORDERED)
                         jax.debug.print("request_array {}", env_state.env_state.request_array, ordered=config.ORDERED)
-                    jax.debug.print("action {}", action, ordered=config.ORDERED)
-                    jax.debug.print("reward {}", reward, ordered=config.ORDERED)
+                        jax.debug.print("node_capacity_array {}", env_state.env_state.node_capacity_array, ordered=config.ORDERED)
 
                 return runner_state, transition
 
@@ -294,9 +295,9 @@ def make_train(config):
                             entropy = pi_source.entropy().mean() + pi_path.entropy().mean() + pi_dest.entropy().mean()
 
                         elif config.env_type.lower() == "rsa":
-                            pi = distrax.Categorical(logits=jnp.where(traj_batch.action_mask, pi[0]._logits, -1e8))
-                            log_prob = pi[0].log_prob(traj_batch.action)
-                            entropy = pi.entropy().mean()
+                            pi_masked = distrax.Categorical(logits=jnp.where(traj_batch.action_mask, pi[0]._logits, -1e8))
+                            log_prob = pi_masked.log_prob(traj_batch.action)
+                            entropy = pi_masked.entropy().mean()
 
                         else:
                             raise ValueError(f"Invalid environment type {config.env_type}")
