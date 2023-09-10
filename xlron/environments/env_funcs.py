@@ -340,8 +340,7 @@ def generate_vone_request(key: chex.PRNGKey, state: EnvState, params: EnvParams)
     The remaining elements of the  pattern show the virtual topology pattern, i.e. the connectivity of the virtual topology.
     """
     # TODO - update this to be bitrate requests rather than slots
-    # Define the four possible patterns for the first row
-    shape = state.request_array.shape[1]
+    shape = params.max_edges*2+1  # shape of request array
     key_topology, key_node, key_slot, key_times = jax.random.split(key, 4)
     # Randomly select topology, node resources, slot resources
     pattern = jax.random.choice(key_topology, state.virtual_topology_patterns)
@@ -353,7 +352,16 @@ def generate_vone_request(key: chex.PRNGKey, state: EnvState, params: EnvParams)
     mask = jnp.tile(jnp.array([0, 1]), (shape+1) // 2)[:shape]
     # Vectorized conditional replacement using mask
     first_row = jnp.where(mask, selected_slot_values, selected_node_values)
+    # Make sure node requests are consistent for same virtual nodes
+    first_row = jax.lax.fori_loop(
+        2,  # Lowest node index in virtual topology requests is 2
+        shape,  # Highest possible node index in virtual topology requests is shape-1
+        lambda i, x: jnp.where(topology_pattern == topology_pattern[i], selected_node_values[i], x),
+        first_row
+    )
+    # Mask out unused part of request array
     first_row = jnp.where(topology_pattern == 0, 0, first_row)
+    # Set times
     arrival_time, holding_time = generate_arrival_holding_times(key, params)
     state = state.replace(
         holding_time=holding_time,
@@ -363,8 +371,8 @@ def generate_vone_request(key: chex.PRNGKey, state: EnvState, params: EnvParams)
         action_history=init_action_history(params),
         total_requests=state.total_requests + 1
     )
-    state = remove_expired_node_requests(state) if params.consecutive_loading else state
-    state = remove_expired_slot_requests(state) if params.consecutive_loading else state
+    state = remove_expired_node_requests(state) if not params.consecutive_loading else state
+    state = remove_expired_slot_requests(state) if not params.consecutive_loading else state
     return state
 
 
@@ -389,7 +397,7 @@ def generate_rsa_request(key: chex.PRNGKey, state: EnvState, params: EnvParams) 
         request_array=jnp.stack((source, slots, dest)),
         total_requests=state.total_requests + 1
     )
-    state = remove_expired_slot_requests(state) if params.consecutive_loading else state
+    state = remove_expired_slot_requests(state) if not params.consecutive_loading else state
     return state
 
 
@@ -564,7 +572,6 @@ def check_node_capacities(capacity_array):
 def check_no_spectrum_reuse(link_slot_array):
     """slot-=1 when used, should be zero when occupied, so check if any < -1 in slot array
     Return False if check passed, True if check failed"""
-    #jax.debug.print("check_no_spectrum_reuse {}", link_slot_array, ordered=True)
     return jnp.any(link_slot_array < -1)
 
 
@@ -900,8 +907,8 @@ def mask_nodes(state: EnvState, num_nodes: chex.Scalar) -> EnvState:
     request = jax.lax.dynamic_slice_in_dim(full_request, (remaining_actions - 1) * 2, 3)
     node_request_s = jax.lax.dynamic_slice_in_dim(request, 2, 1)
     node_request_d = jax.lax.dynamic_slice_in_dim(request, 0, 1)
-    prev_action = jax.lax.dynamic_slice_in_dim(state.action_history, (remaining_actions - 1) * 2, 3)
-    prev_source = jax.lax.dynamic_slice_in_dim(prev_action, 2, 1)
+    prev_action = jax.lax.dynamic_slice_in_dim(state.action_history, (remaining_actions) * 2, 3)
+    prev_dest = jax.lax.dynamic_slice_in_dim(prev_action, 0, 1)
     node_indices = jnp.arange(0, num_nodes)
     # Get requested indices from request array virtual topology
     requested_indices = jax.lax.dynamic_slice_in_dim(virtual_topology, (remaining_actions-1)*2, 3)
@@ -923,7 +930,7 @@ def mask_nodes(state: EnvState, num_nodes: chex.Scalar) -> EnvState:
                 jnp.zeros(num_nodes)
             ),
             lambda x: jnp.where(
-                node_indices == prev_source,
+                node_indices == prev_dest,
                 x,
                 jnp.zeros(num_nodes)
             ),
@@ -957,15 +964,15 @@ def mask_nodes(state: EnvState, num_nodes: chex.Scalar) -> EnvState:
         update_slice = lambda j, x: jax.lax.dynamic_update_slice_in_dim(x, jnp.array([0.]), j, axis=0)
         val = jax.lax.cond(
             i % 2 == 0,
-            lambda x: update_slice(*x),  # i is node request index
-            lambda x: update_slice(x[0]+1, x[1]),  # i is slot request index (so add 1 to get next node)
-            (i, val),
+            lambda x: update_slice(x[0][i], x[1]),  # i is node request index
+            lambda x: update_slice(x[0][i+1], x[1]),  # i is slot request index (so add 1 to get next node)
+            (state.action_history, val),
         )
         return val
 
     state = state.replace(
         node_mask_d=jax.lax.fori_loop(
-            (remaining_actions)*2,
+            remaining_actions*2,
             state.action_history.shape[0]-1,
             mask_previous_selections,
             state.node_mask_d
