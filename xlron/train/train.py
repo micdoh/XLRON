@@ -97,6 +97,8 @@ def main(argv):
     plt.savefig(f"{FLAGS.EXPERIMENT_NAME}.png")
     plt.show()
 
+    # TODO - Define blocking probability metric
+
     if FLAGS.WANDB:
         wandb.setup(wandb.Settings(program="train.py", program_relpath="train.py"))
         run = wandb.init(

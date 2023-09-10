@@ -118,11 +118,7 @@ class RSAEnv(environment.Environment):
         # Terminate if max_timesteps or max_requests exceeded or, if consecutive loading,
         # then terminate if reward is failure but not before min number of timesteps before update
         done = self.is_terminal(state, params) \
-            if not params.consecutive_loading else (
-            jnp.logical_and(
-                jnp.array(reward == self.get_reward_failure()),
-                jnp.array(state.total_timesteps >= params.num_steps_per_update),
-            ))
+            if not params.consecutive_loading else jnp.array(reward == self.get_reward_failure())
         info = {}
         return self.get_obs(state), state, reward, done, info
 
@@ -258,6 +254,9 @@ def make_rsa_env(
     if consecutive_loading:
         mean_service_holding_time = load = 1e6
 
+    # Define edges for use with heuristics and GNNs
+    edges = jnp.array(sorted(graph.edges))
+
     params = RSAEnvParams(
         max_requests=max_requests,
         max_timesteps=max_timesteps,
@@ -273,6 +272,7 @@ def make_rsa_env(
         path_link_array=HashableArrayWrapper(init_path_link_array(graph, k)),
         consecutive_loading=consecutive_loading,
         num_steps_per_update=num_steps_per_update,
+        edges=HashableArrayWrapper(edges),
     )
 
     env = RSAEnv(rng, params)

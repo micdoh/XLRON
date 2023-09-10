@@ -164,11 +164,7 @@ class VONEEnv(environment.Environment):
         # Terminate if max_timesteps or max_requests exceeded or, if consecutive loading,
         # then terminate if reward is failure but not before min number of timesteps before update
         done = self.is_terminal(state, params) \
-            if not params.consecutive_loading else (
-            jnp.logical_and(
-                jnp.array(reward == self.get_reward_failure()),
-                jnp.array(state.total_timesteps >= params.num_steps_per_update),
-            ))
+            if not params.consecutive_loading else jnp.array(reward == self.get_reward_failure())
         info = {}
         return self.get_obs(state), state, reward, done, info
 
@@ -307,7 +303,7 @@ def make_vone_env(
         k: number of paths to consider
         load: load in Erlangs
         topology_name: name of topology to use
-        mean_service_holding_time: mean service holding time
+        mean_service_holding_time: mean holding time of fulfilled request
         node_resources: number of resources per node
         link_resources: number of resources per link
         max_requests: maximum number of requests
@@ -336,6 +332,22 @@ def make_vone_env(
     if consecutive_loading:
         mean_service_holding_time = load = 1e6
 
+    # Define edges for use with heuristics and GNNs
+    edges = jnp.array(sorted(graph.edges))
+    # TODO - Use below to create graph for GNN training
+    # senders = edges.T[0]
+    # receivers = edges.T[1]
+    # senders_undir = jnp.concatenate((senders, receivers))
+    # receivers_undir = jnp.concatenate((receivers, senders))
+    # train_graph = jraph.GraphsTuple(
+    #     nodes=graph.nodes,
+    #     edges=train_edges,
+    #     senders=train_senders,
+    #     receivers=train_receivers,
+    #     n_node=graph.n_node,
+    #     n_edge=jnp.array([len(train_senders)]),
+    #     globals=graph.globals)
+
     params = VONEEnvParams(
         max_requests=max_requests,
         max_timesteps=max_timesteps,
@@ -355,6 +367,7 @@ def make_vone_env(
         path_link_array=HashableArrayWrapper(init_path_link_array(graph, k)),
         consecutive_loading=consecutive_loading,
         num_steps_per_update=num_steps_per_update,
+        edges=HashableArrayWrapper(edges),
     )
 
     env = VONEEnv(params, virtual_topologies=virtual_topologies)
