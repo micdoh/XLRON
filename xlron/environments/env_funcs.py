@@ -570,7 +570,7 @@ def check_node_capacities(capacity_array):
 
 
 def check_no_spectrum_reuse(link_slot_array):
-    """slot-=1 when used, should be zero when occupied, so check if any < -1 in slot array
+    """slot-=1 when used, should be zero when unoccupied, so check if any < -1 in slot array
     Return False if check passed, True if check failed"""
     return jnp.any(link_slot_array < -1)
 
@@ -750,8 +750,8 @@ def implement_rsa_action(
     num_slots = jax.lax.dynamic_slice(state.request_array, (1, ), (1, ))
     node_d = jax.lax.dynamic_slice(state.request_array, (2, ), (1, ))
     nodes_sd = jnp.concatenate((node_s, node_d))
-    path_index = jnp.floor(action / state.link_slot_array.shape[0]).astype(jnp.int32)
-    initial_slot_index = jnp.mod(action, state.link_slot_array.shape[0])
+    path_index = jnp.floor(action / params.link_resources).astype(jnp.int32)
+    initial_slot_index = jnp.mod(action, params.link_resources)
     path = get_paths(params, nodes_sd)[path_index]
     state = implement_path_action(state, path, initial_slot_index, num_slots)
     return state
@@ -765,7 +765,7 @@ def finalise_vone_action(state):
     """Turn departure times positive"""
     state = state.replace(
         node_departure_array=make_positive(state.node_departure_array),
-        link_slot_departure_array=make_positive(state.link_slot_departure_array)
+        link_slot_departure_array=make_positive(state.link_slot_departure_array),
     )
     return state
 

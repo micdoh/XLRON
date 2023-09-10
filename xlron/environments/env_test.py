@@ -33,6 +33,7 @@ def settings_rsa_4node():
     return dict(load=100, k=2, topology_name="4node", link_resources=4, max_requests=10, min_slots=1,
                               max_slots=1, mean_service_holding_time=10)
 
+
 def settings_vone_4node():
     return dict(**settings_rsa_4node(), node_resources=4, virtual_topologies=["3_ring"], min_node_resources=1, max_node_resources=1)
 
@@ -46,9 +47,9 @@ def vone_4node_test_setup():
 
 def vone_nsfnet_16_test_setup():
     key = jax.random.PRNGKey(0)
-    settings_vone_nsfnet_16 = dict(load=100, k=5, topology_name="nsfnet", link_resources=16, max_requests=10, min_slots=2,
-                              max_slots=4, mean_service_holding_time=10, node_resources=4,
-                                  virtual_topologies=["3_ring"], min_node_resources=1, max_node_resources=2)
+    settings_vone_nsfnet_16 = dict(load=100, k=5, topology_name="nsfnet", link_resources=16, max_requests=10,
+                                   min_slots=2, max_slots=4, mean_service_holding_time=10, node_resources=4,
+                                   virtual_topologies=["3_ring"], min_node_resources=1, max_node_resources=2)
     env, params = make_vone_env(**settings_vone_nsfnet_16)
     obs, state = env.reset(key, params)
     return key, env, obs, state, params
@@ -77,6 +78,15 @@ def rsa_nsfnet_16_test_setup():
     settings_rsa_nsfnet_16 = dict(load=100, k=5, topology_name="nsfnet", link_resources=16, max_requests=10, min_slots=2,
                               max_slots=4, mean_service_holding_time=10)
     env, params = make_rsa_env(**settings_rsa_nsfnet_16)
+    obs, state = env.reset(key, params)
+    return key, env, obs, state, params
+
+
+def rsa_nsfnet_4_test_setup():
+    key = jax.random.PRNGKey(0)
+    settings_rsa_nsfnet_4 = dict(load=1000, k=5, topology_name="nsfnet", link_resources=4, max_requests=10, min_slots=2,
+                              max_slots=4, mean_service_holding_time=10)
+    env, params = make_rsa_env(**settings_rsa_nsfnet_4)
     obs, state = env.reset(key, params)
     return key, env, obs, state, params
 
@@ -742,6 +752,40 @@ class ImplementRsaActionTest(parameterized.TestCase):
 
     @chex.all_variants()
     @parameterized.named_parameters(
+        ('case_base', jnp.array(19),
+         jnp.array([
+             [0., 0., 0., 0.],
+             [0., 0., 0., 0.],
+             [0., 0., 0., 0.],
+             [0., 0., 0., 0.],
+             [0., 0., 0., 0.],
+             [0., 0., 0., 0.],
+             [0., 0., 0., 0.],
+             [0., 0., 0., 0.],
+             [0., 0., 0., 0.],
+             [0., 0., 0., 0.],
+             [0., 0., 0., 0.],
+             [0., 0., 0., 0.],
+             [0., 0., 0., -1.],
+             [0., 0., 0., 0.],
+             [0., 0., 0., -1.],
+             [0., 0., 0., 0.],
+             [0., 0., 0., 0.],
+             [0., 0., 0., 0.],
+             [0., 0., 0., 0.],
+             [0., 0., 0., 0.],
+             [0., 0., 0., 0.],
+             [0., 0., 0., 0.],
+         ])),
+    )
+    def test_implement_rsa_action_slots_nsfnet4(self, action, expected):
+        key, env, obs, state, params = rsa_nsfnet_4_test_setup()
+        updated_state = self.variant(implement_rsa_action, static_argnums=(2,))(state, action, params)
+        chex.assert_trees_all_close(updated_state.link_slot_array, expected)
+
+
+    @chex.all_variants()
+    @parameterized.named_parameters(
         ('case_base', jnp.array(0), jnp.array(
             [[jnp.inf, jnp.inf, jnp.inf, jnp.inf], [-2, jnp.inf, jnp.inf, jnp.inf],
              [jnp.inf, jnp.inf, jnp.inf, jnp.inf], [jnp.inf, jnp.inf, jnp.inf, jnp.inf]])),
@@ -1231,6 +1275,38 @@ class RsaActionMaskTest(parameterized.TestCase):
                  1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                  1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                  1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+             ]
+         )
+         ),
+        ("case_rwa", jnp.array([0, 1, 1]),
+         jnp.array([[0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1],
+                    [0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], ]),
+         jnp.array(
+             [
+                 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0,
+                 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
              ]
          )
          ),
