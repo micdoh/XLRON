@@ -61,7 +61,7 @@ class EnvParams:
     max_requests: chex.Scalar = struct.field(pytree_node=False)
     max_timesteps: chex.Scalar = struct.field(pytree_node=False)
     consecutive_loading: chex.Scalar = struct.field(pytree_node=False)
-    num_steps_per_update: chex.Scalar = struct.field(pytree_node=False)
+    edges: chex.Array = struct.field(pytree_node=False)
 
 
 class RolloutWrapper(object):

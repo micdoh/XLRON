@@ -13,6 +13,7 @@ from xlron.environments.vone import make_vone_env
 from xlron.environments.rsa import make_rsa_env
 
 
+# TODO - Add configurable number of layers, units
 class ActorCritic(nn.Module):
     action_dim: Sequence[int]
     activation: str = "tanh"
@@ -98,7 +99,6 @@ def make_train(config):
         "min_slots": config.min_slots,
         "max_slots": config.max_slots,
         "consecutive_loading": config.consecutive_loading,
-        "num_steps_per_update": config.NUM_STEPS,
     }
     if config.env_type.lower() == "vone":
         env_params["virtual_topologies"] = config.virtual_topologies
