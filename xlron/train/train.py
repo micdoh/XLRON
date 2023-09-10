@@ -30,11 +30,6 @@ def main(argv):
     for name in FLAGS:
         print(name, FLAGS[name].value)
 
-    # Check that downsample factor is a factor of no. of update steps
-    NUM_UPDATES = FLAGS.TOTAL_TIMESTEPS // FLAGS.NUM_STEPS // FLAGS.NUM_ENVS
-    if NUM_UPDATES % FLAGS.DOWNSAMPLE_FACTOR != 0:
-        raise ValueError("Downsample factor must be a factor of total_timesteps * NUM_SEEDS")
-
     rng = jax.random.PRNGKey(FLAGS.SEED)
 
     with TimeIt(tag='COMPILATION'):
@@ -119,10 +114,11 @@ def main(argv):
 
         # Define the downsample factor to speed up upload to wandb
         # Then reshape the array and compute the mean
-        returned_episode_returns_mean = returned_episode_returns_mean.reshape(-1, FLAGS.DOWNSAMPLE_FACTOR).mean(axis=1)
-        returned_episode_returns_std = returned_episode_returns_std.reshape(-1, FLAGS.DOWNSAMPLE_FACTOR).mean(axis=1)
-        returned_episode_lengths_mean = returned_episode_lengths_mean.reshape(-1, FLAGS.DOWNSAMPLE_FACTOR).mean(axis=1)
-        returned_episode_lengths_std = returned_episode_lengths_std.reshape(-1, FLAGS.DOWNSAMPLE_FACTOR).mean(axis=1)
+        chop = len(returned_episode_returns_mean) % FLAGS.DOWNSAMPLE_FACTOR
+        returned_episode_returns_mean = returned_episode_returns_mean[chop:].reshape(-1, FLAGS.DOWNSAMPLE_FACTOR).mean(axis=1)
+        returned_episode_returns_std = returned_episode_returns_std[chop:].reshape(-1, FLAGS.DOWNSAMPLE_FACTOR).mean(axis=1)
+        returned_episode_lengths_mean = returned_episode_lengths_mean[chop:].reshape(-1, FLAGS.DOWNSAMPLE_FACTOR).mean(axis=1)
+        returned_episode_lengths_std = returned_episode_lengths_std[chop:].reshape(-1, FLAGS.DOWNSAMPLE_FACTOR).mean(axis=1)
 
         for i in range(len(returned_episode_returns_mean)):
             # Log the data
