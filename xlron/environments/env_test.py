@@ -90,10 +90,24 @@ class GenerateVoneRequestTest(parameterized.TestCase):
 
     @chex.all_variants()
     @parameterized.named_parameters(
-        ('case_base', jnp.array([[1,1,1,1,1,1,1], [2,1,3,1,4,1,2]])),
+        ('case_1', np.array([1, 2], dtype=np.uint32), jnp.array([[1,1,1,1,1,1,1], [2,1,3,1,4,1,2]])),
+        ('case_2', np.array([2, 1], dtype=np.uint32), jnp.array([[1, 1, 1, 1, 1, 1, 1], [2, 1, 3, 1, 4, 1, 2]])),
+        ('case_3', np.array([5, 5], dtype=np.uint32), jnp.array([[1, 1, 1, 1, 1, 1, 1], [2, 1, 3, 1, 4, 1, 2]])),
     )
-    def test_generate_vone_request(self, expected):
-        key = np.array([1, 2], dtype=np.uint32)
+    def test_generate_vone_request(self, key, expected):
+        state = self.variant(generate_vone_request)(key, self.state, self.params)
+        request = state.request_array
+        chex.assert_trees_all_close(request, expected)
+
+
+    @chex.all_variants()
+    @parameterized.named_parameters(
+        ('case_1', np.array([1, 2], dtype=np.uint32), jnp.array([[1,2,2,2,2,2,1], [2,1,3,1,4,1,2]])),
+        ('case_2', np.array([2, 1], dtype=np.uint32), jnp.array([[2, 1, 2, 1, 1, 1, 2], [2, 1, 3, 1, 4, 1, 2]])),
+        ('case_3', np.array([5, 5], dtype=np.uint32), jnp.array([[2,2, 1, 2,2,2,2], [2, 1, 3, 1, 4, 1, 2]])),
+    )
+    def test_generate_vone_nsfnet(self, key, expected):
+        self.key, self.env, self.obs, self.state, self.params = vone_nsfnet_16_test_setup()
         state = self.variant(generate_vone_request)(key, self.state, self.params)
         request = state.request_array
         chex.assert_trees_all_close(request, expected)
@@ -1268,6 +1282,27 @@ class MaskNodesTest(parameterized.TestCase):
          jnp.array([1, 0, 0, 0, 0, 0, 0, 1])),  # expected
     )
     def test_mask_nodes(self, node_capacity_array, action_history, action_counter, request_array, expected):
+        self.state = self.state.replace(
+            node_capacity_array=node_capacity_array,
+            action_history=action_history,
+            action_counter=action_counter,
+            request_array=request_array
+        )
+        state = self.variant(mask_nodes, static_argnums=(1,))(self.state, self.params.num_nodes)
+        node_mask = jnp.concatenate([state.node_mask_s, state.node_mask_d], axis=0)
+        chex.assert_trees_all_close(node_mask, expected)
+
+    @chex.all_variants()
+    @parameterized.named_parameters(
+        ("case_third_move_big_requests",
+         jnp.array([4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4]),  # node_capacity_array
+         jnp.array([-1, -1, -1, -1, 7, 15, 1]),  # action_history
+         jnp.array([3, 3, 2]),  # action_counter
+         jnp.array([[2, 2, 1, 4, 2, 4, 2], [2, 1, 3, 1, 4, 1, 2]]),  # request_array
+         jnp.array([0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0,   1, 0, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1])),  # expected
+    )
+    def test_mask_nodes_nsfnet(self, node_capacity_array, action_history, action_counter, request_array, expected):
+        self.key, self.env, self.obs, self.state, self.params = vone_nsfnet_16_test_setup()
         self.state = self.state.replace(
             node_capacity_array=node_capacity_array,
             action_history=action_history,

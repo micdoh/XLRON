@@ -170,7 +170,6 @@ def make_train(config):
                     pi_source = distrax.Categorical(logits=jnp.where(env_state.env_state.node_mask_s, pi[0]._logits, -1e8))
 
                     action_s = pi_source.sample(seed=rng[1])
-                    action_p = jnp.full(action_s.shape, 0)
 
                     # Update destination mask now source has been selected
                     empty_mask = jnp.ones_like(env_state.env_state.node_mask_d)
@@ -178,8 +177,9 @@ def make_train(config):
                     node_mask_d = jnp.min(jnp.stack((env_state.env_state.node_mask_d, mask_source_node)), axis=0)
                     pi_dest = distrax.Categorical(
                         logits=jnp.where(node_mask_d, pi[2]._logits, -1e8))
-                    action_d = pi_dest.sample(seed=rng[3])
 
+                    action_p = jnp.full(action_s.shape, 0)
+                    action_d = pi_dest.sample(seed=rng[3])
                     action = jnp.stack((action_s, action_p, action_d), axis=1)
 
                     env_state = env_state.replace(env_state=vmap_mask_slots(env_state.env_state, env_params, action))
