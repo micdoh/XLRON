@@ -36,7 +36,10 @@ def main(argv):
     # Set the default device
     print(f"Available devices: {jax.devices()}")
     if FLAGS.DEFAULT_DEVICE:
-        jax.default_device = jax.devices()[FLAGS.DEFAULT_DEVICE]
+        try:
+            jax.default_device = jax.devices()[FLAGS.DEFAULT_DEVICE]
+        except IndexError:
+            pass
         print(f"Using {jax.default_device}")
 
     # Print every flag and its name
@@ -99,12 +102,13 @@ def main(argv):
     #     mask = jnp.array(returned_episode_lengths_mean) > 0
     #     returned_episode_returns_mean = returned_episode_returns_mean[mask]
     #     returned_episode_returns_std = returned_episode_returns_std[mask]
-
-    plt.plot(returned_episode_returns_mean)
+    plot_metric = returned_episode_lengths_mean if (FLAGS.env_type == "rsa" and FLAGS.consecutive_loading) else returned_episode_returns_mean
+    plot_metric_std = returned_episode_lengths_std if (FLAGS.env_type == "rsa" and FLAGS.consecutive_loading) else returned_episode_returns_std
+    plt.plot(plot_metric)
     plt.fill_between(
-        range(len(returned_episode_returns_mean)),
-        returned_episode_returns_mean - returned_episode_returns_std,
-        returned_episode_returns_mean + returned_episode_returns_std,
+        range(len(plot_metric)),
+        plot_metric - plot_metric_std,
+        plot_metric + plot_metric_std,
         alpha=0.2
     )
     plt.xlabel("Update Step")
