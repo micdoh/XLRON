@@ -296,7 +296,6 @@ def make_vone_env(
         min_node_resources: int = 1,
         max_node_resources: int = 2,
         consecutive_loading: bool = False,
-        num_steps_per_update: int = 0,
 ):
     """Create VONE environment.
     Args:
@@ -313,7 +312,6 @@ def make_vone_env(
         min_node_resources: minimum number of resources per node
         max_node_resources: maximum number of resources per node
         consecutive_loading: whether to use consecutive loading
-        num_steps_per_update: number of steps per update (used for termination condition in consecutive loading)
     Returns:
         env: VONE environment
         params: VONE environment parameters
@@ -366,7 +364,6 @@ def make_vone_env(
         max_node_resources=max_node_resources,
         path_link_array=HashableArrayWrapper(init_path_link_array(graph, k)),
         consecutive_loading=consecutive_loading,
-        num_steps_per_update=num_steps_per_update,
         edges=HashableArrayWrapper(edges),
     )
 

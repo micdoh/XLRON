@@ -226,7 +226,6 @@ def make_rsa_env(
         max_slots: int = 2,
         seed: int = 0,
         consecutive_loading: bool = False,
-        num_steps_per_update: int = 0,
 ):
     """Create RSA environment.
     Args:
@@ -239,7 +238,6 @@ def make_rsa_env(
         min_slots: minimum number of slots per link
         max_slots: maximum number of slots per link
         consecutive_loading: whether to use consecutive loading
-        num_steps_per_update: number of steps per update (used for termination condition in consecutive loading)
     Returns:
         env: RSA environment
         params: RSA environment parameters
@@ -271,7 +269,6 @@ def make_rsa_env(
         max_slots=max_slots,
         path_link_array=HashableArrayWrapper(init_path_link_array(graph, k)),
         consecutive_loading=consecutive_loading,
-        num_steps_per_update=num_steps_per_update,
         edges=HashableArrayWrapper(edges),
     )
 
