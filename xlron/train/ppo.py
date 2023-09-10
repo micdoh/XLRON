@@ -198,7 +198,6 @@ def make_train(config):
                     pi_masked = distrax.Categorical(logits=jnp.where(env_state.env_state.link_slot_mask, pi[0]._logits, -1e8))
                     action = pi_masked.sample(seed=rng[1])
                     log_prob = pi_masked.log_prob(action)
-                    jax.debug.print("masked logits {}", pi_masked._logits, ordered=config.ORDERED)
 
                 else:
                     raise ValueError(f"Invalid environment type {config.env_type}")
