@@ -41,6 +41,7 @@ def make_eval(config):
         "max_timesteps": config.max_timesteps,
         "min_slots": config.min_slots,
         "max_slots": config.max_slots,
+        "consecutive_loading": config.consecutive_loading,
     }
     if config.env_type.lower() == "vone":
         env_params["virtual_topologies"] = config.virtual_topologies
@@ -124,10 +125,40 @@ def make_eval(config):
 
 
 def main(argv):
-    # TODO - Add wandb
-    # Set the number of (emulated) host devices
-    num_devices = FLAGS.NUM_DEVICES if FLAGS.NUM_DEVICES is not None else jax.local_device_count()
-    os.environ['XLA_FLAGS'] = f"--xla_force_host_platform_device_count={num_devices}"
+
+    # TODO - can wrap this into train main() function (just have an EVAL flag and if statement for make_train/make_eval)
+    # Set visible devices
+    if FLAGS.VISIBLE_DEVICES:
+        os.environ["CUDA_VISIBLE_DEVICES"] = FLAGS.VISIBLE_DEVICES
+    print(f"CUDA_VISIBLE_DEVICES={os.environ['CUDA_VISIBLE_DEVICES']}")
+
+    # Option to print memory usage for debugging OOM errors
+    if FLAGS.PRINT_MEMORY_USE:
+        os.environ["TF_CPP_MIN_LOG_LEVEL"] = "0"
+        os.environ["TF_CPP_VMODULE"] = "bfc_allocator=1"
+
+    # Set the fraction of memory to pre-allocate
+    if FLAGS.PREALLOCATE_MEM:
+        os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "true"
+        os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = FLAGS.PREALLOCATE_MEM_FRACTION
+        print(f"XLA_PYTHON_CLIENT_MEM_FRACTION={os.environ['XLA_PYTHON_CLIENT_MEM_FRACTION']}")
+    else:
+        os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
+    print(f"XLA_PYTHON_CLIENT_PREALLOCATE={os.environ['XLA_PYTHON_CLIENT_PREALLOCATE']}")
+
+    if FLAGS.WANDB:
+        wandb.setup(wandb.Settings(program="train.py", program_relpath="train.py"))
+        run = wandb.init(
+            project=FLAGS.PROJECT,
+            save_code=True,  # optional
+        )
+        wandb.config.update(FLAGS)
+        run.name = FLAGS.EXPERIMENT_NAME if FLAGS.EXPERIMENT_NAME else run.id
+        wandb.define_metric("update_step")
+        wandb.define_metric("returned_episode_returns_mean", step_metric="update_step")
+        wandb.define_metric("returned_episode_returns_std", step_metric="update_step")
+        wandb.define_metric("returned_episode_lengths_mean", step_metric="update_step")
+        wandb.define_metric("returned_episode_lengths_std", step_metric="update_step")
 
     # Print every flag and its name
     if FLAGS.DEBUG:
@@ -138,21 +169,66 @@ def main(argv):
     rng = jax.random.PRNGKey(FLAGS.SEED)
 
     with TimeIt(tag='COMPILATION'):
-        if FLAGS.USE_PMAP:
-            # TODO - Fix this to be like Anakin architecture (share gradients across devices)
-            FLAGS.ORDERED = False
-            rng = jax.random.split(rng, num_devices)
-            eval_jit = jax.pmap(make_eval(FLAGS), devices=jax.devices()).lower(rng).compile()
+        if FLAGS.NUM_SEEDS > 1:
+            rng = jax.random.split(rng, FLAGS.NUM_SEEDS)
+            eval_jit = jax.jit(jax.vmap(make_eval(FLAGS))).lower(rng).compile()
         else:
             eval_jit = jax.jit(make_eval(FLAGS)).lower(rng).compile()
 
-    with TimeIt(tag='EXECUTION', frames=FLAGS.TOTAL_TIMESTEPS*num_devices):
+    with TimeIt(tag='EXECUTION', frames=FLAGS.TOTAL_TIMESTEPS * len(jax.devices()) * FLAGS.NUM_SEEDS):
         out = eval_jit(rng)
+        out["metrics"]["returned_episode_returns"].block_until_ready()  # Wait for all devices to finish
 
-    plt.plot(out["metrics"]["returned_episode_returns"].mean(-1).reshape(-1))
+    # Summarise the returns
+    if FLAGS.NUM_SEEDS > 1:
+        # Take mean on env dimension (-1) then seed dimension (0)
+        # For ref, dimension order is (num_seeds, num_updates, num_steps, num_envs)
+        returned_episode_returns_mean = out["metrics"]["returned_episode_returns"].mean(-1).mean(0).reshape(-1)
+        returned_episode_returns_std = out["metrics"]["returned_episode_returns"].mean(-1).std(0).reshape(-1)
+        returned_episode_lengths_mean = out["metrics"]["returned_episode_lengths"].mean(-1).mean(0).reshape(-1)
+        returned_episode_lengths_std = out["metrics"]["returned_episode_lengths"].mean(-1).std(0).reshape(-1)
+    else:
+        # N.B. This is the same as the above code, but without the mean on the seed dimension
+        # This means the results are still per update step
+        returned_episode_returns_mean = out["metrics"]["returned_episode_returns"].mean(-1).reshape(-1)
+        returned_episode_returns_std = out["metrics"]["returned_episode_returns"].std(-1).reshape(-1)
+        returned_episode_lengths_mean = out["metrics"]["returned_episode_lengths"].mean(-1).reshape(-1)
+        returned_episode_lengths_std = out["metrics"]["returned_episode_lengths"].std(-1).reshape(-1)
+
+    plot_metric = returned_episode_lengths_mean if (FLAGS.env_type == "rsa" and FLAGS.consecutive_loading) else returned_episode_returns_mean
+    plot_metric_std = returned_episode_lengths_std if (FLAGS.env_type == "rsa" and FLAGS.consecutive_loading) else returned_episode_returns_std
+    plt.plot(plot_metric)
+    plt.fill_between(
+        range(len(plot_metric)),
+        plot_metric - plot_metric_std,
+        plot_metric + plot_metric_std,
+        alpha=0.2
+    )
     plt.xlabel("Update Step")
     plt.ylabel("Return")
+    plt.savefig(f"{FLAGS.EXPERIMENT_NAME}.png")
     plt.show()
+
+    if FLAGS.WANDB:
+        # Log the data to wandb
+        # Define the downsample factor to speed up upload to wandb
+        # Then reshape the array and compute the mean
+        chop = len(returned_episode_returns_mean) % FLAGS.DOWNSAMPLE_FACTOR
+        returned_episode_returns_mean = returned_episode_returns_mean[chop:].reshape(-1, FLAGS.DOWNSAMPLE_FACTOR).mean(axis=1)
+        returned_episode_returns_std = returned_episode_returns_std[chop:].reshape(-1, FLAGS.DOWNSAMPLE_FACTOR).mean(axis=1)
+        returned_episode_lengths_mean = returned_episode_lengths_mean[chop:].reshape(-1, FLAGS.DOWNSAMPLE_FACTOR).mean(axis=1)
+        returned_episode_lengths_std = returned_episode_lengths_std[chop:].reshape(-1, FLAGS.DOWNSAMPLE_FACTOR).mean(axis=1)
+
+        for i in range(len(returned_episode_returns_mean)):
+            # Log the data
+            log_dict = {"update_step": i*FLAGS.DOWNSAMPLE_FACTOR,
+                        "returned_episode_returns_mean": returned_episode_returns_mean[i],
+                        "returned_episode_returns_std": returned_episode_returns_std[i],
+                        "returned_episode_lengths_mean": returned_episode_lengths_mean[i],
+                        "returned_episode_lengths_std": returned_episode_lengths_std[i]}
+            wandb.log(log_dict)
+
+    print(f"Final metrics: \n Mean: {plot_metric[-1]} \n Std: {plot_metric_std[-1]}")
 
 
 if __name__ == "__main__":

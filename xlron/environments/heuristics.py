@@ -52,9 +52,6 @@ def ff_ksp(state: EnvState, params: EnvParams) -> chex.Array:
     slot_index = first_slots[path_index] % params.link_resources
     # Convert indices to action
     action = path_index * params.link_resources + slot_index
-    jax.debug.print("ff_ksp action {}", action)
-    jax.debug.print("path_index {}", path_index)
-    jax.debug.print("slot_index {}", slot_index)
     return action
 
 

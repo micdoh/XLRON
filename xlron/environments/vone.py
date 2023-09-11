@@ -181,6 +181,14 @@ class VONEEnv(environment.Environment):
         """Returns action mask for state."""
         return mask_nodes(state, params.num_nodes)
 
+    def action_mask_dest_node(self, state: EnvState, params: EnvParams, source_action: chex.Array) -> chex.Array:
+        """Returns action mask for state."""
+        empty_mask = jnp.ones(params.num_nodes)
+        mask_source_node = jax.lax.dynamic_update_slice(empty_mask, jnp.array([0.]), (source_action, ))
+        node_mask_d = jnp.min(jnp.stack((state.node_mask_d, mask_source_node)), axis=0)
+        state = state.replace(node_mask_d=node_mask_d)
+        return state
+
     def action_mask_slots(self, state: EnvState, params: EnvParams, action: chex.Array) -> chex.Array:
         """Returns action mask for state."""
         remaining_actions = jnp.squeeze(jax.lax.dynamic_slice_in_dim(state.action_counter, 2, 1))

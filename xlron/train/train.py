@@ -15,6 +15,25 @@ FLAGS = flags.FLAGS
 
 def main(argv):
 
+    # Set visible devices
+    if FLAGS.VISIBLE_DEVICES:
+        os.environ["CUDA_VISIBLE_DEVICES"] = FLAGS.VISIBLE_DEVICES
+    print(f"CUDA_VISIBLE_DEVICES={os.environ['CUDA_VISIBLE_DEVICES']}")
+
+    # Option to print memory usage for debugging OOM errors
+    if FLAGS.PRINT_MEMORY_USE:
+        os.environ["TF_CPP_MIN_LOG_LEVEL"] = "0"
+        os.environ["TF_CPP_VMODULE"] = "bfc_allocator=1"
+
+    # Set the fraction of memory to pre-allocate
+    if FLAGS.PREALLOCATE_MEM:
+        os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "true"
+        os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = FLAGS.PREALLOCATE_MEM_FRACTION
+        print(f"XLA_PYTHON_CLIENT_MEM_FRACTION={os.environ['XLA_PYTHON_CLIENT_MEM_FRACTION']}")
+    else:
+        os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
+    print(f"XLA_PYTHON_CLIENT_PREALLOCATE={os.environ['XLA_PYTHON_CLIENT_PREALLOCATE']}")
+
     if FLAGS.WANDB:
         wandb.setup(wandb.Settings(program="train.py", program_relpath="train.py"))
         run = wandb.init(
@@ -29,18 +48,8 @@ def main(argv):
         wandb.define_metric("returned_episode_lengths_mean", step_metric="update_step")
         wandb.define_metric("returned_episode_lengths_std", step_metric="update_step")
 
-
-    # Set the number of host devices
-    num_devices = FLAGS.NUM_DEVICES if FLAGS.NUM_DEVICES is not None else jax.local_device_count()
-
     # Set the default device
     print(f"Available devices: {jax.devices()}")
-    if FLAGS.DEFAULT_DEVICE:
-        try:
-            jax.default_device = jax.devices()[FLAGS.DEFAULT_DEVICE]
-        except IndexError:
-            pass
-        print(f"Using {jax.default_device}")
 
     # Print every flag and its name
     if FLAGS.DEBUG:
@@ -55,7 +64,7 @@ def main(argv):
             # TODO - Fix this to be like Anakin architecture (share gradients across devices)
             # TODO - Retrieve the output using pmean/sum etc.
             FLAGS.ORDERED = False
-            rng = jax.random.split(rng, num_devices*FLAGS.NUM_SEEDS)
+            rng = jax.random.split(rng, len(jax.devices())*FLAGS.NUM_SEEDS)
             if FLAGS.NUM_SEEDS > 1:
                 train_jit = jax.pmap(jax.vmap(make_train(FLAGS)), devices=jax.devices()).lower(rng).compile()
             else:
@@ -69,7 +78,7 @@ def main(argv):
 
     # N.B. that increasing number of seeds or devices will increase the number of steps
     # (essentially training separately per device/seed)
-    with TimeIt(tag='EXECUTION', frames=FLAGS.TOTAL_TIMESTEPS * num_devices * FLAGS.NUM_SEEDS):
+    with TimeIt(tag='EXECUTION', frames=FLAGS.TOTAL_TIMESTEPS * len(jax.devices()) * FLAGS.NUM_SEEDS):
         out = train_jit(rng)
         out["metrics"]["returned_episode_returns"].block_until_ready()  # Wait for all devices to finish
 
@@ -88,7 +97,7 @@ def main(argv):
         returned_episode_returns_mean = out["metrics"]["returned_episode_returns"].mean(-1).mean(0).reshape(-1)
         returned_episode_returns_std = out["metrics"]["returned_episode_returns"].mean(-1).std(0).reshape(-1)
         returned_episode_lengths_mean = out["metrics"]["returned_episode_lengths"].mean(-1).mean(0).reshape(-1)
-        returned_episode_lengths_std = out["metrics"]["returned_episode_lengths"].mean(-1).std(-1).reshape(-1)
+        returned_episode_lengths_std = out["metrics"]["returned_episode_lengths"].mean(-1).std(0).reshape(-1)
     else:
         # N.B. This is the same as the above code, but without the mean on the seed dimension
         # This means the results are still per update step
@@ -97,11 +106,6 @@ def main(argv):
         returned_episode_lengths_mean = out["metrics"]["returned_episode_lengths"].mean(-1).reshape(-1)
         returned_episode_lengths_std = out["metrics"]["returned_episode_lengths"].std(-1).reshape(-1)
 
-    # Remove initial zeros before an episode is returned
-    # if not FLAGS.consecutive_loading:
-    #     mask = jnp.array(returned_episode_lengths_mean) > 0
-    #     returned_episode_returns_mean = returned_episode_returns_mean[mask]
-    #     returned_episode_returns_std = returned_episode_returns_std[mask]
     plot_metric = returned_episode_lengths_mean if (FLAGS.env_type == "rsa" and FLAGS.consecutive_loading) else returned_episode_returns_mean
     plot_metric_std = returned_episode_lengths_std if (FLAGS.env_type == "rsa" and FLAGS.consecutive_loading) else returned_episode_returns_std
     plt.plot(plot_metric)
