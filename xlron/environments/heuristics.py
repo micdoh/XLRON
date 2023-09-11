@@ -25,7 +25,7 @@ def ksp_ff(state: EnvState, params: EnvParams) -> chex.Array:
     path_index = jnp.argmax(first_slots < params.link_resources)
     slot_index = first_slots[path_index] % params.link_resources
     # Convert indices to action
-    action = path_index * state.link_slot_array.shape[0] + slot_index
+    action = path_index * params.link_resources + slot_index
     return action
 
 
