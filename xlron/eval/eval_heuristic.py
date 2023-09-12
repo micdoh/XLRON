@@ -72,8 +72,7 @@ def make_eval(config):
 
                 # SELECT ACTION
                 if config.env_type.lower() == "vone":
-                    action = jnp.array([0,0,0])
-                    pass
+                    raise NotImplementedError(f"VONE heuristics not yet implemented")
 
                 elif config.env_type.lower() == "rsa":
                     if config.path_heuristic.lower() == "ksp_ff":
@@ -115,7 +114,7 @@ def make_eval(config):
 
         rng, _rng = jax.random.split(rng)
         runner_state = (env_state, obsv, _rng)
-        NUM_EPISODES = config.TOTAL_TIMESTEPS // config.max_timesteps
+        NUM_EPISODES = config.TOTAL_TIMESTEPS // config.max_timesteps // config.NUM_ENVS
         runner_state, metric = jax.lax.scan(
             _env_episode, runner_state, None, NUM_EPISODES
         )
