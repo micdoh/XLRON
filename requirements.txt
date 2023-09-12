@@ -402,6 +402,12 @@ defusedxml==0.7.1 ; python_version >= "3.9" and python_version < "3.12" \
 distrax==0.1.4 ; python_version >= "3.9" and python_version < "3.12" \
     --hash=sha256:20bca3ed4a2e6684c861e59f7f49e94d00939f1ce7de9ba445dd4195b449e762 \
     --hash=sha256:9255d3e707e759418cadfe6c42162acfb16873f3aee72e0620582d4df7f56454
+dm-env==1.6 ; python_version >= "3.9" and python_version < "3.12" \
+    --hash=sha256:0eabb6759dd453b625e041032f7ae0c1e87d4eb61b6a96b9ca586483837abf29 \
+    --hash=sha256:a436eb1c654c39e0c986a516cee218bea7140b510fceff63f97eb4fcff3d93de
+dm-haiku==0.0.10 ; python_version >= "3.9" and python_version < "3.12" \
+    --hash=sha256:309eba85030c24a513e72b5711c31870619b48028dcb69ace99fe06a60d90668 \
+    --hash=sha256:ca85e0a5eaafb2eb9111b954e56eff1595e55511482434a4d41e7969a0f31a20
 dm-tree==0.1.8 ; python_version >= "3.9" and python_version < "3.12" \
     --hash=sha256:054b461f8176f4bce7a21f7b1870f873a1ced3bdbe1282c816c550bb43c71fa6 \
     --hash=sha256:0d3172394079a86c3a759179c65f64c48d1a42b89495fcf38976d11cc3bb952c \
@@ -569,6 +575,9 @@ jedi==0.19.0 ; python_version >= "3.9" and python_version < "3.12" \
 jinja2==3.1.2 ; python_version >= "3.9" and python_version < "3.12" \
     --hash=sha256:31351a702a408a9e7595a8fc6150fc3f43bb6bf7e319770cbc0db9df9437e852 \
     --hash=sha256:6088930bfe239f0e6710546ab9c19c9ef35e29792895fed6e6e31a023a182a61
+jmp==0.0.4 ; python_version >= "3.9" and python_version < "3.12" \
+    --hash=sha256:5dfeb0fd7c7a9f72a70fff0aab9d0cbfae32a809c02f4037ff3485ceb33e1730 \
+    --hash=sha256:6aa7adbddf2bd574b28c7faf6e81a735eb11f53386447896909c6968dc36807d
 joblib==1.3.2 ; python_version >= "3.9" and python_version < "3.12" \
     --hash=sha256:92f865e621e17784e7955080b6d042489e3b8e294949cc44c6eac304f59772b1 \
     --hash=sha256:ef4331c65f239985f3f2220ecc87db222f08fd22097a3dd5698f693875f8cbb9
@@ -1649,6 +1658,9 @@ rfc3986-validator==0.1.1 ; python_version >= "3.9" and python_version < "3.12" \
 rich==13.5.2 ; python_version >= "3.9" and python_version < "3.12" \
     --hash=sha256:146a90b3b6b47cac4a73c12866a499e9817426423f57c5a66949c086191a8808 \
     --hash=sha256:fb9d6c0a0f643c99eed3875b5377a184132ba9be4d61516a55273d3554d75a39
+rlax==0.1.6 ; python_version >= "3.9" and python_version < "3.12" \
+    --hash=sha256:0b79c53afff3c6f028cfa599d110197dfcc46f1231fd7ac669b3b840fc6b8a4f \
+    --hash=sha256:a22fd6bcdd5d2fff17850817dac6fbbaaa0d687aec5ea68e9277a172705c91bc
 rpds-py==0.10.0 ; python_version >= "3.9" and python_version < "3.12" \
     --hash=sha256:00215f6a9058fbf84f9d47536902558eb61f180a6b2a0fa35338d06ceb9a2e5a \
     --hash=sha256:0028eb0967942d0d2891eae700ae1a27b7fd18604cfcb16a1ef486a790fee99e \
@@ -1913,6 +1925,9 @@ soupsieve==2.4.1 ; python_version >= "3.9" and python_version < "3.12" \
 stack-data==0.6.2 ; python_version >= "3.9" and python_version < "3.12" \
     --hash=sha256:32d2dd0376772d01b6cb9fc996f3c8b57a357089dec328ed4b6553d037eaf815 \
     --hash=sha256:cbb2a53eb64e5785878201a97ed7c7b94883f48b87bfb0bbe8b623c74679e4a8
+tabulate==0.9.0 ; python_version >= "3.9" and python_version < "3.12" \
+    --hash=sha256:0095b12bf5966de529c0feb1fa08671671b3368eec77d7ef7ab114be2c068b3c \
+    --hash=sha256:024ca478df22e9340661486f85298cff5f6dcdba14f3813e8830015b9ed1948f
 tensorflow-probability==0.21.0 ; python_version >= "3.9" and python_version < "3.12" \
     --hash=sha256:03ed06bd6fd876541110712842d43367c7be5affe8040d62efa3906c6c9e645d
 tensorstore==0.1.41 ; python_version >= "3.9" and python_version < "3.12" \
