@@ -18,7 +18,7 @@ def main(argv):
     # Set visible devices
     if FLAGS.VISIBLE_DEVICES:
         os.environ["CUDA_VISIBLE_DEVICES"] = FLAGS.VISIBLE_DEVICES
-    print(f"CUDA_VISIBLE_DEVICES={os.environ['CUDA_VISIBLE_DEVICES']}")
+        print(f"CUDA_VISIBLE_DEVICES={os.environ['CUDA_VISIBLE_DEVICES']}")
 
     # Option to print memory usage for debugging OOM errors
     if FLAGS.PRINT_MEMORY_USE:
