@@ -34,6 +34,7 @@ class RSAEnvParams(EnvParams):
     min_slots: chex.Scalar = struct.field(pytree_node=False)
     max_slots: chex.Scalar = struct.field(pytree_node=False)
     path_link_array: chex.Array = struct.field(pytree_node=False)
+    uniform_traffic: bool = struct.field(pytree_node=False)
 
 
 class RSAEnv(environment.Environment):
@@ -127,8 +128,13 @@ class RSAEnv(environment.Environment):
         self, key: chex.PRNGKey, params: RSAEnvParams
     ) -> Tuple[chex.Array, RSAEnvState]:
         """Environment-specific reset."""
-        state = self.initial_state
-        # TODO - Experiment with initialising a new traffic matrix at each reset
+        if params.uniform_traffic:
+            state = self.initial_state
+        else:
+            key, key_traffic = jax.random.split(key)
+            state = self.initial_state.replace(
+                traffic_matrix=init_traffic_matrix(key_traffic, params)
+            )
         state = generate_rsa_request(key, state, params)
         return self.get_obs(state), state
 
@@ -226,6 +232,7 @@ def make_rsa_env(
         max_slots: int = 2,
         seed: int = 0,
         consecutive_loading: bool = False,
+        uniform_traffic: bool = False,
 ):
     """Create RSA environment.
     Args:
@@ -270,6 +277,7 @@ def make_rsa_env(
         path_link_array=HashableArrayWrapper(init_path_link_array(graph, k)),
         consecutive_loading=consecutive_loading,
         edges=HashableArrayWrapper(edges),
+        uniform_traffic=uniform_traffic,
     )
 
     env = RSAEnv(rng, params)
