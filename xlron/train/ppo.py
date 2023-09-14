@@ -13,7 +13,10 @@ from xlron.environments.vone import make_vone_env
 from xlron.environments.rsa import make_rsa_env
 
 
-# TODO - Add configurable number of layers, units
+# TODO - Remove request from observation that is fed to state value function
+#  requires separation of actor and critic into separate classes and modification of flax train_state
+#  to hold two sets of params
+#  https://flax.readthedocs.io/en/latest/_modules/flax/training/train_state.html
 class ActorCritic(nn.Module):
     action_dim: Sequence[int]
     activation: str = "tanh"
@@ -112,9 +115,26 @@ def make_train(config):
         raise ValueError(f"Invalid environment type {config.env_type}")
     env = LogWrapper(env)
 
+    # TODO - Does it matter if lr changes slightly between each minibatch? Linear handles this but optax built-ins don't
     def linear_schedule(count):
-        frac = 1.0 - (count // (config.NUM_MINIBATCHES * config.UPDATE_EPOCHS)) / NUM_UPDATES
+        frac = (1.0 - (count // (config.NUM_MINIBATCHES * config.UPDATE_EPOCHS)) /
+                (NUM_UPDATES * config.SCHEDULE_MULTIPLIER))
         return config.LR * frac
+
+    def lr_schedule(count):
+        total_steps = NUM_UPDATES * config.UPDATE_EPOCHS * config.NUM_MINIBATCHES * config.SCHEDULE_MULTIPLIER
+        if config.LR_SCHEDULE == "warmup_cosine":
+            schedule = optax.warmup_cosine_decay_schedule(
+                init_value=config.LR,
+                peak_value=config.LR*config.WARMUP_PEAK_MULTIPLIER,
+                warmup_steps=int(total_steps * config.WARMUP_STEPS_FRACTION),
+                decay_steps=total_steps,
+                end_value=config.LR*config.WARMUP_END_FRACTION)
+        elif config.LR_SCHEDULE == "linear":
+            schedule = linear_schedule
+        else:
+            raise ValueError(f"Invalid LR schedule {config.LR_SCHEDULE}")
+        return schedule(count)
 
     def train(rng):
 
@@ -134,13 +154,10 @@ def make_train(config):
         rng, _rng = jax.random.split(rng)
         init_x = jnp.zeros(env.observation_space(env_params).n)
         network_params = network.init(_rng, init_x)
-        if config.ANNEAL_LR:
-            tx = optax.chain(
-                optax.clip_by_global_norm(config.MAX_GRAD_NORM),
-                optax.adam(learning_rate=linear_schedule, eps=1e-5),
-            )
-        else:
-            tx = optax.chain(optax.clip_by_global_norm(config.MAX_GRAD_NORM), optax.adam(config.LR, eps=1e-5))
+        tx = optax.chain(
+            optax.clip_by_global_norm(config.MAX_GRAD_NORM),
+            optax.adam(learning_rate=lr_schedule, eps=1e-5),
+        )
         train_state = TrainState.create(
             apply_fn=network.apply,
             params=network_params,
