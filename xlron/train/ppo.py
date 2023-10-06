@@ -109,7 +109,7 @@ def make_train(config):
         env_params["max_node_resources"] = config.max_node_resources
         env_params["node_resources"] = config.node_resources
         env, env_params = make_vone_env(**env_params)
-    elif config.env_type.lower() == "rsa":
+    elif config.env_type.lower()[:3] == "rsa":
         env, env_params = make_rsa_env(**env_params)
     else:
         raise ValueError(f"Invalid environment type {config.env_type}")
@@ -132,6 +132,8 @@ def make_train(config):
                 end_value=config.LR*config.WARMUP_END_FRACTION)
         elif config.LR_SCHEDULE == "linear":
             schedule = linear_schedule
+        elif config.LR_SCHEDULE == "constant":
+            schedule = lambda x: config.LR
         else:
             raise ValueError(f"Invalid LR schedule {config.LR_SCHEDULE}")
         return schedule(count)
@@ -144,7 +146,7 @@ def make_train(config):
                                   activation=config.ACTIVATION,
                                   num_layers=config.NUM_LAYERS,
                                   num_units=config.NUM_UNITS)
-        elif config.env_type.lower() == "rsa":
+        elif config.env_type.lower()[:3] == "rsa":
             network = ActorCritic([env.action_space(env_params).n],
                                   activation=config.ACTIVATION,
                                   num_layers=config.NUM_LAYERS,
@@ -215,6 +217,10 @@ def make_train(config):
                     pi_masked = distrax.Categorical(logits=jnp.where(env_state.env_state.link_slot_mask, pi[0]._logits, -1e8))
                     action = pi_masked.sample(seed=rng[1])
                     log_prob = pi_masked.log_prob(action)
+
+                elif config.env_type.lower() == "rsa_no_mask":
+                    action = pi[0].sample(seed=rng[1])
+                    log_prob = pi[0].log_prob(action)
 
                 else:
                     raise ValueError(f"Invalid environment type {config.env_type}")
@@ -314,6 +320,10 @@ def make_train(config):
                             pi_masked = distrax.Categorical(logits=jnp.where(traj_batch.action_mask, pi[0]._logits, -1e8))
                             log_prob = pi_masked.log_prob(traj_batch.action)
                             entropy = pi_masked.entropy().mean()
+
+                        elif config.env_type.lower() == "rsa_no_mask":
+                            log_prob = pi[0].log_prob(traj_batch.action)
+                            entropy = pi[0].entropy().mean()
 
                         else:
                             raise ValueError(f"Invalid environment type {config.env_type}")
