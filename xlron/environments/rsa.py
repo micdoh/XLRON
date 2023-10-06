@@ -110,7 +110,7 @@ class RSAEnv(environment.Environment):
         state, reward = jax.lax.cond(
             check,  # Fail if true
             lambda x: (undo_link_slot_action(x), self.get_reward_failure(x)),
-            lambda x: (finalise_rsa_action(x), jnp.array(0.0)),  # Finalise actions if complete
+            lambda x: (finalise_rsa_action(x), self.get_reward_success(x)),  # Finalise actions if complete
             state
         )
         # Generate new request
@@ -180,7 +180,11 @@ class RSAEnv(environment.Environment):
 
     def get_reward_failure(self, state: Optional[EnvState] = None) -> chex.Array:
         """Return reward for current state."""
-        return jnp.array(-10.0)
+        return jnp.array(-1.0)
+
+    def get_reward_success(self, state: Optional[EnvState] = None) -> chex.Array:
+        """Return reward for current state."""
+        return jnp.array(1.0)
 
     @property
     def name(self) -> str:
