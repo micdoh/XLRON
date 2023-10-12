@@ -197,6 +197,43 @@ def init_path_link_array(graph, k):
     return jnp.array(paths)
 
 
+def init_path_length_array(path_link_array, graph):
+    """Initialise path length array"""
+    link_lengths = []
+    for edge in sorted(graph.edges):
+        link_lengths.append(graph.edges[edge]["weight"])
+    path_lengths = jnp.dot(path_link_array, jnp.array(link_lengths))
+    return path_lengths
+
+
+def init_modulations_array(modulations_filename):
+    """Initialise array of maximum spectral efficiency for modulation format on path"""
+    path = pathlib.Path(__file__).parents[2].absolute() / "topologies"
+    modulations = np.genfromtxt(path/modulations_filename, delimiter=',')
+    # Drop empty first row (headers) and column (name)
+    modulations = modulations[1:, 1:]
+    return jnp.array(modulations)
+
+
+def init_path_se_array(path_length_array, modulations_array):
+    """Initialise array of maximum spectral efficiency for modulation format on path"""
+    se_list = []
+    # Flip the modulation array so that the shortest path length is first
+    modulations_array = modulations_array[::-1]
+    for length in path_length_array:
+        for modulation in modulations_array:
+            if length <= modulation[0]:
+                se_list.append(modulation[1])
+                break
+    return jnp.array(se_list)
+
+
+@partial(jax.jit, static_argnums=(2,))
+def required_slots(bit_rate, se, channel_width):
+    """Calculate required slots for a given bitrate and spectral efficiency"""
+    return jnp.ceil(bit_rate/(se*channel_width))+1
+
+
 def init_virtual_topology_patterns(pattern_names):
     """Initialise virtual topology patterns"""
     patterns = []
@@ -413,6 +450,48 @@ def get_paths(params, nodes):
     i = get_path_indices(source, dest, params.k_paths, params.num_nodes).astype(jnp.int32)
     index_array = jax.lax.dynamic_slice(jnp.arange(0, params.path_link_array.shape[0]), (i,), (params.k_paths,))
     return jnp.take(params.path_link_array.val, index_array, axis=0)
+
+
+@partial(jax.jit, static_argnums=(1, 2, 3))
+def poisson(key: Union[Array, prng.PRNGKeyArray],
+            lam: ArrayLike,
+            shape: Shape = (),
+            dtype: DTypeLike = dtypes.float_) -> Array:
+    r"""Sample Exponential random values with given shape and float dtype.
+
+    The values are distributed according to the probability density function:
+
+    .. math::
+     f(x) = \lambda e^{-\lambda x}
+
+    on the domain :math:`0 \le x < \infty`.
+
+    Args:
+    key: a PRNG key used as the random key.
+    lam: a positive float32 or float64 `Tensor` indicating the rate parameter
+    shape: optional, a tuple of nonnegative integers representing the result
+      shape. Default ().
+    dtype: optional, a float dtype for the returned values (default float64 if
+      jax_enable_x64 is true, otherwise float32).
+
+    Returns:
+    A random array with the specified shape and dtype.
+    """
+    key, _ = jax._src.random._check_prng_key(key)
+    if not dtypes.issubdtype(dtype, np.floating):
+        raise ValueError(f"dtype argument to `exponential` must be a float "
+                       f"dtype, got {dtype}")
+    dtype = dtypes.canonicalize_dtype(dtype)
+    shape = core.canonicalize_shape(shape)
+    return _poisson(key, lam, shape, dtype)
+
+
+@partial(jax.jit, static_argnums=(1, 2, 3))
+def _poisson(key, lam, shape, dtype) -> Array:
+    jax._src.random._check_shape("exponential", shape)
+    u = jax.random.uniform(key, shape, dtype)
+    # taking 1 - u to move the domain of log to (0, 1] instead of [0, 1)
+    return jax.lax.div(jax.lax.neg(jax.lax.log1p(jax.lax.neg(u))), lam)
 
 
 @partial(jax.jit, static_argnums=(1,))
@@ -833,6 +912,8 @@ def make_graph(topology_name: str = "conus"):
                                                [1, 0, 1, 0],
                                                [0, 1, 0, 1],
                                                [1, 0, 1, 0]]))
+        # Add edge weights to graph
+        nx.set_edge_attributes(graph, {(0, 1): 4, (1, 2): 3, (2, 3): 2, (3, 0): 1}, "weight")
     else:
         # 7 node ring
         graph = nx.from_numpy_array(jnp.array([[0, 1, 0, 0, 0, 0, 1],
@@ -842,6 +923,8 @@ def make_graph(topology_name: str = "conus"):
                                                [0, 0, 0, 1, 0, 1, 0],
                                                [0, 0, 0, 0, 1, 0, 1],
                                                [1, 0, 0, 0, 0, 1, 0]]))
+        # Add edge weights to graph
+        nx.set_edge_attributes(graph, [7, 6, 5, 4, 3, 2, 1], "weight")
     return graph
 
 
@@ -997,45 +1080,3 @@ def mask_nodes(state: EnvState, num_nodes: chex.Scalar) -> EnvState:
         )
     )
     return state
-
-
-@partial(jax.jit, static_argnums=(1, 2, 3))
-def poisson(key: Union[Array, prng.PRNGKeyArray],
-            lam: ArrayLike,
-            shape: Shape = (),
-            dtype: DTypeLike = dtypes.float_) -> Array:
-    r"""Sample Exponential random values with given shape and float dtype.
-
-    The values are distributed according to the probability density function:
-
-    .. math::
-     f(x) = \lambda e^{-\lambda x}
-
-    on the domain :math:`0 \le x < \infty`.
-
-    Args:
-    key: a PRNG key used as the random key.
-    lam: a positive float32 or float64 `Tensor` indicating the rate parameter
-    shape: optional, a tuple of nonnegative integers representing the result
-      shape. Default ().
-    dtype: optional, a float dtype for the returned values (default float64 if
-      jax_enable_x64 is true, otherwise float32).
-
-    Returns:
-    A random array with the specified shape and dtype.
-    """
-    key, _ = jax._src.random._check_prng_key(key)
-    if not dtypes.issubdtype(dtype, np.floating):
-        raise ValueError(f"dtype argument to `exponential` must be a float "
-                       f"dtype, got {dtype}")
-    dtype = dtypes.canonicalize_dtype(dtype)
-    shape = core.canonicalize_shape(shape)
-    return _poisson(key, lam, shape, dtype)
-
-
-@partial(jax.jit, static_argnums=(1, 2, 3))
-def _poisson(key, lam, shape, dtype) -> Array:
-    jax._src.random._check_shape("exponential", shape)
-    u = jax.random.uniform(key, shape, dtype)
-    # taking 1 - u to move the domain of log to (0, 1] instead of [0, 1)
-    return jax.lax.div(jax.lax.neg(jax.lax.log1p(jax.lax.neg(u))), lam)

@@ -739,16 +739,14 @@ class ImplementRsaActionTest(parameterized.TestCase):
         super().setUp()
         self.key, self.env, self.obs, self.state, self.params = rsa_4node_test_setup()
 
-
     @chex.all_variants()
     @parameterized.named_parameters(
-        ('case_base', jnp.array(0), jnp.array([[0,0,0,0], [-1,0,0,0], [0,0,0,0], [0,0,0,0]])),
-        ('case_base_long_path', jnp.array(5), jnp.array([[0,-1,0,0], [0,0,0,0], [0,-1,0,0], [0,-1,0,0]])),
+        ('case_base', jnp.array(0), jnp.array([[-1,0,0,0], [-1,0,0,0], [0,0,0,0], [0,0,0,0]])),
+        ('case_base_long_path', jnp.array(5), jnp.array([[0,0,0,0], [0,0,0,0], [0,-1,0,0], [0,-1,0,0]])),
     )
     def test_implement_rsa_action_slots(self, action, expected):
         updated_state = self.variant(implement_rsa_action, static_argnums=(2,))(self.state, action, self.params)
         chex.assert_trees_all_close(updated_state.link_slot_array, expected)
-
 
     @chex.all_variants()
     @parameterized.named_parameters(
@@ -757,6 +755,11 @@ class ImplementRsaActionTest(parameterized.TestCase):
              [0., 0., 0., 0.],
              [0., 0., 0., 0.],
              [0., 0., 0., 0.],
+             [0., 0., 0., -1.],
+             [0., 0., 0., 0.],
+             [0., 0., 0., 0.],
+             [0., 0., 0., -1.],
+             [0., 0., 0., 0.],
              [0., 0., 0., 0.],
              [0., 0., 0., 0.],
              [0., 0., 0., 0.],
@@ -769,12 +772,6 @@ class ImplementRsaActionTest(parameterized.TestCase):
              [0., 0., 0., -1.],
              [0., 0., 0., 0.],
              [0., 0., 0., -1.],
-             [0., 0., 0., 0.],
-             [0., 0., 0., 0.],
-             [0., 0., 0., 0.],
-             [0., 0., 0., 0.],
-             [0., 0., 0., 0.],
-             [0., 0., 0., 0.],
              [0., 0., 0., 0.],
          ])),
     )
@@ -783,14 +780,13 @@ class ImplementRsaActionTest(parameterized.TestCase):
         updated_state = self.variant(implement_rsa_action, static_argnums=(2,))(state, action, params)
         chex.assert_trees_all_close(updated_state.link_slot_array, expected)
 
-
     @chex.all_variants()
     @parameterized.named_parameters(
         ('case_base', jnp.array(0), jnp.array(
-            [[jnp.inf, jnp.inf, jnp.inf, jnp.inf], [-2, jnp.inf, jnp.inf, jnp.inf],
+            [[-2, jnp.inf, jnp.inf, jnp.inf], [-2, jnp.inf, jnp.inf, jnp.inf],
              [jnp.inf, jnp.inf, jnp.inf, jnp.inf], [jnp.inf, jnp.inf, jnp.inf, jnp.inf]])),
         ('case_base_long_path', jnp.array(5), jnp.array(
-            [[jnp.inf, -2, jnp.inf, jnp.inf], [jnp.inf, jnp.inf, jnp.inf, jnp.inf],
+            [[jnp.inf, jnp.inf, jnp.inf, jnp.inf], [jnp.inf, jnp.inf, jnp.inf, jnp.inf],
              [jnp.inf, -2, jnp.inf, jnp.inf], [jnp.inf, -2, jnp.inf, jnp.inf]])),
 
     )
@@ -1045,7 +1041,7 @@ class FinaliseRsaActionTest(parameterized.TestCase):
 
     @chex.all_variants()
     @parameterized.named_parameters(
-        ('case_pass', jnp.array([[jnp.inf, jnp.inf, jnp.inf, jnp.inf],
+        ('case_pass', jnp.array([[2, jnp.inf, jnp.inf, jnp.inf],
                                  [2, jnp.inf, jnp.inf, jnp.inf],
                                  [jnp.inf, jnp.inf, jnp.inf, jnp.inf],
                                  [jnp.inf, jnp.inf, jnp.inf, jnp.inf]]))
@@ -1124,10 +1120,10 @@ class RsaStepTest(parameterized.TestCase):
     @chex.all_variants()
     @parameterized.named_parameters(
         ("case_success", (jnp.array(0),),
-         jnp.array([0.,  1.,  3., 0.,  0.,  0.,  0.,  -1.,  0.,  0.,  0., 0.,  0.,
+         jnp.array([1.,  1.,  3., -1.,  0.,  0.,  0.,  -1.,  0.,  0.,  0., 0.,  0.,
                     0.,  0.,  0.,  0.,  0.,  0.])),
         ("case_failure", (jnp.array(0), jnp.array(0)),
-         jnp.array([0., 1., 3., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+         jnp.array([1., 1., 3., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
                     0., 0., 0., 0., 0., 0.]))
     )
     def test_rsa_step_obs(self, actions, expected):
@@ -1147,10 +1143,10 @@ class RsaResetTest(parameterized.TestCase):
     @chex.all_variants()
     @parameterized.named_parameters(
         ("case_base",
-         jnp.array([0., 1., 3., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+         jnp.array([1., 1., 3., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
                     0., 0., 0., 0., 0., 0.])),
     )
-    def test_vone_reset_obs(self, expected):
+    def test_rsa_reset_obs(self, expected):
         obs, self.state = self.variant(self.env.reset, static_argnums=(1,))(self.key, self.params)
         chex.assert_trees_all_close(obs, expected)
 
@@ -1459,6 +1455,76 @@ class VoneActionMaskTest(parameterized.TestCase):
         state = self.variant(self.env.action_mask_slots, static_argnums=(1,))(state, self.params, action)
         mask = jnp.concatenate([state.node_mask_s, state.link_slot_mask, state.node_mask_d], axis=0)
         chex.assert_trees_all_close(mask, expected)
+
+
+class InitPathLengthArrayTest(parameterized.TestCase):
+
+    def setUp(self):
+        super().setUp()
+
+    @chex.variants(without_jit=True)
+    @parameterized.named_parameters(
+        ("case_nsfnet", "nsfnet", 1, jnp.array([1900, 6300, 1300, 2700])),
+        ("case_4node", "4node", 1, jnp.array([4, 7, 1, 3]))
+    )
+    def test_init_path_length_array(self, topology_name, k, expected):
+        graph = make_graph(topology_name)
+        path_link_array = init_path_link_array(graph, k)
+        path_length_array = self.variant(init_path_length_array)(path_link_array, graph)
+        chex.assert_trees_all_close(path_length_array[:4], expected)
+
+
+class InitModulationsArrayTest(parameterized.TestCase):
+
+    def setUp(self):
+        super().setUp()
+
+    @chex.variants(without_jit=True)
+    @parameterized.named_parameters(
+        ("case_base", "modulations.csv", jnp.array([[100000.0, 1.0, 12.6, -14.0],
+                                                    [2000.0, 2.0, 12.6, -17.0],
+                                                    [1000.0, 3.0, 18.6, -20.0],
+                                                    [500.0, 4.0, 22.4, -23.0],
+                                                    [250.0, 5.0, 26.4, -26.0],
+                                                    [125.0, 6.0, 30.4, -29.0]])),
+    )
+    def test_init_modulations_array(self, modulations_file, expected):
+        modulations_array = self.variant(init_modulations_array)(modulations_file)
+        chex.assert_trees_all_close(modulations_array, expected)
+
+
+class InitPathSEArrayTest(parameterized.TestCase):
+
+    def setUp(self):
+        super().setUp()
+
+    @chex.variants(without_jit=True)
+    @parameterized.named_parameters(
+        ("case_nsfnet", "nsfnet", 1, jnp.array([2.0, 1.0, 2.0, 1.0])),
+        ("case_4node", "4node", 1, jnp.array([6., 6., 6., 6.]))
+    )
+    def test_init_path_se_array(self, topology_name, k, expected):
+        graph = make_graph(topology_name)
+        path_link_array = init_path_link_array(graph, k)
+        path_length_array = init_path_length_array(path_link_array, graph)
+        modulations_array = init_modulations_array("modulations.csv")
+        path_se_array = self.variant(init_path_se_array)(path_length_array, modulations_array)
+        chex.assert_trees_all_close(path_se_array[:4], expected)
+
+
+class RequiredSlotsTest(parameterized.TestCase):
+    # TODO - why does device fail with this? 12.5 should be an acceptable static arg
+
+    def setUp(self):
+        super().setUp()
+
+    @chex.variants(with_jit=True, without_jit=True)
+    @parameterized.named_parameters(
+        ("case_empty", 100, 2, 12.5, jnp.array([5])),
+    )
+    def test_required_slots(self, bit_rate, se, channel_width, expected):
+        slots = self.variant(required_slots)(bit_rate, se, channel_width)
+        chex.assert_trees_all_close(slots, expected)
 
 
 if __name__ == '__main__':

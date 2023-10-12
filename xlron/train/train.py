@@ -9,6 +9,9 @@ from xlron.environments.env_funcs import *
 from xlron.train.ppo import make_train
 import xlron.train.parameter_flags
 
+# TODO - Write function to profile execution time as a function of num_envs for a single device
+# TODO - Write function to profile execution time as a function of num_envs and num_(emulated)_devices
+
 
 FLAGS = flags.FLAGS
 
