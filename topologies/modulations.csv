@@ -1,0 +1,7 @@
+name,maximum_length,spectral_efficiency,minimum_osnr,inband_xt
+BPSK,100000,1,12.6,-14
+QPSK,2000,2,12.6,-17
+8QAM,1000,3,18.6,-20
+16QAM,500,4,22.4,-23
+32QAM,250,5,26.4,-26
+64QAM,125,6,30.4,-29
