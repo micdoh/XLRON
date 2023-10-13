@@ -1513,7 +1513,8 @@ class InitPathSEArrayTest(parameterized.TestCase):
 
 
 class RequiredSlotsTest(parameterized.TestCase):
-    # TODO - why does device fail with this? 12.5 should be an acceptable static arg
+    # TODO - why does with_device fail with this? 12.5 should be an acceptable static arg
+    #  (probably will disappear when channel_width is moved to params)
 
     def setUp(self):
         super().setUp()
