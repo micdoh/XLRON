@@ -2,7 +2,7 @@ site_name: "XLRON - Accelerated Learning and Resource Allocation for Optical Net
 site_url: https://micdoh.github.io/XLRON/
 theme:
     name: material
-    logo: images/University_College_London_logo.svg
+    logo: images/xlron_nobackground.png
     palette:
       accent: green
       primary: yellow
