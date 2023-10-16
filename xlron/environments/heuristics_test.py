@@ -10,12 +10,6 @@ from xlron.environments.rsa import *
 from xlron.environments.heuristics import *
 from xlron.environments.env_test import *
 
-
-# Set the number of (emulated) host devices
-num_devices = 4
-os.environ['XLA_FLAGS'] = f"--xla_force_host_platform_device_count={num_devices}"
-
-
 class KspffTest(parameterized.TestCase):
 
     def setUp(self):
@@ -24,31 +18,31 @@ class KspffTest(parameterized.TestCase):
 
     @chex.all_variants()
     @parameterized.named_parameters(
-        ("case_empty", jnp.array([0, 1, 1]),
+        ("case_empty", jnp.array([0, 0, 1]),
          jnp.array([[0, 0, 0, 0],
                     [0, 0, 0, 0],
                     [0, 0, 0, 0],
                     [0, 0, 0, 0], ]),
          jnp.array(0)),
-        ("case_full", jnp.array([0, 1, 1]),
+        ("case_full", jnp.array([0, 0, 1]),
          jnp.array([[1, 1, 1, 1],
                     [1, 1, 1, 1],
                     [1, 1, 1, 1],
                     [1, 1, 1, 1], ]),
          jnp.array(0)),
-        ("case_start_edge", jnp.array([0, 1, 1]),
+        ("case_start_edge", jnp.array([0, 0, 1]),
          jnp.array([[0, 1, 1, 1],
                     [0, 1, 1, 1],
                     [0, 1, 1, 1],
                     [0, 1, 1, 1], ]),
          jnp.array(0)),
-        ("case_end_edge", jnp.array([0, 1, 1]),
+        ("case_end_edge", jnp.array([0, 0, 1]),
          jnp.array([[1, 1, 1, 0],
                     [1, 1, 1, 0],
                     [1, 1, 1, 0],
                     [1, 1, 1, 0], ]),
          jnp.array(3)),
-        ("case_ksp", jnp.array([0, 1, 1]),
+        ("case_ksp", jnp.array([0, 0, 1]),
          jnp.array([[1, 1, 1, 0],
                     [0, 0, 0, 1],
                     [0, 0, 0, 1],
@@ -62,7 +56,7 @@ class KspffTest(parameterized.TestCase):
 
     @chex.all_variants()
     @parameterized.named_parameters(
-    ("case_empty", jnp.array([0, 1, 1]),
+    ("case_empty", jnp.array([0, 0, 1]),
      jnp.array([[0, 0, 0, 0],
                 [0, 0, 0, 0],
                 [0, 0, 0, 0],
@@ -86,7 +80,7 @@ class KspffTest(parameterized.TestCase):
                 [0, 0, 0, 0],
                 ]),
      jnp.array(0)),
-    ("case_full", jnp.array([0, 1, 1]),
+    ("case_full", jnp.array([0, 0, 1]),
      jnp.array([[1, 1, 1, 1],
                 [1, 1, 1, 1],
                 [1, 1, 1, 1],
@@ -109,7 +103,7 @@ class KspffTest(parameterized.TestCase):
                 [1, 1, 1, 1],
                 [1, 1, 1, 1], ]),
      jnp.array(0)),
-    ("case_start_edge", jnp.array([0, 1, 1]),
+    ("case_start_edge", jnp.array([0, 0, 1]),
      jnp.array([[0, 1, 1, 1,],
                 [0, 1, 1, 1,],
                 [0, 1, 1, 1,],
@@ -132,7 +126,7 @@ class KspffTest(parameterized.TestCase):
                 [0, 1, 1, 1,],
                 [0, 1, 1, 1,]]),
      jnp.array(0)),
-    ("case_end_edge", jnp.array([0, 1, 1]),
+    ("case_end_edge", jnp.array([0, 0, 1]),
      jnp.array([[1, 1, 1, 0],
                 [1, 1, 1, 0],
                 [1, 1, 1, 0],
@@ -156,7 +150,7 @@ class KspffTest(parameterized.TestCase):
                 [1, 1, 1, 0],
                 ]),
      jnp.array(3)),
-    ("case_ff", jnp.array([0, 1, 1]),
+    ("case_ff", jnp.array([0, 0, 1]),
      jnp.array([[1, 1, 1, 0],
                 [0, 0, 0, 1],
                 [0, 0, 0, 1],
@@ -196,31 +190,31 @@ class FfkspTest(parameterized.TestCase):
 
     @chex.all_variants()
     @parameterized.named_parameters(
-        ("case_empty", jnp.array([0, 1, 1]),
+        ("case_empty", jnp.array([0, 0, 1]),
          jnp.array([[0, 0, 0, 0],
                     [0, 0, 0, 0],
                     [0, 0, 0, 0],
                     [0, 0, 0, 0], ]),
          jnp.array(0)),
-        ("case_full", jnp.array([0, 1, 1]),
+        ("case_full", jnp.array([0, 0, 1]),
          jnp.array([[1, 1, 1, 1],
                     [1, 1, 1, 1],
                     [1, 1, 1, 1],
                     [1, 1, 1, 1], ]),
          jnp.array(0)),
-        ("case_start_edge", jnp.array([0, 1, 1]),
+        ("case_start_edge", jnp.array([0, 0, 1]),
          jnp.array([[0, 1, 1, 1],
                     [0, 1, 1, 1],
                     [0, 1, 1, 1],
                     [0, 1, 1, 1], ]),
          jnp.array(0)),
-        ("case_end_edge", jnp.array([0, 1, 1]),
+        ("case_end_edge", jnp.array([0, 0, 1]),
          jnp.array([[1, 1, 1, 0],
                     [1, 1, 1, 0],
                     [1, 1, 1, 0],
                     [1, 1, 1, 0], ]),
          jnp.array(3)),
-        ("case_ff", jnp.array([0, 1, 1]),
+        ("case_ff", jnp.array([0, 0, 1]),
          jnp.array([[1, 1, 1, 0],
                     [0, 0, 0, 1],
                     [0, 0, 0, 1],
@@ -234,7 +228,7 @@ class FfkspTest(parameterized.TestCase):
 
     @chex.all_variants()
     @parameterized.named_parameters(
-    ("case_empty", jnp.array([0, 1, 1]),
+    ("case_empty", jnp.array([0, 0, 1]),
      jnp.array([[0, 0, 0, 0],
                 [0, 0, 0, 0],
                 [0, 0, 0, 0],
@@ -258,7 +252,7 @@ class FfkspTest(parameterized.TestCase):
                 [0, 0, 0, 0],
                 ]),
      jnp.array(0)),
-    ("case_full", jnp.array([0, 1, 1]),
+    ("case_full", jnp.array([0, 0, 1]),
      jnp.array([[1, 1, 1, 1],
                 [1, 1, 1, 1],
                 [1, 1, 1, 1],
@@ -281,7 +275,7 @@ class FfkspTest(parameterized.TestCase):
                 [1, 1, 1, 1],
                 [1, 1, 1, 1], ]),
      jnp.array(0)),
-    ("case_start_edge", jnp.array([0, 1, 1]),
+    ("case_start_edge", jnp.array([0, 0, 1]),
      jnp.array([[0, 1, 1, 1,],
                 [0, 1, 1, 1,],
                 [0, 1, 1, 1,],
@@ -304,7 +298,7 @@ class FfkspTest(parameterized.TestCase):
                 [0, 1, 1, 1,],
                 [0, 1, 1, 1,]]),
      jnp.array(0)),
-    ("case_end_edge", jnp.array([0, 1, 1]),
+    ("case_end_edge", jnp.array([0, 0, 1]),
      jnp.array([[1, 1, 1, 0],
                 [1, 1, 1, 0],
                 [1, 1, 1, 0],
@@ -328,7 +322,7 @@ class FfkspTest(parameterized.TestCase):
                 [1, 1, 1, 0],
                 ]),
      jnp.array(3)),
-    ("case_ff", jnp.array([0, 1, 1]),
+    ("case_ff", jnp.array([0, 0, 1]),
      jnp.array([[1, 1, 1, 0],
                 [0, 0, 0, 1],
                 [0, 0, 0, 1],
@@ -361,5 +355,8 @@ class FfkspTest(parameterized.TestCase):
 
 
 if __name__ == '__main__':
+    # Set the number of (emulated) host devices
+    num_devices = 4
+    os.environ['XLA_FLAGS'] = f"--xla_force_host_platform_device_count={num_devices}"
     jax.config.update('jax_numpy_rank_promotion', 'raise')
     absltest.main()
