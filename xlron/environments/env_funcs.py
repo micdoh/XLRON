@@ -62,6 +62,8 @@ class EnvParams:
     max_timesteps: chex.Scalar = struct.field(pytree_node=False)
     consecutive_loading: chex.Scalar = struct.field(pytree_node=False)
     edges: chex.Array = struct.field(pytree_node=False)
+    slot_size: chex.Scalar = struct.field(pytree_node=False)
+    consider_modulation_format: chex.Scalar = struct.field(pytree_node=False)
 
 
 class RolloutWrapper(object):
@@ -172,7 +174,7 @@ class TimeIt:
         print(msg)
 
 
-def init_path_link_array(graph, k):
+def init_path_link_array(graph: nx.Graph, k: int) -> chex.Array:
     """Initialise path-link array
     Each path is defined by a link utilisation array. 1 indicates link corrresponding to index is used, 0 indicates not used."""
     def get_k_shortest_paths(g, source, target, k, weight=None):
@@ -197,7 +199,7 @@ def init_path_link_array(graph, k):
     return jnp.array(paths)
 
 
-def init_path_length_array(path_link_array, graph):
+def init_path_length_array(path_link_array: chex.Array, graph: nx.Graph) -> chex.Array:
     """Initialise path length array"""
     link_lengths = []
     for edge in sorted(graph.edges):
@@ -231,7 +233,7 @@ def init_path_se_array(path_length_array, modulations_array):
 @partial(jax.jit, static_argnums=(2,))
 def required_slots(bit_rate, se, channel_width):
     """Calculate required slots for a given bitrate and spectral efficiency"""
-    return jnp.ceil(bit_rate/(se*channel_width))+1
+    return jnp.int32(jnp.ceil(bit_rate/(se*channel_width))+1)
 
 
 def init_virtual_topology_patterns(pattern_names):
@@ -281,6 +283,14 @@ def init_values_nodes(min_value, max_value):
 
 def init_values_slots(min_value, max_value):
     return jnp.arange(min_value, max_value+1)
+
+
+# TODO - allow bandwidths to be selected with a specified probability
+def init_values_bandwidth(min_value=25, max_value=100, step=1, values=None):
+    if values:
+        return jnp.array(values)
+    else:
+        return jnp.arange(min_value, max_value+1, step)
 
 
 @partial(jax.jit, static_argnums=(2, 3))
@@ -388,16 +398,16 @@ def generate_vone_request(key: chex.PRNGKey, state: EnvState, params: EnvParams)
     action_counter = jax.lax.dynamic_slice(pattern, (0,), (3,))
     topology_pattern = jax.lax.dynamic_slice(pattern, (3,), (pattern.shape[0]-3,))
     selected_node_values = jax.random.choice(key_node, state.values_nodes, shape=(shape,))
-    selected_slot_values = jax.random.choice(key_slot, state.values_slots, shape=(shape,))
+    selected_bw_values = jax.random.choice(key_slot, state.values_bw, shape=(shape,))
     # Create a mask for odd and even indices
     mask = jnp.tile(jnp.array([0, 1]), (shape+1) // 2)[:shape]
     # Vectorized conditional replacement using mask
-    first_row = jnp.where(mask, selected_slot_values, selected_node_values)
-    # Make sure node requests are consistent for same virtual nodes
+    first_row = jnp.where(mask, selected_bw_values, selected_node_values)
+    # Make sure node request values are consistent for same virtual nodes
     first_row = jax.lax.fori_loop(
         2,  # Lowest node index in virtual topology requests is 2
         shape,  # Highest possible node index in virtual topology requests is shape-1
-        lambda i, x: jnp.where(topology_pattern == topology_pattern[i], selected_node_values[i], x),
+        lambda i, x: jnp.where(topology_pattern == i, selected_node_values[i], x),
         first_row
     )
     # Mask out unused part of request array
@@ -430,12 +440,12 @@ def generate_rsa_request(key: chex.PRNGKey, state: EnvState, params: EnvParams) 
     nodes = jnp.unravel_index(source_dest_index, shape)
     source, dest = jnp.sort(jnp.stack(nodes))
     # Vectorized conditional replacement using mask
-    slots = jax.random.choice(key_slot, state.values_slots)
+    bw = jax.random.choice(key_slot, state.values_bw)
     arrival_time, holding_time = generate_arrival_holding_times(key_times, params)
     state = state.replace(
         holding_time=holding_time,
         current_time=state.current_time + arrival_time,
-        request_array=jnp.stack((source, slots, dest)),
+        request_array=jnp.stack((source, bw, dest)),
         total_requests=state.total_requests + 1
     )
     state = remove_expired_slot_requests(state) if not params.consecutive_loading else state
@@ -443,13 +453,28 @@ def generate_rsa_request(key: chex.PRNGKey, state: EnvState, params: EnvParams) 
 
 
 @partial(jax.jit, static_argnums=(0,))
-def get_paths(params, nodes):
-    """Get k paths between source and destination"""
+def get_path_index_array(params, nodes):
+    """Indices of paths between source and destination from path array"""
     # get source and destination nodes in order (for accurate indexing of path-link array)
     source, dest = jnp.sort(nodes)
     i = get_path_indices(source, dest, params.k_paths, params.num_nodes).astype(jnp.int32)
     index_array = jax.lax.dynamic_slice(jnp.arange(0, params.path_link_array.shape[0]), (i,), (params.k_paths,))
+    return index_array
+
+
+@partial(jax.jit, static_argnums=(0,))
+def get_paths(params, nodes):
+    """Get k paths between source and destination"""
+    index_array = get_path_index_array(params, nodes)
     return jnp.take(params.path_link_array.val, index_array, axis=0)
+
+
+@partial(jax.jit, static_argnums=(0,))
+def get_paths_se(params, nodes):
+    """Get max. spectral efficiency of modulation format on k paths between source and destination"""
+    # get source and destination nodes in order (for accurate indexing of path-link array)
+    index_array = get_path_index_array(params, nodes)
+    return jnp.take(params.path_se_array.val, index_array, axis=0)
 
 
 @partial(jax.jit, static_argnums=(1, 2, 3))
@@ -618,7 +643,7 @@ def undo_node_action(state):
 
 
 def undo_link_slot_action(state):
-    mask = jnp.where(state.link_slot_departure_array < 0, 1, 0)
+    mask = jnp.where(state.link_slot_array < 0, 1, 0)
     state = state.replace(
         link_slot_array=jnp.where(mask == 1, 0, state.link_slot_array),
         link_slot_departure_array=jnp.where(mask == 1, jnp.inf, state.link_slot_departure_array)
@@ -786,16 +811,25 @@ def implement_vone_action(
     """
     request = jax.lax.dynamic_slice(state.request_array[0], ((remaining_actions-1)*2, ), (3, ))
     node_request_s = jax.lax.dynamic_slice(request, (2, ), (1, ))
-    num_slots = jax.lax.dynamic_slice(request, (1,), (1,))
+    bw_request = jax.lax.dynamic_slice(request, (1,), (1,))
     node_request_d = jax.lax.dynamic_slice(request, (0, ), (1, ))
     nodes = action[::2]
     path_index = jnp.floor(action[1] / params.link_resources).astype(jnp.int32)
     initial_slot_index = jnp.mod(action[1], params.link_resources)
     path = get_paths(params, nodes)[path_index]
-    #jax.debug.print("path {}", path, ordered=True)
-    #jax.debug.print("slots {}", jnp.max(jnp.where(path.reshape(-1,1) == 1, state.link_slot_array, jnp.zeros(params.num_links).reshape(-1,1)), axis=0), ordered=True)
-    #jax.debug.print("path_index {}", path_index, ordered=True)
-    #jax.debug.print("initial_slot_index {}", initial_slot_index, ordered=True)
+    se = get_paths_se(params, nodes)[path_index] if params.consider_modulation_format else jnp.array([1])
+    num_slots = required_slots(bw_request, se, params.slot_size)
+
+    # jax.debug.print("state.request_array {}", state.request_array, ordered=True)
+    # jax.debug.print("path {}", path, ordered=True)
+    # jax.debug.print("slots {}", jnp.max(jnp.where(path.reshape(-1,1) == 1, state.link_slot_array, jnp.zeros(params.num_links).reshape(-1,1)), axis=0), ordered=True)
+    # jax.debug.print("path_index {}", path_index, ordered=True)
+    # jax.debug.print("initial_slot_index {}", initial_slot_index, ordered=True)
+    # jax.debug.print("bw_request {}", bw_request, ordered=True)
+    # jax.debug.print("request {}", request, ordered=True)
+    # jax.debug.print("se {}", se, ordered=True)
+    # jax.debug.print("num_slots {}", num_slots, ordered=True)
+
     n_nodes = jax.lax.cond(
         total_actions == remaining_actions,
         lambda x: 2, lambda x: 1,
@@ -830,12 +864,14 @@ def implement_rsa_action(
         state: updated state
     """
     node_s = jax.lax.dynamic_slice(state.request_array, (0, ), (1, ))
-    num_slots = jax.lax.dynamic_slice(state.request_array, (1, ), (1, ))
+    bw_request = jax.lax.dynamic_slice(state.request_array, (1, ), (1, ))
     node_d = jax.lax.dynamic_slice(state.request_array, (2, ), (1, ))
     nodes_sd = jnp.concatenate((node_s, node_d))
     path_index = jnp.floor(action / params.link_resources).astype(jnp.int32)
     initial_slot_index = jnp.mod(action, params.link_resources)
     path = get_paths(params, nodes_sd)[path_index]
+    se = get_paths_se(params, nodes_sd)[path_index] if params.consider_modulation_format else 1
+    num_slots = required_slots(bw_request, se, params.slot_size)
     state = implement_path_action(state, path, initial_slot_index, num_slots)
     return state
 
@@ -924,7 +960,7 @@ def make_graph(topology_name: str = "conus"):
                                                [0, 0, 0, 0, 1, 0, 1],
                                                [1, 0, 0, 0, 0, 1, 0]]))
         # Add edge weights to graph
-        nx.set_edge_attributes(graph, [7, 6, 5, 4, 3, 2, 1], "weight")
+        nx.set_edge_attributes(graph, {(0, 1): 4, (1, 2): 3, (2, 3): 2, (3, 4): 1, (4, 5): 2, (5, 6): 3, (6, 0): 4}, "weight")
     return graph
 
 
@@ -937,17 +973,12 @@ def mask_slots(state: EnvState, params: EnvParams, request: chex.Array) -> EnvSt
     2. For each path, mask out (0) initial slots that are not valid
     """
     node_s = jax.lax.dynamic_slice(request, (0,), (1,))
-    requested_slots = jax.lax.dynamic_slice(request, (1,), (1,))
+    requested_bw = jax.lax.dynamic_slice(request, (1,), (1,))
     node_d = jax.lax.dynamic_slice(request, (2,), (1,))
     nodes_sd = jnp.concatenate((node_s, node_d), axis=0)
     init_mask = jnp.zeros((params.link_resources * params.k_paths))
-    # Get mask used to check if request will fit slots
-    request_mask = jax.lax.dynamic_update_slice(
-        jnp.zeros(params.max_slots*2), jnp.ones(params.max_slots), params.max_slots-requested_slots
-    )
-    # Then cut in half and flip
-    request_mask = jnp.flip(jax.lax.dynamic_slice(request_mask, (0,), (params.max_slots,)), axis=0)
 
+    # TODO - check this still works with params.max_slots now using bandwidth and mod. format
     def mask_path(i, mask):
         # Path consists of binary array indicating link indices used in path
         path = get_paths(params, nodes_sd)[i]
@@ -958,6 +989,15 @@ def mask_slots(state: EnvState, params: EnvParams, request: chex.Array) -> EnvSt
         slots = jnp.max(jnp.absolute(slots), axis=0)
         # Add padding to slots at end
         slots = jnp.concatenate((slots, jnp.ones(params.max_slots)))
+        # Convert bandwidth to slots for each path
+        spectral_efficiency = get_paths_se(params, nodes_sd)[i] if params.consider_modulation_format else 1
+        requested_slots = required_slots(requested_bw, spectral_efficiency, params.slot_size)
+        # Get mask used to check if request will fit slots
+        request_mask = jax.lax.dynamic_update_slice(
+            jnp.zeros(params.max_slots * 2), jnp.ones(params.max_slots), params.max_slots - requested_slots
+        )
+        # Then cut in half and flip
+        request_mask = jnp.flip(jax.lax.dynamic_slice(request_mask, (0,), (params.max_slots,)), axis=0)
 
         def check_slots_available(j, val):
             # Multiply through by request mask to check if slots available

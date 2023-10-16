@@ -8,7 +8,8 @@ from gymnax.environments import environment, spaces
 from xlron.environments.env_funcs import (
     HashableArrayWrapper, EnvState, EnvParams, init_rsa_request_array, init_link_slot_array, init_path_link_array,
     init_values_slots, init_link_slot_mask, init_link_slot_departure_array, init_traffic_matrix, implement_rsa_action,
-    check_rsa_action, undo_link_slot_action, finalise_rsa_action, generate_rsa_request, mask_slots, make_graph
+    check_rsa_action, undo_link_slot_action, finalise_rsa_action, generate_rsa_request, mask_slots, make_graph,
+    init_path_length_array, init_modulations_array, init_path_se_array, required_slots, init_values_bandwidth
 )
 
 
@@ -19,7 +20,7 @@ class RSAEnvState(EnvState):
     link_slot_departure_array: chex.Array
     link_slot_mask: chex.Array
     traffic_matrix: chex.Array
-    values_slots: chex.Array
+    values_bw: chex.Array
 
 
 @struct.dataclass
@@ -31,15 +32,19 @@ class RSAEnvParams(EnvParams):
     mean_service_holding_time: chex.Scalar = struct.field(pytree_node=False)
     load: chex.Scalar = struct.field(pytree_node=False)
     arrival_rate: chex.Scalar = struct.field(pytree_node=False)
-    min_slots: chex.Scalar = struct.field(pytree_node=False)
-    max_slots: chex.Scalar = struct.field(pytree_node=False)
     path_link_array: chex.Array = struct.field(pytree_node=False)
     uniform_traffic: bool = struct.field(pytree_node=False)
+    max_slots: chex.Scalar = struct.field(pytree_node=False)
+    path_se_array: chex.Array = struct.field(pytree_node=False)
 
 
 class RSAEnv(environment.Environment):
-    """Jittable abstract base class for all gymnax Environments."""
-    def __init__(self, key: chex.PRNGKey, params: RSAEnvParams):
+    """Jittable abstract base class for all gymnax Environments.
+    This environment simulates the Routing Modulation and Spectrum Assignment (RMSA) problem.
+    It can model RSA by setting consider_modulation_format=False in params.
+    It can model RWA by setting min_bw=0, max_bw=0, and consider_modulation_format=False in params.
+    """
+    def __init__(self, key: chex.PRNGKey, params: RSAEnvParams, values_bw: chex.Array = jnp.array([0])):
         super().__init__()
         self.initial_state = RSAEnvState(
             current_time=0,
@@ -51,7 +56,7 @@ class RSAEnv(environment.Environment):
             request_array=init_rsa_request_array(),
             link_slot_mask=init_link_slot_mask(params),
             traffic_matrix=init_traffic_matrix(key, params),
-            values_slots=init_values_slots(params.min_slots, params.max_slots),
+            values_bw=values_bw,
         )
 
     @partial(jax.jit, static_argnums=(0, 4))
@@ -107,6 +112,8 @@ class RSAEnv(environment.Environment):
         state = implement_rsa_action(state, action, params)
         # Check if action was valid, calculate reward
         check = check_rsa_action(state)
+        jax.debug.print("check: {}", check, ordered=True)
+        jax.debug.print("link_slot_array: {}", state.link_slot_array, ordered=True)
         state, reward = jax.lax.cond(
             check,  # Fail if true
             lambda x: (undo_link_slot_action(x), self.get_reward_failure(x)),
@@ -114,13 +121,16 @@ class RSAEnv(environment.Environment):
             state
         )
         # Generate new request
+        jax.debug.print("state.request_array: {}", state.request_array, ordered=True)
         state = generate_rsa_request(key, state, params)
+        jax.debug.print("state.request_array: {}", state.request_array, ordered=True)
         state = state.replace(total_timesteps=state.total_timesteps + 1)
         # Terminate if max_timesteps or max_requests exceeded or, if consecutive loading,
         # then terminate if reward is failure but not before min number of timesteps before update
         done = self.is_terminal(state, params) \
             if not params.consecutive_loading else jnp.array(reward == self.get_reward_failure())
         info = {}
+        jax.debug.print("link_slot_array: {}", state.link_slot_array, ordered=True)
         return self.get_obs(state), state, reward, done, info
 
     @partial(jax.jit, static_argnums=(0, 2,))
@@ -224,20 +234,8 @@ class RSAEnv(environment.Environment):
         return make_rsa_env()[1]
 
 
-def make_rsa_env(
-        k: int = 5,
-        load: float = 100.0,
-        topology_name: str = "conus",
-        mean_service_holding_time: float = 10.0,
-        link_resources: int = 100,
-        max_requests: int = 1e4,
-        max_timesteps: int = 1e4,
-        min_slots: int = 1,
-        max_slots: int = 2,
-        seed: int = 0,
-        consecutive_loading: bool = False,
-        uniform_traffic: bool = False,
-):
+# TODO - make this like make_vone_env
+def make_rsa_env(config):
     """Create RSA environment.
     Args:
         k: number of paths to consider
@@ -253,12 +251,52 @@ def make_rsa_env(
         env: RSA environment
         params: RSA environment parameters
     """
+    seed = config.get("seed", 0)
+    topology_name = config.get("topology_name", "conus")
+    load = config.get("load", 100)
+    k = config.get("k", 5)
+    mean_service_holding_time = config.get("mean_service_holding_time", 10)
+    consecutive_loading = config.get("consecutive_loading", False)
+    uniform_traffic = config.get("uniform_traffic", True)
+    max_requests = config.get("max_requests", 1e4)
+    max_timesteps = config.get("max_timesteps", 1e4)
+    link_resources = config.get("link_resources", 100)
+    values_bw = config.get("values_bw", None)
+    slot_size = config.get("slot_size", 12.5)
+    min_bw = config.get("min_bw", 25)
+    max_bw = config.get("max_bw", 100)
+    step_bw = config.get("step_bw", 25)
+
     rng = jax.random.PRNGKey(seed)
     rng, _, _, _, _ = jax.random.split(rng, 5)
     graph = make_graph(topology_name)
     arrival_rate = load / mean_service_holding_time
     num_nodes = len(graph.nodes)
     num_links = len(graph.edges)
+    path_link_array = init_path_link_array(graph, k)
+
+    values_bw = init_values_bandwidth(min_bw, max_bw, step_bw, values_bw)
+
+    if config.get("env_type", "").lower()[:3] == "rsa":
+        consider_modulation_format = False
+    elif config.get("env_type", "").lower()[:3] == "rwa":
+        values_bw = jnp.array([0])
+        consider_modulation_format = False
+    else:
+        consider_modulation_format = True
+
+    max_bw = max(values_bw)
+
+    # Automated calculation of max slots requested
+    if consider_modulation_format:
+        path_length_array = init_path_length_array(path_link_array, graph)
+        modulations_array = init_modulations_array(config.get("modulations_file", "modulations.csv"))
+        path_se_array = init_path_se_array(path_length_array, modulations_array)
+        min_se = min(path_se_array)  # if consider_modulation_format
+        max_slots = required_slots(max_bw, min_se, slot_size)
+    else:
+        path_se_array = jnp.array([1])
+        max_slots = required_slots(max_bw, 1, slot_size)
 
     if consecutive_loading:
         mean_service_holding_time = load = 1e6
@@ -276,14 +314,16 @@ def make_rsa_env(
         num_links=num_links,
         load=load,
         arrival_rate=arrival_rate,
-        min_slots=min_slots,
-        max_slots=max_slots,
-        path_link_array=HashableArrayWrapper(init_path_link_array(graph, k)),
+        path_link_array=HashableArrayWrapper(path_link_array),
         consecutive_loading=consecutive_loading,
         edges=HashableArrayWrapper(edges),
         uniform_traffic=uniform_traffic,
+        path_se_array=HashableArrayWrapper(path_se_array),
+        max_slots=int(max_slots),
+        consider_modulation_format=consider_modulation_format,
+        slot_size=slot_size,
     )
 
-    env = RSAEnv(rng, params)
+    env = RSAEnv(rng, params, values_bw=values_bw)
 
     return env, params

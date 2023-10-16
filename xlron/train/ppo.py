@@ -90,27 +90,11 @@ def make_train(config):
     MINIBATCH_SIZE = (
         config.NUM_ENVS * config.NUM_STEPS // config.NUM_MINIBATCHES
     )
-    #
-    env_params = {
-        "k": config.k,
-        "load": config.load,
-        "topology_name": config.topology_name,
-        "mean_service_holding_time": config.mean_service_holding_time,
-        "link_resources": config.link_resources,
-        "max_requests": config.max_requests,
-        "max_timesteps": config.max_timesteps,
-        "min_slots": config.min_slots,
-        "max_slots": config.max_slots,
-        "consecutive_loading": config.consecutive_loading,
-    }
+    config_dict = {k: v.value for k, v in config.__flags.items()}
     if config.env_type.lower() == "vone":
-        env_params["virtual_topologies"] = config.virtual_topologies
-        env_params["min_node_resources"] = config.min_node_resources
-        env_params["max_node_resources"] = config.max_node_resources
-        env_params["node_resources"] = config.node_resources
-        env, env_params = make_vone_env(**env_params)
-    elif config.env_type.lower()[:3] == "rsa":
-        env, env_params = make_rsa_env(**env_params)
+        env, env_params = make_vone_env(config_dict)
+    elif config.env_type.lower()[:3] in ["rsa", "rms", "rwa"]:
+        env, env_params = make_rsa_env(config_dict)
     else:
         raise ValueError(f"Invalid environment type {config.env_type}")
     env = LogWrapper(env)

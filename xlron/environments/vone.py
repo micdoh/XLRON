@@ -7,11 +7,12 @@ import jax.numpy as jnp
 from gymnax.environments import environment, spaces
 from xlron.environments.env_funcs import (
     HashableArrayWrapper, EnvState, EnvParams, init_vone_request_array, init_link_slot_array, init_path_link_array,
-    init_values_slots, init_link_slot_mask, init_link_slot_departure_array, implement_vone_action,
+    init_values_bandwidth, init_link_slot_mask, init_link_slot_departure_array, implement_vone_action,
     check_vone_action, undo_link_slot_action, finalise_vone_action, generate_vone_request, mask_slots, make_graph,
     init_node_capacity_array, init_node_mask, init_node_resource_array, init_node_departure_array, init_values_nodes,
     init_action_counter, init_action_history, update_action_history, decrease_last_element, undo_node_action,
-    init_virtual_topology_patterns, mask_nodes
+    init_virtual_topology_patterns, mask_nodes, init_path_length_array, init_path_se_array, init_modulations_array,
+    required_slots
 )
 
 
@@ -30,7 +31,7 @@ class VONEEnvState(EnvState):
     node_mask_d: chex.Array
     virtual_topology_patterns: chex.Array
     values_nodes: chex.Array
-    values_slots: chex.Array
+    values_bw: chex.Array
 
 
 @struct.dataclass
@@ -44,17 +45,17 @@ class VONEEnvParams(EnvParams):
     mean_service_holding_time: chex.Scalar = struct.field(pytree_node=False)
     arrival_rate: chex.Scalar = struct.field(pytree_node=False)
     max_edges: chex.Scalar = struct.field(pytree_node=False)
-    min_slots: chex.Scalar = struct.field(pytree_node=False)
-    max_slots: chex.Scalar = struct.field(pytree_node=False)
     min_node_resources: chex.Scalar = struct.field(pytree_node=False)
     max_node_resources: chex.Scalar = struct.field(pytree_node=False)
     path_link_array: chex.Array = struct.field(pytree_node=False)
+    max_slots: chex.Scalar = struct.field(pytree_node=False)
+    path_se_array: chex.Array = struct.field(pytree_node=False)
     # TODO - Add Laplacian matrix (for node heuristics and might be useful for GNNs)
 
 
 class VONEEnv(environment.Environment):
     """Jittable abstract base class for all gymnax Environments."""
-    def __init__(self, params: VONEEnvParams, virtual_topologies=["3_ring"]):
+    def __init__(self, params: VONEEnvParams, virtual_topologies=["3_ring"], values_bw: chex.Array = jnp.array([0])):
         super().__init__()
         self.initial_state = VONEEnvState(
             current_time=0,
@@ -74,7 +75,7 @@ class VONEEnv(environment.Environment):
             node_mask_d=init_node_mask(params),
             virtual_topology_patterns=init_virtual_topology_patterns(virtual_topologies),
             values_nodes=init_values_nodes(params.min_node_resources, params.max_node_resources),
-            values_slots=init_values_slots(params.min_slots, params.max_slots),
+            values_bw=values_bw,
         )
 
     @partial(jax.jit, static_argnums=(0, 4))
@@ -289,51 +290,56 @@ class VONEEnv(environment.Environment):
         return make_vone_env()[1]
 
 
-def make_vone_env(
-        k: int = 5,
-        load: float = 100.0,
-        topology_name: str = "conus",
-        mean_service_holding_time: float = 10.0,
-        node_resources: int = 30,
-        link_resources: int = 100,
-        max_requests: int = 1e4,
-        max_timesteps: int = 3e4,
-        virtual_topologies: [str] = ["3_ring"],  # virtual topologies to use
-        min_slots: int = 1,
-        max_slots: int = 2,
-        min_node_resources: int = 1,
-        max_node_resources: int = 2,
-        consecutive_loading: bool = False,
-):
+def make_vone_env(config):
     """Create VONE environment.
     Args:
-        k: number of paths to consider
-        load: load in Erlangs
-        topology_name: name of topology to use
-        mean_service_holding_time: mean holding time of fulfilled request
-        node_resources: number of resources per node
-        link_resources: number of resources per link
-        max_requests: maximum number of requests
-        virtual_topologies: virtual topologies to use
-        min_slots: minimum number of slots per link
-        max_slots: maximum number of slots per link
-        min_node_resources: minimum number of resources per node
-        max_node_resources: maximum number of resources per node
-        consecutive_loading: whether to use consecutive loading
+        config: Configuration dictionary
     Returns:
         env: VONE environment
         params: VONE environment parameters
     """
-    graph = make_graph(topology_name)
+    graph = make_graph(config.get("topology_name", "conus"))
+    load = config.get("load", 100.0)
+    mean_service_holding_time = config.get("mean_service_holding_time", 10.0)
     arrival_rate = load / mean_service_holding_time
+    consecutive_loading = config.get("consecutive_loading", False)
+    max_requests = config.get("max_requests", 1e4)
+    max_timesteps = config.get("max_timesteps", 1e4)
+    link_resources = config.get("link_resources", 100)
+    node_resources = config.get("node_resources", 30)
+    min_node_resources = config.get("min_node_resources", 1)
+    max_node_resources = config.get("max_node_resources", 2)
+    k = config.get("k", 5)
+    min_bw = config.get("min_bw", 25)
+    max_bw = config.get("max_bw", 100)
+    step_bw = config.get("step_bw", 25)
+    virtual_topologies = config.get("virtual_topologies", ["3_ring"])
+    slot_size = config.get("slot_size", 12.5)
+    consider_modulation_format = config.get("consider_modulation_format", False)
+    values_bw = config.get("values_bw", None)
     num_nodes = len(graph.nodes)
     num_links = len(graph.edges)
+    path_link_array = init_path_link_array(graph, k)
 
     # Automated calculation of max edges in virtual topologies
     max_edges = 0
     for topology in virtual_topologies:
         num, shape = topology.split("_")
         max_edges = max(max_edges, int(num) - (0 if shape == "ring" else 1))
+
+    values_bw = init_values_bandwidth(min_bw, max_bw, step_bw, values_bw)
+    max_bw = max(values_bw)
+
+    # Automated calculation of max slots requested
+    if consider_modulation_format:
+        path_length_array = init_path_length_array(path_link_array, graph)
+        modulations_array = init_modulations_array(config.get("modulations_file", "modulations.csv"))
+        path_se_array = init_path_se_array(path_length_array, modulations_array)
+        min_se = min(path_se_array)  # if consider_modulation_format
+        max_slots = required_slots(max_bw, min_se, slot_size)
+    else:
+        path_se_array = jnp.array([1])
+        max_slots = required_slots(max_bw, 1, slot_size)
 
     if consecutive_loading:
         mean_service_holding_time = load = 1e6
@@ -366,15 +372,17 @@ def make_vone_env(
         load=load,
         arrival_rate=arrival_rate,
         max_edges=max_edges,
-        min_slots=min_slots,
-        max_slots=max_slots,
         min_node_resources=min_node_resources,
         max_node_resources=max_node_resources,
-        path_link_array=HashableArrayWrapper(init_path_link_array(graph, k)),
+        path_link_array=HashableArrayWrapper(path_link_array),
         consecutive_loading=consecutive_loading,
         edges=HashableArrayWrapper(edges),
+        path_se_array=HashableArrayWrapper(path_se_array),
+        max_slots=int(max_slots),
+        consider_modulation_format=consider_modulation_format,
+        slot_size=slot_size,
     )
 
-    env = VONEEnv(params, virtual_topologies=virtual_topologies)
+    env = VONEEnv(params, virtual_topologies=virtual_topologies, values_bw=values_bw)
 
     return env, params
