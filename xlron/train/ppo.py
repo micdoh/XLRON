@@ -130,7 +130,7 @@ def make_train(config):
                                   activation=config.ACTIVATION,
                                   num_layers=config.NUM_LAYERS,
                                   num_units=config.NUM_UNITS)
-        elif config.env_type.lower()[:3] == "rsa":
+        elif config.env_type.lower()[:3] in ["rsa", "rms", "rwa"]:
             network = ActorCritic([env.action_space(env_params).n],
                                   activation=config.ACTIVATION,
                                   num_layers=config.NUM_LAYERS,
@@ -195,7 +195,7 @@ def make_train(config):
 
                     log_prob = log_prob_dest + log_prob_path + log_prob_source
 
-                elif config.env_type.lower() == "rsa":
+                elif config.env_type.lower()[:3] in ["rsa", "rms", "rwa"]:
                     vmap_mask_slots = jax.vmap(env.action_mask, in_axes=(0, None))
                     env_state = env_state.replace(env_state=vmap_mask_slots(env_state.env_state, env_params))
                     pi_masked = distrax.Categorical(logits=jnp.where(env_state.env_state.link_slot_mask, pi[0]._logits, -1e8))
@@ -300,7 +300,7 @@ def make_train(config):
                             log_prob = log_prob_source + log_prob_path + log_prob_dest
                             entropy = pi_source.entropy().mean() + pi_path.entropy().mean() + pi_dest.entropy().mean()
 
-                        elif config.env_type.lower() == "rsa":
+                        elif config.env_type.lower()[0:3] in ["rsa", "rms", "rwa"]:
                             pi_masked = distrax.Categorical(logits=jnp.where(traj_batch.action_mask, pi[0]._logits, -1e8))
                             log_prob = pi_masked.log_prob(traj_batch.action)
                             entropy = pi_masked.entropy().mean()
