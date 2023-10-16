@@ -112,8 +112,6 @@ class RSAEnv(environment.Environment):
         state = implement_rsa_action(state, action, params)
         # Check if action was valid, calculate reward
         check = check_rsa_action(state)
-        jax.debug.print("check: {}", check, ordered=True)
-        jax.debug.print("link_slot_array: {}", state.link_slot_array, ordered=True)
         state, reward = jax.lax.cond(
             check,  # Fail if true
             lambda x: (undo_link_slot_action(x), self.get_reward_failure(x)),
@@ -121,16 +119,13 @@ class RSAEnv(environment.Environment):
             state
         )
         # Generate new request
-        jax.debug.print("state.request_array: {}", state.request_array, ordered=True)
         state = generate_rsa_request(key, state, params)
-        jax.debug.print("state.request_array: {}", state.request_array, ordered=True)
         state = state.replace(total_timesteps=state.total_timesteps + 1)
         # Terminate if max_timesteps or max_requests exceeded or, if consecutive loading,
         # then terminate if reward is failure but not before min number of timesteps before update
         done = self.is_terminal(state, params) \
             if not params.consecutive_loading else jnp.array(reward == self.get_reward_failure())
         info = {}
-        jax.debug.print("link_slot_array: {}", state.link_slot_array, ordered=True)
         return self.get_obs(state), state, reward, done, info
 
     @partial(jax.jit, static_argnums=(0, 2,))
