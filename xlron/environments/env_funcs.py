@@ -634,7 +634,7 @@ def update_node_array(node_indices, array, node, request):
 
 def undo_node_action(state):
     """If the request is unsuccessful i.e. checks fail, then remove the partial resource allocation"""
-    # TODO - what if node_resource_array slot was already occupied?
+    # TODO - Check that node resource clash doesn't happen and undoing always succeeds with negative time
     # TDOD - what if time in node_departure is > 0 because original departure time in the slot was greater than replacement?
     mask = jnp.where(state.node_departure_array < 0, 1, 0)
     resources = jnp.sum(jnp.where(mask == 1, state.node_resource_array, 0), axis=1)
@@ -907,7 +907,6 @@ def finalise_vone_action(state):
     return state
 
 
-# TODO - check that finalise RSA action works correctly
 def finalise_rsa_action(state):
     """Turn departure times positive"""
     state = state.replace(
