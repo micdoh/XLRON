@@ -634,8 +634,8 @@ def update_node_array(node_indices, array, node, request):
 
 def undo_node_action(state):
     """If the request is unsuccessful i.e. checks fail, then remove the partial resource allocation"""
-    # TODO - Check that node resource clash doesn't happen and undoing always succeeds with negative time
-    # TDOD - what if time in node_departure is > 0 because original departure time in the slot was greater than replacement?
+    # TODO - Check that node resource clash doesn't happen (so time is always negative after implementation)
+    #  and undoing always succeeds with negative time
     mask = jnp.where(state.node_departure_array < 0, 1, 0)
     resources = jnp.sum(jnp.where(mask == 1, state.node_resource_array, 0), axis=1)
     state = state.replace(
