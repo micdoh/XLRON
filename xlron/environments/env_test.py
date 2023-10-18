@@ -18,6 +18,11 @@ from xlron.environments.vone import *
 from xlron.environments.rsa import *
 
 
+# Set CPU devices for all tests with --chex_n_cpu_devices N
+def setUpModule():
+    chex.set_n_cpu_devices()
+
+
 def keys_test_setup():
     rng = jax.random.PRNGKey(0)  # N.B. all test rely on 0 seed for reproducibility
     rng, key_init, key_reset, key_policy, key_step = jax.random.split(rng, 5)
@@ -35,9 +40,22 @@ def settings_vone_4node():
                 values_bw=[0], slot_size=1)
 
 
+def settings_vone_4node_mod():
+    return dict(load=100, k=2, topology_name="4node", link_resources=4, max_requests=10, mean_service_holding_time=10,
+                node_resources=4, virtual_topologies=["3_ring"], min_node_resources=1, max_node_resources=1,
+                env_type="rmsa")
+
+
 def vone_4node_test_setup():
     key = jax.random.PRNGKey(0)
     env, params = make_vone_env(settings_vone_4node())
+    obs, state = env.reset(key, params)
+    return key, env, obs, state, params
+
+
+def vone_4node_mod_test_setup():
+    key = jax.random.PRNGKey(0)
+    env, params = make_vone_env(settings_vone_4node_mod())
     obs, state = env.reset(key, params)
     return key, env, obs, state, params
 
@@ -49,6 +67,16 @@ def vone_nsfnet_16_test_setup():
                                    mean_service_holding_time=10, node_resources=4, virtual_topologies=["3_ring"],
                                    min_node_resources=1, max_node_resources=2)
     env, params = make_vone_env(settings_vone_nsfnet_16)
+    obs, state = env.reset(key, params)
+    return key, env, obs, state, params
+
+
+def vone_nsfnet_16_mod_test_setup():
+    key = jax.random.PRNGKey(0)
+    settings_vone_nsfnet_16_mod = dict(load=100, k=5, topology_name="nsfnet", link_resources=16, max_requests=10,
+                                   mean_service_holding_time=10, node_resources=4, virtual_topologies=["3_ring"],
+                                   min_node_resources=1, max_node_resources=2, consider_modulation_format=True)
+    env, params = make_vone_env(settings_vone_nsfnet_16_mod)
     obs, state = env.reset(key, params)
     return key, env, obs, state, params
 
@@ -77,6 +105,16 @@ def rsa_nsfnet_16_test_setup():
     env, params = make_rsa_env(settings_rsa_nsfnet_16)
     obs, state = env.reset(key, params)
     return key, env, obs, state, params
+
+
+def rsa_nsfnet_16_mod_test_setup():
+    key = jax.random.PRNGKey(0)
+    settings_rsa_nsfnet_16_mod = dict(load=100, k=5, topology_name="nsfnet", link_resources=16, max_requests=10,
+                                  consider_modulation_format=True, slot_size=12.5, mean_service_holding_time=10)
+    env, params = make_rsa_env(settings_rsa_nsfnet_16_mod)
+    obs, state = env.reset(key, params)
+    return key, env, obs, state, params
+
 
 
 def rsa_nsfnet_4_test_setup():
@@ -193,17 +231,17 @@ class GetPathsTest(parameterized.TestCase):
     @chex.all_variants()
     @parameterized.named_parameters(
         ('case_01', jnp.array([0, 1]),
-         jnp.array([[1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, ],
-                    [0, 1, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, ],
-                    [0, 0, 1, 1, 0, 1, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, ],
-                    [0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, ],
-                    [0, 0, 1, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, ], ])),
+         jnp.array([[1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 1, 0, 1, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 1, 0, 0, 1, 1, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 1, 1, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0], ])),
         ('case_12', jnp.array([1, 2]),
-         jnp.array([[0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, ],
-                    [1, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, ],
-                    [0, 0, 0, 0, 1, 1, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, ],
-                    [1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, ],
-                    [0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 1, ],])),
+         jnp.array([[0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 1, 1, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 0, 1, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 1, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0],])),
     )
     def test_get_paths_nsfnet(self, nodes, expected):
         self.key, self.env, self.obs, self.state, self.params = vone_nsfnet_16_test_setup()
@@ -464,7 +502,7 @@ class RemoveExpiredSlotRequestsTest(parameterized.TestCase):
         self.state = self.state.replace(
             link_slot_array=vmap_update_path_links(self.state.link_slot_array, path, initial_slot_index, num_slots, 1),
             link_slot_departure_array=vmap_update_path_links_departure(self.state.link_slot_departure_array, path, initial_slot_index,
-                                                             num_slots, self.state.current_time + self.state.holding_time)
+                                                             num_slots, -self.state.current_time - self.state.holding_time)
         )
 
     @chex.all_variants()
@@ -473,12 +511,16 @@ class RemoveExpiredSlotRequestsTest(parameterized.TestCase):
     )
     def test_remove_expired_slot_requests(self, expected):
         state = self.state.replace(current_time=10e4)
+        jax.debug.print('departure {}', state.link_slot_departure_array, ordered=True)
+        jax.debug.print('state.link_slot_array {}', state.link_slot_array, ordered=True)
         updated_state = self.variant(remove_expired_slot_requests)(state)
+        jax.debug.print('updated_state.link_slot_departure_array {}', updated_state.link_slot_departure_array, ordered=True)
+        jax.debug.print('updated_state.link_slot_array {}', updated_state.link_slot_array, ordered=True)
         chex.assert_trees_all_close(updated_state.link_slot_array, expected)
 
     @chex.all_variants()
     @parameterized.named_parameters(
-        ('case_base', jnp.full((4, 4), jnp.inf))
+        ('case_base', jnp.full((4, 4), 0))
     )
     def test_remove_expired_slot_requests_departure(self, expected):
         state = self.state.replace(current_time=10e4)
@@ -520,6 +562,7 @@ class RemoveExpiredNodeRequestsTest(parameterized.TestCase):
     )
     def test_remove_expired_node_requests_departure(self, s, d, sr, dr, n, expected):
         state = implement_node_action(self.state, s, d, sr, dr, n=n)
+        state = finalise_vone_action(state)
         state = state.replace(current_time=10e4)
         updated_state = self.variant(remove_expired_node_requests)(state)
         chex.assert_trees_all_close(updated_state.node_departure_array, expected)
@@ -573,7 +616,7 @@ class UndoLinkSlotActionTest(parameterized.TestCase):
         self.state = self.state.replace(
             link_slot_array=vmap_update_path_links(self.state.link_slot_array, path, initial_slot_index, num_slots, 1),
             link_slot_departure_array=vmap_update_path_links_departure(self.state.link_slot_departure_array, path, initial_slot_index,
-                                                             num_slots, -self.state.current_time-self.state.holding_time)
+                                                             num_slots, self.state.current_time+self.state.holding_time)
         )
 
     @chex.all_variants()
@@ -581,17 +624,15 @@ class UndoLinkSlotActionTest(parameterized.TestCase):
         ('case_base', jnp.full((4, 4), 0))
     )
     def test_undo_link_slot_action(self, expected):
-        state = self.state.replace(current_time=10e4)
-        updated_state = self.variant(undo_link_slot_action)(state)
+        updated_state = self.variant(undo_link_slot_action)(self.state)
         chex.assert_trees_all_close(updated_state.link_slot_array, expected)
 
     @chex.all_variants()
     @parameterized.named_parameters(
-        ('case_base', jnp.full((4, 4), jnp.inf))
+        ('case_base', jnp.full((4, 4), 0))
     )
     def test_undo_link_slot_action_departure(self, expected):
-        state = self.state.replace(current_time=10e4)
-        updated_state = self.variant(undo_link_slot_action)(state)
+        updated_state = self.variant(undo_link_slot_action)(self.state)
         chex.assert_trees_all_close(updated_state.link_slot_departure_array, expected)
 
 
@@ -648,7 +689,7 @@ class ImplementPathActionTest(parameterized.TestCase):
 
     @chex.all_variants()
     @parameterized.named_parameters(
-        ('case_base', jnp.array([1,0,0,0]), 0, 2, jnp.array([[-2,-2,jnp.inf,jnp.inf], [jnp.inf,jnp.inf,jnp.inf,jnp.inf], [jnp.inf,jnp.inf,jnp.inf,jnp.inf], [jnp.inf,jnp.inf,jnp.inf,jnp.inf]])),
+        ('case_base', jnp.array([1,0,0,0]), 0, 2, jnp.array([[-2,-2,0,0], [0,0,0,0], [0,0,0,0], [0,0,0,0]])),
     )
     def test_implement_path_action_departure(self, path, initial_slot_index, num_slots, expected):
         state = self.state.replace(current_time=1, holding_time=1)
@@ -677,11 +718,11 @@ class ImplementVoneActionTest(parameterized.TestCase):
 
     @chex.all_variants()
     @parameterized.named_parameters(
-        ('case_base', jnp.array([0,0,1]), 3, 3, jnp.array([[-2,jnp.inf,jnp.inf,jnp.inf], [jnp.inf,jnp.inf,jnp.inf,jnp.inf], [jnp.inf,jnp.inf,jnp.inf,jnp.inf], [jnp.inf,jnp.inf,jnp.inf,jnp.inf]])),
-        ('case_base_long_path', jnp.array([0,5,1]), 3, 3, jnp.array([[jnp.inf,jnp.inf,jnp.inf,jnp.inf], [jnp.inf,-2,jnp.inf,jnp.inf], [jnp.inf,-2,jnp.inf,jnp.inf], [jnp.inf,-2,jnp.inf,jnp.inf]])),
-        ('case_base_single', jnp.array([0,0,1]), 3, 2, jnp.array([[-2,jnp.inf,jnp.inf,jnp.inf], [jnp.inf,jnp.inf,jnp.inf,jnp.inf], [jnp.inf,jnp.inf,jnp.inf,jnp.inf], [jnp.inf,jnp.inf,jnp.inf,jnp.inf]])),
+        ('case_base', jnp.array([0,0,1]), 3, 3, jnp.array([[-2,0,0,0], [0,0,0,0], [0,0,0,0], [0,0,0,0]])),
+        ('case_base_long_path', jnp.array([0,5,1]), 3, 3, jnp.array([[0,0,0,0], [0,-2,0,0], [0,-2,0,0], [0,-2,0,0]])),
+        ('case_base_single', jnp.array([0,0,1]), 3, 2, jnp.array([[-2,0,0,0], [0,0,0,0], [0,0,0,0], [0,0,0,0]])),
         ('case_base_no_nodes', jnp.array([0,0,1]), 3, 1,
-         jnp.array([[-2, jnp.inf, jnp.inf, jnp.inf], [jnp.inf, jnp.inf, jnp.inf, jnp.inf], [jnp.inf, jnp.inf, jnp.inf, jnp.inf], [jnp.inf, jnp.inf, jnp.inf, jnp.inf]])),
+         jnp.array([[-2, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]])),
     )
     def test_implement_vone_action_slots_departure(self, action, total, remaining, expected):
         state = self.state.replace(current_time=1, holding_time=1)
@@ -749,17 +790,14 @@ class ImplementRsaActionTest(parameterized.TestCase):
     @parameterized.named_parameters(
         ('case_base', jnp.array(19),
          jnp.array([
-             [0., 0., 0., -1.],
-             [0., 0., 0., 0.],
-             [0., 0., 0., -1.],
-             [0., 0., 0., 0.],
              [0., 0., 0., 0.],
              [0., 0., 0., 0.],
              [0., 0., 0., 0.],
              [0., 0., 0., 0.],
              [0., 0., 0., -1.],
-             [0., 0., 0., -1.],
              [0., 0., 0., 0.],
+             [0., 0., 0., 0.],
+             [0., 0., 0., -1.],
              [0., 0., 0., 0.],
              [0., 0., 0., 0.],
              [0., 0., 0., 0.],
@@ -769,22 +807,27 @@ class ImplementRsaActionTest(parameterized.TestCase):
              [0., 0., 0., 0.],
              [0., 0., 0., 0.],
              [0., 0., 0., -1.],
+             [0., 0., 0., -1.],
+             [0., 0., 0., 0.],
+             [0., 0., 0., -1.],
+             [0., 0., 0., 0.],
              [0., 0., 0., 0.],
          ])),
     )
     def test_implement_rsa_action_slots_nsfnet4(self, action, expected):
         key, env, obs, state, params = rsa_nsfnet_4_test_setup()
         updated_state = self.variant(implement_rsa_action, static_argnums=(2,))(state, action, params)
+        jax.debug.print("updated_state.link_slot_array {}", updated_state.link_slot_array, ordered=True)
         chex.assert_trees_all_close(updated_state.link_slot_array, expected)
 
     @chex.all_variants()
     @parameterized.named_parameters(
         ('case_base', jnp.array(0), jnp.array(
-            [[-2, jnp.inf, jnp.inf, jnp.inf], [jnp.inf, jnp.inf, jnp.inf, jnp.inf],
-             [-2, jnp.inf, jnp.inf, jnp.inf], [jnp.inf, jnp.inf, jnp.inf, jnp.inf]])),
+            [[-2, 0, 0, 0], [0, 0, 0, 0],
+             [-2, 0, 0, 0], [0, 0, 0, 0]])),
         ('case_base_long_path', jnp.array(5), jnp.array(
-            [[jnp.inf, jnp.inf, jnp.inf, jnp.inf], [jnp.inf, -2, jnp.inf, jnp.inf],
-             [jnp.inf, jnp.inf, jnp.inf, jnp.inf], [jnp.inf, -2, jnp.inf, jnp.inf]])),
+            [[0, 0, 0, 0], [0, -2, 0, 0],
+             [0, 0, 0, 0], [0, -2, 0, 0]])),
 
     )
     def test_implement_rsa_action_slots_departure(self, action, expected):
@@ -1018,10 +1061,10 @@ class FinaliseVoneActiontest(parameterized.TestCase):
 
     @chex.all_variants()
     @parameterized.named_parameters(
-        ('case_base', jnp.array([[jnp.inf, 2, jnp.inf, jnp.inf],
-                                 [jnp.inf, jnp.inf, jnp.inf, jnp.inf],
-                                 [jnp.inf, jnp.inf, jnp.inf, jnp.inf],
-                                 [jnp.inf, jnp.inf, jnp.inf, jnp.inf]])),
+        ('case_base', jnp.array([[0, 2, 0, 0],
+                                 [0, 0, 0, 0],
+                                 [0, 0, 0, 0],
+                                 [0, 0, 0, 0]])),
     )
     def test_finalise_vone_action_link_slot_departure(self, expected):
         actual = self.variant(finalise_vone_action)(self.state).link_slot_departure_array
@@ -1038,10 +1081,10 @@ class FinaliseRsaActionTest(parameterized.TestCase):
 
     @chex.all_variants()
     @parameterized.named_parameters(
-        ('case_pass', jnp.array([[2, jnp.inf, jnp.inf, jnp.inf],
-                                 [jnp.inf, jnp.inf, jnp.inf, jnp.inf],
-                                 [2, jnp.inf, jnp.inf, jnp.inf],
-                                 [jnp.inf, jnp.inf, jnp.inf, jnp.inf]]))
+        ('case_pass', jnp.array([[2, 0, 0, 0],
+                                 [0, 0, 0, 0],
+                                 [2, 0, 0, 0],
+                                 [0, 0, 0, 0]]))
     )
     def test_finalise_rsa_action(self, expected):
         actual = self.variant(finalise_rsa_action)(self.state).link_slot_departure_array
@@ -1120,7 +1163,7 @@ class RsaStepTest(parameterized.TestCase):
          jnp.array([1.,  0.,  3., -1.,  0.,  0.,  0.,  0.,  0.,  0.,  0., -1.,  0.,
                     0.,  0.,  0.,  0.,  0.,  0.])),
         ("case_failure", (jnp.array(0), jnp.array(0)),
-         jnp.array([1., 0., 3., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+         jnp.array([1., 0., 3., -1., 0., 0., 0., 0., 0., 0., 0., -1., 0.,
                     0., 0., 0., 0., 0., 0.]))
     )
     def test_rsa_step_obs(self, actions, expected):
@@ -1128,6 +1171,8 @@ class RsaStepTest(parameterized.TestCase):
             obs, self.state, reward, done, info = self.variant(self.env.step, static_argnums=(3,))(
                 self.key, self.state, action, self.params
             )
+            jax.debug.print("dept {}", self.state.link_slot_departure_array, ordered=True)
+            jax.debug.print("obs {}", obs, ordered=True)
         chex.assert_trees_all_close(obs, expected)
 
 
@@ -1262,11 +1307,12 @@ class RsaActionMaskTest(parameterized.TestCase):
                     [0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
                     [0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
                     [0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
                     [0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],]),
          # N.B. that modulation format consideration means double spectral efficiency on the first path, hence two 1's
          jnp.array(
              [
-                 1, 1, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0,
+                 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0,
                  1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                  1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                  1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -1295,7 +1341,8 @@ class RsaActionMaskTest(parameterized.TestCase):
                     [0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
                     [0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
                     [0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-                    [0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], ]),
+                    [0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],]),
          jnp.array(
              [
                  1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0,
@@ -1465,7 +1512,7 @@ class InitPathLengthArrayTest(parameterized.TestCase):
 
     @chex.variants(without_jit=True)
     @parameterized.named_parameters(
-        ("case_nsfnet", "nsfnet", 1, jnp.array([1900, 6300, 1300, 2700])),
+        ("case_nsfnet", "nsfnet", 1, jnp.array([2100, 1200, 3600, 4800])),
         ("case_4node", "4node", 1, jnp.array([4, 7, 1, 3]))
     )
     def test_init_path_length_array(self, topology_name, k, expected):
@@ -1501,7 +1548,7 @@ class InitPathSEArrayTest(parameterized.TestCase):
 
     @chex.variants(without_jit=True)
     @parameterized.named_parameters(
-        ("case_nsfnet", "nsfnet", 1, jnp.array([2.0, 1.0, 2.0, 1.0])),
+        ("case_nsfnet", "nsfnet", 1, jnp.array([1.0, 2.0, 1.0, 1.0])),
         ("case_4node", "4node", 1, jnp.array([6., 6., 6., 6.]))
     )
     def test_init_path_se_array(self, topology_name, k, expected):
@@ -1529,9 +1576,109 @@ class RequiredSlotsTest(parameterized.TestCase):
         chex.assert_trees_all_close(slots, expected)
 
 
+class MaskSlotsBitRateModFormat(parameterized.TestCase):
+
+    def setUp(self):
+        super().setUp()
+        self.key, self.env, self.obs, self.state, self.params = rsa_nsfnet_16_mod_test_setup()
+
+    @chex.all_variants()
+    @parameterized.named_parameters(
+        ("case_empty", jnp.array([0, 100, 1]),
+         jnp.array([[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], ]),
+            jnp.array([1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0,
+                       1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0,
+                       1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0,
+                       1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0,
+                       1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0,])),
+        ("case_full", jnp.array([0, 49, 1]),
+         jnp.array([[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], ]),
+         jnp.array([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])),
+        ("case_middle", jnp.array([0, 100, 1]),
+         jnp.array([[1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1],
+                    [1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1],
+                    [1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1],
+                    [1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1],
+                    [1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1],
+                    [1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1],
+                    [1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1],
+                    [1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1],
+                    [1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1],
+                    [1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1],
+                    [1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1],
+                    [1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1],
+                    [1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1],
+                    [1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1],
+                    [1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1],
+                    [1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1],
+                    [1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1],
+                    [1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1],
+                    [1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1],
+                    [1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1],
+                    [1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1],
+                    [1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1], ]),
+         jnp.array([0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])),
+    )
+    def test_mask_slots_bit_rate_mod_format(self, request, link_slot_array, expected):
+        self.state = self.state.replace(link_slot_array=link_slot_array, request_array=request)
+        jax.debug.print("state.link_slot_mask {}", self.state.link_slot_mask, ordered=True)
+        updated_state = self.variant(self.env.action_mask, static_argnums=(1,))(self.state, self.params)
+        jax.debug.print("state.link_slot_mask {}", updated_state.link_slot_mask, ordered=True)
+        chex.assert_trees_all_close(updated_state.link_slot_mask, expected)
+
+
 if __name__ == '__main__':
     # Set the number of (emulated) host devices
-    num_devices = 4
-    os.environ['XLA_FLAGS'] = f"--xla_force_host_platform_device_count={num_devices}"
+    fake.set_n_cpu_devices(2)
     jax.config.update('jax_numpy_rank_promotion', 'raise')
     absltest.main()
