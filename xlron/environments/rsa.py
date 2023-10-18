@@ -4,6 +4,7 @@ from functools import partial
 import chex
 import jax
 import jax.numpy as jnp
+import networkx as nx
 from gymnax.environments import environment, spaces
 from xlron.environments.env_funcs import (
     HashableArrayWrapper, EnvState, EnvParams, init_rsa_request_array, init_link_slot_array, init_path_link_array,
@@ -110,6 +111,8 @@ class RSAEnv(environment.Environment):
         """Environment-specific step transition."""
         # Do action
         state = implement_rsa_action(state, action, params)
+        jax.debug.print("request array after action before check {}", state.request_array, ordered=True)
+        jax.debug.print("state after action before check {}", state.link_slot_array, ordered=True)
         # Check if action was valid, calculate reward
         check = check_rsa_action(state)
         state, reward = jax.lax.cond(
@@ -229,19 +232,40 @@ class RSAEnv(environment.Environment):
         return make_rsa_env()[1]
 
 
-# TODO - make this like make_vone_env
+class DeepRMSAEnv(RSAEnv):
+
+    def __init__(self, key: chex.PRNGKey, params: RSAEnvParams, values_bw: chex.Array = jnp.array([0])):
+        super().__init__(key, params, values_bw=values_bw)
+
+    def step_env(
+            self,
+            key: chex.PRNGKey,
+            state: RSAEnvState,
+            action: Union[int, float],
+            params: RSAEnvParams,
+    ) -> Tuple[chex.Array, RSAEnvState, chex.Array, chex.Array, chex.Array]:
+        """Environment-specific step transition."""
+        # Do action
+        state = mask_slots(state, params, state.request_array)
+        mask = jnp.reshape(state.link_slot_mask, (params.k_paths, -1))
+        # Add a column of ones to the mask to make sure that occupied paths have non-zero index in "first_slots"
+        mask = jnp.concatenate((mask, jnp.full((mask.shape[0], 1), 1)), axis=1)
+        # Get index of first available slots for each path
+        first_slots = jax.vmap(jnp.argmax, in_axes=(0))(mask)
+        slot_index = first_slots[action] % params.link_resources
+        # Convert indices to action
+        action = action * params.link_resources + slot_index
+        return super().step_env(key, state, action, params)
+
+    def action_space(self, params: RSAEnvParams):
+        """Action space of the environment."""
+        return spaces.Discrete(params.k_paths)
+
+
 def make_rsa_env(config):
     """Create RSA environment.
     Args:
-        k: number of paths to consider
-        load: load in Erlangs
-        topology_name: name of topology to use
-        mean_service_holding_time: mean service holding time
-        link_resources: number of resources per link
-        max_requests: maximum number of requests
-        min_slots: minimum number of slots per link
-        max_slots: maximum number of slots per link
-        consecutive_loading: whether to use consecutive loading
+        config: Configuration dictionary
     Returns:
         env: RSA environment
         params: RSA environment parameters
@@ -260,11 +284,15 @@ def make_rsa_env(config):
     slot_size = config.get("slot_size", 12.5)
     min_bw = config.get("min_bw", 25)
     max_bw = config.get("max_bw", 100)
-    step_bw = config.get("step_bw", 25)
+    step_bw = config.get("step_bw", 1)
+    env_type = config.get("env_type", "").lower()
 
     rng = jax.random.PRNGKey(seed)
     rng, _, _, _, _ = jax.random.split(rng, 5)
     graph = make_graph(topology_name)
+    if env_type == "deeprmsa":
+        edge_data = {(u, v): ed["weight"]/2 for u, v, ed in graph.edges.data()}
+        nx.set_edge_attributes(graph, edge_data, "weight")
     arrival_rate = load / mean_service_holding_time
     num_nodes = len(graph.nodes)
     num_links = len(graph.edges)
@@ -319,6 +347,7 @@ def make_rsa_env(config):
         slot_size=slot_size,
     )
 
-    env = RSAEnv(rng, params, values_bw=values_bw)
+    env = RSAEnv(rng, params, values_bw=values_bw) if not env_type == "deeprmsa" \
+        else DeepRMSAEnv(rng, params, values_bw=values_bw)
 
     return env, params

@@ -93,7 +93,7 @@ def make_train(config):
     config_dict = {k: v.value for k, v in config.__flags.items()}
     if config.env_type.lower() == "vone":
         env, env_params = make_vone_env(config_dict)
-    elif config.env_type.lower()[:3] in ["rsa", "rms", "rwa"]:
+    elif config.env_type.lower() in ["rsa", "rmsa", "rwa", "deeprmsa"]:
         env, env_params = make_rsa_env(config_dict)
     else:
         raise ValueError(f"Invalid environment type {config.env_type}")
@@ -130,7 +130,7 @@ def make_train(config):
                                   activation=config.ACTIVATION,
                                   num_layers=config.NUM_LAYERS,
                                   num_units=config.NUM_UNITS)
-        elif config.env_type.lower()[:3] in ["rsa", "rms", "rwa"]:
+        elif config.env_type.lower() in ["rsa", "rmsa", "rwa", "deeprmsa"]:
             network = ActorCritic([env.action_space(env_params).n],
                                   activation=config.ACTIVATION,
                                   num_layers=config.NUM_LAYERS,
@@ -195,14 +195,14 @@ def make_train(config):
 
                     log_prob = log_prob_dest + log_prob_path + log_prob_source
 
-                elif config.env_type.lower()[:3] in ["rsa", "rms", "rwa"]:
+                elif config.env_type.lower() in ["rsa", "rmsa", "rwa"]:
                     vmap_mask_slots = jax.vmap(env.action_mask, in_axes=(0, None))
                     env_state = env_state.replace(env_state=vmap_mask_slots(env_state.env_state, env_params))
                     pi_masked = distrax.Categorical(logits=jnp.where(env_state.env_state.link_slot_mask, pi[0]._logits, -1e8))
                     action = pi_masked.sample(seed=rng[1])
                     log_prob = pi_masked.log_prob(action)
 
-                elif config.env_type.lower() == "rsa_no_mask":
+                elif config.env_type.lower() in ["rsa_no_mask", "deeprmsa"]:
                     action = pi[0].sample(seed=rng[1])
                     log_prob = pi[0].log_prob(action)
 
@@ -300,12 +300,12 @@ def make_train(config):
                             log_prob = log_prob_source + log_prob_path + log_prob_dest
                             entropy = pi_source.entropy().mean() + pi_path.entropy().mean() + pi_dest.entropy().mean()
 
-                        elif config.env_type.lower()[0:3] in ["rsa", "rms", "rwa"]:
+                        elif config.env_type.lower() in ["rsa", "rmsa", "rwa"]:
                             pi_masked = distrax.Categorical(logits=jnp.where(traj_batch.action_mask, pi[0]._logits, -1e8))
                             log_prob = pi_masked.log_prob(traj_batch.action)
                             entropy = pi_masked.entropy().mean()
 
-                        elif config.env_type.lower() == "rsa_no_mask":
+                        elif config.env_type.lower() in ["rsa_no_mask", "deeprmsa"]:
                             log_prob = pi[0].log_prob(traj_batch.action)
                             entropy = pi[0].entropy().mean()
 

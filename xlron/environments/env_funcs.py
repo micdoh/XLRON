@@ -361,7 +361,7 @@ def init_node_departure_array(params: EnvParams):
 
 @partial(jax.jit, static_argnums=(0,))
 def init_link_slot_departure_array(params: EnvParams):
-    return jnp.full((params.num_links, params.link_resources), jnp.inf)
+    return jnp.zeros((params.num_links, params.link_resources))
 
 
 @partial(jax.jit, static_argnums=(0,))
@@ -385,12 +385,11 @@ def normalise_traffic_matrix(traffic_matrix):
 @partial(jax.jit, static_argnums=(2,))
 def generate_vone_request(key: chex.PRNGKey, state: EnvState, params: EnvParams):
     """Generate a new request for the VONE environment.
-    The request has two rows. The first row shows the node and slot values. The second row shows the virtual topology.
-    The first three elements of the pattern show the number of unique nodes, the total number of steps, and the remaining steps.
+    The request has two rows. The first row shows the node and slot values.
+    The first three elements of the second row show the number of unique nodes, the total number of steps, and the remaining steps.
     These first three elements comprise the action counter.
-    The remaining elements of the  pattern show the virtual topology pattern, i.e. the connectivity of the virtual topology.
+    The remaining elements of the second row show the virtual topology pattern, i.e. the connectivity of the virtual topology.
     """
-    # TODO - update this to be bitrate requests rather than slots
     shape = params.max_edges*2+1  # shape of request array
     key_topology, key_node, key_slot, key_times = jax.random.split(key, 4)
     # Randomly select topology, node resources, slot resources
@@ -429,7 +428,6 @@ def generate_vone_request(key: chex.PRNGKey, state: EnvState, params: EnvParams)
 
 @partial(jax.jit, static_argnums=(2,))
 def generate_rsa_request(key: chex.PRNGKey, state: EnvState, params: EnvParams) -> EnvState:
-    # TODO - update this to be bitrate requests rather than slots
     # Flatten the probabilities to a 1D array
     shape = state.traffic_matrix.shape
     probabilities = state.traffic_matrix.ravel()
@@ -527,6 +525,9 @@ def generate_arrival_holding_times(key, params):
     Basically, inverse transform sampling is used to sample from a distribution with CDF F(x).
     The CDF of the exponential distribution (lambda*e^-{lambda*x}) is F(x) = 1 - e^-{lambda*x}.
     Therefore, the inverse CDF is x = -ln(1-u)/lambda, where u is sample from uniform distribution.
+    Therefore, we need to divide jax.random.exponential() by lambda in order to scale the standard exponential CDF.
+    Experimental histograms of this method compared to random.expovariate() in Python's random library show that
+    the two methods are equivalent.
     Also see: https://numpy.org/doc/stable/reference/random/generated/numpy.random.exponential.html
     https://jax.readthedocs.io/en/latest/_autosummary/jax.random.exponential.html
     """
@@ -560,7 +561,7 @@ def vmap_update_path_links(link_array, path, initial_slot, num_slots, value):
 
 def update_link_departure(link, initial_slot, num_slots, value):
     slot_indices = jnp.arange(link.shape[0])
-    return jnp.where((initial_slot <= slot_indices) & (slot_indices < initial_slot+num_slots), value, link)
+    return jnp.where((initial_slot <= slot_indices) & (slot_indices < initial_slot+num_slots), link-value, link)
 
 
 def update_path_departure(link, link_in_path, initial_slot, num_slots, value):
@@ -571,7 +572,6 @@ def update_path_departure(link, link_in_path, initial_slot, num_slots, value):
 def vmap_update_path_links_departure(link_array, path, initial_slot, num_slots, value):
     """Set relevant slots along links in path to current_val - val"""
     return jax.vmap(update_path_departure, in_axes=(0, 0, None, None, None))(link_array, path, initial_slot, num_slots, value)
-
 
 
 def update_node_departure(node_row, inf_index, value):
@@ -608,15 +608,17 @@ def vmap_update_node_resources(node_resource_array, selected_nodes):
 
 def remove_expired_slot_requests(state: EnvState) -> EnvState:
     mask = jnp.where(state.link_slot_departure_array < jnp.squeeze(state.current_time), 1, 0)
+    mask = jnp.where(0 < state.link_slot_departure_array, mask, 0)
     state = state.replace(
         link_slot_array=jnp.where(mask == 1, 0, state.link_slot_array),
-        link_slot_departure_array=jnp.where(mask == 1, jnp.inf, state.link_slot_departure_array)
+        link_slot_departure_array=jnp.where(mask == 1, 0, state.link_slot_departure_array)
     )
     return state
 
 
 def remove_expired_node_requests(state: EnvState) -> EnvState:
     mask = jnp.where(state.node_departure_array < jnp.squeeze(state.current_time), 1, 0)
+    mask = jnp.where(0 < state.node_departure_array, mask, 0)
     expired_resources = jnp.sum(jnp.where(mask == 1, state.node_resource_array, 0), axis=1)
     state = state.replace(
         node_capacity_array=state.node_capacity_array + expired_resources,
@@ -631,7 +633,9 @@ def update_node_array(node_indices, array, node, request):
 
 
 def undo_node_action(state):
-    """If the request is unsuccessful i.e.e checks fail, then remove the partial resource allocation"""
+    """If the request is unsuccessful i.e. checks fail, then remove the partial resource allocation"""
+    # TODO - what if node_resource_array slot was already occupied?
+    # TDOD - what if time in node_departure is > 0 because original departure time in the slot was greater than replacement?
     mask = jnp.where(state.node_departure_array < 0, 1, 0)
     resources = jnp.sum(jnp.where(mask == 1, state.node_resource_array, 0), axis=1)
     state = state.replace(
@@ -643,11 +647,25 @@ def undo_node_action(state):
 
 
 def undo_link_slot_action(state):
-    mask = jnp.where(state.link_slot_array < 0, 1, 0)
+    # If departure array is negative, then undo the action
+    mask = jnp.where(state.link_slot_departure_array < 0, 1, 0)
+    jax.debug.print("dept {}", state.link_slot_departure_array, ordered=True)
+    jax.debug.print("mask dept {}", mask, ordered=True)
+    # If link slot array is negative, then undo the action
+    # (departure might be positive because existing service had holding time after current)
+    # e.g. (time_in_array = t1 - t2) where t2 < t1 and t2 = current_time + holding_time
+    mask = jnp.where(state.link_slot_array < -1, 1, mask)
+    jax.debug.print("mask slot {}", mask, ordered=True)
+    jax.debug.print("link-slot before fix {}", state.link_slot_array, ordered=True)
     state = state.replace(
-        link_slot_array=jnp.where(mask == 1, 0, state.link_slot_array),
-        link_slot_departure_array=jnp.where(mask == 1, jnp.inf, state.link_slot_departure_array)
+        link_slot_array=jnp.where(mask == 1, state.link_slot_array+1, state.link_slot_array),
+        link_slot_departure_array=jnp.where(
+            mask == 1,
+            state.link_slot_departure_array + state.current_time + state.holding_time,
+            state.link_slot_departure_array)
     )
+    jax.debug.print("final link-slot {}", state.link_slot_array, ordered=True)
+    jax.debug.print("final link-slot dept {}", state.link_slot_departure_array, ordered=True)
     return state
 
 
@@ -771,7 +789,7 @@ def implement_path_action(state: EnvState, path: chex.Array, initial_slot_index:
     """
     state = state.replace(
         link_slot_array=vmap_update_path_links(state.link_slot_array, path, initial_slot_index, num_slots, 1),
-        link_slot_departure_array=vmap_update_path_links_departure(state.link_slot_departure_array, path, initial_slot_index, num_slots, -state.current_time-state.holding_time)
+        link_slot_departure_array=vmap_update_path_links_departure(state.link_slot_departure_array, path, initial_slot_index, num_slots, state.current_time+state.holding_time)
     )
     return state
 
@@ -889,6 +907,7 @@ def finalise_vone_action(state):
     return state
 
 
+# TODO - check that finalise RSA action works correctly
 def finalise_rsa_action(state):
     """Turn departure times positive"""
     state = state.replace(
@@ -978,7 +997,6 @@ def mask_slots(state: EnvState, params: EnvParams, request: chex.Array) -> EnvSt
     nodes_sd = jnp.concatenate((node_s, node_d), axis=0)
     init_mask = jnp.zeros((params.link_resources * params.k_paths))
 
-    # TODO - check this still works with params.max_slots now using bandwidth and mod. format
     def mask_path(i, mask):
         # Path consists of binary array indicating link indices used in path
         path = get_paths(params, nodes_sd)[i]

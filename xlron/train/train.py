@@ -1,4 +1,5 @@
 import wandb
+import sys
 import os
 import jax
 import matplotlib.pyplot as plt
@@ -57,6 +58,7 @@ def main(argv):
     # Print every flag and its name
     if FLAGS.DEBUG:
         print('non-flag arguments:', argv)
+        #jax.numpy.set_printoptions(threshold=sys.maxsize)  # Don't truncate printed arrays
     for name in FLAGS:
         print(name, FLAGS[name].value)
 
@@ -109,8 +111,10 @@ def main(argv):
         returned_episode_lengths_mean = out["metrics"]["returned_episode_lengths"].mean(-1).reshape(-1)
         returned_episode_lengths_std = out["metrics"]["returned_episode_lengths"].std(-1).reshape(-1)
 
-    plot_metric = returned_episode_lengths_mean if (FLAGS.env_type == "rsa" and FLAGS.consecutive_loading) else returned_episode_returns_mean
-    plot_metric_std = returned_episode_lengths_std if (FLAGS.env_type == "rsa" and FLAGS.consecutive_loading) else returned_episode_returns_std
+    service_blocking_probability = 1 - ((returned_episode_returns_mean + FLAGS.max_requests) / (2*FLAGS.max_requests))
+
+    plot_metric = returned_episode_lengths_mean if (FLAGS.env_type[:3] in ["rsa", "rms", "rwa"] and FLAGS.consecutive_loading) else returned_episode_returns_mean
+    plot_metric_std = returned_episode_lengths_std if (FLAGS.env_type[:3] in ["rsa", "rms", "rwa"] and FLAGS.consecutive_loading) else returned_episode_returns_std
     plt.plot(plot_metric)
     plt.fill_between(
         range(len(plot_metric)),
@@ -124,6 +128,7 @@ def main(argv):
     plt.show()
 
     # TODO - Define blocking probability metric
+    # TODO - Get bit rate blocking and service blocking
 
     if FLAGS.WANDB:
         # Log the data to wandb
@@ -134,6 +139,7 @@ def main(argv):
         returned_episode_returns_std = returned_episode_returns_std[chop:].reshape(-1, FLAGS.DOWNSAMPLE_FACTOR).mean(axis=1)
         returned_episode_lengths_mean = returned_episode_lengths_mean[chop:].reshape(-1, FLAGS.DOWNSAMPLE_FACTOR).mean(axis=1)
         returned_episode_lengths_std = returned_episode_lengths_std[chop:].reshape(-1, FLAGS.DOWNSAMPLE_FACTOR).mean(axis=1)
+        service_blocking_probability = service_blocking_probability[chop:].reshape(-1, FLAGS.DOWNSAMPLE_FACTOR).mean(axis=1)
 
         for i in range(len(returned_episode_returns_mean)):
             # Log the data
@@ -141,7 +147,8 @@ def main(argv):
                         "returned_episode_returns_mean": returned_episode_returns_mean[i],
                         "returned_episode_returns_std": returned_episode_returns_std[i],
                         "returned_episode_lengths_mean": returned_episode_lengths_mean[i],
-                        "returned_episode_lengths_std": returned_episode_lengths_std[i]}
+                        "returned_episode_lengths_std": returned_episode_lengths_std[i],
+                        "service_blocking_probability": service_blocking_probability[i]}
             wandb.log(log_dict)
 
 
