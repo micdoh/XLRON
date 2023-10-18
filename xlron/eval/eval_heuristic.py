@@ -31,32 +31,16 @@ class Transition(NamedTuple):
 
 def make_eval(config):
 
-    env_params = {
-        "k": config.k,
-        "load": config.load,
-        "topology_name": config.topology_name,
-        "mean_service_holding_time": config.mean_service_holding_time,
-        "link_resources": config.link_resources,
-        "max_requests": config.max_requests,
-        "max_timesteps": config.max_timesteps,
-        "min_slots": config.min_slots,
-        "max_slots": config.max_slots,
-        "consecutive_loading": config.consecutive_loading,
-    }
+    config_dict = {k: v.value for k, v in config.__flags.items()}
     if config.env_type.lower() == "vone":
-        env_params["virtual_topologies"] = config.virtual_topologies
-        env_params["min_node_resources"] = config.min_node_resources
-        env_params["max_node_resources"] = config.max_node_resources
-        env_params["node_resources"] = config.node_resources
-        env, env_params = make_vone_env(**env_params)
-    elif config.env_type.lower() == "rsa":
-        env, env_params = make_rsa_env(**env_params)
+        env, env_params = make_vone_env(config_dict)
+    elif config.env_type.lower() in ["rsa", "rmsa", "rwa", "deeprmsa"]:
+        env, env_params = make_rsa_env(config_dict)
     else:
         raise ValueError(f"Invalid environment type {config.env_type}")
     env = LogWrapper(env)
 
-
-    def eval(rng):
+    def evaluate(rng):
 
         # INIT ENV
         rng, _rng = jax.random.split(rng)
@@ -74,7 +58,7 @@ def make_eval(config):
                 if config.env_type.lower() == "vone":
                     raise NotImplementedError(f"VONE heuristics not yet implemented")
 
-                elif config.env_type.lower() == "rsa":
+                elif config.env_type.lower() in ["rsa", "rwa", "rmsa", "deeprmsa"]:
                     if config.path_heuristic.lower() == "ksp_ff":
                         action = jax.vmap(ksp_ff, in_axes=(0, None))(env_state.env_state, env_params)
                     elif config.path_heuristic.lower() == "ff_ksp":
@@ -120,7 +104,7 @@ def make_eval(config):
         )
         return {"runner_state": runner_state, "metrics": metric}
 
-    return eval
+    return evaluate
 
 
 def main(argv):
@@ -146,7 +130,7 @@ def main(argv):
     print(f"XLA_PYTHON_CLIENT_PREALLOCATE={os.environ['XLA_PYTHON_CLIENT_PREALLOCATE']}")
 
     if FLAGS.WANDB:
-        wandb.setup(wandb.Settings(program="train.py", program_relpath="train.py"))
+        wandb.setup(wandb.Settings(program="eval_heuristic.py", program_relpath="eval_heuristic.py"))
         run = wandb.init(
             project=FLAGS.PROJECT,
             save_code=True,  # optional
