@@ -111,8 +111,6 @@ class RSAEnv(environment.Environment):
         """Environment-specific step transition."""
         # Do action
         state = implement_rsa_action(state, action, params)
-        jax.debug.print("request array after action before check {}", state.request_array, ordered=True)
-        jax.debug.print("state after action before check {}", state.link_slot_array, ordered=True)
         # Check if action was valid, calculate reward
         check = check_rsa_action(state)
         state, reward = jax.lax.cond(

@@ -649,14 +649,10 @@ def undo_node_action(state):
 def undo_link_slot_action(state):
     # If departure array is negative, then undo the action
     mask = jnp.where(state.link_slot_departure_array < 0, 1, 0)
-    jax.debug.print("dept {}", state.link_slot_departure_array, ordered=True)
-    jax.debug.print("mask dept {}", mask, ordered=True)
     # If link slot array is negative, then undo the action
     # (departure might be positive because existing service had holding time after current)
     # e.g. (time_in_array = t1 - t2) where t2 < t1 and t2 = current_time + holding_time
     mask = jnp.where(state.link_slot_array < -1, 1, mask)
-    jax.debug.print("mask slot {}", mask, ordered=True)
-    jax.debug.print("link-slot before fix {}", state.link_slot_array, ordered=True)
     state = state.replace(
         link_slot_array=jnp.where(mask == 1, state.link_slot_array+1, state.link_slot_array),
         link_slot_departure_array=jnp.where(
@@ -664,8 +660,6 @@ def undo_link_slot_action(state):
             state.link_slot_departure_array + state.current_time + state.holding_time,
             state.link_slot_departure_array)
     )
-    jax.debug.print("final link-slot {}", state.link_slot_array, ordered=True)
-    jax.debug.print("final link-slot dept {}", state.link_slot_departure_array, ordered=True)
     return state
 
 
