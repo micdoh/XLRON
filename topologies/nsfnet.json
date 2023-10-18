@@ -4,19 +4,19 @@
     "graph": {},
     "nodes": [
         {
-            "name": "C1",
+            "name": "WA",
             "id": 1
         },
         {
-            "name": "WA",
+            "name": "CA1",
             "id": 2
         },
         {
-            "name": "IL",
+            "name": "CA2",
             "id": 3
         },
         {
-            "name": "NE",
+            "name": "UT",
             "id": 4
         },
         {
@@ -24,145 +24,150 @@
             "id": 5
         },
         {
-            "name": "UT",
+            "name": "TX",
             "id": 6
         },
         {
-            "name": "MI",
+            "name": "NE",
             "id": 7
         },
         {
-            "name": "NY",
+            "name": "IL",
             "id": 8
         },
         {
-            "name": "NJ",
+            "name": "PA",
             "id": 9
         },
         {
-            "name": "PA",
+            "name": "GA",
             "id": 10
         },
         {
-            "name": "DC",
+            "name": "MI",
             "id": 11
         },
         {
-            "name": "GA",
+            "name": "NY",
             "id": 12
         },
         {
-            "name": "TX",
+            "name": "NJ",
             "id": 13
         },
         {
-            "name": "C2",
+            "name": "DC",
             "id": 14
         }
     ],
     "links": [
         {
-            "weight": 1900,
+            "weight": 2100,
             "source": 1,
             "target": 2
         },
         {
-            "weight": 1800,
+            "weight": 1200,
             "source": 1,
-            "target": 6
+            "target": 3
         },
         {
-            "weight": 1300,
+            "weight": 4800,
             "source": 1,
-            "target": 4
+            "target": 8
         },
         {
-            "weight": 4400,
+            "weight": 1200,
             "source": 2,
             "target": 3
         },
         {
-            "weight": 2700,
+            "weight": 1500,
             "source": 2,
-            "target": 14
-        },
-        {
-            "weight": 1300,
-            "source": 3,
             "target": 4
         },
         {
-            "weight": 1300,
+            "weight": 3600,
             "source": 3,
-            "target": 10
+            "target": 6
         },
         {
-            "weight": 1400,
+            "weight": 1200,
             "source": 4,
             "target": 5
         },
         {
-            "weight": 1100,
+            "weight": 3900,
+            "source": 4,
+            "target": 11
+        },
+        {
+            "weight": 2400,
             "source": 5,
             "target": 6
         },
         {
-            "weight": 2300,
+            "weight": 1200,
             "source": 5,
-            "target": 13
-        },
-        {
-            "weight": 3700,
-            "source": 6,
             "target": 7
         },
         {
-            "weight": 1100,
-            "source": 7,
-            "target": 8
+            "weight": 2100,
+            "source": 6,
+            "target": 10
+        },
+        {
+            "weight": 3600,
+            "source": 6,
+            "target": 14
         },
         {
             "weight": 1500,
             "source": 7,
+            "target": 8
+        },
+        {
+            "weight": 2700,
+            "source": 7,
+            "target": 10
+        },
+        {
+            "weight": 1500,
+            "source": 8,
             "target": 9
         },
         {
-            "weight": 700,
-            "source": 8,
-            "target": 10
-        },
-        {
-            "weight": 700,
-            "source": 8,
-            "target": 11
-        },
-        {
-            "weight": 800,
+            "weight": 1500,
             "source": 9,
             "target": 10
         },
         {
-            "weight": 500,
+            "weight": 600,
             "source": 9,
-            "target": 11
-        },
-        {
-            "weight": 1600,
-            "source": 10,
             "target": 12
         },
         {
-            "weight": 3100,
+            "weight": 600,
+            "source": 9,
+            "target": 13
+        },
+        {
+            "weight": 1200,
+            "source": 11,
+            "target": 12
+        },
+        {
+            "weight": 1500,
             "source": 11,
             "target": 13
         },
         {
-            "weight": 1900,
+            "weight": 600,
             "source": 12,
-            "target": 13
+            "target": 14
         },
         {
-            "weight": 3300,
+            "weight": 300,
             "source": 13,
             "target": 14
         }
