@@ -7,7 +7,7 @@ import numpy as np
 from xlron.environments.env_funcs import *
 from xlron.environments.vone import *
 from xlron.environments.rsa import *
-from xlron.environments.heuristics import *
+from xlron.heuristics.heuristics import *
 from xlron.environments.env_test import *
 
 class KspffTest(parameterized.TestCase):

@@ -28,7 +28,7 @@ flags.DEFINE_integer("NUM_SEEDS", 1, "Number of seeds")
 flags.DEFINE_integer("NUM_LAYERS", 2, "Number of layers in actor and critic networks")
 flags.DEFINE_integer("NUM_UNITS", 64, "Number of hidden units in actor and critic networks")
 # Additional training parameters
-flags.DEFINE_string("VISIBLE_DEVICES", None, "Comma-separated indices of (desired) visible GPUs e.g. 1,2,3")
+flags.DEFINE_string("VISIBLE_DEVICES", "0", "Comma-separated indices of (desired) visible GPUs e.g. 1,2,3")
 flags.DEFINE_boolean("PREALLOCATE_MEM", True, "Preallocate GPU memory")
 flags.DEFINE_string("PREALLOCATE_MEM_FRACTION", "0.95", "Fraction of GPU memory to preallocate")
 flags.DEFINE_boolean("PRINT_MEMORY_USE", False, "Print memory usage")
@@ -56,7 +56,8 @@ flags.DEFINE_integer("max_bw", 100, "Maximum requested bandwidth")
 flags.DEFINE_integer("step_bw", 1, "Step size for requested bandwidth values between min and max")
 flags.DEFINE_list("values_bw", None, "List of requested bandwidth values")
 flags.DEFINE_float("slot_size", 12.5, "Spectral width of frequency slot in GHz")
-flags.DEFINE_boolean("consecutive_loading", False, "Consecutive loading")
+flags.DEFINE_boolean("incremental_loading", False, "Incremental increase in traffic load until first blocking")
+flags.DEFINE_boolean("continuous_operation", False, "If True, do not reset the environment at the end of an episode")
 # RSA-specific environment parameters
 flags.DEFINE_boolean("uniform_traffic", False, "Uniform traffic matrix for RSA (else random)")
 # VONE-specific environment parameters
@@ -64,3 +65,8 @@ flags.DEFINE_integer("node_resources", 4, "Number of node resources")
 flags.DEFINE_list("virtual_topologies", "3_ring", "Virtual topologies")
 flags.DEFINE_integer("min_node_resources", 1, "Minimum number of node resources")
 flags.DEFINE_integer("max_node_resources", 1, "Maximum number of node resources")
+# Heuristic-specific parameters
+flags.DEFINE_boolean("EVAL_HEURISTIC", False, "Evaluate heuristic")
+flags.DEFINE_string("path_heuristic", "ksp_ff", "Path heuristic to be evaluated")
+flags.DEFINE_string("node_heuristic", "random", "Node heuristic to be evaluated")
+

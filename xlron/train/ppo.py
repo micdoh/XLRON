@@ -5,9 +5,8 @@ import flax.linen as nn
 import optax
 import distrax
 from flax.linen.initializers import constant, orthogonal
-from typing import Sequence, NamedTuple, Any
+from typing import Sequence, NamedTuple, Any, Tuple
 from flax.training.train_state import TrainState
-from gymnax.wrappers.purerl import LogWrapper
 from xlron.environments.env_funcs import *
 from xlron.environments.vone import make_vone_env
 from xlron.environments.rsa import make_rsa_env
@@ -98,6 +97,7 @@ def make_train(config):
     else:
         raise ValueError(f"Invalid environment type {config.env_type}")
     env = LogWrapper(env)
+    #obs, state = env.reset(jax.random.PRNGKey(0), env_params)  # Initialise LogEnvState
 
     # TODO - Does it matter if lr changes slightly between each minibatch? Linear handles this but optax built-ins don't
     def linear_schedule(count):
@@ -216,6 +216,9 @@ def make_train(config):
                 obsv, env_state, reward, done, info = jax.vmap(env.step, in_axes=(0,0,0,None))(
                     rng_step, env_state, action, env_params
                 )
+                if config.DEBUG:
+                    jax.debug.print("reward after step {}", reward, ordered=config.ORDERED)
+                    jax.debug.print("info after step {}", info, ordered=config.ORDERED)
                 transition = VONETransition(
                     done, action, value, reward, log_prob, last_obs, info, env_state.env_state.node_mask_s,
                     env_state.env_state.link_slot_mask,
@@ -244,6 +247,8 @@ def make_train(config):
             runner_state, traj_batch = jax.lax.scan(
                 _env_step, runner_state, None, config.NUM_STEPS
             )
+            if config.DEBUG:
+                jax.debug.print("traj_batch.info {}", traj_batch.info, ordered=config.ORDERED)
 
             # CALCULATE ADVANTAGE
             train_state, env_state, last_obs, rng = runner_state

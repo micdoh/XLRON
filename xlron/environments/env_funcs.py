@@ -1,7 +1,8 @@
 from itertools import combinations, islice
 from functools import partial
-from typing import Sequence, Union, Optional
+from typing import Sequence, Union, Optional, Tuple
 from gymnax.environments import environment
+from gymnax.wrappers.purerl import GymnaxWrapper
 import pathlib
 import networkx as nx
 import jax.numpy as jnp
@@ -60,10 +61,64 @@ class EnvState:
 class EnvParams:
     max_requests: chex.Scalar = struct.field(pytree_node=False)
     max_timesteps: chex.Scalar = struct.field(pytree_node=False)
-    consecutive_loading: chex.Scalar = struct.field(pytree_node=False)
+    incremental_loading: chex.Scalar = struct.field(pytree_node=False)
+    continuous_operation: chex.Scalar = struct.field(pytree_node=False)
     edges: chex.Array = struct.field(pytree_node=False)
     slot_size: chex.Scalar = struct.field(pytree_node=False)
     consider_modulation_format: chex.Scalar = struct.field(pytree_node=False)
+
+
+@struct.dataclass
+class LogEnvState:
+    env_state: environment.EnvState
+    episode_returns: float
+    episode_lengths: int
+    returned_episode_returns: float
+    returned_episode_lengths: int
+
+
+class LogWrapper(GymnaxWrapper):
+    """Log the episode returns and lengths."""
+
+    def __init__(self, env: environment.Environment):
+        super().__init__(env)
+
+    @partial(jax.jit, static_argnums=(0,))
+    def reset(
+        self, key: chex.PRNGKey, params: Optional[environment.EnvParams] = None
+    ) -> Tuple[chex.Array, environment.EnvState]:
+        obs, env_state = self._env.reset(key, params)
+        state = LogEnvState(env_state, 0, 0, 0, 0)
+        return obs, state
+
+    @partial(jax.jit, static_argnums=(0,))
+    def step(
+        self,
+        key: chex.PRNGKey,
+        state: environment.EnvState,
+        action: Union[int, float],
+        params: Optional[environment.EnvParams] = None,
+    ) -> Tuple[chex.Array, environment.EnvState, float, bool, dict]:
+        obs, env_state, reward, done, info = self._env.step(
+            key, state.env_state, action, params
+        )
+        new_episode_return = state.episode_returns + reward
+        new_episode_length = state.episode_lengths + 1
+        state = LogEnvState(
+            env_state=env_state,
+            episode_returns=new_episode_return * (1 - done),
+            episode_lengths=new_episode_length * (1 - done),
+            returned_episode_returns=state.returned_episode_returns * (1 - done)
+            + new_episode_return * done,
+            returned_episode_lengths=state.returned_episode_lengths * (1 - done)
+            + new_episode_length * done,
+        )
+        info["returned_episode_returns"] = state.returned_episode_returns
+        info["returned_episode_lengths"] = state.returned_episode_lengths
+        info["returned_episode"] = done
+        info["episode_returns"] = reward
+        info["episode_lengths"] = state.episode_lengths
+        return obs, state, reward, done, info
 
 
 class RolloutWrapper(object):
@@ -421,8 +476,8 @@ def generate_vone_request(key: chex.PRNGKey, state: EnvState, params: EnvParams)
         action_history=init_action_history(params),
         total_requests=state.total_requests + 1
     )
-    state = remove_expired_node_requests(state) if not params.consecutive_loading else state
-    state = remove_expired_slot_requests(state) if not params.consecutive_loading else state
+    state = remove_expired_node_requests(state) if not params.incremental_loading else state
+    state = remove_expired_slot_requests(state) if not params.incremental_loading else state
     return state
 
 
@@ -446,7 +501,7 @@ def generate_rsa_request(key: chex.PRNGKey, state: EnvState, params: EnvParams) 
         request_array=jnp.stack((source, bw, dest)),
         total_requests=state.total_requests + 1
     )
-    state = remove_expired_slot_requests(state) if not params.consecutive_loading else state
+    state = remove_expired_slot_requests(state) if not params.incremental_loading else state
     return state
 
 
