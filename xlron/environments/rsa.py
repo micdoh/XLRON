@@ -124,8 +124,14 @@ class RSAEnv(environment.Environment):
         state = state.replace(total_timesteps=state.total_timesteps + 1)
         # Terminate if max_timesteps or max_requests exceeded or, if consecutive loading,
         # then terminate if reward is failure but not before min number of timesteps before update
-        done = self.is_terminal(state, params) \
-            if not params.consecutive_loading else jnp.array(reward == self.get_reward_failure())
+        if params.continuous_operation:
+            done = jnp.array(False)
+        elif params.incremental_loading:
+            done = jnp.array(reward == self.get_reward_failure())
+        else:
+            done = self.is_terminal(state, params)
+        # done = self.is_terminal(state, params) \
+        #     if not params.incremental_loading else jnp.array(reward == self.get_reward_failure())
         info = {}
         return self.get_obs(state), state, reward, done, info
 
@@ -273,22 +279,25 @@ def make_rsa_env(config):
     load = config.get("load", 100)
     k = config.get("k", 5)
     mean_service_holding_time = config.get("mean_service_holding_time", 10)
-    consecutive_loading = config.get("consecutive_loading", False)
+    incremental_loading = config.get("incremental_loading", False)
     uniform_traffic = config.get("uniform_traffic", True)
     max_requests = config.get("max_requests", 1e4)
     max_timesteps = config.get("max_timesteps", 1e4)
     link_resources = config.get("link_resources", 100)
     values_bw = config.get("values_bw", None)
+    if values_bw:
+        values_bw = [int(val) for val in values_bw]
     slot_size = config.get("slot_size", 12.5)
     min_bw = config.get("min_bw", 25)
     max_bw = config.get("max_bw", 100)
     step_bw = config.get("step_bw", 1)
     env_type = config.get("env_type", "").lower()
+    continuous_operation = config.get("continuous_operation", False)
 
     rng = jax.random.PRNGKey(seed)
     rng, _, _, _, _ = jax.random.split(rng, 5)
     graph = make_graph(topology_name)
-    if env_type == "deeprmsa":
+    if topology_name == "nsfnet":
         edge_data = {(u, v): ed["weight"]/2 for u, v, ed in graph.edges.data()}
         nx.set_edge_attributes(graph, edge_data, "weight")
     arrival_rate = load / mean_service_holding_time
@@ -319,7 +328,7 @@ def make_rsa_env(config):
         path_se_array = jnp.array([1])
         max_slots = required_slots(max_bw, 1, slot_size)
 
-    if consecutive_loading:
+    if incremental_loading:
         mean_service_holding_time = load = 1e6
 
     # Define edges for use with heuristics and GNNs
@@ -336,13 +345,14 @@ def make_rsa_env(config):
         load=load,
         arrival_rate=arrival_rate,
         path_link_array=HashableArrayWrapper(path_link_array),
-        consecutive_loading=consecutive_loading,
+        incremental_loading=incremental_loading,
         edges=HashableArrayWrapper(edges),
         uniform_traffic=uniform_traffic,
         path_se_array=HashableArrayWrapper(path_se_array),
         max_slots=int(max_slots),
         consider_modulation_format=consider_modulation_format,
         slot_size=slot_size,
+        continuous_operation=continuous_operation,
     )
 
     env = RSAEnv(rng, params, values_bw=values_bw) if not env_type == "deeprmsa" \

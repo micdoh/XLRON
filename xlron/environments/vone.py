@@ -164,8 +164,14 @@ class VONEEnv(environment.Environment):
         )
         # Terminate if max_timesteps or max_requests exceeded or, if consecutive loading,
         # then terminate if reward is failure but not before min number of timesteps before update
-        done = self.is_terminal(state, params) \
-            if not params.consecutive_loading else jnp.array(reward == self.get_reward_failure())
+        if params.continuous_operation:
+            done = jnp.array(False)
+        elif params.incremental_loading:
+            done = jnp.array(reward == self.get_reward_failure())
+        else:
+            done = self.is_terminal(state, params)
+        # done = self.is_terminal(state, params) \
+        #     if not params.incremental_loading else jnp.array(reward == self.get_reward_failure())
         info = {}
         return self.get_obs(state), state, reward, done, info
 
@@ -302,7 +308,7 @@ def make_vone_env(config):
     load = config.get("load", 100.0)
     mean_service_holding_time = config.get("mean_service_holding_time", 10.0)
     arrival_rate = load / mean_service_holding_time
-    consecutive_loading = config.get("consecutive_loading", False)
+    incremental_loading = config.get("incremental_loading", False)
     max_requests = config.get("max_requests", 1e4)
     max_timesteps = config.get("max_timesteps", 1e4)
     link_resources = config.get("link_resources", 100)
@@ -317,6 +323,10 @@ def make_vone_env(config):
     slot_size = config.get("slot_size", 12.5)
     consider_modulation_format = config.get("consider_modulation_format", False)
     values_bw = config.get("values_bw", None)
+    continuous_operation = config.get("continuous_operation", False)
+
+    if values_bw:
+        values_bw = [int(val) for val in values_bw]
     num_nodes = len(graph.nodes)
     num_links = len(graph.edges)
     path_link_array = init_path_link_array(graph, k)
@@ -341,7 +351,7 @@ def make_vone_env(config):
         path_se_array = jnp.array([1])
         max_slots = required_slots(max_bw, 1, slot_size)
 
-    if consecutive_loading:
+    if incremental_loading:
         mean_service_holding_time = load = 1e6
 
     # Define edges for use with heuristics and GNNs
@@ -375,12 +385,13 @@ def make_vone_env(config):
         min_node_resources=min_node_resources,
         max_node_resources=max_node_resources,
         path_link_array=HashableArrayWrapper(path_link_array),
-        consecutive_loading=consecutive_loading,
+        incremental_loading=incremental_loading,
         edges=HashableArrayWrapper(edges),
         path_se_array=HashableArrayWrapper(path_se_array),
         max_slots=int(max_slots),
         consider_modulation_format=consider_modulation_format,
         slot_size=slot_size,
+        continuous_operation=continuous_operation,
     )
 
     env = VONEEnv(params, virtual_topologies=virtual_topologies, values_bw=values_bw)
