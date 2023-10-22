@@ -11,3 +11,4 @@ jax/
 site/
 config/
 .coverage
+.run
