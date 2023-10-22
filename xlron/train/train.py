@@ -25,6 +25,9 @@ def main(argv):
 
     # Jax imports must come after CUDA_VISIBLE_DEVICES is set
     import jax
+    jax.config.update("jax_debug_nans", FLAGS.DEBUG_NANS)
+    jax.config.update("jax_disable_jit", FLAGS.DISABLE_JIT)
+    jax.config.update("jax_enable_x64", FLAGS.ENABLE_X64)
     print(f"Available devices: {jax.devices()}")
     import jax.numpy as jnp
     import orbax.checkpoint
@@ -56,10 +59,11 @@ def main(argv):
         wandb.config.update(FLAGS)
         run.name = FLAGS.EXPERIMENT_NAME if FLAGS.EXPERIMENT_NAME else run.id
         wandb.define_metric("update_step")
-        wandb.define_metric("returned_episode_returns_mean", step_metric="update_step")
-        wandb.define_metric("returned_episode_returns_std", step_metric="update_step")
-        wandb.define_metric("returned_episode_lengths_mean", step_metric="update_step")
-        wandb.define_metric("returned_episode_lengths_std", step_metric="update_step")
+        wandb.define_metric("lengths", step_metric="update_step")
+        wandb.define_metric("returns", step_metric="update_step")
+        wandb.define_metric("cum_returns", step_metric="update_step")
+        wandb.define_metric("episode_lengths", step_metric="update_step")
+        wandb.define_metric("episode_returns", step_metric="update_step")
 
     # Print every flag and its name
     if FLAGS.DEBUG:
@@ -93,7 +97,7 @@ def main(argv):
     # (essentially training separately per device/seed)
     with TimeIt(tag='EXECUTION', frames=FLAGS.TOTAL_TIMESTEPS * len(jax.devices()) * FLAGS.NUM_SEEDS):
         out = train_jit(rng)
-        out["metrics"]["returned_episode_returns"].block_until_ready()  # Wait for all devices to finish
+        out["metrics"]["episode_returns"].block_until_ready()  # Wait for all devices to finish
 
     # Save model params
     if FLAGS.SAVE_MODEL:
@@ -107,43 +111,45 @@ def main(argv):
     if FLAGS.NUM_SEEDS > 1:
         # Take mean on env dimension (-1) then seed dimension (0)
         # For ref, dimension order is (num_seeds, num_updates, num_steps, num_envs)
-        returned_episode_returns_mean = out["metrics"]["returned_episode_returns"].mean(-1).mean(0).reshape(-1)
-        returned_episode_returns_std = out["metrics"]["returned_episode_returns"].mean(-1).std(0).reshape(-1)
-        returned_episode_lengths_mean = out["metrics"]["returned_episode_lengths"].mean(-1).mean(0).reshape(-1)
-        returned_episode_lengths_std = out["metrics"]["returned_episode_lengths"].mean(-1).std(0).reshape(-1)
         episode_returns_mean = out["metrics"]["episode_returns"].mean(-1).mean(0).reshape(-1)
         episode_returns_std = out["metrics"]["episode_returns"].mean(-1).std(0).reshape(-1)
         episode_lengths_mean = out["metrics"]["episode_lengths"].mean(-1).mean(0).reshape(-1)
         episode_lengths_std = out["metrics"]["episode_lengths"].mean(-1).std(0).reshape(-1)
+        cum_returns_mean = out["metrics"]["cum_returns"].mean(-1).mean(0).reshape(-1)
+        cum_returns_std = out["metrics"]["cum_returns"].mean(-1).std(0).reshape(-1)
+        returns_mean = out["metrics"]["returns"].mean(-1).mean(0).reshape(-1)
+        returns_std = out["metrics"]["returns"].mean(-1).std(0).reshape(-1)
+        lengths_mean = out["metrics"]["lengths"].mean(-1).mean(0).reshape(-1)
+        lengths_std = out["metrics"]["lengths"].mean(-1).std(0).reshape(-1)
     else:
         # N.B. This is the same as the above code, but without the mean on the seed dimension
         # This means the results are still per update step
-        returned_episode_returns_mean = out["metrics"]["returned_episode_returns"].mean(-1).reshape(-1)
-        returned_episode_returns_std = out["metrics"]["returned_episode_returns"].std(-1).reshape(-1)
-        returned_episode_lengths_mean = out["metrics"]["returned_episode_lengths"].mean(-1).reshape(-1)
-        returned_episode_lengths_std = out["metrics"]["returned_episode_lengths"].std(-1).reshape(-1)
         episode_returns_mean = out["metrics"]["episode_returns"].mean(-1).reshape(-1)
         episode_returns_std = out["metrics"]["episode_returns"].std(-1).reshape(-1)
         episode_lengths_mean = out["metrics"]["episode_lengths"].mean(-1).reshape(-1)
         episode_lengths_std = out["metrics"]["episode_lengths"].std(-1).reshape(-1)
+        cum_returns_mean = out["metrics"]["cum_returns"].mean(-1).reshape(-1)
+        cum_returns_std = out["metrics"]["cum_returns"].std(-1).reshape(-1)
+        returns_mean = out["metrics"]["returns"].mean(-1).reshape(-1)
+        returns_std = out["metrics"]["returns"].std(-1).reshape(-1)
+        lengths_mean = out["metrics"]["lengths"].mean(-1).reshape(-1)
+        lengths_std = out["metrics"]["lengths"].std(-1).reshape(-1)
 
     # This is valid for the case of +1 success -1 fail per request
-    service_blocking_probability = 1 - ((returned_episode_returns_mean + FLAGS.max_requests) / (2*FLAGS.max_requests))
-    service_blocking_probability_std = returned_episode_returns_std / (2*FLAGS.max_requests)
+    service_blocking_probability = 1 - ((episode_returns_mean + FLAGS.max_requests) / (2*FLAGS.max_requests))
+    service_blocking_probability_std = episode_returns_std / (2*FLAGS.max_requests)
 
-    plot_metric = episode_lengths_mean if (FLAGS.env_type[:3] in ["rsa", "rms", "rwa"] and FLAGS.incremental_loading) else episode_returns_mean
-    plot_metric_std = episode_lengths_std if (FLAGS.env_type[:3] in ["rsa", "rms", "rwa"] and FLAGS.incremental_loading) else episode_returns_std
+    service_blocking_probability = 1 - ((cum_returns_mean + lengths_mean) / (2*lengths_mean))
+    service_blocking_probability_std = returns_std / (2*lengths_mean)
 
-    #episode_returns_cumsum = np.cumsum(episode_returns_mean)
-    #service_blocking_probability = 1 - ((episode_returns_cumsum + episode_lengths_mean) / (2*episode_lengths_mean))
-    #service_blocking_probability_std = episode_returns_std / (2*episode_lengths_mean)
-    plot_metric = service_blocking_probability
-    plot_metric_std = service_blocking_probability_std
+    plot_metric = episode_lengths_mean if FLAGS.incremental_loading else service_blocking_probability
+    plot_metric_std = episode_lengths_std if FLAGS.incremental_loading else service_blocking_probability_std
+
     def moving_average(x, w):
         return np.convolve(x, np.ones(w), 'valid') / w
 
-    #plot_metric = moving_average(plot_metric, 100)
-    #plot_metric_std = moving_average(plot_metric_std, 100)
+    plot_metric = moving_average(plot_metric, 100)
+    plot_metric_std = moving_average(plot_metric_std, 100)
     plt.plot(plot_metric)
     plt.fill_between(
         range(len(plot_metric)),
@@ -152,7 +158,7 @@ def main(argv):
         alpha=0.2
     )
     plt.xlabel("Update Step")
-    plt.ylabel("Return")
+    plt.ylabel(f"{'Episode Length' if FLAGS.incremental_loading else 'Service Blocking Probability'}")
     plt.savefig(f"{FLAGS.EXPERIMENT_NAME}.png")
     plt.show()
 
@@ -163,21 +169,37 @@ def main(argv):
         # Log the data to wandb
         # Define the downsample factor to speed up upload to wandb
         # Then reshape the array and compute the mean
-        chop = len(returned_episode_returns_mean) % FLAGS.DOWNSAMPLE_FACTOR
-        returned_episode_returns_mean = returned_episode_returns_mean[chop:].reshape(-1, FLAGS.DOWNSAMPLE_FACTOR).mean(axis=1)
-        returned_episode_returns_std = returned_episode_returns_std[chop:].reshape(-1, FLAGS.DOWNSAMPLE_FACTOR).mean(axis=1)
-        returned_episode_lengths_mean = returned_episode_lengths_mean[chop:].reshape(-1, FLAGS.DOWNSAMPLE_FACTOR).mean(axis=1)
-        returned_episode_lengths_std = returned_episode_lengths_std[chop:].reshape(-1, FLAGS.DOWNSAMPLE_FACTOR).mean(axis=1)
+        chop = len(episode_returns_mean) % FLAGS.DOWNSAMPLE_FACTOR
+        episode_returns_mean = episode_returns_mean[chop:].reshape(-1, FLAGS.DOWNSAMPLE_FACTOR).mean(axis=1)
+        episode_returns_std = episode_returns_std[chop:].reshape(-1, FLAGS.DOWNSAMPLE_FACTOR).mean(axis=1)
+        episode_lengths_mean = episode_lengths_mean[chop:].reshape(-1, FLAGS.DOWNSAMPLE_FACTOR).mean(axis=1)
+        episode_lengths_std = episode_lengths_std[chop:].reshape(-1, FLAGS.DOWNSAMPLE_FACTOR).mean(axis=1)
+        cum_returns_mean = cum_returns_mean[chop:].reshape(-1, FLAGS.DOWNSAMPLE_FACTOR).mean(axis=1)
+        cum_returns_std = cum_returns_std[chop:].reshape(-1, FLAGS.DOWNSAMPLE_FACTOR).mean(axis=1)
+        returns_mean = returns_mean[chop:].reshape(-1, FLAGS.DOWNSAMPLE_FACTOR).mean(axis=1)
+        returns_std = returns_std[chop:].reshape(-1, FLAGS.DOWNSAMPLE_FACTOR).mean(axis=1)
+        lengths_mean = lengths_mean[chop:].reshape(-1, FLAGS.DOWNSAMPLE_FACTOR).mean(axis=1)
+        lengths_std = lengths_std[chop:].reshape(-1, FLAGS.DOWNSAMPLE_FACTOR).mean(axis=1)
         service_blocking_probability = service_blocking_probability[chop:].reshape(-1, FLAGS.DOWNSAMPLE_FACTOR).mean(axis=1)
+        service_blocking_probability_std = service_blocking_probability_std[chop:].reshape(-1, FLAGS.DOWNSAMPLE_FACTOR).mean(axis=1)
 
-        for i in range(len(returned_episode_returns_mean)):
+        for i in range(len(episode_returns_mean)):
             # Log the data
-            log_dict = {"update_step": i*FLAGS.DOWNSAMPLE_FACTOR,
-                        "returned_episode_returns_mean": returned_episode_returns_mean[i],
-                        "returned_episode_returns_std": returned_episode_returns_std[i],
-                        "returned_episode_lengths_mean": returned_episode_lengths_mean[i],
-                        "returned_episode_lengths_std": returned_episode_lengths_std[i],
-                        "service_blocking_probability": service_blocking_probability[i]}
+            log_dict = {
+                "update_step": i*FLAGS.DOWNSAMPLE_FACTOR,
+                "episode_returns_mean": episode_returns_mean[i],
+                "episode_returns_std": episode_returns_std[i],
+                "episode_lengths_mean": episode_lengths_mean[i],
+                "episode_lengths_std": episode_lengths_std[i],
+                "cum_returns_mean": cum_returns_mean[i],
+                "cum_returns_std": cum_returns_std[i],
+                "returns_mean": returns_mean[i],
+                "returns_std": returns_std[i],
+                "lengths_mean": lengths_mean[i],
+                "lengths_std": lengths_std[i],
+                "service_blocking_probability": service_blocking_probability[i],
+                "service_blocking_probability_std": service_blocking_probability_std[i]
+            }
             wandb.log(log_dict)
 
 

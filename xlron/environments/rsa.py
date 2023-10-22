@@ -8,9 +8,10 @@ import networkx as nx
 from gymnax.environments import environment, spaces
 from xlron.environments.env_funcs import (
     HashableArrayWrapper, EnvState, EnvParams, init_rsa_request_array, init_link_slot_array, init_path_link_array,
-    init_values_slots, init_link_slot_mask, init_link_slot_departure_array, init_traffic_matrix, implement_rsa_action,
-    check_rsa_action, undo_link_slot_action, finalise_rsa_action, generate_rsa_request, mask_slots, make_graph,
-    init_path_length_array, init_modulations_array, init_path_se_array, required_slots, init_values_bandwidth
+    convert_node_probs_to_traffic_matrix, init_link_slot_mask, init_link_slot_departure_array, init_traffic_matrix,
+    implement_rsa_action, check_rsa_action, undo_link_slot_action, finalise_rsa_action, generate_rsa_request,
+    mask_slots, make_graph, init_path_length_array, init_modulations_array, init_path_se_array, required_slots,
+    init_values_bandwidth, calculate_path_stats
 )
 
 
@@ -39,13 +40,29 @@ class RSAEnvParams(EnvParams):
     path_se_array: chex.Array = struct.field(pytree_node=False)
 
 
+@struct.dataclass
+class DeepRMSAEnvState(RSAEnvState):
+    path_stats: chex.Array
+
+
+@struct.dataclass
+class DeepRMSAEnvParams(RSAEnvParams):
+    pass
+
+
 class RSAEnv(environment.Environment):
     """Jittable abstract base class for all gymnax Environments.
     This environment simulates the Routing Modulation and Spectrum Assignment (RMSA) problem.
     It can model RSA by setting consider_modulation_format=False in params.
     It can model RWA by setting min_bw=0, max_bw=0, and consider_modulation_format=False in params.
     """
-    def __init__(self, key: chex.PRNGKey, params: RSAEnvParams, values_bw: chex.Array = jnp.array([0])):
+    def __init__(
+            self,
+            key: chex.PRNGKey,
+            params: RSAEnvParams,
+            values_bw: chex.Array = jnp.array([0]),
+            node_probabilities: chex.Array = None
+    ):
         super().__init__()
         self.initial_state = RSAEnvState(
             current_time=0,
@@ -56,7 +73,8 @@ class RSAEnv(environment.Environment):
             link_slot_departure_array=init_link_slot_departure_array(params),
             request_array=init_rsa_request_array(),
             link_slot_mask=init_link_slot_mask(params),
-            traffic_matrix=init_traffic_matrix(key, params),
+            traffic_matrix=init_traffic_matrix(key, params) if not node_probabilities else
+            convert_node_probs_to_traffic_matrix(node_probabilities),  # Use node_probabilities with uniform_traffic
             values_bw=values_bw,
         )
 
@@ -130,10 +148,12 @@ class RSAEnv(environment.Environment):
             done = jnp.array(reward == self.get_reward_failure())
         else:
             done = self.is_terminal(state, params)
-        # done = self.is_terminal(state, params) \
-        #     if not params.incremental_loading else jnp.array(reward == self.get_reward_failure())
         info = {}
-        return self.get_obs(state), state, reward, done, info
+        # Calculate path stats if DeepRMSAEnv
+        if params.__class__.__name__ == "DeepRMSAEnvParams":
+            path_stats = calculate_path_stats(state, params, state.request_array)
+            state = state.replace(path_stats=path_stats)
+        return self.get_obs(state, params), state, reward, done, info
 
     @partial(jax.jit, static_argnums=(0, 2,))
     def reset_env(
@@ -141,6 +161,7 @@ class RSAEnv(environment.Environment):
     ) -> Tuple[chex.Array, RSAEnvState]:
         """Environment-specific reset."""
         if params.uniform_traffic:
+            # N.B. use node_probabilities with params.uniform_traffic
             state = self.initial_state
         else:
             key, key_traffic = jax.random.split(key)
@@ -148,7 +169,7 @@ class RSAEnv(environment.Environment):
                 traffic_matrix=init_traffic_matrix(key_traffic, params)
             )
         state = generate_rsa_request(key, state, params)
-        return self.get_obs(state), state
+        return self.get_obs(state, params), state
 
     @partial(jax.jit, static_argnums=(0, 2,))
     def action_mask(self, state: RSAEnvState, params: RSAEnvParams) -> RSAEnvState:
@@ -161,15 +182,16 @@ class RSAEnv(environment.Environment):
         state = mask_slots(state, params, state.request_array)
         return state
 
-    def get_obs_unflat(self, state: RSAEnvState) -> Tuple[chex.Array]:
+    @partial(jax.jit, static_argnums=(0, 2,))
+    def get_obs_unflat(self, state: RSAEnvState, params: RSAEnvParams) -> Tuple[chex.Array, chex.Array]:
         """Applies observation function to state."""
         return (
             state.request_array,
-            state.node_capacity_array,
             state.link_slot_array,
         )
 
-    def get_obs(self, state: RSAEnvState) -> chex.Array:
+    @partial(jax.jit, static_argnums=(0, 2,))
+    def get_obs(self, state: RSAEnvState, params: RSAEnvParams) -> chex.Array:
         """Applies observation function to state."""
         return jnp.concatenate(
             (
@@ -238,32 +260,97 @@ class RSAEnv(environment.Environment):
 
 class DeepRMSAEnv(RSAEnv):
 
-    def __init__(self, key: chex.PRNGKey, params: RSAEnvParams, values_bw: chex.Array = jnp.array([0])):
-        super().__init__(key, params, values_bw=values_bw)
+    def __init__(
+            self,
+            key: chex.PRNGKey,
+            params: RSAEnvParams,
+            values_bw: chex.Array = jnp.array([0]),
+            node_probabilities: chex.Array = None
+    ):
+        super().__init__(key, params, values_bw=values_bw, node_probabilities=node_probabilities)
+        self.initial_state = DeepRMSAEnvState(
+            current_time=0,
+            holding_time=0,
+            total_timesteps=0,
+            total_requests=-1,
+            link_slot_array=init_link_slot_array(params),
+            link_slot_departure_array=init_link_slot_departure_array(params),
+            request_array=init_rsa_request_array(),
+            link_slot_mask=jnp.ones(params.k_paths),
+            traffic_matrix=init_traffic_matrix(key, params) if not node_probabilities else
+            convert_node_probs_to_traffic_matrix(node_probabilities),  # Use node_probabilities with uniform_traffic
+            values_bw=values_bw,
+            path_stats=calculate_path_stats(self.initial_state, params, self.initial_state.request_array),
+        )
 
     def step_env(
             self,
             key: chex.PRNGKey,
-            state: RSAEnvState,
+            state: DeepRMSAEnvState,
             action: Union[int, float],
             params: RSAEnvParams,
     ) -> Tuple[chex.Array, RSAEnvState, chex.Array, chex.Array, chex.Array]:
         """Environment-specific step transition."""
         # Do action
-        state = mask_slots(state, params, state.request_array)
-        mask = jnp.reshape(state.link_slot_mask, (params.k_paths, -1))
-        # Add a column of ones to the mask to make sure that occupied paths have non-zero index in "first_slots"
-        mask = jnp.concatenate((mask, jnp.full((mask.shape[0], 1), 1)), axis=1)
-        # Get index of first available slots for each path
-        first_slots = jax.vmap(jnp.argmax, in_axes=(0))(mask)
-        slot_index = first_slots[action] % params.link_resources
-        # Convert indices to action
-        action = action * params.link_resources + slot_index
+        # state = mask_slots(state, params, state.request_array)
+        # mask = jnp.reshape(state.link_slot_mask, (params.k_paths, -1))
+        # # Add a column of ones to the mask to make sure that occupied paths have non-zero index in "first_slots"
+        # mask = jnp.concatenate((mask, jnp.full((mask.shape[0], 1), 1)), axis=1)
+        # # Get index of first available slots for each path
+        # first_slots = jax.vmap(jnp.argmax, in_axes=(0))(mask)
+        # slot_index = first_slots[action] % params.link_resources
+        # # Convert indices to action
+        # action = action * params.link_resources + slot_index
+        slot_index = jnp.squeeze(jax.lax.dynamic_slice(state.path_stats, (action, 2), (1, 1)))
+        action = action * params.link_resources + slot_index * params.link_resources  # Undo normalisation
         return super().step_env(key, state, action, params)
+
+    def action_mask(self, state: RSAEnvState, params: RSAEnvParams) -> RSAEnvState:
+        mask = jnp.where(state.path_stats[:, 3] >= 1, 1., 0.)
+        # If mask is all zeros, make all ones
+        mask = jnp.where(jnp.sum(mask) == 0, 1., mask)
+        #mask = jnp.ones(params.k_paths)
+        state = state.replace(link_slot_mask=mask)
+        return state
 
     def action_space(self, params: RSAEnvParams):
         """Action space of the environment."""
         return spaces.Discrete(params.k_paths)
+
+    @staticmethod
+    def num_actions(params: RSAEnvParams) -> int:
+        """Number of actions possible in environment."""
+        return params.k_paths
+
+    @partial(jax.jit, static_argnums=(0, 2,))
+    def get_obs(self, state: RSAEnvState, params: RSAEnvParams) -> chex.Array:
+        """Applies observation function to state."""
+        request = state.request_array
+        s = jax.lax.dynamic_slice(request, (0,), (1,))
+        s = jax.nn.one_hot(s, params.num_nodes)
+        d = jax.lax.dynamic_slice(request, (2,), (1,))
+        d = jax.nn.one_hot(d, params.num_nodes)
+        request_encoding = s + d
+        return jnp.concatenate(
+            (
+                #jnp.reshape(request_encoding, (-1,)),
+                jnp.reshape(s, (-1,)),
+                jnp.reshape(d, (-1,)),
+                jnp.reshape(state.holding_time, (-1,)),
+                jnp.reshape(state.path_stats, (-1,)),
+            ),
+            axis=0,
+        )
+
+    def observation_space(self, params: RSAEnvParams):
+        """Observation space of the environment."""
+        return spaces.Discrete(
+            params.num_nodes  # Request encoding
+            + params.num_nodes
+            + 1  # Holding time
+            + params.k_paths * 5  # Path stats
+        )
+
 
 
 def make_rsa_env(config):
@@ -285,8 +372,11 @@ def make_rsa_env(config):
     max_timesteps = config.get("max_timesteps", 1e4)
     link_resources = config.get("link_resources", 100)
     values_bw = config.get("values_bw", None)
+    node_probabilities = config.get("node_probabilities", None)
     if values_bw:
         values_bw = [int(val) for val in values_bw]
+    if node_probabilities:
+        node_probabilities = [float(prob) for prob in config.get("node_probs")]
     slot_size = config.get("slot_size", 12.5)
     min_bw = config.get("min_bw", 25)
     max_bw = config.get("max_bw", 100)
@@ -334,7 +424,9 @@ def make_rsa_env(config):
     # Define edges for use with heuristics and GNNs
     edges = jnp.array(sorted(graph.edges))
 
-    params = RSAEnvParams(
+    env_params = RSAEnvParams if not env_type == "deeprmsa" else DeepRMSAEnvParams
+
+    params = env_params(
         max_requests=max_requests,
         max_timesteps=max_timesteps,
         mean_service_holding_time=mean_service_holding_time,
@@ -355,7 +447,7 @@ def make_rsa_env(config):
         continuous_operation=continuous_operation,
     )
 
-    env = RSAEnv(rng, params, values_bw=values_bw) if not env_type == "deeprmsa" \
-        else DeepRMSAEnv(rng, params, values_bw=values_bw)
+    env = RSAEnv(rng, params, values_bw=values_bw, node_probabilities=node_probabilities) if not env_type == "deeprmsa" \
+        else DeepRMSAEnv(rng, params, values_bw=values_bw, node_probabilities=node_probabilities)
 
     return env, params

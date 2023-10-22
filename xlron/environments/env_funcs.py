@@ -71,10 +71,11 @@ class EnvParams:
 @struct.dataclass
 class LogEnvState:
     env_state: environment.EnvState
-    episode_returns: float
+    lengths: float
+    returns: float
+    cum_returns: float
     episode_lengths: int
-    returned_episode_returns: float
-    returned_episode_lengths: int
+    episode_returns: float
 
 
 class LogWrapper(GymnaxWrapper):
@@ -88,7 +89,7 @@ class LogWrapper(GymnaxWrapper):
         self, key: chex.PRNGKey, params: Optional[environment.EnvParams] = None
     ) -> Tuple[chex.Array, environment.EnvState]:
         obs, env_state = self._env.reset(key, params)
-        state = LogEnvState(env_state, 0, 0, 0, 0)
+        state = LogEnvState(env_state, 0, 0, 0, 0, 0)
         return obs, state
 
     @partial(jax.jit, static_argnums=(0,))
@@ -102,21 +103,22 @@ class LogWrapper(GymnaxWrapper):
         obs, env_state, reward, done, info = self._env.step(
             key, state.env_state, action, params
         )
-        new_episode_return = state.episode_returns + reward
-        new_episode_length = state.episode_lengths + 1
+        new_episode_return = state.cum_returns + reward
+        new_episode_length = state.lengths + 1
         state = LogEnvState(
             env_state=env_state,
-            episode_returns=new_episode_return * (1 - done),
-            episode_lengths=new_episode_length * (1 - done),
-            returned_episode_returns=state.returned_episode_returns * (1 - done)
-            + new_episode_return * done,
-            returned_episode_lengths=state.returned_episode_lengths * (1 - done)
+            lengths=state.lengths * (1 - done) + 1,
+            returns=reward,
+            cum_returns=state.cum_returns * (1 - done) + reward,
+            episode_lengths=state.episode_lengths * (1 - done)
             + new_episode_length * done,
+            episode_returns=state.episode_returns * (1 - done)
+            + new_episode_return * done,
         )
-        info["returned_episode_returns"] = state.returned_episode_returns
-        info["returned_episode_lengths"] = state.returned_episode_lengths
-        info["returned_episode"] = done
-        info["episode_returns"] = reward
+        info["lengths"] = state.lengths
+        info["returns"] = state.returns
+        info["cum_returns"] = state.cum_returns
+        info["episode_returns"] = state.episode_returns
         info["episode_lengths"] = state.episode_lengths
         return obs, state, reward, done, info
 
@@ -285,10 +287,10 @@ def init_path_se_array(path_length_array, modulations_array):
     return jnp.array(se_list)
 
 
-@partial(jax.jit, static_argnums=(2,))
-def required_slots(bit_rate, se, channel_width):
+@partial(jax.jit, static_argnums=(2,3))
+def required_slots(bit_rate, se, channel_width, guardband=1):
     """Calculate required slots for a given bitrate and spectral efficiency"""
-    return jnp.int32(jnp.ceil(bit_rate/(se*channel_width))+1)
+    return jnp.int32(jnp.ceil(bit_rate/(se*channel_width))+guardband)
 
 
 def init_virtual_topology_patterns(pattern_names):
@@ -930,10 +932,7 @@ def implement_rsa_action(
     Returns:
         state: updated state
     """
-    node_s = jax.lax.dynamic_slice(state.request_array, (0, ), (1, ))
-    bw_request = jax.lax.dynamic_slice(state.request_array, (1, ), (1, ))
-    node_d = jax.lax.dynamic_slice(state.request_array, (2, ), (1, ))
-    nodes_sd = jnp.concatenate((node_s, node_d))
+    nodes_sd, bw_request = read_rsa_request(state.request_array)
     path_index = jnp.floor(action / params.link_resources).astype(jnp.int32)
     initial_slot_index = jnp.mod(action, params.link_resources)
     path = get_paths(params, nodes_sd)[path_index]
@@ -941,6 +940,14 @@ def implement_rsa_action(
     num_slots = required_slots(bw_request, se, params.slot_size)
     state = implement_path_action(state, path, initial_slot_index, num_slots)
     return state
+
+
+def read_rsa_request(request_array: chex.Array) -> Tuple[chex.Array, chex.Array]:
+    node_s = jax.lax.dynamic_slice(request_array, (0,), (1,))
+    bw_request = jax.lax.dynamic_slice(request_array, (1,), (1,))
+    node_d = jax.lax.dynamic_slice(request_array, (2,), (1,))
+    nodes_sd = jnp.concatenate((node_s, node_d))
+    return nodes_sd, bw_request
 
 
 def make_positive(x):
@@ -998,6 +1005,15 @@ def check_rsa_action(state):
     )))
 
 
+def convert_node_probs_to_traffic_matrix(node_probs: list):
+    """Convert node probabilities to traffic matrix"""
+    matrix = jnp.outer(node_probs, node_probs)
+    # Set lead diagonal to zero
+    matrix = jnp.where(jnp.eye(matrix.shape[0]) == 1, 0, matrix)
+    matrix = normalise_traffic_matrix(matrix)
+    return matrix
+
+
 def make_graph(topology_name: str = "conus"):
     """Create graph from topology"""
 
@@ -1039,10 +1055,7 @@ def mask_slots(state: EnvState, params: EnvParams, request: chex.Array) -> EnvSt
 
     2. For each path, mask out (0) initial slots that are not valid
     """
-    node_s = jax.lax.dynamic_slice(request, (0,), (1,))
-    requested_bw = jax.lax.dynamic_slice(request, (1,), (1,))
-    node_d = jax.lax.dynamic_slice(request, (2,), (1,))
-    nodes_sd = jnp.concatenate((node_s, node_d), axis=0)
+    nodes_sd, requested_bw = read_rsa_request(request)
     init_mask = jnp.zeros((params.link_resources * params.k_paths))
 
     def mask_path(i, mask):
@@ -1186,3 +1199,107 @@ def mask_nodes(state: EnvState, num_nodes: chex.Scalar) -> EnvState:
         )
     )
     return state
+
+
+# TODO - write test and use in mask_slots
+def get_path_slots(state: EnvState, params: EnvParams, nodes_sd: chex.Array, i: int):
+    path = get_paths(params, nodes_sd)[i]
+    path = path.reshape((params.num_links, 1))
+    # Get links and collapse to single dimension
+    slots = jnp.where(path, state.link_slot_array, jnp.zeros(params.link_resources))
+    # Make any -1s positive then get max for each slot across links
+    slots = jnp.max(jnp.absolute(slots), axis=0)
+    return slots
+
+
+# TODO - write tests
+def count_until_next_one(array, position):
+    # Add 1s to end so that end block is counted and slice shape can be fixed
+    shape = array.shape[0]
+    array = jnp.concatenate([array, jnp.ones(array.shape[0], dtype=jnp.int32)])
+    # Find the indices of 1 in the array
+    one_indices = jax.lax.dynamic_slice(array, (position,), (shape,))
+    # Find the next 1 after the given position
+    next_one_idx = jnp.argmax(one_indices)
+    return next_one_idx + 1
+
+
+# TODO - write tests
+def find_block_starts(path_slots):
+    # Add a [1] at the beginning to find transitions from 1 to 0
+    path_slots_extended = jnp.concatenate((jnp.array([1]), path_slots), axis=0)
+    transitions = jnp.diff(path_slots_extended)  # Find transitions (1 to 0)
+    block_starts = jnp.where(transitions == -1, 1, 0)  # 1 at block starts, 0 elsewhere
+    return block_starts
+
+
+# TODO - write tests
+def find_block_ends(path_slots):
+    # Add a [1] at the end to find transitions from 0 to 1
+    path_slots_extended = jnp.concatenate((path_slots, jnp.array([1])), axis=0)
+    transitions = jnp.diff(path_slots_extended)  # Find transitions (1 to 0)
+    block_ends = jnp.where(transitions == 1, 1, 0)  # 1 at block starts, 0 elsewhere
+    return block_ends
+
+
+# TODO - write tests
+def find_block_sizes(path_slots: chex.Array):
+    def body_fun(i, arrays):
+        starts = arrays[0]
+        ends = arrays[1]
+        new_val = jnp.reshape(count_until_next_one(ends, i), (1,))
+        starts = jax.lax.dynamic_update_slice(starts, new_val, (i,))
+        return (starts, ends)
+
+    block_starts = find_block_starts(path_slots)
+    block_ends = find_block_ends(path_slots)
+    block_sizes = jax.lax.fori_loop(
+        0,
+        block_starts.shape[0],
+        body_fun,
+        (block_starts, block_ends),
+    )[0]
+    block_sizes = jnp.where(block_starts == 1, block_sizes, 0)
+    return block_sizes
+
+
+# TODO - write tests
+@partial(jax.jit, static_argnums=(1,))
+def calculate_path_stats(state: EnvState, params: EnvParams, request: chex.Array) -> chex.Array:
+    """Calculate:
+    1. Required slots on path
+    2. Total available slots on path
+    3. Size of 1st free spectrum block
+    4. Avg. free block size
+    """
+    nodes_sd, requested_bw = read_rsa_request(request)
+    init_val = jnp.zeros((params.k_paths, 5))
+
+    def body_fun(i, val):
+        slots = get_path_slots(state, params, nodes_sd, i)
+        se = get_paths_se(params, nodes_sd)[i] if params.consider_modulation_format else jnp.array([1])
+        req_slots = jnp.squeeze(required_slots(requested_bw, se, params.slot_size))
+        req_slots_norm = req_slots*params.slot_size / jnp.max(state.values_bw)
+        free_slots = jnp.sum(jnp.where(slots == 0, 1, 0)) / params.link_resources
+        block_sizes = find_block_sizes(slots)
+        first_block_index = jnp.argmax(block_sizes >= req_slots)
+        first_block_index_norm = jnp.argmax(block_sizes >= req_slots) / params.link_resources
+        first_block_size = jnp.squeeze(
+            jax.lax.dynamic_slice(block_sizes, (first_block_index,), (1,))
+        ) / req_slots
+        avg_block_size = jnp.sum(block_sizes) / (jnp.sum(find_block_starts(slots))+1) / req_slots
+        val = jax.lax.dynamic_update_slice(
+            val,
+            jnp.array([[req_slots_norm, free_slots, first_block_index_norm, first_block_size, avg_block_size]]),
+            (i, 0)
+        )  # N.B. that all values are normalised
+        return val
+
+    stats = jax.lax.fori_loop(
+            0,
+            params.k_paths,
+            body_fun,
+            init_val,
+        )
+
+    return stats

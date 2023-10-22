@@ -165,6 +165,7 @@ def make_train(config):
                 pi, value = network.apply(train_state.params, last_obs)
                 rng = jax.random.split(rng, 1 + len(pi))
 
+                # Always do action masking with VONE
                 if config.env_type.lower() == "vone":
                     vmap_mask_nodes = jax.vmap(env.action_mask_nodes, in_axes=(0, None))
                     vmap_mask_slots = jax.vmap(env.action_mask_slots, in_axes=(0, None, 0))
@@ -195,20 +196,16 @@ def make_train(config):
 
                     log_prob = log_prob_dest + log_prob_path + log_prob_source
 
-                elif config.env_type.lower() in ["rsa", "rmsa", "rwa"]:
+                elif config.ACTION_MASKING:
                     vmap_mask_slots = jax.vmap(env.action_mask, in_axes=(0, None))
                     env_state = env_state.replace(env_state=vmap_mask_slots(env_state.env_state, env_params))
                     pi_masked = distrax.Categorical(logits=jnp.where(env_state.env_state.link_slot_mask, pi[0]._logits, -1e8))
                     action = pi_masked.sample(seed=rng[1])
                     log_prob = pi_masked.log_prob(action)
 
-                elif config.env_type.lower() in ["rsa_no_mask", "deeprmsa"]:
+                else:
                     action = pi[0].sample(seed=rng[1])
                     log_prob = pi[0].log_prob(action)
-
-                else:
-                    raise ValueError(f"Invalid environment type {config.env_type}")
-
 
                 # STEP ENV
                 rng, _rng = jax.random.split(rng[0])
@@ -216,9 +213,6 @@ def make_train(config):
                 obsv, env_state, reward, done, info = jax.vmap(env.step, in_axes=(0,0,0,None))(
                     rng_step, env_state, action, env_params
                 )
-                if config.DEBUG:
-                    jax.debug.print("reward after step {}", reward, ordered=config.ORDERED)
-                    jax.debug.print("info after step {}", info, ordered=config.ORDERED)
                 transition = VONETransition(
                     done, action, value, reward, log_prob, last_obs, info, env_state.env_state.node_mask_s,
                     env_state.env_state.link_slot_mask,
@@ -305,17 +299,14 @@ def make_train(config):
                             log_prob = log_prob_source + log_prob_path + log_prob_dest
                             entropy = pi_source.entropy().mean() + pi_path.entropy().mean() + pi_dest.entropy().mean()
 
-                        elif config.env_type.lower() in ["rsa", "rmsa", "rwa"]:
+                        elif config.ACTION_MASKING:
                             pi_masked = distrax.Categorical(logits=jnp.where(traj_batch.action_mask, pi[0]._logits, -1e8))
                             log_prob = pi_masked.log_prob(traj_batch.action)
                             entropy = pi_masked.entropy().mean()
 
-                        elif config.env_type.lower() in ["rsa_no_mask", "deeprmsa"]:
+                        else:
                             log_prob = pi[0].log_prob(traj_batch.action)
                             entropy = pi[0].entropy().mean()
-
-                        else:
-                            raise ValueError(f"Invalid environment type {config.env_type}")
 
                         # CALCULATE VALUE LOSS
                         value_pred_clipped = traj_batch.value + (
@@ -349,6 +340,11 @@ def make_train(config):
                         )
 
                         if config.DEBUG:
+                            jax.debug.print("entropy {}", entropy, ordered=config.ORDERED)
+                            jax.debug.print("ratio {}", ratio, ordered=config.ORDERED)
+                            jax.debug.print("gae {}", gae, ordered=config.ORDERED)
+                            jax.debug.print("loss_actor1 {}", loss_actor1, ordered=config.ORDERED)
+                            jax.debug.print("loss_actor2 {}", loss_actor2, ordered=config.ORDERED)
                             jax.debug.print("value_loss {}", value_loss, ordered=config.ORDERED)
                             jax.debug.print("loss_actor {}", loss_actor, ordered=config.ORDERED)
                             jax.debug.print("entropy {}", entropy, ordered=config.ORDERED)
