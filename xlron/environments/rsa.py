@@ -5,13 +5,14 @@ import chex
 import jax
 import jax.numpy as jnp
 import networkx as nx
+import numpy as np
 from gymnax.environments import environment, spaces
 from xlron.environments.env_funcs import (
     HashableArrayWrapper, EnvState, EnvParams, init_rsa_request_array, init_link_slot_array, init_path_link_array,
     convert_node_probs_to_traffic_matrix, init_link_slot_mask, init_link_slot_departure_array, init_traffic_matrix,
     implement_rsa_action, check_rsa_action, undo_link_slot_action, finalise_rsa_action, generate_rsa_request,
     mask_slots, make_graph, init_path_length_array, init_modulations_array, init_path_se_array, required_slots,
-    init_values_bandwidth, calculate_path_stats
+    init_values_bandwidth, calculate_path_stats, normalise_traffic_matrix
 )
 
 
@@ -35,7 +36,7 @@ class RSAEnvParams(EnvParams):
     load: chex.Scalar = struct.field(pytree_node=False)
     arrival_rate: chex.Scalar = struct.field(pytree_node=False)
     path_link_array: chex.Array = struct.field(pytree_node=False)
-    uniform_traffic: bool = struct.field(pytree_node=False)
+    random_traffic: bool = struct.field(pytree_node=False)
     max_slots: chex.Scalar = struct.field(pytree_node=False)
     path_se_array: chex.Array = struct.field(pytree_node=False)
 
@@ -61,7 +62,7 @@ class RSAEnv(environment.Environment):
             key: chex.PRNGKey,
             params: RSAEnvParams,
             values_bw: chex.Array = jnp.array([0]),
-            node_probabilities: chex.Array = None
+            traffic_matrix: chex.Array = None
     ):
         super().__init__()
         self.initial_state = RSAEnvState(
@@ -73,8 +74,7 @@ class RSAEnv(environment.Environment):
             link_slot_departure_array=init_link_slot_departure_array(params),
             request_array=init_rsa_request_array(),
             link_slot_mask=init_link_slot_mask(params),
-            traffic_matrix=init_traffic_matrix(key, params) if not node_probabilities else
-            convert_node_probs_to_traffic_matrix(node_probabilities),  # Use node_probabilities with uniform_traffic
+            traffic_matrix=traffic_matrix if traffic_matrix is not None else init_traffic_matrix(key, params),
             values_bw=values_bw,
         )
 
@@ -160,14 +160,13 @@ class RSAEnv(environment.Environment):
         self, key: chex.PRNGKey, params: RSAEnvParams
     ) -> Tuple[chex.Array, RSAEnvState]:
         """Environment-specific reset."""
-        if params.uniform_traffic:
-            # N.B. use node_probabilities with params.uniform_traffic
-            state = self.initial_state
-        else:
+        if params.random_traffic:
             key, key_traffic = jax.random.split(key)
             state = self.initial_state.replace(
                 traffic_matrix=init_traffic_matrix(key_traffic, params)
             )
+        else:
+            state = self.initial_state
         state = generate_rsa_request(key, state, params)
         return self.get_obs(state, params), state
 
@@ -265,9 +264,9 @@ class DeepRMSAEnv(RSAEnv):
             key: chex.PRNGKey,
             params: RSAEnvParams,
             values_bw: chex.Array = jnp.array([0]),
-            node_probabilities: chex.Array = None
+            traffic_matrix: chex.Array = None
     ):
-        super().__init__(key, params, values_bw=values_bw, node_probabilities=node_probabilities)
+        super().__init__(key, params, values_bw=values_bw, traffic_matrix=traffic_matrix)
         self.initial_state = DeepRMSAEnvState(
             current_time=0,
             holding_time=0,
@@ -277,8 +276,7 @@ class DeepRMSAEnv(RSAEnv):
             link_slot_departure_array=init_link_slot_departure_array(params),
             request_array=init_rsa_request_array(),
             link_slot_mask=jnp.ones(params.k_paths),
-            traffic_matrix=init_traffic_matrix(key, params) if not node_probabilities else
-            convert_node_probs_to_traffic_matrix(node_probabilities),  # Use node_probabilities with uniform_traffic
+            traffic_matrix=traffic_matrix if traffic_matrix is not None else init_traffic_matrix(key, params),
             values_bw=values_bw,
             path_stats=calculate_path_stats(self.initial_state, params, self.initial_state.request_array),
         )
@@ -301,6 +299,7 @@ class DeepRMSAEnv(RSAEnv):
         # slot_index = first_slots[action] % params.link_resources
         # # Convert indices to action
         # action = action * params.link_resources + slot_index
+        # TODO - alter this if allowing J>1
         slot_index = jnp.squeeze(jax.lax.dynamic_slice(state.path_stats, (action, 2), (1, 1)))
         action = action * params.link_resources + slot_index * params.link_resources  # Undo normalisation
         return super().step_env(key, state, action, params)
@@ -309,7 +308,6 @@ class DeepRMSAEnv(RSAEnv):
         mask = jnp.where(state.path_stats[:, 3] >= 1, 1., 0.)
         # If mask is all zeros, make all ones
         mask = jnp.where(jnp.sum(mask) == 0, 1., mask)
-        #mask = jnp.ones(params.k_paths)
         state = state.replace(link_slot_mask=mask)
         return state
 
@@ -367,7 +365,7 @@ def make_rsa_env(config):
     k = config.get("k", 5)
     mean_service_holding_time = config.get("mean_service_holding_time", 10)
     incremental_loading = config.get("incremental_loading", False)
-    uniform_traffic = config.get("uniform_traffic", True)
+    random_traffic = config.get("random_traffic", False)
     max_requests = config.get("max_requests", 1e4)
     max_timesteps = config.get("max_timesteps", 1e4)
     link_resources = config.get("link_resources", 100)
@@ -375,18 +373,18 @@ def make_rsa_env(config):
     node_probabilities = config.get("node_probabilities", None)
     if values_bw:
         values_bw = [int(val) for val in values_bw]
-    if node_probabilities:
-        node_probabilities = [float(prob) for prob in config.get("node_probs")]
     slot_size = config.get("slot_size", 12.5)
     min_bw = config.get("min_bw", 25)
     max_bw = config.get("max_bw", 100)
     step_bw = config.get("step_bw", 1)
     env_type = config.get("env_type", "").lower()
     continuous_operation = config.get("continuous_operation", False)
+    custom_traffic_matrix_csv_filepath = config.get("custom_traffic_matrix_csv_filepath", None)
 
     rng = jax.random.PRNGKey(seed)
     rng, _, _, _, _ = jax.random.split(rng, 5)
     graph = make_graph(topology_name)
+    # Reduce lengths of NSFNET links by 2 to match DeepRMSA and allow more modulation formats
     if topology_name == "nsfnet":
         edge_data = {(u, v): ed["weight"]/2 for u, v, ed in graph.edges.data()}
         nx.set_edge_attributes(graph, edge_data, "weight")
@@ -394,6 +392,16 @@ def make_rsa_env(config):
     num_nodes = len(graph.nodes)
     num_links = len(graph.edges)
     path_link_array = init_path_link_array(graph, k)
+    if custom_traffic_matrix_csv_filepath:
+        random_traffic = False  # Set this False so that traffic matrix isn't replaced on reset
+        traffic_matrix = jnp.array(np.loadtxt(custom_traffic_matrix_csv_filepath, delimiter=","))
+        traffic_matrix = normalise_traffic_matrix(traffic_matrix)
+    elif node_probabilities:
+        random_traffic = False  # Set this False so that traffic matrix isn't replaced on reset
+        node_probabilities = [float(prob) for prob in config.get("node_probs")]
+        traffic_matrix = convert_node_probs_to_traffic_matrix(node_probabilities)
+    else:
+        traffic_matrix = None
 
     values_bw = init_values_bandwidth(min_bw, max_bw, step_bw, values_bw)
 
@@ -439,7 +447,7 @@ def make_rsa_env(config):
         path_link_array=HashableArrayWrapper(path_link_array),
         incremental_loading=incremental_loading,
         edges=HashableArrayWrapper(edges),
-        uniform_traffic=uniform_traffic,
+        random_traffic=random_traffic,
         path_se_array=HashableArrayWrapper(path_se_array),
         max_slots=int(max_slots),
         consider_modulation_format=consider_modulation_format,
@@ -447,7 +455,7 @@ def make_rsa_env(config):
         continuous_operation=continuous_operation,
     )
 
-    env = RSAEnv(rng, params, values_bw=values_bw, node_probabilities=node_probabilities) if not env_type == "deeprmsa" \
-        else DeepRMSAEnv(rng, params, values_bw=values_bw, node_probabilities=node_probabilities)
+    env = RSAEnv(rng, params, values_bw=values_bw, traffic_matrix=traffic_matrix) if not env_type == "deeprmsa" \
+        else DeepRMSAEnv(rng, params, values_bw=values_bw, traffic_matrix=traffic_matrix)
 
     return env, params

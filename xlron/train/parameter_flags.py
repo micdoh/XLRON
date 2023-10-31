@@ -63,7 +63,8 @@ flags.DEFINE_float("slot_size", 12.5, "Spectral width of frequency slot in GHz")
 flags.DEFINE_boolean("incremental_loading", False, "Incremental increase in traffic load until first blocking")
 flags.DEFINE_boolean("continuous_operation", False, "If True, do not reset the environment at the end of an episode")
 # RSA-specific environment parameters
-flags.DEFINE_boolean("uniform_traffic", False, "Uniform traffic matrix for RSA (else random)")
+flags.DEFINE_boolean("random_traffic", False, "Random traffic matrix for RSA on each reset (else uniform or custom)")
+flags.DEFINE_string("custom_traffic_matrix_csv_filepath", None, "Path to custom traffic matrix CSV file")
 # VONE-specific environment parameters
 flags.DEFINE_integer("node_resources", 4, "Number of node resources")
 flags.DEFINE_list("virtual_topologies", "3_ring", "Virtual topologies")
