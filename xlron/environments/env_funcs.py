@@ -323,10 +323,10 @@ def init_virtual_topology_patterns(pattern_names):
 @partial(jax.jit, static_argnums=(1,))
 def init_traffic_matrix(key: chex.PRNGKey, params: EnvParams):
     """Initialize traffic matrix"""
-    if params.uniform_traffic:
-        traffic_matrix = jnp.ones((params.num_nodes, params.num_nodes))
-    else:
+    if params.random_traffic:
         traffic_matrix = jax.random.uniform(key, shape=(params.num_nodes, params.num_nodes))
+    else:
+        traffic_matrix = jnp.ones((params.num_nodes, params.num_nodes))
     diag_elements = jnp.diag_indices_from(traffic_matrix)
     # Set main diagonal to zero so no requests from node to itself
     traffic_matrix = traffic_matrix.at[diag_elements].set(0)
