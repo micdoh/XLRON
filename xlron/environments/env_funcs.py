@@ -1059,13 +1059,8 @@ def mask_slots(state: EnvState, params: EnvParams, request: chex.Array) -> EnvSt
     init_mask = jnp.zeros((params.link_resources * params.k_paths))
 
     def mask_path(i, mask):
-        # Path consists of binary array indicating link indices used in path
-        path = get_paths(params, nodes_sd)[i]
-        path = path.reshape((params.num_links, 1))
-        # Get links and collapse to single dimension
-        slots = jnp.where(path, state.link_slot_array, jnp.zeros(params.link_resources))
-        # Make any -1s positive then get max for each slot across links
-        slots = jnp.max(jnp.absolute(slots), axis=0)
+        # Get slots for path
+        slots = get_path_slots(state, params, nodes_sd, i)
         # Add padding to slots at end
         slots = jnp.concatenate((slots, jnp.ones(params.max_slots)))
         # Convert bandwidth to slots for each path
