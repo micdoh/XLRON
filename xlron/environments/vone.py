@@ -4,6 +4,7 @@ from functools import partial
 import chex
 import jax
 import jax.numpy as jnp
+import jraph
 from gymnax.environments import environment, spaces
 from xlron.environments.env_funcs import (
     HashableArrayWrapper, EnvState, EnvParams, init_vone_request_array, init_link_slot_array, init_path_link_array,
@@ -12,7 +13,7 @@ from xlron.environments.env_funcs import (
     init_node_capacity_array, init_node_mask, init_node_resource_array, init_node_departure_array, init_values_nodes,
     init_action_counter, init_action_history, update_action_history, decrease_last_element, undo_node_action,
     init_virtual_topology_patterns, mask_nodes, init_path_length_array, init_path_se_array, init_modulations_array,
-    required_slots
+    required_slots, init_graph_tuple
 )
 
 
@@ -57,7 +58,7 @@ class VONEEnv(environment.Environment):
     """Jittable abstract base class for all gymnax Environments."""
     def __init__(self, params: VONEEnvParams, virtual_topologies=["3_ring"], values_bw: chex.Array = jnp.array([0])):
         super().__init__()
-        self.initial_state = VONEEnvState(
+        state = VONEEnvState(
             current_time=0,
             holding_time=0,
             total_timesteps=0,
@@ -76,7 +77,9 @@ class VONEEnv(environment.Environment):
             virtual_topology_patterns=init_virtual_topology_patterns(virtual_topologies),
             values_nodes=init_values_nodes(params.min_node_resources, params.max_node_resources),
             values_bw=values_bw,
+            graph=None
         )
+        self.initial_state = state.replace(graph=init_graph_tuple(state, params))
 
     @partial(jax.jit, static_argnums=(0, 4))
     def step(
@@ -356,19 +359,7 @@ def make_vone_env(config):
 
     # Define edges for use with heuristics and GNNs
     edges = jnp.array(sorted(graph.edges))
-    # TODO - Use below to create graph for GNN training
-    # senders = edges.T[0]
-    # receivers = edges.T[1]
-    # senders_undir = jnp.concatenate((senders, receivers))
-    # receivers_undir = jnp.concatenate((receivers, senders))
-    # train_graph = jraph.GraphsTuple(
-    #     nodes=graph.nodes,
-    #     edges=train_edges,
-    #     senders=train_senders,
-    #     receivers=train_receivers,
-    #     n_node=graph.n_node,
-    #     n_edge=jnp.array([len(train_senders)]),
-    #     globals=graph.globals)
+
 
     params = VONEEnvParams(
         max_requests=max_requests,

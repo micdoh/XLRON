@@ -11,6 +11,7 @@ import jax
 import timeit
 import json
 import numpy as np
+import jraph
 from flax import struct
 from jax._src import core
 from jax._src import dtypes
@@ -55,6 +56,7 @@ class EnvState:
     holding_time: chex.Scalar
     total_timesteps: chex.Scalar
     total_requests: chex.Scalar
+    graph: jraph.GraphsTuple
 
 
 @struct.dataclass
@@ -231,6 +233,29 @@ class TimeIt:
         print(msg)
 
 
+def init_graph_tuple(state: EnvState, params: EnvParams):
+    senders = params.edges.val.T[0]  # .val because of HashableArrayWrapper
+    receivers = params.edges.val.T[1]
+    senders_undir = jnp.concatenate((senders, receivers))
+    receivers_undir = jnp.concatenate((receivers, senders))
+    senders = senders_undir
+    receivers = receivers_undir
+    graph = jraph.GraphsTuple(
+        nodes=state.node_capacity_array,  # Node features
+        edges=state.link_slot_array,  # Edge features
+        senders=senders,
+        receivers=receivers,
+        n_node=params.num_nodes,
+        n_edge=jnp.array([len(senders)]),
+        globals=None)
+    return graph
+
+
+def update_graph_features(state: EnvState, params: EnvParams):
+    graph = state.graph._replace(nodes=state.node_capacity_array, edges=state.link_slot_array)
+    return graph
+
+
 def init_path_link_array(graph: nx.Graph, k: int) -> chex.Array:
     """Initialise path-link array
     Each path is defined by a link utilisation array. 1 indicates link corrresponding to index is used, 0 indicates not used."""
@@ -253,7 +278,7 @@ def init_path_link_array(graph: nx.Graph, k: int) -> chex.Array:
                     if edge[0] == s and edge[1] == d or edge[0] == d and edge[1] == s:
                         link_usage[edge_index] = 1
             paths.append(link_usage)
-    return jnp.array(paths)
+    return jnp.array(paths, dtype=jnp.float32)
 
 
 def init_path_length_array(path_link_array: chex.Array, graph: nx.Graph) -> chex.Array:
@@ -1027,8 +1052,8 @@ def make_graph(topology_name: str = "conus"):
             graph = nx.node_link_graph(json.load(f))
     elif topology_name == "4node":
         # 4 node ring
-        graph = nx.from_numpy_array(jnp.array([[0, 1, 0, 1],
-                                               [1, 0, 1, 0],
+        graph = nx.from_numpy_array(np.array([[0, 1, 0, 1],
+                                            [1, 0, 1, 0],
                                                [0, 1, 0, 1],
                                                [1, 0, 1, 0]]))
         # Add edge weights to graph
