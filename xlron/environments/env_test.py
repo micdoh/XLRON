@@ -92,7 +92,7 @@ def rsa_4node_test_setup():
 def rsa_4node_3_slot_request_test_setup():
     key = jax.random.PRNGKey(0)
     settings_rsa_4node_3_slots = settings_rsa_4node()
-    settings_rsa_4node_3_slots["values_bw"] = 3
+    settings_rsa_4node_3_slots["values_bw"] = [3]
     settings_rsa_4node_3_slots["link_resources"] = 5
     env, params = make_rsa_env(settings_rsa_4node_3_slots)
     obs, state = env.reset(key, params)
@@ -1230,6 +1230,8 @@ class RsaActionMaskTest(parameterized.TestCase):
     def test_rsa_action_mask(self, request_array, link_slot_array, expected):
         self.state = self.state.replace(request_array=request_array, link_slot_array=link_slot_array)
         state = self.variant(self.env.action_mask, static_argnums=(1,))(self.state, self.params)
+        jax.debug.print("actual {}", state.link_slot_mask, ordered=True)
+        jax.debug.print("expected {}", expected, ordered=True)
         chex.assert_trees_all_close(state.link_slot_mask, expected)
 
     # N.B. that requested bandwidth (middle number of request array) will lead to bw+1 slots allocated
@@ -1313,8 +1315,8 @@ class RsaActionMaskTest(parameterized.TestCase):
          # N.B. that modulation format consideration means double spectral efficiency on the first path, hence two 1's
          jnp.array(
              [
-                 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0,
-                 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                 1, 1, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0,
+                 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                  1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                  1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                  1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -1358,8 +1360,12 @@ class RsaActionMaskTest(parameterized.TestCase):
     def test_rsa_action_mask_nsfnet_16(self, request_array, consider_mod, link_slot_array, expected):
         self.key, self.env, self.obs, self.state, self.params = rsa_nsfnet_16_test_setup()
         self.state = self.state.replace(request_array=request_array, link_slot_array=link_slot_array)
+        jax.debug.print("request_array {}", request_array, ordered=True)
         self.params = self.params.replace(max_slots=3, consider_modulation_format=consider_mod)
         state = self.variant(self.env.action_mask, static_argnums=(1,))(self.state, self.params)
+        jax.debug.print("request_array {}", request_array, ordered=True)
+        jax.debug.print("actual {}", state.link_slot_mask, ordered=True)
+        jax.debug.print("expected {}", expected, ordered=True)
         chex.assert_trees_all_close(state.link_slot_mask, expected)
 
 
@@ -1608,8 +1614,8 @@ class MaskSlotsBitRateModFormat(parameterized.TestCase):
                     [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
                     [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
                     [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], ]),
-            jnp.array([1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0,
-                       1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0,
+            jnp.array([1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0,
+                       1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0,
                        1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0,
                        1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0,
                        1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0,])),
@@ -1664,8 +1670,8 @@ class MaskSlotsBitRateModFormat(parameterized.TestCase):
                     [1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1],
                     [1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1],
                     [1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1], ]),
-         jnp.array([0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+         jnp.array([0, 0, 0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0,
                     0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                     0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                     0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])),
@@ -1675,6 +1681,7 @@ class MaskSlotsBitRateModFormat(parameterized.TestCase):
         jax.debug.print("state.link_slot_mask {}", self.state.link_slot_mask, ordered=True)
         updated_state = self.variant(self.env.action_mask, static_argnums=(1,))(self.state, self.params)
         jax.debug.print("state.link_slot_mask {}", updated_state.link_slot_mask, ordered=True)
+        jax.debug.print("expected {}", expected, ordered=True)
         chex.assert_trees_all_close(updated_state.link_slot_mask, expected)
 
 
@@ -1710,7 +1717,11 @@ class CalculatePathStatsTest(parameterized.TestCase):
              [1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1],
              [1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1],
              [1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1], ]),
-         jnp.array([[5., 9., 4., 9., 9.,],[5., 9., 4., 9., 9.,],[9., 9., 4., 9., 9.,],[9., 9., 4., 9., 9.,],[9., 9., 4., 9., 9.,]]),),
+         jnp.array([[0.625, 0.5625, 0.25, 1.8, 0.9,],
+                    [0.625, 0.5625, 0.25, 1.8, 0.9,],
+                    [1.125, 0.5625, 0.25, 1., 0.5],
+                    [1.125, 0.5625, 0.25, 1., 0.5],
+                    [1.125, 0.5625, 0.25, 1., 0.5],]),),
         ("case_edges", jnp.array([0, 100, 1]),
          jnp.array([
              [0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0],
@@ -1737,7 +1748,11 @@ class CalculatePathStatsTest(parameterized.TestCase):
              [0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0],
          ]),
          jnp.array(
-             [[5., 8., 0., 4., 4.], [5., 8., 0., 4., 4.], [9., 8., 0., 4., 4.], [9., 8., 0., 4., 4.], [9., 8., 0., 4., 4.]]),)
+             [[0.625, 0.5, 0., 0.8, 0.533333336],
+              [0.625, 0.5, 0., 0.8, 0.533333336],
+              [1.125, 0.5, 0., 0.44444445, 0.2962963],
+              [1.125, 0.5, 0., 0.44444445, 0.2962963],
+              [1.125, 0.5, 0., 0.44444445, 0.2962963],]),)
     )
     def test_calculate_path_stats(self, request, link_slot_array, expected):
         self.state = self.state.replace(link_slot_array=link_slot_array, request_array=request)
