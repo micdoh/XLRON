@@ -97,7 +97,6 @@ def make_train(config):
     else:
         raise ValueError(f"Invalid environment type {config.env_type}")
     env = LogWrapper(env)
-    #obs, state = env.reset(jax.random.PRNGKey(0), env_params)  # Initialise LogEnvState
 
     # TODO - Does it matter if lr changes slightly between each minibatch? Linear handles this but optax built-ins don't
     def linear_schedule(count):

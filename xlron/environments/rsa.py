@@ -6,13 +6,14 @@ import jax
 import jax.numpy as jnp
 import networkx as nx
 import numpy as np
+import jraph
 from gymnax.environments import environment, spaces
 from xlron.environments.env_funcs import (
     HashableArrayWrapper, EnvState, EnvParams, init_rsa_request_array, init_link_slot_array, init_path_link_array,
     convert_node_probs_to_traffic_matrix, init_link_slot_mask, init_link_slot_departure_array, init_traffic_matrix,
     implement_rsa_action, check_rsa_action, undo_link_slot_action, finalise_rsa_action, generate_rsa_request,
     mask_slots, make_graph, init_path_length_array, init_modulations_array, init_path_se_array, required_slots,
-    init_values_bandwidth, calculate_path_stats, normalise_traffic_matrix
+    init_values_bandwidth, calculate_path_stats, normalise_traffic_matrix, init_graph_tuple
 )
 
 
@@ -65,7 +66,7 @@ class RSAEnv(environment.Environment):
             traffic_matrix: chex.Array = None
     ):
         super().__init__()
-        self.initial_state = RSAEnvState(
+        state = RSAEnvState(
             current_time=0,
             holding_time=0,
             total_timesteps=0,
@@ -76,7 +77,9 @@ class RSAEnv(environment.Environment):
             link_slot_mask=init_link_slot_mask(params),
             traffic_matrix=traffic_matrix if traffic_matrix is not None else init_traffic_matrix(key, params),
             values_bw=values_bw,
+            graph=None,
         )
+        self.initial_state = state.replace(graph=init_graph_tuple(state, params))
 
     @partial(jax.jit, static_argnums=(0, 4))
     def step(
@@ -279,6 +282,7 @@ class DeepRMSAEnv(RSAEnv):
             traffic_matrix=traffic_matrix if traffic_matrix is not None else init_traffic_matrix(key, params),
             values_bw=values_bw,
             path_stats=calculate_path_stats(self.initial_state, params, self.initial_state.request_array),
+            graph=None,
         )
 
     def step_env(
