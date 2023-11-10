@@ -241,7 +241,7 @@ def init_graph_tuple(state: EnvState, params: EnvParams):
     senders = senders_undir
     receivers = receivers_undir
     graph = jraph.GraphsTuple(
-        nodes=state.node_capacity_array,  # Node features
+        nodes=getattr(state, "node_capacity_array", None),  # Node features
         edges=state.link_slot_array,  # Edge features
         senders=senders,
         receivers=receivers,
