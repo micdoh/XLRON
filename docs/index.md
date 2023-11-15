@@ -68,7 +68,8 @@ Experiment names on y-axis follow the naming convention: topology name (NSFNET o
 #### Compilation times
 
 See below figure for compilatiion times of different environments. Compilation typically takes a few seconds, therefore adds very little overhead to the training process.
-![compilation_xlron.png](docs%2Fimages%2Fcompilation_xlron.png)
+
+<img src="../docs/images/compilation_xlron.png">
 
 
 
