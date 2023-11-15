@@ -1,10 +1,6 @@
 # Environments
 
-::: environments.env_funcs
-
-::: environments.rsa
-
-::: environments.vone
+::: environments
 
 ___
 
@@ -18,4 +14,4 @@ ___
 
 # Heuristics
 
-::: heuristics.heuristics
+::: heuristics
