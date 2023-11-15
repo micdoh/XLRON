@@ -43,7 +43,7 @@ To fairly assess the speed-up offered by XLRON, we implement a "DeepRMSA" enviro
 
 The below figure shows the training curves for both implementations, with 250 or 2000 parallel envs shown for XLRON. Shaded areas indicate the standard deviation of values across environments (each with a unique random seed) for XLRON and across 3 random seeds for SB3. The left figure shows the training progression with episode count, the right figure shows training progression with time on a log scale.
 
-![ofc2023_comp_all.png](docs%2Fimages%2Fofc2023_comp_all.png)
+<img src="../docs/images/ofc2023_comp_all.png">
 
 Increasing the number of parallel environments decreases the time required to train on a given number of environment steps, but changes the training dynamics so hyperparameters should be tuned accordingly for different numbers of parallel environments.
 
@@ -62,7 +62,7 @@ There are 4 horizontal bars per experiment:
 
 Experiment names on y-axis follow the naming convention: topology name (NSFNET or CONUS) - number of FSU per link - JAX or numpy environment - device type - number of vectorised environments.
 
-![ofc2023_vone_comparison.png](docs%2Fimages%2Fofc2023_vone_comparison.png)
+<img src="../docs/images/ofc2023_vone_comparison.png">
 
 
 #### Compilation times
