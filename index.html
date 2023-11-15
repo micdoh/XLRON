@@ -583,7 +583,7 @@
 <h3 id="case-study-1">Case study 1</h3>
 <p>To fairly assess the speed-up offered by XLRON, we implement a "DeepRMSA" environment and agent (exactly like in the canonical <a href="https://ieeexplore.ieee.org/document/8738827">DeepRMSA paper</a>) and compare with the equivalent example from <a href="https://github.com/carlosnatalino/optical-rl-gym/blob/main/examples/stable_baselines3/DeepRMSA.ipynb">optical-rl-gym</a>, which uses stables_baselines3 (SB3) for training.</p>
 <p>The below figure shows the training curves for both implementations, with 250 or 2000 parallel envs shown for XLRON. Shaded areas indicate the standard deviation of values across environments (each with a unique random seed) for XLRON and across 3 random seeds for SB3. The left figure shows the training progression with episode count, the right figure shows training progression with time on a log scale.</p>
-<p><img src="../docs/images/ofc2023_comp_all.png"></p>
+<p><img src="./images/ofc2023_comp_all.png"></p>
 <p>Increasing the number of parallel environments decreases the time required to train on a given number of environment steps, but changes the training dynamics so hyperparameters should be tuned accordingly for different numbers of parallel environments.</p>
 <h3 id="case-study-2">Case study 2</h3>
 <p>For the virtual optical network embedding problem, XLRON is compared with the environments from an ECOC 2023 paper (publication pending). The below figure compares the time it takes to train on 1M environment steps for two different topologies (NSFNET or CONUS) and either 100 or 320 frequency slot units (FSU) per link.</p>
@@ -595,10 +595,10 @@
 <li>XLRON training with 2000 vectorised environments on GPU</li>
 </ul>
 <p>Experiment names on y-axis follow the naming convention: topology name (NSFNET or CONUS) - number of FSU per link - JAX or numpy environment - device type - number of vectorised environments.</p>
-<p><img src="../docs/images/ofc2023_vone_comparison.png"></p>
+<p><img src="./images/ofc2023_vone_comparison.png"></p>
 <h4 id="compilation-times">Compilation times</h4>
 <p>See below figure for compilatiion times of different environments. Compilation typically takes a few seconds, therefore adds very little overhead to the training process.</p>
-<p><img src="../docs/images/compilation_xlron.png"></p>
+<p><img src="./images/compilation_xlron.png"></p>
 <hr />
 <h2 id="related-work">Related work</h2>
 <p>The gym-style environments follow the example set in <a href="https://github.com/RobertTLange/gymnax">Gymnax</a></p>
