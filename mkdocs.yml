@@ -24,11 +24,15 @@ markdown_extensions:
 plugins:
   - search
   - mkdocstrings:
+      enabled: true
       default_handler: python
       handlers:
         python:
+          paths: [xlron]
           setup_commands:
             - import sys
+          options:
+            show_source: true
 nav:
     - Home: 'index.md'
     - About:
