@@ -35,6 +35,7 @@ plugins:
             show_source: true
 nav:
     - Home: 'index.md'
+    - Reference: 'reference.md'
     - About:
         - 'License and Support': 'license.md'
         - 'Change Log': 'changelog.md'
