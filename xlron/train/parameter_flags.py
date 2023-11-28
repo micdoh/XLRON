@@ -75,4 +75,12 @@ flags.DEFINE_list("node_probs", None, "List of node probabilities for selection"
 flags.DEFINE_boolean("EVAL_HEURISTIC", False, "Evaluate heuristic")
 flags.DEFINE_string("path_heuristic", "ksp_ff", "Path heuristic to be evaluated")
 flags.DEFINE_string("node_heuristic", "random", "Node heuristic to be evaluated")
+# GNN-specific parameters
+flags.DEFINE_boolean("USE_GNN", False, "Use GNN")
+flags.DEFINE_integer("gnn_latent", 64, "GNN latent size")
+flags.DEFINE_integer("message_passing_steps", 3, "Number of message passing steps")
+flags.DEFINE_integer("output_edges_size", 64, "Output edges size")
+flags.DEFINE_integer("output_nodes_size", 64, "Output nodes size")
+flags.DEFINE_integer("output_globals_size", 64, "Output globals size")
+flags.DEFINE_integer("gnn_mlp_layers", 2, "Number of MLP layers")
 

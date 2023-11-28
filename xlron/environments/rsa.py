@@ -100,7 +100,7 @@ class RSAEnv(environment.Environment):
         obs_re, state_re = self.reset_env(key_reset, params)
         # Auto-reset environment based on termination
         state = jax.tree_map(
-            lambda x, y: jax.lax.select(done, x, y), state_re, state_st
+            lambda x, y: jnp.where(done, x, y), state_re, state_st
         )
         obs = jax.lax.select(done, obs_re, obs_st)
         return (
@@ -156,6 +156,9 @@ class RSAEnv(environment.Environment):
         if params.__class__.__name__ == "DeepRMSAEnvParams":
             path_stats = calculate_path_stats(state, params, state.request_array)
             state = state.replace(path_stats=path_stats)
+        else:
+            # Update graph tuple
+            state = state.replace(graph=init_graph_tuple(state, params))
         return self.get_obs(state, params), state, reward, done, info
 
     @partial(jax.jit, static_argnums=(0, 2,))
@@ -352,7 +355,6 @@ class DeepRMSAEnv(RSAEnv):
             + 1  # Holding time
             + params.k_paths * 5  # Path stats
         )
-
 
 
 def make_rsa_env(config):
