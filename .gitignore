@@ -5,7 +5,6 @@ __pycache__/
 runs/
 .vscode/
 wandb/
-models/
 figures/
 jax/
 site/

@@ -10,52 +10,7 @@ from flax.training.train_state import TrainState
 from xlron.environments.env_funcs import *
 from xlron.environments.vone import make_vone_env
 from xlron.environments.rsa import make_rsa_env
-
-
-# TODO - Remove request from observation that is fed to state value function
-#  requires separation of actor and critic into separate classes and modification of flax train_state
-#  to hold two sets of params
-#  https://flax.readthedocs.io/en/latest/_modules/flax/training/train_state.html
-class ActorCritic(nn.Module):
-    action_dim: Sequence[int]
-    activation: str = "tanh"
-    num_layers: int = 2
-    num_units: int = 64
-
-    @nn.compact
-    def __call__(self, x):
-        if self.activation == "relu":
-            activation = nn.relu
-        else:
-            activation = nn.tanh
-
-        def make_layers(x):
-            layer = nn.Dense(
-                self.num_units, kernel_init=orthogonal(np.sqrt(2)), bias_init=constant(0.0)
-            )(x)
-            layer = activation(layer)
-            for _ in range(self.num_layers-1):
-                layer = nn.Dense(
-                    self.num_units, kernel_init=orthogonal(np.sqrt(2)), bias_init=constant(0.0)
-                )(layer)
-                layer = activation(layer)
-            return layer
-
-        actor_mean = make_layers(x)
-        action_dists = []
-        for dim in self.action_dim:
-            actor_mean_dim = nn.Dense(
-                dim, kernel_init=orthogonal(0.01), bias_init=constant(0.0)
-            )(actor_mean)
-            pi_dim = distrax.Categorical(logits=actor_mean_dim)
-            action_dists.append(pi_dim)
-
-        critic = make_layers(x)
-        critic = nn.Dense(1, kernel_init=orthogonal(1.0), bias_init=constant(0.0))(
-            critic
-        )
-
-        return action_dists, jnp.squeeze(critic, axis=-1)
+from xlron.models.models import ActorCriticGNN, ActorCriticMLP
 
 
 class VONETransition(NamedTuple):
@@ -122,23 +77,44 @@ def make_train(config):
         return schedule(count)
 
     def train(rng):
+        # INIT ENV
+        rng, _rng = jax.random.split(rng)
+        reset_rng = jax.random.split(_rng, config.NUM_ENVS)
+        obsv, env_state = jax.vmap(env.reset, in_axes=(0, None))(reset_rng, env_params)
+        obsv = env_state if config.USE_GNN else obsv
 
         # INIT NETWORK
+        rng, _rng = jax.random.split(rng)
         if config.env_type.lower() == "vone":
-            network = ActorCritic([space.n for space in env.action_space(env_params).spaces],
+            network = ActorCriticMLP([space.n for space in env.action_space(env_params).spaces],
                                   activation=config.ACTIVATION,
                                   num_layers=config.NUM_LAYERS,
                                   num_units=config.NUM_UNITS)
+            init_x = (jnp.zeros(env.observation_space(env_params).n))
         elif config.env_type.lower() in ["rsa", "rmsa", "rwa", "deeprmsa"]:
-            network = ActorCritic([env.action_space(env_params).n],
-                                  activation=config.ACTIVATION,
-                                  num_layers=config.NUM_LAYERS,
-                                  num_units=config.NUM_UNITS)
+            if config.USE_GNN:
+                network = ActorCriticGNN(
+                    activation=config.ACTIVATION,
+                    num_layers=config.NUM_LAYERS,
+                    num_units=config.NUM_UNITS,
+                    gnn_latent=config.gnn_latent,
+                    message_passing_steps=config.message_passing_steps,
+                    output_edges_size=config.output_edges_size,  # TODO - currently this must match link_resources
+                    output_nodes_size=config.output_nodes_size,
+                    output_globals_size=config.output_globals_size,
+                    gnn_mlp_layers=config.gnn_mlp_layers,
+                )
+                init_x = (env_state.env_state, env_params)
+            else:
+                network = ActorCriticMLP([env.action_space(env_params).n],
+                                      activation=config.ACTIVATION,
+                                      num_layers=config.NUM_LAYERS,
+                                      num_units=config.NUM_UNITS)
+
+                init_x = (jnp.zeros(env.observation_space(env_params).n))
         else:
             raise ValueError(f"Invalid environment type {config.env_type}")
-        rng, _rng = jax.random.split(rng)
-        init_x = jnp.zeros(env.observation_space(env_params).n)
-        network_params = network.init(_rng, init_x)
+        network_params = network.init(_rng, *init_x)
         tx = optax.chain(
             optax.clip_by_global_norm(config.MAX_GRAD_NORM),
             optax.adam(learning_rate=lr_schedule, eps=1e-5),
@@ -149,11 +125,6 @@ def make_train(config):
             tx=tx,
         )
 
-        # INIT ENV
-        rng, _rng = jax.random.split(rng)
-        reset_rng = jax.random.split(_rng, config.NUM_ENVS)
-        obsv, env_state = jax.vmap(env.reset, in_axes=(0, None))(reset_rng, env_params)
-
         # TRAIN LOOP
         def _update_step(runner_state, unused):
             # COLLECT TRAJECTORIES
@@ -161,6 +132,7 @@ def make_train(config):
                 train_state, env_state, last_obs, rng = runner_state
 
                 # SELECT ACTION
+                last_obs = env_state if config.USE_GNN else last_obs
                 pi, value = network.apply(train_state.params, last_obs)
                 rng = jax.random.split(rng, 1 + len(pi))
 
@@ -212,6 +184,7 @@ def make_train(config):
                 obsv, env_state, reward, done, info = jax.vmap(env.step, in_axes=(0,0,0,None))(
                     rng_step, env_state, action, env_params
                 )
+                obsv = env_state if config.USE_GNN else obsv
                 transition = VONETransition(
                     done, action, value, reward, log_prob, last_obs, info, env_state.env_state.node_mask_s,
                     env_state.env_state.link_slot_mask,
@@ -245,6 +218,7 @@ def make_train(config):
 
             # CALCULATE ADVANTAGE
             train_state, env_state, last_obs, rng = runner_state
+            last_obs = env_state if config.USE_GNN else last_obs
             _, last_val = network.apply(train_state.params, last_obs)
 
             def _calculate_gae(traj_batch, last_val):

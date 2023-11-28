@@ -13,7 +13,7 @@ from xlron.environments.env_funcs import (
     init_node_capacity_array, init_node_mask, init_node_resource_array, init_node_departure_array, init_values_nodes,
     init_action_counter, init_action_history, update_action_history, decrease_last_element, undo_node_action,
     init_virtual_topology_patterns, mask_nodes, init_path_length_array, init_path_se_array, init_modulations_array,
-    required_slots, init_graph_tuple
+    required_slots, init_graph_tuple, format_vone_slot_request
 )
 
 
@@ -100,7 +100,7 @@ class VONEEnv(environment.Environment):
         obs_re, state_re = self.reset_env(key_reset, params)
         # Auto-reset environment based on termination
         state = jax.tree_map(
-            lambda x, y: jax.lax.select(done, x, y), state_re, state_st
+            lambda x, y: jnp.where(done, x, y), state_re, state_st
         )
         obs = jax.lax.select(done, obs_re, obs_st)
         return (
@@ -173,8 +173,8 @@ class VONEEnv(environment.Environment):
             done = jnp.array(reward == self.get_reward_failure())
         else:
             done = self.is_terminal(state, params)
-        # done = self.is_terminal(state, params) \
-        #     if not params.incremental_loading else jnp.array(reward == self.get_reward_failure())
+        # Update graph tuple
+        state = state.replace(graph=init_graph_tuple(state, params))
         info = {}
         return self.get_obs(state), state, reward, done, info
 
@@ -201,13 +201,7 @@ class VONEEnv(environment.Environment):
 
     def action_mask_slots(self, state: EnvState, params: EnvParams, action: chex.Array) -> chex.Array:
         """Returns action mask for state."""
-        remaining_actions = jnp.squeeze(jax.lax.dynamic_slice_in_dim(state.action_counter, 2, 1))
-        full_request = jnp.squeeze(jax.lax.dynamic_slice_in_dim(state.request_array, 0, 1))
-        unformatted_request = jax.lax.dynamic_slice_in_dim(full_request, (remaining_actions - 1) * 2, 3)
-        node_s = jax.lax.dynamic_slice_in_dim(action, 0, 1)
-        requested_slots = jax.lax.dynamic_slice_in_dim(unformatted_request, 1, 1)
-        node_d = jax.lax.dynamic_slice_in_dim(action, 2, 1)
-        formatted_request = jnp.concatenate((node_s, requested_slots, node_d))
+        formatted_request = format_vone_slot_request(state, action)
         return mask_slots(state, params, formatted_request)
 
     def get_obs_unflat(self, state: EnvState) -> Tuple[chex.Array]:

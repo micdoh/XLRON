@@ -233,6 +233,7 @@ class TimeIt:
         print(msg)
 
 
+@partial(jax.jit, static_argnums=(1,))
 def init_graph_tuple(state: EnvState, params: EnvParams):
     senders = params.edges.val.T[0]  # .val because of HashableArrayWrapper
     receivers = params.edges.val.T[1]
@@ -240,25 +241,37 @@ def init_graph_tuple(state: EnvState, params: EnvParams):
     receivers_undir = jnp.concatenate((receivers, senders))
     senders = senders_undir
     receivers = receivers_undir
+    # TODO - investigate just using senders or receivers to avoid duplication
+    # Repeat every row of link_slot_array so that it matches length of senders/receivers
+    edge_features = jnp.repeat(state.link_slot_array, 2, axis=0)
+    # Get node features from node_capacity_array if available (VONE problem)
+    node_features = getattr(state, "node_capacity_array", jnp.zeros(params.num_nodes))
+    node_features = node_features.reshape(-1, 1)
     graph = jraph.GraphsTuple(
-        nodes=getattr(state, "node_capacity_array", None),  # Node features
-        edges=state.link_slot_array,  # Edge features
+        nodes=node_features,
+        edges=edge_features,
         senders=senders,
         receivers=receivers,
-        n_node=params.num_nodes,
-        n_edge=jnp.array([len(senders)]),
-        globals=None)
+        n_node=jnp.reshape(params.num_nodes, (1,)),
+        n_edge=jnp.reshape(jnp.array(len(senders)), (1,)),
+        globals=jnp.reshape(state.request_array, (1, -1)),  # Store current request as global feature and reshape so that downstream processed graph features have same shape
+    )
+    jax.debug.print("ffff {}", (jnp.array(len(senders))), ordered=True)
     return graph
 
 
-def update_graph_features(state: EnvState, params: EnvParams):
-    graph = state.graph._replace(nodes=state.node_capacity_array, edges=state.link_slot_array)
-    return graph
+def update_graph_tuple(state: EnvState, params: EnvParams):
+    edge_features = jnp.repeat(state.link_slot_array, 2, axis=0)
+    node_features = getattr(state, "node_capacity_array", jnp.zeros(params.num_nodes))
+    node_features = node_features.reshape(-1, 1)
+    graph = state.graph._replace(nodes=node_features, edges=edge_features, globals=state.request_array)
+    state = state.replace(graph=graph)
+    return state
 
 
 def init_path_link_array(graph: nx.Graph, k: int) -> chex.Array:
     """Initialise path-link array
-    Each path is defined by a link utilisation array. 1 indicates link corrresponding to index is used, 0 indicates not used."""
+    Each path is defined by a link utilisation array. 1 indicates link corresponding to index is used, 0 indicates not used."""
     def get_k_shortest_paths(g, source, target, k, weight=None):
         return list(
             islice(nx.shortest_simple_paths(g, source, target, weight=weight), k)
@@ -967,6 +980,17 @@ def implement_rsa_action(
     return state
 
 
+def format_vone_slot_request(state: EnvState, action: chex.Array) -> chex.Array:
+    remaining_actions = jnp.squeeze(jax.lax.dynamic_slice_in_dim(state.action_counter, 2, 1))
+    full_request = jnp.squeeze(jax.lax.dynamic_slice_in_dim(state.request_array, 0, 1))
+    unformatted_request = jax.lax.dynamic_slice_in_dim(full_request, (remaining_actions - 1) * 2, 3)
+    node_s = jax.lax.dynamic_slice_in_dim(action, 0, 1)
+    requested_slots = jax.lax.dynamic_slice_in_dim(unformatted_request, 1, 1)
+    node_d = jax.lax.dynamic_slice_in_dim(action, 2, 1)
+    formatted_request = jnp.concatenate((node_s, requested_slots, node_d))
+    return formatted_request
+
+
 def read_rsa_request(request_array: chex.Array) -> Tuple[chex.Array, chex.Array]:
     node_s = jax.lax.dynamic_slice(request_array, (0,), (1,))
     bw_request = jax.lax.dynamic_slice(request_array, (1,), (1,))
@@ -1085,7 +1109,7 @@ def mask_slots(state: EnvState, params: EnvParams, request: chex.Array) -> EnvSt
 
     def mask_path(i, mask):
         # Get slots for path
-        slots = get_path_slots(state, params, nodes_sd, i)
+        slots = get_path_slots(state.link_slot_array, params, nodes_sd, i)
         # Add padding to slots at end
         slots = jnp.concatenate((slots, jnp.ones(params.max_slots)))
         # Convert bandwidth to slots for each path
@@ -1120,6 +1144,10 @@ def mask_slots(state: EnvState, params: EnvParams, request: chex.Array) -> EnvSt
     # Loop over each path
     state = state.replace(link_slot_mask=jax.lax.fori_loop(0, params.k_paths, mask_path, init_mask))
     return state
+
+
+# TODO - add function to aggregate slot mask if action granularity is decreased to e.g. every 2,4,6,8,10 slots,
+#  s.t. mask is still valid for reduced action space (i.e. if there is one valid slot action within the aggregated action, then it is valid)
 
 
 @partial(jax.jit, static_argnums=(1,))
@@ -1222,11 +1250,11 @@ def mask_nodes(state: EnvState, num_nodes: chex.Scalar) -> EnvState:
 
 
 # TODO - write test and use in mask_slots
-def get_path_slots(state: EnvState, params: EnvParams, nodes_sd: chex.Array, i: int):
+def get_path_slots(link_slot_array: chex.Array, params: EnvParams, nodes_sd: chex.Array, i: int):
     path = get_paths(params, nodes_sd)[i]
     path = path.reshape((params.num_links, 1))
     # Get links and collapse to single dimension
-    slots = jnp.where(path, state.link_slot_array, jnp.zeros(params.link_resources))
+    slots = jnp.where(path, link_slot_array, jnp.zeros(params.link_resources))
     # Make any -1s positive then get max for each slot across links
     slots = jnp.max(jnp.absolute(slots), axis=0)
     return slots
@@ -1296,7 +1324,7 @@ def calculate_path_stats(state: EnvState, params: EnvParams, request: chex.Array
     init_val = jnp.zeros((params.k_paths, 5))
 
     def body_fun(i, val):
-        slots = get_path_slots(state, params, nodes_sd, i)
+        slots = get_path_slots(state.link_slot_array, params, nodes_sd, i)
         se = get_paths_se(params, nodes_sd)[i] if params.consider_modulation_format else jnp.array([1])
         req_slots = jnp.squeeze(required_slots(requested_bw, se, params.slot_size))
         req_slots_norm = req_slots*params.slot_size / jnp.max(state.values_bw)
