@@ -35,6 +35,14 @@ def main(argv):
     from xlron.environments.env_funcs import TimeIt
     from xlron.train.ppo import make_train
     from xlron.heuristics.eval_heuristic import make_eval_heuristic
+    # The following flags can improve GPU performance for jaxlib>=0.4.18
+    os.environ['XLA_FLAGS'] = (
+        '--xla_gpu_enable_triton_softmax_fusion=true '
+        '--xla_gpu_triton_gemm_any=True '
+        '--xla_gpu_enable_async_collectives=true '
+        '--xla_gpu_enable_latency_hiding_scheduler=true '
+        '--xla_gpu_enable_highest_priority_async_stream=true '
+    )
 
     # Option to print memory usage for debugging OOM errors
     if FLAGS.PRINT_MEMORY_USE:

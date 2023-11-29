@@ -7,11 +7,11 @@ import jraph
 import chex
 from flax.linen.initializers import constant, orthogonal
 from typing import Sequence, Callable, Sequence
-from functools import partial
 
 from xlron.environments.env_funcs import EnvState, EnvParams, get_path_slots, read_rsa_request, format_vone_slot_request
 from xlron.environments.vone import make_vone_env
 from xlron.environments.rsa import make_rsa_env
+from xlron.models.gnn import GraphNetwork
 
 
 def add_graphs_tuples(
@@ -145,7 +145,7 @@ class GraphNet(nn.Module):
             )
         )
 
-        graph_net = jraph.GraphNetwork(
+        graph_net = GraphNetwork(
             update_node_fn=update_node_fn if self.output_nodes_size > 0 else None,
             update_edge_fn=update_edge_fn,
             update_global_fn=update_global_fn if self.output_globals_size > 0 else None,
@@ -222,7 +222,6 @@ class ActorGNN(nn.Module):
     output_globals_size: int = 1
     gnn_mlp_layers: int = 1
 
-    @partial(jax.jit, static_argnums=(2,))
     @nn.compact
     def __call__(self, state: EnvState, params: EnvParams):
         """
@@ -236,25 +235,28 @@ class ActorGNN(nn.Module):
             output_edges_size=self.output_edges_size,
             output_nodes_size=self.output_nodes_size,
             output_globals_size=self.output_globals_size,
-            num_mlp_layers=self.gnn_mlp_layers
+            num_mlp_layers=self.gnn_mlp_layers,
         )(state.graph)
+
         # Index edge features to resemble the link-slot array
         edge_features = processed_graph.edges[::2]
         # TODO - add a normalisation step (normalise the edge features by link length)
         # Get the current request and initialise array of action distributions per path
         nodes_sd, requested_bw = read_rsa_request(state.request_array)
-        init_action_array = jnp.zeros(params.k_paths * config.output_edges_size)
+        init_action_array = jnp.zeros(params.k_paths * self.output_edges_size)
 
         # Define a budy func to retrieve path slots and update action array
         def get_path_action_dist(i, action_array):
             # Get the processed graph edge features corresponding to the i-th path
-            path_features = get_path_slots(edge_features, params, nodes_sd, i)
+            path_features = get_path_slots(edge_features, params, nodes_sd, i, agg_func="sum")
             # Update the action array with the path features
-            action_array = jax.lax.dynamic_update_slice(action_array, path_features, (i * config.output_edges_size,))
+            action_array = jax.lax.dynamic_update_slice(action_array, path_features, (i * self.output_edges_size,))
             return action_array
 
         action_dist = jax.lax.fori_loop(0, params.k_paths, get_path_action_dist, init_action_array)
+        #jax.debug.print("edge_features {}", edge_features, ordered=True)
         # Return a distrax.Categorical distribution over actions
+        #jax.debug.print("action_dist {}", action_dist, ordered=True)
         return distrax.Categorical(logits=jnp.reshape(action_dist, (-1,)))
         # TODO - within PPO, mask invalid actions
 
@@ -273,15 +275,15 @@ class ActorCriticGNN(nn.Module):
 
     @nn.compact
     def __call__(self, state: EnvState, params: EnvParams):
-        actor = ActorGNN(
+        actor = jax.vmap(ActorGNN(
             gnn_latent=self.gnn_latent,
             message_passing_steps=self.message_passing_steps,
             output_edges_size=self.output_edges_size,
             output_nodes_size=self.output_nodes_size,
             output_globals_size=self.output_globals_size,
             gnn_mlp_layers=self.gnn_mlp_layers
-        )
-        critic = CriticGNN(
+        ), in_axes=0)(state, params)
+        critic = jax.vmap(CriticGNN(
             activation=self.activation,
             num_layers=self.num_layers,
             num_units=self.num_units,
@@ -291,10 +293,9 @@ class ActorCriticGNN(nn.Module):
             output_nodes_size=self.output_nodes_size,
             output_globals_size=self.output_globals_size,
             gnn_mlp_layers=self.gnn_mlp_layers
-        )
-        action_dist = actor(state, params)
-        critic_dist = critic(state)
-        return action_dist, critic_dist
+        ), in_axes=0)(state)
+        # Actor is returned as a list for compatibility with MLP VONE option in PPO script
+        return [actor], critic
 
 
 # TODO - adapt to VONE environment
@@ -392,7 +393,8 @@ if __name__ == "__main__":
         gnn_mlp_layers=config.gnn_mlp_layers,
     )
     params = actor_critic.init(key, state, env_params)
-    out = actor_critic.apply(params, state, env_params)
+
+    out = jax.jit(actor_critic.apply)(params, state, env_params)
     print(out)
     # actor = ActorGNN()
     # params = actor.init(key, state, env_params, config)
