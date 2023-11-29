@@ -256,7 +256,6 @@ def init_graph_tuple(state: EnvState, params: EnvParams):
         n_edge=jnp.reshape(jnp.array(len(senders)), (1,)),
         globals=jnp.reshape(state.request_array, (1, -1)),  # Store current request as global feature and reshape so that downstream processed graph features have same shape
     )
-    jax.debug.print("ffff {}", (jnp.array(len(senders))), ordered=True)
     return graph
 
 
@@ -1249,14 +1248,20 @@ def mask_nodes(state: EnvState, num_nodes: chex.Scalar) -> EnvState:
     return state
 
 
-# TODO - write test and use in mask_slots
-def get_path_slots(link_slot_array: chex.Array, params: EnvParams, nodes_sd: chex.Array, i: int):
+# TODO - write tests
+@partial(jax.jit, static_argnums=(1,4))
+def get_path_slots(link_slot_array: chex.Array, params: EnvParams, nodes_sd: chex.Array, i: int, agg_func: str = "max") -> chex.Array:
     path = get_paths(params, nodes_sd)[i]
     path = path.reshape((params.num_links, 1))
     # Get links and collapse to single dimension
     slots = jnp.where(path, link_slot_array, jnp.zeros(params.link_resources))
     # Make any -1s positive then get max for each slot across links
-    slots = jnp.max(jnp.absolute(slots), axis=0)
+    if agg_func == "max":
+        # Use this for getting slots from link_slot_array
+        slots = jnp.max(jnp.absolute(slots), axis=0)
+    elif agg_func == "sum":
+        # Use this (or alternative) for aggregating edge features from GNN
+        slots = jnp.sum(slots, axis=0)
     return slots
 
 
@@ -1314,7 +1319,8 @@ def find_block_sizes(path_slots: chex.Array):
 # TODO - write tests
 @partial(jax.jit, static_argnums=(1,))
 def calculate_path_stats(state: EnvState, params: EnvParams, request: chex.Array) -> chex.Array:
-    """Calculate:
+    """For use in DeepRMSA agent  observation space.
+    Calculate:
     1. Required slots on path
     2. Total available slots on path
     3. Size of 1st free spectrum block

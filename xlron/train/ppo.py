@@ -81,7 +81,7 @@ def make_train(config):
         rng, _rng = jax.random.split(rng)
         reset_rng = jax.random.split(_rng, config.NUM_ENVS)
         obsv, env_state = jax.vmap(env.reset, in_axes=(0, None))(reset_rng, env_params)
-        obsv = env_state if config.USE_GNN else obsv
+        obsv = (env_state.env_state, env_params) if config.USE_GNN else tuple([obsv])
 
         # INIT NETWORK
         rng, _rng = jax.random.split(rng)
@@ -90,7 +90,7 @@ def make_train(config):
                                   activation=config.ACTIVATION,
                                   num_layers=config.NUM_LAYERS,
                                   num_units=config.NUM_UNITS)
-            init_x = (jnp.zeros(env.observation_space(env_params).n))
+            init_x = tuple([jnp.zeros(env.observation_space(env_params).n)])
         elif config.env_type.lower() in ["rsa", "rmsa", "rwa", "deeprmsa"]:
             if config.USE_GNN:
                 network = ActorCriticGNN(
@@ -111,7 +111,7 @@ def make_train(config):
                                       num_layers=config.NUM_LAYERS,
                                       num_units=config.NUM_UNITS)
 
-                init_x = (jnp.zeros(env.observation_space(env_params).n))
+                init_x = tuple([jnp.zeros(env.observation_space(env_params).n)])
         else:
             raise ValueError(f"Invalid environment type {config.env_type}")
         network_params = network.init(_rng, *init_x)
@@ -132,8 +132,8 @@ def make_train(config):
                 train_state, env_state, last_obs, rng = runner_state
 
                 # SELECT ACTION
-                last_obs = env_state if config.USE_GNN else last_obs
-                pi, value = network.apply(train_state.params, last_obs)
+                last_obs = (env_state.env_state, env_params) if config.USE_GNN else last_obs
+                pi, value = network.apply(train_state.params, *last_obs)
                 rng = jax.random.split(rng, 1 + len(pi))
 
                 # Always do action masking with VONE
@@ -184,7 +184,7 @@ def make_train(config):
                 obsv, env_state, reward, done, info = jax.vmap(env.step, in_axes=(0,0,0,None))(
                     rng_step, env_state, action, env_params
                 )
-                obsv = env_state if config.USE_GNN else obsv
+                obsv = (env_state.env_state, env_params) if config.USE_GNN else tuple([obsv])
                 transition = VONETransition(
                     done, action, value, reward, log_prob, last_obs, info, env_state.env_state.node_mask_s,
                     env_state.env_state.link_slot_mask,
@@ -218,8 +218,8 @@ def make_train(config):
 
             # CALCULATE ADVANTAGE
             train_state, env_state, last_obs, rng = runner_state
-            last_obs = env_state if config.USE_GNN else last_obs
-            _, last_val = network.apply(train_state.params, last_obs)
+            last_obs = (env_state.env_state, env_params) if config.USE_GNN else last_obs
+            _, last_val = network.apply(train_state.params, *last_obs)
 
             def _calculate_gae(traj_batch, last_val):
                 def _get_advantages(gae_and_next_value, transition):
@@ -254,7 +254,7 @@ def make_train(config):
 
                     def _loss_fn(params, traj_batch, gae, targets):
                         # RERUN NETWORK
-                        pi, value = network.apply(params, traj_batch.obs)
+                        pi, value = network.apply(params, *traj_batch.obs)
 
                         if config.env_type.lower() == "vone":
                             pi_source = distrax.Categorical(
