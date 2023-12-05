@@ -68,6 +68,7 @@ class EnvParams:
     edges: chex.Array = struct.field(pytree_node=False)
     slot_size: chex.Scalar = struct.field(pytree_node=False)
     consider_modulation_format: chex.Scalar = struct.field(pytree_node=False)
+    link_length_array: chex.Array = struct.field(pytree_node=False)
 
 
 @struct.dataclass
@@ -268,6 +269,14 @@ def update_graph_tuple(state: EnvState, params: EnvParams):
     return state
 
 
+def init_link_length_array(graph: nx.Graph) -> chex.Array:
+    """Initialise link length array"""
+    link_lengths = []
+    for edge in sorted(graph.edges):
+        link_lengths.append(graph.edges[edge]["weight"])
+    return jnp.array(link_lengths)
+
+
 def init_path_link_array(graph: nx.Graph, k: int) -> chex.Array:
     """Initialise path-link array
     Each path is defined by a link utilisation array. 1 indicates link corresponding to index is used, 0 indicates not used."""
@@ -295,10 +304,8 @@ def init_path_link_array(graph: nx.Graph, k: int) -> chex.Array:
 
 def init_path_length_array(path_link_array: chex.Array, graph: nx.Graph) -> chex.Array:
     """Initialise path length array"""
-    link_lengths = []
-    for edge in sorted(graph.edges):
-        link_lengths.append(graph.edges[edge]["weight"])
-    path_lengths = jnp.dot(path_link_array, jnp.array(link_lengths))
+    link_length_array = init_link_length_array(graph)
+    path_lengths = jnp.dot(path_link_array, link_length_array)
     return path_lengths
 
 
@@ -1260,8 +1267,11 @@ def get_path_slots(link_slot_array: chex.Array, params: EnvParams, nodes_sd: che
         # Use this for getting slots from link_slot_array
         slots = jnp.max(jnp.absolute(slots), axis=0)
     elif agg_func == "sum":
+        # TODO - consider using an RNN (or S5) to aggregate edge features
         # Use this (or alternative) for aggregating edge features from GNN
         slots = jnp.sum(slots, axis=0)
+    else:
+        raise ValueError("agg_func must be 'max' or 'sum'")
     return slots
 
 

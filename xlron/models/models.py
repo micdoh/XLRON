@@ -6,12 +6,14 @@ import distrax
 import jraph
 import chex
 from flax.linen.initializers import constant, orthogonal
+from flax import linen as nn
 from typing import Sequence, Callable, Sequence
+from jraph._src.utils import segment_softmax, segment_sum
 
 from xlron.environments.env_funcs import EnvState, EnvParams, get_path_slots, read_rsa_request, format_vone_slot_request
 from xlron.environments.vone import make_vone_env
 from xlron.environments.rsa import make_rsa_env
-from xlron.models.gnn import GraphNetwork
+from xlron.models.gnn import GraphNetwork, GraphNetGAT, GAT
 
 
 def add_graphs_tuples(
@@ -105,9 +107,11 @@ class GraphNet(nn.Module):
     use_edge_model: bool = True
     layer_norm: bool = True
     deterministic: bool = True
+    use_attention: bool = True
 
     @nn.compact
     def __call__(self, graphs: jraph.GraphsTuple) -> jraph.GraphsTuple:
+        # Template code from here: https://github.com/google/flax/blob/main/examples/ogbg_molpcba/models.py
         # We will first linearly project the original features as 'embeddings'.
         embedder = jraph.GraphMapFeatures(
             embed_node_fn=nn.Dense(self.latent_size) if self.output_nodes_size > 0 else None,
@@ -117,8 +121,9 @@ class GraphNet(nn.Module):
         processed_graphs = embedder(graphs)
 
         # Now, we will apply a Graph Network once for each message-passing round.
-        mlp_feature_sizes = [self.latent_size] * self.num_mlp_layers
         for _ in range(self.message_passing_steps):
+            mlp_feature_sizes = [self.latent_size] * self.num_mlp_layers
+
             if self.use_edge_model:
                 update_edge_fn = jraph.concatenated_args(
                     MLP(
@@ -130,40 +135,67 @@ class GraphNet(nn.Module):
             else:
                 update_edge_fn = None
 
-        update_node_fn = jraph.concatenated_args(
-            MLP(
-                mlp_feature_sizes,
-                dropout_rate=self.dropout_rate,
-                deterministic=self.deterministic,
+            update_node_fn = jraph.concatenated_args(
+                MLP(
+                    mlp_feature_sizes,
+                    dropout_rate=self.dropout_rate,
+                    deterministic=self.deterministic,
+                )
             )
-        )
-        update_global_fn = jraph.concatenated_args(
-            MLP(
-                mlp_feature_sizes,
-                dropout_rate=self.dropout_rate,
-                deterministic=self.deterministic,
+            update_global_fn = jraph.concatenated_args(
+                MLP(
+                    mlp_feature_sizes,
+                    dropout_rate=self.dropout_rate,
+                    deterministic=self.deterministic,
+                )
             )
-        )
 
-        graph_net = GraphNetwork(
-            update_node_fn=update_node_fn if self.output_nodes_size > 0 else None,
-            update_edge_fn=update_edge_fn,
-            update_global_fn=update_global_fn if self.output_globals_size > 0 else None,
-        )
+            if self.use_attention:
+                def _attention_logit_fn(
+                    edges: jnp.ndarray, sender_attr: jnp.ndarray, receiver_attr: jnp.ndarray, global_edge_attributes: jnp.ndarray
+                ) -> jnp.ndarray:
+                    """Calculate attention logits for each edge using the edges & global edge attributes."""
+                    # TODO - would need to change this for VONE to incorporate node information
+                    #  e.g. use same as update_global/edge/node_fn
+                    # TODO - try using jraph.concatenated_args() here
+                    x = jnp.concatenate((edges, global_edge_attributes), axis=1)
+                    return MLP(mlp_feature_sizes, dropout_rate=self.dropout_rate,
+                                deterministic=self.deterministic,)(x)
 
-        if self.skip_connections:
-            processed_graphs = add_graphs_tuples(
-            graph_net(processed_graphs), processed_graphs
-        )
-        else:
-            processed_graphs = graph_net(processed_graphs)
+                def _attention_reduce_fn(
+                    edges: jnp.ndarray, attention: jnp.ndarray
+                ) -> jnp.ndarray:
+                    # TODO - could try more sophisticated attention reduce function (not sure what it would be)
+                    return attention * edges
 
-        if self.layer_norm:
-            processed_graphs = processed_graphs._replace(
-                nodes=nn.LayerNorm()(processed_graphs.nodes),
-                edges=nn.LayerNorm()(processed_graphs.edges),
-                globals=nn.LayerNorm()(processed_graphs.globals) if processed_graphs.globals is not None else None,
+                graph_net = GraphNetGAT(
+                    update_node_fn=update_node_fn if self.output_nodes_size > 0 else None,
+                    update_edge_fn=update_edge_fn,  # Update the edges with MLP prior to attention
+                    update_global_fn=update_global_fn if self.output_globals_size > 0 else None,
+                    attention_logit_fn=_attention_logit_fn,
+                    attention_reduce_fn=_attention_reduce_fn,  # TODO - check this attention reduce function
+                    # (here might help https://uvadlc-notebooks.readthedocs.io/en/latest/tutorial_notebooks/JAX/tutorial7/GNN_overview.html)
+                )
+            else:
+                graph_net = GraphNetwork(
+                    update_node_fn=update_node_fn if self.output_nodes_size > 0 else None,
+                    update_edge_fn=update_edge_fn,
+                    update_global_fn=update_global_fn if self.output_globals_size > 0 else None,
+                )
+
+            if self.skip_connections:
+                processed_graphs = add_graphs_tuples(
+                graph_net(processed_graphs), processed_graphs
             )
+            else:
+                processed_graphs = graph_net(processed_graphs)
+
+            if self.layer_norm:
+                processed_graphs = processed_graphs._replace(
+                    nodes=nn.LayerNorm()(processed_graphs.nodes),
+                    edges=nn.LayerNorm()(processed_graphs.edges),
+                    globals=nn.LayerNorm()(processed_graphs.globals) if processed_graphs.globals is not None else None,
+                )
 
         decoder = jraph.GraphMapFeatures(
             embed_global_fn=nn.Dense(self.output_globals_size) if self.output_globals_size > 0 else None,
@@ -185,9 +217,10 @@ class CriticGNN(nn.Module):
     output_nodes_size: int = 1
     output_globals_size: int = 1
     gnn_mlp_layers: int = 1
+    use_attention: bool = True
 
     @nn.compact
-    def __call__(self, state: EnvState):
+    def __call__(self, state: EnvState, params: EnvParams):
         # Remove globals from graph s.t. state value does not depend on the current request
         state = state.replace(graph=state.graph._replace(globals=jnp.zeros((1, 1))))
         processed_graph = GraphNet(
@@ -197,11 +230,15 @@ class CriticGNN(nn.Module):
             output_nodes_size=self.output_nodes_size,
             output_globals_size=self.output_globals_size,
             num_mlp_layers=self.gnn_mlp_layers,
+            use_attention=self.use_attention,
         )(state.graph)
+        # Take every other edge as edges are bi-driectional and therefore duplicated
+        edge_features = processed_graph.edges[::2]
+        edge_features = edge_features * (params.link_length_array.val/jnp.sum(params.link_length_array.val))
         # TODO - does processed graph include processed globals in node and edge features?
         #  Or does globals feature the node and edge features, but not the other way round?
         # Index every other row of the edge features to get the link-slot array
-        edge_features_flat = jnp.reshape(processed_graph.edges[::2], (-1,))
+        edge_features_flat = jnp.reshape(edge_features, (-1,))
         # pass aggregated features through MLP
         critic = make_dense_layers(edge_features_flat, self.num_units, self.num_layers, self.activation)
         critic = nn.Dense(1, kernel_init=orthogonal(1.0), bias_init=constant(0.0))(
@@ -221,13 +258,26 @@ class ActorGNN(nn.Module):
     output_nodes_size: int = 1
     output_globals_size: int = 1
     gnn_mlp_layers: int = 1
+    use_attention: bool = True
+    normalise_by_link_length: bool = True  # Normalise the processed edge features by the link length
 
     @nn.compact
     def __call__(self, state: EnvState, params: EnvParams):
         """
+        The ActorGNN network takes the current network state in the form of a GraphTuple and returns
+        a distrax.Categorical distribution over actions.
+        The graph is processed by a GraphNet module, and the resulting graph is indexed to construct a matrix of
+        the edge features. The edge features are then normalised by the link length from the environment parameters,
+        and the current request is read from the request array.
+        The request is used to retrieve the edge features from the edge_features array for the corresponding
+        shortest k-paths. The edge features are aggregated for each path according to the "agg_func" e.g. sum.,
+        and the action distribution array is updated.
+        Returns a distrax.Categorical distribution, from which actions can be sampled.
+
         :param state: EnvState
         :param params: EnvParams
-        :param config: Config - flags from parent script (e.g. train.py) used to configure the environment
+
+        :return: distrax.Categorical distribution over actions
         """
         processed_graph = GraphNet(
             latent_size=self.gnn_latent,
@@ -236,11 +286,14 @@ class ActorGNN(nn.Module):
             output_nodes_size=self.output_nodes_size,
             output_globals_size=self.output_globals_size,
             num_mlp_layers=self.gnn_mlp_layers,
+            use_attention=self.use_attention,
         )(state.graph)
 
         # Index edge features to resemble the link-slot array
         edge_features = processed_graph.edges[::2]
-        # TODO - add a normalisation step (normalise the edge features by link length)
+        # Normalise features by normalised link length from state.link_length_array
+        if self.normalise_by_link_length:
+            edge_features = edge_features * (params.link_length_array.val/jnp.sum(params.link_length_array.val))
         # Get the current request and initialise array of action distributions per path
         nodes_sd, requested_bw = read_rsa_request(state.request_array)
         init_action_array = jnp.zeros(params.k_paths * self.output_edges_size)
@@ -254,11 +307,8 @@ class ActorGNN(nn.Module):
             return action_array
 
         action_dist = jax.lax.fori_loop(0, params.k_paths, get_path_action_dist, init_action_array)
-        #jax.debug.print("edge_features {}", edge_features, ordered=True)
-        # Return a distrax.Categorical distribution over actions
-        #jax.debug.print("action_dist {}", action_dist, ordered=True)
+        # Return a distrax.Categorical distribution over actions (which can be masked later)
         return distrax.Categorical(logits=jnp.reshape(action_dist, (-1,)))
-        # TODO - within PPO, mask invalid actions
 
 
 class ActorCriticGNN(nn.Module):
@@ -272,6 +322,8 @@ class ActorCriticGNN(nn.Module):
     output_nodes_size: int = 1
     output_globals_size: int = 0
     gnn_mlp_layers: int = 1
+    use_attention: bool = True
+    normalise_by_link_length: bool = True  # Normalise the processed edge features by the link length
 
     @nn.compact
     def __call__(self, state: EnvState, params: EnvParams):
@@ -281,7 +333,9 @@ class ActorCriticGNN(nn.Module):
             output_edges_size=self.output_edges_size,
             output_nodes_size=self.output_nodes_size,
             output_globals_size=self.output_globals_size,
-            gnn_mlp_layers=self.gnn_mlp_layers
+            gnn_mlp_layers=self.gnn_mlp_layers,
+            use_attention=self.use_attention,
+            normalise_by_link_length=self.normalise_by_link_length,
         ), in_axes=0)(state, params)
         critic = jax.vmap(CriticGNN(
             activation=self.activation,
@@ -292,8 +346,9 @@ class ActorCriticGNN(nn.Module):
             output_edges_size=self.output_edges_size,
             output_nodes_size=self.output_nodes_size,
             output_globals_size=self.output_globals_size,
-            gnn_mlp_layers=self.gnn_mlp_layers
-        ), in_axes=0)(state)
+            gnn_mlp_layers=self.gnn_mlp_layers,
+            use_attention=self.use_attention,
+        ), in_axes=0)(state, params)
         # Actor is returned as a list for compatibility with MLP VONE option in PPO script
         return [actor], critic
 
@@ -369,18 +424,8 @@ if __name__ == "__main__":
     key = jax.random.PRNGKey(42)
     obs, state = env.reset(key, env_params)
     graph = state.graph
-    # net = GraphNet(
-    #     latent_size=128,
-    #     message_passing_steps=1,
-    #     output_edges_size=10,
-    #     output_nodes_size=0,
-    #     output_globals_size=0,
-    #     num_mlp_layers=1
-    # )
     action = jnp.array([1,2,3])
-    #params = net.init(key, graph)
-    #out = net.apply(params, graph)
-    #print(out)
+
     actor_critic = ActorCriticGNN(
         activation=config.ACTIVATION,
         num_layers=config.NUM_LAYERS,
@@ -392,15 +437,10 @@ if __name__ == "__main__":
         output_globals_size=config.output_globals_size,
         gnn_mlp_layers=config.gnn_mlp_layers,
     )
+    # Reshape all arrays to include batch dimension
+    state = jax.tree_map(lambda x: jnp.expand_dims(x, axis=0), state)
+    env_params = jax.tree_map(lambda x: jnp.expand_dims(x, axis=0), env_params)
     params = actor_critic.init(key, state, env_params)
 
     out = jax.jit(actor_critic.apply)(params, state, env_params)
     print(out)
-    # actor = ActorGNN()
-    # params = actor.init(key, state, env_params, config)
-    # out = actor.apply(params, state, env_params, config)
-    # print(out)
-    # critic = CriticGNN()
-    # params = critic.init(key, state)
-    # out = critic.apply(params, state)
-    # print(out)
