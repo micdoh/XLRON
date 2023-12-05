@@ -15,7 +15,7 @@
 """A library of Graph Neural Network models."""
 
 import functools
-from typing import Any, Callable, Iterable, Mapping, Optional, Union
+from typing import Any, Callable, Iterable, Mapping, Optional, Union, Tuple
 
 import jax
 import jax.numpy as jnp
@@ -76,6 +76,15 @@ GNUpdateNodeFn = Callable[
 ]
 
 GNUpdateGlobalFn = Callable[[NodeFeatures, EdgeFeatures, Globals], Globals]
+
+
+def add_self_edges_fn(receivers: jnp.ndarray, senders: jnp.ndarray,
+                      total_num_nodes: int) -> Tuple[jnp.ndarray, jnp.ndarray]:
+    """Adds self edges. Assumes self edges are not in the graph yet."""
+    # TODo - check if self-edges required
+    receivers = jnp.concatenate((receivers, jnp.arange(total_num_nodes)), axis=0)
+    senders = jnp.concatenate((senders, jnp.arange(total_num_nodes)), axis=0)
+    return receivers, senders
 
 
 def GraphNetwork(
@@ -170,9 +179,6 @@ def GraphNetwork(
                 "All node arrays in nest must contain the same number of nodes."
             )
 
-        #vmap_attributes = jax.vmap(lambda x, y: x[y], in_axes=0)
-        #sent_attributes = tree.tree_map(vmap_attributes, *(nodes, senders))
-        #received_attributes = tree.tree_map(vmap_attributes, *(nodes, receivers))
         sent_attributes = tree.tree_map(lambda n: n[senders], nodes)
         received_attributes = tree.tree_map(lambda n: n[receivers], nodes)
         # Here we scatter the global features to the corresponding edges,
@@ -231,11 +237,11 @@ def GraphNetwork(
             node_attributes = tree.tree_map(
                 lambda n: aggregate_nodes_for_globals_fn(n, node_gr_idx, n_graph), nodes
             )
-            edge_attribtutes = tree.tree_map(
+            edge_attributes = tree.tree_map(
                 lambda e: aggregate_edges_for_globals_fn(e, edge_gr_idx, n_graph), edges
             )
             # These pooled nodes are the inputs to the global update fn.
-            globals_ = update_global_fn(node_attributes, edge_attribtutes, globals_)
+            globals_ = update_global_fn(node_attributes, edge_attributes, globals_)
         # pylint: enable=g-long-lambda
         return gn_graph.GraphsTuple(
             nodes=nodes,

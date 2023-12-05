@@ -13,7 +13,7 @@ from xlron.environments.env_funcs import (
     convert_node_probs_to_traffic_matrix, init_link_slot_mask, init_link_slot_departure_array, init_traffic_matrix,
     implement_rsa_action, check_rsa_action, undo_link_slot_action, finalise_rsa_action, generate_rsa_request,
     mask_slots, make_graph, init_path_length_array, init_modulations_array, init_path_se_array, required_slots,
-    init_values_bandwidth, calculate_path_stats, normalise_traffic_matrix, init_graph_tuple
+    init_values_bandwidth, calculate_path_stats, normalise_traffic_matrix, init_graph_tuple, init_link_length_array
 )
 
 
@@ -140,6 +140,7 @@ class RSAEnv(environment.Environment):
             lambda x: (finalise_rsa_action(x), self.get_reward_success(x)),  # Finalise actions if complete
             state
         )
+        # TODO - write separate functions for deterministic transition (above) and stochastic transition (below)
         # Generate new request
         state = generate_rsa_request(key, state, params)
         state = state.replace(total_timesteps=state.total_timesteps + 1)
@@ -423,12 +424,14 @@ def make_rsa_env(config):
 
     # Automated calculation of max slots requested
     if consider_modulation_format:
+        link_length_array = init_link_length_array(graph).reshape((num_links, 1))
         path_length_array = init_path_length_array(path_link_array, graph)
         modulations_array = init_modulations_array(config.get("modulations_file", "modulations.csv"))
         path_se_array = init_path_se_array(path_length_array, modulations_array)
         min_se = min(path_se_array)  # if consider_modulation_format
         max_slots = required_slots(max_bw, min_se, slot_size)
     else:
+        link_length_array = jnp.ones((num_links, 1))
         path_se_array = jnp.array([1])
         max_slots = required_slots(max_bw, 1, slot_size)
 
@@ -455,6 +458,7 @@ def make_rsa_env(config):
         edges=HashableArrayWrapper(edges),
         random_traffic=random_traffic,
         path_se_array=HashableArrayWrapper(path_se_array),
+        link_length_array=HashableArrayWrapper(link_length_array),
         max_slots=int(max_slots),
         consider_modulation_format=consider_modulation_format,
         slot_size=slot_size,

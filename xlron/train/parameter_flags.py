@@ -83,4 +83,7 @@ flags.DEFINE_integer("output_edges_size", 64, "Output edges size")
 flags.DEFINE_integer("output_nodes_size", 64, "Output nodes size")
 flags.DEFINE_integer("output_globals_size", 64, "Output globals size")
 flags.DEFINE_integer("gnn_mlp_layers", 2, "Number of MLP layers")
+flags.DEFINE_boolean("normalize_by_link_length", False, "Normalize by link length")
+# TODO - add option num_link_actions which will determine how many equal size chunks to split the link resources into
+#  (with one action per chunk, within which FF applies)
 

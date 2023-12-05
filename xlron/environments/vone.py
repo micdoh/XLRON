@@ -13,7 +13,7 @@ from xlron.environments.env_funcs import (
     init_node_capacity_array, init_node_mask, init_node_resource_array, init_node_departure_array, init_values_nodes,
     init_action_counter, init_action_history, update_action_history, decrease_last_element, undo_node_action,
     init_virtual_topology_patterns, mask_nodes, init_path_length_array, init_path_se_array, init_modulations_array,
-    required_slots, init_graph_tuple, format_vone_slot_request
+    required_slots, init_graph_tuple, format_vone_slot_request, init_link_length_array
 )
 
 
@@ -158,6 +158,7 @@ class VONEEnv(environment.Environment):
             ),
             state
         )
+        # TODO - write separate functions for deterministic transition (above) and stochastic transition (below)
         # Generate new request if all actions have been taken or if action was invalid
         state = jax.lax.cond(
             jnp.any(remaining_actions <= 1) | check,
@@ -339,12 +340,14 @@ def make_vone_env(config):
 
     # Automated calculation of max slots requested
     if consider_modulation_format:
+        link_length_array = init_link_length_array(graph)
         path_length_array = init_path_length_array(path_link_array, graph)
         modulations_array = init_modulations_array(config.get("modulations_file", "modulations.csv"))
         path_se_array = init_path_se_array(path_length_array, modulations_array)
         min_se = min(path_se_array)  # if consider_modulation_format
         max_slots = required_slots(max_bw, min_se, slot_size)
     else:
+        link_length_array = jnp.ones((1, num_links))
         path_se_array = jnp.array([1])
         max_slots = required_slots(max_bw, 1, slot_size)
 
@@ -377,6 +380,7 @@ def make_vone_env(config):
         consider_modulation_format=consider_modulation_format,
         slot_size=slot_size,
         continuous_operation=continuous_operation,
+        link_length_array=HashableArrayWrapper(link_length_array),
     )
 
     env = VONEEnv(params, virtual_topologies=virtual_topologies, values_bw=values_bw)
