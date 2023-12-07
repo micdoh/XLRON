@@ -3,6 +3,7 @@ from functools import partial
 from typing import Sequence, Union, Optional, Tuple
 from gymnax.environments import environment
 from gymnax.wrappers.purerl import GymnaxWrapper
+import math
 import pathlib
 import networkx as nx
 import jax.numpy as jnp
@@ -57,6 +58,7 @@ class EnvState:
     total_timesteps: chex.Scalar
     total_requests: chex.Scalar
     graph: jraph.GraphsTuple
+    full_link_slot_mask: chex.Array
 
 
 @struct.dataclass
@@ -69,6 +71,7 @@ class EnvParams:
     slot_size: chex.Scalar = struct.field(pytree_node=False)
     consider_modulation_format: chex.Scalar = struct.field(pytree_node=False)
     link_length_array: chex.Array = struct.field(pytree_node=False)
+    aggregate_slots: chex.Scalar = struct.field(pytree_node=False)
 
 
 @struct.dataclass
@@ -433,9 +436,9 @@ def init_node_mask(params: EnvParams):
 
 
 @partial(jax.jit, static_argnums=(0,))
-def init_link_slot_mask(params: EnvParams):
+def init_link_slot_mask(params: EnvParams, agg: int = 1):
     """Initialize link mask"""
-    return jnp.ones(params.k_paths*params.link_resources)
+    return jnp.ones(params.k_paths*math.ceil(params.link_resources / agg))
 
 
 def init_action_counter():
@@ -872,7 +875,22 @@ def implement_node_action(state: EnvState, s_node: chex.Array, d_node: chex.Arra
     return state
 
 
-def implement_path_action(state: EnvState, path: chex.Array, initial_slot_index: chex.Array, num_slots: chex.Array):
+@partial(jax.jit, static_argnums=(1,))
+def process_path_action(state: EnvState, params: EnvParams, path_action: chex.Array, nodes_sd: chex.Array) -> (chex.Array, chex.Array):
+    num_slot_actions = math.ceil(params.link_resources/params.aggregate_slots)
+    path_index = jnp.floor(path_action / num_slot_actions).astype(jnp.int32)
+    initial_aggregated_slot_index = jnp.mod(path_action, num_slot_actions)
+    initial_slot_index = initial_aggregated_slot_index*params.aggregate_slots
+    if params.aggregate_slots > 1:
+        # Get the path then do a dynamic slice and get the index of first unoccupied slot in the slice
+        path_slots = jax.lax.dynamic_slice(state.full_link_slot_mask, path_index*params.link_resources, (params.link_resources,))
+        path_mask_slice = jax.lax.dynamic_slice(path_slots, initial_slot_index, (params.aggregate_slots,))
+        # Use argmax to get index of first 1 in slice of mask
+        initial_slot_index = initial_slot_index + jnp.argmax(path_mask_slice)
+    return path_index, initial_slot_index
+
+
+def implement_path_action(state: EnvState, path: chex.Array, initial_slot_index: chex.Array, num_slots: chex.Array) -> EnvState:
     """Update link-slot and link-slot departure arrays.
     Times are set to negative until turned positive by finalisation (after checks).
 
@@ -927,8 +945,7 @@ def implement_vone_action(
     bw_request = jax.lax.dynamic_slice(request, (1,), (1,))
     node_request_d = jax.lax.dynamic_slice(request, (0, ), (1, ))
     nodes = action[::2]
-    path_index = jnp.floor(action[1] / params.link_resources).astype(jnp.int32)
-    initial_slot_index = jnp.mod(action[1], params.link_resources)
+    path_index, initial_slot_index = process_path_action(state, params, action[1], nodes)
     path = get_paths(params, nodes)[path_index]
     se = get_paths_se(params, nodes)[path_index] if params.consider_modulation_format else jnp.array([1])
     num_slots = required_slots(bw_request, se, params.slot_size)
@@ -977,8 +994,7 @@ def implement_rsa_action(
         state: updated state
     """
     nodes_sd, bw_request = read_rsa_request(state.request_array)
-    path_index = jnp.floor(action / params.link_resources).astype(jnp.int32)
-    initial_slot_index = jnp.mod(action, params.link_resources)
+    path_index, initial_slot_index = process_path_action(state, params, action, nodes_sd)
     path = get_paths(params, nodes_sd)[path_index]
     se = get_paths_se(params, nodes_sd)[path_index] if params.consider_modulation_format else 1
     num_slots = required_slots(bw_request, se, params.slot_size)
@@ -1148,12 +1164,62 @@ def mask_slots(state: EnvState, params: EnvParams, request: chex.Array) -> EnvSt
         return mask
 
     # Loop over each path
-    state = state.replace(link_slot_mask=jax.lax.fori_loop(0, params.k_paths, mask_path, init_mask))
+    link_slot_mask = jax.lax.fori_loop(0, params.k_paths, mask_path, init_mask)
+    if params.aggregate_slots > 1:
+        # Full link slot mask is used in process_path_action to get the correct slot from the aggregated slot action
+        state = state.replace(full_link_slot_mask=link_slot_mask)
+        link_slot_mask = aggregate_slots(link_slot_mask, params, request)
+    state = state.replace(link_slot_mask=link_slot_mask)
     return state
 
 
-# TODO - add function to aggregate slot mask if action granularity is decreased to e.g. every 2,4,6,8,10 slots,
-#  s.t. mask is still valid for reduced action space (i.e. if there is one valid slot action within the aggregated action, then it is valid)
+@partial(jax.jit, static_argnums=(1,))
+def aggregate_slots(mask: chex.Array, params: EnvParams) -> chex.Array:
+    """Aggregate slot mask to reduce action space.
+    Only valid if there is one valid slot action within the aggregated action window."""
+
+    num_actions = math.ceil(params.link_resources/params.aggregate_slots)
+    agg_mask = jnp.zeros((params.k_paths, num_actions), dtype=jnp.int32)
+
+    def get_max(i, mask_val):
+        mask_slice = jax.lax.dynamic_slice(
+                mask_val,
+                (0, i * params.aggregate_slots,),
+                (1,  params.aggregate_slots,),
+            )
+        max_slice = jnp.max(mask_slice).reshape(1, -1)
+        return max_slice
+
+    def get_window_max(i, val):
+        """Get max of every aggregate_slots elements
+        val is tuple of (agg_mask, path_mask, path_index).
+        agg_mask is updated with max of path_mask for window size aggregate_slots"""
+        agg_mask = val[0]
+        mask = val[1]
+        path_index = val[2]
+        new_agg_mask = jax.lax.dynamic_update_slice(
+            agg_mask,
+            get_max(i, mask),
+            (path_index, i),
+        )
+        return new_agg_mask, mask, path_index
+
+    def apply_to_path_mask(i, val):
+        val = (val[0], val[1][i].reshape(1, -1), i)
+        new_agg_mask = jax.lax.fori_loop(
+            0,
+            num_actions,
+            get_window_max,
+            val,
+        )[0]
+        return new_agg_mask, mask
+
+    return jax.lax.fori_loop(
+            0,
+            params.k_paths,
+            apply_to_path_mask,
+            (agg_mask, mask),
+        )
 
 
 @partial(jax.jit, static_argnums=(1,))
@@ -1256,7 +1322,7 @@ def mask_nodes(state: EnvState, num_nodes: chex.Scalar) -> EnvState:
 
 
 # TODO - write tests
-@partial(jax.jit, static_argnums=(1,4))
+@partial(jax.jit, static_argnums=(1, 4))
 def get_path_slots(link_slot_array: chex.Array, params: EnvParams, nodes_sd: chex.Array, i: int, agg_func: str = "max") -> chex.Array:
     path = get_paths(params, nodes_sd)[i]
     path = path.reshape((params.num_links, 1))

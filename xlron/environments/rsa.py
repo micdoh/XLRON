@@ -1,6 +1,7 @@
 from typing import Tuple, Union, Optional
 from flax import struct
 from functools import partial
+import math
 import chex
 import jax
 import jax.numpy as jnp
@@ -74,10 +75,11 @@ class RSAEnv(environment.Environment):
             link_slot_array=init_link_slot_array(params),
             link_slot_departure_array=init_link_slot_departure_array(params),
             request_array=init_rsa_request_array(),
-            link_slot_mask=init_link_slot_mask(params),
+            link_slot_mask=init_link_slot_mask(params, agg=params.aggregate_slots),
             traffic_matrix=traffic_matrix if traffic_matrix is not None else init_traffic_matrix(key, params),
             values_bw=values_bw,
             graph=None,
+            full_link_slot_mask=init_link_slot_mask(params),
         )
         self.initial_state = state.replace(graph=init_graph_tuple(state, params))
 
@@ -234,7 +236,7 @@ class RSAEnv(environment.Environment):
     @staticmethod
     def num_actions(params: RSAEnvParams) -> int:
         """Number of actions possible in environment."""
-        return params.link_resources * params.k_paths
+        return math.ceil(params.link_resources/params.aggregate_slots) * params.k_paths
 
     def action_space(self, params: RSAEnvParams):
         """Action space of the environment."""
@@ -387,6 +389,7 @@ def make_rsa_env(config):
     env_type = config.get("env_type", "").lower()
     continuous_operation = config.get("continuous_operation", False)
     custom_traffic_matrix_csv_filepath = config.get("custom_traffic_matrix_csv_filepath", None)
+    aggregate_slots = config.get("aggregate_slots", 1)
 
     rng = jax.random.PRNGKey(seed)
     rng, _, _, _, _ = jax.random.split(rng, 5)
@@ -463,6 +466,7 @@ def make_rsa_env(config):
         consider_modulation_format=consider_modulation_format,
         slot_size=slot_size,
         continuous_operation=continuous_operation,
+        aggregate_slots=aggregate_slots,
     )
 
     env = RSAEnv(rng, params, values_bw=values_bw, traffic_matrix=traffic_matrix) if not env_type == "deeprmsa" \
