@@ -1,6 +1,7 @@
 from typing import Tuple, Union, Optional
 from flax import struct
 from functools import partial
+import math
 import chex
 import jax
 import jax.numpy as jnp
@@ -51,7 +52,7 @@ class VONEEnvParams(EnvParams):
     path_link_array: chex.Array = struct.field(pytree_node=False)
     max_slots: chex.Scalar = struct.field(pytree_node=False)
     path_se_array: chex.Array = struct.field(pytree_node=False)
-    # TODO - Add Laplacian matrix (for node heuristics and might be useful for GNNs)
+    # TODO - Add Laplacian matrix (for node heuristics)
 
 
 class VONEEnv(environment.Environment):
@@ -72,12 +73,13 @@ class VONEEnv(environment.Environment):
             action_counter=init_action_counter(),
             action_history=init_action_history(params),
             node_mask_s=init_node_mask(params),
-            link_slot_mask=init_link_slot_mask(params),
+            link_slot_mask=init_link_slot_mask(params, agg=params.aggregate_slots),
             node_mask_d=init_node_mask(params),
             virtual_topology_patterns=init_virtual_topology_patterns(virtual_topologies),
             values_nodes=init_values_nodes(params.min_node_resources, params.max_node_resources),
             values_bw=values_bw,
-            graph=None
+            graph=None,
+            full_link_slot_mask=init_link_slot_mask(params),
         )
         self.initial_state = state.replace(graph=init_graph_tuple(state, params))
 
@@ -256,7 +258,9 @@ class VONEEnv(environment.Environment):
     @staticmethod
     def num_actions(params: EnvParams) -> int:
         """Number of actions possible in environment."""
-        return params.num_nodes + params.num_nodes + params.link_resources * params.k_paths
+        return (params.num_nodes +
+                params.num_nodes +
+                math.ceil(params.link_resources/params.aggregate_slots) * params.k_paths)
 
     def action_space(self, params: EnvParams):
         """Action space of the environment."""
@@ -322,6 +326,7 @@ def make_vone_env(config):
     consider_modulation_format = config.get("consider_modulation_format", False)
     values_bw = config.get("values_bw", None)
     continuous_operation = config.get("continuous_operation", False)
+    aggregate_slots = config.get("aggregate_slots", 1)
 
     if values_bw:
         values_bw = [int(val) for val in values_bw]
@@ -357,7 +362,6 @@ def make_vone_env(config):
     # Define edges for use with heuristics and GNNs
     edges = jnp.array(sorted(graph.edges))
 
-
     params = VONEEnvParams(
         max_requests=max_requests,
         max_timesteps=max_timesteps,
@@ -381,6 +385,7 @@ def make_vone_env(config):
         slot_size=slot_size,
         continuous_operation=continuous_operation,
         link_length_array=HashableArrayWrapper(link_length_array),
+        aggregate_slots=aggregate_slots,
     )
 
     env = VONEEnv(params, virtual_topologies=virtual_topologies, values_bw=values_bw)

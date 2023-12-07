@@ -99,7 +99,8 @@ def make_train(config):
                     num_units=config.NUM_UNITS,
                     gnn_latent=config.gnn_latent,
                     message_passing_steps=config.message_passing_steps,
-                    output_edges_size=config.output_edges_size,  # TODO - currently this must match link_resources
+                    # output_edges_size must equal number of slot actions
+                    output_edges_size=math.ceil(env_params.link_resources/env_params.aggregate_slots),
                     output_nodes_size=config.output_nodes_size,
                     output_globals_size=config.output_globals_size,
                     gnn_mlp_layers=config.gnn_mlp_layers,

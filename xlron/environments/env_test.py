@@ -89,6 +89,16 @@ def rsa_4node_test_setup():
     return key, env, obs, state, params
 
 
+def rsa_4node_agg_slots_test_setup():
+    key = jax.random.PRNGKey(0)
+    settings_rsa_4node_agg_slots = settings_rsa_4node()
+    settings_rsa_4node_agg_slots["aggregate_slots"] = 2
+    settings_rsa_4node_agg_slots["link_resources"] = 5
+    env, params = make_rsa_env(settings_rsa_4node_agg_slots)
+    obs, state = env.reset(key, params)
+    return key, env, obs, state, params
+
+
 def rsa_4node_3_slot_request_test_setup():
     key = jax.random.PRNGKey(0)
     settings_rsa_4node_3_slots = settings_rsa_4node()
@@ -1760,6 +1770,55 @@ class CalculatePathStatsTest(parameterized.TestCase):
         jax.debug.print("stats {}", stats, ordered=True)
         jax.debug.print("expected {}", expected, ordered=True)
         chex.assert_trees_all_close(stats, expected)
+
+
+class AggregateSlotsTest(parameterized.TestCase):
+
+    def setUp(self):
+        super().setUp()
+        self.key, self.env, self.obs, self.state, self.params = rsa_4node_agg_slots_test_setup()
+
+    @chex.all_variants()
+    @parameterized.named_parameters(
+        ("case_all_invalid", jnp.array([[0,0,0,0,0], [0,0,0,0,0]]), jnp.array([[0,0,0], [0,0,0]]),),
+        ("case_all_valid", jnp.array([[1,1,1,1,1], [1,1,1,1,1]]), jnp.array([[1,1,1], [1,1,1]]),),
+        ("case_first_edge_valid", jnp.array([[1,0,0,0,0], [0,0,0,0,0]]), jnp.array([[1,0,0], [0,0,0]]),),
+        ("case_last_edge_valid", jnp.array([[0,0,0,0,0], [0,0,0,0,1]]), jnp.array([[0,0,0], [0,0,1]]),),
+        ("case_middle_valid", jnp.array([[0,0,1,0,0], [0,0,1,0,0]]), jnp.array([[0,1,0], [0,1,0]]),),
+    )
+    def test_aggregate_slots(self, mask, expected):
+        result, mask = self.variant(aggregate_slots, static_argnums=(1,))(mask, self.params)
+        jax.debug.print("result {}", result, ordered=True)
+        chex.assert_trees_all_close(result, expected)
+
+
+class ProcessPathActionTest(parameterized.TestCase):
+
+    def setUp(self):
+        super().setUp()
+        self.key, self.env, self.obs, self.state, self.params = rsa_4node_agg_slots_test_setup()
+
+    @chex.all_variants()
+    @parameterized.named_parameters(
+        ("case_last_fit",
+         jnp.array([0,0,0,0,0,0,0,0,1,0]),
+         jnp.array([4]),
+         jnp.array([0, 1]),
+         jnp.array([3])
+         ),
+        ("case_first_fit",
+         jnp.array([0,0,1,0,0,0,0,0,0,0]),
+         jnp.array([1]),
+         jnp.array([0, 1]),
+         jnp.array([2])
+         ),
+    )
+    def test_process_path_action(self, full_link_slot_mask, path_action, request, expected):
+        state = self.state.replace(full_link_slot_mask=full_link_slot_mask)
+        result_path, result_slot = self.variant(process_path_action, static_argnums=(1,))(state, self.params, path_action, request)
+        jax.debug.print("result path {}", result_path, ordered=True)
+        jax.debug.print("result slot {}", result_slot, ordered=True)
+        chex.assert_trees_all_close(result_slot, expected)
 
 
 if __name__ == '__main__':
