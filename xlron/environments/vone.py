@@ -327,12 +327,13 @@ def make_vone_env(config):
     values_bw = config.get("values_bw", None)
     continuous_operation = config.get("continuous_operation", False)
     aggregate_slots = config.get("aggregate_slots", 1)
+    disjoint_paths = config.get("disjoint_paths", False)
 
     if values_bw:
         values_bw = [int(val) for val in values_bw]
     num_nodes = len(graph.nodes)
     num_links = len(graph.edges)
-    path_link_array = init_path_link_array(graph, k, disjoint=config.disjoint_paths)
+    path_link_array = init_path_link_array(graph, k, disjoint=disjoint_paths)
 
     # Automated calculation of max edges in virtual topologies
     max_edges = 0
