@@ -62,6 +62,8 @@ flags.DEFINE_list("values_bw", None, "List of requested bandwidth values")
 flags.DEFINE_float("slot_size", 12.5, "Spectral width of frequency slot in GHz")
 flags.DEFINE_boolean("incremental_loading", False, "Incremental increase in traffic load until first blocking")
 flags.DEFINE_boolean("continuous_operation", False, "If True, do not reset the environment at the end of an episode")
+flags.DEFINE_integer("aggregate_slots", 1, "Number of slots to aggregate into a single action")
+flags.DEFINE_boolean("disjoint_paths", False, "Use disjoint paths (k paths still considered)")
 # RSA-specific environment parameters
 flags.DEFINE_boolean("random_traffic", False, "Random traffic matrix for RSA on each reset (else uniform or custom)")
 flags.DEFINE_string("custom_traffic_matrix_csv_filepath", None, "Path to custom traffic matrix CSV file")
@@ -84,6 +86,4 @@ flags.DEFINE_integer("output_nodes_size", 64, "Output nodes size")
 flags.DEFINE_integer("output_globals_size", 64, "Output globals size")
 flags.DEFINE_integer("gnn_mlp_layers", 2, "Number of MLP layers")
 flags.DEFINE_boolean("normalize_by_link_length", False, "Normalize by link length")
-# TODO - add option num_link_actions which will determine how many equal size chunks to split the link resources into
-#  (with one action per chunk, within which FF applies)
 

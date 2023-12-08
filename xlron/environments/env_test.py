@@ -1780,11 +1780,11 @@ class AggregateSlotsTest(parameterized.TestCase):
 
     @chex.all_variants()
     @parameterized.named_parameters(
-        ("case_all_invalid", jnp.array([[0,0,0,0,0], [0,0,0,0,0]]), jnp.array([[0,0,0], [0,0,0]]),),
-        ("case_all_valid", jnp.array([[1,1,1,1,1], [1,1,1,1,1]]), jnp.array([[1,1,1], [1,1,1]]),),
-        ("case_first_edge_valid", jnp.array([[1,0,0,0,0], [0,0,0,0,0]]), jnp.array([[1,0,0], [0,0,0]]),),
-        ("case_last_edge_valid", jnp.array([[0,0,0,0,0], [0,0,0,0,1]]), jnp.array([[0,0,0], [0,0,1]]),),
-        ("case_middle_valid", jnp.array([[0,0,1,0,0], [0,0,1,0,0]]), jnp.array([[0,1,0], [0,1,0]]),),
+        ("case_all_invalid", jnp.array([[0.,0.,0.,0.,0.], [0.,0.,0.,0.,0.]]), jnp.array([[0.,0.,0.], [0.,0.,0.]]),),
+        ("case_all_valid", jnp.array([[1.,1.,1.,1.,1.], [1.,1.,1.,1.,1.]]), jnp.array([[1.,1.,1.], [1.,1.,1.]]),),
+        ("case_first_edge_valid", jnp.array([[1.,0.,0.,0.,0.], [0.,0.,0.,0.,0.]]), jnp.array([[1.,0.,0.], [0.,0.,0.]]),),
+        ("case_last_edge_valid", jnp.array([[0.,0.,0.,0.,0.], [0.,0.,0.,0.,1.]]), jnp.array([[0.,0.,0.], [0.,0.,1.]]),),
+        ("case_middle_valid", jnp.array([[0.,0.,1.,0.,0.], [0.,0.,1.,0.,0.]]), jnp.array([[0.,1.,0.], [0.,1.,0.]]),),
     )
     def test_aggregate_slots(self, mask, expected):
         result, mask = self.variant(aggregate_slots, static_argnums=(1,))(mask, self.params)
@@ -1803,19 +1803,17 @@ class ProcessPathActionTest(parameterized.TestCase):
         ("case_last_fit",
          jnp.array([0,0,0,0,0,0,0,0,1,0]),
          jnp.array([4]),
-         jnp.array([0, 1]),
-         jnp.array([3])
+         jnp.array([3]),
          ),
         ("case_first_fit",
          jnp.array([0,0,1,0,0,0,0,0,0,0]),
          jnp.array([1]),
-         jnp.array([0, 1]),
-         jnp.array([2])
+         jnp.array([2]),
          ),
     )
-    def test_process_path_action(self, full_link_slot_mask, path_action, request, expected):
+    def test_process_path_action(self, full_link_slot_mask, path_action, expected):
         state = self.state.replace(full_link_slot_mask=full_link_slot_mask)
-        result_path, result_slot = self.variant(process_path_action, static_argnums=(1,))(state, self.params, path_action, request)
+        result_path, result_slot = self.variant(process_path_action, static_argnums=(1,))(state, self.params, path_action)
         jax.debug.print("result path {}", result_path, ordered=True)
         jax.debug.print("result slot {}", result_slot, ordered=True)
         chex.assert_trees_all_close(result_slot, expected)

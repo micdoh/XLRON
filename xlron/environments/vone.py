@@ -332,7 +332,7 @@ def make_vone_env(config):
         values_bw = [int(val) for val in values_bw]
     num_nodes = len(graph.nodes)
     num_links = len(graph.edges)
-    path_link_array = init_path_link_array(graph, k)
+    path_link_array = init_path_link_array(graph, k, disjoint=config.disjoint_paths)
 
     # Automated calculation of max edges in virtual topologies
     max_edges = 0
