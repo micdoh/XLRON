@@ -5,6 +5,7 @@ from gymnax.environments import environment
 from gymnax.wrappers.purerl import GymnaxWrapper
 import math
 import pathlib
+import itertools
 import networkx as nx
 import jax.numpy as jnp
 import chex
@@ -280,9 +281,19 @@ def init_link_length_array(graph: nx.Graph) -> chex.Array:
     return jnp.array(link_lengths)
 
 
-def init_path_link_array(graph: nx.Graph, k: int) -> chex.Array:
-    """Initialise path-link array
-    Each path is defined by a link utilisation array. 1 indicates link corresponding to index is used, 0 indicates not used."""
+def init_path_link_array(graph: nx.Graph, k: int, disjoint: bool = False) -> chex.Array:
+    """Initialise path-link array.
+    Each path is defined by a link utilisation array (one row in the path-link array).
+    1 indicates link corresponding to index is used, 0 indicates not used.
+
+    Args:
+        graph (nx.Graph): NetworkX graph
+        k (int): Number of paths
+        disjoint (bool, optional): Whether to use edge-disjoint paths. Defaults to False.
+
+    Returns:
+        chex.Array: Path-link array
+    """
     def get_k_shortest_paths(g, source, target, k, weight=None):
         return list(
             islice(nx.shortest_simple_paths(g, source, target, weight=weight), k)
@@ -290,10 +301,25 @@ def init_path_link_array(graph: nx.Graph, k: int) -> chex.Array:
 
     paths = []
     edges = sorted(graph.edges)
+    max_disjoint_paths = 0
     for node_pair in combinations(graph.nodes, 2):
-        k_paths = get_k_shortest_paths(
-            graph, node_pair[0], node_pair[1], k
-        )
+        if disjoint:
+            k_paths_disjoint = sorted(list(nx.edge_disjoint_paths(graph, node_pair[0], node_pair[1])), key=len)
+            if len(k_paths_disjoint) > max_disjoint_paths:
+                max_disjoint_paths = len(k_paths_disjoint)
+            k_paths_shortest = get_k_shortest_paths(graph, node_pair[0], node_pair[1], k)
+            disjoint_ids = [tuple(path) for path in k_paths_disjoint]
+            # Keep disjoint paths and add unique shortest paths until k paths reached
+            k_paths = k_paths_disjoint
+            for path in k_paths_shortest:
+                if tuple(path) not in disjoint_ids:
+                    k_paths.append(path)
+            k_paths = k_paths[:k]
+            print(f"Maximum number of disjoint paths for any node pair: {max_disjoint_paths}")
+        else:
+            k_paths = get_k_shortest_paths(
+                graph, node_pair[0], node_pair[1], k
+            )
         for k_path in k_paths:
             link_usage = [0]*len(graph.edges)  # Initialise empty path
             for i in range(len(k_path)-1):
@@ -302,6 +328,7 @@ def init_path_link_array(graph: nx.Graph, k: int) -> chex.Array:
                     if edge[0] == s and edge[1] == d or edge[0] == d and edge[1] == s:
                         link_usage[edge_index] = 1
             paths.append(link_usage)
+    # TODO - get paths sorted by path length (not number of links)
     return jnp.array(paths, dtype=jnp.float32)
 
 
@@ -435,7 +462,7 @@ def init_node_mask(params: EnvParams):
     return jnp.ones(params.num_nodes)
 
 
-@partial(jax.jit, static_argnums=(0,))
+@partial(jax.jit, static_argnums=(0, 1))
 def init_link_slot_mask(params: EnvParams, agg: int = 1):
     """Initialize link mask"""
     return jnp.ones(params.k_paths*math.ceil(params.link_resources / agg))
@@ -876,18 +903,18 @@ def implement_node_action(state: EnvState, s_node: chex.Array, d_node: chex.Arra
 
 
 @partial(jax.jit, static_argnums=(1,))
-def process_path_action(state: EnvState, params: EnvParams, path_action: chex.Array, nodes_sd: chex.Array) -> (chex.Array, chex.Array):
+def process_path_action(state: EnvState, params: EnvParams, path_action: chex.Array) -> (chex.Array, chex.Array):
     num_slot_actions = math.ceil(params.link_resources/params.aggregate_slots)
-    path_index = jnp.floor(path_action / num_slot_actions).astype(jnp.int32)
-    initial_aggregated_slot_index = jnp.mod(path_action, num_slot_actions)
+    path_index = jnp.floor(path_action / num_slot_actions).astype(jnp.int32).reshape(1)
+    initial_aggregated_slot_index = jnp.mod(path_action, num_slot_actions).reshape(1)
     initial_slot_index = initial_aggregated_slot_index*params.aggregate_slots
     if params.aggregate_slots > 1:
-        # Get the path then do a dynamic slice and get the index of first unoccupied slot in the slice
-        path_slots = jax.lax.dynamic_slice(state.full_link_slot_mask, path_index*params.link_resources, (params.link_resources,))
-        path_mask_slice = jax.lax.dynamic_slice(path_slots, initial_slot_index, (params.aggregate_slots,))
+        # Get the path mask do a dynamic slice and get the index of first unoccupied slot in the slice
+        path_mask = jax.lax.dynamic_slice(state.full_link_slot_mask, path_index*params.link_resources, (params.link_resources,))
+        path_mask_slice = jax.lax.dynamic_slice(path_mask, initial_slot_index, (params.aggregate_slots,))
         # Use argmax to get index of first 1 in slice of mask
         initial_slot_index = initial_slot_index + jnp.argmax(path_mask_slice)
-    return path_index, initial_slot_index
+    return path_index[0], initial_slot_index[0]
 
 
 def implement_path_action(state: EnvState, path: chex.Array, initial_slot_index: chex.Array, num_slots: chex.Array) -> EnvState:
@@ -945,7 +972,7 @@ def implement_vone_action(
     bw_request = jax.lax.dynamic_slice(request, (1,), (1,))
     node_request_d = jax.lax.dynamic_slice(request, (0, ), (1, ))
     nodes = action[::2]
-    path_index, initial_slot_index = process_path_action(state, params, action[1], nodes)
+    path_index, initial_slot_index = process_path_action(state, params, action[1])
     path = get_paths(params, nodes)[path_index]
     se = get_paths_se(params, nodes)[path_index] if params.consider_modulation_format else jnp.array([1])
     num_slots = required_slots(bw_request, se, params.slot_size)
@@ -994,7 +1021,7 @@ def implement_rsa_action(
         state: updated state
     """
     nodes_sd, bw_request = read_rsa_request(state.request_array)
-    path_index, initial_slot_index = process_path_action(state, params, action, nodes_sd)
+    path_index, initial_slot_index = process_path_action(state, params, action)
     path = get_paths(params, nodes_sd)[path_index]
     se = get_paths_se(params, nodes_sd)[path_index] if params.consider_modulation_format else 1
     num_slots = required_slots(bw_request, se, params.slot_size)
@@ -1085,6 +1112,16 @@ def convert_node_probs_to_traffic_matrix(node_probs: list):
     return matrix
 
 
+def get_edge_disjoint_paths(graph: nx.Graph) -> dict:
+    result = {n: {} for n in graph}
+    for n1, n2 in itertools.combinations(graph, 2):
+        # Sort by number of links in path
+        # TODO - sort by path length
+        result[n1][n2] = sorted(list(nx.edge_disjoint_paths(graph, n1, n2)), key=len)
+        result[n2][n1] = sorted(list(nx.edge_disjoint_paths(graph, n2, n1)), key=len)
+    return result
+
+
 def make_graph(topology_name: str = "conus"):
     """Create graph from topology"""
 
@@ -1168,7 +1205,8 @@ def mask_slots(state: EnvState, params: EnvParams, request: chex.Array) -> EnvSt
     if params.aggregate_slots > 1:
         # Full link slot mask is used in process_path_action to get the correct slot from the aggregated slot action
         state = state.replace(full_link_slot_mask=link_slot_mask)
-        link_slot_mask = aggregate_slots(link_slot_mask, params, request)
+        link_slot_mask, _ = aggregate_slots(link_slot_mask.reshape(params.k_paths, -1), params)
+        link_slot_mask = link_slot_mask.reshape(-1)
     state = state.replace(link_slot_mask=link_slot_mask)
     return state
 
@@ -1179,7 +1217,7 @@ def aggregate_slots(mask: chex.Array, params: EnvParams) -> chex.Array:
     Only valid if there is one valid slot action within the aggregated action window."""
 
     num_actions = math.ceil(params.link_resources/params.aggregate_slots)
-    agg_mask = jnp.zeros((params.k_paths, num_actions), dtype=jnp.int32)
+    agg_mask = jnp.zeros((params.k_paths, num_actions), dtype=jnp.float32)
 
     def get_max(i, mask_val):
         mask_slice = jax.lax.dynamic_slice(
@@ -1327,7 +1365,8 @@ def get_path_slots(link_slot_array: chex.Array, params: EnvParams, nodes_sd: che
     path = get_paths(params, nodes_sd)[i]
     path = path.reshape((params.num_links, 1))
     # Get links and collapse to single dimension
-    slots = jnp.where(path, link_slot_array, jnp.zeros(params.link_resources))
+    num_slots = params.link_resources if agg_func == "max" else math.ceil(params.link_resources/params.aggregate_slots)
+    slots = jnp.where(path, link_slot_array, jnp.zeros(num_slots))
     # Make any -1s positive then get max for each slot across links
     if agg_func == "max":
         # Use this for getting slots from link_slot_array

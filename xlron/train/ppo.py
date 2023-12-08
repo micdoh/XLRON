@@ -1,4 +1,5 @@
 import os
+import math
 import jax
 import jax.numpy as jnp
 import flax.linen as nn
@@ -104,7 +105,7 @@ def make_train(config):
                     output_nodes_size=config.output_nodes_size,
                     output_globals_size=config.output_globals_size,
                     gnn_mlp_layers=config.gnn_mlp_layers,
-                    normalise_by_link_length=config.normalise_by_link_length,
+                    normalise_by_link_length=config.normalize_by_link_length,
                 )
                 init_x = (env_state.env_state, env_params)
             else:
