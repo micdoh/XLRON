@@ -390,6 +390,7 @@ def make_rsa_env(config):
     continuous_operation = config.get("continuous_operation", False)
     custom_traffic_matrix_csv_filepath = config.get("custom_traffic_matrix_csv_filepath", None)
     aggregate_slots = config.get("aggregate_slots", 1)
+    disjoint_paths = config.get("disjoint_paths", False)
 
     rng = jax.random.PRNGKey(seed)
     rng, _, _, _, _ = jax.random.split(rng, 5)
@@ -401,7 +402,7 @@ def make_rsa_env(config):
     arrival_rate = load / mean_service_holding_time
     num_nodes = len(graph.nodes)
     num_links = len(graph.edges)
-    path_link_array = init_path_link_array(graph, k, disjoint=config.disjoint_paths)
+    path_link_array = init_path_link_array(graph, k, disjoint=disjoint_paths)
     if custom_traffic_matrix_csv_filepath:
         random_traffic = False  # Set this False so that traffic matrix isn't replaced on reset
         traffic_matrix = jnp.array(np.loadtxt(custom_traffic_matrix_csv_filepath, delimiter=","))
