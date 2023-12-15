@@ -1,5 +1,7 @@
 import os
 import math
+import absl
+import chex
 import jax
 import jax.numpy as jnp
 import flax.linen as nn
@@ -38,13 +40,7 @@ class RSATransition(NamedTuple):
     action_mask: jnp.ndarray
 
 
-def make_train(config):
-    NUM_UPDATES = (
-        config.TOTAL_TIMESTEPS // config.NUM_STEPS // config.NUM_ENVS
-    )
-    MINIBATCH_SIZE = (
-        config.NUM_ENVS * config.NUM_STEPS // config.NUM_MINIBATCHES
-    )
+def define_env(config: absl.flags.FlagValues):
     config_dict = {k: v.value for k, v in config.__flags.items()}
     if config.env_type.lower() == "vone":
         env, env_params = make_vone_env(config_dict)
@@ -53,6 +49,121 @@ def make_train(config):
     else:
         raise ValueError(f"Invalid environment type {config.env_type}")
     env = LogWrapper(env)
+    return env, env_params
+
+
+def init_network(rng, config, env, env_state, env_params):
+    rng, _rng = jax.random.split(rng)
+    if config.env_type.lower() == "vone":
+        network = ActorCriticMLP([space.n for space in env.action_space(env_params).spaces],
+                                 activation=config.ACTIVATION,
+                                 num_layers=config.NUM_LAYERS,
+                                 num_units=config.NUM_UNITS)
+        init_x = tuple([jnp.zeros(env.observation_space(env_params).n)])
+    elif config.env_type.lower() in ["rsa", "rmsa", "rwa", "deeprmsa"]:
+        if config.USE_GNN:
+            network = ActorCriticGNN(
+                activation=config.ACTIVATION,
+                num_layers=config.NUM_LAYERS,
+                num_units=config.NUM_UNITS,
+                gnn_latent=config.gnn_latent,
+                message_passing_steps=config.message_passing_steps,
+                # output_edges_size must equal number of slot actions
+                output_edges_size=math.ceil(env_params.link_resources / env_params.aggregate_slots),
+                output_nodes_size=config.output_nodes_size,
+                output_globals_size=config.output_globals_size,
+                gnn_mlp_layers=config.gnn_mlp_layers,
+                normalise_by_link_length=config.normalize_by_link_length,
+            )
+            init_x = (env_state.env_state, env_params)
+        else:
+            network = ActorCriticMLP([env.action_space(env_params).n],
+                                     activation=config.ACTIVATION,
+                                     num_layers=config.NUM_LAYERS,
+                                     num_units=config.NUM_UNITS)
+
+            init_x = tuple([jnp.zeros(env.observation_space(env_params).n)])
+    else:
+        raise ValueError(f"Invalid environment type {config.env_type}")
+    return network, init_x
+
+
+def select_action(rng, env, env_state, env_params, network, network_params, config, last_obs, deterministic=False):
+    """Select an action from the policy.
+    If using VONE, the action is a tuple of (source, path, destination).
+    Otherwise, the action is a single lightpath.
+    Args:
+        rng: jax.random.PRNGKey
+        env: Environment
+        env_state: Environment state
+        env_params: Environment parameters
+        network: Policy and value network
+        network_params: Policy and value network parameters
+        config: Config
+        last_obs: Last observation
+        deterministic: Whether to use the mode of the action distribution
+    Returns:
+        action: Action
+        log_prob: Log probability of action
+        value: Value of state
+    """
+    last_obs = (env_state.env_state, env_params) if config.USE_GNN else last_obs
+    pi, value = network.apply(network_params, *last_obs)
+    rng = jax.random.split(rng, 1 + len(pi))
+
+    # Always do action masking with VONE
+    if config.env_type.lower() == "vone":
+        vmap_mask_nodes = jax.vmap(env.action_mask_nodes, in_axes=(0, None))
+        vmap_mask_slots = jax.vmap(env.action_mask_slots, in_axes=(0, None, 0))
+        vmap_mask_dest_node = jax.vmap(env.action_mask_dest_node, in_axes=(0, None, 0))
+
+        env_state = env_state.replace(env_state=vmap_mask_nodes(env_state.env_state, env_params))
+        pi_source = distrax.Categorical(logits=jnp.where(env_state.env_state.node_mask_s, pi[0]._logits, -1e8))
+
+        action_s = pi_source.sample(seed=rng[1]) if not deterministic else pi_source.mode()
+
+        # Update destination mask now source has been selected
+        env_state = env_state.replace(env_state=vmap_mask_dest_node(env_state.env_state, env_params, action_s))
+        pi_dest = distrax.Categorical(
+            logits=jnp.where(env_state.env_state.node_mask_d, pi[2]._logits, -1e8))
+
+        action_p = jnp.full(action_s.shape, 0)
+        action_d = pi_dest.sample(seed=rng[3]) if not deterministic else pi_dest.mode()
+        action = jnp.stack((action_s, action_p, action_d), axis=1)
+
+        env_state = env_state.replace(env_state=vmap_mask_slots(env_state.env_state, env_params, action))
+        pi_path = distrax.Categorical(logits=jnp.where(env_state.env_state.link_slot_mask, pi[1]._logits, -1e8))
+        action_p = pi_path.sample(seed=rng[2]) if not deterministic else pi_path.mode()
+        action = jnp.stack((action_s, action_p, action_d), axis=1)
+
+        log_prob_source = pi_source.log_prob(action_s)
+        log_prob_path = pi_path.log_prob(action_p)
+        log_prob_dest = pi_dest.log_prob(action_d)
+        log_prob = log_prob_dest + log_prob_path + log_prob_source
+
+    elif config.ACTION_MASKING:
+        vmap_mask_slots = jax.vmap(env.action_mask, in_axes=(0, None))
+        env_state = env_state.replace(env_state=vmap_mask_slots(env_state.env_state, env_params))
+        pi_masked = distrax.Categorical(logits=jnp.where(env_state.env_state.link_slot_mask, pi[0]._logits, -1e8))
+        action = pi_masked.sample(seed=rng[1]) if not deterministic else pi_masked.mode()
+        log_prob = pi_masked.log_prob(action)
+
+    else:
+        action = pi[0].sample(seed=rng[1]) if not deterministic else pi[0].mode()
+        log_prob = pi[0].log_prob(action)
+
+    return action, log_prob, value, rng
+
+
+
+def make_train(config):
+    NUM_UPDATES = (
+        config.TOTAL_TIMESTEPS // config.NUM_STEPS // config.NUM_ENVS
+    )
+    MINIBATCH_SIZE = (
+        config.NUM_ENVS * config.NUM_STEPS // config.NUM_MINIBATCHES
+    )
+    env, env_params = define_env(config)
 
     # TODO - Does it matter if lr changes slightly between each minibatch? Linear handles this but optax built-ins don't
     def linear_schedule(count):
@@ -85,38 +196,7 @@ def make_train(config):
         obsv = (env_state.env_state, env_params) if config.USE_GNN else tuple([obsv])
 
         # INIT NETWORK
-        rng, _rng = jax.random.split(rng)
-        if config.env_type.lower() == "vone":
-            network = ActorCriticMLP([space.n for space in env.action_space(env_params).spaces],
-                                  activation=config.ACTIVATION,
-                                  num_layers=config.NUM_LAYERS,
-                                  num_units=config.NUM_UNITS)
-            init_x = tuple([jnp.zeros(env.observation_space(env_params).n)])
-        elif config.env_type.lower() in ["rsa", "rmsa", "rwa", "deeprmsa"]:
-            if config.USE_GNN:
-                network = ActorCriticGNN(
-                    activation=config.ACTIVATION,
-                    num_layers=config.NUM_LAYERS,
-                    num_units=config.NUM_UNITS,
-                    gnn_latent=config.gnn_latent,
-                    message_passing_steps=config.message_passing_steps,
-                    # output_edges_size must equal number of slot actions
-                    output_edges_size=math.ceil(env_params.link_resources/env_params.aggregate_slots),
-                    output_nodes_size=config.output_nodes_size,
-                    output_globals_size=config.output_globals_size,
-                    gnn_mlp_layers=config.gnn_mlp_layers,
-                    normalise_by_link_length=config.normalize_by_link_length,
-                )
-                init_x = (env_state.env_state, env_params)
-            else:
-                network = ActorCriticMLP([env.action_space(env_params).n],
-                                      activation=config.ACTIVATION,
-                                      num_layers=config.NUM_LAYERS,
-                                      num_units=config.NUM_UNITS)
-
-                init_x = tuple([jnp.zeros(env.observation_space(env_params).n)])
-        else:
-            raise ValueError(f"Invalid environment type {config.env_type}")
+        network, init_x = init_network(rng, config, env, env_state, env_params)
         network_params = network.init(_rng, *init_x)
         tx = optax.chain(
             optax.clip_by_global_norm(config.MAX_GRAD_NORM),
@@ -135,51 +215,9 @@ def make_train(config):
                 train_state, env_state, last_obs, rng = runner_state
 
                 # SELECT ACTION
-                last_obs = (env_state.env_state, env_params) if config.USE_GNN else last_obs
-                pi, value = network.apply(train_state.params, *last_obs)
-                rng = jax.random.split(rng, 1 + len(pi))
-
-                # Always do action masking with VONE
-                if config.env_type.lower() == "vone":
-                    vmap_mask_nodes = jax.vmap(env.action_mask_nodes, in_axes=(0, None))
-                    vmap_mask_slots = jax.vmap(env.action_mask_slots, in_axes=(0, None, 0))
-                    vmap_mask_dest_node = jax.vmap(env.action_mask_dest_node, in_axes=(0, None, 0))
-
-                    env_state = env_state.replace(env_state=vmap_mask_nodes(env_state.env_state, env_params))
-                    pi_source = distrax.Categorical(logits=jnp.where(env_state.env_state.node_mask_s, pi[0]._logits, -1e8))
-
-                    action_s = pi_source.sample(seed=rng[1])
-
-                    # Update destination mask now source has been selected
-                    env_state = env_state.replace(env_state=vmap_mask_dest_node(env_state.env_state, env_params, action_s))
-                    pi_dest = distrax.Categorical(
-                        logits=jnp.where(env_state.env_state.node_mask_d, pi[2]._logits, -1e8))
-
-                    action_p = jnp.full(action_s.shape, 0)
-                    action_d = pi_dest.sample(seed=rng[3])
-                    action = jnp.stack((action_s, action_p, action_d), axis=1)
-
-                    env_state = env_state.replace(env_state=vmap_mask_slots(env_state.env_state, env_params, action))
-                    pi_path = distrax.Categorical(logits=jnp.where(env_state.env_state.link_slot_mask, pi[1]._logits, -1e8))
-                    action_p = pi_path.sample(seed=rng[2])
-                    action = jnp.stack((action_s, action_p, action_d), axis=1)
-
-                    log_prob_source = pi_source.log_prob(action_s)
-                    log_prob_path = pi_path.log_prob(action_p)
-                    log_prob_dest = pi_dest.log_prob(action_d)
-
-                    log_prob = log_prob_dest + log_prob_path + log_prob_source
-
-                elif config.ACTION_MASKING:
-                    vmap_mask_slots = jax.vmap(env.action_mask, in_axes=(0, None))
-                    env_state = env_state.replace(env_state=vmap_mask_slots(env_state.env_state, env_params))
-                    pi_masked = distrax.Categorical(logits=jnp.where(env_state.env_state.link_slot_mask, pi[0]._logits, -1e8))
-                    action = pi_masked.sample(seed=rng[1])
-                    log_prob = pi_masked.log_prob(action)
-
-                else:
-                    action = pi[0].sample(seed=rng[1])
-                    log_prob = pi[0].log_prob(action)
+                action, log_prob, value, rng = select_action(
+                    rng, env, env_state, env_params, network, train_state.params, config, last_obs
+                )
 
                 # STEP ENV
                 rng, _rng = jax.random.split(rng[0])

@@ -86,4 +86,9 @@ flags.DEFINE_integer("output_nodes_size", 64, "Output nodes size")
 flags.DEFINE_integer("output_globals_size", 64, "Output globals size")
 flags.DEFINE_integer("gnn_mlp_layers", 2, "Number of MLP layers")
 flags.DEFINE_boolean("normalize_by_link_length", False, "Normalize by link length")
-
+# Model evaluation parameters
+flags.DEFINE_boolean("EVAL_MODEL", False, "Evaluate model")
+flags.DEFINE_string("min_traffic", "0.0", "Minimum traffic")
+flags.DEFINE_string("max_traffic", "1.0", "Maximum traffic")
+flags.DEFINE_string("step_traffic", "0.1", "Step size for traffic values between min and max")
+flags.DEFINE_string("deterministic", "False", "Deterministic evaluation (use mode of action distribution)")

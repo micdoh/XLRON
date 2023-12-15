@@ -3,6 +3,7 @@ from functools import partial
 from typing import Sequence, Union, Optional, Tuple
 from gymnax.environments import environment
 from gymnax.wrappers.purerl import GymnaxWrapper
+from absl import flags
 import math
 import pathlib
 import itertools
@@ -1472,3 +1473,30 @@ def calculate_path_stats(state: EnvState, params: EnvParams, request: chex.Array
         )
 
     return stats
+
+def create_run_name(config: flags.FlagValues):
+    """Create name for run based on config flags"""
+    config = {k: v.value for k, v in config.__flags.items()}
+    env_type = config["env_type"]
+    topology = config["topology_name"]
+    slots = config["link_resources"]
+    gnn = "_GNN" if config["USE_GNN"] else ""
+    incremental = "_INC" if config["incremental_loading"] else ""
+    run_name = f"{env_type}_{topology}_{slots}{gnn}{incremental}".upper()
+    if config["EVAL_HEURISTIC"]:
+        run_name += f"_{config['path_heuristic']}"
+        if env_type.lower() == "vone":
+            run_name += f"_{config['node_heuristic']}"
+    elif config["EVAL_MODEL"]:
+        run_name += f"_EVAL"
+    return run_name
+
+
+@partial(jax.jit, static_argnums=(0, 1))
+def init_link_capacity_array(link_length_array: chex.Array, symbol_rate: int=100) -> chex.Array:
+    """Calculated from Nevin paper:
+    https://api.repository.cam.ac.uk/server/api/core/bitstreams/b80e7a9c-a86b-4b30-a6d6-05017c60b0c8/content"""
+    N_i = jnp.round(link_length_array / 100, 0)
+    NSR_i = jnp.where(N_i < 1, 1, N_i) / 405
+    link_capacity_array = 2 * symbol_rate * jnp.log2(1 + 1/NSR_i)
+    return link_capacity_array

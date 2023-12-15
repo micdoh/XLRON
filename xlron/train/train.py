@@ -32,9 +32,9 @@ def main(argv):
     import jax.numpy as jnp
     import orbax.checkpoint
     from flax.training import orbax_utils
-    from xlron.environments.env_funcs import TimeIt
+    from xlron.environments.env_funcs import TimeIt, create_run_name
     from xlron.train.ppo import make_train
-    from xlron.heuristics.eval_heuristic import make_eval_heuristic
+    from xlron.heuristics.eval_heuristic import make_eval
     # The following flags can improve GPU performance for jaxlib>=0.4.18
     os.environ['XLA_FLAGS'] = (
         '--xla_gpu_enable_triton_softmax_fusion=true '
@@ -59,13 +59,14 @@ def main(argv):
     print(f"XLA_PYTHON_CLIENT_PREALLOCATE={os.environ['XLA_PYTHON_CLIENT_PREALLOCATE']}")
 
     if FLAGS.WANDB:
+        run_name = create_run_name(FLAGS)
         wandb.setup(wandb.Settings(program="train.py", program_relpath="train.py"))
         run = wandb.init(
-            project=FLAGS.PROJECT,
+            project=FLAGS.PROJECT if FLAGS.PROJECT else run_name,
             save_code=True,  # optional
         )
         wandb.config.update(FLAGS)
-        run.name = FLAGS.EXPERIMENT_NAME if FLAGS.EXPERIMENT_NAME else run.id
+        run.name = FLAGS.EXPERIMENT_NAME if FLAGS.EXPERIMENT_NAME else run_name
         wandb.define_metric("update_step")
         wandb.define_metric("lengths", step_metric="update_step")
         wandb.define_metric("returns", step_metric="update_step")
@@ -82,7 +83,7 @@ def main(argv):
 
     rng = jax.random.PRNGKey(FLAGS.SEED)
 
-    make_func = make_train if not FLAGS.EVAL_HEURISTIC else make_eval_heuristic
+    make_func = make_train if not (FLAGS.EVAL_HEURISTIC or FLAGS.EVAL_MODEL) else make_eval
 
     with TimeIt(tag='COMPILATION'):
         if FLAGS.USE_PMAP:
