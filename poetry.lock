@@ -3230,6 +3230,24 @@ url = "https://pypi.org/simple"
 reference = "pypi-public"
 
 [[package]]
+name = "orbax"
+version = "0.1.9"
+description = "Orbax"
+optional = false
+python-versions = "*"
+files = [
+    {file = "orbax-0.1.9.tar.gz", hash = "sha256:42dd487ceef9fbf027f4720f3d041686af75120466a528a8a8141226bc197218"},
+]
+
+[package.dependencies]
+orbax-checkpoint = ">=0.1.8"
+
+[package.source]
+type = "legacy"
+url = "https://pypi.org/simple"
+reference = "pypi-public"
+
+[[package]]
 name = "orbax-checkpoint"
 version = "0.4.3"
 description = "Orbax Checkpoint"
@@ -5656,4 +5674,4 @@ cuda = []
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.9,<3.12"
-content-hash = "e6c3b0c735d068cfda3f355f74ec3df3377d96051bc821782d802b74fbf1ad55"
+content-hash = "e435c5406f9bca53ab3805505066c4d27d3b293eb5c354223e732c5495f67d7f"
