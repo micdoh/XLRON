@@ -130,6 +130,10 @@ def main(argv):
         returns_std = out["metrics"]["returns"].mean(-1).std(0).reshape(-1)
         lengths_mean = out["metrics"]["lengths"].mean(-1).mean(0).reshape(-1)
         lengths_std = out["metrics"]["lengths"].mean(-1).std(0).reshape(-1)
+        accepted_services_mean = out["metrics"]["accepted_services"].mean(-1).mean(0).reshape(-1)
+        accepted_services_std = out["metrics"]["accepted_services"].mean(-1).std(0).reshape(-1)
+        accepted_bitrate_mean = out["metrics"]["accepted_bitrate"].mean(-1).mean(0).reshape(-1)
+        accepted_bitrate_std = out["metrics"]["accepted_bitrate"].mean(-1).std(0).reshape(-1)
     else:
         # N.B. This is the same as the above code, but without the mean on the seed dimension
         # This means the results are still per update step
@@ -143,6 +147,10 @@ def main(argv):
         returns_std = out["metrics"]["returns"].std(-1).reshape(-1)
         lengths_mean = out["metrics"]["lengths"].mean(-1).reshape(-1)
         lengths_std = out["metrics"]["lengths"].std(-1).reshape(-1)
+        accepted_services_mean = out["metrics"]["accepted_services"].mean(-1).reshape(-1)
+        accepted_services_std = out["metrics"]["accepted_services"].std(-1).reshape(-1)
+        accepted_bitrate_mean = out["metrics"]["accepted_bitrate"].mean(-1).reshape(-1)
+        accepted_bitrate_std = out["metrics"]["accepted_bitrate"].std(-1).reshape(-1)
 
     # This is valid for the case of +1 success -1 fail per request
     service_blocking_probability = 1 - ((episode_returns_mean + FLAGS.max_requests) / (2*FLAGS.max_requests))
@@ -151,8 +159,22 @@ def main(argv):
     service_blocking_probability = 1 - ((cum_returns_mean + lengths_mean) / (2*lengths_mean))
     service_blocking_probability_std = returns_std / (2*lengths_mean)
 
-    plot_metric = episode_lengths_mean if FLAGS.incremental_loading else service_blocking_probability
-    plot_metric_std = episode_lengths_std if FLAGS.incremental_loading else service_blocking_probability_std
+    # TODO - Define blocking probability metric
+    # TODO - Get bit rate blocking and service blocking
+
+    if FLAGS.incremental_loading:
+        plot_metric = accepted_services_mean
+        plot_metric_std = accepted_services_std
+        plot_metric_name = "Accepted Services"
+    elif FLAGS.end_first_blocking:
+        plot_metric = episode_lengths_mean
+        plot_metric_std = episode_lengths_std
+        plot_metric_name = "Episode Length"
+    else:
+        plot_metric = service_blocking_probability
+        plot_metric_std = service_blocking_probability_std
+        plot_metric_name = "Service Blocking Probability"
+
 
     def moving_average(x, w):
         return np.convolve(x, np.ones(w), 'valid') / w
@@ -167,12 +189,9 @@ def main(argv):
         alpha=0.2
     )
     plt.xlabel("Update Step")
-    plt.ylabel(f"{'Episode Length' if FLAGS.incremental_loading else 'Service Blocking Probability'}")
+    plt.ylabel(plot_metric_name)
     plt.savefig(f"{FLAGS.EXPERIMENT_NAME}.png")
     plt.show()
-
-    # TODO - Define blocking probability metric
-    # TODO - Get bit rate blocking and service blocking
 
     if FLAGS.WANDB:
         # Log the data to wandb
@@ -207,7 +226,11 @@ def main(argv):
                 "lengths_mean": lengths_mean[i],
                 "lengths_std": lengths_std[i],
                 "service_blocking_probability": service_blocking_probability[i],
-                "service_blocking_probability_std": service_blocking_probability_std[i]
+                "service_blocking_probability_std": service_blocking_probability_std[i],
+                "accepted_services_mean": accepted_services_mean[i],
+                "accepted_services_std": accepted_services_std[i],
+                "accepted_bitrate_mean": accepted_bitrate_mean[i],
+                "accepted_bitrate_std": accepted_bitrate_std[i]
             }
             wandb.log(log_dict)
 
