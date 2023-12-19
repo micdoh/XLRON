@@ -80,6 +80,8 @@ class VONEEnv(environment.Environment):
             values_bw=values_bw,
             graph=None,
             full_link_slot_mask=init_link_slot_mask(params),
+            accepted_services=0,
+            accepted_bitrate=0.,
         )
         self.initial_state = state.replace(graph=init_graph_tuple(state, params))
 
@@ -311,6 +313,7 @@ def make_vone_env(config):
     mean_service_holding_time = config.get("mean_service_holding_time", 10.0)
     arrival_rate = load / mean_service_holding_time
     incremental_loading = config.get("incremental_loading", False)
+    end_first_blocking = config.get("end_first_blocking", False)
     max_requests = config.get("max_requests", 1e4)
     max_timesteps = config.get("max_timesteps", 1e4)
     link_resources = config.get("link_resources", 100)
@@ -328,6 +331,7 @@ def make_vone_env(config):
     continuous_operation = config.get("continuous_operation", False)
     aggregate_slots = config.get("aggregate_slots", 1)
     disjoint_paths = config.get("disjoint_paths", False)
+    guardband = config.get("guardband", 1)
 
     if values_bw:
         values_bw = [int(val) for val in values_bw]
@@ -351,11 +355,11 @@ def make_vone_env(config):
         modulations_array = init_modulations_array(config.get("modulations_file", "modulations.csv"))
         path_se_array = init_path_se_array(path_length_array, modulations_array)
         min_se = min(path_se_array)  # if consider_modulation_format
-        max_slots = required_slots(max_bw, min_se, slot_size)
+        max_slots = required_slots(max_bw, min_se, slot_size, guardband=guardband)
     else:
         link_length_array = jnp.ones((1, num_links))
         path_se_array = jnp.array([1])
-        max_slots = required_slots(max_bw, 1, slot_size)
+        max_slots = required_slots(max_bw, 1, slot_size,  guardband=guardband)
 
     if incremental_loading:
         mean_service_holding_time = load = 1e6
@@ -379,6 +383,7 @@ def make_vone_env(config):
         max_node_resources=max_node_resources,
         path_link_array=HashableArrayWrapper(path_link_array),
         incremental_loading=incremental_loading,
+        end_first_blocking=end_first_blocking,
         edges=HashableArrayWrapper(edges),
         path_se_array=HashableArrayWrapper(path_se_array),
         max_slots=int(max_slots),
@@ -387,6 +392,7 @@ def make_vone_env(config):
         continuous_operation=continuous_operation,
         link_length_array=HashableArrayWrapper(link_length_array),
         aggregate_slots=aggregate_slots,
+        guardband=guardband,
     )
 
     env = VONEEnv(params, virtual_topologies=virtual_topologies, values_bw=values_bw)

@@ -44,7 +44,7 @@ def define_env(config: absl.flags.FlagValues):
     config_dict = {k: v.value for k, v in config.__flags.items()}
     if config.env_type.lower() == "vone":
         env, env_params = make_vone_env(config_dict)
-    elif config.env_type.lower() in ["rsa", "rmsa", "rwa", "deeprmsa"]:
+    elif config.env_type.lower() in ["rsa", "rmsa", "rwa", "deeprmsa", "rwa_lightpath_reuse"]:
         env, env_params = make_rsa_env(config_dict)
     else:
         raise ValueError(f"Invalid environment type {config.env_type}")
@@ -60,7 +60,7 @@ def init_network(rng, config, env, env_state, env_params):
                                  num_layers=config.NUM_LAYERS,
                                  num_units=config.NUM_UNITS)
         init_x = tuple([jnp.zeros(env.observation_space(env_params).n)])
-    elif config.env_type.lower() in ["rsa", "rmsa", "rwa", "deeprmsa"]:
+    elif config.env_type.lower() in ["rsa", "rmsa", "rwa", "deeprmsa", "rwa_lightpath_reuse"]:
         if config.USE_GNN:
             network = ActorCriticGNN(
                 activation=config.ACTIVATION,
@@ -147,6 +147,8 @@ def select_action(rng, env, env_state, env_params, network, network_params, conf
         pi_masked = distrax.Categorical(logits=jnp.where(env_state.env_state.link_slot_mask, pi[0]._logits, -1e8))
         action = pi_masked.sample(seed=rng[1]) if not deterministic else pi_masked.mode()
         log_prob = pi_masked.log_prob(action)
+        jax.debug.print("action {}", action, ordered=True)
+        jax.debug.print("action_mask {}", env_state.env_state.link_slot_mask, ordered=True)
 
     else:
         action = pi[0].sample(seed=rng[1]) if not deterministic else pi[0].mode()

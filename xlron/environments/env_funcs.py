@@ -61,6 +61,8 @@ class EnvState:
     total_requests: chex.Scalar
     graph: jraph.GraphsTuple
     full_link_slot_mask: chex.Array
+    accepted_services: chex.Array
+    accepted_bitrate: chex.Array
 
 
 @struct.dataclass
@@ -68,12 +70,14 @@ class EnvParams:
     max_requests: chex.Scalar = struct.field(pytree_node=False)
     max_timesteps: chex.Scalar = struct.field(pytree_node=False)
     incremental_loading: chex.Scalar = struct.field(pytree_node=False)
+    end_first_blocking: chex.Scalar = struct.field(pytree_node=False)
     continuous_operation: chex.Scalar = struct.field(pytree_node=False)
     edges: chex.Array = struct.field(pytree_node=False)
     slot_size: chex.Scalar = struct.field(pytree_node=False)
     consider_modulation_format: chex.Scalar = struct.field(pytree_node=False)
     link_length_array: chex.Array = struct.field(pytree_node=False)
     aggregate_slots: chex.Scalar = struct.field(pytree_node=False)
+    guardband: chex.Scalar = struct.field(pytree_node=False)
 
 
 @struct.dataclass
@@ -84,6 +88,8 @@ class LogEnvState:
     cum_returns: float
     episode_lengths: int
     episode_returns: float
+    accepted_services: int
+    accepted_bitrate: float
 
 
 class LogWrapper(GymnaxWrapper):
@@ -97,7 +103,7 @@ class LogWrapper(GymnaxWrapper):
         self, key: chex.PRNGKey, params: Optional[environment.EnvParams] = None
     ) -> Tuple[chex.Array, environment.EnvState]:
         obs, env_state = self._env.reset(key, params)
-        state = LogEnvState(env_state, 0, 0, 0, 0, 0)
+        state = LogEnvState(env_state, 0, 0, 0, 0, 0, 0, 0)
         return obs, state
 
     @partial(jax.jit, static_argnums=(0,))
@@ -122,12 +128,16 @@ class LogWrapper(GymnaxWrapper):
             + new_episode_length * done,
             episode_returns=state.episode_returns * (1 - done)
             + new_episode_return * done,
+            accepted_services=env_state.accepted_services,
+            accepted_bitrate=env_state.accepted_bitrate,
         )
         info["lengths"] = state.lengths
         info["returns"] = state.returns
         info["cum_returns"] = state.cum_returns
         info["episode_returns"] = state.episode_returns
         info["episode_lengths"] = state.episode_lengths
+        info["accepted_services"] = state.accepted_services
+        info["accepted_bitrate"] = state.accepted_bitrate
         return obs, state, reward, done, info
 
 
@@ -795,6 +805,26 @@ def undo_link_slot_action(state):
     return state
 
 
+def undo_rwa_lightpath_reuse_action(state):
+    # If departure array is negative, then undo the action
+    mask = jnp.where(state.link_slot_departure_array < 0, 1, 0)
+    # If link slot array is negative, then undo the action
+    # (departure might be positive because existing service had holding time after current)
+    # e.g. (time_in_array = t1 - t2) where t2 < t1 and t2 = current_time + holding_time
+    mask = jnp.where(state.link_slot_array < -1, 1, mask)
+    # Get bw_request to add back to capacity
+    _, bw_request = read_rsa_request(state.request_array)
+    state = state.replace(
+        link_slot_array=jnp.where(mask == 1, state.link_slot_array+1, state.link_slot_array),
+        link_slot_departure_array=jnp.where(
+            mask == 1,
+            state.link_slot_departure_array + state.current_time + state.holding_time,
+            state.link_slot_departure_array),
+        link_capacity_array=jnp.where(mask == 1, state.link_capacity_array+bw_request, state.link_capacity_array),
+    )
+    return state
+
+
 @jax.jit
 def check_unique_nodes(node_departure_array):
     """Count negative values on each node (row) in node departure array, must not exceed 1
@@ -976,7 +1006,7 @@ def implement_vone_action(
     path_index, initial_slot_index = process_path_action(state, params, action[1])
     path = get_paths(params, nodes)[path_index]
     se = get_paths_se(params, nodes)[path_index] if params.consider_modulation_format else jnp.array([1])
-    num_slots = required_slots(bw_request, se, params.slot_size)
+    num_slots = required_slots(bw_request, se, params.slot_size, guardband=params.guardband)
 
     # jax.debug.print("state.request_array {}", state.request_array, ordered=True)
     # jax.debug.print("path {}", path, ordered=True)
@@ -1024,9 +1054,34 @@ def implement_rsa_action(
     nodes_sd, bw_request = read_rsa_request(state.request_array)
     path_index, initial_slot_index = process_path_action(state, params, action)
     path = get_paths(params, nodes_sd)[path_index]
-    se = get_paths_se(params, nodes_sd)[path_index] if params.consider_modulation_format else 1
-    num_slots = required_slots(bw_request, se, params.slot_size)
-    state = implement_path_action(state, path, initial_slot_index, num_slots)
+    if params.__class__.__name__ == "RWALightpathReuseEnvParams":
+        #jax.debug.print("link_capacity_array before {}", state.link_capacity_array, ordered=True)
+        state = state.replace(
+            link_capacity_array=vmap_update_path_links(
+                state.link_capacity_array, path, initial_slot_index, 1, bw_request
+            )
+        )
+        #jax.debug.print("link_capacity_array after {}", state.link_capacity_array, ordered=True)
+        #jax.debug.print("link_slot_array before {}", state.link_slot_array, ordered=True)
+        # TODO - to support diverse bw_requests, need to update masking
+        # TODO - need to keep track of active requests to enable
+        #  dynamic RWA with lightpath reuse (as opposed to just incremental loading) OR just randomly remove connections
+        #  (could do this by using the link_slot_departure array in a novel way... i.e. don't fill it with departure time but current bw)
+        capacity_mask = jnp.where(state.link_capacity_array <= 0., -1., 0.)
+        over_capacity_mask = jnp.where(state.link_capacity_array < 0., -1., 0.)
+        total_mask = capacity_mask + over_capacity_mask
+        #jax.debug.print("total_mask {}", total_mask, ordered=True)
+        state = state.replace(
+            link_slot_array=total_mask,
+            link_slot_departure_array=vmap_update_path_links_departure(state.link_slot_departure_array, path,
+                                                                       initial_slot_index, 1,
+                                                                       state.current_time + state.holding_time)
+        )
+        #jax.debug.print("link_slot_array after {}", state.link_slot_array, ordered=True)
+    else:
+        se = get_paths_se(params, nodes_sd)[path_index] if params.consider_modulation_format else 1
+        num_slots = required_slots(bw_request, se, params.slot_size, guardband=params.guardband)
+        state = implement_path_action(state, path, initial_slot_index, num_slots)
     return state
 
 
@@ -1058,14 +1113,19 @@ def finalise_vone_action(state):
     state = state.replace(
         node_departure_array=make_positive(state.node_departure_array),
         link_slot_departure_array=make_positive(state.link_slot_departure_array),
+        accepted_services=state.accepted_services + 1,
+        accepted_bitrate=state.accepted_bitrate  # TODO - get sum of bitrates for requested links
     )
     return state
 
 
 def finalise_rsa_action(state):
     """Turn departure times positive"""
+    _, bw_request = read_rsa_request(state.request_array)
     state = state.replace(
-        link_slot_departure_array=make_positive(state.link_slot_departure_array)
+        link_slot_departure_array=make_positive(state.link_slot_departure_array),
+        accepted_services=state.accepted_services + 1,
+        accepted_bitrate=state.accepted_bitrate + bw_request[0],
     )
     return state
 
@@ -1174,7 +1234,7 @@ def mask_slots(state: EnvState, params: EnvParams, request: chex.Array) -> EnvSt
         slots = jnp.concatenate((slots, jnp.ones(params.max_slots)))
         # Convert bandwidth to slots for each path
         spectral_efficiency = get_paths_se(params, nodes_sd)[i] if params.consider_modulation_format else 1
-        requested_slots = required_slots(requested_bw, spectral_efficiency, params.slot_size)
+        requested_slots = required_slots(requested_bw, spectral_efficiency, params.slot_size, guardband=params.guardband)
         # Get mask used to check if request will fit slots
         request_mask = jax.lax.dynamic_update_slice(
             jnp.zeros(params.max_slots * 2), jnp.ones(params.max_slots), params.max_slots - requested_slots
@@ -1448,7 +1508,7 @@ def calculate_path_stats(state: EnvState, params: EnvParams, request: chex.Array
     def body_fun(i, val):
         slots = get_path_slots(state.link_slot_array, params, nodes_sd, i)
         se = get_paths_se(params, nodes_sd)[i] if params.consider_modulation_format else jnp.array([1])
-        req_slots = jnp.squeeze(required_slots(requested_bw, se, params.slot_size))
+        req_slots = jnp.squeeze(required_slots(requested_bw, se, params.slot_size, guardband=params.guardband))
         req_slots_norm = req_slots*params.slot_size / jnp.max(state.values_bw)
         free_slots = jnp.sum(jnp.where(slots == 0, 1, 0)) / params.link_resources
         block_sizes = find_block_sizes(slots)
@@ -1474,6 +1534,7 @@ def calculate_path_stats(state: EnvState, params: EnvParams, request: chex.Array
 
     return stats
 
+
 def create_run_name(config: flags.FlagValues):
     """Create name for run based on config flags"""
     config = {k: v.value for k, v in config.__flags.items()}
@@ -1492,11 +1553,86 @@ def create_run_name(config: flags.FlagValues):
     return run_name
 
 
-@partial(jax.jit, static_argnums=(0, 1))
-def init_link_capacity_array(link_length_array: chex.Array, symbol_rate: int=100) -> chex.Array:
+def init_link_capacity_array(link_length_array: chex.Array, link_slot_array: chex.Array, symbol_rate: int = 100, min_request: int = 100) -> chex.Array:
     """Calculated from Nevin paper:
-    https://api.repository.cam.ac.uk/server/api/core/bitstreams/b80e7a9c-a86b-4b30-a6d6-05017c60b0c8/content"""
-    N_i = jnp.round(link_length_array / 100, 0)
+    https://api.repository.cam.ac.uk/server/api/core/bitstreams/b80e7a9c-a86b-4b30-a6d6-05017c60b0c8/content
+
+    Args:
+        link_length_array (chex.Array): Array of link lengths
+        path_link_array (chex.Array): Array of links on paths
+        symbol_rate (int, optional): Symbol rate in Gbaud. Defaults to 100.
+        min_request (int, optional): Minimum data rate request size. Defaults to 100.
+
+    Returns:
+        chex.Array: Array of link capacities in Gbps
+        """
+    N_i = jnp.floor(link_length_array / 100)
     NSR_i = jnp.where(N_i < 1, 1, N_i) / 405
     link_capacity_array = 2 * symbol_rate * jnp.log2(1 + 1/NSR_i)
-    return link_capacity_array
+    # Round link capacity down to nearest increment of minimum request size
+    link_capacity_array = jnp.floor(link_capacity_array/min_request) * min_request
+    return link_capacity_array * link_slot_array
+
+
+def init_path_capacity_array(link_length_array: chex.Array, path_link_array: chex.Array, symbol_rate: int = 100, min_request: int = 100) -> chex.Array:
+    """Calculated from Nevin paper:
+    https://api.repository.cam.ac.uk/server/api/core/bitstreams/b80e7a9c-a86b-4b30-a6d6-05017c60b0c8/content
+
+    Args:
+        link_length_array (chex.Array): Array of link lengths
+        path_link_array (chex.Array): Array of links on paths
+        symbol_rate (int, optional): Symbol rate in Gbaud. Defaults to 100.
+        min_request (int, optional): Minimum data rate request size. Defaults to 100.
+
+    Returns:
+        chex.Array: Array of link capacities in Gbps
+        """
+    N_i = jnp.floor(link_length_array / 100)
+    NSR_i = jnp.where(N_i < 1, 1, N_i) / 405
+    path_NSR_i = jnp.dot(path_link_array, NSR_i)
+    path_capacity_array = 2 * symbol_rate * jnp.log2(1 + 1/(path_NSR_i))
+    # Round link capacity down to nearest increment of minimum request size
+    path_capacity_array = jnp.floor(path_capacity_array/min_request) * min_request
+    return path_capacity_array
+
+
+@partial(jax.jit, static_argnums=(1,))
+def update_path_capacity(state, params, nodes, action):
+    source, dest = jnp.sort(nodes)
+    i = get_path_indices(source, dest, params.k_paths, params.num_nodes).astype(jnp.int32)
+
+
+def implement_rwa_lightpath_reuse_action(state: EnvState, action: chex.Array, params: EnvParams) -> EnvState:
+    nodes_sd, bw_request = read_rsa_request(state.request_array)
+    path_index, initial_slot_index = process_path_action(state, params, action)
+    path = get_paths(params, nodes_sd)[path_index]
+    state = state.replace(
+        link_capacity_array=vmap_update_path_links(
+            state.link_capacity_array, path, initial_slot_index, 1, bw_request
+        )
+    )
+    # TODO - need to keep track of active requests to enable
+    #  dynamic RWA with lightpath reuse (as opposed to just incremental loading) OR just randomly remove connections
+    #  (could do this by using the link_slot_departure array in a novel way... i.e. don't fill it with departure time but current bw)
+    capacity_mask = jnp.where(state.link_capacity_array <= 0., -1., 0.)
+    over_capacity_mask = jnp.where(state.link_capacity_array < 0., -1., 0.)
+    total_mask = capacity_mask + over_capacity_mask
+    state = state.replace(
+        link_slot_array=total_mask,
+        link_slot_departure_array = vmap_update_path_links_departure(state.link_slot_departure_array, path,
+                                                                 initial_slot_index, 1,
+                                                                 state.current_time + state.holding_time)
+    )
+    return state
+
+
+@partial(jax.jit, static_argnums=(1,))
+def mask_slots_rwa_lightpath_reuse(state: EnvState, params: EnvParams, request: chex.Array) -> EnvState:
+    """For use in RWALightpathReuseEnv.
+    Each lightpath has a maximum capacity defined in path_capacity_array. This is updated when a lightpath is assigned.
+    If remaining path capacity is zero, corresponding link-slots are masked out.
+    If link-slot is in use by another lightpath for a different source and destination node (even if not full) it is masked out.
+    Step 1:
+    - Mask out
+    """
+

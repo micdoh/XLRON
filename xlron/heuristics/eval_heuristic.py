@@ -33,6 +33,7 @@ def make_eval(config):
         rng, _rng = jax.random.split(rng)
         reset_rng = jax.random.split(_rng, config.NUM_ENVS)
         obsv, env_state = jax.vmap(env.reset, in_axes=(0, None))(reset_rng, env_params)
+        obsv = (env_state.env_state, env_params) if config.USE_GNN else tuple([obsv])
 
         # COLLECT TRAJECTORIES
         def _env_episode(runner_state, unused):
@@ -46,7 +47,7 @@ def make_eval(config):
                     if config.env_type.lower() == "vone":
                         raise NotImplementedError(f"VONE heuristics not yet implemented")
 
-                    elif config.env_type.lower() in ["rsa", "rwa", "rmsa", "deeprmsa"]:
+                    elif config.env_type.lower() in ["rsa", "rwa", "rmsa", "deeprmsa", "rwa_lightpath_reuse"]:
                         if config.path_heuristic.lower() == "ksp_ff":
                             action = jax.vmap(ksp_ff, in_axes=(0, None))(env_state.env_state, env_params)
                         elif config.path_heuristic.lower() == "ff_ksp":
