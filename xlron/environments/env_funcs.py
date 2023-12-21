@@ -697,23 +697,23 @@ def update_path(link, link_in_path, initial_slot, num_slots, value):
 
 @jax.jit
 def vmap_update_path_links(link_array, path, initial_slot, num_slots, value):
-    """Set relevant slots along links in path to current_val - val"""
+    """Update relevant slots along links in path to current_val - val"""
     return jax.vmap(update_path, in_axes=(0, 0, None, None, None))(link_array, path, initial_slot, num_slots, value)
 
 
-def update_link_departure(link, initial_slot, num_slots, value):
+def set_link(link, initial_slot, num_slots, value):
     slot_indices = jnp.arange(link.shape[0])
-    return jnp.where((initial_slot <= slot_indices) & (slot_indices < initial_slot+num_slots), link-value, link)
+    return jnp.where((initial_slot <= slot_indices) & (slot_indices < initial_slot+num_slots), value, link)
 
 
-def update_path_departure(link, link_in_path, initial_slot, num_slots, value):
-    return jax.lax.cond(link_in_path == 1, lambda x: update_link_departure(*x), lambda x: x[0], (link, initial_slot, num_slots, value))
+def set_path(link, link_in_path, initial_slot, num_slots, value):
+    return jax.lax.cond(link_in_path == 1, lambda x: set_link(*x), lambda x: x[0], (link, initial_slot, num_slots, value))
 
 
 @jax.jit
-def vmap_update_path_links_departure(link_array, path, initial_slot, num_slots, value):
-    """Set relevant slots along links in path to current_val - val"""
-    return jax.vmap(update_path_departure, in_axes=(0, 0, None, None, None))(link_array, path, initial_slot, num_slots, value)
+def vmap_set_path_links(link_array, path, initial_slot, num_slots, value):
+    """Set relevant slots along links in path to val"""
+    return jax.vmap(set_path, in_axes=(0, 0, None, None, None))(link_array, path, initial_slot, num_slots, value)
 
 
 def update_node_departure(node_row, inf_index, value):
@@ -801,26 +801,6 @@ def undo_link_slot_action(state):
             mask == 1,
             state.link_slot_departure_array + state.current_time + state.holding_time,
             state.link_slot_departure_array)
-    )
-    return state
-
-
-def undo_rwa_lightpath_reuse_action(state):
-    # If departure array is negative, then undo the action
-    mask = jnp.where(state.link_slot_departure_array < 0, 1, 0)
-    # If link slot array is negative, then undo the action
-    # (departure might be positive because existing service had holding time after current)
-    # e.g. (time_in_array = t1 - t2) where t2 < t1 and t2 = current_time + holding_time
-    mask = jnp.where(state.link_slot_array < -1, 1, mask)
-    # Get bw_request to add back to capacity
-    _, bw_request = read_rsa_request(state.request_array)
-    state = state.replace(
-        link_slot_array=jnp.where(mask == 1, state.link_slot_array+1, state.link_slot_array),
-        link_slot_departure_array=jnp.where(
-            mask == 1,
-            state.link_slot_departure_array + state.current_time + state.holding_time,
-            state.link_slot_departure_array),
-        link_capacity_array=jnp.where(mask == 1, state.link_capacity_array+bw_request, state.link_capacity_array),
     )
     return state
 
@@ -960,7 +940,7 @@ def implement_path_action(state: EnvState, path: chex.Array, initial_slot_index:
     """
     state = state.replace(
         link_slot_array=vmap_update_path_links(state.link_slot_array, path, initial_slot_index, num_slots, 1),
-        link_slot_departure_array=vmap_update_path_links_departure(state.link_slot_departure_array, path, initial_slot_index, num_slots, state.current_time+state.holding_time)
+        link_slot_departure_array=vmap_update_path_links(state.link_slot_departure_array, path, initial_slot_index, num_slots, state.current_time+state.holding_time)
     )
     return state
 
@@ -1073,7 +1053,7 @@ def implement_rsa_action(
         #jax.debug.print("total_mask {}", total_mask, ordered=True)
         state = state.replace(
             link_slot_array=total_mask,
-            link_slot_departure_array=vmap_update_path_links_departure(state.link_slot_departure_array, path,
+            link_slot_departure_array=vmap_update_path_links(state.link_slot_departure_array, path,
                                                                        initial_slot_index, 1,
                                                                        state.current_time + state.holding_time)
         )
@@ -1553,25 +1533,12 @@ def create_run_name(config: flags.FlagValues):
     return run_name
 
 
-def init_link_capacity_array(link_length_array: chex.Array, link_slot_array: chex.Array, symbol_rate: int = 100, min_request: int = 100) -> chex.Array:
-    """Calculated from Nevin paper:
-    https://api.repository.cam.ac.uk/server/api/core/bitstreams/b80e7a9c-a86b-4b30-a6d6-05017c60b0c8/content
+def init_link_capacity_array(params):
+    return jnp.full((params.num_links, params.link_resources), 1e6)
 
-    Args:
-        link_length_array (chex.Array): Array of link lengths
-        path_link_array (chex.Array): Array of links on paths
-        symbol_rate (int, optional): Symbol rate in Gbaud. Defaults to 100.
-        min_request (int, optional): Minimum data rate request size. Defaults to 100.
 
-    Returns:
-        chex.Array: Array of link capacities in Gbps
-        """
-    N_i = jnp.floor(link_length_array / 100)
-    NSR_i = jnp.where(N_i < 1, 1, N_i) / 405
-    link_capacity_array = 2 * symbol_rate * jnp.log2(1 + 1/NSR_i)
-    # Round link capacity down to nearest increment of minimum request size
-    link_capacity_array = jnp.floor(link_capacity_array/min_request) * min_request
-    return link_capacity_array * link_slot_array
+def init_path_index_array(params):
+    return jnp.full((params.num_links, params.link_resources), -1)
 
 
 def init_path_capacity_array(link_length_array: chex.Array, path_link_array: chex.Array, symbol_rate: int = 100, min_request: int = 100) -> chex.Array:
@@ -1596,30 +1563,123 @@ def init_path_capacity_array(link_length_array: chex.Array, path_link_array: che
     return path_capacity_array
 
 
-@partial(jax.jit, static_argnums=(1,))
-def update_path_capacity(state, params, nodes, action):
+@partial(jax.jit, static_argnums=(0,))
+def get_lightpath_index(params, nodes, path_index):
     source, dest = jnp.sort(nodes)
-    i = get_path_indices(source, dest, params.k_paths, params.num_nodes).astype(jnp.int32)
+    path_start_index = get_path_indices(source, dest, params.k_paths, params.num_nodes).astype(jnp.int32)
+    lightpath_index = path_index + path_start_index
+    return lightpath_index
+
+
+@partial(jax.jit, static_argnums=(1,))
+def check_lightpath_available_and_existing(state, params, action):
+    nodes_sd, bw_request = read_rsa_request(state.request_array)
+    path_index, initial_slot_index = process_path_action(state, params, action)
+    path = get_paths(params, nodes_sd)[path_index]
+    # Get unique lightpath index
+    lightpath_index = get_lightpath_index(params, nodes_sd, path_index)
+    # Get mask for slots that lightpath will occupy
+    new_lightpath_mask = vmap_update_path_links(
+        jnp.zeros((params.num_links, 1)), path, 0, 1, 1
+    )
+    masked_path_index_array = jnp.where(
+        state.path_index_array[:, initial_slot_index].reshape(-1, 1) == new_lightpath_mask, -1, 0
+    )
+    lightpath_mask = jnp.where(
+        state.path_index_array[:, initial_slot_index].reshape(-1, 1) == lightpath_index, -1, 0
+    )  # Allow current lightpath
+    lightpath_existing_check = jnp.array_equal(lightpath_mask, new_lightpath_mask)  # True if all slots are same
+    lightpath_mask = jnp.where(masked_path_index_array == -1, -1, lightpath_mask)  # Allow empty slots
+    lightpath_available_check = jnp.logical_or(
+        jnp.array_equal(lightpath_mask, new_lightpath_mask), lightpath_existing_check
+    )  # True if all slots are same or empty
+    curr_lightpath_capacity = jnp.max(
+        jnp.where(new_lightpath_mask == -1, state.link_capacity_array[:, initial_slot_index].reshape(-1, 1), 0)
+    )
+
+
+    # # Get mask for slots that lightpath will occupy
+    # lightpath_mask = vmap_update_path_links(
+    #     jnp.zeros((params.num_links, params.link_resources)), path, initial_slot_index, 1, -1
+    # )
+    # # Current max capacity of slots for lightpath (1e6 if unoccupied)
+    # curr_lightpath_capacity = jnp.max(jnp.where(lightpath_mask == 1, state.link_capacity_array, 0))
+    # # Get current lightpath indices in each slot (-1e6 elsewhere)
+    # curr_lightpath_indices = jnp.where(lightpath_mask == 1, state.path_index_array, -1e6)
+    # # Get maximum index in each row (link)
+    # curr_lightpath_indices = jnp.max(curr_lightpath_indices, axis=1)
+    # # Get max value of current lightpath indices
+    # curr_lightpath_index_max = jnp.max(curr_lightpath_indices)  # -1 (from path_index_array) if free
+    # curr_lightpath_indices = jnp.where(curr_lightpath_indices == -1e6, curr_lightpath_index_max, curr_lightpath_indices)
+    # jax.debug.print("curr_lightpath_indices {}", curr_lightpath_indices, ordered=True)
+    # lightpath_available_check = jnp.all(curr_lightpath_indices == curr_lightpath_index_max)  # True if all slots are available
+    # # Need to check if slots are already in use and, if so, whether they are used by requested lightpath
+    # lightpath_existing_check = (curr_lightpath_index_max == lightpath_index)
+    return lightpath_available_check, lightpath_existing_check, curr_lightpath_capacity, lightpath_index
+
+
+def check_rwa_lightpath_reuse_action(state, params, action):
+    return jnp.any(jnp.stack((
+        check_no_spectrum_reuse(state.link_slot_array),
+        jnp.logical_not(check_lightpath_available_and_existing(state, params, action)[0]),
+    )))
 
 
 def implement_rwa_lightpath_reuse_action(state: EnvState, action: chex.Array, params: EnvParams) -> EnvState:
     nodes_sd, bw_request = read_rsa_request(state.request_array)
     path_index, initial_slot_index = process_path_action(state, params, action)
     path = get_paths(params, nodes_sd)[path_index]
-    state = state.replace(
-        link_capacity_array=vmap_update_path_links(
-            state.link_capacity_array, path, initial_slot_index, 1, bw_request
-        )
+    lightpath_available_check, lightpath_existing_check, curr_lightpath_capacity, lightpath_index = (
+        check_lightpath_available_and_existing(state, params, action)
     )
-    # TODO - need to keep track of active requests to enable
-    #  dynamic RWA with lightpath reuse (as opposed to just incremental loading) OR just randomly remove connections
-    #  (could do this by using the link_slot_departure array in a novel way... i.e. don't fill it with departure time but current bw)
+    # Get path capacity - request
+    lightpath_capacity = jax.lax.cond(
+        lightpath_existing_check,
+        lambda x: curr_lightpath_capacity - bw_request,  # Subtract bw_request from current lightpath
+        lambda x: jnp.squeeze(jax.lax.dynamic_slice_in_dim(state.path_capacity_array, x, 1)) - bw_request,  # Get initial capacity of lightpath - request
+        lightpath_index
+    )
+    # Update link_capacity_array with new capacity if lightpath is available
+    state = jax.lax.cond(
+        lightpath_available_check,
+        lambda x: x.replace(
+            link_capacity_array=vmap_set_path_links(
+                state.link_capacity_array, path, initial_slot_index, 1, lightpath_capacity
+            ),
+            path_index_array=vmap_set_path_links(
+                state.path_index_array, path, initial_slot_index, 1, lightpath_index
+            ),
+        ),
+        lambda x: x,
+        state
+    )
+    jax.debug.print("lightpath_index {}", lightpath_index, ordered=True)
+    jax.debug.print("lightpath_available_check {}", lightpath_available_check, ordered=True)
+    jax.debug.print("lightpath_existing_check {}", lightpath_existing_check, ordered=True)
+    jax.debug.print("curr_lightpath_capacity {}", curr_lightpath_capacity, ordered=True)
+    jax.debug.print("lightpath_capacity {}", lightpath_capacity, ordered=True)
+    jax.debug.print("path_index_array {}", state.path_index_array, ordered=True)
+    jax.debug.print("link_capacity_array {}", state.link_capacity_array, ordered=True)
     capacity_mask = jnp.where(state.link_capacity_array <= 0., -1., 0.)
     over_capacity_mask = jnp.where(state.link_capacity_array < 0., -1., 0.)
+    # Undo link_capacity_update if over capacity
+    # N.B. this will fail if requested capacity is greater than total original capacity of lightpath
+    lightpath_capacity_before_action = jax.lax.cond(
+        lightpath_existing_check,
+        lambda x: curr_lightpath_capacity,  # Subtract bw_request from current lightpath
+        lambda x: 1e6,
+        # Get initial capacity of lightpath - request
+        None,
+    )
+    state = state.replace(
+        link_capacity_array=jnp.where(over_capacity_mask == -1, lightpath_capacity_before_action, state.link_capacity_array)
+    )
+    # Total mask will be 0 if space still available, -1 if capacity is zero or -2 if over capacity
     total_mask = capacity_mask + over_capacity_mask
+    # Update link_slot_array and link_slot_departure_array
     state = state.replace(
         link_slot_array=total_mask,
-        link_slot_departure_array = vmap_update_path_links_departure(state.link_slot_departure_array, path,
+        link_slot_departure_array=vmap_update_path_links(state.link_slot_departure_array, path,
                                                                  initial_slot_index, 1,
                                                                  state.current_time + state.holding_time)
     )
@@ -1630,9 +1690,35 @@ def implement_rwa_lightpath_reuse_action(state: EnvState, action: chex.Array, pa
 def mask_slots_rwa_lightpath_reuse(state: EnvState, params: EnvParams, request: chex.Array) -> EnvState:
     """For use in RWALightpathReuseEnv.
     Each lightpath has a maximum capacity defined in path_capacity_array. This is updated when a lightpath is assigned.
-    If remaining path capacity is zero, corresponding link-slots are masked out.
+    If remaining path capacity is less than current request, corresponding link-slots are masked out.
     If link-slot is in use by another lightpath for a different source and destination node (even if not full) it is masked out.
     Step 1:
-    - Mask out
+    - Mask out slots that are not valid based on path capacity (check link_capacity_array)
+    Step 2:
+    - Mask out slots that are not valid based on lightpath reuse (check path_index_array)
     """
+    nodes_sd, requested_bw = read_rsa_request(request)
+    init_mask = jnp.zeros((params.link_resources * params.k_paths))
+    source, dest = nodes_sd
+    path_start_index = get_path_indices(source, dest, params.k_paths, params.num_nodes).astype(jnp.int32)
 
+    def mask_path(i, mask):
+        # Step 1 - mask capacity
+        capacity_mask = jnp.where(state.link_capacity_array <= requested_bw, 1., 0.)
+        capacity_slots = get_path_slots(capacity_mask, params, nodes_sd, i)
+        # Step 2 - mask lightpath reuse
+        lightpath_index = path_start_index + i
+        lightpath_mask = jnp.where(state.path_index_array == lightpath_index, 0., 1.)  # Allow current lightpath
+        lightpath_mask = jnp.where(state.path_index_array == -1, 0., lightpath_mask)  # Allow empty slots
+        lightpath_slots = get_path_slots(lightpath_mask, params, nodes_sd, i)
+        # Step 3 combine masks
+        path_mask = jnp.max(jnp.stack((capacity_slots, lightpath_slots)), axis=0)
+        # Swap zeros for ones
+        path_mask = jnp.where(path_mask == 0, 1., 0.)
+        mask = jax.lax.dynamic_update_slice(mask, path_mask, (i * params.link_resources,))
+        return mask
+
+    # Loop over each path
+    link_slot_mask = jax.lax.fori_loop(0, params.k_paths, mask_path, init_mask)
+    state = state.replace(link_slot_mask=link_slot_mask)
+    return state

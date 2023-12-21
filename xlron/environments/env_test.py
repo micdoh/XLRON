@@ -139,11 +139,20 @@ def rsa_nsfnet_4_test_setup():
     return key, env, obs, state, params
 
 
-def rwa_lightpath_reuse_4_test_setup():
+def rwa_lightpath_reuse_4_nsfnet_test_setup():
     key = jax.random.PRNGKey(0)
-    settings_rwa_lr_nsfnet_4 = dict( k=5, topology_name="nsfnet", link_resources=4, max_requests=10,
+    settings_rwa_lr_nsfnet_4 = dict(k=5, topology_name="nsfnet", link_resources=4, max_requests=1000,
                                  values_bw=[100], incremental_loading=True, env_type="rwa_lightpath_reuse",)
     env, params = make_rsa_env(settings_rwa_lr_nsfnet_4)
+    obs, state = env.reset(key, params)
+    return key, env, obs, state, params
+
+
+def rwa_lightpath_reuse_4node_test_setup():
+    key = jax.random.PRNGKey(0)
+    settings_rwa_lr_4 = dict(k=2, topology_name="4node", link_resources=4, max_requests=1000,
+                                 values_bw=[100], incremental_loading=True, env_type="rwa_lightpath_reuse",)
+    env, params = make_rsa_env(settings_rwa_lr_4)
     obs, state = env.reset(key, params)
     return key, env, obs, state, params
 
@@ -524,7 +533,7 @@ class RemoveExpiredSlotRequestsTest(parameterized.TestCase):
         num_slots = 2
         self.state = self.state.replace(
             link_slot_array=vmap_update_path_links(self.state.link_slot_array, path, initial_slot_index, num_slots, 1),
-            link_slot_departure_array=vmap_update_path_links_departure(self.state.link_slot_departure_array, path, initial_slot_index,
+            link_slot_departure_array=vmap_update_path_links(self.state.link_slot_departure_array, path, initial_slot_index,
                                                              num_slots, -self.state.current_time - self.state.holding_time)
         )
 
@@ -638,7 +647,7 @@ class UndoLinkSlotActionTest(parameterized.TestCase):
         num_slots = 2
         self.state = self.state.replace(
             link_slot_array=vmap_update_path_links(self.state.link_slot_array, path, initial_slot_index, num_slots, 1),
-            link_slot_departure_array=vmap_update_path_links_departure(self.state.link_slot_departure_array, path, initial_slot_index,
+            link_slot_departure_array=vmap_update_path_links(self.state.link_slot_departure_array, path, initial_slot_index,
                                                              num_slots, self.state.current_time+self.state.holding_time)
         )
 
@@ -1868,13 +1877,16 @@ class RWALightpathReuseTest(parameterized.TestCase):
         rng, reset_rng = jax.random.split(self.key)
         obsv, env_state = self.env.reset(reset_rng, self.params)
         reward = jnp.array([1.])
+        i = 0
         while reward > 0:
+            i += 1
             rng, rng_sample, rng_step = jax.random.split(rng, 3)
             # get mask
             env_state = self.env.action_mask(env_state, self.params)
             mask = env_state.link_slot_mask
             # make distribution
             action_dist = distrax.Categorical(logits=jnp.where(mask, mask, -1e8))
+            jax.debug.print("action dist {}", action_dist.logits, ordered=True)
             # sample distribution
             action = action_dist.sample(seed=rng_sample)
             # step env
@@ -1882,6 +1894,12 @@ class RWALightpathReuseTest(parameterized.TestCase):
             obsv, env_state, reward, done, info = self.variant(self.env.step, static_argnums=(3))(
                 rng_step, env_state, action, self.params
             )
+            jax.debug.print("action mask {}", env_state.link_slot_mask, ordered=True)
+            jax.debug.print("action {}", action, ordered=True)
+            jax.debug.print("reward {}", reward, ordered=True)
+            jax.debug.print("-----END-----")
+            if i == 1000:
+                break
         chex.assert_trees_all_close(remaining_capacity, expected)
 
 

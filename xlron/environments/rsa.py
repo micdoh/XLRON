@@ -15,7 +15,8 @@ from xlron.environments.env_funcs import (
     implement_rsa_action, check_rsa_action, undo_link_slot_action, finalise_rsa_action, generate_rsa_request,
     mask_slots, make_graph, init_path_length_array, init_modulations_array, init_path_se_array, required_slots,
     init_values_bandwidth, calculate_path_stats, normalise_traffic_matrix, init_graph_tuple, init_link_length_array,
-    init_link_capacity_array, init_path_capacity_array, undo_rwa_lightpath_reuse_action
+    init_link_capacity_array, init_path_capacity_array, init_path_index_array, mask_slots_rwa_lightpath_reuse,
+    implement_rwa_lightpath_reuse_action, check_rwa_lightpath_reuse_action
 )
 
 
@@ -56,8 +57,8 @@ class DeepRMSAEnvParams(RSAEnvParams):
 
 @struct.dataclass
 class RWALightpathReuseEnvState(RSAEnvState):
-    #path_index_array: chex.Array  # Contains indices of lightpaths in use on slots
-    #path_capacity_array: chex.Array  # Contains remaining capacity of each lightpath
+    path_index_array: chex.Array  # Contains indices of lightpaths in use on slots
+    path_capacity_array: chex.Array  # Contains remaining capacity of each lightpath
     link_capacity_array: chex.Array  # Contains remaining capacity of lightpath on each link-slot
 
 
@@ -148,14 +149,15 @@ class RSAEnv(environment.Environment):
     ) -> Tuple[chex.Array, RSAEnvState, chex.Array, chex.Array, chex.Array]:
         """Environment-specific step transition."""
         # Do action
-        state = implement_rsa_action(state, action, params)
+        implement_action = implement_rwa_lightpath_reuse_action \
+            if params.__class__.__name__ == "RWALightpathReuseEnvParams" else implement_rsa_action
+        state = implement_action(state, action, params)
         # Check if action was valid, calculate reward
-        check = check_rsa_action(state)
-        undo_func = undo_rwa_lightpath_reuse_action if params.__class__.__name__ == "RWALightpathReuseEnvParams" \
-            else undo_link_slot_action
+        check = check_rwa_lightpath_reuse_action(state, params, action) \
+            if params.__class__.__name__ == "RWALightpathReuseEnvParams" else check_rsa_action(state)
         state, reward = jax.lax.cond(
             check,  # Fail if true
-            lambda x: (undo_func(x), self.get_reward_failure(x)),
+            lambda x: (undo_link_slot_action(x), self.get_reward_failure(x)),
             lambda x: (finalise_rsa_action(x), self.get_reward_success(x)),  # Finalise actions if complete
             state
         )
@@ -333,6 +335,7 @@ class DeepRMSAEnv(RSAEnv):
         action = action * params.link_resources + slot_index * params.link_resources  # Undo normalisation
         return super().step_env(key, state, action, params)
 
+    @partial(jax.jit, static_argnums=(0, 2,))
     def action_mask(self, state: RSAEnvState, params: RSAEnvParams) -> RSAEnvState:
         mask = jnp.where(state.path_stats[:, 3] >= 1, 1., 0.)
         # If mask is all zeros, make all ones
@@ -380,6 +383,8 @@ class DeepRMSAEnv(RSAEnv):
 
 
 class RWALightpathReuseEnv(RSAEnv):
+    # TODO - need to keep track of active requests to enable
+    #  dynamic RWA with lightpath reuse (as opposed to just incremental loading) OR just randomly remove connections
 
     def __init__(
             self,
@@ -387,7 +392,7 @@ class RWALightpathReuseEnv(RSAEnv):
             params: RSAEnvParams,
             values_bw: chex.Array = jnp.array([0]),
             traffic_matrix: chex.Array = None,
-            link_capacity_array: chex.Array = None,
+            path_capacity_array: chex.Array = None,
     ):
         super().__init__(key, params, values_bw=values_bw, traffic_matrix=traffic_matrix)
         state = RWALightpathReuseEnvState(
@@ -403,11 +408,19 @@ class RWALightpathReuseEnv(RSAEnv):
             values_bw=values_bw,
             graph=None,
             full_link_slot_mask=init_link_slot_mask(params),
-            link_capacity_array=link_capacity_array,
+            path_index_array=init_path_index_array(params),
+            path_capacity_array=path_capacity_array,
+            link_capacity_array=init_link_capacity_array(params),
             accepted_services=0,
             accepted_bitrate=0.,
         )
         self.initial_state = state.replace(graph=init_graph_tuple(state, params))
+
+    @partial(jax.jit, static_argnums=(0, 2,))
+    def action_mask(self, state: RSAEnvState, params: RSAEnvParams) -> RSAEnvState:
+        """Returns mask of valid actions."""
+        state = mask_slots_rwa_lightpath_reuse(state, params, state.request_array)
+        return state
 
 
 def make_rsa_env(config):
@@ -497,9 +510,7 @@ def make_rsa_env(config):
         link_length_array = jnp.ones((num_links, 1))
         path_se_array = jnp.array([1])
         if env_type == "rwa_lightpath_reuse":
-            link_slot_array = jnp.ones((num_links, link_resources))
             link_length_array = init_link_length_array(graph).reshape((num_links, 1))
-            link_capacity_array = init_link_capacity_array(link_length_array, link_slot_array, symbol_rate=symbol_rate)
             path_capacity_array = init_path_capacity_array(link_length_array, path_link_array, symbol_rate=symbol_rate)
         max_slots = required_slots(max_bw, 1, slot_size, guardband=guardband)
 
@@ -545,7 +556,7 @@ def make_rsa_env(config):
         env = DeepRMSAEnv(rng, params, values_bw=values_bw, traffic_matrix=traffic_matrix)
     elif env_type == "rwa_lightpath_reuse":
         env = RWALightpathReuseEnv(
-            rng, params, values_bw=values_bw, traffic_matrix=traffic_matrix, link_capacity_array=link_capacity_array)
+            rng, params, values_bw=values_bw, traffic_matrix=traffic_matrix, path_capacity_array=path_capacity_array)
     else:
         env = RSAEnv(rng, params, values_bw=values_bw, traffic_matrix=traffic_matrix)
 
