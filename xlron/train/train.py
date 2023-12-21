@@ -58,15 +58,18 @@ def main(argv):
         os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
     print(f"XLA_PYTHON_CLIENT_PREALLOCATE={os.environ['XLA_PYTHON_CLIENT_PREALLOCATE']}")
 
+    run_name = create_run_name(FLAGS)
+    project_name = FLAGS.PROJECT if FLAGS.PROJECT else run_name
+    experiment_name = FLAGS.EXPERIMENT_NAME if FLAGS.EXPERIMENT_NAME else run_name
+
     if FLAGS.WANDB:
-        run_name = create_run_name(FLAGS)
         wandb.setup(wandb.Settings(program="train.py", program_relpath="train.py"))
         run = wandb.init(
-            project=FLAGS.PROJECT if FLAGS.PROJECT else run_name,
+            project=project_name,
             save_code=True,  # optional
         )
         wandb.config.update(FLAGS)
-        run.name = FLAGS.EXPERIMENT_NAME if FLAGS.EXPERIMENT_NAME else run_name
+        run.name = experiment_name
         wandb.define_metric("update_step")
         wandb.define_metric("lengths", step_metric="update_step")
         wandb.define_metric("returns", step_metric="update_step")
@@ -190,7 +193,8 @@ def main(argv):
     )
     plt.xlabel("Update Step")
     plt.ylabel(plot_metric_name)
-    plt.savefig(f"{FLAGS.EXPERIMENT_NAME}.png")
+    plt.title(experiment_name)
+    plt.savefig(f"{experiment_name}.png")
     plt.show()
 
     if FLAGS.WANDB:

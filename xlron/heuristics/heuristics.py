@@ -15,7 +15,8 @@ def ksp_ff(state: EnvState, params: EnvParams) -> chex.Array:
     Returns:
         chex.Array: Action
     """
-    state = mask_slots(state, params, state.request_array)
+    state = mask_slots_rwa_lightpath_reuse(state, params,state.request_array) \
+        if params.__class__.__name__ == "RWALightpathReuseEnvParams" else mask_slots(state, params, state.request_array)
     mask = jnp.reshape(state.link_slot_mask, (params.k_paths, -1))
     # Add a column of ones to the mask to make sure that occupied paths have non-zero index in "first_slots"
     mask = jnp.concatenate((mask, jnp.full((mask.shape[0], 1), 1)), axis=1)
@@ -41,7 +42,8 @@ def ff_ksp(state: EnvState, params: EnvParams) -> chex.Array:
     Returns:
         chex.Array: Action
     """
-    state = mask_slots(state, params, state.request_array)
+    state = mask_slots_rwa_lightpath_reuse(state, params, state.request_array) \
+        if params.__class__.__name__ == "RWALightpathReuseEnvParams" else mask_slots(state, params, state.request_array)
     mask = jnp.reshape(state.link_slot_mask, (params.k_paths, -1))
     # Add a column of ones to the mask to make sure that occupied paths have non-zero index in "first_slots"
     mask = jnp.concatenate((mask, jnp.full((mask.shape[0], 1), 1)), axis=1)
@@ -52,6 +54,8 @@ def ff_ksp(state: EnvState, params: EnvParams) -> chex.Array:
     slot_index = first_slots[path_index] % params.link_resources
     # Convert indices to action
     action = path_index * params.link_resources + slot_index
+    jax.debug.print("link_slot_mask {}", state.link_slot_mask, ordered=True)
+    jax.debug.print("action {}", action, ordered=True)
     return action
 
 
