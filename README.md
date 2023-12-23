@@ -10,6 +10,8 @@
 ### _Accelerated Learning and Resource Allocation for Optical Networks_
 
 See the documentation at https://micdoh.github.io/XLRON/
+
+See the paper [here](ofc_paper.pdf)
 ___
 
 ### *_Accepted to [Optical Fibre Communication Conference (OFC)](https://www.ofcconference.org/en-us/home/about/) - San Diego, CA, 24-28 March 2024_*
@@ -37,11 +39,13 @@ XLRON is a product of my PhD research, which is focused on the application of Re
 
 #### tldr: Expect approximately 500x speed-up! 🚀
 
+![xlron_diagram.png](docs%2Fimages%2Fxlron_diagram.png)
+
 XLRON is faster than CPU-based training because of the following factors:
 
 - End-to-end JAX implementation (both environment and RL algorithm) allows entire training loop to be compiled and optimised as a single program
 - GPU-compatiblity allows parallelisation to make maximum use of accelerator hardware (GPU or TPU)
-- Running entirely on GPU avoids CPU-GPU data transfer bottleneck and eliminates any overhead from Python interpreter
+- Running entirely on GPU avoids CPU-GPU data transfer bottleneck and eliminates any overhead from Python interprete
 
 For the comparisons shown, the CPU is 10-core Apple M1 Pro and the GPU is Nvidia A100.
 
