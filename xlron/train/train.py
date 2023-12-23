@@ -137,6 +137,11 @@ def main(argv):
         accepted_services_std = out["metrics"]["accepted_services"].mean(-1).std(0).reshape(-1)
         accepted_bitrate_mean = out["metrics"]["accepted_bitrate"].mean(-1).mean(0).reshape(-1)
         accepted_bitrate_std = out["metrics"]["accepted_bitrate"].mean(-1).std(0).reshape(-1)
+        done = out["metrics"]["done"].mean(-1).mean(0).reshape(-1)
+        # episode_accepted_services_mean = out["metrics"]["episode_accepted_services"].mean(-1).mean(0).reshape(-1)
+        # episode_accepted_services_std = out["metrics"]["episode_accepted_services"].mean(-1).std(0).reshape(-1)
+        # episode_accepted_bitrate_mean = out["metrics"]["episode_accepted_bitrate"].mean(-1).mean(0).reshape(-1)
+        # episode_accepted_bitrate_std = out["metrics"]["episode_accepted_bitrate"].mean(-1).std(0).reshape(-1)
     else:
         # N.B. This is the same as the above code, but without the mean on the seed dimension
         # This means the results are still per update step
@@ -154,6 +159,16 @@ def main(argv):
         accepted_services_std = out["metrics"]["accepted_services"].std(-1).reshape(-1)
         accepted_bitrate_mean = out["metrics"]["accepted_bitrate"].mean(-1).reshape(-1)
         accepted_bitrate_std = out["metrics"]["accepted_bitrate"].std(-1).reshape(-1)
+        done = out["metrics"]["done"].mean(-1).reshape(-1)
+        # episode_accepted_services_mean = out["metrics"]["episode_accepted_services"].mean(-1).reshape(-1)
+        # episode_accepted_services_std = out["metrics"]["episode_accepted_services"].std(-1).reshape(-1)
+        # episode_accepted_bitrate_mean = out["metrics"]["episode_accepted_bitrate"].mean(-1).reshape(-1)
+        # episode_accepted_bitrate_std = out["metrics"]["episode_accepted_bitrate"].std(-1).reshape(-1)
+
+    episode_ends = np.where(done == 1)[0]
+    # shift end indices by -1
+    episode_ends = np.roll(episode_ends, -1)
+    # get values of
 
     # This is valid for the case of +1 success -1 fail per request
     service_blocking_probability = 1 - ((episode_returns_mean + FLAGS.max_requests) / (2*FLAGS.max_requests))
@@ -178,12 +193,11 @@ def main(argv):
         plot_metric_std = service_blocking_probability_std
         plot_metric_name = "Service Blocking Probability"
 
-
     def moving_average(x, w):
         return np.convolve(x, np.ones(w), 'valid') / w
 
-    plot_metric = moving_average(plot_metric, 100)
-    plot_metric_std = moving_average(plot_metric_std, 100)
+    plot_metric = moving_average(plot_metric, min(100, int(len(plot_metric)/2)))
+    plot_metric_std = moving_average(plot_metric_std, min(100, int(len(plot_metric_std)/2)))
     plt.plot(plot_metric)
     plt.fill_between(
         range(len(plot_metric)),
@@ -214,6 +228,15 @@ def main(argv):
         lengths_std = lengths_std[chop:].reshape(-1, FLAGS.DOWNSAMPLE_FACTOR).mean(axis=1)
         service_blocking_probability = service_blocking_probability[chop:].reshape(-1, FLAGS.DOWNSAMPLE_FACTOR).mean(axis=1)
         service_blocking_probability_std = service_blocking_probability_std[chop:].reshape(-1, FLAGS.DOWNSAMPLE_FACTOR).mean(axis=1)
+        accepted_services_mean = accepted_services_mean[chop:].reshape(-1, FLAGS.DOWNSAMPLE_FACTOR).mean(axis=1)
+        accepted_services_std = accepted_services_std[chop:].reshape(-1, FLAGS.DOWNSAMPLE_FACTOR).mean(axis=1)
+        accepted_bitrate_mean = accepted_bitrate_mean[chop:].reshape(-1, FLAGS.DOWNSAMPLE_FACTOR).mean(axis=1)
+        accepted_bitrate_std = accepted_bitrate_std[chop:].reshape(-1, FLAGS.DOWNSAMPLE_FACTOR).mean(axis=1)
+        done = done[chop:].reshape(-1, FLAGS.DOWNSAMPLE_FACTOR).mean(axis=1)
+        # episode_accepted_services_mean = episode_accepted_services_mean[chop:].reshape(-1, FLAGS.DOWNSAMPLE_FACTOR).mean(axis=1)
+        # episode_accepted_services_std = episode_accepted_services_std[chop:].reshape(-1, FLAGS.DOWNSAMPLE_FACTOR).mean(axis=1)
+        # episode_accepted_bitrate_mean = episode_accepted_bitrate_mean[chop:].reshape(-1, FLAGS.DOWNSAMPLE_FACTOR).mean(axis=1)
+        # episode_accepted_bitrate_std = episode_accepted_bitrate_std[chop:].reshape(-1, FLAGS.DOWNSAMPLE_FACTOR).mean(axis=1)
 
         for i in range(len(episode_returns_mean)):
             # Log the data
@@ -234,7 +257,11 @@ def main(argv):
                 "accepted_services_mean": accepted_services_mean[i],
                 "accepted_services_std": accepted_services_std[i],
                 "accepted_bitrate_mean": accepted_bitrate_mean[i],
-                "accepted_bitrate_std": accepted_bitrate_std[i]
+                "accepted_bitrate_std": accepted_bitrate_std[i],
+                # "episode_accepted_services_mean": episode_accepted_services_mean[i],
+                # "episode_accepted_services_std": episode_accepted_services_std[i],
+                # "episode_accepted_bitrate_mean": episode_accepted_bitrate_mean[i],
+                # "episode_accepted_bitrate_std": episode_accepted_bitrate_std[i],
             }
             wandb.log(log_dict)
 
