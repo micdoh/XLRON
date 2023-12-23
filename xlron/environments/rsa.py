@@ -511,7 +511,9 @@ def make_rsa_env(config):
         path_se_array = jnp.array([1])
         if env_type == "rwa_lightpath_reuse":
             link_length_array = init_link_length_array(graph).reshape((num_links, 1))
-            path_capacity_array = init_path_capacity_array(link_length_array, path_link_array, symbol_rate=symbol_rate)
+            path_capacity_array = init_path_capacity_array(
+                link_length_array, path_link_array, symbol_rate=symbol_rate, scale_factor=config.get("scale_factor", 1.0)
+            )
         max_slots = required_slots(max_bw, 1, slot_size, guardband=guardband)
 
     if incremental_loading:
