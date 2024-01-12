@@ -2,6 +2,7 @@ import wandb
 import sys
 import os
 import time
+import pathlib
 import matplotlib.pyplot as plt
 from absl import app, flags
 import xlron.train.parameter_flags
@@ -117,7 +118,13 @@ def main(argv):
         save_data = {"model": train_state, "config": FLAGS}
         orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
         save_args = orbax_utils.save_args_from_target(save_data)
-        orbax_checkpointer.save(FLAGS.MODEL_PATH, save_data, save_args=save_args)
+        # Get path to current file
+        model_path = FLAGS.MODEL_PATH if FLAGS.MODEL_PATH else pathlib.Path(__file__).resolve().parents[2] / "models" / run_name
+        print(f"Saving model to {model_path}")
+        orbax_checkpointer.save(model_path, save_data, save_args=save_args)
+        # TODO - Upload model to wandb
+        #if FLAGS.WANDB:
+        #    wandb.save(FLAGS.MODEL_PATH)
 
     # Summarise the returns
     if FLAGS.NUM_SEEDS > 1:
@@ -167,8 +174,14 @@ def main(argv):
 
     episode_ends = np.where(done == 1)[0]
     # shift end indices by -1
-    episode_ends = np.roll(episode_ends, -1)
-    # get values of
+    episode_ends = episode_ends - 1
+    # get values of accepted services and bitrate at episode ends
+    episode_end_accepted_services = accepted_services_mean[episode_ends]
+    episode_end_accepted_bitrate = accepted_bitrate_mean[episode_ends]
+    # Do box and whisker plot of accepted services and bitrate at episode ends
+    plt.boxplot(episode_end_accepted_services)
+    plt.title(experiment_name)
+    plt.show()
 
     # This is valid for the case of +1 success -1 fail per request
     service_blocking_probability = 1 - ((episode_returns_mean + FLAGS.max_requests) / (2*FLAGS.max_requests))

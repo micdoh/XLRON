@@ -457,18 +457,15 @@ def make_rsa_env(config):
     disjoint_paths = config.get("disjoint_paths", False)
     guardband = config.get("guardband", 1)
     symbol_rate = config.get("symbol_rate", 100)
+    weight = config.get("weight", None)
 
     rng = jax.random.PRNGKey(seed)
     rng, _, _, _, _ = jax.random.split(rng, 5)
     graph = make_graph(topology_name)
-    # Reduce lengths of NSFNET links by 2 to match DeepRMSA and allow more modulation formats
-    if topology_name == "nsfnet":
-        edge_data = {(u, v): ed["weight"]/2 for u, v, ed in graph.edges.data()}
-        nx.set_edge_attributes(graph, edge_data, "weight")
     arrival_rate = load / mean_service_holding_time
     num_nodes = len(graph.nodes)
     num_links = len(graph.edges)
-    path_link_array = init_path_link_array(graph, k, disjoint=disjoint_paths)
+    path_link_array = init_path_link_array(graph, k, disjoint=disjoint_paths, weight=weight)
     if custom_traffic_matrix_csv_filepath:
         random_traffic = False  # Set this False so that traffic matrix isn't replaced on reset
         traffic_matrix = jnp.array(np.loadtxt(custom_traffic_matrix_csv_filepath, delimiter=","))

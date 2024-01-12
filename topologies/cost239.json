@@ -35,7 +35,7 @@
         },
         {
             "id": 11
-        },
+        }
     ],
     "links": [
         {
@@ -146,6 +146,11 @@
         {
             "weight": 400,
             "source": 7,
+            "target": 9
+        },
+        {
+            "weight": 200,
+            "source": 8,
             "target": 9
         },
         {

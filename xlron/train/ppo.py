@@ -147,8 +147,6 @@ def select_action(rng, env, env_state, env_params, network, network_params, conf
         pi_masked = distrax.Categorical(logits=jnp.where(env_state.env_state.link_slot_mask, pi[0]._logits, -1e8))
         action = pi_masked.sample(seed=rng[1]) if not deterministic else pi_masked.mode()
         log_prob = pi_masked.log_prob(action)
-        jax.debug.print("action {}", action, ordered=True)
-        jax.debug.print("action_mask {}", env_state.env_state.link_slot_mask, ordered=True)
 
     else:
         action = pi[0].sample(seed=rng[1]) if not deterministic else pi[0].mode()

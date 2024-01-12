@@ -295,7 +295,7 @@ def init_link_length_array(graph: nx.Graph) -> chex.Array:
     return jnp.array(link_lengths)
 
 
-def init_path_link_array(graph: nx.Graph, k: int, disjoint: bool = False) -> chex.Array:
+def init_path_link_array(graph: nx.Graph, k: int, disjoint: bool = False, weight: str = "weight") -> chex.Array:
     """Initialise path-link array.
     Each path is defined by a link utilisation array (one row in the path-link array).
     1 indicates link corresponding to index is used, 0 indicates not used.
@@ -304,11 +304,12 @@ def init_path_link_array(graph: nx.Graph, k: int, disjoint: bool = False) -> che
         graph (nx.Graph): NetworkX graph
         k (int): Number of paths
         disjoint (bool, optional): Whether to use edge-disjoint paths. Defaults to False.
+        weight (str, optional): Sort paths by edge attribute. Defaults to "weight".
 
     Returns:
         chex.Array: Path-link array
     """
-    def get_k_shortest_paths(g, source, target, k, weight=None):
+    def get_k_shortest_paths(g, source, target, k, weight):
         return list(
             islice(nx.shortest_simple_paths(g, source, target, weight=weight), k)
         )
@@ -318,10 +319,11 @@ def init_path_link_array(graph: nx.Graph, k: int, disjoint: bool = False) -> che
     max_disjoint_paths = 0
     for node_pair in combinations(graph.nodes, 2):
         if disjoint:
+            # TODO - sort disjoint paths by weight
             k_paths_disjoint = sorted(list(nx.edge_disjoint_paths(graph, node_pair[0], node_pair[1])), key=len)
             if len(k_paths_disjoint) > max_disjoint_paths:
                 max_disjoint_paths = len(k_paths_disjoint)
-            k_paths_shortest = get_k_shortest_paths(graph, node_pair[0], node_pair[1], k)
+            k_paths_shortest = get_k_shortest_paths(graph, node_pair[0], node_pair[1], k, weight=weight)
             disjoint_ids = [tuple(path) for path in k_paths_disjoint]
             # Keep disjoint paths and add unique shortest paths until k paths reached
             k_paths = k_paths_disjoint
@@ -332,7 +334,7 @@ def init_path_link_array(graph: nx.Graph, k: int, disjoint: bool = False) -> che
             print(f"Maximum number of disjoint paths for any node pair: {max_disjoint_paths}")
         else:
             k_paths = get_k_shortest_paths(
-                graph, node_pair[0], node_pair[1], k
+                graph, node_pair[0], node_pair[1], k, weight=weight
             )
         for k_path in k_paths:
             link_usage = [0]*len(graph.edges)  # Initialise empty path
@@ -342,7 +344,6 @@ def init_path_link_array(graph: nx.Graph, k: int, disjoint: bool = False) -> che
                     if edge[0] == s and edge[1] == d or edge[0] == d and edge[1] == s:
                         link_usage[edge_index] = 1
             paths.append(link_usage)
-    # TODO - get paths sorted by path length (not number of links)
     return jnp.array(paths, dtype=jnp.float32)
 
 
@@ -1177,6 +1178,9 @@ def make_graph(topology_name: str = "conus"):
     elif topology_name == "nsfnet":
         with open(topology_path/"nsfnet.json") as f:
             graph = nx.node_link_graph(json.load(f))
+    elif topology_name == "cost239":
+        with open(topology_path / "cost239.json") as f:
+            graph = nx.node_link_graph(json.load(f))
     elif topology_name == "4node":
         # 4 node ring
         graph = nx.from_numpy_array(np.array([[0, 1, 0, 1],
@@ -1563,12 +1567,15 @@ def init_path_capacity_array(
 
     Returns:
         chex.Array: Array of link capacities in Gbps
-        """
-    N_i = jnp.floor(link_length_array / 100)  # Number of fibre spans on ith link
-    NSR_i = jnp.where(N_i < 1, 1, N_i) / 405
-    path_NSR_i = jnp.dot(path_link_array, NSR_i)
-    path_capacity_array = 2 * symbol_rate * jnp.log2(1 + 1/(path_NSR_i))
-    # Round link capacity up to nearest increment of minimum request size
+    """
+    # N_spans_i = jnp.floor(link_length_array / 100)  # Number of fibre spans on ith link
+    # NSR_i = jnp.where(N_spans_i < 1, 1, N_spans_i) / 405  # Noise-to-signal ratio per link
+    # path_NSR = jnp.dot(path_link_array, NSR_i)  # Sum of NSR for all links on path
+    path_length_array = jnp.dot(path_link_array, link_length_array)
+    N_spans = jnp.floor(path_length_array / 100)  # Number of fibre spans on path
+    path_NSR = jnp.where(N_spans < 1, 1, N_spans) / 405  # Noise-to-signal ratio per path
+    path_capacity_array = 2 * symbol_rate * jnp.log2(1 + 1/path_NSR)  # Capacity of path in Gbps
+    # Round link capacity up to nearest increment of minimum request size and apply scale factor
     path_capacity_array = jnp.floor(path_capacity_array*scale_factor/min_request) * min_request
     return path_capacity_array
 
@@ -1583,26 +1590,33 @@ def get_lightpath_index(params, nodes, path_index):
 
 @partial(jax.jit, static_argnums=(1,))
 def check_lightpath_available_and_existing(state, params, action):
+    """Check if lightpath is available and existing.
+    Available means that the lightpath does not use slots occupied by a different lightpath.
+    Existing means that the lightpath has already been established.
+    """
     nodes_sd, bw_request = read_rsa_request(state.request_array)
     path_index, initial_slot_index = process_path_action(state, params, action)
     path = get_paths(params, nodes_sd)[path_index]
     # Get unique lightpath index
     lightpath_index = get_lightpath_index(params, nodes_sd, path_index)
     # Get mask for slots that lightpath will occupy
+    # negative numbers used so as not to conflict with lightpath indices
     new_lightpath_mask = vmap_set_path_links(
         jnp.full((params.num_links, 1), -2), path, 0, 1, -1
-    )  # negative numbers used so as not to conflict with lightpath indices
+    )
+    path_index_array = state.path_index_array[:, initial_slot_index].reshape(-1, 1)
     masked_path_index_array = jnp.where(
-        state.path_index_array[:, initial_slot_index].reshape(-1, 1) == new_lightpath_mask, -1, -2
+        new_lightpath_mask == -1, path_index_array, -2
     )
     lightpath_mask = jnp.where(
-        state.path_index_array[:, initial_slot_index].reshape(-1, 1) == lightpath_index, -1, -2
+        path_index_array == lightpath_index, -1, -2
     )  # Allow current lightpath
     lightpath_existing_check = jnp.array_equal(lightpath_mask, new_lightpath_mask)  # True if all slots are same
     lightpath_mask = jnp.where(masked_path_index_array == -1, -1, lightpath_mask)  # Allow empty slots
+    # True if all slots are same or empty
     lightpath_available_check = jnp.logical_or(
         jnp.array_equal(lightpath_mask, new_lightpath_mask), lightpath_existing_check
-    )  # True if all slots are same or empty
+    )
     curr_lightpath_capacity = jnp.max(
         jnp.where(new_lightpath_mask == -1, state.link_capacity_array[:, initial_slot_index].reshape(-1, 1), 0)
     )
@@ -1651,7 +1665,7 @@ def implement_rwa_lightpath_reuse_action(state: EnvState, action: chex.Array, pa
     lightpath_capacity_before_action = jax.lax.cond(
         lightpath_existing_check,
         lambda x: curr_lightpath_capacity,  # Subtract bw_request from current lightpath
-        lambda x: 1e6,
+        lambda x: 1e6,  # Empty slots have high capacity (1e6)
         # Get initial capacity of lightpath - request
         None,
     )
@@ -1685,20 +1699,29 @@ def mask_slots_rwa_lightpath_reuse(state: EnvState, params: EnvParams, request: 
     init_mask = jnp.zeros((params.link_resources * params.k_paths))
     source, dest = nodes_sd
     path_start_index = get_path_indices(source, dest, params.k_paths, params.num_nodes).astype(jnp.int32)
+    #jax.debug.print("path_start_index {}", path_start_index, ordered=True)
+    #jax.debug.print("link_capacity_array {}", state.link_capacity_array, ordered=True)
 
     def mask_path(i, mask):
         # Step 1 - mask capacity
-        capacity_mask = jnp.where(state.link_capacity_array <= requested_bw, 1., 0.)
+        capacity_mask = jnp.where(state.link_capacity_array < requested_bw, 1., 0.)
+        #jax.debug.print("capacity_mask {}", capacity_mask, ordered=True)
         capacity_slots = get_path_slots(capacity_mask, params, nodes_sd, i)
+        #jax.debug.print("capacity_slots {}", capacity_slots, ordered=True)
         # Step 2 - mask lightpath reuse
         lightpath_index = path_start_index + i
+        #jax.debug.print("lightpath_index {}", lightpath_index, ordered=True)
         lightpath_mask = jnp.where(state.path_index_array == lightpath_index, 0., 1.)  # Allow current lightpath
+        #jax.debug.print("lightpath_mask {}", lightpath_mask, ordered=True)
         lightpath_mask = jnp.where(state.path_index_array == -1, 0., lightpath_mask)  # Allow empty slots
+        #jax.debug.print("lightpath_mask {}", lightpath_mask, ordered=True)
         lightpath_slots = get_path_slots(lightpath_mask, params, nodes_sd, i)
+        #jax.debug.print("lightpath_slots {}", lightpath_slots, ordered=True)
         # Step 3 combine masks
         path_mask = jnp.max(jnp.stack((capacity_slots, lightpath_slots)), axis=0)
         # Swap zeros for ones
         path_mask = jnp.where(path_mask == 0, 1., 0.)
+        #jax.debug.print("path_mask {}", path_mask, ordered=True)
         mask = jax.lax.dynamic_update_slice(mask, path_mask, (i * params.link_resources,))
         return mask
 

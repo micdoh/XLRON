@@ -39,7 +39,7 @@ flags.DEFINE_boolean("DEBUG", False, "Debug mode")
 flags.DEFINE_boolean("DEBUG_NANS", False, "Debug NaNs")
 flags.DEFINE_boolean("ORDERED", True, "Order print statements when debugging "
                                       "(must be false if using pmap)")
-flags.DEFINE_string("MODEL_PATH", ".", "Path to save/load model")
+flags.DEFINE_string("MODEL_PATH", None, "Path to save/load model")
 flags.DEFINE_string("PROJECT", "", "Name of project")
 flags.DEFINE_string("EXPERIMENT_NAME", "", "Name of experiment")
 flags.DEFINE_integer("DOWNSAMPLE_FACTOR", 1, "Downsample factor to reduce data uploaded to wandb")
@@ -68,6 +68,7 @@ flags.DEFINE_boolean("disjoint_paths", False, "Use disjoint paths (k paths still
 flags.DEFINE_integer("guard_band", 1, "Guard band in slots")
 flags.DEFINE_integer("symbol_rate", 100, "Symbol rate in Gbaud (only used in RWA with lightpath reuse")
 flags.DEFINE_float("scale_factor", 1.0, "Scale factor for link capacity in RWA with lightpath reuse")
+flags.DEFINE_string("weight", None, "Edge attribute name for ordering k-shortest paths")
 # RSA-specific environment parameters
 flags.DEFINE_boolean("random_traffic", False, "Random traffic matrix for RSA on each reset (else uniform or custom)")
 flags.DEFINE_string("custom_traffic_matrix_csv_filepath", None, "Path to custom traffic matrix CSV file")
