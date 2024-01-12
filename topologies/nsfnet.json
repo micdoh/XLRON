@@ -62,112 +62,112 @@
     ],
     "links": [
         {
-            "weight": 2100,
+            "weight": 1000,
             "source": 1,
             "target": 2
         },
         {
-            "weight": 1200,
+            "weight": 1500,
             "source": 1,
             "target": 3
         },
         {
-            "weight": 4800,
+            "weight": 2400,
             "source": 1,
             "target": 8
         },
         {
-            "weight": 1200,
+            "weight": 600,
             "source": 2,
             "target": 3
         },
         {
-            "weight": 1500,
+            "weight": 700,
             "source": 2,
             "target": 4
         },
         {
-            "weight": 3600,
+            "weight": 1800,
             "source": 3,
             "target": 6
         },
         {
-            "weight": 1200,
+            "weight": 600,
             "source": 4,
             "target": 5
         },
         {
-            "weight": 3900,
+            "weight": 1900,
             "source": 4,
             "target": 11
         },
         {
-            "weight": 2400,
+            "weight": 1200,
             "source": 5,
             "target": 6
         },
         {
-            "weight": 1200,
+            "weight": 600,
             "source": 5,
             "target": 7
         },
         {
-            "weight": 2100,
+            "weight": 1000,
             "source": 6,
             "target": 10
         },
         {
-            "weight": 3600,
+            "weight": 1800,
             "source": 6,
             "target": 14
         },
         {
-            "weight": 1500,
+            "weight": 700,
             "source": 7,
             "target": 8
         },
         {
-            "weight": 2700,
+            "weight": 1300,
             "source": 7,
             "target": 10
         },
         {
-            "weight": 1500,
+            "weight": 700,
             "source": 8,
             "target": 9
         },
         {
-            "weight": 1500,
+            "weight": 700,
             "source": 9,
             "target": 10
         },
         {
-            "weight": 600,
+            "weight": 300,
             "source": 9,
             "target": 12
         },
         {
-            "weight": 600,
+            "weight": 300,
             "source": 9,
             "target": 13
         },
         {
-            "weight": 1200,
+            "weight": 600,
             "source": 11,
             "target": 12
         },
         {
-            "weight": 1500,
+            "weight": 700,
             "source": 11,
             "target": 13
         },
         {
-            "weight": 600,
+            "weight": 300,
             "source": 12,
             "target": 14
         },
         {
-            "weight": 300,
+            "weight": 100,
             "source": 13,
             "target": 14
         }
