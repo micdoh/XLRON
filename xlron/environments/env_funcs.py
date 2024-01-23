@@ -575,16 +575,22 @@ def generate_vone_request(key: chex.PRNGKey, state: EnvState, params: EnvParams)
 @partial(jax.jit, static_argnums=(2,))
 def generate_rsa_request(key: chex.PRNGKey, state: EnvState, params: EnvParams) -> EnvState:
     # Flatten the probabilities to a 1D array
-    shape = state.traffic_matrix.shape
-    probabilities = state.traffic_matrix.ravel()
     key_sd, key_slot, key_times = jax.random.split(key, 3)
-    # Use jax.random.choice to select index based on the probabilities
-    source_dest_index = jax.random.choice(key_sd, jnp.arange(state.traffic_matrix.size), p=probabilities)
-    # Convert 1D index back to 2D
-    nodes = jnp.unravel_index(source_dest_index, shape)
-    source, dest = jnp.sort(jnp.stack(nodes))
-    # Vectorized conditional replacement using mask
-    bw = jax.random.choice(key_slot, state.values_bw)
+    if params.deterministic_requests:
+        request = params.list_of_requests[state.total_requests]
+        source = jax.lax.dynamic_slice(request, (0,), (1,))[0]
+        bw = jax.lax.dynamic_slice(request, (1,), (1,))[0]
+        dest = jax.lax.dynamic_slice(request, (2,), (1,))[0]
+    else:
+        shape = state.traffic_matrix.shape
+        probabilities = state.traffic_matrix.ravel()
+        # Use jax.random.choice to select index based on the probabilities
+        source_dest_index = jax.random.choice(key_sd, jnp.arange(state.traffic_matrix.size), p=probabilities)
+        # Convert 1D index back to 2D
+        nodes = jnp.unravel_index(source_dest_index, shape)
+        source, dest = jnp.sort(jnp.stack(nodes))
+        # Vectorized conditional replacement using mask
+        bw = jax.random.choice(key_slot, state.values_bw)
     arrival_time, holding_time = generate_arrival_holding_times(key_times, params)
     state = state.replace(
         holding_time=holding_time,

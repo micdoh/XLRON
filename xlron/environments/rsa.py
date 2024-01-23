@@ -43,6 +43,8 @@ class RSAEnvParams(EnvParams):
     random_traffic: bool = struct.field(pytree_node=False)
     max_slots: chex.Scalar = struct.field(pytree_node=False)
     path_se_array: chex.Array = struct.field(pytree_node=False)
+    deterministic_requests: bool = struct.field(pytree_node=False)
+    list_of_requests: chex.Array = struct.field(pytree_node=False)
 
 
 @struct.dataclass
@@ -453,6 +455,7 @@ def make_rsa_env(config):
     env_type = config.get("env_type", "").lower()
     continuous_operation = config.get("continuous_operation", False)
     custom_traffic_matrix_csv_filepath = config.get("custom_traffic_matrix_csv_filepath", None)
+    traffic_requests_csv_filepath = config.get("traffic_requests_csv_filepath", None)
     aggregate_slots = config.get("aggregate_slots", 1)
     disjoint_paths = config.get("disjoint_paths", False)
     guardband = config.get("guardband", 1)
@@ -476,6 +479,14 @@ def make_rsa_env(config):
         traffic_matrix = convert_node_probs_to_traffic_matrix(node_probabilities)
     else:
         traffic_matrix = None
+
+    if traffic_requests_csv_filepath:
+        deterministic_requests = True
+        list_of_requests = jnp.array(np.loadtxt(traffic_requests_csv_filepath, delimiter=","))
+        max_requests = len(list_of_requests)
+    else:
+        deterministic_requests = False
+        list_of_requests = jnp.array([])
 
     values_bw = init_values_bandwidth(min_bw, max_bw, step_bw, values_bw)
 
@@ -549,6 +560,8 @@ def make_rsa_env(config):
         continuous_operation=continuous_operation,
         aggregate_slots=aggregate_slots,
         guardband=guardband,
+        deterministic_requests=deterministic_requests,
+        list_of_requests=HashableArrayWrapper(list_of_requests),
     )
 
     if env_type == "deeprmsa":
