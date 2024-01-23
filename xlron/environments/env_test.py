@@ -205,6 +205,19 @@ class GenerateRSARequestTest(parameterized.TestCase):
         request = state.request_array
         chex.assert_trees_all_close(request, expected)
 
+    @chex.all_variants()
+    @parameterized.named_parameters(
+        ('case_base', (jnp.array([0, 1, 1]), jnp.array([1,1,2]))),
+    )
+    def test_generate_rsa_request_from_list(self, expected):
+        key = np.array([1, 2], dtype=np.uint32)
+        self.params = self.params.replace(deterministic_requests=True, list_of_requests=HashableArrayWrapper(jnp.array([[0,1,1], [1,1,2]])))
+        self.state = self.variant(generate_rsa_request)(key, self.state, self.params)
+        request1 = self.state.request_array
+        self.state = self.variant(generate_rsa_request)(key, self.state, self.params)
+        request2 = self.state.request_array
+        chex.assert_trees_all_close((request1, request2), expected)
+
 
 class InitPathLinkArrayTest(parameterized.TestCase):
 

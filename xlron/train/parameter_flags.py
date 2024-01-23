@@ -69,6 +69,7 @@ flags.DEFINE_integer("guard_band", 1, "Guard band in slots")
 flags.DEFINE_integer("symbol_rate", 100, "Symbol rate in Gbaud (only used in RWA with lightpath reuse")
 flags.DEFINE_float("scale_factor", 1.0, "Scale factor for link capacity in RWA with lightpath reuse")
 flags.DEFINE_string("weight", None, "Edge attribute name for ordering k-shortest paths")
+flags.DEFINE_string("traffic_requests_csv_filepath", None, "Path to traffic request CSV file")
 # RSA-specific environment parameters
 flags.DEFINE_boolean("random_traffic", False, "Random traffic matrix for RSA on each reset (else uniform or custom)")
 flags.DEFINE_string("custom_traffic_matrix_csv_filepath", None, "Path to custom traffic matrix CSV file")
