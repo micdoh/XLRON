@@ -1,6 +1,7 @@
 from typing import Tuple, Union, Optional
 from flax import struct
 from functools import partial
+import pathlib
 import math
 import chex
 import jax
@@ -16,7 +17,7 @@ from xlron.environments.env_funcs import (
     mask_slots, make_graph, init_path_length_array, init_modulations_array, init_path_se_array, required_slots,
     init_values_bandwidth, calculate_path_stats, normalise_traffic_matrix, init_graph_tuple, init_link_length_array,
     init_link_capacity_array, init_path_capacity_array, init_path_index_array, mask_slots_rwa_lightpath_reuse,
-    implement_rwa_lightpath_reuse_action, check_rwa_lightpath_reuse_action
+    implement_rwa_lightpath_reuse_action, check_rwa_lightpath_reuse_action, pad
 )
 
 
@@ -45,6 +46,7 @@ class RSAEnvParams(EnvParams):
     path_se_array: chex.Array = struct.field(pytree_node=False)
     deterministic_requests: bool = struct.field(pytree_node=False)
     list_of_requests: chex.Array = struct.field(pytree_node=False)
+    multiple_topologies: bool = struct.field(pytree_node=False)
 
 
 @struct.dataclass
@@ -190,6 +192,13 @@ class RSAEnv(environment.Environment):
         self, key: chex.PRNGKey, params: RSAEnvParams
     ) -> Tuple[chex.Array, RSAEnvState]:
         """Environment-specific reset."""
+        #if params.multiple_topologies:
+            # TODO - implement this (shuffle through topologies and use the top of the stack)
+            # Question - do i need to rewrite every function to take in a params argument and index params[0]?
+            # maybe in make_rsa_env function can have a params field that holds all the params (one for each topology),
+            # and then cycle select from them randomly and replace the top-level params with the selected one.
+            # Then need to init() the env again in order to update the state using the params
+        #    raise NotImplementedError
         if params.random_traffic:
             key, key_traffic = jax.random.split(key)
             state = self.initial_state.replace(
@@ -456,15 +465,17 @@ def make_rsa_env(config):
     continuous_operation = config.get("continuous_operation", False)
     custom_traffic_matrix_csv_filepath = config.get("custom_traffic_matrix_csv_filepath", None)
     traffic_requests_csv_filepath = config.get("traffic_requests_csv_filepath", None)
+    multiple_topologies_directory = config.get("multiple_topologies_directory", None)
     aggregate_slots = config.get("aggregate_slots", 1)
     disjoint_paths = config.get("disjoint_paths", False)
     guardband = config.get("guardband", 1)
     symbol_rate = config.get("symbol_rate", 100)
     weight = config.get("weight", None)
+    remove_array_wrappers = config.get("remove_array_wrappers", False)
 
     rng = jax.random.PRNGKey(seed)
     rng, _, _, _, _ = jax.random.split(rng, 5)
-    graph = make_graph(topology_name)
+    graph = make_graph(topology_name, topology_directory=config.get("topology_directory", None))
     arrival_rate = load / mean_service_holding_time
     num_nodes = len(graph.nodes)
     num_links = len(graph.edges)
@@ -482,7 +493,9 @@ def make_rsa_env(config):
 
     if traffic_requests_csv_filepath:
         deterministic_requests = True
-        list_of_requests = jnp.array(np.loadtxt(traffic_requests_csv_filepath, delimiter=","))
+        # Remove headers from array
+        list_of_requests = np.loadtxt(traffic_requests_csv_filepath, delimiter=",")[1:, :]
+        list_of_requests = jnp.array(list_of_requests)
         max_requests = len(list_of_requests)
     else:
         deterministic_requests = False
@@ -510,7 +523,7 @@ def make_rsa_env(config):
     if consider_modulation_format:
         link_length_array = init_link_length_array(graph).reshape((num_links, 1))
         path_length_array = init_path_length_array(path_link_array, graph)
-        modulations_array = init_modulations_array(config.get("modulations_file", "modulations.csv"))
+        modulations_array = init_modulations_array(config.get("modulations_csv_filepath", None))
         path_se_array = init_path_se_array(path_length_array, modulations_array)
         min_se = min(path_se_array)  # if consider_modulation_format
         max_slots = required_slots(max_bw, min_se, slot_size, guardband=guardband)
@@ -518,10 +531,12 @@ def make_rsa_env(config):
         link_length_array = jnp.ones((num_links, 1))
         path_se_array = jnp.array([1])
         if env_type == "rwa_lightpath_reuse":
+            scale_factor = config.get("scale_factor", 1.0)
             link_length_array = init_link_length_array(graph).reshape((num_links, 1))
             path_capacity_array = init_path_capacity_array(
-                link_length_array, path_link_array, symbol_rate=symbol_rate, scale_factor=config.get("scale_factor", 1.0)
+                link_length_array, path_link_array, symbol_rate=symbol_rate, scale_factor=scale_factor
             )
+            max_requests = int(scale_factor * max_requests)
         max_slots = required_slots(max_bw, 1, slot_size, guardband=guardband)
 
     if incremental_loading:
@@ -562,14 +577,71 @@ def make_rsa_env(config):
         guardband=guardband,
         deterministic_requests=deterministic_requests,
         list_of_requests=HashableArrayWrapper(list_of_requests),
+        multiple_topologies=False,
+    ) if not remove_array_wrappers else env_params(
+        max_requests=max_requests,
+        max_timesteps=max_timesteps,
+        mean_service_holding_time=mean_service_holding_time,
+        k_paths=k,
+        link_resources=link_resources,
+        num_nodes=num_nodes,
+        num_links=num_links,
+        load=load,
+        arrival_rate=arrival_rate,
+        path_link_array=path_link_array,
+        incremental_loading=incremental_loading,
+        end_first_blocking=end_first_blocking,
+        edges=edges,
+        random_traffic=random_traffic,
+        path_se_array=path_se_array,
+        link_length_array=link_length_array,
+        max_slots=int(max_slots),
+        consider_modulation_format=consider_modulation_format,
+        slot_size=slot_size,
+        continuous_operation=continuous_operation,
+        aggregate_slots=aggregate_slots,
+        guardband=guardband,
+        deterministic_requests=deterministic_requests,
+        list_of_requests=list_of_requests,
+        multiple_topologies=False,
     )
 
-    if env_type == "deeprmsa":
-        env = DeepRMSAEnv(rng, params, values_bw=values_bw, traffic_matrix=traffic_matrix)
-    elif env_type == "rwa_lightpath_reuse":
-        env = RWALightpathReuseEnv(
-            rng, params, values_bw=values_bw, traffic_matrix=traffic_matrix, path_capacity_array=path_capacity_array)
+    # If training single model on multiple topologies, must store params for each topology within top-level params
+    if multiple_topologies_directory:
+        # iterate through files in directory
+        params_list = []
+        p = pathlib.Path(multiple_topologies_directory).glob('**/*')
+        files = [x for x in p if x.is_file()]
+        config.update(multiple_topologies_directory=None, remove_array_wrappers=True)
+        for file in files:
+            # Get filename without extension
+            config.update(topology_name=file.stem, topology_directory=file.parent)
+            env, params = make_rsa_env(config)
+            params = params.replace(multiple_topologies=True)
+            params_list.append(params)
+        # for params in params_list, concatenate the field from each params into one array per field
+        # from https://stackoverflow.com/questions/73765064/jax-vmap-over-batch-of-dataclasses
+        cls = type(params_list[0])
+        fields = params_list[0].__dict__.keys()
+        field_dict = {}
+        for k in fields:
+            values = [getattr(v, k) for v in params_list]
+            #values = [list(v) if isinstance(v, chex.Array) else v for v in values]
+            # Pad arrays to same shape
+            padded_values = HashableArrayWrapper(jnp.array(pad(values, fill_value=0)))
+            field_dict[k] = padded_values
+        params = cls(**field_dict)
+
+    if remove_array_wrappers:
+        # Only remove array wrappers if multiple_topologies=True for the inner files loop above
+        env = None
     else:
-        env = RSAEnv(rng, params, values_bw=values_bw, traffic_matrix=traffic_matrix)
+        if env_type == "deeprmsa":
+            env = DeepRMSAEnv(rng, params, values_bw=values_bw, traffic_matrix=traffic_matrix)
+        elif env_type == "rwa_lightpath_reuse":
+            env = RWALightpathReuseEnv(
+                rng, params, values_bw=values_bw, traffic_matrix=traffic_matrix, path_capacity_array=path_capacity_array)
+        else:
+            env = RSAEnv(rng, params, values_bw=values_bw, traffic_matrix=traffic_matrix)
 
     return env, params
