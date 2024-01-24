@@ -353,7 +353,7 @@ def make_vone_env(config):
     if consider_modulation_format:
         link_length_array = init_link_length_array(graph)
         path_length_array = init_path_length_array(path_link_array, graph)
-        modulations_array = init_modulations_array(config.get("modulations_file", "modulations.csv"))
+        modulations_array = init_modulations_array(config.get("modulations_csv_filepath", None))
         path_se_array = init_path_se_array(path_length_array, modulations_array)
         min_se = min(path_se_array)  # if consider_modulation_format
         max_slots = required_slots(max_bw, min_se, slot_size, guardband=guardband)

@@ -21,6 +21,7 @@ from jax._src import dtypes
 from jax._src import prng
 from jax._src.typing import Array, ArrayLike, DTypeLike
 from typing import Generic, TypeVar
+from collections import defaultdict
 
 
 Shape = Sequence[int]
@@ -354,10 +355,11 @@ def init_path_length_array(path_link_array: chex.Array, graph: nx.Graph) -> chex
     return path_lengths
 
 
-def init_modulations_array(modulations_filename):
+def init_modulations_array(modulations_filepath: str = None):
     """Initialise array of maximum spectral efficiency for modulation format on path"""
-    path = pathlib.Path(__file__).parents[2].absolute() / "topologies"
-    modulations = np.genfromtxt(path/modulations_filename, delimiter=',')
+    f = pathlib.Path(modulations_filepath) if modulations_filepath else (
+            pathlib.Path(__file__).parents[2].absolute() / "examples" / "modulations.csv")
+    modulations = np.genfromtxt(f, delimiter=',')
     # Drop empty first row (headers) and column (name)
     modulations = modulations[1:, 1:]
     return jnp.array(modulations)
@@ -1173,21 +1175,12 @@ def get_edge_disjoint_paths(graph: nx.Graph) -> dict:
     return result
 
 
-def make_graph(topology_name: str = "conus"):
+def make_graph(topology_name: str = "conus", topology_directory: str = None):
     """Create graph from topology"""
-
-    topology_path = pathlib.Path(__file__).parents[2].absolute() / "topologies"
+    topology_path = pathlib.Path(topology_directory) if topology_directory else (
+            pathlib.Path(__file__).parents[2].absolute() / "topologies")
     # Create topology
-    if topology_name == "conus":
-        with open(topology_path/"conus.json") as f:
-            graph = nx.node_link_graph(json.load(f))
-    elif topology_name == "nsfnet":
-        with open(topology_path/"nsfnet.json") as f:
-            graph = nx.node_link_graph(json.load(f))
-    elif topology_name == "cost239":
-        with open(topology_path / "cost239.json") as f:
-            graph = nx.node_link_graph(json.load(f))
-    elif topology_name == "4node":
+    if topology_name == "4node":
         # 4 node ring
         graph = nx.from_numpy_array(np.array([[0, 1, 0, 1],
                                             [1, 0, 1, 0],
@@ -1195,7 +1188,7 @@ def make_graph(topology_name: str = "conus"):
                                                [1, 0, 1, 0]]))
         # Add edge weights to graph
         nx.set_edge_attributes(graph, {(0, 1): 4, (1, 2): 3, (2, 3): 2, (3, 0): 1}, "weight")
-    else:
+    elif topology_name == "7node":
         # 7 node ring
         graph = nx.from_numpy_array(jnp.array([[0, 1, 0, 0, 0, 0, 1],
                                                [1, 0, 1, 0, 0, 0, 0],
@@ -1206,6 +1199,9 @@ def make_graph(topology_name: str = "conus"):
                                                [1, 0, 0, 0, 0, 1, 0]]))
         # Add edge weights to graph
         nx.set_edge_attributes(graph, {(0, 1): 4, (1, 2): 3, (2, 3): 2, (3, 4): 1, (4, 5): 2, (5, 6): 3, (6, 0): 4}, "weight")
+    else:
+        with open(topology_path / f"{topology_name}.json") as f:
+            graph = nx.node_link_graph(json.load(f))
     return graph
 
 
@@ -1735,3 +1731,38 @@ def mask_slots_rwa_lightpath_reuse(state: EnvState, params: EnvParams, request: 
     link_slot_mask = jax.lax.fori_loop(0, params.k_paths, mask_path, init_mask)
     state = state.replace(link_slot_mask=link_slot_mask)
     return state
+
+
+def pad(array, fill_value):
+    """
+    Pad a ragged multidimensional array to rectangular shape.
+    Used for training on multiple topologies.
+    Source: https://codereview.stackexchange.com/questions/222623/pad-a-ragged-multidimensional-array-to-rectangular-shape
+    """
+
+    def get_dimensions(array, level=0):
+        yield level, len(array)
+        try:
+            for row in array:
+                yield from get_dimensions(row, level + 1)
+        except TypeError: #not an iterable
+            pass
+
+    def get_max_shape(array):
+        dimensions = defaultdict(int)
+        for level, length in get_dimensions(array):
+            dimensions[level] = max(dimensions[level], length)
+        return [value for _, value in sorted(dimensions.items())]
+
+    def iterate_nested_array(array, index=()):
+        try:
+            for idx, row in enumerate(array):
+                yield from iterate_nested_array(row, (*index, idx))
+        except TypeError: # final level
+            yield (*index, slice(len(array))), array
+
+    dimensions = get_max_shape(array)
+    result = np.full(dimensions, fill_value)
+    for index, value in iterate_nested_array(array):
+        result[index] = value
+    return result
