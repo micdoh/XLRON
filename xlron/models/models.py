@@ -106,7 +106,7 @@ class GraphNet(nn.Module):
     skip_connections: bool = True
     use_edge_model: bool = True
     layer_norm: bool = True
-    deterministic: bool = True
+    deterministic: bool = True  # If true, no dropout (better for RL purposes)
     use_attention: bool = True
 
     @nn.compact
@@ -124,6 +124,8 @@ class GraphNet(nn.Module):
         for _ in range(self.message_passing_steps):
             mlp_feature_sizes = [self.latent_size] * self.num_mlp_layers
 
+            # TODO - Allow RNN/SSM to be used as update functions
+            # https://github.com/luchris429/popjaxrl/blob/main/algorithms/ppo_gru.py
             if self.use_edge_model:
                 update_edge_fn = jraph.concatenated_args(
                     MLP(
@@ -270,7 +272,7 @@ class ActorGNN(nn.Module):
         the edge features. The edge features are then normalised by the link length from the environment parameters,
         and the current request is read from the request array.
         The request is used to retrieve the edge features from the edge_features array for the corresponding
-        shortest k-paths. The edge features are aggregated for each path according to the "agg_func" e.g. sum.,
+        shortest k-paths. The edge features are aggregated for each path according to the "agg_func" e.g. sum,
         and the action distribution array is updated.
         Returns a distrax.Categorical distribution, from which actions can be sampled.
 
@@ -298,7 +300,7 @@ class ActorGNN(nn.Module):
         nodes_sd, requested_bw = read_rsa_request(state.request_array)
         init_action_array = jnp.zeros(params.k_paths * self.output_edges_size)
 
-        # Define a budy func to retrieve path slots and update action array
+        # Define a body func to retrieve path slots and update action array
         def get_path_action_dist(i, action_array):
             # Get the processed graph edge features corresponding to the i-th path
             path_features = get_path_slots(edge_features, params, nodes_sd, i, agg_func="sum")
