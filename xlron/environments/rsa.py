@@ -17,7 +17,7 @@ from xlron.environments.env_funcs import (
     mask_slots, make_graph, init_path_length_array, init_modulations_array, init_path_se_array, required_slots,
     init_values_bandwidth, calculate_path_stats, normalise_traffic_matrix, init_graph_tuple, init_link_length_array,
     init_link_capacity_array, init_path_capacity_array, init_path_index_array, mask_slots_rwa_lightpath_reuse,
-    implement_rwa_lightpath_reuse_action, check_rwa_lightpath_reuse_action, pad
+    implement_rwa_lightpath_reuse_action, check_rwa_lightpath_reuse_action, pad_array
 )
 
 
@@ -479,7 +479,7 @@ def make_rsa_env(config):
     arrival_rate = load / mean_service_holding_time
     num_nodes = len(graph.nodes)
     num_links = len(graph.edges)
-    path_link_array = init_path_link_array(graph, k, disjoint=disjoint_paths, weight=weight)
+    path_link_array = init_path_link_array(graph, k, disjoint=disjoint_paths, weight=weight, directed=graph.is_directed())
     if custom_traffic_matrix_csv_filepath:
         random_traffic = False  # Set this False so that traffic matrix isn't replaced on reset
         traffic_matrix = jnp.array(np.loadtxt(custom_traffic_matrix_csv_filepath, delimiter=","))
@@ -578,6 +578,7 @@ def make_rsa_env(config):
         deterministic_requests=deterministic_requests,
         list_of_requests=HashableArrayWrapper(list_of_requests),
         multiple_topologies=False,
+        directed_graph=graph.is_directed(),
     ) if not remove_array_wrappers else env_params(
         max_requests=max_requests,
         max_timesteps=max_timesteps,
@@ -604,6 +605,7 @@ def make_rsa_env(config):
         deterministic_requests=deterministic_requests,
         list_of_requests=list_of_requests,
         multiple_topologies=False,
+        directed_graph=graph.is_directed(),
     )
 
     # If training single model on multiple topologies, must store params for each topology within top-level params
@@ -628,7 +630,7 @@ def make_rsa_env(config):
             values = [getattr(v, k) for v in params_list]
             #values = [list(v) if isinstance(v, chex.Array) else v for v in values]
             # Pad arrays to same shape
-            padded_values = HashableArrayWrapper(jnp.array(pad(values, fill_value=0)))
+            padded_values = HashableArrayWrapper(jnp.array(pad_array(values, fill_value=0)))
             field_dict[k] = padded_values
         params = cls(**field_dict)
 

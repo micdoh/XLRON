@@ -394,6 +394,7 @@ def make_vone_env(config):
         link_length_array=HashableArrayWrapper(link_length_array),
         aggregate_slots=aggregate_slots,
         guardband=guardband,
+        directed_graph=graph.is_directed(),
     )
 
     env = VONEEnv(params, virtual_topologies=virtual_topologies, values_bw=values_bw)

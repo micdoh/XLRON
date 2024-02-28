@@ -45,6 +45,7 @@ rlax = "^0.1.6"
 jraph = "^0.0.6.dev0"
 ml-dtypes = "0.2.0"
 orbax = "^0.1.9"
+mkinit = "^1.1.0"
 
 [tool.poetry.extras]
 cuda = ["nvidia-cuda-runtime-cu11", "torch", "torchvision"]

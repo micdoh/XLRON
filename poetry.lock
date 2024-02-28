@@ -231,6 +231,22 @@ url = "https://pypi.org/simple"
 reference = "pypi-public"
 
 [[package]]
+name = "autocommand"
+version = "2.2.2"
+description = "A library to create a command-line program from a function"
+optional = false
+python-versions = ">=3.7"
+files = [
+    {file = "autocommand-2.2.2-py3-none-any.whl", hash = "sha256:710afe251075e038e19e815e25f8155cabe02196cfb545b2185e0d9c8b2b0459"},
+    {file = "autocommand-2.2.2.tar.gz", hash = "sha256:878de9423c5596491167225c2a455043c3130fb5b7286ac83443d45e74955f34"},
+]
+
+[package.source]
+type = "legacy"
+url = "https://pypi.org/simple"
+reference = "pypi-public"
+
+[[package]]
 name = "babel"
 version = "2.13.1"
 description = "Internationalization utilities"
@@ -1560,6 +1576,30 @@ url = "https://pypi.org/simple"
 reference = "pypi-public"
 
 [[package]]
+name = "inflect"
+version = "7.0.0"
+description = "Correctly generate plurals, singular nouns, ordinals, indefinite articles; convert numbers to words"
+optional = false
+python-versions = ">=3.8"
+files = [
+    {file = "inflect-7.0.0-py3-none-any.whl", hash = "sha256:9544afed6182176e43955c44b1acdaed30f9b2b56c16d1fc5b222d98218b546e"},
+    {file = "inflect-7.0.0.tar.gz", hash = "sha256:63da9325ad29da81ec23e055b41225795ab793b4ecb483be5dc1fa363fd4717e"},
+]
+
+[package.dependencies]
+pydantic = ">=1.9.1"
+typing-extensions = "*"
+
+[package.extras]
+docs = ["furo", "jaraco.packaging (>=9)", "jaraco.tidelift (>=1.4)", "rst.linker (>=1.9)", "sphinx (>=3.5)", "sphinx-lint"]
+testing = ["pygments", "pytest (>=6)", "pytest-black (>=0.3.7)", "pytest-checkdocs (>=2.4)", "pytest-cov", "pytest-enabler (>=2.2)", "pytest-mypy (>=0.9.1)", "pytest-ruff"]
+
+[package.source]
+type = "legacy"
+url = "https://pypi.org/simple"
+reference = "pypi-public"
+
+[[package]]
 name = "iniconfig"
 version = "2.0.0"
 description = "brain-dead simple config-ini parsing"
@@ -1694,6 +1734,194 @@ files = [
 
 [package.dependencies]
 arrow = ">=0.15.0"
+
+[package.source]
+type = "legacy"
+url = "https://pypi.org/simple"
+reference = "pypi-public"
+
+[[package]]
+name = "jaraco-classes"
+version = "3.3.0"
+description = "Utility functions for Python class constructs"
+optional = false
+python-versions = ">=3.8"
+files = [
+    {file = "jaraco.classes-3.3.0-py3-none-any.whl", hash = "sha256:10afa92b6743f25c0cf5f37c6bb6e18e2c5bb84a16527ccfc0040ea377e7aaeb"},
+    {file = "jaraco.classes-3.3.0.tar.gz", hash = "sha256:c063dd08e89217cee02c8d5e5ec560f2c8ce6cdc2fcdc2e68f7b2e5547ed3621"},
+]
+
+[package.dependencies]
+more-itertools = "*"
+
+[package.extras]
+docs = ["furo", "jaraco.packaging (>=9.3)", "jaraco.tidelift (>=1.4)", "rst.linker (>=1.9)", "sphinx (>=3.5)", "sphinx-lint"]
+testing = ["pytest (>=6)", "pytest-black (>=0.3.7)", "pytest-checkdocs (>=2.4)", "pytest-cov", "pytest-enabler (>=2.2)", "pytest-mypy (>=0.9.1)", "pytest-ruff"]
+
+[package.source]
+type = "legacy"
+url = "https://pypi.org/simple"
+reference = "pypi-public"
+
+[[package]]
+name = "jaraco-collections"
+version = "5.0.0"
+description = "Collection objects similar to those in stdlib by jaraco"
+optional = false
+python-versions = ">=3.8"
+files = [
+    {file = "jaraco.collections-5.0.0-py3-none-any.whl", hash = "sha256:a693d06b12718656921d79ba4f665f905014da09b35aa3deef43be4f14fdaa0d"},
+    {file = "jaraco.collections-5.0.0.tar.gz", hash = "sha256:1680e8d09f295f625c7ba926880175a26fdbe7092b4c76d198e30476b21cfe68"},
+]
+
+[package.dependencies]
+"jaraco.text" = "*"
+
+[package.extras]
+docs = ["furo", "jaraco.packaging (>=9.3)", "jaraco.tidelift (>=1.4)", "rst.linker (>=1.9)", "sphinx (<7.2.5)", "sphinx (>=3.5)", "sphinx-lint"]
+testing = ["pytest (>=6)", "pytest-black (>=0.3.7)", "pytest-checkdocs (>=2.4)", "pytest-cov", "pytest-enabler (>=2.2)", "pytest-mypy (>=0.9.1)", "pytest-ruff"]
+
+[package.source]
+type = "legacy"
+url = "https://pypi.org/simple"
+reference = "pypi-public"
+
+[[package]]
+name = "jaraco-context"
+version = "4.3.0"
+description = "Context managers by jaraco"
+optional = false
+python-versions = ">=3.7"
+files = [
+    {file = "jaraco.context-4.3.0-py3-none-any.whl", hash = "sha256:5d9e95ca0faa78943ed66f6bc658dd637430f16125d86988e77844c741ff2f11"},
+    {file = "jaraco.context-4.3.0.tar.gz", hash = "sha256:4dad2404540b936a20acedec53355bdaea223acb88fd329fa6de9261c941566e"},
+]
+
+[package.extras]
+docs = ["furo", "jaraco.packaging (>=9)", "jaraco.tidelift (>=1.4)", "rst.linker (>=1.9)", "sphinx (>=3.5)", "sphinx-lint"]
+testing = ["flake8 (<5)", "pytest (>=6)", "pytest-black (>=0.3.7)", "pytest-checkdocs (>=2.4)", "pytest-cov", "pytest-enabler (>=1.3)", "pytest-flake8", "pytest-mypy (>=0.9.1)"]
+
+[package.source]
+type = "legacy"
+url = "https://pypi.org/simple"
+reference = "pypi-public"
+
+[[package]]
+name = "jaraco-functools"
+version = "4.0.0"
+description = "Functools like those found in stdlib"
+optional = false
+python-versions = ">=3.8"
+files = [
+    {file = "jaraco.functools-4.0.0-py3-none-any.whl", hash = "sha256:daf276ddf234bea897ef14f43c4e1bf9eefeac7b7a82a4dd69228ac20acff68d"},
+    {file = "jaraco.functools-4.0.0.tar.gz", hash = "sha256:c279cb24c93d694ef7270f970d499cab4d3813f4e08273f95398651a634f0925"},
+]
+
+[package.dependencies]
+more-itertools = "*"
+
+[package.extras]
+docs = ["furo", "jaraco.packaging (>=9.3)", "jaraco.tidelift (>=1.4)", "rst.linker (>=1.9)", "sphinx (<7.2.5)", "sphinx (>=3.5)", "sphinx-lint"]
+testing = ["jaraco.classes", "pytest (>=6)", "pytest-black (>=0.3.7)", "pytest-checkdocs (>=2.4)", "pytest-cov", "pytest-enabler (>=2.2)", "pytest-mypy (>=0.9.1)", "pytest-ruff"]
+
+[package.source]
+type = "legacy"
+url = "https://pypi.org/simple"
+reference = "pypi-public"
+
+[[package]]
+name = "jaraco-structures"
+version = "2.2.0"
+description = "Data structures by jaraco"
+optional = false
+python-versions = ">=3.8"
+files = [
+    {file = "jaraco.structures-2.2.0-py3-none-any.whl", hash = "sha256:d77cc1b43119b58ce3b0d1a395b577a110afa38f2fe7d1cf308362bc47d7c5da"},
+    {file = "jaraco.structures-2.2.0.tar.gz", hash = "sha256:93004c2ff4b721a3d3f248b6f5557c31e94a07607e58d9e97dc4b81ce0df7679"},
+]
+
+[package.extras]
+docs = ["furo", "jaraco.packaging (>=9.3)", "rst.linker (>=1.9)", "sphinx (>=3.5)", "sphinx-lint"]
+testing = ["pytest (>=6)", "pytest-black (>=0.3.7)", "pytest-checkdocs (>=2.4)", "pytest-cov", "pytest-enabler (>=2.2)", "pytest-mypy (>=0.9.1)", "pytest-ruff"]
+
+[package.source]
+type = "legacy"
+url = "https://pypi.org/simple"
+reference = "pypi-public"
+
+[[package]]
+name = "jaraco-text"
+version = "3.12.0"
+description = "Module for text manipulation"
+optional = false
+python-versions = ">=3.8"
+files = [
+    {file = "jaraco.text-3.12.0-py3-none-any.whl", hash = "sha256:1472f5a04a4cf77a0a3867495c24736ed9dc406070634934455323fa3a2c63de"},
+    {file = "jaraco.text-3.12.0.tar.gz", hash = "sha256:389e25c8d4b32e9715bf530596fab0f5cd3aa47296e43969392e18a541af592c"},
+]
+
+[package.dependencies]
+autocommand = "*"
+inflect = "*"
+"jaraco.context" = ">=4.1"
+"jaraco.functools" = "*"
+more-itertools = "*"
+
+[package.extras]
+docs = ["furo", "jaraco.packaging (>=9.3)", "jaraco.tidelift (>=1.4)", "rst.linker (>=1.9)", "sphinx (<7.2.5)", "sphinx (>=3.5)", "sphinx-lint"]
+testing = ["pathlib2", "pytest (>=6)", "pytest-black (>=0.3.7)", "pytest-checkdocs (>=2.4)", "pytest-cov", "pytest-enabler (>=2.2)", "pytest-mypy (>=0.9.1)", "pytest-ruff"]
+
+[package.source]
+type = "legacy"
+url = "https://pypi.org/simple"
+reference = "pypi-public"
+
+[[package]]
+name = "jaraco-ui"
+version = "2.3.0"
+description = "User-Interface tools (mainly command-line)"
+optional = false
+python-versions = ">=3.6"
+files = [
+    {file = "jaraco.ui-2.3.0-py3-none-any.whl", hash = "sha256:9d609ea57a4bd3a85e0b8603526bb0a9016667d956a52cd236b0f4e090864fd7"},
+    {file = "jaraco.ui-2.3.0.tar.gz", hash = "sha256:afaced6efda5c9715c17be9750687c283ff9ace5fb42d9a1997bedb46f6a8a1a"},
+]
+
+[package.dependencies]
+"jaraco.classes" = "*"
+"jaraco.text" = "*"
+
+[package.extras]
+docs = ["jaraco.packaging (>=8.2)", "rst.linker (>=1.9)", "sphinx"]
+testing = ["pytest (>=3.5,!=3.7.3)", "pytest-black (>=0.3.7)", "pytest-checkdocs (>=1.2.3)", "pytest-cov", "pytest-enabler", "pytest-flake8", "pytest-mypy"]
+
+[package.source]
+type = "legacy"
+url = "https://pypi.org/simple"
+reference = "pypi-public"
+
+[[package]]
+name = "jaraco-windows"
+version = "5.8.0"
+description = "Windows Routines by Jason R. Coombs"
+optional = false
+python-versions = ">=3.8"
+files = [
+    {file = "jaraco.windows-5.8.0-py3-none-any.whl", hash = "sha256:2fa49ef411c14fd2e59b6879ec68b225608ec125eb121c882847131c027d0ddc"},
+    {file = "jaraco.windows-5.8.0.tar.gz", hash = "sha256:9215675639e80f96190203b66c37f56479ee68e20841aa4bca309208dd2d8e10"},
+]
+
+[package.dependencies]
+"jaraco.collections" = "*"
+"jaraco.structures" = ">=1.1.1"
+"jaraco.text" = "*"
+"jaraco.ui" = "*"
+more-itertools = "*"
+path = "*"
+
+[package.extras]
+docs = ["furo", "jaraco.packaging (>=9.3)", "pywin32", "rst.linker (>=1.9)", "sphinx (<7.2.5)", "sphinx (>=3.5)", "sphinx-lint"]
+testing = ["pytest (>=6)", "pytest-black (>=0.3.7)", "pytest-checkdocs (>=2.4)", "pytest-cov", "pytest-enabler (>=2.2)", "pytest-mypy (>=0.9.1)", "pytest-ruff"]
 
 [package.source]
 type = "legacy"
@@ -2816,6 +3044,37 @@ url = "https://pypi.org/simple"
 reference = "pypi-public"
 
 [[package]]
+name = "mkinit"
+version = "1.1.0"
+description = "Autogenerate __init__.py files"
+optional = false
+python-versions = ">=3.7"
+files = [
+    {file = "mkinit-1.1.0-py3-none-any.whl", hash = "sha256:b49dca93956c1e3ba2ae84fa31238745cf1d1aaa47ab53aeda5e22d375a3732a"},
+    {file = "mkinit-1.1.0.tar.gz", hash = "sha256:052ee0ba314fbacfc2d04314812868053a3a3acbd393e6a7c0aea4b9f697f6da"},
+]
+
+[package.dependencies]
+ubelt = ">=1.3.4"
+
+[package.extras]
+all = ["Pygments (>=2.2.0)", "black", "colorama", "coverage (>=4.3.4)", "coverage (>=4.5)", "coverage (>=5.3.1)", "coverage (>=5.3.1)", "coverage (>=5.3.1)", "coverage (>=6.1.1)", "coverage (>=6.1.1)", "coverage (>=6.1.1)", "coverage (>=6.1.1)", "lazy-loader (>=0.3)", "packaging (>=21.3)", "pytest (>=4.6.0)", "pytest (>=4.6.0)", "pytest (>=4.6.0,<=4.6.11)", "pytest (>=4.6.0,<=4.6.11)", "pytest (>=4.6.0,<=6.1.2)", "pytest (>=6.2.5)", "pytest-cov (>=2.8.1)", "pytest-cov (>=2.8.1)", "pytest-cov (>=2.9.0)", "pytest-cov (>=3.0.0)", "ubelt (>=1.3.4)", "xdoctest (>=1.1.2)"]
+all-strict = ["Pygments (==2.2.0)", "black", "colorama", "coverage (==4.3.4)", "coverage (==4.5)", "coverage (==5.3.1)", "coverage (==5.3.1)", "coverage (==5.3.1)", "coverage (==6.1.1)", "coverage (==6.1.1)", "coverage (==6.1.1)", "coverage (==6.1.1)", "lazy-loader (==0.3)", "packaging (==21.3)", "pytest (==4.6.0)", "pytest (==4.6.0)", "pytest (==4.6.0)", "pytest (==4.6.0)", "pytest (==4.6.0)", "pytest (==6.2.5)", "pytest-cov (==2.8.1)", "pytest-cov (==2.8.1)", "pytest-cov (==2.9.0)", "pytest-cov (==3.0.0)", "ubelt (==1.3.4)", "xdoctest (==1.1.2)"]
+docs = ["Pygments (>=2.9.0)", "myst-parser (>=0.16.1)", "sphinx (>=4.3.2)", "sphinx-autoapi (>=1.8.4)", "sphinx-autobuild (>=2021.3.14)", "sphinx-reredirects (>=0.0.1)", "sphinx-rtd-theme (>=1.0.0)", "sphinxcontrib-napoleon (>=0.7)"]
+docs-strict = ["Pygments (==2.9.0)", "myst-parser (==0.16.1)", "sphinx (==4.3.2)", "sphinx-autoapi (==1.8.4)", "sphinx-autobuild (==2021.3.14)", "sphinx-reredirects (==0.0.1)", "sphinx-rtd-theme (==1.0.0)", "sphinxcontrib-napoleon (==0.7)"]
+optional = ["Pygments (>=2.2.0)", "black", "colorama"]
+optional-strict = ["Pygments (==2.2.0)", "black", "colorama"]
+runtime = ["ubelt (>=1.3.4)"]
+runtime-strict = ["ubelt (==1.3.4)"]
+tests = ["coverage (>=4.3.4)", "coverage (>=4.5)", "coverage (>=5.3.1)", "coverage (>=5.3.1)", "coverage (>=5.3.1)", "coverage (>=6.1.1)", "coverage (>=6.1.1)", "coverage (>=6.1.1)", "coverage (>=6.1.1)", "lazy-loader (>=0.3)", "packaging (>=21.3)", "pytest (>=4.6.0)", "pytest (>=4.6.0)", "pytest (>=4.6.0,<=4.6.11)", "pytest (>=4.6.0,<=4.6.11)", "pytest (>=4.6.0,<=6.1.2)", "pytest (>=6.2.5)", "pytest-cov (>=2.8.1)", "pytest-cov (>=2.8.1)", "pytest-cov (>=2.9.0)", "pytest-cov (>=3.0.0)", "xdoctest (>=1.1.2)"]
+tests-strict = ["coverage (==4.3.4)", "coverage (==4.5)", "coverage (==5.3.1)", "coverage (==5.3.1)", "coverage (==5.3.1)", "coverage (==6.1.1)", "coverage (==6.1.1)", "coverage (==6.1.1)", "coverage (==6.1.1)", "lazy-loader (==0.3)", "packaging (==21.3)", "pytest (==4.6.0)", "pytest (==4.6.0)", "pytest (==4.6.0)", "pytest (==4.6.0)", "pytest (==4.6.0)", "pytest (==6.2.5)", "pytest-cov (==2.8.1)", "pytest-cov (==2.8.1)", "pytest-cov (==2.9.0)", "pytest-cov (==3.0.0)", "xdoctest (==1.1.2)"]
+
+[package.source]
+type = "legacy"
+url = "https://pypi.org/simple"
+reference = "pypi-public"
+
+[[package]]
 name = "ml-dtypes"
 version = "0.2.0"
 description = ""
@@ -2850,6 +3109,22 @@ numpy = [
 
 [package.extras]
 dev = ["absl-py", "pyink", "pylint (>=2.6.0)", "pytest", "pytest-xdist"]
+
+[package.source]
+type = "legacy"
+url = "https://pypi.org/simple"
+reference = "pypi-public"
+
+[[package]]
+name = "more-itertools"
+version = "10.2.0"
+description = "More routines for operating on iterables, beyond itertools"
+optional = false
+python-versions = ">=3.8"
+files = [
+    {file = "more-itertools-10.2.0.tar.gz", hash = "sha256:8fccb480c43d3e99a00087634c06dd02b0d50fbf088b380de5a41a015ec239e1"},
+    {file = "more_itertools-10.2.0-py3-none-any.whl", hash = "sha256:686b06abe565edfab151cb8fd385a05651e1fdf8f0a14191e4439283421f8684"},
+]
 
 [package.source]
 type = "legacy"
@@ -3435,6 +3710,26 @@ url = "https://pypi.org/simple"
 reference = "pypi-public"
 
 [[package]]
+name = "path"
+version = "16.10.0"
+description = "A module wrapper for os.path"
+optional = false
+python-versions = ">=3.8"
+files = [
+    {file = "path-16.10.0-py3-none-any.whl", hash = "sha256:902afa16e63943c1d6f14d9f74a6603beaa56980807e0234098256fd0ac33fed"},
+    {file = "path-16.10.0.tar.gz", hash = "sha256:b32b22b76fe810a8ded6d136268cc8b6698ae7c47c29b94a9ea12623f3051e46"},
+]
+
+[package.extras]
+docs = ["furo", "jaraco.packaging (>=9.3)", "jaraco.tidelift (>=1.4)", "rst.linker (>=1.9)", "sphinx (<7.2.5)", "sphinx (>=3.5)", "sphinx-lint"]
+testing = ["appdirs", "more-itertools", "packaging", "pygments", "pytest (>=6)", "pytest-checkdocs (>=2.4)", "pytest-cov", "pytest-enabler (>=2.2)", "pytest-mypy", "pytest-ruff (>=0.2.1)", "pywin32"]
+
+[package.source]
+type = "legacy"
+url = "https://pypi.org/simple"
+reference = "pypi-public"
+
+[[package]]
 name = "pathspec"
 version = "0.11.2"
 description = "Utility library for gitignore style pattern matching of file paths."
@@ -3780,6 +4075,63 @@ files = [
     {file = "pycparser-2.21-py2.py3-none-any.whl", hash = "sha256:8ee45429555515e1f6b185e78100aea234072576aa43ab53aefcae078162fca9"},
     {file = "pycparser-2.21.tar.gz", hash = "sha256:e644fdec12f7872f86c58ff790da456218b10f863970249516d60a5eaca77206"},
 ]
+
+[package.source]
+type = "legacy"
+url = "https://pypi.org/simple"
+reference = "pypi-public"
+
+[[package]]
+name = "pydantic"
+version = "1.10.14"
+description = "Data validation and settings management using python type hints"
+optional = false
+python-versions = ">=3.7"
+files = [
+    {file = "pydantic-1.10.14-cp310-cp310-macosx_10_9_x86_64.whl", hash = "sha256:7f4fcec873f90537c382840f330b90f4715eebc2bc9925f04cb92de593eae054"},
+    {file = "pydantic-1.10.14-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:8e3a76f571970fcd3c43ad982daf936ae39b3e90b8a2e96c04113a369869dc87"},
+    {file = "pydantic-1.10.14-cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:82d886bd3c3fbeaa963692ef6b643159ccb4b4cefaf7ff1617720cbead04fd1d"},
+    {file = "pydantic-1.10.14-cp310-cp310-manylinux_2_5_i686.manylinux1_i686.manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:798a3d05ee3b71967844a1164fd5bdb8c22c6d674f26274e78b9f29d81770c4e"},
+    {file = "pydantic-1.10.14-cp310-cp310-musllinux_1_1_i686.whl", hash = "sha256:23d47a4b57a38e8652bcab15a658fdb13c785b9ce217cc3a729504ab4e1d6bc9"},
+    {file = "pydantic-1.10.14-cp310-cp310-musllinux_1_1_x86_64.whl", hash = "sha256:f9f674b5c3bebc2eba401de64f29948ae1e646ba2735f884d1594c5f675d6f2a"},
+    {file = "pydantic-1.10.14-cp310-cp310-win_amd64.whl", hash = "sha256:24a7679fab2e0eeedb5a8924fc4a694b3bcaac7d305aeeac72dd7d4e05ecbebf"},
+    {file = "pydantic-1.10.14-cp311-cp311-macosx_10_9_x86_64.whl", hash = "sha256:9d578ac4bf7fdf10ce14caba6f734c178379bd35c486c6deb6f49006e1ba78a7"},
+    {file = "pydantic-1.10.14-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:fa7790e94c60f809c95602a26d906eba01a0abee9cc24150e4ce2189352deb1b"},
+    {file = "pydantic-1.10.14-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:aad4e10efa5474ed1a611b6d7f0d130f4aafadceb73c11d9e72823e8f508e663"},
+    {file = "pydantic-1.10.14-cp311-cp311-manylinux_2_5_i686.manylinux1_i686.manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:1245f4f61f467cb3dfeced2b119afef3db386aec3d24a22a1de08c65038b255f"},
+    {file = "pydantic-1.10.14-cp311-cp311-musllinux_1_1_i686.whl", hash = "sha256:21efacc678a11114c765eb52ec0db62edffa89e9a562a94cbf8fa10b5db5c046"},
+    {file = "pydantic-1.10.14-cp311-cp311-musllinux_1_1_x86_64.whl", hash = "sha256:412ab4a3f6dbd2bf18aefa9f79c7cca23744846b31f1d6555c2ee2b05a2e14ca"},
+    {file = "pydantic-1.10.14-cp311-cp311-win_amd64.whl", hash = "sha256:e897c9f35281f7889873a3e6d6b69aa1447ceb024e8495a5f0d02ecd17742a7f"},
+    {file = "pydantic-1.10.14-cp37-cp37m-macosx_10_9_x86_64.whl", hash = "sha256:d604be0f0b44d473e54fdcb12302495fe0467c56509a2f80483476f3ba92b33c"},
+    {file = "pydantic-1.10.14-cp37-cp37m-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:a42c7d17706911199798d4c464b352e640cab4351efe69c2267823d619a937e5"},
+    {file = "pydantic-1.10.14-cp37-cp37m-manylinux_2_5_i686.manylinux1_i686.manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:596f12a1085e38dbda5cbb874d0973303e34227b400b6414782bf205cc14940c"},
+    {file = "pydantic-1.10.14-cp37-cp37m-musllinux_1_1_i686.whl", hash = "sha256:bfb113860e9288d0886e3b9e49d9cf4a9d48b441f52ded7d96db7819028514cc"},
+    {file = "pydantic-1.10.14-cp37-cp37m-musllinux_1_1_x86_64.whl", hash = "sha256:bc3ed06ab13660b565eed80887fcfbc0070f0aa0691fbb351657041d3e874efe"},
+    {file = "pydantic-1.10.14-cp37-cp37m-win_amd64.whl", hash = "sha256:ad8c2bc677ae5f6dbd3cf92f2c7dc613507eafe8f71719727cbc0a7dec9a8c01"},
+    {file = "pydantic-1.10.14-cp38-cp38-macosx_10_9_x86_64.whl", hash = "sha256:c37c28449752bb1f47975d22ef2882d70513c546f8f37201e0fec3a97b816eee"},
+    {file = "pydantic-1.10.14-cp38-cp38-macosx_11_0_arm64.whl", hash = "sha256:49a46a0994dd551ec051986806122767cf144b9702e31d47f6d493c336462597"},
+    {file = "pydantic-1.10.14-cp38-cp38-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:53e3819bd20a42470d6dd0fe7fc1c121c92247bca104ce608e609b59bc7a77ee"},
+    {file = "pydantic-1.10.14-cp38-cp38-manylinux_2_5_i686.manylinux1_i686.manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:0fbb503bbbbab0c588ed3cd21975a1d0d4163b87e360fec17a792f7d8c4ff29f"},
+    {file = "pydantic-1.10.14-cp38-cp38-musllinux_1_1_i686.whl", hash = "sha256:336709883c15c050b9c55a63d6c7ff09be883dbc17805d2b063395dd9d9d0022"},
+    {file = "pydantic-1.10.14-cp38-cp38-musllinux_1_1_x86_64.whl", hash = "sha256:4ae57b4d8e3312d486e2498d42aed3ece7b51848336964e43abbf9671584e67f"},
+    {file = "pydantic-1.10.14-cp38-cp38-win_amd64.whl", hash = "sha256:dba49d52500c35cfec0b28aa8b3ea5c37c9df183ffc7210b10ff2a415c125c4a"},
+    {file = "pydantic-1.10.14-cp39-cp39-macosx_10_9_x86_64.whl", hash = "sha256:c66609e138c31cba607d8e2a7b6a5dc38979a06c900815495b2d90ce6ded35b4"},
+    {file = "pydantic-1.10.14-cp39-cp39-macosx_11_0_arm64.whl", hash = "sha256:d986e115e0b39604b9eee3507987368ff8148222da213cd38c359f6f57b3b347"},
+    {file = "pydantic-1.10.14-cp39-cp39-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:646b2b12df4295b4c3148850c85bff29ef6d0d9621a8d091e98094871a62e5c7"},
+    {file = "pydantic-1.10.14-cp39-cp39-manylinux_2_5_i686.manylinux1_i686.manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:282613a5969c47c83a8710cc8bfd1e70c9223feb76566f74683af889faadc0ea"},
+    {file = "pydantic-1.10.14-cp39-cp39-musllinux_1_1_i686.whl", hash = "sha256:466669501d08ad8eb3c4fecd991c5e793c4e0bbd62299d05111d4f827cded64f"},
+    {file = "pydantic-1.10.14-cp39-cp39-musllinux_1_1_x86_64.whl", hash = "sha256:13e86a19dca96373dcf3190fcb8797d40a6f12f154a244a8d1e8e03b8f280593"},
+    {file = "pydantic-1.10.14-cp39-cp39-win_amd64.whl", hash = "sha256:08b6ec0917c30861e3fe71a93be1648a2aa4f62f866142ba21670b24444d7fd8"},
+    {file = "pydantic-1.10.14-py3-none-any.whl", hash = "sha256:8ee853cd12ac2ddbf0ecbac1c289f95882b2d4482258048079d13be700aa114c"},
+    {file = "pydantic-1.10.14.tar.gz", hash = "sha256:46f17b832fe27de7850896f3afee50ea682220dd218f7e9c88d436788419dca6"},
+]
+
+[package.dependencies]
+typing-extensions = ">=4.2.0"
+
+[package.extras]
+dotenv = ["python-dotenv (>=0.10.4)"]
+email = ["email-validator (>=1.0.3)"]
 
 [package.source]
 type = "legacy"
@@ -5431,6 +5783,40 @@ url = "https://pypi.org/simple"
 reference = "pypi-public"
 
 [[package]]
+name = "ubelt"
+version = "1.3.4"
+description = "A Python utility belt containing simple tools, a stdlib like feel, and extra batteries"
+optional = false
+python-versions = ">=3.6"
+files = [
+    {file = "ubelt-1.3.4-py3-none-any.whl", hash = "sha256:1882d6641450e0479dfbfc97f1252e807749dab066cf8b6adced1716dc601913"},
+    {file = "ubelt-1.3.4.tar.gz", hash = "sha256:cedca60a5911943ae1dcc10e4547b70f79e179a096f08cf37d2fcfcd2671abd3"},
+]
+
+[package.dependencies]
+"jaraco.windows" = {version = ">=3.9.1", markers = "platform_system == \"Windows\""}
+pydantic = {version = "<2.0", markers = "platform_system == \"Windows\" and platform_python_implementation == \"PyPy\""}
+
+[package.extras]
+all = ["Pygments (>=2.2.0)", "colorama (>=0.4.3)", "coverage (>=4.3.4)", "coverage (>=4.5)", "coverage (>=5.3.1)", "coverage (>=5.3.1)", "coverage (>=5.3.1)", "coverage (>=6.1.1)", "coverage (>=6.1.1)", "coverage (>=6.1.1)", "coverage (>=6.1.1)", "coverage (>=7.3.0)", "jaraco.windows (>=3.9.1)", "numpy (>=1.12.0,<2.0.0)", "numpy (>=1.14.5,<2.0.0)", "numpy (>=1.19.2)", "numpy (>=1.19.3)", "numpy (>=1.21.1)", "numpy (>=1.23.2)", "numpy (>=1.26.0)", "pydantic (<2.0)", "pytest (>=4.6.0)", "pytest (>=4.6.0)", "pytest (>=4.6.0,<=4.6.11)", "pytest (>=4.6.0,<=4.6.11)", "pytest (>=4.6.0,<=6.1.2)", "pytest (>=6.2.5)", "pytest-cov (>=2.8.1)", "pytest-cov (>=2.8.1)", "pytest-cov (>=2.9.0)", "pytest-cov (>=3.0.0)", "pytest-timeout (>=1.4.2)", "python-dateutil (>=2.8.1)", "requests (>=2.25.1)", "xdoctest (>=1.1.2)", "xxhash (>=1.3.0)", "xxhash (>=1.3.0)", "xxhash (>=1.4.3)", "xxhash (>=2.0.2)", "xxhash (>=3.0.0)", "xxhash (>=3.2.0)", "xxhash (>=3.4.1)"]
+all-strict = ["Pygments (==2.2.0)", "colorama (==0.4.3)", "coverage (==4.3.4)", "coverage (==4.5)", "coverage (==5.3.1)", "coverage (==5.3.1)", "coverage (==5.3.1)", "coverage (==6.1.1)", "coverage (==6.1.1)", "coverage (==6.1.1)", "coverage (==6.1.1)", "coverage (==7.3.0)", "jaraco.windows (==3.9.1)", "numpy (==1.12.0)", "numpy (==1.14.5)", "numpy (==1.19.2)", "numpy (==1.19.3)", "numpy (==1.21.1)", "numpy (==1.23.2)", "numpy (==1.26.0)", "pydantic (<2.0)", "pytest (==4.6.0)", "pytest (==4.6.0)", "pytest (==4.6.0)", "pytest (==4.6.0)", "pytest (==4.6.0)", "pytest (==6.2.5)", "pytest-cov (==2.8.1)", "pytest-cov (==2.8.1)", "pytest-cov (==2.9.0)", "pytest-cov (==3.0.0)", "pytest-timeout (==1.4.2)", "python-dateutil (==2.8.1)", "requests (==2.25.1)", "xdoctest (==1.1.2)", "xxhash (==1.3.0)", "xxhash (==1.3.0)", "xxhash (==1.4.3)", "xxhash (==2.0.2)", "xxhash (==3.0.0)", "xxhash (==3.2.0)", "xxhash (==3.4.1)"]
+docs = ["Pygments (>=2.9.0)", "myst-parser (>=0.16.1)", "sphinx (>=4.3.2)", "sphinx-autoapi (>=1.8.4)", "sphinx-autobuild (>=2021.3.14)", "sphinx-reredirects (>=0.0.1)", "sphinx-rtd-theme (>=1.0.0)", "sphinxcontrib-napoleon (>=0.7)"]
+docs-strict = ["Pygments (==2.9.0)", "myst-parser (==0.16.1)", "sphinx (==4.3.2)", "sphinx-autoapi (==1.8.4)", "sphinx-autobuild (==2021.3.14)", "sphinx-reredirects (==0.0.1)", "sphinx-rtd-theme (==1.0.0)", "sphinxcontrib-napoleon (==0.7)"]
+optional = ["Pygments (>=2.2.0)", "colorama (>=0.4.3)", "numpy (>=1.12.0,<2.0.0)", "numpy (>=1.14.5,<2.0.0)", "numpy (>=1.19.2)", "numpy (>=1.19.3)", "numpy (>=1.21.1)", "numpy (>=1.23.2)", "numpy (>=1.26.0)", "python-dateutil (>=2.8.1)", "xxhash (>=1.3.0)", "xxhash (>=1.3.0)", "xxhash (>=1.4.3)", "xxhash (>=2.0.2)", "xxhash (>=3.0.0)", "xxhash (>=3.2.0)", "xxhash (>=3.4.1)"]
+optional-strict = ["Pygments (==2.2.0)", "colorama (==0.4.3)", "numpy (==1.12.0)", "numpy (==1.14.5)", "numpy (==1.19.2)", "numpy (==1.19.3)", "numpy (==1.21.1)", "numpy (==1.23.2)", "numpy (==1.26.0)", "python-dateutil (==2.8.1)", "xxhash (==1.3.0)", "xxhash (==1.3.0)", "xxhash (==1.4.3)", "xxhash (==2.0.2)", "xxhash (==3.0.0)", "xxhash (==3.2.0)", "xxhash (==3.4.1)"]
+runtime = ["jaraco.windows (>=3.9.1)", "pydantic (<2.0)"]
+runtime-strict = ["jaraco.windows (==3.9.1)", "pydantic (<2.0)"]
+tests = ["coverage (>=4.3.4)", "coverage (>=4.5)", "coverage (>=5.3.1)", "coverage (>=5.3.1)", "coverage (>=5.3.1)", "coverage (>=6.1.1)", "coverage (>=6.1.1)", "coverage (>=6.1.1)", "coverage (>=6.1.1)", "coverage (>=7.3.0)", "pytest (>=4.6.0)", "pytest (>=4.6.0)", "pytest (>=4.6.0,<=4.6.11)", "pytest (>=4.6.0,<=4.6.11)", "pytest (>=4.6.0,<=6.1.2)", "pytest (>=6.2.5)", "pytest-cov (>=2.8.1)", "pytest-cov (>=2.8.1)", "pytest-cov (>=2.9.0)", "pytest-cov (>=3.0.0)", "pytest-timeout (>=1.4.2)", "requests (>=2.25.1)", "xdoctest (>=1.1.2)"]
+tests-strict = ["coverage (==4.3.4)", "coverage (==4.5)", "coverage (==5.3.1)", "coverage (==5.3.1)", "coverage (==5.3.1)", "coverage (==6.1.1)", "coverage (==6.1.1)", "coverage (==6.1.1)", "coverage (==6.1.1)", "coverage (==7.3.0)", "pytest (==4.6.0)", "pytest (==4.6.0)", "pytest (==4.6.0)", "pytest (==4.6.0)", "pytest (==4.6.0)", "pytest (==6.2.5)", "pytest-cov (==2.8.1)", "pytest-cov (==2.8.1)", "pytest-cov (==2.9.0)", "pytest-cov (==3.0.0)", "pytest-timeout (==1.4.2)", "requests (==2.25.1)", "xdoctest (==1.1.2)"]
+types = ["autoflake (>=1.4)", "mypy", "yapf (>=0.32.0)"]
+types-strict = ["autoflake (==1.4)", "mypy", "yapf (==0.32.0)"]
+
+[package.source]
+type = "legacy"
+url = "https://pypi.org/simple"
+reference = "pypi-public"
+
+[[package]]
 name = "uri-template"
 version = "1.3.0"
 description = "RFC 6570 URI Template Processor"
@@ -5674,4 +6060,4 @@ cuda = []
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.9,<3.12"
-content-hash = "e435c5406f9bca53ab3805505066c4d27d3b293eb5c354223e732c5495f67d7f"
+content-hash = "635e15fa2a02d04baeced6f7d5a929d777ac181896e7e44826d90201bbdec61a"
