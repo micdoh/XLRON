@@ -30,6 +30,7 @@ def main(argv):
     jax.config.update("jax_disable_jit", FLAGS.DISABLE_JIT)
     jax.config.update("jax_enable_x64", FLAGS.ENABLE_X64)
     print(f"Available devices: {jax.devices()}")
+    num_devices = len(jax.devices())  # or len(FLAGS.VISIBLE_DEVICES.split(","))
     import jax.numpy as jnp
     import orbax.checkpoint
     from flax.training import orbax_utils
@@ -81,7 +82,7 @@ def main(argv):
     # Print every flag and its name
     if FLAGS.DEBUG:
         print('non-flag arguments:', argv)
-        #jax.numpy.set_printoptions(threshold=sys.maxsize)  # Don't truncate printed arrays
+        jax.numpy.set_printoptions(threshold=sys.maxsize)  # Don't truncate printed arrays
     for name in FLAGS:
         print(name, FLAGS[name].value)
 
@@ -89,12 +90,17 @@ def main(argv):
 
     make_func = make_train if not (FLAGS.EVAL_HEURISTIC or FLAGS.EVAL_MODEL) else make_eval
 
+    if FLAGS.EVAL_MODEL:
+        orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
+        model = orbax_checkpointer.restore(pathlib.Path(FLAGS.MODEL_PATH))
+        FLAGS.__setattr__("model", model)
+
     with TimeIt(tag='COMPILATION'):
         if FLAGS.USE_PMAP:
             # TODO - Fix this to be like Anakin architecture (share gradients across devices)
             # TODO - Retrieve the output using pmean/sum etc.
             FLAGS.ORDERED = False
-            rng = jax.random.split(rng, len(jax.devices())*FLAGS.NUM_SEEDS)
+            rng = jax.random.split(rng, num_devices*FLAGS.NUM_SEEDS)
             if FLAGS.NUM_SEEDS > 1:
                 train_jit = jax.pmap(jax.vmap(make_func(FLAGS)), devices=jax.devices()).lower(rng).compile()
             else:
@@ -108,7 +114,8 @@ def main(argv):
 
     # N.B. that increasing number of seeds or devices will increase the number of steps
     # (essentially training separately per device/seed)
-    with TimeIt(tag='EXECUTION', frames=FLAGS.TOTAL_TIMESTEPS * len(jax.devices()) * FLAGS.NUM_SEEDS):
+    print(f"Running {FLAGS.TOTAL_TIMESTEPS * num_devices * FLAGS.NUM_SEEDS} timesteps over {num_devices} devices")
+    with TimeIt(tag='EXECUTION', frames=FLAGS.TOTAL_TIMESTEPS * num_devices * FLAGS.NUM_SEEDS):
         out = train_jit(rng)
         out["metrics"]["episode_returns"].block_until_ready()  # Wait for all devices to finish
 
@@ -120,11 +127,17 @@ def main(argv):
         save_args = orbax_utils.save_args_from_target(save_data)
         # Get path to current file
         model_path = FLAGS.MODEL_PATH if FLAGS.MODEL_PATH else pathlib.Path(__file__).resolve().parents[2] / "models" / run_name
+        # If model_path dir already exists, append a number to the end
+        i = 1
+        while model_path.exists():
+            model_path = FLAGS.MODEL_PATH if FLAGS.MODEL_PATH else pathlib.Path(__file__).resolve().parents[2] / "models" / f"{run_name}_{i}"
+            i += 1
         print(f"Saving model to {model_path}")
         orbax_checkpointer.save(model_path, save_data, save_args=save_args)
         # TODO - Upload model to wandb
-        #if FLAGS.WANDB:
-        #    wandb.save(FLAGS.MODEL_PATH)
+        if FLAGS.WANDB:
+            print((model_path / "*").absolute())
+            wandb.save(str((model_path / "*").absolute()), base_path=str(model_path.parent))
 
     # Summarise the returns
     if FLAGS.NUM_SEEDS > 1:
@@ -206,6 +219,10 @@ def main(argv):
         plot_metric_std = service_blocking_probability_std
         plot_metric_name = "Service Blocking Probability"
 
+    plt.boxplot(plot_metric[episode_ends])
+    plt.title(experiment_name)
+    plt.show()
+
     def moving_average(x, w):
         return np.convolve(x, np.ones(w), 'valid') / w
 
@@ -222,7 +239,6 @@ def main(argv):
     plt.ylabel(plot_metric_name)
     plt.title(experiment_name)
     plt.savefig(f"{experiment_name}.png")
-    plt.show()
 
     if FLAGS.WANDB:
         # Log the data to wandb
@@ -277,6 +293,8 @@ def main(argv):
                 # "episode_accepted_bitrate_std": episode_accepted_bitrate_std[i],
             }
             wandb.log(log_dict)
+
+    plt.show()
 
 
 if __name__ == "__main__":

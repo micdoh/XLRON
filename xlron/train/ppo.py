@@ -145,14 +145,18 @@ def select_action(rng, env, env_state, env_params, network, network_params, conf
         vmap_mask_slots = jax.vmap(env.action_mask, in_axes=(0, None))
         env_state = env_state.replace(env_state=vmap_mask_slots(env_state.env_state, env_params))
         pi_masked = distrax.Categorical(logits=jnp.where(env_state.env_state.link_slot_mask, pi[0]._logits, -1e8))
-        action = pi_masked.sample(seed=rng[1]) if not deterministic else pi_masked.mode()
+        if config.DEBUG:
+            jax.debug.print("pi {}", pi[0]._logits, ordered=config.ORDERED)
+            jax.debug.print("pi_masked {}", pi_masked._logits, ordered=config.ORDERED)
+            jax.debug.print("last_obs {}", last_obs[0].graph.edges, ordered=config.ORDERED)
+        action = pi_masked.sample(seed=rng[1])
         log_prob = pi_masked.log_prob(action)
 
     else:
         action = pi[0].sample(seed=rng[1]) if not deterministic else pi[0].mode()
         log_prob = pi[0].log_prob(action)
 
-    return action, log_prob, value, rng
+    return action, log_prob, value, rng[0]
 
 
 
@@ -220,7 +224,7 @@ def make_train(config):
                 )
 
                 # STEP ENV
-                rng, _rng = jax.random.split(rng[0])
+                rng, _rng = jax.random.split(rng)
                 rng_step = jax.random.split(_rng, config.NUM_ENVS)
                 obsv, env_state, reward, done, info = jax.vmap(env.step, in_axes=(0,0,0,None))(
                     rng_step, env_state, action, env_params
@@ -239,8 +243,8 @@ def make_train(config):
                     jax.debug.print("log_prob {}", log_prob, ordered=config.ORDERED)
                     jax.debug.print("action {}", action, ordered=config.ORDERED)
                     jax.debug.print("reward {}", reward, ordered=config.ORDERED)
-                    jax.debug.print("link_slot_array {}", env_state.env_state.link_slot_array, ordered=config.ORDERED)
-                    jax.debug.print("link_slot_mask {}", env_state.env_state.link_slot_mask, ordered=config.ORDERED)
+                    #jax.debug.print("link_slot_array {}", env_state.env_state.link_slot_array, ordered=config.ORDERED)
+                    #jax.debug.print("link_slot_mask {}", env_state.env_state.link_slot_mask, ordered=config.ORDERED)
                     if config.env_type.lower() == "vone":
                         jax.debug.print("node_mask_s {}", env_state.env_state.node_mask_s, ordered=config.ORDERED)
                         jax.debug.print("node_mask_d {}", env_state.env_state.node_mask_d, ordered=config.ORDERED)
