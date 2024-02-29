@@ -1,61 +1,29 @@
 from typing import Tuple, Union, Optional
 from flax import struct
 from functools import partial
+import math
 import chex
 import jax
 import jax.numpy as jnp
 import jraph
 from gymnax.environments import environment, spaces
 from xlron.environments.env_funcs import (
-    HashableArrayWrapper, EnvState, EnvParams, init_vone_request_array, init_link_slot_array, init_path_link_array,
+    init_vone_request_array, init_link_slot_array, init_path_link_array,
     init_values_bandwidth, init_link_slot_mask, init_link_slot_departure_array, implement_vone_action,
     check_vone_action, undo_link_slot_action, finalise_vone_action, generate_vone_request, mask_slots, make_graph,
     init_node_capacity_array, init_node_mask, init_node_resource_array, init_node_departure_array, init_values_nodes,
     init_action_counter, init_action_history, update_action_history, decrease_last_element, undo_node_action,
     init_virtual_topology_patterns, mask_nodes, init_path_length_array, init_path_se_array, init_modulations_array,
-    required_slots, init_graph_tuple
+    required_slots, init_graph_tuple, format_vone_slot_request, init_link_length_array
 )
-
-
-@struct.dataclass
-class VONEEnvState(EnvState):
-    link_slot_array: chex.Array
-    node_capacity_array: chex.Array
-    node_resource_array: chex.Array
-    node_departure_array: chex.Array
-    link_slot_departure_array: chex.Array
-    request_array: chex.Array
-    action_counter: chex.Array
-    action_history: chex.Array
-    node_mask_s: chex.Array
-    link_slot_mask: chex.Array
-    node_mask_d: chex.Array
-    virtual_topology_patterns: chex.Array
-    values_nodes: chex.Array
-    values_bw: chex.Array
-
-
-@struct.dataclass
-class VONEEnvParams(EnvParams):
-    num_nodes: chex.Scalar = struct.field(pytree_node=False)
-    num_links: chex.Scalar = struct.field(pytree_node=False)
-    node_resources: chex.Scalar = struct.field(pytree_node=False)
-    link_resources: chex.Scalar = struct.field(pytree_node=False)
-    k_paths: chex.Scalar = struct.field(pytree_node=False)
-    load: chex.Scalar = struct.field(pytree_node=False)
-    mean_service_holding_time: chex.Scalar = struct.field(pytree_node=False)
-    arrival_rate: chex.Scalar = struct.field(pytree_node=False)
-    max_edges: chex.Scalar = struct.field(pytree_node=False)
-    min_node_resources: chex.Scalar = struct.field(pytree_node=False)
-    max_node_resources: chex.Scalar = struct.field(pytree_node=False)
-    path_link_array: chex.Array = struct.field(pytree_node=False)
-    max_slots: chex.Scalar = struct.field(pytree_node=False)
-    path_se_array: chex.Array = struct.field(pytree_node=False)
-    # TODO - Add Laplacian matrix (for node heuristics and might be useful for GNNs)
+from xlron.environments.dataclasses import *
+from xlron.environments.wrappers import *
 
 
 class VONEEnv(environment.Environment):
-    """Jittable abstract base class for all gymnax Environments."""
+    """This environment simulates the Virtual Optical Network Embedding (VONE) problem.
+
+    """
     def __init__(self, params: VONEEnvParams, virtual_topologies=["3_ring"], values_bw: chex.Array = jnp.array([0])):
         super().__init__()
         state = VONEEnvState(
@@ -72,12 +40,15 @@ class VONEEnv(environment.Environment):
             action_counter=init_action_counter(),
             action_history=init_action_history(params),
             node_mask_s=init_node_mask(params),
-            link_slot_mask=init_link_slot_mask(params),
+            link_slot_mask=init_link_slot_mask(params, agg=params.aggregate_slots),
             node_mask_d=init_node_mask(params),
             virtual_topology_patterns=init_virtual_topology_patterns(virtual_topologies),
             values_nodes=init_values_nodes(params.min_node_resources, params.max_node_resources),
             values_bw=values_bw,
-            graph=None
+            graph=None,
+            full_link_slot_mask=init_link_slot_mask(params),
+            accepted_services=0,
+            accepted_bitrate=0.,
         )
         self.initial_state = state.replace(graph=init_graph_tuple(state, params))
 
@@ -100,7 +71,7 @@ class VONEEnv(environment.Environment):
         obs_re, state_re = self.reset_env(key_reset, params)
         # Auto-reset environment based on termination
         state = jax.tree_map(
-            lambda x, y: jax.lax.select(done, x, y), state_re, state_st
+            lambda x, y: jnp.where(done, x, y), state_re, state_st
         )
         obs = jax.lax.select(done, obs_re, obs_st)
         return (
@@ -158,6 +129,7 @@ class VONEEnv(environment.Environment):
             ),
             state
         )
+        # TODO - write separate functions for deterministic transition (above) and stochastic transition (below)
         # Generate new request if all actions have been taken or if action was invalid
         state = jax.lax.cond(
             jnp.any(remaining_actions <= 1) | check,
@@ -173,8 +145,8 @@ class VONEEnv(environment.Environment):
             done = jnp.array(reward == self.get_reward_failure())
         else:
             done = self.is_terminal(state, params)
-        # done = self.is_terminal(state, params) \
-        #     if not params.incremental_loading else jnp.array(reward == self.get_reward_failure())
+        # Update graph tuple
+        state = state.replace(graph=init_graph_tuple(state, params))
         info = {}
         return self.get_obs(state), state, reward, done, info
 
@@ -201,13 +173,7 @@ class VONEEnv(environment.Environment):
 
     def action_mask_slots(self, state: EnvState, params: EnvParams, action: chex.Array) -> chex.Array:
         """Returns action mask for state."""
-        remaining_actions = jnp.squeeze(jax.lax.dynamic_slice_in_dim(state.action_counter, 2, 1))
-        full_request = jnp.squeeze(jax.lax.dynamic_slice_in_dim(state.request_array, 0, 1))
-        unformatted_request = jax.lax.dynamic_slice_in_dim(full_request, (remaining_actions - 1) * 2, 3)
-        node_s = jax.lax.dynamic_slice_in_dim(action, 0, 1)
-        requested_slots = jax.lax.dynamic_slice_in_dim(unformatted_request, 1, 1)
-        node_d = jax.lax.dynamic_slice_in_dim(action, 2, 1)
-        formatted_request = jnp.concatenate((node_s, requested_slots, node_d))
+        formatted_request = format_vone_slot_request(state, action)
         return mask_slots(state, params, formatted_request)
 
     def get_obs_unflat(self, state: EnvState) -> Tuple[chex.Array]:
@@ -261,7 +227,9 @@ class VONEEnv(environment.Environment):
     @staticmethod
     def num_actions(params: EnvParams) -> int:
         """Number of actions possible in environment."""
-        return params.num_nodes + params.num_nodes + params.link_resources * params.k_paths
+        return (params.num_nodes +
+                params.num_nodes +
+                math.ceil(params.link_resources/params.aggregate_slots) * params.k_paths)
 
     def action_space(self, params: EnvParams):
         """Action space of the environment."""
@@ -312,6 +280,7 @@ def make_vone_env(config):
     mean_service_holding_time = config.get("mean_service_holding_time", 10.0)
     arrival_rate = load / mean_service_holding_time
     incremental_loading = config.get("incremental_loading", False)
+    end_first_blocking = config.get("end_first_blocking", False)
     max_requests = config.get("max_requests", 1e4)
     max_timesteps = config.get("max_timesteps", 1e4)
     link_resources = config.get("link_resources", 100)
@@ -327,12 +296,16 @@ def make_vone_env(config):
     consider_modulation_format = config.get("consider_modulation_format", False)
     values_bw = config.get("values_bw", None)
     continuous_operation = config.get("continuous_operation", False)
+    aggregate_slots = config.get("aggregate_slots", 1)
+    disjoint_paths = config.get("disjoint_paths", False)
+    guardband = config.get("guardband", 1)
+    weight = config.get("weight", None)
 
     if values_bw:
         values_bw = [int(val) for val in values_bw]
     num_nodes = len(graph.nodes)
     num_links = len(graph.edges)
-    path_link_array = init_path_link_array(graph, k)
+    path_link_array = init_path_link_array(graph, k, disjoint=disjoint_paths, weight=weight)
 
     # Automated calculation of max edges in virtual topologies
     max_edges = 0
@@ -345,21 +318,22 @@ def make_vone_env(config):
 
     # Automated calculation of max slots requested
     if consider_modulation_format:
+        link_length_array = init_link_length_array(graph)
         path_length_array = init_path_length_array(path_link_array, graph)
-        modulations_array = init_modulations_array(config.get("modulations_file", "modulations.csv"))
+        modulations_array = init_modulations_array(config.get("modulations_csv_filepath", None))
         path_se_array = init_path_se_array(path_length_array, modulations_array)
         min_se = min(path_se_array)  # if consider_modulation_format
-        max_slots = required_slots(max_bw, min_se, slot_size)
+        max_slots = required_slots(max_bw, min_se, slot_size, guardband=guardband)
     else:
+        link_length_array = jnp.ones((1, num_links))
         path_se_array = jnp.array([1])
-        max_slots = required_slots(max_bw, 1, slot_size)
+        max_slots = required_slots(max_bw, 1, slot_size,  guardband=guardband)
 
     if incremental_loading:
         mean_service_holding_time = load = 1e6
 
     # Define edges for use with heuristics and GNNs
     edges = jnp.array(sorted(graph.edges))
-
 
     params = VONEEnvParams(
         max_requests=max_requests,
@@ -377,12 +351,17 @@ def make_vone_env(config):
         max_node_resources=max_node_resources,
         path_link_array=HashableArrayWrapper(path_link_array),
         incremental_loading=incremental_loading,
+        end_first_blocking=end_first_blocking,
         edges=HashableArrayWrapper(edges),
         path_se_array=HashableArrayWrapper(path_se_array),
         max_slots=int(max_slots),
         consider_modulation_format=consider_modulation_format,
         slot_size=slot_size,
         continuous_operation=continuous_operation,
+        link_length_array=HashableArrayWrapper(link_length_array),
+        aggregate_slots=aggregate_slots,
+        guardband=guardband,
+        directed_graph=graph.is_directed(),
     )
 
     env = VONEEnv(params, virtual_topologies=virtual_topologies, values_bw=values_bw)

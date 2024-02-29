@@ -24,13 +24,24 @@ markdown_extensions:
 plugins:
   - search
   - mkdocstrings:
+      enabled: true
       default_handler: python
       handlers:
         python:
+          paths: [xlron]
           setup_commands:
             - import sys
+          options:
+            show_source: true
+            show_root_heading: false
 nav:
     - Home: 'index.md'
+    - 'Getting Started':
+        - 'Installation': 'installation.md'
+        - 'Quick Start': 'quickstart.md'
+    - 'User Guide':
+      - 'Understanding XLRON': 'understanding_xlron.md'
+      - Reference: 'reference.md'
     - About:
         - 'License and Support': 'license.md'
         - 'Change Log': 'changelog.md'
