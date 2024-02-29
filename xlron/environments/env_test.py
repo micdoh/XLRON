@@ -19,6 +19,8 @@ import numpy as np
 from xlron.environments.env_funcs import *
 from xlron.environments.vone import *
 from xlron.environments.rsa import *
+from xlron.environments.wrappers import *
+from xlron.environments.dataclasses import *
 
 
 # Set CPU devices for all tests with --chex_n_cpu_devices N
@@ -2063,6 +2065,6 @@ class RWALightpathReuseTest(parameterized.TestCase):
 
 if __name__ == '__main__':
     # Set the number of (emulated) host devices
-    fake.set_n_cpu_devices(2)
+    chex._src.fake.set_n_cpu_devices(2)
     jax.config.update('jax_numpy_rank_promotion', 'raise')
     absltest.main()

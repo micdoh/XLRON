@@ -1,6 +1,5 @@
-# Environments
 
-::: environments.env_funcs
+# Environments
 
 ::: environments.rsa
 
@@ -8,11 +7,28 @@
 
 ___
 
+# Dataclasses
+
+::: environments.dataclasses
+
+
+___
+
+# Environment wrappers
+
+::: environments.wrappers
+
+___
+
+# Constituent functions of environments
+
+::: environments.env_funcs
+
+___
+
 # Models
 
-
-
-
+::: models.models
 
 ___
 
