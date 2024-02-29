@@ -8,6 +8,8 @@ chex.all_variants() decorator runs the test once for each variant (e.g. jitted, 
 parameterized.named_parameters() decorator runs the test once for each set of parameters passed to the function under test.
 """
 import os
+
+import distrax
 from absl.testing import absltest
 from absl.testing import parameterized
 import chex
@@ -17,6 +19,8 @@ import numpy as np
 from xlron.environments.env_funcs import *
 from xlron.environments.vone import *
 from xlron.environments.rsa import *
+from xlron.environments.wrappers import *
+from xlron.environments.dataclasses import *
 
 
 # Set CPU devices for all tests with --chex_n_cpu_devices N
@@ -89,6 +93,16 @@ def rsa_4node_test_setup():
     return key, env, obs, state, params
 
 
+def rsa_4node_agg_slots_test_setup():
+    key = jax.random.PRNGKey(0)
+    settings_rsa_4node_agg_slots = settings_rsa_4node()
+    settings_rsa_4node_agg_slots["aggregate_slots"] = 2
+    settings_rsa_4node_agg_slots["link_resources"] = 5
+    env, params = make_rsa_env(settings_rsa_4node_agg_slots)
+    obs, state = env.reset(key, params)
+    return key, env, obs, state, params
+
+
 def rsa_4node_3_slot_request_test_setup():
     key = jax.random.PRNGKey(0)
     settings_rsa_4node_3_slots = settings_rsa_4node()
@@ -125,6 +139,25 @@ def rsa_nsfnet_4_test_setup():
     env, params = make_rsa_env(settings_rsa_nsfnet_4)
     obs, state = env.reset(key, params)
     return key, env, obs, state, params
+
+
+def rwa_lightpath_reuse_4_nsfnet_test_setup():
+    key = jax.random.PRNGKey(0)
+    settings_rwa_lr_nsfnet_4 = dict(k=5, topology_name="nsfnet", link_resources=4, max_requests=1000,
+                                 values_bw=[100], incremental_loading=True, env_type="rwa_lightpath_reuse", scale_factor=0.2)
+    env, params = make_rsa_env(settings_rwa_lr_nsfnet_4)
+    obs, state = env.reset(key, params)
+    return key, env, obs, state, params
+
+
+def rwa_lightpath_reuse_4node_test_setup():
+    key = jax.random.PRNGKey(0)
+    settings_rwa_lr_4 = dict(k=2, topology_name="4node", link_resources=4, max_requests=1000,
+                                 values_bw=[100], incremental_loading=True, env_type="rwa_lightpath_reuse",)
+    env, params = make_rsa_env(settings_rwa_lr_4)
+    obs, state = env.reset(key, params)
+    return key, env, obs, state, params
+
 
 
 class GenerateVoneRequestTest(parameterized.TestCase):
@@ -173,6 +206,19 @@ class GenerateRSARequestTest(parameterized.TestCase):
         state = self.variant(generate_rsa_request)(key, self.state, self.params)
         request = state.request_array
         chex.assert_trees_all_close(request, expected)
+
+    @chex.all_variants()
+    @parameterized.named_parameters(
+        ('case_base', (jnp.array([0, 1, 1]), jnp.array([1,1,2]))),
+    )
+    def test_generate_rsa_request_from_list(self, expected):
+        key = np.array([1, 2], dtype=np.uint32)
+        self.params = self.params.replace(deterministic_requests=True, list_of_requests=HashableArrayWrapper(jnp.array([[0,1,1], [1,1,2]])))
+        self.state = self.variant(generate_rsa_request)(key, self.state, self.params)
+        request1 = self.state.request_array
+        self.state = self.variant(generate_rsa_request)(key, self.state, self.params)
+        request2 = self.state.request_array
+        chex.assert_trees_all_close((request1, request2), expected)
 
 
 class InitPathLinkArrayTest(parameterized.TestCase):
@@ -502,7 +548,7 @@ class RemoveExpiredSlotRequestsTest(parameterized.TestCase):
         num_slots = 2
         self.state = self.state.replace(
             link_slot_array=vmap_update_path_links(self.state.link_slot_array, path, initial_slot_index, num_slots, 1),
-            link_slot_departure_array=vmap_update_path_links_departure(self.state.link_slot_departure_array, path, initial_slot_index,
+            link_slot_departure_array=vmap_update_path_links(self.state.link_slot_departure_array, path, initial_slot_index,
                                                              num_slots, -self.state.current_time - self.state.holding_time)
         )
 
@@ -616,7 +662,7 @@ class UndoLinkSlotActionTest(parameterized.TestCase):
         num_slots = 2
         self.state = self.state.replace(
             link_slot_array=vmap_update_path_links(self.state.link_slot_array, path, initial_slot_index, num_slots, 1),
-            link_slot_departure_array=vmap_update_path_links_departure(self.state.link_slot_departure_array, path, initial_slot_index,
+            link_slot_departure_array=vmap_update_path_links(self.state.link_slot_departure_array, path, initial_slot_index,
                                                              num_slots, self.state.current_time+self.state.holding_time)
         )
 
@@ -1762,8 +1808,263 @@ class CalculatePathStatsTest(parameterized.TestCase):
         chex.assert_trees_all_close(stats, expected)
 
 
+class AggregateSlotsTest(parameterized.TestCase):
+
+    def setUp(self):
+        super().setUp()
+        self.key, self.env, self.obs, self.state, self.params = rsa_4node_agg_slots_test_setup()
+
+    @chex.all_variants()
+    @parameterized.named_parameters(
+        ("case_all_invalid", jnp.array([[0.,0.,0.,0.,0.], [0.,0.,0.,0.,0.]]), jnp.array([[0.,0.,0.], [0.,0.,0.]]),),
+        ("case_all_valid", jnp.array([[1.,1.,1.,1.,1.], [1.,1.,1.,1.,1.]]), jnp.array([[1.,1.,1.], [1.,1.,1.]]),),
+        ("case_first_edge_valid", jnp.array([[1.,0.,0.,0.,0.], [0.,0.,0.,0.,0.]]), jnp.array([[1.,0.,0.], [0.,0.,0.]]),),
+        ("case_last_edge_valid", jnp.array([[0.,0.,0.,0.,0.], [0.,0.,0.,0.,1.]]), jnp.array([[0.,0.,0.], [0.,0.,1.]]),),
+        ("case_middle_valid", jnp.array([[0.,0.,1.,0.,0.], [0.,0.,1.,0.,0.]]), jnp.array([[0.,1.,0.], [0.,1.,0.]]),),
+    )
+    def test_aggregate_slots(self, mask, expected):
+        result, mask = self.variant(aggregate_slots, static_argnums=(1,))(mask, self.params)
+        jax.debug.print("result {}", result, ordered=True)
+        chex.assert_trees_all_close(result, expected)
+
+
+class ProcessPathActionTest(parameterized.TestCase):
+
+    def setUp(self):
+        super().setUp()
+        self.key, self.env, self.obs, self.state, self.params = rsa_4node_agg_slots_test_setup()
+
+    @chex.all_variants()
+    @parameterized.named_parameters(
+        ("case_last_fit",
+         jnp.array([0,0,0,0,0,0,0,0,1,0]),
+         jnp.array([4]),
+         jnp.array([3]),
+         ),
+        ("case_first_fit",
+         jnp.array([0,0,1,0,0,0,0,0,0,0]),
+         jnp.array([1]),
+         jnp.array([2]),
+         ),
+    )
+    def test_process_path_action(self, full_link_slot_mask, path_action, expected):
+        state = self.state.replace(full_link_slot_mask=full_link_slot_mask)
+        result_path, result_slot = self.variant(process_path_action, static_argnums=(1,))(state, self.params, path_action)
+        jax.debug.print("result path {}", result_path, ordered=True)
+        jax.debug.print("result slot {}", result_slot, ordered=True)
+        chex.assert_trees_all_close(result_slot, expected)
+        
+        
+class CheckLightpathAvailableAndExistingTest(parameterized.TestCase):
+    
+    def setUp(self):
+        super().setUp()
+        self.key, self.env, self.obs, self.state, self.params = rwa_lightpath_reuse_4node_test_setup()
+
+    @chex.all_variants()
+    @parameterized.named_parameters(
+        ("case_available",
+         jnp.array([[-1, -1, -1, -1, ],
+                    [-1, -1, -1, -1, ],
+                    [-1, -1, -1, -1, ],
+                    [-1, -1, -1, -1, ]]),
+         jnp.array([3]),
+         jnp.array(True),
+         jnp.array(False),
+        ),
+        ("case_not_available",
+         jnp.array([[-1, -1, -1, 1, ],
+                    [-1, -1, -1, -1, ],
+                    [-1, -1, -1, -1, ],
+                    [-1, -1, -1, -1, ]]),
+         jnp.array([3]),
+         jnp.array(False),
+         jnp.array(False),
+         ),
+        ("case_available_existing",
+         jnp.array([[1, 2, 3, 0,],
+                    [4, 5, 6, 7,],
+                    [8, 9, 10, 11,],
+                    [12, 13, 14, 15,]]),
+         jnp.array([3]),
+         jnp.array(True),
+         jnp.array(True),
+         ),
+        ("case_not_available_existing",
+         jnp.array([[-1, -1, -1, 0, ],
+                    [-1, -1, -1, -1, ],
+                    [-1, -1, -1, -1, ],
+                    [-1, -1, -1, -1, ]]),
+         jnp.array([3]),
+         jnp.array(True), # Always available if exists
+         jnp.array(True),
+         ),
+    )
+    def test_lightpath_available_existing(self,path_index_array, action, expected_available, expected_existing, request=jnp.array([0, 100, 1])):
+        state = self.state.replace(path_index_array=path_index_array, request_array=request)
+        result_available, result_existing, curr_lightpath_capacity, lightpath_index = self.variant(
+            check_lightpath_available_and_existing, static_argnums=(1,)
+        )(state, self.params, action)
+        jax.debug.print("request_array {}", state.request_array, ordered=True)
+        jax.debug.print("state.path_capacity_array {}", state.path_capacity_array, ordered=True)
+        jax.debug.print("state.path_index_array {}", state.path_index_array, ordered=True)
+        jax.debug.print("curr_lightpath_capacity {}", curr_lightpath_capacity, ordered=True)
+        jax.debug.print("lightpath_index {}", lightpath_index, ordered=True)
+        jax.debug.print("result available {}", result_available, ordered=True)
+        jax.debug.print("result existing {}", result_existing, ordered=True)
+        chex.assert_trees_all_close(result_available, expected_available)
+        chex.assert_trees_all_close(result_existing, expected_existing)
+
+
+class MaskSlotsRWALightpathReuseTest(parameterized.TestCase):
+
+    def setUp(self):
+        super().setUp()
+        self.key, self.env, self.obs, self.state, self.params = rwa_lightpath_reuse_4node_test_setup()
+
+    @chex.all_variants()
+    @parameterized.named_parameters(
+        ("case_no_capacity",
+         jnp.array([[0., 0., 0., 0., ],
+                    [0., 0., 0., 0., ],
+                    [0., 0., 0., 0., ],
+                    [0., 0., 0., 0., ]]),
+         jnp.array([[-1, -1, -1, -1, ],
+                    [-1, -1, -1, -1, ],
+                    [-1, -1, -1, -1, ],
+                    [-1, -1, -1, -1, ]]),
+         jnp.array([0, 100, 1]),
+         jnp.array([0., 0., 0., 0.,
+                     0., 0., 0., 0., ])
+         ),
+         ("case_capacity_no_path",
+         jnp.array([[100., 100., 100., 100., ],
+                    [100., 100., 100., 100., ],
+                    [100., 100., 100., 100., ],
+                    [100., 100., 100., 100., ],]),
+         jnp.array([[99, 99, 99, 99, ],
+                    [99, 99, 99, 99, ],
+                    [99, 99, 99, 99, ],
+                    [99, 99, 99, 99, ],]),
+         jnp.array([0, 100, 1]),
+         jnp.array([0., 0., 0., 0.,
+                     0., 0., 0., 0., ])
+         ),
+        ("case_capacity_path",
+         jnp.array([[100., 100., 100., 100., ],
+                    [100., 100., 100., 100., ],
+                    [100., 100., 100., 100., ],
+                    [100., 100., 100., 100., ], ]),
+         jnp.array([[99, 99, 99, -1, ],
+                    [99, 99, 99, 99, ],
+                    [99, 99, 99, 99, ],
+                    [99, 99, 99, 99, ], ]),
+         jnp.array([0, 100, 1]),
+         jnp.array([0., 0., 0., 1.,
+                     0., 0., 0., 0., ])
+         ),
+        ("case_no_capacity_path",
+         jnp.array([[100., 100., 100., 0., ],
+                    [100., 100., 100., 100., ],
+                    [100., 100., 100., 100., ],
+                    [100., 100., 100., 100., ], ]),
+         jnp.array([[99, 99, 99, -1, ],
+                    [99, 99, 99, 99, ],
+                    [99, 99, 99, 99, ],
+                    [99, 99, 99, 99, ], ]),
+         jnp.array([0, 100, 1]),
+         jnp.array([0., 0., 0., 0.,
+                     0., 0., 0., 0., ])
+         ),
+        ("case_2_path",
+         jnp.array([[100., 100., 100., 100., ],
+                    [100., 100., 100., 100., ],
+                    [100., 100., 100., 100., ],
+                    [100., 100., 100., 100., ], ]),
+         jnp.array([[99, 99, 99, 0, ],
+                    [99, 1, 99, 99, ],
+                    [99, 1, 99, 99, ],
+                    [99, 1, 99, 99, ], ]),
+         jnp.array([0, 100, 1]),
+         jnp.array([0., 0., 0., 1.,
+                     0., 1., 0., 0., ])
+         ),
+    )
+    def test_mask_slots_rwa_lightpath_reuse(self, link_capacity_array, path_index_array, request, expected):
+        state = self.state.replace(
+            link_capacity_array=link_capacity_array, path_index_array=path_index_array
+        )
+        state = self.variant(mask_slots_rwa_lightpath_reuse, static_argnums=(1,))(state, self.params, request)
+        jax.debug.print("state.link_slot_mask {}", state.link_slot_mask, ordered=True)
+        jax.debug.print("expected {}", expected, ordered=True)
+        chex.assert_trees_all_close(state.link_slot_mask, expected)
+
+
+class RWALightpathReuseTest(parameterized.TestCase):
+
+    def setUp(self):
+        super().setUp()
+        self.key, self.env, self.obs, self.state, self.params = rwa_lightpath_reuse_4_nsfnet_test_setup()
+
+    @chex.all_variants()
+    @parameterized.named_parameters(
+        ("case_end_episode",
+         jnp.array([[ 200.,  800.,  500.,    0.,],
+                    [1100.,  700.,  700.,  700.,],
+                    [   0.,    0.,  300.,    0.,],
+                    [ 800.,  500.,  600.,  500.,],
+                    [ 400.,  100.,  200.,    0.,],
+                    [ 300.,    0.,    0.,    0.,],
+                    [ 400.,  300.,  300.,  600.,],
+                    [   0.,    0.,    0.,    0.,],
+                    [ 400.,    0.,  200.,    0.,],
+                    [ 600.,  500.,  900.,  900.,],
+                    [ 400.,  300.,  200.,  400.,],
+                    [   0.,    0.,  400.,  700.,],
+                    [ 700.,  500.,  600.,  300.,],
+                    [ 600.,  800.,  500.,  700.,],
+                    [ 500.,  600.,  700.,  300.,],
+                    [ 600.,  200.,  200.,  400.,],
+                    [1100.,  900.,  700.,  900.,],
+                    [1000.,  800.,  800.,  900.,],
+                    [ 400.,  600.,  400.,  600.,],
+                    [ 700.,  200.,  400.,  300.,],
+                    [ 600.,  900.,  800., 1300.,],
+                    [1100., 1200., 1300., 1500.,]])
+         ),
+    )
+    def test_end_episode(self, expected):
+        rng, reset_rng = jax.random.split(self.key)
+        obsv, env_state = self.env.reset(reset_rng, self.params)
+        reward = jnp.array([1.])
+        i = 0
+        while reward > 0:
+            i += 1
+            rng, rng_sample, rng_step = jax.random.split(rng, 3)
+            # get mask
+            env_state = self.env.action_mask(env_state, self.params)
+            mask = env_state.link_slot_mask
+            # make distribution
+            action_dist = distrax.Categorical(logits=jnp.where(mask, mask, -1e8))
+            jax.debug.print("action dist {}", action_dist.logits, ordered=True)
+            # sample distribution
+            action = action_dist.sample(seed=rng_sample)
+            # step env
+            remaining_capacity = env_state.link_capacity_array  # capture to avoid being reset to initial state
+            obsv, env_state, reward, done, info = self.variant(self.env.step, static_argnums=(3))(
+                rng_step, env_state, action, self.params
+            )
+            jax.debug.print("action mask {}", env_state.link_slot_mask, ordered=True)
+            jax.debug.print("action {}", action, ordered=True)
+            jax.debug.print("reward {}", reward, ordered=True)
+            jax.debug.print("-----END-----")
+            if i == 1000:
+                break
+        chex.assert_trees_all_close(remaining_capacity, expected)
+
+
 if __name__ == '__main__':
     # Set the number of (emulated) host devices
-    fake.set_n_cpu_devices(2)
+    chex._src.fake.set_n_cpu_devices(2)
     jax.config.update('jax_numpy_rank_promotion', 'raise')
     absltest.main()

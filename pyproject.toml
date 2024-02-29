@@ -37,13 +37,15 @@ distrax = "^0.1.4"
 mkdocs = "^1.5.2"
 ruff = "^0.0.286"
 mkdocs-material = "^9.2.6"
-mkdocstrings = "^0.22.0"
+mkdocstrings = {extras = ["python"], version = "^0.22.0"}
 pytest-cov = "^4.1.0"
 absl-py = "^1.4.0"
 dm-haiku = "^0.0.10"
 rlax = "^0.1.6"
 jraph = "^0.0.6.dev0"
 ml-dtypes = "0.2.0"
+orbax = "^0.1.9"
+mkinit = "^1.1.0"
 
 [tool.poetry.extras]
 cuda = ["nvidia-cuda-runtime-cu11", "torch", "torchvision"]

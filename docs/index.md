@@ -4,7 +4,7 @@
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 [![codecov](https://codecov.io/gh/micdoh/XLRON/graph/badge.svg?token=UW9CCLRAFJ)](https://codecov.io/gh/micdoh/XLRON)
 
-<img src="../docs/images/xlron_nobackground.png">
+<img src="./images/xlron_nobackground.png">
 
 ___
 
@@ -45,7 +45,7 @@ To fairly assess the speed-up offered by XLRON, we implement a "DeepRMSA" enviro
 
 The below figure shows the training curves for both implementations, with 250 or 2000 parallel envs shown for XLRON. Shaded areas indicate the standard deviation of values across environments (each with a unique random seed) for XLRON and across 3 random seeds for SB3. The left figure shows the training progression with episode count, the right figure shows training progression with time on a log scale.
 
-![ofc2023_comp_all.png](docs%2Fimages%2Fofc2023_comp_all.png)
+<img src="./images/ofc2023_comp_all.png">
 
 Increasing the number of parallel environments decreases the time required to train on a given number of environment steps, but changes the training dynamics so hyperparameters should be tuned accordingly for different numbers of parallel environments.
 
@@ -64,13 +64,14 @@ There are 4 horizontal bars per experiment:
 
 Experiment names on y-axis follow the naming convention: topology name (NSFNET or CONUS) - number of FSU per link - JAX or numpy environment - device type - number of vectorised environments.
 
-![ofc2023_vone_comparison.png](docs%2Fimages%2Fofc2023_vone_comparison.png)
+<img src="./images/ofc2023_vone_comparison.png">
 
 
 #### Compilation times
 
 See below figure for compilatiion times of different environments. Compilation typically takes a few seconds, therefore adds very little overhead to the training process.
-![compilation_xlron.png](docs%2Fimages%2Fcompilation_xlron.png)
+
+<img src="./images/compilation_xlron.png">
 
 
 
@@ -85,7 +86,7 @@ ___
 
 ## Acknowledgements
 
-Financial support from EPSRC Centre for Doctoral Training in Connected Electronic and Photonic Systems (CEPS CDT) and EPSRC Programme Grant TRANSNET (EP/R035342/1) is gratefully acknowledged.
+This work was supported by the Engineering and Physical Sciences Research Council (EPSRC) grant EP/S022139/1 - the Centre for Doctoral Training in Connected Electronic and Photonic Systems - and EPSRC Programme Grant TRANSNET (EP/R035342/1)
 
 ___
 
