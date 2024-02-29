@@ -34,7 +34,8 @@ def main(argv):
     import jax.numpy as jnp
     import orbax.checkpoint
     from flax.training import orbax_utils
-    from xlron.environments.env_funcs import TimeIt, create_run_name
+    from xlron.environments.env_funcs import create_run_name
+    from xlron.environments.wrappers import TimeIt
     from xlron.train.ppo import make_train
     from xlron.heuristics.eval_heuristic import make_eval
     # The following flags can improve GPU performance for jaxlib>=0.4.18

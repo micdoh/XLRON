@@ -11,6 +11,7 @@ from flax.linen.initializers import constant, orthogonal
 from typing import Sequence, NamedTuple, Any, Tuple
 from flax.training.train_state import TrainState
 from xlron.environments.env_funcs import *
+from xlron.environments.wrappers import LogWrapper
 from xlron.environments.vone import make_vone_env
 from xlron.environments.rsa import make_rsa_env
 from xlron.models.models import ActorCriticGNN, ActorCriticMLP

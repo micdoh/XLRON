@@ -8,7 +8,7 @@ import jax.numpy as jnp
 import jraph
 from gymnax.environments import environment, spaces
 from xlron.environments.env_funcs import (
-    HashableArrayWrapper, EnvState, EnvParams, init_vone_request_array, init_link_slot_array, init_path_link_array,
+    init_vone_request_array, init_link_slot_array, init_path_link_array,
     init_values_bandwidth, init_link_slot_mask, init_link_slot_departure_array, implement_vone_action,
     check_vone_action, undo_link_slot_action, finalise_vone_action, generate_vone_request, mask_slots, make_graph,
     init_node_capacity_array, init_node_mask, init_node_resource_array, init_node_departure_array, init_values_nodes,
@@ -16,47 +16,14 @@ from xlron.environments.env_funcs import (
     init_virtual_topology_patterns, mask_nodes, init_path_length_array, init_path_se_array, init_modulations_array,
     required_slots, init_graph_tuple, format_vone_slot_request, init_link_length_array
 )
-
-
-@struct.dataclass
-class VONEEnvState(EnvState):
-    link_slot_array: chex.Array
-    node_capacity_array: chex.Array
-    node_resource_array: chex.Array
-    node_departure_array: chex.Array
-    link_slot_departure_array: chex.Array
-    request_array: chex.Array
-    action_counter: chex.Array
-    action_history: chex.Array
-    node_mask_s: chex.Array
-    link_slot_mask: chex.Array
-    node_mask_d: chex.Array
-    virtual_topology_patterns: chex.Array
-    values_nodes: chex.Array
-    values_bw: chex.Array
-
-
-@struct.dataclass
-class VONEEnvParams(EnvParams):
-    num_nodes: chex.Scalar = struct.field(pytree_node=False)
-    num_links: chex.Scalar = struct.field(pytree_node=False)
-    node_resources: chex.Scalar = struct.field(pytree_node=False)
-    link_resources: chex.Scalar = struct.field(pytree_node=False)
-    k_paths: chex.Scalar = struct.field(pytree_node=False)
-    load: chex.Scalar = struct.field(pytree_node=False)
-    mean_service_holding_time: chex.Scalar = struct.field(pytree_node=False)
-    arrival_rate: chex.Scalar = struct.field(pytree_node=False)
-    max_edges: chex.Scalar = struct.field(pytree_node=False)
-    min_node_resources: chex.Scalar = struct.field(pytree_node=False)
-    max_node_resources: chex.Scalar = struct.field(pytree_node=False)
-    path_link_array: chex.Array = struct.field(pytree_node=False)
-    max_slots: chex.Scalar = struct.field(pytree_node=False)
-    path_se_array: chex.Array = struct.field(pytree_node=False)
-    # TODO - Add Laplacian matrix (for node heuristics)
+from xlron.environments.dataclasses import *
+from xlron.environments.wrappers import *
 
 
 class VONEEnv(environment.Environment):
-    """Jittable abstract base class for all gymnax Environments."""
+    """This environment simulates the Virtual Optical Network Embedding (VONE) problem.
+
+    """
     def __init__(self, params: VONEEnvParams, virtual_topologies=["3_ring"], values_bw: chex.Array = jnp.array([0])):
         super().__init__()
         state = VONEEnvState(

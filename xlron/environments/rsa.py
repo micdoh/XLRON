@@ -11,7 +11,7 @@ import numpy as np
 import jraph
 from gymnax.environments import environment, spaces
 from xlron.environments.env_funcs import (
-    HashableArrayWrapper, EnvState, EnvParams, init_rsa_request_array, init_link_slot_array, init_path_link_array,
+    init_rsa_request_array, init_link_slot_array, init_path_link_array,
     convert_node_probs_to_traffic_matrix, init_link_slot_mask, init_link_slot_departure_array, init_traffic_matrix,
     implement_rsa_action, check_rsa_action, undo_link_slot_action, finalise_rsa_action, generate_rsa_request,
     mask_slots, make_graph, init_path_length_array, init_modulations_array, init_path_se_array, required_slots,
@@ -19,61 +19,12 @@ from xlron.environments.env_funcs import (
     init_link_capacity_array, init_path_capacity_array, init_path_index_array, mask_slots_rwa_lightpath_reuse,
     implement_rwa_lightpath_reuse_action, check_rwa_lightpath_reuse_action, pad_array
 )
-
-
-@struct.dataclass
-class RSAEnvState(EnvState):
-    link_slot_array: chex.Array
-    request_array: chex.Array
-    link_slot_departure_array: chex.Array
-    link_slot_mask: chex.Array
-    traffic_matrix: chex.Array
-    values_bw: chex.Array
-
-
-@struct.dataclass
-class RSAEnvParams(EnvParams):
-    num_nodes: chex.Scalar = struct.field(pytree_node=False)
-    num_links: chex.Scalar = struct.field(pytree_node=False)
-    link_resources: chex.Scalar = struct.field(pytree_node=False)
-    k_paths: chex.Scalar = struct.field(pytree_node=False)
-    mean_service_holding_time: chex.Scalar = struct.field(pytree_node=False)
-    load: chex.Scalar = struct.field(pytree_node=False)
-    arrival_rate: chex.Scalar = struct.field(pytree_node=False)
-    path_link_array: chex.Array = struct.field(pytree_node=False)
-    random_traffic: bool = struct.field(pytree_node=False)
-    max_slots: chex.Scalar = struct.field(pytree_node=False)
-    path_se_array: chex.Array = struct.field(pytree_node=False)
-    deterministic_requests: bool = struct.field(pytree_node=False)
-    list_of_requests: chex.Array = struct.field(pytree_node=False)
-    multiple_topologies: bool = struct.field(pytree_node=False)
-
-
-@struct.dataclass
-class DeepRMSAEnvState(RSAEnvState):
-    path_stats: chex.Array
-
-
-@struct.dataclass
-class DeepRMSAEnvParams(RSAEnvParams):
-    pass
-
-
-@struct.dataclass
-class RWALightpathReuseEnvState(RSAEnvState):
-    path_index_array: chex.Array  # Contains indices of lightpaths in use on slots
-    path_capacity_array: chex.Array  # Contains remaining capacity of each lightpath
-    link_capacity_array: chex.Array  # Contains remaining capacity of lightpath on each link-slot
-
-
-@struct.dataclass
-class RWALightpathReuseEnvParams(RSAEnvParams):
-    pass
+from xlron.environments.dataclasses import *
+from xlron.environments.wrappers import *
 
 
 class RSAEnv(environment.Environment):
-    """Jittable abstract base class for all gymnax Environments.
-    This environment simulates the Routing Modulation and Spectrum Assignment (RMSA) problem.
+    """This environment simulates the Routing Modulation and Spectrum Assignment (RMSA) problem.
     It can model RSA by setting consider_modulation_format=False in params.
     It can model RWA by setting min_bw=0, max_bw=0, and consider_modulation_format=False in params.
     """
@@ -84,6 +35,17 @@ class RSAEnv(environment.Environment):
             values_bw: chex.Array = jnp.array([0]),
             traffic_matrix: chex.Array = None
     ):
+        """Initialise the environment state and set as initial state.
+
+        Args:
+            key: PRNG key
+            params: Environment parameters
+            values_bw: Bandwidth values for each modulation format
+            traffic_matrix (optional): Traffic matrix
+
+        Returns:
+            None
+        """
         super().__init__()
         state = RSAEnvState(
             current_time=0,
@@ -111,7 +73,21 @@ class RSAEnv(environment.Environment):
         action: Union[int, float],
         params: Optional[RSAEnvParams] = None,
     ) -> Tuple[chex.Array, RSAEnvState, float, bool, dict]:
-        """Performs step transitions in the environment."""
+        """Performs step transitions in the environment.
+
+        Args:
+            key: PRNG key
+            state: Environment state
+            action: Action to take (single value array)
+            params: Environment parameters
+
+        Returns:
+            obs: Observation
+            state: New environment state
+            reward: Reward
+            done: Termination flag
+            info: Additional information
+        """
         # Use default env parameters if no others specified
         if params is None:
             params = self.default_params
@@ -137,7 +113,16 @@ class RSAEnv(environment.Environment):
     def reset(
         self, key: chex.PRNGKey, params: Optional[RSAEnvParams] = None
     ) -> Tuple[chex.Array, RSAEnvState]:
-        """Performs resetting of environment."""
+        """Performs resetting of environment.
+
+        Args:
+            key: PRNG key
+            params: Environment parameters
+
+        Returns:
+            obs: Observation
+            state: Reset environment state
+        """
         # Use default env parameters if no others specified
         if params is None:
             params = self.default_params
@@ -151,7 +136,30 @@ class RSAEnv(environment.Environment):
         action: Union[int, float],
         params: RSAEnvParams,
     ) -> Tuple[chex.Array, RSAEnvState, chex.Array, chex.Array, chex.Array]:
-        """Environment-specific step transition."""
+        """Environment-specific step transition.
+        1. Implement action
+        2. Check if action was valid
+            - If valid, calculate reward and finalise action
+            - If invalid, calculate reward and undo action
+        3. Generate new request, update current time, remove expired requests
+        4. Update timesteps
+        5. Terminate if max_timesteps or max_requests exceeded
+        6. if DeepRMSAEnv, calculate path stats
+        7. if using GNN policy, update graph tuple
+
+        Args:
+            key: PRNG key
+            state: Environment state
+            action: Action to take (single value array)
+            params: Environment parameters
+
+        Returns:
+            obs: Observation
+            state: New environment state
+            reward: Reward
+            done: Termination flag
+            info: Additional information
+        """
         # Do action
         implement_action = implement_rwa_lightpath_reuse_action \
             if params.__class__.__name__ == "RWALightpathReuseEnvParams" else implement_rsa_action
@@ -191,7 +199,18 @@ class RSAEnv(environment.Environment):
     def reset_env(
         self, key: chex.PRNGKey, params: RSAEnvParams
     ) -> Tuple[chex.Array, RSAEnvState]:
-        """Environment-specific reset."""
+        """Environment-specific reset.
+        Generates new random traffic matrix if random_traffic is True, otherwise uses the provided traffic matrix.
+        Generates new request.
+
+        Args:
+            key: PRNG key
+            params: Environment parameters
+
+        Returns:
+            obs: Observation
+            state: Reset environment state
+        """
         #if params.multiple_topologies:
             # TODO - implement this (shuffle through topologies and use the top of the stack)
             # Question - do i need to rewrite every function to take in a params argument and index params[0]?
@@ -212,17 +231,31 @@ class RSAEnv(environment.Environment):
     @partial(jax.jit, static_argnums=(0, 2,))
     def action_mask(self, state: RSAEnvState, params: RSAEnvParams) -> RSAEnvState:
         """Returns mask of valid actions.
-
         1. Check request for source and destination nodes
-
         2. For each path, mask out (0) initial slots that are not valid
+        See mask_slots function for more details.
+
+        Args:
+            state: Environment state
+            params: Environment parameters
+
+        Returns:
+            state: Environment state with action mask
         """
         state = mask_slots(state, params, state.request_array)
         return state
 
     @partial(jax.jit, static_argnums=(0, 2,))
     def get_obs_unflat(self, state: RSAEnvState, params: RSAEnvParams) -> Tuple[chex.Array, chex.Array]:
-        """Applies observation function to state."""
+        """Retrieves observation from state.
+
+        Args:
+            state: Environment state
+            params: Environment parameters
+
+        Returns:
+            obs: Observation (request array, link slot array)
+        """
         return (
             state.request_array,
             state.link_slot_array,
@@ -230,7 +263,15 @@ class RSAEnv(environment.Environment):
 
     @partial(jax.jit, static_argnums=(0, 2,))
     def get_obs(self, state: RSAEnvState, params: RSAEnvParams) -> chex.Array:
-        """Applies observation function to state."""
+        """Retrieves observation from state and reshapes into single array.
+
+        Args:
+            state: Environment state
+            params: Environment parameters
+
+        Returns:
+            obs: Observation (flattened request array and link slot array)
+        """
         return jnp.concatenate(
             (
                 jnp.reshape(state.request_array, (-1,)),
@@ -240,22 +281,52 @@ class RSAEnv(environment.Environment):
         )
 
     def is_terminal(self, state: RSAEnvState, params: RSAEnvParams) -> chex.Array:
-        """Check whether state transition is terminal."""
+        """Check whether state transition is terminal.
+
+        Args:
+            state: Environment state
+            params: Environment parameters
+
+        Returns:
+            done: Boolean termination flag
+        """
         return jnp.logical_or(
             jnp.array(state.total_requests >= params.max_requests),
             jnp.array(state.total_timesteps >= params.max_timesteps)
         )
 
     def discount(self, state: RSAEnvState, params: RSAEnvParams) -> chex.Array:
-        """Return a discount of zero if the episode has terminated."""
+        """Return a discount of zero if the episode has terminated.
+
+        Args:
+            state: Environment state
+            params: Environment parameters
+
+        Returns:
+            discount: Binary discount factor
+        """
         return jax.lax.select(self.is_terminal(state, params), 0.0, 1.0)
 
     def get_reward_failure(self, state: Optional[EnvState] = None) -> chex.Array:
-        """Return reward for current state."""
+        """Return reward for current state.
+
+        Args:
+            state (optional): Environment state
+
+        Returns:
+            reward: Reward for failure
+        """
         return jnp.array(-1.0)
 
     def get_reward_success(self, state: Optional[EnvState] = None) -> chex.Array:
-        """Return reward for current state."""
+        """Return reward for current state.
+
+        Args:
+            state: (optional) Environment state
+
+        Returns:
+            reward: Reward for success
+        """
         return jnp.array(1.0)
 
     @property
@@ -270,7 +341,7 @@ class RSAEnv(environment.Environment):
 
     def action_space(self, params: RSAEnvParams):
         """Action space of the environment."""
-        return spaces.Discrete(params.link_resources * params.k_paths)
+        return spaces.Discrete(self.num_actions(params))
 
     def observation_space(self, params: RSAEnvParams):
         """Observation space of the environment."""
@@ -297,7 +368,13 @@ class RSAEnv(environment.Environment):
 
 
 class DeepRMSAEnv(RSAEnv):
+    """This environment simulates the Routing Modulation and Spectrum Assignment (RMSA) problem,
+    with action and observation spaces that match those defined in the DeepRMSA paper:
 
+    https://ieeexplore.ieee.org/document/8738827/
+
+    See above paper and path_stats function for more details of the observation space.
+    """
     def __init__(
             self,
             key: chex.PRNGKey,
@@ -330,7 +407,21 @@ class DeepRMSAEnv(RSAEnv):
             action: Union[int, float],
             params: RSAEnvParams,
     ) -> Tuple[chex.Array, RSAEnvState, chex.Array, chex.Array, chex.Array]:
-        """Environment-specific step transition."""
+        """Environment-specific step transition.
+
+        Args:
+            key: PRNG key
+            state: Environment state
+            action: Action to take (single value array indicating which of k paths to use)
+            params: Environment parameters
+
+        Returns:
+            obs: Observation
+            state: New environment state
+            reward: Reward
+            done: Termination flag
+            info: Additional information
+        """
         # Do action
         # state = mask_slots(state, params, state.request_array)
         # mask = jnp.reshape(state.link_slot_mask, (params.k_paths, -1))
@@ -348,13 +439,22 @@ class DeepRMSAEnv(RSAEnv):
 
     @partial(jax.jit, static_argnums=(0, 2,))
     def action_mask(self, state: RSAEnvState, params: RSAEnvParams) -> RSAEnvState:
+        """Returns mask of valid actions.
+
+        Args:
+            state: Environment state
+            params: Environment parameters
+
+        Returns:
+            state: Environment state with action mask
+        """
         mask = jnp.where(state.path_stats[:, 3] >= 1, 1., 0.)
         # If mask is all zeros, make all ones
         mask = jnp.where(jnp.sum(mask) == 0, 1., mask)
         state = state.replace(link_slot_mask=mask)
         return state
 
-    def action_space(self, params: RSAEnvParams):
+    def action_space(self, params: RSAEnvParams) -> spaces.Discrete:
         """Action space of the environment."""
         return spaces.Discrete(params.k_paths)
 
@@ -396,7 +496,14 @@ class DeepRMSAEnv(RSAEnv):
 class RWALightpathReuseEnv(RSAEnv):
     # TODO - need to keep track of active requests to enable
     #  dynamic RWA with lightpath reuse (as opposed to just incremental loading) OR just randomly remove connections
+    """This environment simulates the Routing and Wavelength Assignment (RWA) problem with lightpath reuse.
+    Lightpath reuse means the transponders in the network are assumed to be "flex-rate", therefore multiple traffic
+    requests with same source-destination nodes can be packed onto the same lightpath, so long as it has sufficient
+    remaining capacity. See the following paper for more details of the problem, which this environment recreates
+    exactly:
 
+    https://discovery.ucl.ac.uk/id/eprint/10175456/
+    """
     def __init__(
             self,
             key: chex.PRNGKey,
@@ -405,6 +512,18 @@ class RWALightpathReuseEnv(RSAEnv):
             traffic_matrix: chex.Array = None,
             path_capacity_array: chex.Array = None,
     ):
+        """Initialise the environment state and set as initial state.
+
+        Args:
+            key: PRNG key
+            params: Environment parameters
+            values_bw: Bandwidth values for each modulation format
+            traffic_matrix (optional): Traffic matrix
+            path_capacity_array: Array of path capacities
+
+        Returns:
+            None
+        """
         super().__init__(key, params, values_bw=values_bw, traffic_matrix=traffic_matrix)
         state = RWALightpathReuseEnvState(
             current_time=0,
@@ -429,15 +548,27 @@ class RWALightpathReuseEnv(RSAEnv):
 
     @partial(jax.jit, static_argnums=(0, 2,))
     def action_mask(self, state: RSAEnvState, params: RSAEnvParams) -> RSAEnvState:
-        """Returns mask of valid actions."""
+        """Returns mask of valid actions.
+
+        Args:
+            state: Environment state
+            params: Environment parameters
+
+        Returns:
+            state: Environment state with action mask
+        """
         state = mask_slots_rwa_lightpath_reuse(state, params, state.request_array)
         return state
 
 
 def make_rsa_env(config):
-    """Create RSA environment.
+    """Create RSA environment. This function is the entry point to setting up any RSA-type environment.
+    This function takes a dictionary of the commandline flag parameters and configures the
+    RSA environment and parameters accordingly.
+
     Args:
         config: Configuration dictionary
+
     Returns:
         env: RSA environment
         params: RSA environment parameters
