@@ -41,6 +41,7 @@ nav:
         - 'Quick Start': 'quickstart.md'
     - 'User Guide':
       - 'Understanding XLRON': 'understanding_xlron.md'
+      - 'Commandline Options': 'flags_reference.md'
       - Reference: 'reference.md'
     - About:
         - 'License and Support': 'license.md'
