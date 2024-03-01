@@ -19,23 +19,26 @@ The chief constraints that XLRON obeys to be compatible with JAX are:
 
 ## 2. Environment state and params
 
-In order to satisfy the constraints of JAX, XLRON environments are implemented as a series of pure functions that take a state and a set of parameters as input, and return an updated state as output. (Other arguments may also be passed to the functions e.g. [pseudo random number generator keys](https://jax.readthedocs.io/en/latest/jax-101/05-random-numbers.html)). Both the state and the parameters are defined as custom dataclasses.
+In order to satisfy the constraints of JAX, XLRON environments are implemented as a series of pure functions that take a state and a set of parameters as input, and return an updated state as output. (Other arguments may also be passed to the functions e.g. [pseudo random number generator keys](https://jax.readthedocs.io/en/latest/jax-101/05-random-numbers.html)). Both the state and the parameters are defined as custom dataclasses. Each of the main environments supported by XLRON (RSA, DeepRMSA, RWALightpathReuse, VONE) has a custom state and parameters.
 
-**The environment state** repres
+**The environment state** represents the current state of our network including currently active traffic requests, occupancy of spectral slots on links, and other relevant information that can change over the course of an episode. The state is updated by the environment's `step()` transition function.
 
-**The environment parameters** 
+**The environment parameters** represent the parameters of the environment, such as the topology of the network, the capacity of links, the number of slots on each link, and other relevant information. The parameters are fixed and do not change during the course of an episode. Parameters are specified as static arguments to functions, to indicate their values are known at compile time.
 
-Each of the main environments supported by XLRON (RSA, DeepRMSA, RWALightpathReuse, VONE) has a custom state and parameters. The state and parameters are defined as dataclasses, and are passed as arguments to the functions that define the environment's transitions.
 
 ## 3. Data initialisation
 
+To satisfy the constraint of static array shapes, XLRON environments are initialised with a fixed number of slots on each link, and a fixed number of resources at each node. This is done by specifying the number of slots and resources as parameters to the environment. The number of slots and resources are then used to initialise arrays of zeros to represent the occupancy of slots on links and the remaining resources at nodes. These arrays are then passed as part of the environment state.
+
+### Routing representation
+In order to capture the topological information of the network in array form, the k-shortest paths between each node pair on the network is calculated and the constituent links of each path are encoded as a binary array for each row of `path_link_array`. 
 
 
-### 3.1 Key data structures
+### Key data structures
 
 For `RSAEnv` (including the RMSA and RWA problems), the following data structures are used:
 
-`path_link_array`: Contains indices of consitutnet links of paths
+`path_link_array`: Contains indices of constituent links of paths
 `link_slot_array`: Represents occupancy of slots on links
 `link_slot_departure_array`: Contains departure times of services occupying slots
 `request_array`: 
@@ -76,6 +79,10 @@ Invalid action masking during training is activated by using the flag `--ACTION_
 
 ### Slot aggregation
 
+Slot aggregation is a technique used to reduce the action space in the context of optical network resource allocation problems. It is particularly useful for the RWA problem, where the action space is large and many actions are invalid. Each XLRON environment provides a method `aggregate_slots` to aggregate slots on links. This method can be used to reduce the 
+
+Slot aggregation during training is activated by using the flag `--aggregate_slots=N` when running the 'train.py' script. N is the number of slots to be aggregated into a single action i.e. the action space is reduced by a factor of N. First fit allocation is used within each block of N slots.
+
 ### Weights & Biases (wandb) integration
 
 XLRON features support for wandb experiment tracking and hyperparameter sweeps. The following commandline flags, when running the 'train.py' script, will enable wandb integration:
@@ -98,4 +105,8 @@ XLRON features support for wandb experiment tracking and hyperparameter sweeps. 
 
 
 ### GNNs with Jraph
+
+**Coming in a future release (pending publication)**
+
+We can use the [Jraph](https://github.com/google-deepmind/jraph/tree/master) library for graph neural networks in JAX to implement the policy and/or value networks of our agent, while retaining the advantages of JIT compilation and accelerator hardware. Watch this space for more updates on the implementation! 
 
