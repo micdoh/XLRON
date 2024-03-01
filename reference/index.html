@@ -680,6 +680,15 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#environments.rsa.RWALightpathReuseEnv.__init__" class="md-nav__link">
+    <span class="md-ellipsis">
+      __init__()
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#environments.rsa.RWALightpathReuseEnv.action_mask" class="md-nav__link">
     <span class="md-ellipsis">
       action_mask()
@@ -1309,6 +1318,15 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#environments.rsa.RWALightpathReuseEnv.__init__" class="md-nav__link">
+    <span class="md-ellipsis">
+      __init__()
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#environments.rsa.RWALightpathReuseEnv.action_mask" class="md-nav__link">
     <span class="md-ellipsis">
       action_mask()
@@ -1598,9 +1616,9 @@
 
   
       <p>This environment simulates the Routing Modulation and Spectrum Assignment (RMSA) problem,
-with action and observation spaces that match those defined in the DeepRMSA paper:
-https://ieeexplore.ieee.org/document/8738827/
-See above paper and path_stats function for more details of the observation space.</p>
+with action and observation spaces that match those defined in the DeepRMSA paper:</p>
+<p>https://ieeexplore.ieee.org/document/8738827/</p>
+<p>See above paper and path_stats function for more details of the observation space.</p>
 
             <details class="quote">
               <summary>Source code in <code>xlron/environments/rsa.py</code></summary>
@@ -1725,10 +1743,14 @@ See above paper and path_stats function for more details of the observation spac
 <span class="normal">488</span>
 <span class="normal">489</span>
 <span class="normal">490</span>
-<span class="normal">491</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">class</span> <span class="nc">DeepRMSAEnv</span><span class="p">(</span><span class="n">RSAEnv</span><span class="p">):</span>
+<span class="normal">491</span>
+<span class="normal">492</span>
+<span class="normal">493</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">class</span> <span class="nc">DeepRMSAEnv</span><span class="p">(</span><span class="n">RSAEnv</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;This environment simulates the Routing Modulation and Spectrum Assignment (RMSA) problem,</span>
 <span class="sd">    with action and observation spaces that match those defined in the DeepRMSA paper:</span>
+
 <span class="sd">    https://ieeexplore.ieee.org/document/8738827/</span>
+
 <span class="sd">    See above paper and path_stats function for more details of the observation space.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span>
@@ -1948,9 +1970,7 @@ See above paper and path_stats function for more details of the observation spac
 
           <details class="quote">
             <summary>Source code in <code>xlron/environments/rsa.py</code></summary>
-            <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">438</span>
-<span class="normal">439</span>
-<span class="normal">440</span>
+            <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">440</span>
 <span class="normal">441</span>
 <span class="normal">442</span>
 <span class="normal">443</span>
@@ -1963,7 +1983,9 @@ See above paper and path_stats function for more details of the observation spac
 <span class="normal">450</span>
 <span class="normal">451</span>
 <span class="normal">452</span>
-<span class="normal">453</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="nd">@partial</span><span class="p">(</span><span class="n">jax</span><span class="o">.</span><span class="n">jit</span><span class="p">,</span> <span class="n">static_argnums</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">2</span><span class="p">,))</span>
+<span class="normal">453</span>
+<span class="normal">454</span>
+<span class="normal">455</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="nd">@partial</span><span class="p">(</span><span class="n">jax</span><span class="o">.</span><span class="n">jit</span><span class="p">,</span> <span class="n">static_argnums</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">2</span><span class="p">,))</span>
 <span class="k">def</span> <span class="nf">action_mask</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">state</span><span class="p">:</span> <span class="n">RSAEnvState</span><span class="p">,</span> <span class="n">params</span><span class="p">:</span> <span class="n">RSAEnvParams</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">RSAEnvState</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Returns mask of valid actions.</span>
 
@@ -2003,9 +2025,9 @@ See above paper and path_stats function for more details of the observation spac
 
           <details class="quote">
             <summary>Source code in <code>xlron/environments/rsa.py</code></summary>
-            <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">455</span>
-<span class="normal">456</span>
-<span class="normal">457</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span> <span class="nf">action_space</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">params</span><span class="p">:</span> <span class="n">RSAEnvParams</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">spaces</span><span class="o">.</span><span class="n">Discrete</span><span class="p">:</span>
+            <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">457</span>
+<span class="normal">458</span>
+<span class="normal">459</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span> <span class="nf">action_space</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">params</span><span class="p">:</span> <span class="n">RSAEnvParams</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">spaces</span><span class="o">.</span><span class="n">Discrete</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Action space of the environment.&quot;&quot;&quot;</span>
     <span class="k">return</span> <span class="n">spaces</span><span class="o">.</span><span class="n">Discrete</span><span class="p">(</span><span class="n">params</span><span class="o">.</span><span class="n">k_paths</span><span class="p">)</span>
 </code></pre></div></td></tr></table></div>
@@ -2032,9 +2054,7 @@ See above paper and path_stats function for more details of the observation spac
 
           <details class="quote">
             <summary>Source code in <code>xlron/environments/rsa.py</code></summary>
-            <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">464</span>
-<span class="normal">465</span>
-<span class="normal">466</span>
+            <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">466</span>
 <span class="normal">467</span>
 <span class="normal">468</span>
 <span class="normal">469</span>
@@ -2050,7 +2070,9 @@ See above paper and path_stats function for more details of the observation spac
 <span class="normal">479</span>
 <span class="normal">480</span>
 <span class="normal">481</span>
-<span class="normal">482</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="nd">@partial</span><span class="p">(</span><span class="n">jax</span><span class="o">.</span><span class="n">jit</span><span class="p">,</span> <span class="n">static_argnums</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">2</span><span class="p">,))</span>
+<span class="normal">482</span>
+<span class="normal">483</span>
+<span class="normal">484</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="nd">@partial</span><span class="p">(</span><span class="n">jax</span><span class="o">.</span><span class="n">jit</span><span class="p">,</span> <span class="n">static_argnums</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">2</span><span class="p">,))</span>
 <span class="k">def</span> <span class="nf">get_obs</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">state</span><span class="p">:</span> <span class="n">RSAEnvState</span><span class="p">,</span> <span class="n">params</span><span class="p">:</span> <span class="n">RSAEnvParams</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">chex</span><span class="o">.</span><span class="n">Array</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Applies observation function to state.&quot;&quot;&quot;</span>
     <span class="n">request</span> <span class="o">=</span> <span class="n">state</span><span class="o">.</span><span class="n">request_array</span>
@@ -2097,10 +2119,10 @@ See above paper and path_stats function for more details of the observation spac
 
           <details class="quote">
             <summary>Source code in <code>xlron/environments/rsa.py</code></summary>
-            <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">459</span>
-<span class="normal">460</span>
-<span class="normal">461</span>
-<span class="normal">462</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="nd">@staticmethod</span>
+            <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">461</span>
+<span class="normal">462</span>
+<span class="normal">463</span>
+<span class="normal">464</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="nd">@staticmethod</span>
 <span class="k">def</span> <span class="nf">num_actions</span><span class="p">(</span><span class="n">params</span><span class="p">:</span> <span class="n">RSAEnvParams</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Number of actions possible in environment.&quot;&quot;&quot;</span>
     <span class="k">return</span> <span class="n">params</span><span class="o">.</span><span class="n">k_paths</span>
@@ -2128,14 +2150,14 @@ See above paper and path_stats function for more details of the observation spac
 
           <details class="quote">
             <summary>Source code in <code>xlron/environments/rsa.py</code></summary>
-            <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">484</span>
-<span class="normal">485</span>
-<span class="normal">486</span>
+            <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">486</span>
 <span class="normal">487</span>
 <span class="normal">488</span>
 <span class="normal">489</span>
 <span class="normal">490</span>
-<span class="normal">491</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span> <span class="nf">observation_space</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">params</span><span class="p">:</span> <span class="n">RSAEnvParams</span><span class="p">):</span>
+<span class="normal">491</span>
+<span class="normal">492</span>
+<span class="normal">493</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span> <span class="nf">observation_space</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">params</span><span class="p">:</span> <span class="n">RSAEnvParams</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Observation space of the environment.&quot;&quot;&quot;</span>
     <span class="k">return</span> <span class="n">spaces</span><span class="o">.</span><span class="n">Discrete</span><span class="p">(</span>
         <span class="n">params</span><span class="o">.</span><span class="n">num_nodes</span>  <span class="c1"># Request encoding</span>
@@ -2303,9 +2325,7 @@ See above paper and path_stats function for more details of the observation spac
 
           <details class="quote">
             <summary>Source code in <code>xlron/environments/rsa.py</code></summary>
-            <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">401</span>
-<span class="normal">402</span>
-<span class="normal">403</span>
+            <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">403</span>
 <span class="normal">404</span>
 <span class="normal">405</span>
 <span class="normal">406</span>
@@ -2338,7 +2358,9 @@ See above paper and path_stats function for more details of the observation spac
 <span class="normal">433</span>
 <span class="normal">434</span>
 <span class="normal">435</span>
-<span class="normal">436</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span> <span class="nf">step_env</span><span class="p">(</span>
+<span class="normal">436</span>
+<span class="normal">437</span>
+<span class="normal">438</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span> <span class="nf">step_env</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="n">key</span><span class="p">:</span> <span class="n">chex</span><span class="o">.</span><span class="n">PRNGKey</span><span class="p">,</span>
         <span class="n">state</span><span class="p">:</span> <span class="n">DeepRMSAEnvState</span><span class="p">,</span>
@@ -5160,14 +5182,15 @@ Generates new request.</p>
 
   
       <p>This environment simulates the Routing and Wavelength Assignment (RWA) problem with lightpath reuse.
-Lightpath reuse means the transponders in the netwrok are assumed to be "flex-rate", therefore multiple traffic
-requests with same source-destination nodes can be packed onto the same lightpath by improving the data rate up to the</p>
+Lightpath reuse means the transponders in the network are assumed to be "flex-rate", therefore multiple traffic
+requests with same source-destination nodes can be packed onto the same lightpath, so long as it has sufficient
+remaining capacity. See the following paper for more details of the problem, which this environment recreates
+exactly:</p>
+<p>https://discovery.ucl.ac.uk/id/eprint/10175456/</p>
 
             <details class="quote">
               <summary>Source code in <code>xlron/environments/rsa.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">494</span>
-<span class="normal">495</span>
-<span class="normal">496</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">496</span>
 <span class="normal">497</span>
 <span class="normal">498</span>
 <span class="normal">499</span>
@@ -5206,12 +5229,42 @@ requests with same source-destination nodes can be packed onto the same lightpat
 <span class="normal">532</span>
 <span class="normal">533</span>
 <span class="normal">534</span>
-<span class="normal">535</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">class</span> <span class="nc">RWALightpathReuseEnv</span><span class="p">(</span><span class="n">RSAEnv</span><span class="p">):</span>
+<span class="normal">535</span>
+<span class="normal">536</span>
+<span class="normal">537</span>
+<span class="normal">538</span>
+<span class="normal">539</span>
+<span class="normal">540</span>
+<span class="normal">541</span>
+<span class="normal">542</span>
+<span class="normal">543</span>
+<span class="normal">544</span>
+<span class="normal">545</span>
+<span class="normal">546</span>
+<span class="normal">547</span>
+<span class="normal">548</span>
+<span class="normal">549</span>
+<span class="normal">550</span>
+<span class="normal">551</span>
+<span class="normal">552</span>
+<span class="normal">553</span>
+<span class="normal">554</span>
+<span class="normal">555</span>
+<span class="normal">556</span>
+<span class="normal">557</span>
+<span class="normal">558</span>
+<span class="normal">559</span>
+<span class="normal">560</span>
+<span class="normal">561</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">class</span> <span class="nc">RWALightpathReuseEnv</span><span class="p">(</span><span class="n">RSAEnv</span><span class="p">):</span>
     <span class="c1"># TODO - need to keep track of active requests to enable</span>
     <span class="c1">#  dynamic RWA with lightpath reuse (as opposed to just incremental loading) OR just randomly remove connections</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;This environment simulates the Routing and Wavelength Assignment (RWA) problem with lightpath reuse.</span>
-<span class="sd">    Lightpath reuse means the transponders in the netwrok are assumed to be &quot;flex-rate&quot;, therefore multiple traffic</span>
-<span class="sd">    requests with same source-destination nodes can be packed onto the same lightpath by improving the data rate up to the</span>
+<span class="sd">    Lightpath reuse means the transponders in the network are assumed to be &quot;flex-rate&quot;, therefore multiple traffic</span>
+<span class="sd">    requests with same source-destination nodes can be packed onto the same lightpath, so long as it has sufficient</span>
+<span class="sd">    remaining capacity. See the following paper for more details of the problem, which this environment recreates</span>
+<span class="sd">    exactly:</span>
+
+<span class="sd">    https://discovery.ucl.ac.uk/id/eprint/10175456/</span>
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span>
             <span class="bp">self</span><span class="p">,</span>
@@ -5221,6 +5274,18 @@ requests with same source-destination nodes can be packed onto the same lightpat
             <span class="n">traffic_matrix</span><span class="p">:</span> <span class="n">chex</span><span class="o">.</span><span class="n">Array</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
             <span class="n">path_capacity_array</span><span class="p">:</span> <span class="n">chex</span><span class="o">.</span><span class="n">Array</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Initialise the environment state and set as initial state.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            key: PRNG key</span>
+<span class="sd">            params: Environment parameters</span>
+<span class="sd">            values_bw: Bandwidth values for each modulation format</span>
+<span class="sd">            traffic_matrix (optional): Traffic matrix</span>
+<span class="sd">            path_capacity_array: Array of path capacities</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            None</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">params</span><span class="p">,</span> <span class="n">values_bw</span><span class="o">=</span><span class="n">values_bw</span><span class="p">,</span> <span class="n">traffic_matrix</span><span class="o">=</span><span class="n">traffic_matrix</span><span class="p">)</span>
         <span class="n">state</span> <span class="o">=</span> <span class="n">RWALightpathReuseEnvState</span><span class="p">(</span>
             <span class="n">current_time</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
@@ -5245,7 +5310,15 @@ requests with same source-destination nodes can be packed onto the same lightpat
 
     <span class="nd">@partial</span><span class="p">(</span><span class="n">jax</span><span class="o">.</span><span class="n">jit</span><span class="p">,</span> <span class="n">static_argnums</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">2</span><span class="p">,))</span>
     <span class="k">def</span> <span class="nf">action_mask</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">state</span><span class="p">:</span> <span class="n">RSAEnvState</span><span class="p">,</span> <span class="n">params</span><span class="p">:</span> <span class="n">RSAEnvParams</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">RSAEnvState</span><span class="p">:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;Returns mask of valid actions.&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Returns mask of valid actions.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            state: Environment state</span>
+<span class="sd">            params: Environment parameters</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            state: Environment state with action mask</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">state</span> <span class="o">=</span> <span class="n">mask_slots_rwa_lightpath_reuse</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="n">params</span><span class="p">,</span> <span class="n">state</span><span class="o">.</span><span class="n">request_array</span><span class="p">)</span>
         <span class="k">return</span> <span class="n">state</span>
 </code></pre></div></td></tr></table></div>
@@ -5269,6 +5342,220 @@ requests with same source-destination nodes can be packed onto the same lightpat
 
 
 
+<h3 id="environments.rsa.RWALightpathReuseEnv.__init__" class="doc doc-heading">
+          <code class="highlight language-python"><span class="fm">__init__</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">params</span><span class="p">,</span> <span class="n">values_bw</span><span class="o">=</span><span class="n">jnp</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="mi">0</span><span class="p">]),</span> <span class="n">traffic_matrix</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">path_capacity_array</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span></code>
+
+</h3>
+
+
+  <div class="doc doc-contents ">
+  
+      <p>Initialise the environment state and set as initial state.</p>
+
+
+
+  <p><strong>Parameters:</strong></p>
+  <table>
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>Type</th>
+        <th>Description</th>
+        <th>Default</th>
+      </tr>
+    </thead>
+    <tbody>
+        <tr>
+          <td><code>key</code></td>
+          <td>
+                <code><span title="chex.PRNGKey">PRNGKey</span></code>
+          </td>
+          <td>
+            <div class="doc-md-description">
+              <p>PRNG key</p>
+            </div>
+          </td>
+          <td>
+              <em>required</em>
+          </td>
+        </tr>
+        <tr>
+          <td><code>params</code></td>
+          <td>
+                <code><span title="environments.rsa.RSAEnvParams">RSAEnvParams</span></code>
+          </td>
+          <td>
+            <div class="doc-md-description">
+              <p>Environment parameters</p>
+            </div>
+          </td>
+          <td>
+              <em>required</em>
+          </td>
+        </tr>
+        <tr>
+          <td><code>values_bw</code></td>
+          <td>
+                <code><span title="chex.Array">Array</span></code>
+          </td>
+          <td>
+            <div class="doc-md-description">
+              <p>Bandwidth values for each modulation format</p>
+            </div>
+          </td>
+          <td>
+                <code><span title="jax.array">array</span>([0])</code>
+          </td>
+        </tr>
+        <tr>
+          <td><code>traffic_matrix</code></td>
+          <td>
+                <code>optional</code>
+          </td>
+          <td>
+            <div class="doc-md-description">
+              <p>Traffic matrix</p>
+            </div>
+          </td>
+          <td>
+                <code>None</code>
+          </td>
+        </tr>
+        <tr>
+          <td><code>path_capacity_array</code></td>
+          <td>
+                <code><span title="chex.Array">Array</span></code>
+          </td>
+          <td>
+            <div class="doc-md-description">
+              <p>Array of path capacities</p>
+            </div>
+          </td>
+          <td>
+                <code>None</code>
+          </td>
+        </tr>
+    </tbody>
+  </table>
+
+
+
+  <p><strong>Returns:</strong></p>
+  <table>
+    <thead>
+      <tr>
+        <th>Type</th>
+        <th>Description</th>
+      </tr>
+    </thead>
+    <tbody>
+        <tr>
+          <td>
+          </td>
+          <td>
+            <div class="doc-md-description">
+              <p>None</p>
+            </div>
+          </td>
+        </tr>
+    </tbody>
+  </table>
+
+          <details class="quote">
+            <summary>Source code in <code>xlron/environments/rsa.py</code></summary>
+            <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">507</span>
+<span class="normal">508</span>
+<span class="normal">509</span>
+<span class="normal">510</span>
+<span class="normal">511</span>
+<span class="normal">512</span>
+<span class="normal">513</span>
+<span class="normal">514</span>
+<span class="normal">515</span>
+<span class="normal">516</span>
+<span class="normal">517</span>
+<span class="normal">518</span>
+<span class="normal">519</span>
+<span class="normal">520</span>
+<span class="normal">521</span>
+<span class="normal">522</span>
+<span class="normal">523</span>
+<span class="normal">524</span>
+<span class="normal">525</span>
+<span class="normal">526</span>
+<span class="normal">527</span>
+<span class="normal">528</span>
+<span class="normal">529</span>
+<span class="normal">530</span>
+<span class="normal">531</span>
+<span class="normal">532</span>
+<span class="normal">533</span>
+<span class="normal">534</span>
+<span class="normal">535</span>
+<span class="normal">536</span>
+<span class="normal">537</span>
+<span class="normal">538</span>
+<span class="normal">539</span>
+<span class="normal">540</span>
+<span class="normal">541</span>
+<span class="normal">542</span>
+<span class="normal">543</span>
+<span class="normal">544</span>
+<span class="normal">545</span>
+<span class="normal">546</span>
+<span class="normal">547</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">key</span><span class="p">:</span> <span class="n">chex</span><span class="o">.</span><span class="n">PRNGKey</span><span class="p">,</span>
+        <span class="n">params</span><span class="p">:</span> <span class="n">RSAEnvParams</span><span class="p">,</span>
+        <span class="n">values_bw</span><span class="p">:</span> <span class="n">chex</span><span class="o">.</span><span class="n">Array</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="mi">0</span><span class="p">]),</span>
+        <span class="n">traffic_matrix</span><span class="p">:</span> <span class="n">chex</span><span class="o">.</span><span class="n">Array</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">path_capacity_array</span><span class="p">:</span> <span class="n">chex</span><span class="o">.</span><span class="n">Array</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Initialise the environment state and set as initial state.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        key: PRNG key</span>
+<span class="sd">        params: Environment parameters</span>
+<span class="sd">        values_bw: Bandwidth values for each modulation format</span>
+<span class="sd">        traffic_matrix (optional): Traffic matrix</span>
+<span class="sd">        path_capacity_array: Array of path capacities</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        None</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">params</span><span class="p">,</span> <span class="n">values_bw</span><span class="o">=</span><span class="n">values_bw</span><span class="p">,</span> <span class="n">traffic_matrix</span><span class="o">=</span><span class="n">traffic_matrix</span><span class="p">)</span>
+    <span class="n">state</span> <span class="o">=</span> <span class="n">RWALightpathReuseEnvState</span><span class="p">(</span>
+        <span class="n">current_time</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+        <span class="n">holding_time</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+        <span class="n">total_timesteps</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+        <span class="n">total_requests</span><span class="o">=-</span><span class="mi">1</span><span class="p">,</span>
+        <span class="n">link_slot_array</span><span class="o">=</span><span class="n">init_link_slot_array</span><span class="p">(</span><span class="n">params</span><span class="p">),</span>
+        <span class="n">link_slot_departure_array</span><span class="o">=</span><span class="n">init_link_slot_departure_array</span><span class="p">(</span><span class="n">params</span><span class="p">),</span>
+        <span class="n">request_array</span><span class="o">=</span><span class="n">init_rsa_request_array</span><span class="p">(),</span>
+        <span class="n">link_slot_mask</span><span class="o">=</span><span class="n">init_link_slot_mask</span><span class="p">(</span><span class="n">params</span><span class="p">,</span> <span class="n">agg</span><span class="o">=</span><span class="n">params</span><span class="o">.</span><span class="n">aggregate_slots</span><span class="p">),</span>
+        <span class="n">traffic_matrix</span><span class="o">=</span><span class="n">traffic_matrix</span> <span class="k">if</span> <span class="n">traffic_matrix</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">init_traffic_matrix</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">params</span><span class="p">),</span>
+        <span class="n">values_bw</span><span class="o">=</span><span class="n">values_bw</span><span class="p">,</span>
+        <span class="n">graph</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+        <span class="n">full_link_slot_mask</span><span class="o">=</span><span class="n">init_link_slot_mask</span><span class="p">(</span><span class="n">params</span><span class="p">),</span>
+        <span class="n">path_index_array</span><span class="o">=</span><span class="n">init_path_index_array</span><span class="p">(</span><span class="n">params</span><span class="p">),</span>
+        <span class="n">path_capacity_array</span><span class="o">=</span><span class="n">path_capacity_array</span><span class="p">,</span>
+        <span class="n">link_capacity_array</span><span class="o">=</span><span class="n">init_link_capacity_array</span><span class="p">(</span><span class="n">params</span><span class="p">),</span>
+        <span class="n">accepted_services</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+        <span class="n">accepted_bitrate</span><span class="o">=</span><span class="mf">0.</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">initial_state</span> <span class="o">=</span> <span class="n">state</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="n">graph</span><span class="o">=</span><span class="n">init_graph_tuple</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="n">params</span><span class="p">))</span>
+</code></pre></div></td></tr></table></div>
+          </details>
+  </div>
+
+</div>
+
+
+<div class="doc doc-object doc-function">
+
+
+
+
 <h3 id="environments.rsa.RWALightpathReuseEnv.action_mask" class="doc doc-heading">
           <code class="highlight language-python"><span class="n">action_mask</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="n">params</span><span class="p">)</span></code>
 
@@ -5279,15 +5566,99 @@ requests with same source-destination nodes can be packed onto the same lightpat
   
       <p>Returns mask of valid actions.</p>
 
+
+
+  <p><strong>Parameters:</strong></p>
+  <table>
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>Type</th>
+        <th>Description</th>
+        <th>Default</th>
+      </tr>
+    </thead>
+    <tbody>
+        <tr>
+          <td><code>state</code></td>
+          <td>
+                <code><span title="environments.rsa.RSAEnvState">RSAEnvState</span></code>
+          </td>
+          <td>
+            <div class="doc-md-description">
+              <p>Environment state</p>
+            </div>
+          </td>
+          <td>
+              <em>required</em>
+          </td>
+        </tr>
+        <tr>
+          <td><code>params</code></td>
+          <td>
+                <code><span title="environments.rsa.RSAEnvParams">RSAEnvParams</span></code>
+          </td>
+          <td>
+            <div class="doc-md-description">
+              <p>Environment parameters</p>
+            </div>
+          </td>
+          <td>
+              <em>required</em>
+          </td>
+        </tr>
+    </tbody>
+  </table>
+
+
+
+  <p><strong>Returns:</strong></p>
+  <table>
+    <thead>
+      <tr>
+<th>Name</th>        <th>Type</th>
+        <th>Description</th>
+      </tr>
+    </thead>
+    <tbody>
+        <tr>
+<td><code>state</code></td>          <td>
+                <code><span title="environments.rsa.RSAEnvState">RSAEnvState</span></code>
+          </td>
+          <td>
+            <div class="doc-md-description">
+              <p>Environment state with action mask</p>
+            </div>
+          </td>
+        </tr>
+    </tbody>
+  </table>
+
           <details class="quote">
             <summary>Source code in <code>xlron/environments/rsa.py</code></summary>
-            <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">531</span>
-<span class="normal">532</span>
-<span class="normal">533</span>
-<span class="normal">534</span>
-<span class="normal">535</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="nd">@partial</span><span class="p">(</span><span class="n">jax</span><span class="o">.</span><span class="n">jit</span><span class="p">,</span> <span class="n">static_argnums</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">2</span><span class="p">,))</span>
+            <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">549</span>
+<span class="normal">550</span>
+<span class="normal">551</span>
+<span class="normal">552</span>
+<span class="normal">553</span>
+<span class="normal">554</span>
+<span class="normal">555</span>
+<span class="normal">556</span>
+<span class="normal">557</span>
+<span class="normal">558</span>
+<span class="normal">559</span>
+<span class="normal">560</span>
+<span class="normal">561</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="nd">@partial</span><span class="p">(</span><span class="n">jax</span><span class="o">.</span><span class="n">jit</span><span class="p">,</span> <span class="n">static_argnums</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">2</span><span class="p">,))</span>
 <span class="k">def</span> <span class="nf">action_mask</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">state</span><span class="p">:</span> <span class="n">RSAEnvState</span><span class="p">,</span> <span class="n">params</span><span class="p">:</span> <span class="n">RSAEnvParams</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">RSAEnvState</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Returns mask of valid actions.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Returns mask of valid actions.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        state: Environment state</span>
+<span class="sd">        params: Environment parameters</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        state: Environment state with action mask</span>
+<span class="sd">    &quot;&quot;&quot;</span>
     <span class="n">state</span> <span class="o">=</span> <span class="n">mask_slots_rwa_lightpath_reuse</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="n">params</span><span class="p">,</span> <span class="n">state</span><span class="o">.</span><span class="n">request_array</span><span class="p">)</span>
     <span class="k">return</span> <span class="n">state</span>
 </code></pre></div></td></tr></table></div>
@@ -5319,42 +5690,74 @@ requests with same source-destination nodes can be packed onto the same lightpat
 
   <div class="doc doc-contents ">
   
-      <p>Create RSA environment.
-Args:
-    config: Configuration dictionary
-Returns:
-    env: RSA environment
-    params: RSA environment parameters</p>
+      <p>Create RSA environment. This function is the entry point to setting up any RSA-type environment.
+This function takes a dictionary of the commandline flag parameters and configures the
+RSA environment and parameters accordingly.</p>
+
+
+
+  <p><strong>Parameters:</strong></p>
+  <table>
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>Type</th>
+        <th>Description</th>
+        <th>Default</th>
+      </tr>
+    </thead>
+    <tbody>
+        <tr>
+          <td><code>config</code></td>
+          <td>
+          </td>
+          <td>
+            <div class="doc-md-description">
+              <p>Configuration dictionary</p>
+            </div>
+          </td>
+          <td>
+              <em>required</em>
+          </td>
+        </tr>
+    </tbody>
+  </table>
+
+
+
+  <p><strong>Returns:</strong></p>
+  <table>
+    <thead>
+      <tr>
+<th>Name</th>        <th>Type</th>
+        <th>Description</th>
+      </tr>
+    </thead>
+    <tbody>
+        <tr>
+<td><code>env</code></td>          <td>
+          </td>
+          <td>
+            <div class="doc-md-description">
+              <p>RSA environment</p>
+            </div>
+          </td>
+        </tr>
+        <tr>
+<td><code>params</code></td>          <td>
+          </td>
+          <td>
+            <div class="doc-md-description">
+              <p>RSA environment parameters</p>
+            </div>
+          </td>
+        </tr>
+    </tbody>
+  </table>
 
           <details class="quote">
             <summary>Source code in <code>xlron/environments/rsa.py</code></summary>
-            <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">538</span>
-<span class="normal">539</span>
-<span class="normal">540</span>
-<span class="normal">541</span>
-<span class="normal">542</span>
-<span class="normal">543</span>
-<span class="normal">544</span>
-<span class="normal">545</span>
-<span class="normal">546</span>
-<span class="normal">547</span>
-<span class="normal">548</span>
-<span class="normal">549</span>
-<span class="normal">550</span>
-<span class="normal">551</span>
-<span class="normal">552</span>
-<span class="normal">553</span>
-<span class="normal">554</span>
-<span class="normal">555</span>
-<span class="normal">556</span>
-<span class="normal">557</span>
-<span class="normal">558</span>
-<span class="normal">559</span>
-<span class="normal">560</span>
-<span class="normal">561</span>
-<span class="normal">562</span>
-<span class="normal">563</span>
-<span class="normal">564</span>
+            <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">564</span>
 <span class="normal">565</span>
 <span class="normal">566</span>
 <span class="normal">567</span>
@@ -5540,10 +5943,44 @@ Returns:
 <span class="normal">747</span>
 <span class="normal">748</span>
 <span class="normal">749</span>
-<span class="normal">750</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span> <span class="nf">make_rsa_env</span><span class="p">(</span><span class="n">config</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Create RSA environment.</span>
+<span class="normal">750</span>
+<span class="normal">751</span>
+<span class="normal">752</span>
+<span class="normal">753</span>
+<span class="normal">754</span>
+<span class="normal">755</span>
+<span class="normal">756</span>
+<span class="normal">757</span>
+<span class="normal">758</span>
+<span class="normal">759</span>
+<span class="normal">760</span>
+<span class="normal">761</span>
+<span class="normal">762</span>
+<span class="normal">763</span>
+<span class="normal">764</span>
+<span class="normal">765</span>
+<span class="normal">766</span>
+<span class="normal">767</span>
+<span class="normal">768</span>
+<span class="normal">769</span>
+<span class="normal">770</span>
+<span class="normal">771</span>
+<span class="normal">772</span>
+<span class="normal">773</span>
+<span class="normal">774</span>
+<span class="normal">775</span>
+<span class="normal">776</span>
+<span class="normal">777</span>
+<span class="normal">778</span>
+<span class="normal">779</span>
+<span class="normal">780</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span> <span class="nf">make_rsa_env</span><span class="p">(</span><span class="n">config</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Create RSA environment. This function is the entry point to setting up any RSA-type environment.</span>
+<span class="sd">    This function takes a dictionary of the commandline flag parameters and configures the</span>
+<span class="sd">    RSA environment and parameters accordingly.</span>
+
 <span class="sd">    Args:</span>
 <span class="sd">        config: Configuration dictionary</span>
+
 <span class="sd">    Returns:</span>
 <span class="sd">        env: RSA environment</span>
 <span class="sd">        params: RSA environment parameters</span>
@@ -5802,7 +6239,7 @@ Returns:
             Bases: <code><span title="gymnax.environments.environment.Environment">Environment</span></code></p>
 
   
-      <p>Jittable abstract base class for all gymnax Environments.</p>
+      <p>This environment simulates the Virtual Optical Network Embedding (VONE) problem.</p>
 
             <details class="quote">
               <summary>Source code in <code>xlron/environments/vone.py</code></summary>
@@ -6048,8 +6485,12 @@ Returns:
 <span class="normal">262</span>
 <span class="normal">263</span>
 <span class="normal">264</span>
-<span class="normal">265</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">class</span> <span class="nc">VONEEnv</span><span class="p">(</span><span class="n">environment</span><span class="o">.</span><span class="n">Environment</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Jittable abstract base class for all gymnax Environments.&quot;&quot;&quot;</span>
+<span class="normal">265</span>
+<span class="normal">266</span>
+<span class="normal">267</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">class</span> <span class="nc">VONEEnv</span><span class="p">(</span><span class="n">environment</span><span class="o">.</span><span class="n">Environment</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;This environment simulates the Virtual Optical Network Embedding (VONE) problem.</span>
+
+<span class="sd">    &quot;&quot;&quot;</span>
     <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">params</span><span class="p">:</span> <span class="n">VONEEnvParams</span><span class="p">,</span> <span class="n">virtual_topologies</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;3_ring&quot;</span><span class="p">],</span> <span class="n">values_bw</span><span class="p">:</span> <span class="n">chex</span><span class="o">.</span><span class="n">Array</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="mi">0</span><span class="p">])):</span>
         <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
         <span class="n">state</span> <span class="o">=</span> <span class="n">VONEEnvState</span><span class="p">(</span>
@@ -6368,13 +6809,13 @@ Returns:
 
           <details class="quote">
             <summary>Source code in <code>xlron/environments/vone.py</code></summary>
-            <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">164</span>
-<span class="normal">165</span>
-<span class="normal">166</span>
+            <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">166</span>
 <span class="normal">167</span>
 <span class="normal">168</span>
 <span class="normal">169</span>
-<span class="normal">170</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span> <span class="nf">action_mask_dest_node</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">state</span><span class="p">:</span> <span class="n">EnvState</span><span class="p">,</span> <span class="n">params</span><span class="p">:</span> <span class="n">EnvParams</span><span class="p">,</span> <span class="n">source_action</span><span class="p">:</span> <span class="n">chex</span><span class="o">.</span><span class="n">Array</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">chex</span><span class="o">.</span><span class="n">Array</span><span class="p">:</span>
+<span class="normal">170</span>
+<span class="normal">171</span>
+<span class="normal">172</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span> <span class="nf">action_mask_dest_node</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">state</span><span class="p">:</span> <span class="n">EnvState</span><span class="p">,</span> <span class="n">params</span><span class="p">:</span> <span class="n">EnvParams</span><span class="p">,</span> <span class="n">source_action</span><span class="p">:</span> <span class="n">chex</span><span class="o">.</span><span class="n">Array</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">chex</span><span class="o">.</span><span class="n">Array</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Returns action mask for state.&quot;&quot;&quot;</span>
     <span class="n">empty_mask</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="n">params</span><span class="o">.</span><span class="n">num_nodes</span><span class="p">)</span>
     <span class="n">mask_source_node</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">lax</span><span class="o">.</span><span class="n">dynamic_update_slice</span><span class="p">(</span><span class="n">empty_mask</span><span class="p">,</span> <span class="n">jnp</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="mf">0.</span><span class="p">]),</span> <span class="p">(</span><span class="n">source_action</span><span class="p">,</span> <span class="p">))</span>
@@ -6405,9 +6846,9 @@ Returns:
 
           <details class="quote">
             <summary>Source code in <code>xlron/environments/vone.py</code></summary>
-            <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">160</span>
-<span class="normal">161</span>
-<span class="normal">162</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span> <span class="nf">action_mask_nodes</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">state</span><span class="p">:</span> <span class="n">EnvState</span><span class="p">,</span> <span class="n">params</span><span class="p">:</span> <span class="n">EnvParams</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">chex</span><span class="o">.</span><span class="n">Array</span><span class="p">:</span>
+            <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">162</span>
+<span class="normal">163</span>
+<span class="normal">164</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span> <span class="nf">action_mask_nodes</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">state</span><span class="p">:</span> <span class="n">EnvState</span><span class="p">,</span> <span class="n">params</span><span class="p">:</span> <span class="n">EnvParams</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">chex</span><span class="o">.</span><span class="n">Array</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Returns action mask for state.&quot;&quot;&quot;</span>
     <span class="k">return</span> <span class="n">mask_nodes</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="n">params</span><span class="o">.</span><span class="n">num_nodes</span><span class="p">)</span>
 </code></pre></div></td></tr></table></div>
@@ -6434,10 +6875,10 @@ Returns:
 
           <details class="quote">
             <summary>Source code in <code>xlron/environments/vone.py</code></summary>
-            <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">172</span>
-<span class="normal">173</span>
-<span class="normal">174</span>
-<span class="normal">175</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span> <span class="nf">action_mask_slots</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">state</span><span class="p">:</span> <span class="n">EnvState</span><span class="p">,</span> <span class="n">params</span><span class="p">:</span> <span class="n">EnvParams</span><span class="p">,</span> <span class="n">action</span><span class="p">:</span> <span class="n">chex</span><span class="o">.</span><span class="n">Array</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">chex</span><span class="o">.</span><span class="n">Array</span><span class="p">:</span>
+            <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">174</span>
+<span class="normal">175</span>
+<span class="normal">176</span>
+<span class="normal">177</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span> <span class="nf">action_mask_slots</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">state</span><span class="p">:</span> <span class="n">EnvState</span><span class="p">,</span> <span class="n">params</span><span class="p">:</span> <span class="n">EnvParams</span><span class="p">,</span> <span class="n">action</span><span class="p">:</span> <span class="n">chex</span><span class="o">.</span><span class="n">Array</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">chex</span><span class="o">.</span><span class="n">Array</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Returns action mask for state.&quot;&quot;&quot;</span>
     <span class="n">formatted_request</span> <span class="o">=</span> <span class="n">format_vone_slot_request</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="n">action</span><span class="p">)</span>
     <span class="k">return</span> <span class="n">mask_slots</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="n">params</span><span class="p">,</span> <span class="n">formatted_request</span><span class="p">)</span>
@@ -6465,15 +6906,15 @@ Returns:
 
           <details class="quote">
             <summary>Source code in <code>xlron/environments/vone.py</code></summary>
-            <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">232</span>
-<span class="normal">233</span>
-<span class="normal">234</span>
+            <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">234</span>
 <span class="normal">235</span>
 <span class="normal">236</span>
 <span class="normal">237</span>
 <span class="normal">238</span>
 <span class="normal">239</span>
-<span class="normal">240</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span> <span class="nf">action_space</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">params</span><span class="p">:</span> <span class="n">EnvParams</span><span class="p">):</span>
+<span class="normal">240</span>
+<span class="normal">241</span>
+<span class="normal">242</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span> <span class="nf">action_space</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">params</span><span class="p">:</span> <span class="n">EnvParams</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Action space of the environment.&quot;&quot;&quot;</span>
     <span class="k">return</span> <span class="n">spaces</span><span class="o">.</span><span class="n">Tuple</span><span class="p">(</span>
         <span class="p">[</span>
@@ -6506,9 +6947,9 @@ Returns:
 
           <details class="quote">
             <summary>Source code in <code>xlron/environments/vone.py</code></summary>
-            <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">203</span>
-<span class="normal">204</span>
-<span class="normal">205</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span> <span class="nf">discount</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">state</span><span class="p">:</span> <span class="n">EnvState</span><span class="p">,</span> <span class="n">params</span><span class="p">:</span> <span class="n">EnvParams</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">chex</span><span class="o">.</span><span class="n">Array</span><span class="p">:</span>
+            <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">205</span>
+<span class="normal">206</span>
+<span class="normal">207</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span> <span class="nf">discount</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">state</span><span class="p">:</span> <span class="n">EnvState</span><span class="p">,</span> <span class="n">params</span><span class="p">:</span> <span class="n">EnvParams</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">chex</span><span class="o">.</span><span class="n">Array</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Return a discount of zero if the episode has terminated.&quot;&quot;&quot;</span>
     <span class="k">return</span> <span class="n">jax</span><span class="o">.</span><span class="n">lax</span><span class="o">.</span><span class="n">select</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">is_terminal</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="n">params</span><span class="p">),</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">)</span>
 </code></pre></div></td></tr></table></div>
@@ -6535,16 +6976,16 @@ Returns:
 
           <details class="quote">
             <summary>Source code in <code>xlron/environments/vone.py</code></summary>
-            <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">185</span>
-<span class="normal">186</span>
-<span class="normal">187</span>
+            <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">187</span>
 <span class="normal">188</span>
 <span class="normal">189</span>
 <span class="normal">190</span>
 <span class="normal">191</span>
 <span class="normal">192</span>
 <span class="normal">193</span>
-<span class="normal">194</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span> <span class="nf">get_obs</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">state</span><span class="p">:</span> <span class="n">EnvState</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">chex</span><span class="o">.</span><span class="n">Array</span><span class="p">:</span>
+<span class="normal">194</span>
+<span class="normal">195</span>
+<span class="normal">196</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span> <span class="nf">get_obs</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">state</span><span class="p">:</span> <span class="n">EnvState</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">chex</span><span class="o">.</span><span class="n">Array</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Applies observation function to state.&quot;&quot;&quot;</span>
     <span class="k">return</span> <span class="n">jnp</span><span class="o">.</span><span class="n">concatenate</span><span class="p">(</span>
         <span class="p">(</span>
@@ -6578,13 +7019,13 @@ Returns:
 
           <details class="quote">
             <summary>Source code in <code>xlron/environments/vone.py</code></summary>
-            <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">177</span>
-<span class="normal">178</span>
-<span class="normal">179</span>
+            <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">179</span>
 <span class="normal">180</span>
 <span class="normal">181</span>
 <span class="normal">182</span>
-<span class="normal">183</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span> <span class="nf">get_obs_unflat</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">state</span><span class="p">:</span> <span class="n">EnvState</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tuple</span><span class="p">[</span><span class="n">chex</span><span class="o">.</span><span class="n">Array</span><span class="p">]:</span>
+<span class="normal">183</span>
+<span class="normal">184</span>
+<span class="normal">185</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span> <span class="nf">get_obs_unflat</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">state</span><span class="p">:</span> <span class="n">EnvState</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tuple</span><span class="p">[</span><span class="n">chex</span><span class="o">.</span><span class="n">Array</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Applies observation function to state.&quot;&quot;&quot;</span>
     <span class="k">return</span> <span class="p">(</span>
         <span class="n">state</span><span class="o">.</span><span class="n">request_array</span><span class="p">,</span>
@@ -6615,9 +7056,9 @@ Returns:
 
           <details class="quote">
             <summary>Source code in <code>xlron/environments/vone.py</code></summary>
-            <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">212</span>
-<span class="normal">213</span>
-<span class="normal">214</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span> <span class="nf">get_reward_failure</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">state</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">EnvState</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">chex</span><span class="o">.</span><span class="n">Array</span><span class="p">:</span>
+            <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">214</span>
+<span class="normal">215</span>
+<span class="normal">216</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span> <span class="nf">get_reward_failure</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">state</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">EnvState</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">chex</span><span class="o">.</span><span class="n">Array</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Return reward for current state.&quot;&quot;&quot;</span>
     <span class="k">return</span> <span class="n">jnp</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="o">-</span><span class="mf">10.0</span><span class="p">)</span>
 </code></pre></div></td></tr></table></div>
@@ -6644,9 +7085,9 @@ Returns:
 
           <details class="quote">
             <summary>Source code in <code>xlron/environments/vone.py</code></summary>
-            <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">216</span>
-<span class="normal">217</span>
-<span class="normal">218</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span> <span class="nf">get_reward_neutral</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">state</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">EnvState</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">chex</span><span class="o">.</span><span class="n">Array</span><span class="p">:</span>
+            <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">218</span>
+<span class="normal">219</span>
+<span class="normal">220</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span> <span class="nf">get_reward_neutral</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">state</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">EnvState</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">chex</span><span class="o">.</span><span class="n">Array</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Return reward for current state.&quot;&quot;&quot;</span>
     <span class="k">return</span> <span class="n">jnp</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="mf">0.0</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">jnp</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
 </code></pre></div></td></tr></table></div>
@@ -6673,9 +7114,9 @@ Returns:
 
           <details class="quote">
             <summary>Source code in <code>xlron/environments/vone.py</code></summary>
-            <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">208</span>
-<span class="normal">209</span>
-<span class="normal">210</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span> <span class="nf">get_reward_success</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">state</span><span class="p">:</span> <span class="n">EnvState</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">chex</span><span class="o">.</span><span class="n">Array</span><span class="p">:</span>
+            <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">210</span>
+<span class="normal">211</span>
+<span class="normal">212</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span> <span class="nf">get_reward_success</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">state</span><span class="p">:</span> <span class="n">EnvState</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">chex</span><span class="o">.</span><span class="n">Array</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Return reward for current state.&quot;&quot;&quot;</span>
     <span class="k">return</span> <span class="n">jnp</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="mf">10.0</span><span class="p">)</span> <span class="c1">#jnp.mean(state.request_array[0]) * state.request_array.shape[1] // 2</span>
 </code></pre></div></td></tr></table></div>
@@ -6702,12 +7143,12 @@ Returns:
 
           <details class="quote">
             <summary>Source code in <code>xlron/environments/vone.py</code></summary>
-            <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">196</span>
-<span class="normal">197</span>
-<span class="normal">198</span>
+            <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">198</span>
 <span class="normal">199</span>
 <span class="normal">200</span>
-<span class="normal">201</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span> <span class="nf">is_terminal</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">state</span><span class="p">:</span> <span class="n">EnvState</span><span class="p">,</span> <span class="n">params</span><span class="p">:</span> <span class="n">EnvParams</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">chex</span><span class="o">.</span><span class="n">Array</span><span class="p">:</span>
+<span class="normal">201</span>
+<span class="normal">202</span>
+<span class="normal">203</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span> <span class="nf">is_terminal</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">state</span><span class="p">:</span> <span class="n">EnvState</span><span class="p">,</span> <span class="n">params</span><span class="p">:</span> <span class="n">EnvParams</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">chex</span><span class="o">.</span><span class="n">Array</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Check whether state transition is terminal.&quot;&quot;&quot;</span>
     <span class="k">return</span> <span class="n">jnp</span><span class="o">.</span><span class="n">logical_or</span><span class="p">(</span>
         <span class="n">jnp</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">state</span><span class="o">.</span><span class="n">total_requests</span> <span class="o">&gt;=</span> <span class="n">params</span><span class="o">.</span><span class="n">max_requests</span><span class="p">),</span>
@@ -6741,12 +7182,12 @@ Returns:
 
           <details class="quote">
             <summary>Source code in <code>xlron/environments/vone.py</code></summary>
-            <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">225</span>
-<span class="normal">226</span>
-<span class="normal">227</span>
+            <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">227</span>
 <span class="normal">228</span>
 <span class="normal">229</span>
-<span class="normal">230</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="nd">@staticmethod</span>
+<span class="normal">230</span>
+<span class="normal">231</span>
+<span class="normal">232</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="nd">@staticmethod</span>
 <span class="k">def</span> <span class="nf">num_actions</span><span class="p">(</span><span class="n">params</span><span class="p">:</span> <span class="n">EnvParams</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Number of actions possible in environment.&quot;&quot;&quot;</span>
     <span class="k">return</span> <span class="p">(</span><span class="n">params</span><span class="o">.</span><span class="n">num_nodes</span> <span class="o">+</span>
@@ -6776,9 +7217,9 @@ Returns:
 
           <details class="quote">
             <summary>Source code in <code>xlron/environments/vone.py</code></summary>
-            <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">242</span>
-<span class="normal">243</span>
-<span class="normal">244</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span> <span class="nf">observation_space</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">params</span><span class="p">:</span> <span class="n">EnvParams</span><span class="p">):</span>
+            <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">244</span>
+<span class="normal">245</span>
+<span class="normal">246</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span> <span class="nf">observation_space</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">params</span><span class="p">:</span> <span class="n">EnvParams</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Observation space of the environment.&quot;&quot;&quot;</span>
     <span class="k">return</span> <span class="n">spaces</span><span class="o">.</span><span class="n">Discrete</span><span class="p">(</span><span class="mi">2</span><span class="o">*</span><span class="p">(</span><span class="mi">2</span><span class="o">*</span><span class="n">params</span><span class="o">.</span><span class="n">max_edges</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span> <span class="o">+</span> <span class="n">params</span><span class="o">.</span><span class="n">num_nodes</span> <span class="o">+</span> <span class="n">params</span><span class="o">.</span><span class="n">num_links</span> <span class="o">*</span> <span class="n">params</span><span class="o">.</span><span class="n">link_resources</span><span class="p">)</span>
 </code></pre></div></td></tr></table></div>
@@ -6805,16 +7246,16 @@ Returns:
 
           <details class="quote">
             <summary>Source code in <code>xlron/environments/vone.py</code></summary>
-            <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">83</span>
-<span class="normal">84</span>
-<span class="normal">85</span>
+            <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">85</span>
 <span class="normal">86</span>
 <span class="normal">87</span>
 <span class="normal">88</span>
 <span class="normal">89</span>
 <span class="normal">90</span>
 <span class="normal">91</span>
-<span class="normal">92</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="nd">@partial</span><span class="p">(</span><span class="n">jax</span><span class="o">.</span><span class="n">jit</span><span class="p">,</span> <span class="n">static_argnums</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">2</span><span class="p">,))</span>
+<span class="normal">92</span>
+<span class="normal">93</span>
+<span class="normal">94</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="nd">@partial</span><span class="p">(</span><span class="n">jax</span><span class="o">.</span><span class="n">jit</span><span class="p">,</span> <span class="n">static_argnums</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">2</span><span class="p">,))</span>
 <span class="k">def</span> <span class="nf">reset</span><span class="p">(</span>
     <span class="bp">self</span><span class="p">,</span> <span class="n">key</span><span class="p">:</span> <span class="n">chex</span><span class="o">.</span><span class="n">PRNGKey</span><span class="p">,</span> <span class="n">params</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">EnvParams</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tuple</span><span class="p">[</span><span class="n">chex</span><span class="o">.</span><span class="n">Array</span><span class="p">,</span> <span class="n">EnvState</span><span class="p">]:</span>
@@ -6848,14 +7289,14 @@ Returns:
 
           <details class="quote">
             <summary>Source code in <code>xlron/environments/vone.py</code></summary>
-            <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">151</span>
-<span class="normal">152</span>
-<span class="normal">153</span>
+            <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">153</span>
 <span class="normal">154</span>
 <span class="normal">155</span>
 <span class="normal">156</span>
 <span class="normal">157</span>
-<span class="normal">158</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="nd">@partial</span><span class="p">(</span><span class="n">jax</span><span class="o">.</span><span class="n">jit</span><span class="p">,</span> <span class="n">static_argnums</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">2</span><span class="p">,))</span>
+<span class="normal">158</span>
+<span class="normal">159</span>
+<span class="normal">160</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="nd">@partial</span><span class="p">(</span><span class="n">jax</span><span class="o">.</span><span class="n">jit</span><span class="p">,</span> <span class="n">static_argnums</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">2</span><span class="p">,))</span>
 <span class="k">def</span> <span class="nf">reset_env</span><span class="p">(</span>
     <span class="bp">self</span><span class="p">,</span> <span class="n">key</span><span class="p">:</span> <span class="n">chex</span><span class="o">.</span><span class="n">PRNGKey</span><span class="p">,</span> <span class="n">params</span><span class="p">:</span> <span class="n">EnvParams</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tuple</span><span class="p">[</span><span class="n">chex</span><span class="o">.</span><span class="n">Array</span><span class="p">,</span> <span class="n">EnvState</span><span class="p">]:</span>
@@ -6887,9 +7328,7 @@ Returns:
 
           <details class="quote">
             <summary>Source code in <code>xlron/environments/vone.py</code></summary>
-            <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">246</span>
-<span class="normal">247</span>
-<span class="normal">248</span>
+            <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">248</span>
 <span class="normal">249</span>
 <span class="normal">250</span>
 <span class="normal">251</span>
@@ -6901,7 +7340,9 @@ Returns:
 <span class="normal">257</span>
 <span class="normal">258</span>
 <span class="normal">259</span>
-<span class="normal">260</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span> <span class="nf">state_space</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">params</span><span class="p">:</span> <span class="n">EnvParams</span><span class="p">):</span>
+<span class="normal">260</span>
+<span class="normal">261</span>
+<span class="normal">262</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span> <span class="nf">state_space</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">params</span><span class="p">:</span> <span class="n">EnvParams</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;State space of the environment.&quot;&quot;&quot;</span>
     <span class="k">return</span> <span class="n">spaces</span><span class="o">.</span><span class="n">Dict</span><span class="p">(</span>
         <span class="p">{</span>
@@ -6940,9 +7381,7 @@ Returns:
 
           <details class="quote">
             <summary>Source code in <code>xlron/environments/vone.py</code></summary>
-            <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">53</span>
-<span class="normal">54</span>
-<span class="normal">55</span>
+            <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">55</span>
 <span class="normal">56</span>
 <span class="normal">57</span>
 <span class="normal">58</span>
@@ -6968,7 +7407,9 @@ Returns:
 <span class="normal">78</span>
 <span class="normal">79</span>
 <span class="normal">80</span>
-<span class="normal">81</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="nd">@partial</span><span class="p">(</span><span class="n">jax</span><span class="o">.</span><span class="n">jit</span><span class="p">,</span> <span class="n">static_argnums</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">4</span><span class="p">))</span>
+<span class="normal">81</span>
+<span class="normal">82</span>
+<span class="normal">83</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="nd">@partial</span><span class="p">(</span><span class="n">jax</span><span class="o">.</span><span class="n">jit</span><span class="p">,</span> <span class="n">static_argnums</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">4</span><span class="p">))</span>
 <span class="k">def</span> <span class="nf">step</span><span class="p">(</span>
     <span class="bp">self</span><span class="p">,</span>
     <span class="n">key</span><span class="p">:</span> <span class="n">chex</span><span class="o">.</span><span class="n">PRNGKey</span><span class="p">,</span>
@@ -7021,9 +7462,7 @@ Returns:
 
           <details class="quote">
             <summary>Source code in <code>xlron/environments/vone.py</code></summary>
-            <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"> 94</span>
-<span class="normal"> 95</span>
-<span class="normal"> 96</span>
+            <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"> 96</span>
 <span class="normal"> 97</span>
 <span class="normal"> 98</span>
 <span class="normal"> 99</span>
@@ -7076,7 +7515,9 @@ Returns:
 <span class="normal">146</span>
 <span class="normal">147</span>
 <span class="normal">148</span>
-<span class="normal">149</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span> <span class="nf">step_env</span><span class="p">(</span>
+<span class="normal">149</span>
+<span class="normal">150</span>
+<span class="normal">151</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span> <span class="nf">step_env</span><span class="p">(</span>
     <span class="bp">self</span><span class="p">,</span>
     <span class="n">key</span><span class="p">:</span> <span class="n">chex</span><span class="o">.</span><span class="n">PRNGKey</span><span class="p">,</span>
     <span class="n">state</span><span class="p">:</span> <span class="n">EnvState</span><span class="p">,</span>
@@ -7170,9 +7611,7 @@ Returns:
 
           <details class="quote">
             <summary>Source code in <code>xlron/environments/vone.py</code></summary>
-            <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">268</span>
-<span class="normal">269</span>
-<span class="normal">270</span>
+            <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">270</span>
 <span class="normal">271</span>
 <span class="normal">272</span>
 <span class="normal">273</span>
@@ -7269,7 +7708,9 @@ Returns:
 <span class="normal">364</span>
 <span class="normal">365</span>
 <span class="normal">366</span>
-<span class="normal">367</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span> <span class="nf">make_vone_env</span><span class="p">(</span><span class="n">config</span><span class="p">):</span>
+<span class="normal">367</span>
+<span class="normal">368</span>
+<span class="normal">369</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span> <span class="nf">make_vone_env</span><span class="p">(</span><span class="n">config</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Create VONE environment.</span>
 <span class="sd">    Args:</span>
 <span class="sd">        config: Configuration dictionary</span>
@@ -10347,7 +10788,7 @@ From: https://github.com/RobertTLange/gymnax/</p>
   </div>
 
 </div><hr />
-<h1 id="constituent-functions-of-environments">Constituent functions of environments</h1>
+<h1 id="environment-functions">Environment functions</h1>
 
 
 <div class="doc doc-object doc-module">
@@ -19292,672 +19733,13 @@ unoccupied index on node resource array for selected nodes.</p>
 
             <details class="quote">
               <summary>Source code in <code>xlron/models/models.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">316</span>
-<span class="normal">317</span>
-<span class="normal">318</span>
-<span class="normal">319</span>
-<span class="normal">320</span>
-<span class="normal">321</span>
-<span class="normal">322</span>
-<span class="normal">323</span>
-<span class="normal">324</span>
-<span class="normal">325</span>
-<span class="normal">326</span>
-<span class="normal">327</span>
-<span class="normal">328</span>
-<span class="normal">329</span>
-<span class="normal">330</span>
-<span class="normal">331</span>
-<span class="normal">332</span>
-<span class="normal">333</span>
-<span class="normal">334</span>
-<span class="normal">335</span>
-<span class="normal">336</span>
-<span class="normal">337</span>
-<span class="normal">338</span>
-<span class="normal">339</span>
-<span class="normal">340</span>
-<span class="normal">341</span>
-<span class="normal">342</span>
-<span class="normal">343</span>
-<span class="normal">344</span>
-<span class="normal">345</span>
-<span class="normal">346</span>
-<span class="normal">347</span>
-<span class="normal">348</span>
-<span class="normal">349</span>
-<span class="normal">350</span>
-<span class="normal">351</span>
-<span class="normal">352</span>
-<span class="normal">353</span>
-<span class="normal">354</span>
-<span class="normal">355</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">class</span> <span class="nc">ActorCriticGNN</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">95</span>
+<span class="normal">96</span>
+<span class="normal">97</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">class</span> <span class="nc">ActorCriticGNN</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Combine the GNN actor and critic networks into a single class&quot;&quot;&quot;</span>
-    <span class="n">activation</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;tanh&quot;</span>
-    <span class="n">num_layers</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">2</span>
-    <span class="n">num_units</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">64</span>
-    <span class="n">gnn_latent</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">128</span>
-    <span class="n">message_passing_steps</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span>
-    <span class="n">output_edges_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">10</span>
-    <span class="n">output_nodes_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span>
-    <span class="n">output_globals_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span>
-    <span class="n">gnn_mlp_layers</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span>
-    <span class="n">use_attention</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span>
-    <span class="n">normalise_by_link_length</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span>  <span class="c1"># Normalise the processed edge features by the link length</span>
-
-    <span class="nd">@nn</span><span class="o">.</span><span class="n">compact</span>
-    <span class="k">def</span> <span class="fm">__call__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">state</span><span class="p">:</span> <span class="n">EnvState</span><span class="p">,</span> <span class="n">params</span><span class="p">:</span> <span class="n">EnvParams</span><span class="p">):</span>
-        <span class="n">actor</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">vmap</span><span class="p">(</span><span class="n">ActorGNN</span><span class="p">(</span>
-            <span class="n">gnn_latent</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">gnn_latent</span><span class="p">,</span>
-            <span class="n">message_passing_steps</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">message_passing_steps</span><span class="p">,</span>
-            <span class="n">output_edges_size</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">output_edges_size</span><span class="p">,</span>
-            <span class="n">output_nodes_size</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">output_nodes_size</span><span class="p">,</span>
-            <span class="n">output_globals_size</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">output_globals_size</span><span class="p">,</span>
-            <span class="n">gnn_mlp_layers</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">gnn_mlp_layers</span><span class="p">,</span>
-            <span class="n">use_attention</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">use_attention</span><span class="p">,</span>
-            <span class="n">normalise_by_link_length</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">normalise_by_link_length</span><span class="p">,</span>
-        <span class="p">),</span> <span class="n">in_axes</span><span class="o">=</span><span class="mi">0</span><span class="p">)(</span><span class="n">state</span><span class="p">,</span> <span class="n">params</span><span class="p">)</span>
-        <span class="n">critic</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">vmap</span><span class="p">(</span><span class="n">CriticGNN</span><span class="p">(</span>
-            <span class="n">activation</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">activation</span><span class="p">,</span>
-            <span class="n">num_layers</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">num_layers</span><span class="p">,</span>
-            <span class="n">num_units</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">num_units</span><span class="p">,</span>
-            <span class="n">gnn_latent</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">gnn_latent</span><span class="p">,</span>
-            <span class="n">message_passing_steps</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">message_passing_steps</span><span class="p">,</span>
-            <span class="n">output_edges_size</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">output_edges_size</span><span class="p">,</span>
-            <span class="n">output_nodes_size</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">output_nodes_size</span><span class="p">,</span>
-            <span class="n">output_globals_size</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">output_globals_size</span><span class="p">,</span>
-            <span class="n">gnn_mlp_layers</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">gnn_mlp_layers</span><span class="p">,</span>
-            <span class="n">use_attention</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">use_attention</span><span class="p">,</span>
-        <span class="p">),</span> <span class="n">in_axes</span><span class="o">=</span><span class="mi">0</span><span class="p">)(</span><span class="n">state</span><span class="p">,</span> <span class="n">params</span><span class="p">)</span>
-        <span class="c1"># Actor is returned as a list for compatibility with MLP VONE option in PPO script</span>
-        <span class="k">return</span> <span class="p">[</span><span class="n">actor</span><span class="p">],</span> <span class="n">critic</span>
+    <span class="k">raise</span> <span class="ne">NotImplementedError</span>  <span class="c1"># Implemented in forthcoming release!</span>
 </code></pre></div></td></tr></table></div>
             </details>
-
-  
-
-  <div class="doc doc-children">
-
-
-
-
-
-
-
-
-
-
-
-  </div>
-
-  </div>
-
-</div>
-
-<div class="doc doc-object doc-class">
-
-
-
-
-<h2 id="models.models.ActorGNN" class="doc doc-heading">
-          <code>ActorGNN</code>
-
-
-</h2>
-
-
-  <div class="doc doc-contents ">
-          <p class="doc doc-class-bases">
-            Bases: <code><span title="flax.linen.Module">Module</span></code></p>
-
-  
-      <p>Actor network for PPO algorithm. Takes the current state and returns a distrax.Categorical distribution
-over actions.</p>
-
-            <details class="quote">
-              <summary>Source code in <code>xlron/models/models.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">252</span>
-<span class="normal">253</span>
-<span class="normal">254</span>
-<span class="normal">255</span>
-<span class="normal">256</span>
-<span class="normal">257</span>
-<span class="normal">258</span>
-<span class="normal">259</span>
-<span class="normal">260</span>
-<span class="normal">261</span>
-<span class="normal">262</span>
-<span class="normal">263</span>
-<span class="normal">264</span>
-<span class="normal">265</span>
-<span class="normal">266</span>
-<span class="normal">267</span>
-<span class="normal">268</span>
-<span class="normal">269</span>
-<span class="normal">270</span>
-<span class="normal">271</span>
-<span class="normal">272</span>
-<span class="normal">273</span>
-<span class="normal">274</span>
-<span class="normal">275</span>
-<span class="normal">276</span>
-<span class="normal">277</span>
-<span class="normal">278</span>
-<span class="normal">279</span>
-<span class="normal">280</span>
-<span class="normal">281</span>
-<span class="normal">282</span>
-<span class="normal">283</span>
-<span class="normal">284</span>
-<span class="normal">285</span>
-<span class="normal">286</span>
-<span class="normal">287</span>
-<span class="normal">288</span>
-<span class="normal">289</span>
-<span class="normal">290</span>
-<span class="normal">291</span>
-<span class="normal">292</span>
-<span class="normal">293</span>
-<span class="normal">294</span>
-<span class="normal">295</span>
-<span class="normal">296</span>
-<span class="normal">297</span>
-<span class="normal">298</span>
-<span class="normal">299</span>
-<span class="normal">300</span>
-<span class="normal">301</span>
-<span class="normal">302</span>
-<span class="normal">303</span>
-<span class="normal">304</span>
-<span class="normal">305</span>
-<span class="normal">306</span>
-<span class="normal">307</span>
-<span class="normal">308</span>
-<span class="normal">309</span>
-<span class="normal">310</span>
-<span class="normal">311</span>
-<span class="normal">312</span>
-<span class="normal">313</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">class</span> <span class="nc">ActorGNN</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">    Actor network for PPO algorithm. Takes the current state and returns a distrax.Categorical distribution</span>
-<span class="sd">    over actions.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
-    <span class="n">gnn_latent</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">128</span>
-    <span class="n">message_passing_steps</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span>
-    <span class="n">output_edges_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">10</span>
-    <span class="n">output_nodes_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span>
-    <span class="n">output_globals_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span>
-    <span class="n">gnn_mlp_layers</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span>
-    <span class="n">use_attention</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span>
-    <span class="n">normalise_by_link_length</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span>  <span class="c1"># Normalise the processed edge features by the link length</span>
-
-    <span class="nd">@nn</span><span class="o">.</span><span class="n">compact</span>
-    <span class="k">def</span> <span class="fm">__call__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">state</span><span class="p">:</span> <span class="n">EnvState</span><span class="p">,</span> <span class="n">params</span><span class="p">:</span> <span class="n">EnvParams</span><span class="p">):</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">        The ActorGNN network takes the current network state in the form of a GraphTuple and returns</span>
-<span class="sd">        a distrax.Categorical distribution over actions.</span>
-<span class="sd">        The graph is processed by a GraphNet module, and the resulting graph is indexed to construct a matrix of</span>
-<span class="sd">        the edge features. The edge features are then normalised by the link length from the environment parameters,</span>
-<span class="sd">        and the current request is read from the request array.</span>
-<span class="sd">        The request is used to retrieve the edge features from the edge_features array for the corresponding</span>
-<span class="sd">        shortest k-paths. The edge features are aggregated for each path according to the &quot;agg_func&quot; e.g. sum,</span>
-<span class="sd">        and the action distribution array is updated.</span>
-<span class="sd">        Returns a distrax.Categorical distribution, from which actions can be sampled.</span>
-
-<span class="sd">        :param state: EnvState</span>
-<span class="sd">        :param params: EnvParams</span>
-
-<span class="sd">        :return: distrax.Categorical distribution over actions</span>
-<span class="sd">        &quot;&quot;&quot;</span>
-        <span class="n">processed_graph</span> <span class="o">=</span> <span class="n">GraphNet</span><span class="p">(</span>
-            <span class="n">latent_size</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">gnn_latent</span><span class="p">,</span>
-            <span class="n">message_passing_steps</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">message_passing_steps</span><span class="p">,</span>
-            <span class="n">output_edges_size</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">output_edges_size</span><span class="p">,</span>
-            <span class="n">output_nodes_size</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">output_nodes_size</span><span class="p">,</span>
-            <span class="n">output_globals_size</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">output_globals_size</span><span class="p">,</span>
-            <span class="n">num_mlp_layers</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">gnn_mlp_layers</span><span class="p">,</span>
-            <span class="n">use_attention</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">use_attention</span><span class="p">,</span>
-        <span class="p">)(</span><span class="n">state</span><span class="o">.</span><span class="n">graph</span><span class="p">)</span>
-
-        <span class="c1"># Index edge features to resemble the link-slot array</span>
-        <span class="n">edge_features</span> <span class="o">=</span> <span class="n">processed_graph</span><span class="o">.</span><span class="n">edges</span><span class="p">[::</span><span class="mi">2</span><span class="p">]</span>
-        <span class="c1"># Normalise features by normalised link length from state.link_length_array</span>
-        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">normalise_by_link_length</span><span class="p">:</span>
-            <span class="n">edge_features</span> <span class="o">=</span> <span class="n">edge_features</span> <span class="o">*</span> <span class="p">(</span><span class="n">params</span><span class="o">.</span><span class="n">link_length_array</span><span class="o">.</span><span class="n">val</span><span class="o">/</span><span class="n">jnp</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">params</span><span class="o">.</span><span class="n">link_length_array</span><span class="o">.</span><span class="n">val</span><span class="p">))</span>
-        <span class="c1"># Get the current request and initialise array of action distributions per path</span>
-        <span class="n">nodes_sd</span><span class="p">,</span> <span class="n">requested_bw</span> <span class="o">=</span> <span class="n">read_rsa_request</span><span class="p">(</span><span class="n">state</span><span class="o">.</span><span class="n">request_array</span><span class="p">)</span>
-        <span class="n">init_action_array</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">params</span><span class="o">.</span><span class="n">k_paths</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">output_edges_size</span><span class="p">)</span>
-
-        <span class="c1"># Define a body func to retrieve path slots and update action array</span>
-        <span class="k">def</span> <span class="nf">get_path_action_dist</span><span class="p">(</span><span class="n">i</span><span class="p">,</span> <span class="n">action_array</span><span class="p">):</span>
-            <span class="c1"># Get the processed graph edge features corresponding to the i-th path</span>
-            <span class="n">path_features</span> <span class="o">=</span> <span class="n">get_path_slots</span><span class="p">(</span><span class="n">edge_features</span><span class="p">,</span> <span class="n">params</span><span class="p">,</span> <span class="n">nodes_sd</span><span class="p">,</span> <span class="n">i</span><span class="p">,</span> <span class="n">agg_func</span><span class="o">=</span><span class="s2">&quot;sum&quot;</span><span class="p">)</span>
-            <span class="c1"># Update the action array with the path features</span>
-            <span class="n">action_array</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">lax</span><span class="o">.</span><span class="n">dynamic_update_slice</span><span class="p">(</span><span class="n">action_array</span><span class="p">,</span> <span class="n">path_features</span><span class="p">,</span> <span class="p">(</span><span class="n">i</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">output_edges_size</span><span class="p">,))</span>
-            <span class="k">return</span> <span class="n">action_array</span>
-
-        <span class="n">action_dist</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">lax</span><span class="o">.</span><span class="n">fori_loop</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">params</span><span class="o">.</span><span class="n">k_paths</span><span class="p">,</span> <span class="n">get_path_action_dist</span><span class="p">,</span> <span class="n">init_action_array</span><span class="p">)</span>
-        <span class="c1"># Return a distrax.Categorical distribution over actions (which can be masked later)</span>
-        <span class="k">return</span> <span class="n">distrax</span><span class="o">.</span><span class="n">Categorical</span><span class="p">(</span><span class="n">logits</span><span class="o">=</span><span class="n">jnp</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="n">action_dist</span><span class="p">,</span> <span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,)))</span>
-</code></pre></div></td></tr></table></div>
-            </details>
-
-  
-
-  <div class="doc doc-children">
-
-
-
-
-
-
-
-
-
-
-<div class="doc doc-object doc-function">
-
-
-
-
-<h3 id="models.models.ActorGNN.__call__" class="doc doc-heading">
-          <code class="highlight language-python"><span class="fm">__call__</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="n">params</span><span class="p">)</span></code>
-
-</h3>
-
-
-  <div class="doc doc-contents ">
-  
-      <p>The ActorGNN network takes the current network state in the form of a GraphTuple and returns
-a distrax.Categorical distribution over actions.
-The graph is processed by a GraphNet module, and the resulting graph is indexed to construct a matrix of
-the edge features. The edge features are then normalised by the link length from the environment parameters,
-and the current request is read from the request array.
-The request is used to retrieve the edge features from the edge_features array for the corresponding
-shortest k-paths. The edge features are aggregated for each path according to the "agg_func" e.g. sum,
-and the action distribution array is updated.
-Returns a distrax.Categorical distribution, from which actions can be sampled.</p>
-<p>:param state: EnvState
-:param params: EnvParams</p>
-<p>:return: distrax.Categorical distribution over actions</p>
-
-          <details class="quote">
-            <summary>Source code in <code>xlron/models/models.py</code></summary>
-            <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">266</span>
-<span class="normal">267</span>
-<span class="normal">268</span>
-<span class="normal">269</span>
-<span class="normal">270</span>
-<span class="normal">271</span>
-<span class="normal">272</span>
-<span class="normal">273</span>
-<span class="normal">274</span>
-<span class="normal">275</span>
-<span class="normal">276</span>
-<span class="normal">277</span>
-<span class="normal">278</span>
-<span class="normal">279</span>
-<span class="normal">280</span>
-<span class="normal">281</span>
-<span class="normal">282</span>
-<span class="normal">283</span>
-<span class="normal">284</span>
-<span class="normal">285</span>
-<span class="normal">286</span>
-<span class="normal">287</span>
-<span class="normal">288</span>
-<span class="normal">289</span>
-<span class="normal">290</span>
-<span class="normal">291</span>
-<span class="normal">292</span>
-<span class="normal">293</span>
-<span class="normal">294</span>
-<span class="normal">295</span>
-<span class="normal">296</span>
-<span class="normal">297</span>
-<span class="normal">298</span>
-<span class="normal">299</span>
-<span class="normal">300</span>
-<span class="normal">301</span>
-<span class="normal">302</span>
-<span class="normal">303</span>
-<span class="normal">304</span>
-<span class="normal">305</span>
-<span class="normal">306</span>
-<span class="normal">307</span>
-<span class="normal">308</span>
-<span class="normal">309</span>
-<span class="normal">310</span>
-<span class="normal">311</span>
-<span class="normal">312</span>
-<span class="normal">313</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="nd">@nn</span><span class="o">.</span><span class="n">compact</span>
-<span class="k">def</span> <span class="fm">__call__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">state</span><span class="p">:</span> <span class="n">EnvState</span><span class="p">,</span> <span class="n">params</span><span class="p">:</span> <span class="n">EnvParams</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">    The ActorGNN network takes the current network state in the form of a GraphTuple and returns</span>
-<span class="sd">    a distrax.Categorical distribution over actions.</span>
-<span class="sd">    The graph is processed by a GraphNet module, and the resulting graph is indexed to construct a matrix of</span>
-<span class="sd">    the edge features. The edge features are then normalised by the link length from the environment parameters,</span>
-<span class="sd">    and the current request is read from the request array.</span>
-<span class="sd">    The request is used to retrieve the edge features from the edge_features array for the corresponding</span>
-<span class="sd">    shortest k-paths. The edge features are aggregated for each path according to the &quot;agg_func&quot; e.g. sum,</span>
-<span class="sd">    and the action distribution array is updated.</span>
-<span class="sd">    Returns a distrax.Categorical distribution, from which actions can be sampled.</span>
-
-<span class="sd">    :param state: EnvState</span>
-<span class="sd">    :param params: EnvParams</span>
-
-<span class="sd">    :return: distrax.Categorical distribution over actions</span>
-<span class="sd">    &quot;&quot;&quot;</span>
-    <span class="n">processed_graph</span> <span class="o">=</span> <span class="n">GraphNet</span><span class="p">(</span>
-        <span class="n">latent_size</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">gnn_latent</span><span class="p">,</span>
-        <span class="n">message_passing_steps</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">message_passing_steps</span><span class="p">,</span>
-        <span class="n">output_edges_size</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">output_edges_size</span><span class="p">,</span>
-        <span class="n">output_nodes_size</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">output_nodes_size</span><span class="p">,</span>
-        <span class="n">output_globals_size</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">output_globals_size</span><span class="p">,</span>
-        <span class="n">num_mlp_layers</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">gnn_mlp_layers</span><span class="p">,</span>
-        <span class="n">use_attention</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">use_attention</span><span class="p">,</span>
-    <span class="p">)(</span><span class="n">state</span><span class="o">.</span><span class="n">graph</span><span class="p">)</span>
-
-    <span class="c1"># Index edge features to resemble the link-slot array</span>
-    <span class="n">edge_features</span> <span class="o">=</span> <span class="n">processed_graph</span><span class="o">.</span><span class="n">edges</span><span class="p">[::</span><span class="mi">2</span><span class="p">]</span>
-    <span class="c1"># Normalise features by normalised link length from state.link_length_array</span>
-    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">normalise_by_link_length</span><span class="p">:</span>
-        <span class="n">edge_features</span> <span class="o">=</span> <span class="n">edge_features</span> <span class="o">*</span> <span class="p">(</span><span class="n">params</span><span class="o">.</span><span class="n">link_length_array</span><span class="o">.</span><span class="n">val</span><span class="o">/</span><span class="n">jnp</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">params</span><span class="o">.</span><span class="n">link_length_array</span><span class="o">.</span><span class="n">val</span><span class="p">))</span>
-    <span class="c1"># Get the current request and initialise array of action distributions per path</span>
-    <span class="n">nodes_sd</span><span class="p">,</span> <span class="n">requested_bw</span> <span class="o">=</span> <span class="n">read_rsa_request</span><span class="p">(</span><span class="n">state</span><span class="o">.</span><span class="n">request_array</span><span class="p">)</span>
-    <span class="n">init_action_array</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">params</span><span class="o">.</span><span class="n">k_paths</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">output_edges_size</span><span class="p">)</span>
-
-    <span class="c1"># Define a body func to retrieve path slots and update action array</span>
-    <span class="k">def</span> <span class="nf">get_path_action_dist</span><span class="p">(</span><span class="n">i</span><span class="p">,</span> <span class="n">action_array</span><span class="p">):</span>
-        <span class="c1"># Get the processed graph edge features corresponding to the i-th path</span>
-        <span class="n">path_features</span> <span class="o">=</span> <span class="n">get_path_slots</span><span class="p">(</span><span class="n">edge_features</span><span class="p">,</span> <span class="n">params</span><span class="p">,</span> <span class="n">nodes_sd</span><span class="p">,</span> <span class="n">i</span><span class="p">,</span> <span class="n">agg_func</span><span class="o">=</span><span class="s2">&quot;sum&quot;</span><span class="p">)</span>
-        <span class="c1"># Update the action array with the path features</span>
-        <span class="n">action_array</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">lax</span><span class="o">.</span><span class="n">dynamic_update_slice</span><span class="p">(</span><span class="n">action_array</span><span class="p">,</span> <span class="n">path_features</span><span class="p">,</span> <span class="p">(</span><span class="n">i</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">output_edges_size</span><span class="p">,))</span>
-        <span class="k">return</span> <span class="n">action_array</span>
-
-    <span class="n">action_dist</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">lax</span><span class="o">.</span><span class="n">fori_loop</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">params</span><span class="o">.</span><span class="n">k_paths</span><span class="p">,</span> <span class="n">get_path_action_dist</span><span class="p">,</span> <span class="n">init_action_array</span><span class="p">)</span>
-    <span class="c1"># Return a distrax.Categorical distribution over actions (which can be masked later)</span>
-    <span class="k">return</span> <span class="n">distrax</span><span class="o">.</span><span class="n">Categorical</span><span class="p">(</span><span class="n">logits</span><span class="o">=</span><span class="n">jnp</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="n">action_dist</span><span class="p">,</span> <span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,)))</span>
-</code></pre></div></td></tr></table></div>
-          </details>
-  </div>
-
-</div>
-
-
-
-  </div>
-
-  </div>
-
-</div>
-
-<div class="doc doc-object doc-class">
-
-
-
-
-<h2 id="models.models.GraphNet" class="doc doc-heading">
-          <code>GraphNet</code>
-
-
-</h2>
-
-
-  <div class="doc doc-contents ">
-          <p class="doc doc-class-bases">
-            Bases: <code><span title="flax.linen.Module">Module</span></code></p>
-
-  
-      <p>A complete Graph Network model defined with Jraph.</p>
-
-            <details class="quote">
-              <summary>Source code in <code>xlron/models/models.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"> 96</span>
-<span class="normal"> 97</span>
-<span class="normal"> 98</span>
-<span class="normal"> 99</span>
-<span class="normal">100</span>
-<span class="normal">101</span>
-<span class="normal">102</span>
-<span class="normal">103</span>
-<span class="normal">104</span>
-<span class="normal">105</span>
-<span class="normal">106</span>
-<span class="normal">107</span>
-<span class="normal">108</span>
-<span class="normal">109</span>
-<span class="normal">110</span>
-<span class="normal">111</span>
-<span class="normal">112</span>
-<span class="normal">113</span>
-<span class="normal">114</span>
-<span class="normal">115</span>
-<span class="normal">116</span>
-<span class="normal">117</span>
-<span class="normal">118</span>
-<span class="normal">119</span>
-<span class="normal">120</span>
-<span class="normal">121</span>
-<span class="normal">122</span>
-<span class="normal">123</span>
-<span class="normal">124</span>
-<span class="normal">125</span>
-<span class="normal">126</span>
-<span class="normal">127</span>
-<span class="normal">128</span>
-<span class="normal">129</span>
-<span class="normal">130</span>
-<span class="normal">131</span>
-<span class="normal">132</span>
-<span class="normal">133</span>
-<span class="normal">134</span>
-<span class="normal">135</span>
-<span class="normal">136</span>
-<span class="normal">137</span>
-<span class="normal">138</span>
-<span class="normal">139</span>
-<span class="normal">140</span>
-<span class="normal">141</span>
-<span class="normal">142</span>
-<span class="normal">143</span>
-<span class="normal">144</span>
-<span class="normal">145</span>
-<span class="normal">146</span>
-<span class="normal">147</span>
-<span class="normal">148</span>
-<span class="normal">149</span>
-<span class="normal">150</span>
-<span class="normal">151</span>
-<span class="normal">152</span>
-<span class="normal">153</span>
-<span class="normal">154</span>
-<span class="normal">155</span>
-<span class="normal">156</span>
-<span class="normal">157</span>
-<span class="normal">158</span>
-<span class="normal">159</span>
-<span class="normal">160</span>
-<span class="normal">161</span>
-<span class="normal">162</span>
-<span class="normal">163</span>
-<span class="normal">164</span>
-<span class="normal">165</span>
-<span class="normal">166</span>
-<span class="normal">167</span>
-<span class="normal">168</span>
-<span class="normal">169</span>
-<span class="normal">170</span>
-<span class="normal">171</span>
-<span class="normal">172</span>
-<span class="normal">173</span>
-<span class="normal">174</span>
-<span class="normal">175</span>
-<span class="normal">176</span>
-<span class="normal">177</span>
-<span class="normal">178</span>
-<span class="normal">179</span>
-<span class="normal">180</span>
-<span class="normal">181</span>
-<span class="normal">182</span>
-<span class="normal">183</span>
-<span class="normal">184</span>
-<span class="normal">185</span>
-<span class="normal">186</span>
-<span class="normal">187</span>
-<span class="normal">188</span>
-<span class="normal">189</span>
-<span class="normal">190</span>
-<span class="normal">191</span>
-<span class="normal">192</span>
-<span class="normal">193</span>
-<span class="normal">194</span>
-<span class="normal">195</span>
-<span class="normal">196</span>
-<span class="normal">197</span>
-<span class="normal">198</span>
-<span class="normal">199</span>
-<span class="normal">200</span>
-<span class="normal">201</span>
-<span class="normal">202</span>
-<span class="normal">203</span>
-<span class="normal">204</span>
-<span class="normal">205</span>
-<span class="normal">206</span>
-<span class="normal">207</span>
-<span class="normal">208</span>
-<span class="normal">209</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">class</span> <span class="nc">GraphNet</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;A complete Graph Network model defined with Jraph.&quot;&quot;&quot;</span>
-
-    <span class="n">latent_size</span><span class="p">:</span> <span class="nb">int</span>
-    <span class="n">num_mlp_layers</span><span class="p">:</span> <span class="nb">int</span>
-    <span class="n">message_passing_steps</span><span class="p">:</span> <span class="nb">int</span>
-    <span class="n">output_globals_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span>
-    <span class="n">output_edges_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span>
-    <span class="n">output_nodes_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span>
-    <span class="n">dropout_rate</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mi">0</span>
-    <span class="n">skip_connections</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span>
-    <span class="n">use_edge_model</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span>
-    <span class="n">layer_norm</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span>
-    <span class="n">deterministic</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span>  <span class="c1"># If true, no dropout (better for RL purposes)</span>
-    <span class="n">use_attention</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span>
-
-    <span class="nd">@nn</span><span class="o">.</span><span class="n">compact</span>
-    <span class="k">def</span> <span class="fm">__call__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">graphs</span><span class="p">:</span> <span class="n">jraph</span><span class="o">.</span><span class="n">GraphsTuple</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">jraph</span><span class="o">.</span><span class="n">GraphsTuple</span><span class="p">:</span>
-        <span class="c1"># Template code from here: https://github.com/google/flax/blob/main/examples/ogbg_molpcba/models.py</span>
-        <span class="c1"># We will first linearly project the original features as &#39;embeddings&#39;.</span>
-        <span class="n">embedder</span> <span class="o">=</span> <span class="n">jraph</span><span class="o">.</span><span class="n">GraphMapFeatures</span><span class="p">(</span>
-            <span class="n">embed_node_fn</span><span class="o">=</span><span class="n">nn</span><span class="o">.</span><span class="n">Dense</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">latent_size</span><span class="p">)</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">output_nodes_size</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
-            <span class="n">embed_edge_fn</span><span class="o">=</span><span class="n">nn</span><span class="o">.</span><span class="n">Dense</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">latent_size</span><span class="p">),</span>
-            <span class="n">embed_global_fn</span><span class="o">=</span><span class="n">nn</span><span class="o">.</span><span class="n">Dense</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">latent_size</span><span class="p">)</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">output_globals_size</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
-        <span class="p">)</span>
-        <span class="n">processed_graphs</span> <span class="o">=</span> <span class="n">embedder</span><span class="p">(</span><span class="n">graphs</span><span class="p">)</span>
-
-        <span class="c1"># Now, we will apply a Graph Network once for each message-passing round.</span>
-        <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">message_passing_steps</span><span class="p">):</span>
-            <span class="n">mlp_feature_sizes</span> <span class="o">=</span> <span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">latent_size</span><span class="p">]</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">num_mlp_layers</span>
-
-            <span class="c1"># TODO - Allow RNN/SSM to be used as update functions</span>
-            <span class="c1"># https://github.com/luchris429/popjaxrl/blob/main/algorithms/ppo_gru.py</span>
-            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">use_edge_model</span><span class="p">:</span>
-                <span class="n">update_edge_fn</span> <span class="o">=</span> <span class="n">jraph</span><span class="o">.</span><span class="n">concatenated_args</span><span class="p">(</span>
-                    <span class="n">MLP</span><span class="p">(</span>
-                        <span class="n">mlp_feature_sizes</span><span class="p">,</span>
-                        <span class="n">dropout_rate</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">dropout_rate</span><span class="p">,</span>
-                        <span class="n">deterministic</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">deterministic</span><span class="p">,</span>
-                    <span class="p">)</span>
-                <span class="p">)</span>
-            <span class="k">else</span><span class="p">:</span>
-                <span class="n">update_edge_fn</span> <span class="o">=</span> <span class="kc">None</span>
-
-            <span class="n">update_node_fn</span> <span class="o">=</span> <span class="n">jraph</span><span class="o">.</span><span class="n">concatenated_args</span><span class="p">(</span>
-                <span class="n">MLP</span><span class="p">(</span>
-                    <span class="n">mlp_feature_sizes</span><span class="p">,</span>
-                    <span class="n">dropout_rate</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">dropout_rate</span><span class="p">,</span>
-                    <span class="n">deterministic</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">deterministic</span><span class="p">,</span>
-                <span class="p">)</span>
-            <span class="p">)</span>
-            <span class="n">update_global_fn</span> <span class="o">=</span> <span class="n">jraph</span><span class="o">.</span><span class="n">concatenated_args</span><span class="p">(</span>
-                <span class="n">MLP</span><span class="p">(</span>
-                    <span class="n">mlp_feature_sizes</span><span class="p">,</span>
-                    <span class="n">dropout_rate</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">dropout_rate</span><span class="p">,</span>
-                    <span class="n">deterministic</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">deterministic</span><span class="p">,</span>
-                <span class="p">)</span>
-            <span class="p">)</span>
-
-            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">use_attention</span><span class="p">:</span>
-                <span class="k">def</span> <span class="nf">_attention_logit_fn</span><span class="p">(</span>
-                    <span class="n">edges</span><span class="p">:</span> <span class="n">jnp</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span> <span class="n">sender_attr</span><span class="p">:</span> <span class="n">jnp</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span> <span class="n">receiver_attr</span><span class="p">:</span> <span class="n">jnp</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span> <span class="n">global_edge_attributes</span><span class="p">:</span> <span class="n">jnp</span><span class="o">.</span><span class="n">ndarray</span>
-                <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">jnp</span><span class="o">.</span><span class="n">ndarray</span><span class="p">:</span>
-<span class="w">                    </span><span class="sd">&quot;&quot;&quot;Calculate attention logits for each edge using the edges &amp; global edge attributes.&quot;&quot;&quot;</span>
-                    <span class="c1"># TODO - would need to change this for VONE to incorporate node information</span>
-                    <span class="c1">#  e.g. use same as update_global/edge/node_fn</span>
-                    <span class="c1"># TODO - try using jraph.concatenated_args() here</span>
-                    <span class="n">x</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">concatenate</span><span class="p">((</span><span class="n">edges</span><span class="p">,</span> <span class="n">global_edge_attributes</span><span class="p">),</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
-                    <span class="k">return</span> <span class="n">MLP</span><span class="p">(</span><span class="n">mlp_feature_sizes</span><span class="p">,</span> <span class="n">dropout_rate</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">dropout_rate</span><span class="p">,</span>
-                                <span class="n">deterministic</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">deterministic</span><span class="p">,)(</span><span class="n">x</span><span class="p">)</span>
-
-                <span class="k">def</span> <span class="nf">_attention_reduce_fn</span><span class="p">(</span>
-                    <span class="n">edges</span><span class="p">:</span> <span class="n">jnp</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span> <span class="n">attention</span><span class="p">:</span> <span class="n">jnp</span><span class="o">.</span><span class="n">ndarray</span>
-                <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">jnp</span><span class="o">.</span><span class="n">ndarray</span><span class="p">:</span>
-                    <span class="c1"># TODO - could try more sophisticated attention reduce function (not sure what it would be)</span>
-                    <span class="k">return</span> <span class="n">attention</span> <span class="o">*</span> <span class="n">edges</span>
-
-                <span class="n">graph_net</span> <span class="o">=</span> <span class="n">GraphNetGAT</span><span class="p">(</span>
-                    <span class="n">update_node_fn</span><span class="o">=</span><span class="n">update_node_fn</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">output_nodes_size</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
-                    <span class="n">update_edge_fn</span><span class="o">=</span><span class="n">update_edge_fn</span><span class="p">,</span>  <span class="c1"># Update the edges with MLP prior to attention</span>
-                    <span class="n">update_global_fn</span><span class="o">=</span><span class="n">update_global_fn</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">output_globals_size</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
-                    <span class="n">attention_logit_fn</span><span class="o">=</span><span class="n">_attention_logit_fn</span><span class="p">,</span>
-                    <span class="n">attention_reduce_fn</span><span class="o">=</span><span class="n">_attention_reduce_fn</span><span class="p">,</span>  <span class="c1"># TODO - check this attention reduce function</span>
-                    <span class="c1"># (here might help https://uvadlc-notebooks.readthedocs.io/en/latest/tutorial_notebooks/JAX/tutorial7/GNN_overview.html)</span>
-                <span class="p">)</span>
-            <span class="k">else</span><span class="p">:</span>
-                <span class="n">graph_net</span> <span class="o">=</span> <span class="n">GraphNetwork</span><span class="p">(</span>
-                    <span class="n">update_node_fn</span><span class="o">=</span><span class="n">update_node_fn</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">output_nodes_size</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
-                    <span class="n">update_edge_fn</span><span class="o">=</span><span class="n">update_edge_fn</span><span class="p">,</span>
-                    <span class="n">update_global_fn</span><span class="o">=</span><span class="n">update_global_fn</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">output_globals_size</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
-                <span class="p">)</span>
-
-            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">skip_connections</span><span class="p">:</span>
-                <span class="n">processed_graphs</span> <span class="o">=</span> <span class="n">add_graphs_tuples</span><span class="p">(</span>
-                <span class="n">graph_net</span><span class="p">(</span><span class="n">processed_graphs</span><span class="p">),</span> <span class="n">processed_graphs</span>
-            <span class="p">)</span>
-            <span class="k">else</span><span class="p">:</span>
-                <span class="n">processed_graphs</span> <span class="o">=</span> <span class="n">graph_net</span><span class="p">(</span><span class="n">processed_graphs</span><span class="p">)</span>
-
-            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">layer_norm</span><span class="p">:</span>
-                <span class="n">processed_graphs</span> <span class="o">=</span> <span class="n">processed_graphs</span><span class="o">.</span><span class="n">_replace</span><span class="p">(</span>
-                    <span class="n">nodes</span><span class="o">=</span><span class="n">nn</span><span class="o">.</span><span class="n">LayerNorm</span><span class="p">()(</span><span class="n">processed_graphs</span><span class="o">.</span><span class="n">nodes</span><span class="p">),</span>
-                    <span class="n">edges</span><span class="o">=</span><span class="n">nn</span><span class="o">.</span><span class="n">LayerNorm</span><span class="p">()(</span><span class="n">processed_graphs</span><span class="o">.</span><span class="n">edges</span><span class="p">),</span>
-                    <span class="nb">globals</span><span class="o">=</span><span class="n">nn</span><span class="o">.</span><span class="n">LayerNorm</span><span class="p">()(</span><span class="n">processed_graphs</span><span class="o">.</span><span class="n">globals</span><span class="p">)</span> <span class="k">if</span> <span class="n">processed_graphs</span><span class="o">.</span><span class="n">globals</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
-                <span class="p">)</span>
-
-        <span class="n">decoder</span> <span class="o">=</span> <span class="n">jraph</span><span class="o">.</span><span class="n">GraphMapFeatures</span><span class="p">(</span>
-            <span class="n">embed_global_fn</span><span class="o">=</span><span class="n">nn</span><span class="o">.</span><span class="n">Dense</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">output_globals_size</span><span class="p">)</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">output_globals_size</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
-            <span class="n">embed_node_fn</span><span class="o">=</span><span class="n">nn</span><span class="o">.</span><span class="n">Dense</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">output_nodes_size</span><span class="p">)</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">output_nodes_size</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
-            <span class="n">embed_edge_fn</span><span class="o">=</span><span class="n">nn</span><span class="o">.</span><span class="n">Dense</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">output_edges_size</span><span class="p">),</span>
-        <span class="p">)</span>
-        <span class="n">processed_graphs</span> <span class="o">=</span> <span class="n">decoder</span><span class="p">(</span><span class="n">processed_graphs</span><span class="p">)</span>
-
-        <span class="k">return</span> <span class="n">processed_graphs</span>
-</code></pre></div></td></tr></table></div>
-            </details>
-
-  
-
-  <div class="doc doc-children">
-
-
-
-
-
-
-
-
-
-
-
-  </div>
 
   </div>
 
@@ -19984,7 +19766,8 @@ Returns a distrax.Categorical distribution, from which actions can be sampled.</
 
             <details class="quote">
               <summary>Source code in <code>xlron/models/models.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">76</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">75</span>
+<span class="normal">76</span>
 <span class="normal">77</span>
 <span class="normal">78</span>
 <span class="normal">79</span>
@@ -20000,8 +19783,7 @@ Returns a distrax.Categorical distribution, from which actions can be sampled.</
 <span class="normal">89</span>
 <span class="normal">90</span>
 <span class="normal">91</span>
-<span class="normal">92</span>
-<span class="normal">93</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">class</span> <span class="nc">MLP</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
+<span class="normal">92</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">class</span> <span class="nc">MLP</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;A multi-layer perceptron.&quot;&quot;&quot;</span>
 
     <span class="n">feature_sizes</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span>
@@ -20061,15 +19843,15 @@ Returns a distrax.Categorical distribution, from which actions can be sampled.</
 
           <details class="quote">
             <summary>Source code in <code>xlron/models/models.py</code></summary>
-            <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">19</span>
+            <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">18</span>
+<span class="normal">19</span>
 <span class="normal">20</span>
 <span class="normal">21</span>
 <span class="normal">22</span>
 <span class="normal">23</span>
 <span class="normal">24</span>
 <span class="normal">25</span>
-<span class="normal">26</span>
-<span class="normal">27</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span> <span class="nf">add_graphs_tuples</span><span class="p">(</span>
+<span class="normal">26</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span> <span class="nf">add_graphs_tuples</span><span class="p">(</span>
     <span class="n">graphs</span><span class="p">:</span> <span class="n">jraph</span><span class="o">.</span><span class="n">GraphsTuple</span><span class="p">,</span> <span class="n">other_graphs</span><span class="p">:</span> <span class="n">jraph</span><span class="o">.</span><span class="n">GraphsTuple</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">jraph</span><span class="o">.</span><span class="n">GraphsTuple</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Adds the nodes, edges and global features from other_graphs to graphs.&quot;&quot;&quot;</span>

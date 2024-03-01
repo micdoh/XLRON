@@ -292,6 +292,17 @@
         
       
       
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  <span class="md-ellipsis">
+    Quick Start
+  </span>
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
       <a href="./" class="md-nav__link md-nav__link--active">
         
   
@@ -301,6 +312,58 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#example-commands" class="md-nav__link">
+    <span class="md-ellipsis">
+      Example commands
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Example commands">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#training-runs" class="md-nav__link">
+    <span class="md-ellipsis">
+      Training runs
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#set-up-wandb-hyperparameter-sweep" class="md-nav__link">
+    <span class="md-ellipsis">
+      Set up wandb hyperparameter sweep
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
       
     </li>
   
@@ -506,6 +569,47 @@
     
   
   
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#example-commands" class="md-nav__link">
+    <span class="md-ellipsis">
+      Example commands
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Example commands">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#training-runs" class="md-nav__link">
+    <span class="md-ellipsis">
+      Training runs
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#set-up-wandb-hyperparameter-sweep" class="md-nav__link">
+    <span class="md-ellipsis">
+      Set up wandb hyperparameter sweep
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
 </nav>
                   </div>
                 </div>
@@ -520,6 +624,23 @@
 
 
 <h1 id="quickstart">Quickstart</h1>
+<h2 id="example-commands">Example commands</h2>
+<hr />
+<h3 id="training-runs">Training runs</h3>
+<hr />
+<h3 id="set-up-wandb-hyperparameter-sweep">Set up wandb hyperparameter sweep</h3>
+<ol>
+<li><strong>Define the sweep configuration</strong> in a file <code>config.yaml</code> e.g. <a href="../examples/example_sweep_config.yml">here</a> (see <a href="https://docs.wandb.ai/guides/sweeps/configuration">wandb documentation</a> for details)</li>
+<li>Run the following command to <strong>set up the sweep</strong>. This will output a sweep ID, which you will need for the next step.</li>
+</ol>
+<div class="highlight"><pre><span></span><code>wandb<span class="w"> </span>sweep<span class="w"> </span>config.yaml
+</code></pre></div>
+<ol>
+<li>Run the following command to <strong>start a sweep agent</strong>. Multiple sweep agents can be run in parallel to speed up the search for optimal hyperparameters.</li>
+</ol>
+<div class="highlight"><pre><span></span><code>wandb<span class="w"> </span>agent<span class="w"> </span>&lt;SWEEP_ID&gt;
+</code></pre></div>
+<hr />
 
 
 

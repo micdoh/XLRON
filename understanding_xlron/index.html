@@ -394,9 +394,9 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#1-functional-programming" class="md-nav__link">
+  <a href="#1-functional-programming-and-jax" class="md-nav__link">
     <span class="md-ellipsis">
-      1. Functional programming
+      1. Functional programming and JAX
     </span>
   </a>
   
@@ -424,7 +424,7 @@
           <li class="md-nav__item">
   <a href="#31-key-data-structures" class="md-nav__link">
     <span class="md-ellipsis">
-      3.1 Key data structures:
+      3.1 Key data structures
     </span>
   </a>
   
@@ -497,9 +497,9 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#masking" class="md-nav__link">
+  <a href="#invalid-action-masking" class="md-nav__link">
     <span class="md-ellipsis">
-      Masking
+      Invalid Action Masking
     </span>
   </a>
   
@@ -687,9 +687,9 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#1-functional-programming" class="md-nav__link">
+  <a href="#1-functional-programming-and-jax" class="md-nav__link">
     <span class="md-ellipsis">
-      1. Functional programming
+      1. Functional programming and JAX
     </span>
   </a>
   
@@ -717,7 +717,7 @@
           <li class="md-nav__item">
   <a href="#31-key-data-structures" class="md-nav__link">
     <span class="md-ellipsis">
-      3.1 Key data structures:
+      3.1 Key data structures
     </span>
   </a>
   
@@ -790,9 +790,9 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#masking" class="md-nav__link">
+  <a href="#invalid-action-masking" class="md-nav__link">
     <span class="md-ellipsis">
-      Masking
+      Invalid Action Masking
     </span>
   </a>
   
@@ -846,12 +846,24 @@
 
 
 <h1 id="understanding-xlron">Understanding XLRON</h1>
-<p>This page provides a overview of the conceptual underpinnings of XLRON and description of its more advanced features. It explains how it is different from other network simulators that are reliant on standard graph libraries such as networkx, and instead uses an array-based approach to represent the network state. This allows JIT-compilation using JAX, parallelisation on GPU, and resulting fast generation of state transitions and reduction in training times.</p>
+<p>This page provides an overview of the conceptual underpinnings of XLRON and description of its more advanced features. It explains how it is different from other network simulators that are reliant on standard graph libraries such as networkx, and instead uses an array-based approach to represent the network state. This allows JIT-compilation using JAX, parallelisation on GPU, and resulting fast generation of state transitions and reduction in training times.</p>
 <p>For a primer on how to begin training and evaluating agents, jump to section 5 of this document or see the <a href="../quickstart/">quick start guide</a>.</p>
-<h2 id="1-functional-programming">1. Functional programming</h2>
+<h2 id="1-functional-programming-and-jax">1. Functional programming and JAX</h2>
+<p>XLRON is built using the <a href="https://jax.readthedocs.io/en/latest/">JAX</a> high-performance array computing framework. JAX is designed for use with functional programs - programs which are defined by applying and composing <a href="https://jax.readthedocs.io/en/latest/glossary.html#term-pure-function">pure functions</a>. This functional paradigm allows JAX programs to be JIT (Just In Time)-compiled to <a href="https://openxla.org/xla">XLA</a> (Accelerated Linear Algebra) and run on GPU or TPU hardware.</p>
+<p><strong>How does this affect XLRON?</strong> While programming in JAX has many advantages, it also imposes constraints on how programs are written. This means that the code for XLRON environments is written in a different style to that of other network simulators, which are often written in an object-oriented style with standard control flow and rely on graph libraries such as networkx.</p>
+<p>The chief constraints that XLRON obeys to be compatible with JAX are:</p>
+<ul>
+<li><strong>Pure functions</strong>: Functions must be pure, meaning that they have no side effects and return the same output for the same input. This is necessary for JAX to be able to compile and run the function on a GPU or TPU.</li>
+<li><strong>Static array shapes</strong>: Array shapes must be known at compile time and immutable. This is necessary for JAX to be able to compile and run the function on a GPU or TPU.</li>
+<li><strong>No Python control flow</strong>: JAX does not support Python's built-in <code>for</code> loops, and instead requires the use of <code>jax.lax.scan</code> or <code>jax.lax.fori_loop</code> for iteration. Similarly, JAX does not support Python's built-in <code>if</code> statements, and instead requires the use of <code>jax.lax.cond</code> for branching.</li>
+</ul>
 <h2 id="2-environment-state-and-params">2. Environment state and params</h2>
+<p>In order to satisfy the constraints of JAX, XLRON environments are implemented as a series of pure functions that take a state and a set of parameters as input, and return an updated state as output. (Other arguments may also be passed to the functions e.g. <a href="https://jax.readthedocs.io/en/latest/jax-101/05-random-numbers.html">pseudo random number generator keys</a>). Both the state and the parameters are defined as custom dataclasses.</p>
+<p><strong>The environment state</strong> repres</p>
+<p><strong>The environment parameters</strong> </p>
+<p>Each of the main environments supported by XLRON (RSA, DeepRMSA, RWALightpathReuse, VONE) has a custom state and parameters. The state and parameters are defined as dataclasses, and are passed as arguments to the functions that define the environment's transitions.</p>
 <h2 id="3-data-initialisation">3. Data initialisation</h2>
-<h3 id="31-key-data-structures">3.1 Key data structures:</h3>
+<h3 id="31-key-data-structures">3.1 Key data structures</h3>
 <p>For <code>RSAEnv</code> (including the RMSA and RWA problems), the following data structures are used:</p>
 <p><code>path_link_array</code>: Contains indices of consitutnet links of paths
 <code>link_slot_array</code>: Represents occupancy of slots on links
@@ -872,7 +884,9 @@
 <h3 id="43-reward-undo">4.3 Reward / Undo</h3>
 <h2 id="5-training-an-agent">5. Training an agent</h2>
 <h2 id="other-topics">Other topics</h2>
-<h3 id="masking">Masking</h3>
+<h3 id="invalid-action-masking">Invalid Action Masking</h3>
+<p><a href="https://arxiv.org/pdf/2006.14171.pdf">Invalid action masking</a> is a technique used to prevent the agent from selecting invalid actions. This is particularly important in the context of optical network resource allocation problems, where the action space is large and many actions are invalid. Each XLRON environment provides a method <code>action_mask</code> to generate a mask of valid actions for a given state. This mask can be used to prevent the agent from selecting invalid actions.</p>
+<p>Invalid action masking during training is activated by using the flag <code>--ACTION_MASKING</code> when running the 'train.py' script. </p>
 <h3 id="slot-aggregation">Slot aggregation</h3>
 <h3 id="weights-biases-wandb-integration">Weights &amp; Biases (wandb) integration</h3>
 <p>XLRON features support for wandb experiment tracking and hyperparameter sweeps. The following commandline flags, when running the 'train.py' script, will enable wandb integration:</p>

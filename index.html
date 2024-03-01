@@ -790,6 +790,7 @@
 <h2 id="speed-benchmarks">🏎️ Speed Benchmarks 🏎️</h2>
 <h4 id="tldr-expect-approximately-500x-speed-up">tldr: Expect approximately 500x speed-up! 🚀</h4>
 <p>XLRON is faster than CPU-based training because of the following factors:</p>
+<p><img src="./images/xlron_diagram.png"></p>
 <ul>
 <li>End-to-end JAX implementation (both environment and RL algorithm) allows entire training loop to be compiled and optimised as a single program</li>
 <li>GPU-compatiblity allows parallelisation to make maximum use of accelerator hardware (GPU or TPU)</li>
