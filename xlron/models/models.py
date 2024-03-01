@@ -94,7 +94,5 @@ class MLP(nn.Module):
 
 class ActorCriticGNN(nn.Module):
     """Combine the GNN actor and critic networks into a single class"""
-    raise NotImplementedError  # Implemented in forthcoming release!
-
-
-
+    def __init__(self):
+        raise NotImplementedError  # Implemented in forthcoming release!
