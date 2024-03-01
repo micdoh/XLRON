@@ -11,6 +11,11 @@
          <changefreq>daily</changefreq>
     </url>
     <url>
+         <loc>https://micdoh.github.io/XLRON/flags_reference/</loc>
+         <lastmod>2024-03-01</lastmod>
+         <changefreq>daily</changefreq>
+    </url>
+    <url>
          <loc>https://micdoh.github.io/XLRON/installation/</loc>
          <lastmod>2024-03-01</lastmod>
          <changefreq>daily</changefreq>

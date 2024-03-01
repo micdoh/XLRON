@@ -442,6 +442,27 @@
   
   
     <li class="md-nav__item">
+      <a href="../flags_reference/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Commandline Options
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../reference/" class="md-nav__link">
         
   
@@ -624,9 +645,14 @@
 
 
 <h1 id="quickstart">Quickstart</h1>
+<p>Like CleanRL and <a href="https://github.com/luchris429/purejaxrl">PureJaxRL</a>, XLRON is not a modular library and is not (currently) meant to be imported. Instead, the repository should be cloned, virtual environment set up, and scripts run from the command line. See the <a href="../installation/">installation guide</a> for details.</p>
+<p>By having full access to the source code, users can easily modify the environments, agents, and training loops to suit their needs. This is particularly useful for research and experimentation, where the ability to quickly prototype and test new ideas is crucial.</p>
 <h2 id="example-commands">Example commands</h2>
+<p>All of the commands shown here make use of flags to define the environment and training parameters. For a full list of flags and their descriptions, see the <a href="../flags_reference/">Commandline Flags</a>.</p>
 <hr />
 <h3 id="training-runs">Training runs</h3>
+<div class="highlight"><pre><span></span><code>python<span class="w"> </span>train.py<span class="w"> </span>--env_type<span class="o">=</span>rwa_lightpath_reuse<span class="w"> </span>--load<span class="o">=</span><span class="m">200</span><span class="w"> </span>--k<span class="o">=</span><span class="m">5</span><span class="w"> </span>--topology_name<span class="o">=</span>nsfnet<span class="w"> </span>--link_resources<span class="o">=</span><span class="m">100</span><span class="w"> </span>--max_requests<span class="o">=</span>1e4<span class="w"> </span>--max_timesteps<span class="o">=</span>1e4<span class="w"> </span>--mean_service_holding_time<span class="o">=</span><span class="m">10</span><span class="w"> </span>--values_bw<span class="o">=</span><span class="m">100</span><span class="w"> </span>--TOTAL_TIMESTEPS<span class="w"> </span><span class="m">10000000</span><span class="w"> </span>--VISIBLE_DEVICES<span class="w"> </span><span class="m">1</span><span class="w"> </span>--NUM_ENVS<span class="w"> </span><span class="m">100</span><span class="w"> </span>--NUM_SEEDS<span class="w"> </span><span class="m">1</span><span class="w"> </span>--ACTION_MASKING<span class="w"> </span>--incremental_loading<span class="w"> </span>--USE_GNN<span class="w"> </span>--gnn_latent<span class="w"> </span><span class="m">128</span><span class="w"> </span>--message_passing_steps<span class="w"> </span><span class="m">3</span><span class="w"> </span>--output_nodes_size<span class="w"> </span><span class="m">1</span><span class="w"> </span>--output_globals_size<span class="w"> </span><span class="m">1</span><span class="w"> </span>--gnn_mlp_layers<span class="w"> </span><span class="m">2</span><span class="w"> </span>--WANDB<span class="w"> </span>--DOWNSAMPLE_FACTOR<span class="w"> </span><span class="m">100</span><span class="w"> </span>--scale_factor<span class="w"> </span><span class="m">0</span>.2<span class="w"> </span>--LR<span class="w"> </span><span class="m">0</span>.0003<span class="w"> </span>--LR_SCHEDULE<span class="w"> </span>warmup_cosine<span class="w"> </span>--SCHEDULE_MULTIPLIER<span class="w"> </span><span class="m">100</span><span class="w"> </span>--WARMUP_PEAK_MULTIPLIER<span class="w"> </span><span class="m">3</span><span class="w"> </span>--WARMUP_END_FRACTION<span class="w"> </span><span class="m">0</span>.1
+</code></pre></div>
 <hr />
 <h3 id="set-up-wandb-hyperparameter-sweep">Set up wandb hyperparameter sweep</h3>
 <ol>

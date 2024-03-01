@@ -8,13 +8,13 @@
       
       
       
-        <link rel="canonical" href="https://micdoh.github.io/XLRON/installation/">
+        <link rel="canonical" href="https://micdoh.github.io/XLRON/flags_reference/">
       
       
-        <link rel="prev" href="..">
+        <link rel="prev" href="../understanding_xlron/">
       
       
-        <link rel="next" href="../quickstart/">
+        <link rel="next" href="../reference/">
       
       
       <link rel="icon" href="../assets/images/favicon.png">
@@ -22,7 +22,7 @@
     
     
       
-        <title>Installation - XLRON - Accelerated Learning and Resource Allocation for Optical Networks</title>
+        <title>Commandline Options - XLRON - Accelerated Learning and Resource Allocation for Optical Networks</title>
       
     
     
@@ -75,7 +75,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#installation" class="md-skip">
+        <a href="#commandline-options" class="md-skip">
           Skip to content
         </a>
       
@@ -110,7 +110,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Installation
+              Commandline Options
             
           </span>
         </div>
@@ -220,21 +220,19 @@
       
   
   
-    
   
   
-  
     
     
     
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
         
           
           <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
@@ -248,7 +246,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_2">
             <span class="md-nav__icon md-icon"></span>
             Getting Started
@@ -259,30 +257,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  <span class="md-ellipsis">
-    Installation
-  </span>
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../installation/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -291,35 +269,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#requirements" class="md-nav__link">
-    <span class="md-ellipsis">
-      Requirements
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -357,19 +306,21 @@
       
   
   
+    
   
   
+  
     
     
     
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
       
         
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
         
           
           <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
@@ -383,7 +334,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_3">
             <span class="md-nav__icon md-icon"></span>
             User Guide
@@ -415,10 +366,19 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../flags_reference/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   <span class="md-ellipsis">
@@ -427,6 +387,7 @@
   
 
       </a>
+      
     </li>
   
 
@@ -566,23 +527,6 @@
     
   
   
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#requirements" class="md-nav__link">
-    <span class="md-ellipsis">
-      Requirements
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
 </nav>
                   </div>
                 </div>
@@ -596,8 +540,232 @@
                   
 
 
-<h1 id="installation">Installation</h1>
-<h2 id="requirements">Requirements</h2>
+<h1 id="commandline-options">Commandline Options</h1>
+<div class="highlight"><pre><span></span><code>xlron.train.parameter_flags:
+  --ACTION_MASKING: Use invalid action masking
+    (default: &#39;false&#39;)
+  --ACTIVATION: Activation function
+    (default: &#39;tanh&#39;)
+  --CLIP_EPS: PPO clipping parameter
+    (default: &#39;0.2&#39;)
+    (a number)
+  --DEBUG: Debug mode
+    (default: &#39;false&#39;)
+  --DEBUG_NANS: Debug NaNs
+    (default: &#39;false&#39;)
+  --DISABLE_JIT: Disable JIT compilation
+    (default: &#39;false&#39;)
+  --DOWNSAMPLE_FACTOR: Downsample factor to reduce data uploaded to wandb
+    (default: &#39;1&#39;)
+    (an integer)
+  --ENABLE_X64: Enable x64 floating point precision
+    (default: &#39;false&#39;)
+  --ENT_COEF: Entropy coefficient
+    (default: &#39;0.0&#39;)
+    (a number)
+  --EVAL_HEURISTIC: Evaluate heuristic
+    (default: &#39;false&#39;)
+  --EVAL_MODEL: Evaluate model
+    (default: &#39;false&#39;)
+  --EXPERIMENT_NAME: Name of experiment (equivalent to run name in wandb) (auto-generated based on other flags if unspecified)
+    (default: &#39;&#39;)
+  --GAE_LAMBDA: GAE lambda parameter
+    (default: &#39;0.95&#39;)
+    (a number)
+  --GAMMA: Discount factor
+    (default: &#39;0.99&#39;)
+    (a number)
+  --LR: Learning rate
+    (default: &#39;0.0005&#39;)
+    (a number)
+  --LR_SCHEDULE: Learning rate schedule
+    (default: &#39;warmup_cosine&#39;)
+  --MAX_GRAD_NORM: Maximum gradient norm
+    (default: &#39;0.5&#39;)
+    (a number)
+  --MODEL_PATH: Path to save/load model
+  --NUM_ENVS: Number of environments
+    (default: &#39;1&#39;)
+    (an integer)
+  --NUM_LAYERS: Number of layers in actor and critic networks
+    (default: &#39;2&#39;)
+    (an integer)
+  --NUM_MINIBATCHES: Number of minibatches per update
+    (default: &#39;1&#39;)
+    (an integer)
+  --NUM_SEEDS: Number of seeds
+    (default: &#39;1&#39;)
+    (an integer)
+  --NUM_STEPS: Number of steps per environment
+    (default: &#39;150&#39;)
+    (an integer)
+  --NUM_UNITS: Number of hidden units in actor and critic networks
+    (default: &#39;64&#39;)
+    (an integer)
+  --ORDERED: Order print statements when debugging (must be false if using pmap)
+    (default: &#39;true&#39;)
+  --PREALLOCATE_MEM: Preallocate GPU memory
+    (default: &#39;true&#39;)
+  --PREALLOCATE_MEM_FRACTION: Fraction of GPU memory to preallocate
+    (default: &#39;0.95&#39;)
+  --PRINT_MEMORY_USE: Print memory usage
+    (default: &#39;false&#39;)
+  --PROJECT: Name of project (same as experiment name if unspecified)
+    (default: &#39;&#39;)
+  --SAVE_MODEL: Save model (will be saved to --MODEL_PATH locally and uploaded to wandb if --WANDB is True)
+    (default: &#39;false&#39;)
+  --SCHEDULE_MULTIPLIER: Increase the learning rate schedule horizon by this factor (to keep schedule for longer final training runs consistent with that from tuning runs)
+    (default: &#39;1&#39;)
+    (an integer)
+  --SEED: Random seed
+    (default: &#39;42&#39;)
+    (an integer)
+  --TOTAL_TIMESTEPS: Total number of timesteps
+    (default: &#39;1000000.0&#39;)
+    (a number)
+  --UPDATE_EPOCHS: Number of epochs per update
+    (default: &#39;10&#39;)
+    (an integer)
+  --USE_GNN: Use GNN
+    (default: &#39;false&#39;)
+  --USE_PMAP: Use pmap
+    (default: &#39;false&#39;)
+  --VF_COEF: Value function coefficient
+    (default: &#39;0.5&#39;)
+    (a number)
+  --VISIBLE_DEVICES: Comma-separated indices of (desired) visible GPUs e.g. 1,2,3
+    (default: &#39;0&#39;)
+  --WANDB: Use wandb
+    (default: &#39;false&#39;)
+  --WARMUP_END_FRACTION: Fraction of init LR that is final LR
+    (default: &#39;0.1&#39;)
+    (a number)
+  --WARMUP_PEAK_MULTIPLIER: Increase the learning rate warmup peak compared to init
+    (default: &#39;1.0&#39;)
+    (a number)
+  --WARMUP_STEPS_FRACTION: Fraction of total timesteps to use for warmup
+    (default: &#39;0.2&#39;)
+    (a number)
+  --aggregate_slots: Number of slots to aggregate into a single action
+    (default: &#39;1&#39;)
+    (an integer)
+  --continuous_operation: If True, do not reset the environment at the end of an episode
+    (default: &#39;false&#39;)
+  --custom_traffic_matrix_csv_filepath: Path to custom traffic matrix CSV file
+  --deterministic: Deterministic evaluation (use mode of action distribution)
+    (default: &#39;False&#39;)
+  --disjoint_paths: Use disjoint paths (k paths still considered)
+    (default: &#39;false&#39;)
+  --end_first_blocking: End episode on first blocking event
+    (default: &#39;false&#39;)
+  --env_type: Environment type
+    (default: &#39;vone&#39;)
+  --gnn_latent: GNN latent size
+    (default: &#39;64&#39;)
+    (an integer)
+  --gnn_mlp_layers: Number of MLP layers
+    (default: &#39;2&#39;)
+    (an integer)
+  --guardband: Guard band in slots
+    (default: &#39;1&#39;)
+    (an integer)
+  --incremental_loading: Incremental increase in traffic load (non-expiring requests)
+    (default: &#39;false&#39;)
+  --k: Number of paths
+    (default: &#39;5&#39;)
+    (an integer)
+  --link_resources: Number of link resources
+    (default: &#39;5&#39;)
+    (an integer)
+  --load: Load
+    (default: &#39;150&#39;)
+    (an integer)
+  --max_bw: Maximum requested bandwidth
+    (default: &#39;100&#39;)
+    (an integer)
+  --max_node_resources: Maximum number of node resources
+    (default: &#39;1&#39;)
+    (an integer)
+  --max_requests: Maximum number of requests in an episode
+    (default: &#39;4.0&#39;)
+    (a number)
+  --max_timesteps: Maximum number of timesteps in an episode
+    (default: &#39;30.0&#39;)
+    (a number)
+  --max_traffic: Maximum traffic
+    (default: &#39;1.0&#39;)
+  --mean_service_holding_time: Mean service holding time
+    (default: &#39;15&#39;)
+    (an integer)
+  --message_passing_steps: Number of message passing steps
+    (default: &#39;3&#39;)
+    (an integer)
+  --min_bw: Minimum requested bandwidth
+    (default: &#39;25&#39;)
+    (an integer)
+  --min_node_resources: Minimum number of node resources
+    (default: &#39;1&#39;)
+    (an integer)
+  --min_traffic: Minimum traffic
+    (default: &#39;0.0&#39;)
+  --model: Used to hold model parameters
+    (a comma separated list)
+  --modulations_csv_filepath: (no help available)
+  --multiple_topologies_directory: Directory containing JSON definitions of network topologies that will be alternated per episode
+  --node_heuristic: Node heuristic to be evaluated
+    (default: &#39;random&#39;)
+  --node_probs: List of node probabilities for selection
+    (a comma separated list)
+  --node_resources: Number of node resources
+    (default: &#39;4&#39;)
+    (an integer)
+  --normalize_by_link_length: Normalize by link length
+    (default: &#39;false&#39;)
+  --output_edges_size: Output edges size (not used)
+    (default: &#39;64&#39;)
+    (an integer)
+  --output_globals_size: Output globals size
+    (default: &#39;64&#39;)
+    (an integer)
+  --output_nodes_size: Output nodes size
+    (default: &#39;64&#39;)
+    (an integer)
+  --path_heuristic: Path heuristic to be evaluated
+    (default: &#39;ksp_ff&#39;)
+  --random_traffic: Random traffic matrix for RSA on each reset (else uniform or custom)
+    (default: &#39;false&#39;)
+  --scale_factor: Scale factor for link capacity (only used in RWA with lightpath reuse)
+    (default: &#39;1.0&#39;)
+    (a number)
+  --slot_size: Spectral width of frequency slot in GHz
+    (default: &#39;12.5&#39;)
+    (a number)
+  --step_bw: Step size for requested bandwidth values between min and max
+    (default: &#39;1&#39;)
+    (an integer)
+  --step_traffic: Step size for traffic values between min and max
+    (default: &#39;0.1&#39;)
+  --symbol_rate: Symbol rate in Gbaud (only used in RWA with lightpath reuse
+    (default: &#39;100&#39;)
+    (an integer)
+  --topology_directory: Directory containing JSON definitions of network topologies
+  --topology_name: Topology name
+    (default: &#39;4node&#39;)
+  --traffic_requests_csv_filepath: Path to traffic request CSV file
+  --values_bw: List of requested bandwidth values
+    (a comma separated list)
+  --virtual_topologies: Virtual topologies
+    (default: &#39;3_ring&#39;)
+    (a comma separated list)
+  --weight: Edge attribute name for ordering k-shortest paths
+
+absl.flags:
+  --flagfile: Insert flag definitions from the given file into the command line.
+    (default: &#39;&#39;)
+  --undefok: comma-separated list of flag names that it is okay to specify on the command line even if the program does not define a flag with that name.  IMPORTANT: flags in this list that have arguments
+    MUST use the --flag=value format.
+    (default: &#39;&#39;)
+</code></pre></div>
 
 
 
