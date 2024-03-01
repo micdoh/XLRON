@@ -422,9 +422,18 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#31-key-data-structures" class="md-nav__link">
+  <a href="#routing-representation" class="md-nav__link">
     <span class="md-ellipsis">
-      3.1 Key data structures
+      Routing representation
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#key-data-structures" class="md-nav__link">
+    <span class="md-ellipsis">
+      Key data structures
     </span>
   </a>
   
@@ -736,9 +745,18 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#31-key-data-structures" class="md-nav__link">
+  <a href="#routing-representation" class="md-nav__link">
     <span class="md-ellipsis">
-      3.1 Key data structures
+      Routing representation
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#key-data-structures" class="md-nav__link">
+    <span class="md-ellipsis">
+      Key data structures
     </span>
   </a>
   
@@ -879,14 +897,16 @@
 <li><strong>No Python control flow</strong>: JAX does not support Python's built-in <code>for</code> loops, and instead requires the use of <code>jax.lax.scan</code> or <code>jax.lax.fori_loop</code> for iteration. Similarly, JAX does not support Python's built-in <code>if</code> statements, and instead requires the use of <code>jax.lax.cond</code> for branching.</li>
 </ul>
 <h2 id="2-environment-state-and-params">2. Environment state and params</h2>
-<p>In order to satisfy the constraints of JAX, XLRON environments are implemented as a series of pure functions that take a state and a set of parameters as input, and return an updated state as output. (Other arguments may also be passed to the functions e.g. <a href="https://jax.readthedocs.io/en/latest/jax-101/05-random-numbers.html">pseudo random number generator keys</a>). Both the state and the parameters are defined as custom dataclasses.</p>
-<p><strong>The environment state</strong> repres</p>
-<p><strong>The environment parameters</strong> </p>
-<p>Each of the main environments supported by XLRON (RSA, DeepRMSA, RWALightpathReuse, VONE) has a custom state and parameters. The state and parameters are defined as dataclasses, and are passed as arguments to the functions that define the environment's transitions.</p>
+<p>In order to satisfy the constraints of JAX, XLRON environments are implemented as a series of pure functions that take a state and a set of parameters as input, and return an updated state as output. (Other arguments may also be passed to the functions e.g. <a href="https://jax.readthedocs.io/en/latest/jax-101/05-random-numbers.html">pseudo random number generator keys</a>). Both the state and the parameters are defined as custom dataclasses. Each of the main environments supported by XLRON (RSA, DeepRMSA, RWALightpathReuse, VONE) has a custom state and parameters.</p>
+<p><strong>The environment state</strong> represents the current state of our network including currently active traffic requests, occupancy of spectral slots on links, and other relevant information that can change over the course of an episode. The state is updated by the environment's <code>step()</code> transition function.</p>
+<p><strong>The environment parameters</strong> represent the parameters of the environment, such as the topology of the network, the capacity of links, the number of slots on each link, and other relevant information. The parameters are fixed and do not change during the course of an episode. Parameters are specified as static arguments to functions, to indicate their values are known at compile time.</p>
 <h2 id="3-data-initialisation">3. Data initialisation</h2>
-<h3 id="31-key-data-structures">3.1 Key data structures</h3>
+<p>To satisfy the constraint of static array shapes, XLRON environments are initialised with a fixed number of slots on each link, and a fixed number of resources at each node. This is done by specifying the number of slots and resources as parameters to the environment. The number of slots and resources are then used to initialise arrays of zeros to represent the occupancy of slots on links and the remaining resources at nodes. These arrays are then passed as part of the environment state.</p>
+<h3 id="routing-representation">Routing representation</h3>
+<p>In order to capture the topological information of the network in array form, the k-shortest paths between each node pair on the network is calculated and the constituent links of each path are encoded as a binary array for each row of <code>path_link_array</code>. </p>
+<h3 id="key-data-structures">Key data structures</h3>
 <p>For <code>RSAEnv</code> (including the RMSA and RWA problems), the following data structures are used:</p>
-<p><code>path_link_array</code>: Contains indices of consitutnet links of paths
+<p><code>path_link_array</code>: Contains indices of constituent links of paths
 <code>link_slot_array</code>: Represents occupancy of slots on links
 <code>link_slot_departure_array</code>: Contains departure times of services occupying slots
 <code>request_array</code>: </p>
@@ -909,6 +929,8 @@
 <p><a href="https://arxiv.org/pdf/2006.14171.pdf">Invalid action masking</a> is a technique used to prevent the agent from selecting invalid actions. This is particularly important in the context of optical network resource allocation problems, where the action space is large and many actions are invalid. Each XLRON environment provides a method <code>action_mask</code> to generate a mask of valid actions for a given state. This mask can be used to prevent the agent from selecting invalid actions.</p>
 <p>Invalid action masking during training is activated by using the flag <code>--ACTION_MASKING</code> when running the 'train.py' script. </p>
 <h3 id="slot-aggregation">Slot aggregation</h3>
+<p>Slot aggregation is a technique used to reduce the action space in the context of optical network resource allocation problems. It is particularly useful for the RWA problem, where the action space is large and many actions are invalid. Each XLRON environment provides a method <code>aggregate_slots</code> to aggregate slots on links. This method can be used to reduce the </p>
+<p>Slot aggregation during training is activated by using the flag <code>--aggregate_slots=N</code> when running the 'train.py' script. N is the number of slots to be aggregated into a single action i.e. the action space is reduced by a factor of N. First fit allocation is used within each block of N slots.</p>
 <h3 id="weights-biases-wandb-integration">Weights &amp; Biases (wandb) integration</h3>
 <p>XLRON features support for wandb experiment tracking and hyperparameter sweeps. The following commandline flags, when running the 'train.py' script, will enable wandb integration:</p>
 <div class="highlight"><pre><span></span><code><span class="w">  </span>--<span class="o">[</span>no<span class="o">]</span>WANDB:<span class="w"> </span>Use<span class="w"> </span>wandb
@@ -925,6 +947,8 @@
 <span class="w">    </span><span class="o">(</span>default:<span class="w"> </span><span class="s1">&#39;false&#39;</span><span class="o">)</span>
 </code></pre></div>
 <h3 id="gnns-with-jraph">GNNs with Jraph</h3>
+<p><strong>Coming in a future release (pending publication)</strong></p>
+<p>We can use the <a href="https://github.com/google-deepmind/jraph/tree/master">Jraph</a> library for graph neural networks in JAX to implement the policy and/or value networks of our agent, while retaining the advantages of JIT compilation and accelerator hardware. Watch this space for more updates on the implementation! </p>
 
 
 

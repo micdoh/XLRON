@@ -308,11 +308,44 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#requirements" class="md-nav__link">
+  <a href="#clone-the-repo" class="md-nav__link">
     <span class="md-ellipsis">
-      Requirements
+      Clone the repo
     </span>
   </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#set-up-the-virtual-environment" class="md-nav__link">
+    <span class="md-ellipsis">
+      Set up the virtual environment
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Set up the virtual environment">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#with-pyprojecttoml-recommended" class="md-nav__link">
+    <span class="md-ellipsis">
+      with pyproject.toml (recommended)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#with-requirementstxt" class="md-nav__link">
+    <span class="md-ellipsis">
+      with requirements.txt
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -573,11 +606,44 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#requirements" class="md-nav__link">
+  <a href="#clone-the-repo" class="md-nav__link">
     <span class="md-ellipsis">
-      Requirements
+      Clone the repo
     </span>
   </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#set-up-the-virtual-environment" class="md-nav__link">
+    <span class="md-ellipsis">
+      Set up the virtual environment
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Set up the virtual environment">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#with-pyprojecttoml-recommended" class="md-nav__link">
+    <span class="md-ellipsis">
+      with pyproject.toml (recommended)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#with-requirementstxt" class="md-nav__link">
+    <span class="md-ellipsis">
+      with requirements.txt
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -597,7 +663,25 @@
 
 
 <h1 id="installation">Installation</h1>
-<h2 id="requirements">Requirements</h2>
+<p>XLRON is designed to be downloaded from Github and run from the command line. This is because the environments, agents, and training loops are not fully modular and are not (currently) meant to be imported. Instead, the repository should be cloned, virtual environment set up, and scripts run from the command line. This allows full access to the source code, so users can easily modify the environments, agents, and training loops to suit their needs. This is particularly useful for research and experimentation, where the ability to quickly prototype and test new ideas is crucial.</p>
+<h2 id="clone-the-repo">Clone the repo</h2>
+<div class="highlight"><pre><span></span><code>git<span class="w"> </span>clone<span class="w"> </span>https://github.com/micdoh/XLRON.git
+</code></pre></div>
+<h2 id="set-up-the-virtual-environment">Set up the virtual environment</h2>
+<h3 id="with-pyprojecttoml-recommended">with pyproject.toml (recommended)</h3>
+<p>Poetry is a tool for dependency management and packaging in Python.
+Install poetry if you don't have it already. Follow the instructions here: https://python-poetry.org/docs/#installation</p>
+<p>TO create the virtual environment and install the dependencies from <code>pyproject.toml</code>, run the following commands:</p>
+<div class="highlight"><pre><span></span><code><span class="nb">cd</span><span class="w"> </span>XLRON
+poetry<span class="w"> </span>install
+</code></pre></div>
+<h3 id="with-requirementstxt">with requirements.txt</h3>
+<p>If you don't want to use poetry, you can create a virtual environment and install the dependencies from <code>requirements.txt</code>:</p>
+<div class="highlight"><pre><span></span><code><span class="nb">cd</span><span class="w"> </span>XLRON
+python<span class="w"> </span>-m<span class="w"> </span>venv<span class="w"> </span>venv
+<span class="nb">source</span><span class="w"> </span>venv/bin/activate
+pip<span class="w"> </span>install<span class="w"> </span>-r<span class="w"> </span>requirements.txt
+</code></pre></div>
 
 
 
