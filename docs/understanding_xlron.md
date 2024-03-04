@@ -1,6 +1,6 @@
 # Understanding XLRON
 
-This page provides an overview of the conceptual underpinnings of XLRON and description of its more advanced features. It explains how it is different from other network simulators that are reliant on standard graph libraries such as networkx, and instead uses an array-based approach to represent the network state. This allows JIT-compilation using JAX, parallelisation on GPU, and resulting fast generation of state transitions and reduction in training times.
+This page provides an overview of the conceptual underpinnings of XLRON and description of its more advanced features. It explains how it is different from other network simulators that are reliant on standard graph libraries, and instead uses an array-based approach to represent the network state. This allows JIT-compilation using JAX, parallelisation on GPU, and resulting fast generation of state transitions and reduction in training times.
 
 For a primer on how to begin training and evaluating agents, jump to section 5 of this document or see the [quick start guide](quickstart.md).
 
@@ -9,7 +9,7 @@ For a primer on how to begin training and evaluating agents, jump to section 5 o
 
 XLRON is built using the [JAX](https://jax.readthedocs.io/en/latest/) high-performance array computing framework. JAX is designed for use with functional programs - programs which are defined by applying and composing [pure functions](https://jax.readthedocs.io/en/latest/glossary.html#term-pure-function). This functional paradigm allows JAX programs to be JIT (Just In Time)-compiled to [XLA](https://openxla.org/xla) (Accelerated Linear Algebra) and run on GPU or TPU hardware.
 
-**How does this affect XLRON?** While programming in JAX has many advantages, it also imposes constraints on how programs are written. This means that the code for XLRON environments is written in a different style to that of other network simulators, which are often written in an object-oriented style with standard control flow and rely on graph libraries such as networkx.
+**How does this affect XLRON?** While programming in JAX has many advantages, it also imposes constraints on how to program. This means that the code for XLRON environments is in a different style to that of other network simulators, which are often object-oriented with standard control flow and rely on graph libraries such as networkx.
 
 The chief constraints that XLRON obeys to be compatible with JAX are:
 
@@ -61,6 +61,10 @@ For `VONEEnv`, in addition to the data structures used in RSAEnv, the following 
 
 ## 4. Environment transitions
 
+
+
+N.B. The return values of the `step()` and `reset()` methods differ for XLRON compared to other gym-style environments ((`observation`, `state`, `reward`, `done`, `info`) vs. (`observation`, `reward`, `terminated`, `truncated`, `info`)). To match the gym API exactly for use with other RL libraries such as stable-baselines3, use the `GymnaxToGymWrapper` from the [gymnax](https://github.com/RobertTLange/gymnax/blob/main/gymnax/wrappers/gym.py) library.
+
 ### 4.1 Implement action
 
 ### 4.2 Check
@@ -69,19 +73,25 @@ For `VONEEnv`, in addition to the data structures used in RSAEnv, the following 
 
 ## 5. Training an agent
 
+XLRON contains an implementation of [Proximal Policy Optimization (PPO)](https://arxiv.org/abs/1707.06347) as the main RL algorithm. PPO is a policy gradient method that is computationally efficient and has been used to achieve state-of-the-art results in a number of domains. It is appropriate for use in environments with stochastic environment dynamics (such as optical network resource allocation problems), since it can retain stochasticity in its policy. The PPO implementation in XLRON is based on the excellent [PureJaxRL](https://github.com/luchris429/purejaxrl). Users can modify `ppo.py` if they want to experiment with different RL algorithms.
+
+Training is done using the `train.py` script, which is a wrapper around the `train` function in `train.py`. The script takes a number of commandline arguments to specify the environment, the agent, the training hyperparameters, and other settings. The script then calls the `train` function with these arguments. See the [quick start guide](quickstart.md) for example commands.
+
+The train script is also used for evaluation of both agents and heuristics using the flags `--EVAL_MODEL` and `--EVAL_HEURISTIC` respectively.
+
 ## Other topics
 
 ### Invalid Action Masking
 
 [Invalid action masking](https://arxiv.org/pdf/2006.14171.pdf) is a technique used to prevent the agent from selecting invalid actions. This is particularly important in the context of optical network resource allocation problems, where the action space is large and many actions are invalid. Each XLRON environment provides a method `action_mask` to generate a mask of valid actions for a given state. This mask can be used to prevent the agent from selecting invalid actions.
 
-Invalid action masking during training is activated by using the flag `--ACTION_MASKING` when running the 'train.py' script. 
+Invalid action masking is activated by using the flag `--ACTION_MASKING` when running the 'train.py' script. 
 
 ### Slot aggregation
 
-Slot aggregation is a technique used to reduce the action space in the context of optical network resource allocation problems. It is particularly useful for the RWA problem, where the action space is large and many actions are invalid. Each XLRON environment provides a method `aggregate_slots` to aggregate slots on links. This method can be used to reduce the 
+Slot aggregation is a technique used to reduce the action space in the context of optical network resource allocation problems. It is particularly useful for the RWA problem, where the action space is large and many actions are invalid. Each XLRON environment provides a method `aggregate_slots` to aggregate slots on links. This groups the available slots into blocks of size N. The agent then selects a block of slots as an action, and  first fit allocation is used to select the initial slot for the service within the selected block of slots.
 
-Slot aggregation during training is activated by using the flag `--aggregate_slots=N` when running the 'train.py' script. N is the number of slots to be aggregated into a single action i.e. the action space is reduced by a factor of N. First fit allocation is used within each block of N slots.
+Slot aggregation is activated by using the flag `--aggregate_slots=N` when running the 'train.py' script.
 
 ### Weights & Biases (wandb) integration
 
@@ -102,6 +112,10 @@ XLRON features support for wandb experiment tracking and hyperparameter sweeps. 
   --[no]SAVE_MODEL: Save model (will be saved to --MODEL_PATH locally and uploaded to wandb if --WANDB is True)
     (default: 'false')
 ```
+
+### Learning rate schedules
+XLRON supports diverse learning rate schedules for the agent.
+See the flags for learning rate schedules in the [commandline options](flags_reference.md) section.
 
 
 ### GNNs with Jraph
