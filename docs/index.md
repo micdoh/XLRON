@@ -8,7 +8,6 @@
 
 ___
 
-## _Accelerated Learning and Resource Allocation for Optical Networks_
 
 
 XLRON ("ex-el-er-on") is an open-source project that provides a suite of gym-style environments for simulating resource allocation problems in optical networks using reinforcement learning techniques. It is built on the JAX numerical computing framework, enabling accelerated training on GPU and TPU hardware.

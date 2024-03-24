@@ -7,7 +7,7 @@
 <img src="docs/images/xlron_background.png">
 
 
-### _Accelerated Learning and Resource Allocation for Optical Networks_
+
 
 See the documentation at https://micdoh.github.io/XLRON/
 
