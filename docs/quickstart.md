@@ -7,7 +7,7 @@ By having full access to the source code, users can easily modify the environmen
 
 ## Example commands
 
-All of the commands shown here make use of flags to define the environment and training parameters. For a full list of flags and their descriptions, see the [Commandline Flags](flags_reference.md).
+All the commands shown here make use of flags to define the environment and training parameters. For a full list of flags and their descriptions, see the [Commandline Flags](flags_reference.md).
 
 ---
 ### Training runs

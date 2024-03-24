@@ -30,7 +30,7 @@ def main(argv):
     jax.config.update("jax_disable_jit", FLAGS.DISABLE_JIT)
     jax.config.update("jax_enable_x64", FLAGS.ENABLE_X64)
     print(f"Available devices: {jax.devices()}")
-    num_devices = len(jax.devices())  # or len(FLAGS.VISIBLE_DEVICES.split(","))
+    num_devices = len(FLAGS.VISIBLE_DEVICES.split(",")) if FLAGS.USE_PMAP else 1
     import jax.numpy as jnp
     import orbax.checkpoint
     from flax.training import orbax_utils
@@ -124,7 +124,8 @@ def main(argv):
     if FLAGS.SAVE_MODEL:
         train_state = out["runner_state"][0]
         save_data = {"model": train_state, "config": FLAGS}
-        orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
+        orbax_checkpointer = orbax.checkpoint.PyTreeCheckpoint
+        er()
         save_args = orbax_utils.save_args_from_target(save_data)
         # Get path to current file
         model_path = FLAGS.MODEL_PATH if FLAGS.MODEL_PATH else pathlib.Path(__file__).resolve().parents[2] / "models" / run_name
