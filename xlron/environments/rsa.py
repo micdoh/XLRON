@@ -587,9 +587,7 @@ def make_rsa_env(config):
     """
     seed = config.get("seed", 0)
     topology_name = config.get("topology_name", "conus")
-    load = config.get("load", 100)
     k = config.get("k", 5)
-    mean_service_holding_time = config.get("mean_service_holding_time", 10)
     incremental_loading = config.get("incremental_loading", False)
     end_first_blocking = config.get("end_first_blocking", False)
     random_traffic = config.get("random_traffic", False)
@@ -629,7 +627,14 @@ def make_rsa_env(config):
     rng = jax.random.PRNGKey(seed)
     rng, _, _, _, _ = jax.random.split(rng, 5)
     graph = make_graph(topology_name, topology_directory=config.get("topology_directory", None))
-    arrival_rate = load / mean_service_holding_time
+    traffic_intensity = config.get("traffic_intensity", 0)
+    mean_service_holding_time = config.get("mean_service_holding_time", 10)
+    # Set traffic intensity / load
+    if traffic_intensity:
+        arrival_rate = traffic_intensity / mean_service_holding_time
+    else:
+        load = config.get("load", 100)
+        arrival_rate = load / mean_service_holding_time
     num_nodes = len(graph.nodes)
     num_links = len(graph.edges)
     scale_factor = config.get("scale_factor", 1.0)
