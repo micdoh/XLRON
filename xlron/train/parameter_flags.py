@@ -81,6 +81,7 @@ flags.DEFINE_boolean("continuous_operation", False, "If True, do not reset the e
 flags.DEFINE_integer("aggregate_slots", 1, "Number of slots to aggregate into a single action")
 flags.DEFINE_boolean("disjoint_paths", False, "Use disjoint paths (k paths still considered)")
 flags.DEFINE_integer("guardband", 1, "Guard band in slots")
+flags.DEFINE_integer("symbol_rate", 100, "Symbol rate in Gbaud (only used in RWA with lightpath reuse")
 flags.DEFINE_float("scale_factor", 1.0, "Scale factor for link capacity (only used in RWA with lightpath reuse)")
 flags.DEFINE_string("weight", None, "Edge attribute name for ordering k-shortest paths")
 flags.DEFINE_string("modulations_csv_filepath", "./examples/modulations.csv", "Modulation format definitions for RSA environment")
@@ -90,6 +91,9 @@ flags.DEFINE_string("multiple_topologies_directory", None,
                     "Directory containing JSON definitions of network topologies that will be alternated per episode")
 flags.DEFINE_string("reward_type", "service", "Reward type")
 flags.DEFINE_boolean("truncate_holding_time", False, "Truncate holding time to less than 2*mean_service_holding_time")
+flags.DEFINE_boolean("use_gn_model", False, "Use GN model for link SNR estimation")
+flags.DEFINE_boolean("include_isrs", False, "Include ISRS in the GN model or just ASE noise")
+flags.DEFINE_float("traffic_intensity", 1, "Traffic intensity (arrival rate * mean holding time)")
 # DeepRM-specific environment parameters
 flags.DEFINE_integer("ENV_WARMUP_STEPS", 0, "Number of warmup steps before training or eval")
 # RSA-specific environment parameters
