@@ -22,15 +22,15 @@ def isrs_gn_model(
         num_channels: int = 320,
         num_spans: int = 1,
         ref_lambda: float = 1550e-9,
-        length_j: chex.Array = 100 * 1e3 * jnp.ones(1),
-        attenuation_ij: chex.Array = 0.2 / 4.343 / 1e3 * jnp.ones([320, 1]),
-        attenuation_bar_ij: chex.Array = 0.2 / 4.343 / 1e3 * jnp.ones([320, 1]),
-        ch_power_W_ij: chex.Array = 10 ** (0 / 10) * 0.001 * jnp.ones([320, 1]),
-        nonlinear_coeff_j: chex.Array = 1.2 / 1e3 * jnp.ones(1),
-        ch_centre_ij: chex.Array = jnp.ones([320, 1]),
-        ch_bandwidth_ij: chex.Array = 40.004e9 * jnp.ones([320, 1]),
-        raman_gain_slope_ij: chex.Array = 0.028 / 1e3 / 1e12 * jnp.ones([320, 1]),
-        dispersion_ij: chex.Array = 17 * 1e-12 / 1e-9 / 1e3 * jnp.ones(1),
+        length_j: chex.Array = None,
+        attenuation_ij: chex.Array = None,
+        attenuation_bar_ij: chex.Array = None,
+        ch_power_W_ij: chex.Array = None,
+        nonlinear_coeff_j: chex.Array = None,
+        ch_centre_ij: chex.Array = None,
+        ch_bandwidth_ij: chex.Array = None,
+        raman_gain_slope_ij: chex.Array = None,
+        dispersion_j: chex.Array = None,
         coherent: bool = 1,
 ):
     """
@@ -82,7 +82,16 @@ def isrs_gn_model(
         eta_n: Nonlinear Interference coefficient [1/W^2],
             format: N_ch x 1 matrix
     """
-
+    # set default values
+    length_j = length_j if length_j is not None else 100 * 1e3 * jnp.ones(num_spans)
+    attenuation_ij = attenuation_ij if attenuation_ij is not None else 0.2 / 4.343 / 1e3 * jnp.ones([num_channels, num_spans])
+    attenuation_bar_ij = attenuation_bar_ij if attenuation_bar_ij is not None else 0.2 / 4.343 / 1e3 * jnp.ones([num_channels, num_spans])
+    ch_power_W_ij = ch_power_W_ij if ch_power_W_ij is not None else 10 ** (0 / 10) * 0.001 * jnp.ones([num_channels, num_spans])
+    nonlinear_coeff_j = nonlinear_coeff_j if nonlinear_coeff_j is not None else 1.2 / 1e3 * jnp.ones(num_spans)
+    ch_centre_ij = ch_centre_ij if ch_centre_ij is not None else jnp.ones([num_channels, num_spans])
+    ch_bandwidth_ij = ch_bandwidth_ij if ch_bandwidth_ij is not None else 40.004e9 * jnp.ones([num_channels, num_spans])
+    raman_gain_slope_ij = raman_gain_slope_ij if raman_gain_slope_ij is not None else 0.028 / 1e3 / 1e12 * jnp.ones([num_channels, num_spans])
+    dispersion_j = dispersion_j if dispersion_j is not None else 17 * 1e-12 / 1e-9 / 1e3 * jnp.ones(num_spans)
 
     # dB/m => Np/m
     a = attenuation_ij * (jnp.log(10) / 10)
@@ -97,8 +106,8 @@ def isrs_gn_model(
     ch_bw = ch_bandwidth_ij
     cr = raman_gain_slope_ij
 
-    beta2 = -dispersion_ij * ref_lambda ** 2 / (2 * pi * c)
-    beta3 = ref_lambda ** 2 / (2 * pi * c) ** 2 * (ref_lambda ** 2 * length_j + 2 * ref_lambda * dispersion_ij)
+    beta2 = -dispersion_j * ref_lambda ** 2 / (2 * pi * c)
+    beta3 = ref_lambda ** 2 / (2 * pi * c) ** 2 * (ref_lambda ** 2 * length_j + 2 * ref_lambda * dispersion_j)
 
     # closed-form formula for average coherence factor extended by dispersion slope, cf. Ref. [2, Eq. (22)]
     eps = lambda B_i, f_i, a_i: (3 / 10) * jnp.log(1 + (6 / a_i) / (
@@ -136,16 +145,8 @@ def isrs_gn_model(
     eta_spm, eta_xpm = jax.lax.map(_fun, jnp.arange(num_spans))
 
     # computation of NLI normalized to transmitter power, see Ref. [1, Eq. (5)]
-    #eta_n = jnp.sum((P_ij / P_ij[:, 0, None]) ** 2 * (eta_SPM[0] + eta_XPM).T, axis=1)
-    #eta_n = jnp.sum((ch_pow / ch_pow0) ** 2 * (eta_spm[:, :, :, 0] + eta_xpm).T, axis=1)
-    #NLI = P_ij[:, 0] ** 3 * eta_n  # Ref. [1, Eq. (1)]
-    #NLI = jnp.squeeze(ch_pow0) ** 3 * jnp.sum(eta_n, axis=1)
-
     eta_n = jnp.sum((ch_pow / ch_pow0) ** 2 * (jnp.squeeze(eta_spm) + eta_xpm).T, axis=1)
     NLI = jnp.squeeze(ch_pow0) ** 3 * eta_n  # Ref. [1, Eq. (1)]
-    print(f"NLI.shape {NLI.shape}")
-    print(f"eta_n.shape {eta_n.shape}")
-    print(f"ch_pow0.shape {ch_pow0.shape}")
 
     return NLI, eta_n
 
@@ -159,17 +160,11 @@ def _eps(b_i, f_i, a_i, l_mean, beta2, beta3, beta4):
         pi ** 2 / 2 * jnp.abs(jnp.mean(beta2) + 2 * pi * jnp.mean(beta3) * f_i + 2 * pi ** 2 * jnp.mean(beta4) * f_i ** 2) / a_i * b_i ** 2)))
 
 
-#@jit
+@jit
 def _spm(phi_i, t_i, b_i, a_i, a_bar_i, gamma):
     """
     Closed-form formula for SPM contribution, see Ref. [1, Eq. (9-10)]
     """
-    print(f"phi_i.shape {phi_i.shape}")
-    print(f"t_i.shape {t_i.shape}")
-    print(f"b_i.shape {b_i.shape}")
-    print(f"a_i.shape {a_i.shape}")
-    print(f"a_bar_i.shape {a_bar_i.shape}")
-    print(f"gamma.shape {gamma.shape}")
     return (
         4 / 9 * gamma ** 2 / b_i ** 2 * pi / (phi_i * a_bar_i * (2 * a_i + a_bar_i)) * (
             (t_i - a_i ** 2) / a_i * jnp.arcsinh(phi_i * b_i ** 2 / a_i / pi) +
@@ -184,20 +179,9 @@ def _xpm(p_i, p_k, phi_ik, T_k, B_i, B_k, a_k, a_bar_k, gamma):
     Closed-form formula for XPM contribution, see Ref. [1, Eq. (11)]
     """
     a = (p_k / p_i) ** 2 * gamma ** 2 / (B_k * phi_ik * a_bar_k * (2 * a_k + a_bar_k))
-    print(f"T_k.shape {T_k.shape}")
-    print(f"a_k.shape {a_k.shape}")
-    print(f"phi_ik.shape {phi_ik.shape}")
-    print(f"B_i.shape {B_i.shape}")
-    t1 = (T_k - a_k ** 2) / a_k
-    t2 = jnp.arctan(phi_ik * B_i / a_k)
-    print(f"t1.shape {t1.shape}")
-    print(f"t2.shape {t2.shape}")
     b = (T_k - a_k ** 2) / a_k * jnp.arctan(phi_ik * B_i / a_k)
     c = ((a_k + a_bar_k) ** 2 - T_k) / (a_k + a_bar_k) * jnp.arctan(phi_ik * B_i / (a_k + a_bar_k))
     r = a * (b + c)
-    print(f"a.shape {a.shape}")
-    print(f"b.shape {b.shape}")
-    print(f"r.shape {r.shape}")
     return 32 / 27 * jnp.nansum(r, axis=1 if r.ndim > 1 else 0)
 
 
@@ -230,7 +214,6 @@ def get_ASE_power(noise_figure, attenuation_ij, length_j, ref_lambda, ch_centre_
         gain = 10 ** (a * length_j[0] / 10)
     N_sp = (10 ** (noise_figure / 10) * gain) / (2. * (gain - 1))
     p_ASE = 2 * N_sp * (gain - 1) * h * (c / ref_lambda + ch_centre_ij[:, 0]) * ch_bandwidth[:, 0]
-    print(f"p_ASE.shape {p_ASE.shape}")
     return p_ASE
 
 
@@ -246,7 +229,7 @@ def get_lightpath_snr(
         ch_centre_ij: chex.Array = jnp.ones([320, 1]),
         ch_bandwidth_ij: chex.Array = 40.004e9 * jnp.ones([320, 1]),
         raman_gain_slope_ij: chex.Array = 0.028 / 1e3 / 1e12 * jnp.ones([320, 1]),
-        dispersion_ij: chex.Array = 17 * 1e-12 / 1e-9 / 1e3 * jnp.ones(1),
+        dispersion_j: chex.Array = 17 * 1e-12 / 1e-9 / 1e3 * jnp.ones(1),
         coherent: bool = True,
         noise_figure: float = 4,
         gain: float = None,
@@ -264,11 +247,9 @@ def get_lightpath_snr(
         ch_centre_ij=ch_centre_ij,
         ch_bandwidth_ij=ch_bandwidth_ij,
         raman_gain_slope_ij=raman_gain_slope_ij,
-        dispersion_ij=dispersion_ij,
+        dispersion_j=dispersion_j,
         coherent=coherent
     )[0]
-    print(f"p_NLI.shape {p_NLI.shape}")
-    print(f"p_ASE.shape {p_ASE.shape}")
     return to_db(ch_power_W_ij[:, 0] / (p_ASE + p_NLI))
 
 
@@ -296,7 +277,7 @@ if __name__ == "__main__":
             , [-1, 1]), n, axis=1),  # center frequencies of WDM channels (relative to reference frequency)
         'ch_bandwidth_ij': jnp.tile(b_ch, [channels, n]),  # channel bandwith
         'raman_gain_slope_ij': 0.028 / 1e3 / 1e12 * jnp.ones([channels, n]),  # Raman gain spectrum slope   (same) for each channel and span
-        'dispersion_ij': 17 * 1e-12 / 1e-9 / 1e3 * jnp.ones(n),  # dispersion coefficient      (same) for each span
+        'dispersion_j': 17 * 1e-12 / 1e-9 / 1e3 * jnp.ones(n),  # dispersion coefficient      (same) for each span
         'coherent': True  # NLI is added coherently across multiple spans
     }
 

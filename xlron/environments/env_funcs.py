@@ -2455,3 +2455,44 @@ def pad_array(array, fill_value):
     for index, value in iterate_nested_array(array):
         result[index] = value
     return result
+
+# TODO(ECOC) - decide how to set per-transceiver (uniform) launch power (maybe run RSA at different launch powers and choose maximum?)
+# TODO(ECOC) - add an option to iterate through all possible actions in the mask, perform checks to evaluate SNR, update mask to remove invalid actions
+#
+
+
+@partial(jax.jit, static_argnums=(1,))
+def init_link_snr_array(params: EnvParams):
+    """Initialise signal-to-noise ratio (SNR) array.
+    Args:
+        params (EnvParams): Environment parameters
+    Returns:
+        jnp.array: SNR array
+    """
+    # TODO(ECOC) - Decide if the default value should be inf 1 or 0. Possibly inf or 100(high value?) and then can be normalised to between 0 and 1
+    return jnp.full((params.num_links, params.link_resources), jnp.inf)
+
+
+@partial(jax.jit, static_argnums=(1,))
+def init_channel_centre_array(params: EnvParams):
+    """Initialise channel centre array.
+    Args:
+        params (EnvParams): Environment parameters
+    Returns:
+        jnp.array: Channel centre array
+    """
+    return jnp.full((params.num_links, params.link_resources), 0)
+
+
+@partial(jax.jit, static_argnums=(3,))
+def update_channel_centre_array(state: EnvState, channel_start: int, channel_width: int, params: EnvParams):
+    """Update channel centre array.
+    Args:
+        state (EnvState): Environment state
+        params (EnvParams): Environment parameters
+    Returns:
+        state (EnvState): Environment state with updated channel centre array
+    """
+    # TODO - Implement update logic
+    return state
+
