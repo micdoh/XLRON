@@ -211,6 +211,25 @@ class RWALightpathReuseEnvParams(RSAEnvParams):
 
 
 @struct.dataclass
+class RSAGNModelEnvState(RSAEnvState):
+    """Dataclass to hold environment state for RSA with GN model.
+
+    Args:
+        link_snr_array (chex.Array): Link SNR array
+    """
+    link_snr_array: chex.Array
+
+
+@struct.dataclass
+class RSAGNModelEnvParams(RSAEnvParams):
+    """Dataclass to hold environment state for RSA with GN model.
+
+    Args:
+        link_snr_array (chex.Array): Link SNR array
+    """
+
+
+@struct.dataclass
 class VONEEnvState(EnvState):
     """Dataclass to hold environment state for VONE.
 
