@@ -84,6 +84,7 @@ class EnvParams:
     aggregate_slots: chex.Scalar = struct.field(pytree_node=False)
     guardband: chex.Scalar = struct.field(pytree_node=False)
     directed_graph: bool = struct.field(pytree_node=False)
+    maximise_throughput: bool = struct.field(pytree_node=False)
     reward_type: str = struct.field(pytree_node=False)
     values_bw: chex.Array = struct.field(pytree_node=False)
     truncate_holding_time: bool = struct.field(pytree_node=False)
@@ -194,12 +195,10 @@ class RWALightpathReuseEnvState(RSAEnvState):
     """Dataclass to hold environment state for RWA with lightpath reuse.
 
     Args:
-        time_since_last_departure (chex.Array): Time since last departure event
         path_index_array (chex.Array): Contains indices of lightpaths in use on slots
         path_capacity_array (chex.Array): Contains remaining capacity of each lightpath
         link_capacity_array (chex.Array): Contains remaining capacity of lightpath on each link-slot
     """
-    time_since_last_departure: chex.Array # Time since last departure
     path_index_array: chex.Array  # Contains indices of lightpaths in use on slots
     path_capacity_array: chex.Array  # Contains remaining capacity of each lightpath
     link_capacity_array: chex.Array  # Contains remaining capacity of lightpath on each link-slot
@@ -217,7 +216,15 @@ class RSAGNModelEnvState(RSAEnvState):
     Args:
         link_snr_array (chex.Array): Link SNR array
     """
-    link_snr_array: chex.Array
+    link_snr_array: chex.Array  # Available SNR on each link
+    channel_centre_bw_array: chex.Array  # Channel centre bandwidth for each active connection
+    path_index_array: chex.Array  # Contains indices of lightpaths in use on slots
+    channel_power_array: chex.Array  # Channel power for each active connection
+    modulation_format_index_array: chex.Array  # Modulation format index for each active connection
+    channel_centre_bw_array_prev: chex.Array  # Channel centre bandwidth for each active connection in previous timestep
+    path_index_array_prev: chex.Array  # Contains indices of lightpaths in use on slots in previous timestep
+    channel_power_array_prev: chex.Array  # Channel power for each active connection in previous timestep
+    modulation_format_index_array_prev: chex.Array  # Modulation format index for each active connection in previous timestep
 
 
 @struct.dataclass
@@ -227,6 +234,23 @@ class RSAGNModelEnvParams(RSAEnvParams):
     Args:
         link_snr_array (chex.Array): Link SNR array
     """
+    ref_lambda: chex.Scalar = struct.field(pytree_node=False)
+    max_spans: chex.Scalar = struct.field(pytree_node=False)
+    span_length: chex.Scalar = struct.field(pytree_node=False)
+    launch_power: chex.Scalar = struct.field(pytree_node=False)
+    nonlinear_coeff: chex.Scalar = struct.field(pytree_node=False)
+    raman_gain_slope: chex.Scalar = struct.field(pytree_node=False)
+    attenuation: chex.Scalar = struct.field(pytree_node=False)
+    attenuation_bar: chex.Scalar = struct.field(pytree_node=False)
+    dispersion_coeff: chex.Scalar = struct.field(pytree_node=False)
+    dispersion_slope: chex.Scalar = struct.field(pytree_node=False)
+    noise_figure: chex.Scalar = struct.field(pytree_node=False)
+    coherent: chex.Scalar = struct.field(pytree_node=False)
+    modulations_array: chex.Array = struct.field(pytree_node=False)
+    mod_format_correction: bool = struct.field(pytree_node=False)
+    interband_gap: chex.Scalar = struct.field(pytree_node=False)
+    gap_width: chex.Scalar = struct.field(pytree_node=False)
+    gap_start: chex.Scalar = struct.field(pytree_node=False)
 
 
 @struct.dataclass
