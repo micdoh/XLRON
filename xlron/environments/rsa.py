@@ -18,7 +18,10 @@ from xlron.environments.env_funcs import (
     init_values_bandwidth, calculate_path_stats, normalise_traffic_matrix, init_graph_tuple, init_link_length_array,
     init_link_capacity_array, init_path_capacity_array, init_path_index_array, mask_slots_rwalr,
     implement_action_rwalr, check_action_rwalr, pad_array, undo_action_rwalr,
-    finalise_action_rwalr, generate_request_rwalr
+    finalise_action_rwalr, generate_request_rwalr, init_link_snr_array,
+    init_channel_centre_bw_array, check_action_rsa_gn_model, read_rsa_request, implement_action_rsa_gn_model,
+    undo_action_rsa_gn_model, finalise_action_rsa_gn_model, init_modulation_format_index_array,
+    init_channel_power_array, mask_slots_rsa_gn_model, pad_array
 )
 from xlron.environments.dataclasses import *
 from xlron.environments.wrappers import *
@@ -163,19 +166,27 @@ class RSAEnv(environment.Environment):
         undo = undo_action_rsa
         finalise = finalise_action_rsa
         generate_request = generate_request_rsa
+        input_state = [state, action, params]
+        check_state = [state]
         if params.__class__.__name__ == "RWALightpathReuseEnvParams":
             implement_action = implement_action_rwalr
             check_action = check_action_rwalr
             input_state = check_state = [state, action, params]
             if not params.incremental_loading:
+                # These are relevant to dynamic RWA-LR (upcoming)
                 undo = undo_action_rwalr
                 finalise = finalise_action_rwalr
                 generate_request = generate_request_rwalr
+        elif params.__class__.__name__ == "RSAGNModelEnvParams":
+            implement_action = implement_action_rsa_gn_model
+            check_action = check_action_rsa_gn_model
+            undo = undo_action_rsa_gn_model
+            finalise = finalise_action_rsa_gn_model
         else:
             implement_action = implement_action_rsa
             check_action = check_action_rsa
-            input_state = [state, action, params]
-            check_state = [state]
+
+        # Check if action was valid, calculate reward
         check_state[0] = state = implement_action(*input_state)
         check = check_action(*check_state)
         state, reward = jax.lax.cond(
@@ -334,7 +345,7 @@ class RSAEnv(environment.Environment):
         elif params.reward_type == "bitrate":
             reward = state.request_array[1] * -1.0 / jnp.max(params.values_bw.val)
         else:
-            reward = jnp.array(-1.0)
+            reward = -1.0 * read_rsa_request(state.request_array)[1] / jnp.max(state.values_bw) if params.maximise_throughput else jnp.array(-1)
         return reward
 
     def get_reward_success(self, state: Optional[EnvState] = None, params: Optional[EnvParams] = None) -> chex.Array:
@@ -351,7 +362,7 @@ class RSAEnv(environment.Environment):
         elif params.reward_type == "bitrate":
             reward = state.request_array[1] * 1.0 / jnp.max(params.values_bw.val)
         else:
-            reward = jnp.array(1.0)
+            reward = read_rsa_request(state.request_array)[1] / jnp.max(state.values_bw) if params.maximise_throughput else jnp.array(1)
         return reward
 
     @property
@@ -573,6 +584,69 @@ class RWALightpathReuseEnv(RSAEnv):
         return state
 
 
+class RSAGNModelEnv(RSAEnv):
+    """RMSA + GNN model environment."""
+    def __init__(
+            self,
+            key: chex.PRNGKey,
+            params: RSAGNModelEnvParams,
+            values_bw: chex.Array = jnp.array([0]),
+            traffic_matrix: chex.Array = None,
+    ):
+        """Initialise the environment state and set as initial state.
+
+        Args:
+            key: PRNG key
+            params: Environment parameters
+            values_bw: Bandwidth values for each modulation format
+            traffic_matrix (optional): Traffic matrix
+
+        Returns:
+            None
+        """
+        super().__init__(key, params, values_bw=values_bw, traffic_matrix=traffic_matrix)
+        state = RSAGNModelEnvState(
+            current_time=0,
+            holding_time=0,
+            total_timesteps=0,
+            total_requests=-1,
+            link_slot_array=init_link_slot_array(params),
+            link_slot_departure_array=init_link_slot_departure_array(params),
+            request_array=init_rsa_request_array(),
+            link_slot_mask=init_link_slot_mask(params, agg=params.aggregate_slots),
+            traffic_matrix=traffic_matrix if traffic_matrix is not None else init_traffic_matrix(key, params),
+            values_bw=values_bw,
+            graph=None,
+            full_link_slot_mask=init_link_slot_mask(params),
+            accepted_services=0,
+            accepted_bitrate=0.,
+            link_snr_array=init_link_snr_array(params),
+            path_index_array=init_path_index_array(params),
+            channel_centre_bw_array=init_channel_centre_bw_array(params),
+            channel_power_array=init_channel_power_array(params),
+            modulation_format_index_array=init_modulation_format_index_array(params),
+            path_index_array_prev=init_path_index_array(params),
+            channel_centre_bw_array_prev=init_channel_centre_bw_array(params),
+            channel_power_array_prev=init_channel_power_array(params),
+            modulation_format_index_array_prev=init_modulation_format_index_array(params),
+        )
+        self.initial_state = state.replace(graph=init_graph_tuple(state, params))
+
+    @partial(jax.jit, static_argnums=(0, 2,))
+    def action_mask(self, state: RSAEnvState, params: RSAEnvParams) -> RSAEnvState:
+        """Returns mask of valid actions.
+
+        Args:
+            state: Environment state
+            params: Environment parameters
+
+        Returns:
+            state: Environment state with action mask
+        """
+        state = mask_slots_rsa_gn_model(state, params, state.request_array)
+        return state
+
+
 def make_rsa_env(config):
     """Create RSA environment. This function is the entry point to setting up any RSA-type environment.
     This function takes a dictionary of the commandline flag parameters and configures the
@@ -611,8 +685,10 @@ def make_rsa_env(config):
     disjoint_paths = config.get("disjoint_paths", False)
     log_actions = config.get("log_actions", False)
     guardband = config.get("guardband", 1)
+    symbol_rate = config.get("symbol_rate", 100)
     weight = config.get("weight", None)
     remove_array_wrappers = config.get("remove_array_wrappers", False)
+    maximise_throughput = config.get("maximise_throughput", False)
     reward_type = config.get("reward_type", "bitrate")
     truncate_holding_time = config.get("truncate_holding_time", False)
     alpha = config.get("alpha", 0.2) * 1e-3
@@ -624,11 +700,30 @@ def make_rsa_env(config):
     lambda0 = config.get("lambda0", 1550) * 1e-9
     B = slot_size * link_resources  # Total modulated bandwidth
 
+
+    # GN model parameters
+    span_length = config.get("span_length", 100e3)
+    ref_lambda = config.get("ref_lambda", 1550e-9)
+    launch_power = config.get("launch_power", 0.0)
+    nonlinear_coeff = config.get("nonlinear_coeff", 1.2 / 1e3)
+    raman_gain_slope = config.get("raman_gain_slope", 0.028 / 1e3 / 1e12)
+    attenuation = config.get("attenuation", 0.2 / 4.343 / 1e3)
+    attenuation_bar = config.get("attenuation_bar", 0.2 / 4.343 / 1e3)
+    dispersion_coeff = config.get("dispersion_coeff", 17 * 1e-12 / 1e-9 / 1e3)
+    dispersion_slope = config.get("dispersion_slope", 0.067 * 1e-12 / 1e-9 / 1e3 / 1e-9)
+    coherent = config.get("coherent", 1)
+    noise_figure = config.get("noise_figure", 4)
+    interband_gap = config.get("interband_gap", 500)
+    gap_width = int(math.ceil(interband_gap / slot_size))
+    gap_start = int(math.floor(link_resources / 2 - gap_width / 2))
+    mod_format_correction = config.get("mod_format_correction", False)
+
     rng = jax.random.PRNGKey(seed)
     rng, _, _, _, _ = jax.random.split(rng, 5)
     graph = make_graph(topology_name, topology_directory=config.get("topology_directory", None))
     traffic_intensity = config.get("traffic_intensity", 0)
     mean_service_holding_time = config.get("mean_service_holding_time", 10)
+
     # Set traffic intensity / load
     if traffic_intensity:
         arrival_rate = traffic_intensity / mean_service_holding_time
@@ -665,7 +760,7 @@ def make_rsa_env(config):
 
     values_bw = init_values_bandwidth(min_bw, max_bw, step_bw, values_bw)
 
-    if env_type[:3] == "rsa":
+    if env_type == "rsa":
         consider_modulation_format = False
     elif env_type == "rwa":
         values_bw = jnp.array([0])
@@ -692,6 +787,7 @@ def make_rsa_env(config):
         path_se_array = init_path_se_array(path_length_array, modulations_array)
         min_se = min(path_se_array)  # if consider_modulation_format
         max_slots = required_slots(max_bw, min_se, slot_size, guardband=guardband)
+        max_spans = int(jnp.ceil(max(link_length_array) / span_length))
     else:
         path_se_array = jnp.array([1])
         if env_type == "rwa_lightpath_reuse":
@@ -721,7 +817,7 @@ def make_rsa_env(config):
 
     max_timesteps = max_requests
 
-    params = env_params(
+    params_dict = dict(
         max_requests=max_requests,
         max_timesteps=max_timesteps,
         mean_service_holding_time=mean_service_holding_time,
@@ -731,13 +827,13 @@ def make_rsa_env(config):
         num_links=num_links,
         load=load,
         arrival_rate=arrival_rate,
-        path_link_array=HashableArrayWrapper(path_link_array),
+        path_link_array=HashableArrayWrapper(path_link_array) if not remove_array_wrappers else path_link_array,
         incremental_loading=incremental_loading,
         end_first_blocking=end_first_blocking,
-        edges=HashableArrayWrapper(edges),
+        edges=HashableArrayWrapper(edges) if not remove_array_wrappers else edges,
         random_traffic=random_traffic,
-        path_se_array=HashableArrayWrapper(path_se_array),
-        link_length_array=HashableArrayWrapper(link_length_array),
+        path_se_array=HashableArrayWrapper(path_se_array) if not remove_array_wrappers else path_se_array,
+        link_length_array=HashableArrayWrapper(link_length_array) if not remove_array_wrappers else link_length_array,
         max_slots=int(max_slots),
         consider_modulation_format=consider_modulation_format,
         slot_size=slot_size,
@@ -745,45 +841,34 @@ def make_rsa_env(config):
         aggregate_slots=aggregate_slots,
         guardband=guardband,
         deterministic_requests=deterministic_requests,
-        list_of_requests=HashableArrayWrapper(list_of_requests),
+        list_of_requests=HashableArrayWrapper(list_of_requests) if not remove_array_wrappers else list_of_requests,
         multiple_topologies=False,
         directed_graph=graph.is_directed(),
-        values_bw=HashableArrayWrapper(values_bw),
-        reward_type=reward_type,
-        truncate_holding_time=truncate_holding_time,
-        log_actions=log_actions,
-    ) if not remove_array_wrappers else env_params(
-        max_requests=max_requests,
-        max_timesteps=max_timesteps,
-        mean_service_holding_time=mean_service_holding_time,
-        k_paths=k,
-        link_resources=link_resources,
-        num_nodes=num_nodes,
-        num_links=num_links,
-        load=load,
-        arrival_rate=arrival_rate,
-        path_link_array=path_link_array,
-        incremental_loading=incremental_loading,
-        end_first_blocking=end_first_blocking,
-        edges=edges,
-        random_traffic=random_traffic,
-        path_se_array=path_se_array,
-        link_length_array=link_length_array,
-        max_slots=int(max_slots),
-        consider_modulation_format=consider_modulation_format,
-        slot_size=slot_size,
-        continuous_operation=continuous_operation,
-        aggregate_slots=aggregate_slots,
-        guardband=guardband,
-        deterministic_requests=deterministic_requests,
-        list_of_requests=list_of_requests,
-        multiple_topologies=False,
-        directed_graph=graph.is_directed(),
-        values_bw=values_bw,
+        maximise_throughput=maximise_throughput,
+        values_bw=HashableArrayWrapper(values_bw) if not remove_array_wrappers else values_bw,
         reward_type=reward_type,
         truncate_holding_time=truncate_holding_time,
         log_actions=log_actions,
     )
+
+    if env_type == "deeprmsa":
+        env_params = DeepRMSAEnvParams
+    elif env_type == "rwa_lightpath_reuse":
+        env_params = RWALightpathReuseEnvParams
+    elif env_type == "rsa_gn_model":
+        env_params = RSAGNModelEnvParams
+        params_dict.update(ref_lambda=ref_lambda, max_spans=max_spans, span_length=span_length, launch_power=launch_power,
+                           nonlinear_coeff=nonlinear_coeff, raman_gain_slope=raman_gain_slope, attenuation=attenuation,
+                           attenuation_bar=attenuation_bar, dispersion_coeff=dispersion_coeff,
+                           dispersion_slope=dispersion_slope, coherent=coherent,
+                           modulations_array=HashableArrayWrapper(modulations_array) if not remove_array_wrappers else modulations_array,
+                           noise_figure=noise_figure, interband_gap=interband_gap, mod_format_correction=mod_format_correction,
+                           gap_start=gap_start, gap_width=gap_width)
+    else:
+        env_params = RSAEnvParams
+
+    params = env_params(**params_dict)
+    print(params)
 
     # If training single model on multiple topologies, must store params for each topology within top-level params
     if multiple_topologies_directory:
@@ -820,6 +905,8 @@ def make_rsa_env(config):
         elif env_type == "rwa_lightpath_reuse":
             env = RWALightpathReuseEnv(
                 rng, params, traffic_matrix=traffic_matrix, path_capacity_array=path_capacity_array)
+        elif env_type == "rsa_gn_model":
+            env = RSAGNModelEnv(rng, params, traffic_matrix=traffic_matrix)
         else:
             env = RSAEnv(rng, params, traffic_matrix=traffic_matrix)
 
