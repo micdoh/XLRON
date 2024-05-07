@@ -2,6 +2,9 @@ import jax
 import jax.numpy as jnp
 from xlron.environments.env_funcs import *
 
+# TODO - define lower/highest GSNR heuristics. Will require returning an alternative mask
+#  e.g. of available SNR on path or of required slots
+
 
 @partial(jax.jit, static_argnums=(1,))
 def ksp_ff(state: EnvState, params: EnvParams) -> chex.Array:
@@ -337,8 +340,12 @@ def get_link_weights(state: EnvState, params: EnvParams):
 
 
 def get_action_mask(state: EnvState, params: EnvParams) -> chex.Array:
-    state = mask_slots_rwa_lightpath_reuse(state, params, state.request_array) \
-        if params.__class__.__name__ == "RWALightpathReuseEnvParams" else mask_slots(state, params, state.request_array)
+    if params.__class__.__name__ == "RWALightpathReuseEnvParams":
+        state = mask_slots_rwalr(state, params, state.request_array)
+    elif params.__class__.__name__ == "RSAGNModelEnvParams":
+        state = mask_slots_rsa_gn_model(state, params, state.request_array)
+    else:
+        state = mask_slots(state, params, state.request_array)
     mask = jnp.reshape(state.link_slot_mask, (params.k_paths, -1))
     return mask
 

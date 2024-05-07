@@ -149,6 +149,8 @@ def make_eval(config):
                 obsv, env_state, reward, done, info = jax.vmap(env.step, in_axes=(0,0,0,None))(
                     step_key, env_state, action, env_params
                 )
+                if config.PROFILE:
+                    jax.profiler.save_device_memory_profile("memory_step.prof")
                 obsv = (env_state.env_state, env_params) if config.USE_GNN else tuple([obsv])
                 transition = Transition(
                     done, action, reward, last_obs, info
@@ -166,6 +168,8 @@ def make_eval(config):
             runner_state, traj_episode = jax.lax.scan(
                 _env_step, runner_state, None, config.max_timesteps
             )
+            if config.PROFILE:
+                jax.profiler.save_device_memory_profile("memory_scan.prof")
 
             metric = traj_episode.info
 

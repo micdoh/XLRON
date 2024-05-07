@@ -716,7 +716,7 @@ def make_rsa_env(config):
     interband_gap = config.get("interband_gap", 500)
     gap_width = int(math.ceil(interband_gap / slot_size))
     gap_start = int(math.floor(link_resources / 2 - gap_width / 2))
-    mod_format_correction = config.get("mod_format_correction", False)
+    mod_format_correction = config.get("mod_format_correction", True)
 
     rng = jax.random.PRNGKey(seed)
     rng, _, _, _, _ = jax.random.split(rng, 5)
@@ -787,7 +787,7 @@ def make_rsa_env(config):
         path_se_array = init_path_se_array(path_length_array, modulations_array)
         min_se = min(path_se_array)  # if consider_modulation_format
         max_slots = required_slots(max_bw, min_se, slot_size, guardband=guardband)
-        max_spans = int(jnp.ceil(max(link_length_array) / span_length))
+        max_spans = int(jnp.ceil(max(link_length_array) / span_length)[0])
     else:
         path_se_array = jnp.array([1])
         if env_type == "rwa_lightpath_reuse":
@@ -868,7 +868,6 @@ def make_rsa_env(config):
         env_params = RSAEnvParams
 
     params = env_params(**params_dict)
-    print(params)
 
     # If training single model on multiple topologies, must store params for each topology within top-level params
     if multiple_topologies_directory:

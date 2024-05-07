@@ -61,6 +61,7 @@ flags.DEFINE_string("DATA_OUTPUT_FILE", None, "Path to save data output")
 flags.DEFINE_boolean("PLOTTING", False, "Plotting")
 flags.DEFINE_integer("EMULATED_DEVICES", None, "Number of devices to emulate")
 flags.DEFINE_boolean("log_actions", False, "Log actions taken and other details")
+flags.DEFINE_boolean("PROFILE", False, "Profile programme with perfetto")
 # Environment parameters
 flags.DEFINE_string("env_type", "vone", "Environment type")
 flags.DEFINE_float("load", 250, "Load")
