@@ -157,7 +157,7 @@ def rwa_lightpath_reuse_4node_test_setup():
 def rsa_gn_model_4_nsfnet_test_setup():
     key = jax.random.PRNGKey(0)
     settings_rwa_lr_nsfnet_4 = dict(
-        k=5, topology_name="nsfnet", link_resources=10, max_requests=1000,
+        k=5, topology_name="nsfnet", link_resources=4, max_requests=1000,
         values_bw=[100], incremental_loading=True, env_type="rsa_gn_model",
         interband_gap=0, slot_size=25, mod_format_correction=False, launch_power=0.0
     )
@@ -2231,7 +2231,7 @@ class RSAGNModelTest(parameterized.TestCase):
             jax.debug.print("modulation_format_index_array {}", env_state.modulation_format_index_array, ordered=True)
             jax.debug.print("-----END-----")
             jax.debug.print("request_array {}", env_state.request_array, ordered=True)
-            if i == 1000:
+            if i == self.params.max_requests:
                 break
         chex.assert_trees_all_close(env_state.link_snr_array, expected)
 
