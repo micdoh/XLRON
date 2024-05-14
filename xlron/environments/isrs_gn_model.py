@@ -20,10 +20,10 @@ import jax
 
 
 def isrs_gn_model(
-        num_channels: int = 320,
+        num_channels: int = 420,
         num_spans: int = 1,
         max_spans: int = 10,
-        ref_lambda: float = 1550e-9,
+        ref_lambda: float = 1577.5e-9,
         length: chex.Array = None,
         attenuation_i: chex.Array = None,
         attenuation_bar_i: chex.Array = None,
@@ -104,7 +104,7 @@ def isrs_gn_model(
     a = attenuation_i if attenuation_i is not None else 0.2 / 4.343 / 1e3 * jnp.ones(1)
     a_bar = attenuation_bar_i if attenuation_bar_i is not None else 0.2 / 4.343 / 1e3 * jnp.ones(1)
 
-    l_mean = length.mean()
+    l_mean = jnp.sum(length) / num_spans
     ch_pow = ch_power_W_i
     power = jnp.sum(ch_pow, axis=0)
     gamma = nonlinear_coeff
@@ -116,8 +116,8 @@ def isrs_gn_model(
     beta3 = ref_lambda ** 2 / (2 * pi * c) ** 2 * (ref_lambda ** 2 * dispersion_slope + 2 * ref_lambda * dispersion)
 
     # closed-form formula for average coherence factor extended by dispersion slope, cf. Ref. [2, Eq. (22)]
-    eps = lambda B_i, f_i, a_i: (3 / 10) * jnp.log(1 + (6 / a_i) / (
-            l_mean * jnp.arcsinh(pi ** 2 / 2 * jnp.abs(jnp.mean(beta2) + 2 * pi * jnp.mean(beta3) * f_i) / a_i * B_i ** 2)))
+    eps = lambda B_i, f_i, a_i, l_i: (3 / 10) * jnp.log(1 + (6 / a_i) / (
+            l_i * jnp.arcsinh(pi ** 2 / 2 * jnp.abs(jnp.mean(beta2) + 2 * pi * jnp.mean(beta3) * f_i) / a_i * B_i ** 2)))
 
     Phi = excess_kurtosis_i
     # indicates this channels first transmission span is span j=1 of channel i
@@ -126,10 +126,76 @@ def isrs_gn_model(
     tx2_i = jnp.ones((num_channels, 1))
     T_0 = (a + a_bar - f * power * cr) ** 2
     phi_ik = 2 * pi ** 2 * (f.T - f) * (beta2 + pi * beta3 * (f + f.T))
-    eta_xpm_corr = _xpm_corr(ch_pow, ch_pow.T, phi_ik, T_0.T, ch_bw, ch_bw.T, a.T, a_bar.T, gamma, Phi.T, tx1_i)
+    eta_xpm_corr = _xpm_corr_diff(ch_pow, ch_pow.T, phi_ik, T_0.T, ch_bw, ch_bw.T, a.T, a_bar.T, gamma, Phi.T, tx1_i)
 
     # @jax.jit
-    def _fun(i, val):
+    # def _fun(i, val):
+    #     """ Compute the NLI of each COI """
+    #     # TODO - replace zeros with i if using different heterogeneous spans
+    #     a_i = a_k = a
+    #     a_bar_i = a_bar_k = a_bar
+    #     cr_k = cr_i = cr
+    #     f_i = jnp.vstack(f[:, 0])  # f_i of COI in fiber span j
+    #     f_k = f_i.T  # f_k of INT in fiber span j
+    #     ch_bw_i = jnp.vstack(ch_bw[:, 0])  # B_i of COI in fiber span j
+    #     ch_bw_k = ch_bw_i.T
+    #     ch_pow_i = jnp.vstack(ch_pow[:, 0])  # P_i of COI in fiber span j
+    #     ch_pow_k = ch_pow_i.T
+    #     Phi_k = jnp.vstack(Phi[:, 0])  # excess kurtosis of mod. format of INT in fiber span j
+    #     df = jnp.abs(f_k - f_i)
+    #
+    #     phi = jnp.abs(4 * pi ** 2 * (beta2 + pi * beta3 * (f_i + f_k)))
+    #     phi_i = 3 / 2 * pi ** 2 * (beta2 + pi * beta3 * (f_i + f_i))  # \phi_i  of COI in fiber span j
+    #     phi_ik = 2 * pi ** 2 * (f_k - f_i) * (beta2 + pi * beta3 * (f_i + f_k))  # \phi_ik of COI-INT pair in fiber span j
+    #
+    #     T_i = (a + a_bar - f * power * cr) ** 2  # T_i of COI in fiber span j
+    #     T_k = T_i.T  # T_k of INT in fiber span j
+    #
+    #     # computation of SPM contribution in fiber span j
+    #      _eta_spm = val[0] + jnp.squeeze(jnp.where(i < num_spans, _spm(phi_i, T_i, ch_bw_i, a_i, a_bar_i, gamma) * num_spans ** (1 + eps(ch_bw_i, f_i, a_i, l_mean) * coherent), 0))
+    #
+    #     # computation of XPM contribution in fiber span j
+    #     _eta_xpm = val[1] + jnp.where(i < num_spans, _xpm(ch_pow_i, ch_pow_k, phi_ik, T_k, ch_bw_i, ch_bw_k, a_k, a_bar_k, gamma), 0)
+    #
+    #     # Asymptotic correction for non-Gaussian modulation format
+    #     # TODO - should this use length or L_mean?
+    #     _eta_xpm_corr_asymp = val[2] + jnp.where(i < num_spans, _xpm_corr_asymp(ch_pow_i, ch_pow_k, phi_ik, phi, T_k, ch_bw_k, a_k, a_bar_k, gamma, df, Phi_k, tx2_i, l_mean), 0)
+    #
+    #     return _eta_spm, _eta_xpm, _eta_xpm_corr_asymp
+    #
+    # eta_spm, eta_xpm, eta_xpm_corr_asymp = jax.lax.fori_loop(0, max_spans, _fun,
+    #                                                          (
+    #                                                              jnp.zeros((num_channels,)),
+    #                                                              jnp.zeros((num_channels,)),
+    #                                                              jnp.zeros((num_channels,))
+    #                                                           ), unroll=True)
+
+    # TODO - try the for loop without the where conditions and with/without unroll
+
+    # a_i = a_k = a
+    # a_bar_i = a_bar_k = a_bar
+    # cr_k = cr_i = cr
+    # f_i = jnp.vstack(f[:, 0])  # f_i of COI in fiber span j
+    # f_k = f_i.T  # f_k of INT in fiber span j
+    # ch_bw_i = jnp.vstack(ch_bw[:, 0])  # B_i of COI in fiber span j
+    # ch_bw_k = ch_bw_i.T
+    # ch_pow_i = jnp.vstack(ch_pow[:, 0])  # P_i of COI in fiber span j
+    # ch_pow_k = ch_pow_i.T
+    # Phi_k = jnp.vstack(Phi[:, 0])  # excess kurtosis of mod. format of INT in fiber span j
+    # df = jnp.abs(f_k - f_i)
+    # phi = jnp.abs(4 * pi ** 2 * (beta2 + pi * beta3 * (f_i + f_k)))
+    # phi_i = 3 / 2 * pi ** 2 * (beta2 + pi * beta3 * (f_i + f_i))  # \phi_i  of COI in fiber span j
+    # phi_ik = 2 * pi ** 2 * (f_k - f_i) * (beta2 + pi * beta3 * (f_i + f_k))  # \phi_ik of COI-INT pair in fiber span j
+    # T_i = (a + a_bar - f * power * cr) ** 2  # T_i of COI in fiber span j
+    # T_k = T_i.T  # T_k of INT in fiber span j
+    # # computation of SPM contribution in fiber span j
+    # eta_spm = jnp.squeeze(_spm(phi_i, T_i, ch_bw_i, a_i, a_bar_i, gamma) * num_spans ** (1 + eps(ch_bw_i,f_i,a_i,l_mean) * coherent)) * num_spans
+    # # computation of XPM contribution in fiber span j
+    # eta_xpm = _xpm(ch_pow_i, ch_pow_k, phi_ik, T_k, ch_bw_i, ch_bw_k, a_k, a_bar_k, gamma) * num_spans
+    # # Asymptotic correction for non-Gaussian modulation format
+    # eta_xpm_corr_asymp = _xpm_corr_asymp(ch_pow_i, ch_pow_k, phi_ik, phi, T_k, ch_bw_k, a_k, a_bar_k, gamma, df, Phi_k, tx2_i, l_mean) * num_spans
+
+    def scan_fun(carry, l_span):
         """ Compute the NLI of each COI """
         # TODO - replace zeros with i if using different heterogeneous spans
         a_i = a_k = a
@@ -152,23 +218,28 @@ def isrs_gn_model(
         T_k = T_i.T  # T_k of INT in fiber span j
 
         # computation of SPM contribution in fiber span j
-        _eta_spm = val[0] + jnp.squeeze(jnp.where(i < num_spans, _spm(phi_i, T_i, ch_bw_i, a_i, a_bar_i, gamma) * num_spans ** eps(ch_bw_i, f_i, l_mean) * coherent, 0))
+        _eta_spm = carry[0] + jnp.squeeze(_spm(phi_i, T_i, ch_bw_i, a_i, a_bar_i, gamma) * num_spans ** (1 + (eps(ch_bw_i, f_i, a_i, l_mean) * coherent)))
 
         # computation of XPM contribution in fiber span j
-        _eta_xpm = val[1] + jnp.where(i < num_spans, _xpm(ch_pow_i, ch_pow_k, phi_ik, T_k, ch_bw_i, ch_bw_k, a_k, a_bar_k, gamma), 0)
+        _eta_xpm = carry[1] + _xpm_diff(ch_pow_i, ch_pow_k, phi_ik, T_k, ch_bw_i, ch_bw_k, a_k, a_bar_k, gamma)
 
         # Asymptotic correction for non-Gaussian modulation format
         # TODO - should this use length or L_mean?
-        _eta_xpm_corr_asymp = val[2] + jnp.where(i < num_spans, _xpm_corr_asymp(ch_pow_i, ch_pow_k, phi_ik, phi, T_k, ch_bw_k, a_k, a_bar_k, gamma, df, Phi_k, tx2_i, l_mean), 0)
+        _eta_xpm_corr_asymp = carry[2] + _xpm_corr_asymp_diff(ch_pow_i, ch_pow_k, phi_ik, phi, T_k, ch_bw_k, a_k, a_bar_k, gamma, df, Phi_k, tx2_i, l_span)
 
-        return _eta_spm, _eta_xpm, _eta_xpm_corr_asymp
+        return (_eta_spm, _eta_xpm, _eta_xpm_corr_asymp), (_eta_spm, _eta_xpm, _eta_xpm_corr_asymp)
 
-    eta_spm, eta_xpm, eta_xpm_corr_asymp = jax.lax.fori_loop(0, max_spans, _fun,
-                                                             (
-                                                                 jnp.zeros((num_channels,)),
-                                                                 jnp.zeros((num_channels,)),
-                                                                 jnp.zeros((num_channels,))
-                                                              ))
+    final_state, traj = jax.lax.scan(
+        scan_fun,
+        (jnp.zeros((num_channels,)), jnp.zeros((num_channels,)), jnp.zeros((num_channels,))),
+        length,
+        length=max_spans
+    )
+    eta_spm = final_state[0]
+    eta_xpm = final_state[1]
+    eta_xpm_corr_asymp = final_state[2]
+    # jax.debug.print("finalstate {}", final_state)
+    # jax.debug.print("traj {}", traj)
 
     # jax.debug.print("eta_spm {}", eta_spm)
     # jax.debug.print("eta_xpm {}", eta_xpm)
@@ -216,10 +287,31 @@ def _xpm(p_i, p_k, phi_ik, T_k, B_i, B_k, a_k, a_bar_k, gamma):
     return 32 / 27 * jnp.nansum(r, axis=1 if r.ndim > 1 else 0)
 
 
+def _xpm_diff(p_i, p_k, phi_ik, T_k, B_i, B_k, a_k, a_bar_k, gamma):
+    """Differentiable version of the XPM contribution"""
+    a = ((p_k / p_i) ** 2 * gamma ** 2 / jnp.where((B_k * phi_ik * a_bar_k * (2 * a_k + a_bar_k)) == 0, 1, (B_k * phi_ik * a_bar_k * (2 * a_k + a_bar_k))))
+    b = (T_k - a_k ** 2) / a_k * jnp.arctan(phi_ik * B_i / a_k)
+    c = ((a_k + a_bar_k) ** 2 - T_k) / (a_k + a_bar_k) * jnp.arctan(phi_ik * B_i / (a_k + a_bar_k))
+    r = jnp.nan_to_num(a, neginf=0, posinf=0) * (b + c)
+    return 32 / 27 * jnp.nansum(r, axis=1 if r.ndim > 1 else 0)
+
+
 def _xpm_corr(p_i, p_k, phi_ik, T_k, B_i, B_k, a_k, a_bar_k, gamma, Phi, TX1):
     return 5 / 6 * 32 / 27 * jnp.sum(
         jnp.nan_to_num(
             Phi * TX1.T * (p_k / p_i) ** 2 * gamma ** 2 / B_k / (phi_ik * a_bar_k * (2 * a_k + a_bar_k)) * (
+                    (T_k - a_k ** 2) / a_k * jnp.arctan(phi_ik * B_i / a_k) +
+                    ((a_k + a_bar_k) ** 2 - T_k) / (a_k + a_bar_k) * jnp.arctan(phi_ik * B_i / (a_k + a_bar_k))
+            ),
+            copy=False),
+        axis=1)
+
+
+def _xpm_corr_diff(p_i, p_k, phi_ik, T_k, B_i, B_k, a_k, a_bar_k, gamma, Phi, TX1):
+    """Differentiable version of the XPM correction"""
+    return 5 / 6 * 32 / 27 * jnp.sum(
+        jnp.nan_to_num(
+            Phi * TX1.T * (p_k / p_i) ** 2 * gamma ** 2 / jnp.nan_to_num(B_k / (phi_ik * a_bar_k * (2 * a_k + a_bar_k))) * (
                     (T_k - a_k ** 2) / a_k * jnp.arctan(phi_ik * B_i / a_k) +
                     ((a_k + a_bar_k) ** 2 - T_k) / (a_k + a_bar_k) * jnp.arctan(phi_ik * B_i / (a_k + a_bar_k))
             ),
@@ -236,22 +328,30 @@ def _xpm_corr_asymp(p_i, p_k, phi_ik, phi, T_k, B_k, a, a_bar, gamma, df, Phi, T
         axis=1)
 
 
-def get_ASE_power(noise_figure, attenuation_i, length, ref_lambda, ch_centre_i, ch_bandwidth):#, gain=None):
-    #if gain is None:
-    a = jnp.mean(attenuation_i)
-    gain = 10 ** (a * length / 10)
+def _xpm_corr_asymp_diff(p_i, p_k, phi_ik, phi, T_k, B_k, a, a_bar, gamma, df, Phi, TX2, L):
+    """Differentiable version of the asymptotic correction for XPM"""
+    return 5 / 3 * 32 / 27 * jnp.sum(
+            (p_k / p_i) ** 2 * TX2 * gamma ** 2 / L * Phi * pi * T_k / phi / B_k ** 3 / a ** 2 / (a + a_bar) ** 2
+            * ((2. * df - B_k) * jnp.nan_to_num(jnp.log(jnp.clip((2 * df - B_k) / (2 * df + B_k), a_min=0.)), neginf=0) + 2 * B_k) * (phi_ik != 0).astype(jnp.float32),
+        axis=1)
+
+
+def get_ASE_power(noise_figure, attenuation_i, length, ref_lambda, ch_centre_i, ch_bandwidth, gain=None):
+    if gain is None:
+        a = jnp.mean(attenuation_i)
+        gain = 10 ** (a * length / 10)
     N_sp = (10 ** (noise_figure / 10) * gain) / (2. * (gain - 1))
     p_ASE = 2 * N_sp * (gain - 1) * h * (c / ref_lambda + ch_centre_i) * ch_bandwidth
     return jnp.squeeze(p_ASE)
 
 
-#@partial(jax.jit, static_argnums=(x for x in range(12)))
+#@partial(jax.jit, static_argnums=(x for x in range(14)))
 def get_snr(
-        num_channels: int = 320,
-        max_spans: int = 10,
-        ref_lambda: float = 1550e-9,
-        attenuation_i: chex.Array = 0.2 / 4.343 / 1e3 * jnp.ones((320, 1)),
-        attenuation_bar_i: chex.Array = 0.2 / 4.343 / 1e3 * jnp.ones((320, 1)),
+        num_channels: int = 420,
+        max_spans: int = 20,
+        ref_lambda: float = 1577.5e-9,
+        attenuation_i: chex.Array = 0.2 / 4.343 / 1e3 * jnp.ones((420, 1)),
+        attenuation_bar_i: chex.Array = 0.2 / 4.343 / 1e3 * jnp.ones((420, 1)),
         nonlinear_coeff: chex.Array = 1.2 / 1e3 * jnp.ones(1),
         coherent: bool = True,
         noise_figure: float = 4,
@@ -259,12 +359,14 @@ def get_snr(
         raman_gain_slope_i: chex.Array = 0.028 / 1e3 / 1e12 * jnp.ones(1),
         dispersion_coeff: chex.Array = 17 * 1e-12 / 1e-9 / 1e3 * jnp.ones(1),
         dispersion_slope: chex.Array = 0.067 * 1e-12 / 1e-9 / 1e3 / 1e-9 * jnp.ones(1),
-        length: chex.Array = 100 * 1e3 * jnp.ones(1),  # TODO - allow this to be a vector (different span lengths)
-        num_spans: int = 1,
-        ch_power_W_i: chex.Array = 10 ** (0 / 10) * 0.001 * jnp.ones((320, 1)),
-        ch_centre_i: chex.Array = jnp.ones((320, 1)),
-        ch_bandwidth_i: chex.Array = 40.004e9 * jnp.ones((320, 1)),
-        excess_kurtosis_i: chex.Array = jnp.zeros((320, 1)),
+        roadm_loss: float = 18,
+        num_roadms: int = 1,
+        length: chex.Array = 100 * 1e3 * jnp.ones(20),
+        num_spans: int = 20,
+        ch_power_W_i: chex.Array = 10 ** (0 / 10) * 0.001 * jnp.ones((420, 1)),
+        ch_centre_i: chex.Array = ((jnp.arange(420) - (420 - 1) / 2) * 25e-9).reshape((420, 1)),
+        ch_bandwidth_i: chex.Array = 25e9 * jnp.ones((420, 1)),
+        excess_kurtosis_i: chex.Array = jnp.zeros((420, 1)),
 ):
     """
     Compute the signal-to-noise ratio (SNR) of a WDM system.
@@ -289,11 +391,14 @@ def get_snr(
         noise_figure: amplifier noise figure [dB]
         mod_format_correction: apply modulation format correction
         excess_kurtosis_i: excess kurtosis of modulation format
+        roadm_loss: ROADM loss [dB]
 
     Returns:
         snr: signal-to-noise ratio (linear units)
     """
-    p_ASE = get_ASE_power(noise_figure, attenuation_i, length, ref_lambda, ch_centre_i, ch_bandwidth_i)
+    span_length = jnp.sum(length) / num_spans
+    p_ASE = get_ASE_power(noise_figure, attenuation_i, span_length, ref_lambda, ch_centre_i, ch_bandwidth_i) * num_spans
+    p_ASE_ROADM = num_roadms * get_ASE_power(noise_figure, roadm_loss, span_length, ref_lambda, ch_centre_i, ch_bandwidth_i, gain=10**(roadm_loss/10))
     p_NLI, eta_NLI = isrs_gn_model(
         num_channels=num_channels,
         num_spans=num_spans,
@@ -315,9 +420,10 @@ def get_snr(
     )
     # jax.debug.print("p_ASE {}", p_ASE)
     # jax.debug.print("p_NLI {}", p_NLI)
+    # jax.debug.print("p_ASE_ROADM {}", p_ASE_ROADM)
     # jax.debug.print("ch_power_W_i {}", ch_power_W_i)
     # jax.debug.print("FRESH SNR {}", jnp.squeeze(ch_power_W_i) / (p_ASE + p_NLI))
-    return jnp.squeeze(ch_power_W_i) / (p_ASE + p_NLI), eta_NLI
+    return jnp.squeeze(ch_power_W_i) / (p_ASE + p_NLI + p_ASE_ROADM), eta_NLI
 
 
 def to_db(x):
@@ -329,20 +435,20 @@ def from_dbm(x):
 
 
 if __name__ == "__main__":
-    n = 20  # number of spans
+    n = 30  # number of spans
     b_ch = 25e9  # WDM channel bandwidth
-    channels = 10  # number of channels
+    channels = 420  # number of channels
     spacing = 25e9  # WDM channel spacing
 
     P = {
         'num_channels': channels,  # number of channels
         'num_spans': n,  # number of spans
-        'max_spans': n+2,
+        'max_spans': n,
         'ref_lambda': 1550e-9,  # reference wavelength
-        'length': 100 * 1e3 * jnp.ones(1),  # fiber length (same for each span)
+        'length': 100 * 1e3 * jnp.ones(n),  # fiber length (same for each span)
         'attenuation_i': 0.2 / 4.343 / 1e3 * jnp.ones(1),  # attenuation coefficient (same for each channel and span)
         'attenuation_bar_i': 0.2 / 4.343 / 1e3 * jnp.ones(1),  # attenuation coefficient (same for each channel and span)
-        'ch_power_W_i': 10 ** (0 / 10) * 0.001 * jnp.ones((channels, 1)),  # launch power per channel (same) for each channel and span
+        'ch_power_W_i': 10 ** (-7 / 10) * 0.001 * jnp.ones((channels, 1)),  # launch power per channel (same) for each channel and span
         'nonlinear_coeff': 1.2 / 1e3 * jnp.ones(1),  # nonlinearity coefficient    (same) for each span
         'ch_centre_i': ((jnp.arange(channels) - (channels - 1) / 2) * spacing).reshape((channels, 1)),  # center frequencies of WDM channels (relative to reference frequency)
         'ch_bandwidth_i': jnp.tile(b_ch, (channels, 1)),  # channel bandwith
@@ -351,6 +457,8 @@ if __name__ == "__main__":
         'dispersion_slope': 0.067 * 1e-12 / 1e-9 / 1e3 / 1e-9 * jnp.ones(1),  # dispersion slope            (same) for each span
         'coherent': True,  # NLI is added coherently across multiple spans
         'mod_format_correction': True,
+        'consider_roadm': True,
+        'roadm_loss': 18,
         'excess_kurtosis_i': jnp.full((channels, 1), -1),  # excess kurtosis of modulation format
     }
     # Set last 50 channel power to zero
@@ -362,9 +470,10 @@ if __name__ == "__main__":
     # P['ch_bandwidth_i'] = P['ch_bandwidth_i'].at[0].set(b_ch*4)#.at[::10].set(b_ch*4)
     #P["ch_centre_i"] = P['ch_centre_i'].at[0].set(b_ch*4)#((jnp.arange(channels/10).repeat(10) - (channels/10 - 1) / 2) * spacing*10).reshape((channels, 1))
 
-    print(P['ch_power_W_i'])
-    print(P['ch_centre_i'])
-    print(P['ch_bandwidth_i'])
+    # print(P['ch_power_W_i'])
+    # print(P['ch_centre_i'])
+    # print(P['ch_bandwidth_i'])
+    print(P["length"])
 
     # # set launch power: 0 dBm/ch.
     #P['ch_power_W_i'] = 10 ** (0 / 10) * 0.001 * jnp.ones((channels, 1))  # launch power per channel (same) for each channel and span
