@@ -21,7 +21,7 @@ from xlron.environments.env_funcs import (
     finalise_action_rwalr, generate_request_rwalr, init_link_snr_array,
     init_channel_centre_bw_array, check_action_rsa_gn_model, read_rsa_request, implement_action_rsa_gn_model,
     undo_action_rsa_gn_model, finalise_action_rsa_gn_model, init_modulation_format_index_array,
-    init_channel_power_array, mask_slots_rsa_gn_model, pad_array
+    init_channel_power_array, mask_slots_rsa_gn_model, init_link_length_array_gn_model, init_active_path_array
 )
 from xlron.environments.dataclasses import *
 from xlron.environments.wrappers import *
@@ -629,6 +629,8 @@ class RSAGNModelEnv(RSAEnv):
             channel_centre_bw_array_prev=init_channel_centre_bw_array(params),
             channel_power_array_prev=init_channel_power_array(params),
             modulation_format_index_array_prev=init_modulation_format_index_array(params),
+            active_path_array=init_active_path_array(params),
+            active_path_array_prev=init_active_path_array(params),
         )
         self.initial_state = state.replace(graph=init_graph_tuple(state, params))
 
@@ -702,9 +704,9 @@ def make_rsa_env(config):
 
 
     # GN model parameters
-    span_length = config.get("span_length", 100e3)
-    ref_lambda = config.get("ref_lambda", 1550e-9)
-    launch_power = config.get("launch_power", 0.0)
+    max_span_length = config.get("max_span_length", 100e3)
+    ref_lambda = config.get("ref_lambda", 1577.5e-9)  # centre of C+L bands (1530-1625nm)
+    launch_power = config.get("launch_power", -2.0)
     nonlinear_coeff = config.get("nonlinear_coeff", 1.2 / 1e3)
     raman_gain_slope = config.get("raman_gain_slope", 0.028 / 1e3 / 1e12)
     attenuation = config.get("attenuation", 0.2 / 4.343 / 1e3)
@@ -717,6 +719,11 @@ def make_rsa_env(config):
     gap_width = int(math.ceil(interband_gap / slot_size))
     gap_start = int(math.floor(link_resources / 2 - gap_width / 2))
     mod_format_correction = config.get("mod_format_correction", True)
+    num_roadms = config.get("num_roadms", 1)
+    roadm_loss = config.get("roadm_loss", 18)
+
+    # optimize_launch_power.py parameters
+    num_spans = config.get("num_spans", 10)
 
     rng = jax.random.PRNGKey(seed)
     rng, _, _, _, _ = jax.random.split(rng, 5)
@@ -774,6 +781,7 @@ def make_rsa_env(config):
     else:
         consider_modulation_format = True
 
+    min_bw = min(values_bw)
     max_bw = max(values_bw)
 
     link_length_array = init_link_length_array(graph).reshape((num_links, 1))
@@ -787,7 +795,9 @@ def make_rsa_env(config):
         path_se_array = init_path_se_array(path_length_array, modulations_array)
         min_se = min(path_se_array)  # if consider_modulation_format
         max_slots = required_slots(max_bw, min_se, slot_size, guardband=guardband)
-        max_spans = int(jnp.ceil(max(link_length_array) / span_length)[0])
+        max_spans = int(jnp.ceil(max(link_length_array) / max_span_length)[0])
+        if env_type == "rsa_gn_model":
+            link_length_array = init_link_length_array_gn_model(graph, max_span_length, max_spans)
     else:
         path_se_array = jnp.array([1])
         if env_type == "rwa_lightpath_reuse":
@@ -857,13 +867,15 @@ def make_rsa_env(config):
         env_params = RWALightpathReuseEnvParams
     elif env_type == "rsa_gn_model":
         env_params = RSAGNModelEnvParams
-        params_dict.update(ref_lambda=ref_lambda, max_spans=max_spans, span_length=span_length, launch_power=launch_power,
+        params_dict.update(ref_lambda=ref_lambda, max_spans=max_spans, max_span_length=max_span_length, launch_power=launch_power,
                            nonlinear_coeff=nonlinear_coeff, raman_gain_slope=raman_gain_slope, attenuation=attenuation,
                            attenuation_bar=attenuation_bar, dispersion_coeff=dispersion_coeff,
                            dispersion_slope=dispersion_slope, coherent=coherent,
                            modulations_array=HashableArrayWrapper(modulations_array) if not remove_array_wrappers else modulations_array,
                            noise_figure=noise_figure, interband_gap=interband_gap, mod_format_correction=mod_format_correction,
-                           gap_start=gap_start, gap_width=gap_width)
+                           gap_start=gap_start, gap_width=gap_width, roadm_loss=roadm_loss, num_roadms=num_roadms,
+                           num_spans=num_spans)
+        # TODO - calculate maximum reach here and update modulations_array. Write a function that takes params_dict as input, does the launch power optimisation, returns the maximum reach
     else:
         env_params = RSAEnvParams
 

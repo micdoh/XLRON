@@ -51,6 +51,7 @@ tensorboard-plugin-profile = "^2.15.1"
 ipykernel = "^6.29.4"
 jupyter = "^1.0.0"
 penzai = "^0.1.2"
+jaxopt = "^0.8.3"
 
 [tool.poetry.extras]
 cuda = ["nvidia-cuda-runtime-cu11", "torch", "torchvision"]
