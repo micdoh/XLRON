@@ -225,6 +225,8 @@ class RSAGNModelEnvState(RSAEnvState):
     path_index_array_prev: chex.Array  # Contains indices of lightpaths in use on slots in previous timestep
     channel_power_array_prev: chex.Array  # Channel power for each active connection in previous timestep
     modulation_format_index_array_prev: chex.Array  # Modulation format index for each active connection in previous timestep
+    active_path_array: chex.Array  # Active path array (Nlink x Nchannel x Nlink)
+    active_path_array_prev: chex.Array  # Active path array in previous timestep
 
 
 @struct.dataclass
@@ -236,7 +238,7 @@ class RSAGNModelEnvParams(RSAEnvParams):
     """
     ref_lambda: chex.Scalar = struct.field(pytree_node=False)
     max_spans: chex.Scalar = struct.field(pytree_node=False)
-    span_length: chex.Scalar = struct.field(pytree_node=False)
+    max_span_length: chex.Scalar = struct.field(pytree_node=False)
     launch_power: chex.Scalar = struct.field(pytree_node=False)
     nonlinear_coeff: chex.Scalar = struct.field(pytree_node=False)
     raman_gain_slope: chex.Scalar = struct.field(pytree_node=False)
@@ -251,6 +253,9 @@ class RSAGNModelEnvParams(RSAEnvParams):
     interband_gap: chex.Scalar = struct.field(pytree_node=False)
     gap_width: chex.Scalar = struct.field(pytree_node=False)
     gap_start: chex.Scalar = struct.field(pytree_node=False)
+    num_roadms: chex.Scalar = struct.field(pytree_node=False)
+    roadm_loss: chex.Scalar = struct.field(pytree_node=False)
+    num_spans: chex.Scalar = struct.field(pytree_node=False)
 
 
 @struct.dataclass
