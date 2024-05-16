@@ -202,7 +202,11 @@ def make_train(config):
 
         # INIT NETWORK
         network, init_x = init_network(rng, config, env, env_state, env_params)
-        network_params = network.init(_rng, *init_x)
+        if config.LOAD_MODEL:
+            network_params = config.model["model"]["params"]
+            print('Retraining model')
+        else:
+            network_params = network.init(_rng, *init_x)
         tx = optax.chain(
             optax.clip_by_global_norm(config.MAX_GRAD_NORM),
             optax.adam(learning_rate=lr_schedule, eps=1e-5),

@@ -47,6 +47,7 @@ flags.DEFINE_integer("DOWNSAMPLE_FACTOR", 1, "Downsample factor to reduce data u
 flags.DEFINE_boolean("DISABLE_JIT", False, "Disable JIT compilation")
 flags.DEFINE_boolean("ENABLE_X64", False, "Enable x64 floating point precision")
 flags.DEFINE_boolean("ACTION_MASKING", False, "Use invalid action masking")
+flags.DEFINE_boolean("LOAD_MODEL", False, "Load model for retraining or evaluation")
 # Environment parameters
 flags.DEFINE_string("env_type", "vone", "Environment type")
 flags.DEFINE_integer("load", 150, "Load")
