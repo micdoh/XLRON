@@ -35,30 +35,9 @@ def make_eval(config):
 
         # # LOAD MODEL
         if config.EVAL_MODEL:
-            # orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
-            # # This isn't working - is it because it's in JIT? or should I use restore_args?
-            # # https://flax.readthedocs.io/en/latest/guides/training_techniques/use_checkpointing.html#multi-host-multi-process-checkpointing
-            # #network, last_obs = init_network(config, env_params, model)
-            # #network, last_obs = init_network(rng, config, env, env_state, env_params)
-            # network, last_obs = init_network(rng, config, env, env_state, env_params)
-            # network_params = network.init(_rng, *init_x)
-            # tx = optax.chain(
-            #     optax.clip_by_global_norm(config.MAX_GRAD_NORM),
-            #     optax.adam(learning_rate=lambda x: x, eps=1e-5),
-            # )
-            # train_state = TrainState.create(
-            #     apply_fn=network.apply,
-            #     params=network_params,
-            #     tx=tx,
-            # )
-            # save_data = {"model": train_state, "config": config}
-            # restore_args = orbax_utils.restore_args_from_target(save_data)
-            # model = orbax_checkpointer.restore(pathlib.Path(config.MODEL_PATH))#, restore_args)
-            # network_params = model["model"].params
-
             network, last_obs = init_network(rng, config, env, env_state, env_params)
             network_params = config.model["model"]["params"]
-            print('wow')
+            print('Evaluating model')
 
         # COLLECT TRAJECTORIES
         def _env_episode(runner_state, unused):
