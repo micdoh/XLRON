@@ -1,4 +1,4 @@
-__DYNAMIC__ = True
+__DYNAMIC__ = False
 if __DYNAMIC__:
     from mkinit import dynamic_mkinit
     exec(dynamic_mkinit.dynamic_init(__name__))
