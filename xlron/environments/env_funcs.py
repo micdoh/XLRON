@@ -40,13 +40,15 @@ def init_graph_tuple(state: EnvState, params: EnvParams):
     """
     senders = params.edges.val.T[0]  # .val because of HashableArrayWrapper
     receivers = params.edges.val.T[1]
-    senders_undir = jnp.concatenate((senders, receivers))
-    receivers_undir = jnp.concatenate((receivers, senders))
-    senders = senders_undir
-    receivers = receivers_undir
-    # TODO - investigate just using senders or receivers to avoid duplication
-    # Repeat every row of link_slot_array so that it matches length of senders/receivers
-    edge_features = jnp.repeat(state.link_slot_array, 2, axis=0)
+    edge_features = state.link_slot_array
+    if not params.directed_graph:
+        # TODO - investigate just using senders or receivers to avoid duplication for undirected graphs
+        senders_undir = jnp.concatenate((senders, receivers))
+        receivers_undir = jnp.concatenate((receivers, senders))
+        senders = senders_undir
+        receivers = receivers_undir
+        # Repeat every row of link_slot_array so that it matches length of senders/receivers
+        edge_features = jnp.repeat(edge_features, 2, axis=0)
     # Get node features from node_capacity_array if available (VONE problem)
     node_features = getattr(state, "node_capacity_array", jnp.zeros(params.num_nodes))
     node_features = node_features.reshape(-1, 1)
@@ -73,7 +75,7 @@ def update_graph_tuple(state: EnvState, params: EnvParams):
     Returns:
         state (EnvState): Environment state with updated graph tuple
     """
-    edge_features = jnp.repeat(state.link_slot_array, 2, axis=0)  # Repeat for senders and receivers
+    edge_features = state.link_slot_array if params.directed_graph else jnp.repeat(state.link_slot_array, 2, axis=0)
     node_features = getattr(state, "node_capacity_array", jnp.zeros(params.num_nodes))
     node_features = node_features.reshape(-1, 1)
     graph = state.graph._replace(nodes=node_features, edges=edge_features, globals=state.request_array)
@@ -125,27 +127,36 @@ def init_path_link_array(graph: nx.Graph, k: int, disjoint: bool = False, weight
     edges = sorted(graph.edges)
     max_disjoint_paths = 0
     for node_pair in combinations(graph.nodes, 2):
+
         if disjoint:
-            # TODO - sort disjoint paths by weight
             k_paths_disjoint_unsorted = list(nx.edge_disjoint_paths(graph, node_pair[0], node_pair[1]))
-            path_weights = [nx.path_weight(graph, path, weight=weight) if weight else len(path)-1 for path in k_paths_disjoint_unsorted]
-            k_paths_disjoint = [path for _, path in sorted(zip(path_weights, k_paths_disjoint_unsorted))]
-            k_paths_disjoint_old = sorted(list(nx.edge_disjoint_paths(graph, node_pair[0], node_pair[1])), key=len)
             k_paths_shortest = get_k_shortest_paths(graph, node_pair[0], node_pair[1], k, weight=weight)
-            disjoint_ids = [tuple(path) for path in k_paths_disjoint]
+
+            # Keep track of # disjoint paths for information
+            num_disjoint_paths = len(k_paths_disjoint_unsorted)
+            if num_disjoint_paths > max_disjoint_paths:
+                max_disjoint_paths = num_disjoint_paths
+
             # Keep disjoint paths and add unique shortest paths until k paths reached
-            k_paths = k_paths_disjoint
+            disjoint_ids = [tuple(path) for path in k_paths_disjoint_unsorted]
+            k_paths = k_paths_disjoint_unsorted
             for path in k_paths_shortest:
                 if tuple(path) not in disjoint_ids:
                     k_paths.append(path)
             k_paths = k_paths[:k]
-            # Keep track of # disjoint paths for information
-            if len(k_paths_disjoint) > max_disjoint_paths:
-                max_disjoint_paths = len(k_paths_disjoint)
+
         else:
             k_paths = get_k_shortest_paths(
                 graph, node_pair[0], node_pair[1], k, weight=weight
             )
+
+        # Sort the paths by # of hops then by weight/length, or just weight/length
+        num_links_in_path = [len(path) - 1 for path in k_paths]
+        length_of_path = [nx.path_weight(graph, path, weight='weight') for path in k_paths]
+        unsorted_paths = zip(k_paths, num_links_in_path, length_of_path)
+        # Sort by number of links then by weight (or just by weight if weight is specified)
+        k_paths = [path for path, _, _ in sorted(unsorted_paths, key=lambda x: (x[1], x[2]) if weight is None else x[2])]
+
         for k_path in k_paths:
             link_usage = [0]*len(graph.edges)  # Initialise empty path
             for i in range(len(k_path)-1):
@@ -442,7 +453,7 @@ def generate_vone_request(key: chex.PRNGKey, state: EnvState, params: EnvParams)
     action_counter = jax.lax.dynamic_slice(pattern, (0,), (3,))
     topology_pattern = jax.lax.dynamic_slice(pattern, (3,), (pattern.shape[0]-3,))
     selected_node_values = jax.random.choice(key_node, state.values_nodes, shape=(shape,))
-    selected_bw_values = jax.random.choice(key_slot, state.values_bw, shape=(shape,))
+    selected_bw_values = jax.random.choice(key_slot, params.values_bw.val, shape=(shape,))
     # Create a mask for odd and even indices
     mask = jnp.tile(jnp.array([0, 1]), (shape+1) // 2)[:shape]
     # Vectorized conditional replacement using mask
@@ -489,7 +500,7 @@ def generate_rsa_request(key: chex.PRNGKey, state: EnvState, params: EnvParams) 
         nodes = jnp.unravel_index(source_dest_index, shape)
         source, dest = jnp.stack(nodes) if params.directed_graph else jnp.sort(jnp.stack(nodes))
         # Vectorized conditional replacement using mask
-        bw = jax.random.choice(key_slot, state.values_bw)
+        bw = jax.random.choice(key_slot, params.values_bw.val)
     arrival_time, holding_time = generate_arrival_holding_times(key_times, params)
     state = state.replace(
         holding_time=holding_time,
@@ -594,8 +605,18 @@ def generate_arrival_holding_times(key, params):
     key_arrival, key_holding = jax.random.split(key, 2)
     arrival_time = jax.random.exponential(key_arrival, shape=(1,)) \
                    / params.arrival_rate  # Divide because it is rate (lambda)
-    holding_time = jax.random.exponential(key_holding, shape=(1,)) \
-                   * params.mean_service_holding_time  # Multiply because it is mean (1/lambda)
+    if params.truncate_holding_time:
+        # For DeepRMSA, need to generate holding times that are less than 2*mean_service_holding_time
+        key_holding = jax.random.split(key, 5)
+        holding_times = jax.vmap(lambda x: jax.random.exponential(x, shape=(1,)) \
+                                * params.mean_service_holding_time)(key_holding)
+        holding_times = jnp.where(holding_times < 2*params.mean_service_holding_time, holding_times, 0)
+        # Get first non-zero value in holding_times
+        non_zero_index = jnp.nonzero(holding_times, size=1)[0][0]
+        holding_time = jax.lax.dynamic_slice(jnp.squeeze(holding_times), (non_zero_index,), (1,))
+    else:
+        holding_time = jax.random.exponential(key_holding, shape=(1,)) \
+                       * params.mean_service_holding_time  # Multiply because it is mean (1/lambda)
     return arrival_time, holding_time
 
 
@@ -814,7 +835,8 @@ def undo_link_slot_action(state: EnvState) -> EnvState:
         link_slot_departure_array=jnp.where(
             mask == 1,
             state.link_slot_departure_array + state.current_time + state.holding_time,
-            state.link_slot_departure_array)
+            state.link_slot_departure_array),
+        total_bitrate=state.total_bitrate + read_rsa_request(state.request_array)[1][0]
     )
     return state
 
@@ -1215,6 +1237,7 @@ def finalise_rsa_action(state):
         link_slot_departure_array=make_positive(state.link_slot_departure_array),
         accepted_services=state.accepted_services + 1,
         accepted_bitrate=state.accepted_bitrate + bw_request[0],
+        total_bitrate=state.total_bitrate + bw_request[0]
     )
     return state
 
@@ -1717,7 +1740,7 @@ def calculate_path_stats(state: EnvState, params: EnvParams, request: chex.Array
         slots = get_path_slots(state.link_slot_array, params, nodes_sd, i)
         se = get_paths_se(params, nodes_sd)[i] if params.consider_modulation_format else jnp.array([1])
         req_slots = jnp.squeeze(required_slots(requested_bw, se, params.slot_size, guardband=params.guardband))
-        req_slots_norm = req_slots*params.slot_size / jnp.max(state.values_bw)
+        req_slots_norm = req_slots*params.slot_size / jnp.max(params.values_bw.val)
         free_slots = jnp.sum(jnp.where(slots == 0, 1, 0)) / params.link_resources
         block_sizes = find_block_sizes(slots)
         first_block_index = jnp.argmax(block_sizes >= req_slots)

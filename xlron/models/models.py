@@ -21,6 +21,12 @@ from xlron.models.gnn import GraphNetwork, GraphNetGAT, GAT
 StatefulField = collections.namedtuple("StatefulField", ["embedding", "state"])
 
 
+def crelu(x):
+    """Computes the Concatenated ReLU (CReLU) activation function."""
+    x = jnp.concatenate([x, -x], axis=-1)
+    return nn.relu(x)
+
+
 def add_graphs_tuples(
     graphs: jraph.GraphsTuple, other_graphs: jraph.GraphsTuple
 ) -> jraph.GraphsTuple:
@@ -32,7 +38,7 @@ def add_graphs_tuples(
     )
 
 
-def make_dense_layers(x, num_units, num_layers, activation):
+def make_dense_layers(x, num_units, num_layers, activation, layer_norm=False):
     if activation == "relu":
         activation = nn.relu
     else:
@@ -40,11 +46,13 @@ def make_dense_layers(x, num_units, num_layers, activation):
     layer = nn.Dense(
         num_units, kernel_init=orthogonal(np.sqrt(2)), bias_init=constant(0.0)
     )(x)
+    layer = nn.LayerNorm()(layer) if layer_norm else layer
     layer = activation(layer)
     for _ in range(num_layers - 1):
         layer = nn.Dense(
             num_units, kernel_init=orthogonal(np.sqrt(2)), bias_init=constant(0.0)
         )(layer)
+        layer = nn.LayerNorm()(layer) if layer_norm else layer
         layer = activation(layer)
     return layer
 
@@ -58,6 +66,7 @@ class ActorCriticMLP(nn.Module):
     activation: str = "tanh"
     num_layers: int = 2
     num_units: int = 64
+    layer_norm: bool = False
 
     @nn.compact
     def __call__(self, x):
@@ -70,7 +79,7 @@ class ActorCriticMLP(nn.Module):
             pi_dim = distrax.Categorical(logits=actor_mean_dim)
             action_dists.append(pi_dim)
 
-        critic = make_dense_layers(x, self.num_units, self.num_layers, self.activation)
+        critic = make_dense_layers(x, self.num_units, self.num_layers, self.activation, layer_norm=self.layer_norm)
         critic = nn.Dense(1, kernel_init=orthogonal(1.0), bias_init=constant(0.0))(
             critic
         )
@@ -85,6 +94,7 @@ class MLP(nn.Module):
     dropout_rate: float = 0
     deterministic: bool = True
     activation: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu
+    layer_norm: bool = False
 
     @nn.compact
     def __call__(self, inputs):
@@ -95,6 +105,8 @@ class MLP(nn.Module):
             x = nn.Dropout(rate=self.dropout_rate, deterministic=self.deterministic)(
                 x
             )
+            if self.layer_norm:
+                x = nn.LayerNorm()(x)
         return x
 
 
@@ -110,7 +122,8 @@ class GraphNet(nn.Module):
     dropout_rate: float = 0
     skip_connections: bool = True
     use_edge_model: bool = True
-    layer_norm: bool = True
+    gnn_layer_norm: bool = True
+    mlp_layer_norm: bool = False
     deterministic: bool = True  # If true, no dropout (better for RL purposes)
     use_attention: bool = True
 
@@ -137,6 +150,7 @@ class GraphNet(nn.Module):
                         mlp_feature_sizes,
                         dropout_rate=self.dropout_rate,
                         deterministic=self.deterministic,
+                        layer_norm=self.mlp_layer_norm,
                     )
                 )
             else:
@@ -147,6 +161,7 @@ class GraphNet(nn.Module):
                     mlp_feature_sizes,
                     dropout_rate=self.dropout_rate,
                     deterministic=self.deterministic,
+                    layer_norm=self.mlp_layer_norm,
                 )
             )
             update_global_fn = jraph.concatenated_args(
@@ -154,6 +169,7 @@ class GraphNet(nn.Module):
                     mlp_feature_sizes,
                     dropout_rate=self.dropout_rate,
                     deterministic=self.deterministic,
+                    layer_norm=self.mlp_layer_norm,
                 )
             )
 
@@ -197,7 +213,7 @@ class GraphNet(nn.Module):
             else:
                 processed_graphs = graph_net(processed_graphs)
 
-            if self.layer_norm:
+            if self.gnn_layer_norm:
                 processed_graphs = processed_graphs._replace(
                     nodes=nn.LayerNorm()(processed_graphs.nodes),
                     edges=nn.LayerNorm()(processed_graphs.edges),
@@ -225,6 +241,8 @@ class CriticGNN(nn.Module):
     output_globals_size: int = 1
     gnn_mlp_layers: int = 1
     use_attention: bool = True
+    gnn_layer_norm: bool = True
+    mlp_layer_norm: bool = False
 
     @nn.compact
     def __call__(self, state: EnvState, params: EnvParams):
@@ -238,16 +256,18 @@ class CriticGNN(nn.Module):
             output_globals_size=self.output_globals_size,
             num_mlp_layers=self.gnn_mlp_layers,
             use_attention=self.use_attention,
+            gnn_layer_norm=self.gnn_layer_norm,
+            mlp_layer_norm=self.mlp_layer_norm,
         )(state.graph)
-        # Take every other edge as edges are bi-driectional and therefore duplicated
-        edge_features = processed_graph.edges[::2]
+        # Take first half processed_graph.edges as edge features
+        edge_features = processed_graph.edges if params.directed_graph else processed_graph.edges[:len(processed_graph.edges) // 2]
         edge_features = edge_features * (params.link_length_array.val/jnp.sum(params.link_length_array.val))
         # TODO - does processed graph include processed globals in node and edge features?
         #  Or does globals feature the node and edge features, but not the other way round?
         # Index every other row of the edge features to get the link-slot array
         edge_features_flat = jnp.reshape(edge_features, (-1,))
         # pass aggregated features through MLP
-        critic = make_dense_layers(edge_features_flat, self.num_units, self.num_layers, self.activation)
+        critic = make_dense_layers(edge_features_flat, self.num_units, self.num_layers, self.activation, layer_norm=self.mlp_layer_norm)
         critic = nn.Dense(1, kernel_init=orthogonal(1.0), bias_init=constant(0.0))(
             critic
         )
@@ -267,6 +287,8 @@ class ActorGNN(nn.Module):
     gnn_mlp_layers: int = 1
     use_attention: bool = True
     normalise_by_link_length: bool = True  # Normalise the processed edge features by the link length
+    gnn_layer_norm: bool = True
+    mlp_layer_norm: bool = False
 
     @nn.compact
     def __call__(self, state: EnvState, params: EnvParams):
@@ -294,10 +316,12 @@ class ActorGNN(nn.Module):
             output_globals_size=self.output_globals_size,
             num_mlp_layers=self.gnn_mlp_layers,
             use_attention=self.use_attention,
+            gnn_layer_norm=self.gnn_layer_norm,
+            mlp_layer_norm=self.mlp_layer_norm,
         )(state.graph)
 
         # Index edge features to resemble the link-slot array
-        edge_features = processed_graph.edges[::2]
+        edge_features = processed_graph.edges if params.directed_graph else processed_graph.edges[:len(processed_graph.edges) // 2]
         # Normalise features by normalised link length from state.link_length_array
         if self.normalise_by_link_length:
             edge_features = edge_features * (params.link_length_array.val/jnp.sum(params.link_length_array.val))
@@ -331,6 +355,8 @@ class ActorCriticGNN(nn.Module):
     gnn_mlp_layers: int = 1
     use_attention: bool = True
     normalise_by_link_length: bool = True  # Normalise the processed edge features by the link length
+    gnn_layer_norm: bool = True
+    mlp_layer_norm: bool = False
 
     @nn.compact
     def __call__(self, state: EnvState, params: EnvParams):
@@ -343,6 +369,8 @@ class ActorCriticGNN(nn.Module):
             gnn_mlp_layers=self.gnn_mlp_layers,
             use_attention=self.use_attention,
             normalise_by_link_length=self.normalise_by_link_length,
+            gnn_layer_norm=self.gnn_layer_norm,
+            mlp_layer_norm=self.mlp_layer_norm,
         ), in_axes=0)(state, params)
         critic = jax.vmap(CriticGNN(
             activation=self.activation,
@@ -355,6 +383,8 @@ class ActorCriticGNN(nn.Module):
             output_globals_size=self.output_globals_size,
             gnn_mlp_layers=self.gnn_mlp_layers,
             use_attention=self.use_attention,
+            gnn_layer_norm=self.gnn_layer_norm,
+            mlp_layer_norm=self.mlp_layer_norm,
         ), in_axes=0)(state, params)
         # Actor is returned as a list for compatibility with MLP VONE option in PPO script
         return [actor], critic
