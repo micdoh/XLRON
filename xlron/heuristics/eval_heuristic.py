@@ -20,6 +20,73 @@ class Transition(NamedTuple):
     info: jnp.ndarray
 
 
+def select_action_eval(config, env_state, env_params, env, network, network_params, rng_key, last_obs):
+    if config.EVAL_HEURISTIC:
+        if config.env_type.lower() == "vone":
+            raise NotImplementedError(f"VONE heuristics not yet implemented")
+
+        elif config.env_type.lower() in ["rsa", "rwa", "rmsa", "deeprmsa", "rwa_lightpath_reuse"]:
+            if config.path_heuristic.lower() == "ksp_ff":
+                action = jax.vmap(ksp_ff, in_axes=(0, None))(env_state.env_state, env_params)
+            elif config.path_heuristic.lower() == "ff_ksp":
+                action = jax.vmap(ff_ksp, in_axes=(0, None))(env_state.env_state, env_params)
+            elif config.path_heuristic.lower() == "kmc_ff":
+                action = jax.vmap(kmc_ff, in_axes=(0, None))(env_state.env_state, env_params)
+            elif config.path_heuristic.lower() == "kmf_ff":
+                action = jax.vmap(kmf_ff, in_axes=(0, None))(env_state.env_state, env_params)
+            elif config.path_heuristic.lower() == "ksp_mu":
+                action = jax.vmap(ksp_mu, in_axes=(0, None, None, None))(env_state.env_state, env_params, False, True)
+            elif config.path_heuristic.lower() == "ksp_mu_nonrel":
+                action = jax.vmap(ksp_mu, in_axes=(0, None, None, None))(env_state.env_state, env_params, False, False)
+            elif config.path_heuristic.lower() == "ksp_mu_unique":
+                action = jax.vmap(ksp_mu, in_axes=(0, None, None, None))(env_state.env_state, env_params, True, True)
+            elif config.path_heuristic.lower() == "mu_ksp":
+                action = jax.vmap(mu_ksp, in_axes=(0, None, None, None))(env_state.env_state, env_params, False, True)
+            elif config.path_heuristic.lower() == "mu_ksp_nonrel":
+                action = jax.vmap(mu_ksp, in_axes=(0, None, None, None))(env_state.env_state, env_params, False, False)
+            elif config.path_heuristic.lower() == "mu_ksp_unique":
+                action = jax.vmap(mu_ksp, in_axes=(0, None, None, None))(env_state.env_state, env_params, True, True)
+            elif config.path_heuristic.lower() == "kca_ff":
+                action = jax.vmap(kca_ff, in_axes=(0, None))(env_state.env_state, env_params)
+            elif config.path_heuristic.lower() == "kme_ff":
+                action = jax.vmap(kme_ff, in_axes=(0, None))(env_state.env_state, env_params)
+            elif config.path_heuristic.lower() == "ksp_bf":
+                action = jax.vmap(ksp_bf, in_axes=(0, None))(env_state.env_state, env_params)
+            elif config.path_heuristic.lower() == "bf_ksp":
+                action = jax.vmap(bf_ksp, in_axes=(0, None))(env_state.env_state, env_params)
+            else:
+                raise ValueError(f"Invalid path heuristic {config.path_heuristic}")
+
+        else:
+            raise ValueError(f"Invalid environment type {config.env_type}")
+    else:
+        action, _, _ = select_action(
+            rng_key, env, env_state, env_params, network, network_params, config, last_obs,
+            deterministic=config.deterministic
+        )
+    return action
+
+
+def warmup_period(rng, env, state, params, model, model_params, config, last_obs) -> EnvState:
+    """Warmup period for DeepRMSA."""
+
+    def body_fn(i, val):
+        rng, env, state, params, model, model_params, config, last_obs = val
+        # SELECT ACTION
+        rng, action_key, step_key = jax.random.split(rng)
+        action = select_action_eval(config, state, params, env, model, model_params, action_key, last_obs)
+        # STEP ENV
+        rng_step = jax.random.split(step_key, config.NUM_ENVS)
+        obsv, state, reward, done, info = jax.vmap(env.step, in_axes=(0, 0, 0, None))(
+            rng_step, state, action, params
+        )
+        return (rng, env, state, params, model, model_params, config, obsv)
+
+    val = jax.lax.fori_loop(0, config.ENV_WARMUP_STEPS, body_fn,
+                                  (rng, env, state, params, model, model_params, config, last_obs))
+    return val[2]
+
+
 def make_eval(config):
 
     # INIT ENV
@@ -28,16 +95,18 @@ def make_eval(config):
     def evaluate(rng):
 
         # RESET ENV
-        rng, _rng = jax.random.split(rng)
-        reset_rng = jax.random.split(_rng, config.NUM_ENVS)
-        obsv, env_state = jax.vmap(env.reset, in_axes=(0, None))(reset_rng, env_params)
+        rng, reset_key = jax.random.split(rng)
+        reset_key = jax.random.split(reset_key, config.NUM_ENVS)
+        obsv, env_state = jax.vmap(env.reset, in_axes=(0, None))(reset_key, env_params)
         obsv = (env_state.env_state, env_params) if config.USE_GNN else tuple([obsv])
 
         # # LOAD MODEL
         if config.EVAL_MODEL:
-            network, last_obs = init_network(rng, config, env, env_state, env_params)
+            network, last_obs = init_network(config, env, env_state, env_params)
             network_params = config.model["model"]["params"]
             print('Evaluating model')
+        else:
+            network = network_params = None
 
         # COLLECT TRAJECTORIES
         def _env_episode(runner_state, unused):
@@ -45,36 +114,16 @@ def make_eval(config):
             def _env_step(runner_state, unused):
 
                 env_state, last_obs, rng = runner_state
+                rng, action_key, step_key = jax.random.split(rng, 3)
 
                 # SELECT ACTION
-                if config.EVAL_HEURISTIC:
-                    if config.env_type.lower() == "vone":
-                        raise NotImplementedError(f"VONE heuristics not yet implemented")
-
-                    elif config.env_type.lower() in ["rsa", "rwa", "rmsa", "deeprmsa", "rwa_lightpath_reuse"]:
-                        if config.path_heuristic.lower() == "ksp_ff":
-                            action = jax.vmap(ksp_ff, in_axes=(0, None))(env_state.env_state, env_params)
-                        elif config.path_heuristic.lower() == "ff_ksp":
-                            action = jax.vmap(ff_ksp, in_axes=(0, None))(env_state.env_state, env_params)
-                        elif config.path_heuristic.lower() == "kmc_ff":
-                            action = jax.vmap(kmc_ff, in_axes=(0, None))(env_state.env_state, env_params)
-                        elif config.path_heuristic.lower() == "kmf_ff":
-                            action = jax.vmap(kmf_ff, in_axes=(0, None))(env_state.env_state, env_params)
-                        else:
-                            raise ValueError(f"Invalid path heuristic {config.path_heuristic}")
-
-                    else:
-                        raise ValueError(f"Invalid environment type {config.env_type}")
-                else:
-                    action, _, _, rng = select_action(
-                        rng, env, env_state, env_params, network, network_params, config, last_obs, deterministic=config.deterministic
-                    )
+                action = select_action_eval(config, env_state, env_params, env, network, network_params, action_key, last_obs)
 
                 # STEP ENV
-                rng, _rng = jax.random.split(rng)
-                rng_step = jax.random.split(_rng, config.NUM_ENVS)
+
+                step_key = jax.random.split(step_key, config.NUM_ENVS)
                 obsv, env_state, reward, done, info = jax.vmap(env.step, in_axes=(0,0,0,None))(
-                    rng_step, env_state, action, env_params
+                    step_key, env_state, action, env_params
                 )
                 obsv = (env_state.env_state, env_params) if config.USE_GNN else tuple([obsv])
                 transition = Transition(
@@ -98,8 +147,7 @@ def make_eval(config):
 
             return runner_state, metric
 
-        rng, _rng = jax.random.split(rng)
-        runner_state = (env_state, obsv, _rng)
+        runner_state = (env_state, obsv, rng)
         NUM_EPISODES = config.TOTAL_TIMESTEPS // config.max_timesteps // config.NUM_ENVS
         runner_state, metric = jax.lax.scan(
             _env_episode, runner_state, None, NUM_EPISODES

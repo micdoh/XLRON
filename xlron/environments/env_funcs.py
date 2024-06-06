@@ -1642,7 +1642,6 @@ def get_path_slots(link_slot_array: chex.Array, params: EnvParams, nodes_sd: che
     return slots
 
 
-# TODO - write tests
 def count_until_next_one(array: chex.Array, position: int) -> int:
     # Add 1s to end so that end block is counted and slice shape can be fixed
     shape = array.shape[0]
@@ -1654,7 +1653,6 @@ def count_until_next_one(array: chex.Array, position: int) -> int:
     return next_one_idx + 1
 
 
-# TODO - write tests
 def find_block_starts(path_slots: chex.Array) -> chex.Array:
     # Add a [1] at the beginning to find transitions from 1 to 0
     path_slots_extended = jnp.concatenate((jnp.array([1]), path_slots), axis=0)
@@ -1663,7 +1661,6 @@ def find_block_starts(path_slots: chex.Array) -> chex.Array:
     return block_starts
 
 
-# TODO - write tests
 def find_block_ends(path_slots: chex.Array) -> chex.Array:
     # Add a [1] at the end to find transitions from 0 to 1
     path_slots_extended = jnp.concatenate((path_slots, jnp.array([1])), axis=0)
@@ -1672,8 +1669,7 @@ def find_block_ends(path_slots: chex.Array) -> chex.Array:
     return block_ends
 
 
-# TODO - write tests
-def find_block_sizes(path_slots: chex.Array) -> chex.Array:
+def find_block_sizes(path_slots: chex.Array, starts_only: bool = True) -> chex.Array:
     def body_fun(i, arrays):
         starts = arrays[0]
         ends = arrays[1]
@@ -1689,7 +1685,10 @@ def find_block_sizes(path_slots: chex.Array) -> chex.Array:
         body_fun,
         (block_starts, block_ends),
     )[0]
-    block_sizes = jnp.where(block_starts == 1, block_sizes, 0)
+    if starts_only:
+        block_sizes = jnp.where(block_starts == 1, block_sizes, 0)
+    else:
+        block_sizes = jnp.where(path_slots == 0, block_sizes, 0)
     return block_sizes
 
 
@@ -1808,7 +1807,7 @@ def init_path_capacity_array(
 
 @partial(jax.jit, static_argnums=(0,))
 def get_lightpath_index(params, nodes, path_index):
-    source, dest = nodes  # TODO - make work for directed graphs
+    source, dest = nodes
     path_start_index = get_path_indices(source, dest, params.k_paths, params.num_nodes, directed=params.directed_graph).astype(jnp.int32)
     lightpath_index = path_index + path_start_index
     return lightpath_index
