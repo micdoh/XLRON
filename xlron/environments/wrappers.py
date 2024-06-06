@@ -42,7 +42,7 @@ class LogWrapper(GymnaxWrapper):
         self, key: chex.PRNGKey, params: Optional[environment.EnvParams] = None
     ) -> Tuple[chex.Array, environment.EnvState]:
         obs, env_state = self._env.reset(key, params)
-        state = LogEnvState(env_state, 0, 0, 0, 0, 0, 0, 0, False)
+        state = LogEnvState(env_state, 0, 0, 0, 0, 0, 0, 0, 0, False)
         return obs, state
 
     @partial(jax.jit, static_argnums=(0,))
@@ -69,6 +69,7 @@ class LogWrapper(GymnaxWrapper):
             + new_episode_return * done,
             accepted_services=env_state.accepted_services,
             accepted_bitrate=env_state.accepted_bitrate,
+            total_bitrate=env_state.total_bitrate,
             done=done,
         )
         info["lengths"] = state.lengths
@@ -78,6 +79,7 @@ class LogWrapper(GymnaxWrapper):
         info["episode_lengths"] = state.episode_lengths
         info["accepted_services"] = state.accepted_services
         info["accepted_bitrate"] = state.accepted_bitrate
+        info["total_bitrate"] = state.total_bitrate
         info["done"] = done
         return obs, state, reward, done, info
 

@@ -53,13 +53,13 @@ def define_env(config: absl.flags.FlagValues):
     return env, env_params
 
 
-def init_network(rng, config, env, env_state, env_params):
-    rng, _rng = jax.random.split(rng)
+def init_network(config, env, env_state, env_params):
     if config.env_type.lower() == "vone":
         network = ActorCriticMLP([space.n for space in env.action_space(env_params).spaces],
                                  activation=config.ACTIVATION,
                                  num_layers=config.NUM_LAYERS,
-                                 num_units=config.NUM_UNITS)
+                                 num_units=config.NUM_UNITS,
+                                 layer_norm=config.LAYER_NORM,)
         init_x = tuple([jnp.zeros(env.observation_space(env_params).n)])
     elif config.env_type.lower() in ["rsa", "rmsa", "rwa", "deeprmsa", "rwa_lightpath_reuse"]:
         if config.USE_GNN:
@@ -75,13 +75,15 @@ def init_network(rng, config, env, env_state, env_params):
                 output_globals_size=config.output_globals_size,
                 gnn_mlp_layers=config.gnn_mlp_layers,
                 normalise_by_link_length=config.normalize_by_link_length,
+                mlp_layer_norm=config.LAYER_NORM,
             )
             init_x = (env_state.env_state, env_params)
         else:
             network = ActorCriticMLP([env.action_space(env_params).n],
                                      activation=config.ACTIVATION,
                                      num_layers=config.NUM_LAYERS,
-                                     num_units=config.NUM_UNITS)
+                                     num_units=config.NUM_UNITS,
+                                     layer_norm=config.LAYER_NORM,)
 
             init_x = tuple([jnp.zeros(env.observation_space(env_params).n)])
     else:
@@ -89,7 +91,7 @@ def init_network(rng, config, env, env_state, env_params):
     return network, init_x
 
 
-def select_action(rng, env, env_state, env_params, network, network_params, config, last_obs, deterministic=False):
+def select_action(rng_key, env, env_state, env_params, network, network_params, config, last_obs, deterministic=False):
     """Select an action from the policy.
     If using VONE, the action is a tuple of (source, path, destination).
     Otherwise, the action is a single lightpath.
@@ -110,7 +112,7 @@ def select_action(rng, env, env_state, env_params, network, network_params, conf
     """
     last_obs = (env_state.env_state, env_params) if config.USE_GNN else last_obs
     pi, value = network.apply(network_params, *last_obs)
-    rng = jax.random.split(rng, 1 + len(pi))
+    action_keys = jax.random.split(rng_key, 1 + len(pi))
 
     # Always do action masking with VONE
     if config.env_type.lower() == "vone":
@@ -121,7 +123,7 @@ def select_action(rng, env, env_state, env_params, network, network_params, conf
         env_state = env_state.replace(env_state=vmap_mask_nodes(env_state.env_state, env_params))
         pi_source = distrax.Categorical(logits=jnp.where(env_state.env_state.node_mask_s, pi[0]._logits, -1e8))
 
-        action_s = pi_source.sample(seed=rng[1]) if not deterministic else pi_source.mode()
+        action_s = pi_source.sample(seed=action_keys[1]) if not deterministic else pi_source.mode()
 
         # Update destination mask now source has been selected
         env_state = env_state.replace(env_state=vmap_mask_dest_node(env_state.env_state, env_params, action_s))
@@ -129,12 +131,12 @@ def select_action(rng, env, env_state, env_params, network, network_params, conf
             logits=jnp.where(env_state.env_state.node_mask_d, pi[2]._logits, -1e8))
 
         action_p = jnp.full(action_s.shape, 0)
-        action_d = pi_dest.sample(seed=rng[3]) if not deterministic else pi_dest.mode()
+        action_d = pi_dest.sample(seed=action_keys[3]) if not deterministic else pi_dest.mode()
         action = jnp.stack((action_s, action_p, action_d), axis=1)
 
         env_state = env_state.replace(env_state=vmap_mask_slots(env_state.env_state, env_params, action))
         pi_path = distrax.Categorical(logits=jnp.where(env_state.env_state.link_slot_mask, pi[1]._logits, -1e8))
-        action_p = pi_path.sample(seed=rng[2]) if not deterministic else pi_path.mode()
+        action_p = pi_path.sample(seed=action_keys[2]) if not deterministic else pi_path.mode()
         action = jnp.stack((action_s, action_p, action_d), axis=1)
 
         log_prob_source = pi_source.log_prob(action_s)
@@ -150,15 +152,36 @@ def select_action(rng, env, env_state, env_params, network, network_params, conf
             jax.debug.print("pi {}", pi[0]._logits, ordered=config.ORDERED)
             jax.debug.print("pi_masked {}", pi_masked._logits, ordered=config.ORDERED)
             jax.debug.print("last_obs {}", last_obs[0].graph.edges, ordered=config.ORDERED)
-        action = pi_masked.sample(seed=rng[1])
+        action = pi_masked.sample(seed=action_keys[1]) if not deterministic else pi[0].mode()
         log_prob = pi_masked.log_prob(action)
 
     else:
-        action = pi[0].sample(seed=rng[1]) if not deterministic else pi[0].mode()
+        action = pi[0].sample(seed=action_keys[1]) if not deterministic else pi[0].mode()
         log_prob = pi[0].log_prob(action)
 
-    return action, log_prob, value, rng[0]
+    return action, log_prob, value
 
+
+def warmup_period(rng, env, state, params, model, model_params, config, last_obs) -> EnvState:
+    """Warmup period for DeepRMSA."""
+    def body_fn(i, val):
+        rng, env, state, params, model, model_params, config, last_obs = val
+        # SELECT ACTION
+        rng, action_key, step_key = jax.random.split(rng, 3)
+        action, log_prob, value = select_action(
+            action_key, env, state, params, model, model_params, config, last_obs,
+            deterministic=config.deterministic
+        )
+        # STEP ENV
+        step_key = jax.random.split(step_key, config.NUM_ENVS)
+        obsv, state, reward, done, info = jax.vmap(env.step, in_axes=(0, 0, 0, None))(
+            step_key, state, action, params
+        )
+        return (rng, env, state, params, model, model_params, config, obsv)
+
+    vals = jax.lax.fori_loop(0, config.ENV_WARMUP_STEPS, body_fn,
+                             (rng, env, state, params, model, model_params, config, last_obs))
+    return vals[2]
 
 
 def make_train(config):
@@ -195,21 +218,21 @@ def make_train(config):
 
     def train(rng):
         # INIT ENV
-        rng, _rng = jax.random.split(rng)
-        reset_rng = jax.random.split(_rng, config.NUM_ENVS)
-        obsv, env_state = jax.vmap(env.reset, in_axes=(0, None))(reset_rng, env_params)
+        rng_epoch, rng_step, reset_key, network_key, warmup_key = jax.random.split(rng, 5)
+        reset_key = jax.random.split(reset_key, config.NUM_ENVS)
+        obsv, env_state = jax.vmap(env.reset, in_axes=(0, None))(reset_key, env_params)
         obsv = (env_state.env_state, env_params) if config.USE_GNN else tuple([obsv])
 
         # INIT NETWORK
-        network, init_x = init_network(rng, config, env, env_state, env_params)
+        network, init_x = init_network(config, env, env_state, env_params)
         if config.LOAD_MODEL:
             network_params = config.model["model"]["params"]
             print('Retraining model')
         else:
-            network_params = network.init(_rng, *init_x)
+            network_params = network.init(network_key, *init_x)
         tx = optax.chain(
             optax.clip_by_global_norm(config.MAX_GRAD_NORM),
-            optax.adam(learning_rate=lr_schedule, eps=1e-5),
+            optax.adam(learning_rate=lr_schedule, eps=config.ADAM_EPS, b1=config.ADAM_BETA1, b2=config.ADAM_BETA2),
         )
         train_state = TrainState.create(
             apply_fn=network.apply,
@@ -217,22 +240,28 @@ def make_train(config):
             tx=tx,
         )
 
+        # Recreate DeepRMSA warmup period
+        if config.ENV_WARMUP_STEPS:
+            env_state = warmup_period(warmup_key, env, env_state, train_state.params, network, network_params, config, obsv)
+
         # TRAIN LOOP
         def _update_step(runner_state, unused):
             # COLLECT TRAJECTORIES
             def _env_step(runner_state, unused):
-                train_state, env_state, last_obs, rng = runner_state
+                train_state, env_state, last_obs, rng_epoch, rng_step = runner_state
+
+                rng_step, action_key, step_key = jax.random.split(rng_step, 3)
 
                 # SELECT ACTION
-                action, log_prob, value, rng = select_action(
-                    rng, env, env_state, env_params, network, train_state.params, config, last_obs
+                action, log_prob, value = select_action(
+                    action_key, env, env_state, env_params, network, train_state.params, config, last_obs,
+                    deterministic=config.deterministic
                 )
 
                 # STEP ENV
-                rng, _rng = jax.random.split(rng)
-                rng_step = jax.random.split(_rng, config.NUM_ENVS)
+                step_key = jax.random.split(step_key, config.NUM_ENVS)
                 obsv, env_state, reward, done, info = jax.vmap(env.step, in_axes=(0,0,0,None))(
-                    rng_step, env_state, action, env_params
+                    step_key, env_state, action, env_params
                 )
                 obsv = (env_state.env_state, env_params) if config.USE_GNN else tuple([obsv])
                 transition = VONETransition(
@@ -242,7 +271,7 @@ def make_train(config):
                 ) if config.env_type.lower() == "vone" else RSATransition(
                     done, action, value, reward, log_prob, last_obs, info, env_state.env_state.link_slot_mask
                 )
-                runner_state = (train_state, env_state, obsv, rng)
+                runner_state = (train_state, env_state, obsv, rng_epoch, rng_step)
 
                 if config.DEBUG:
                     jax.debug.print("log_prob {}", log_prob, ordered=config.ORDERED)
@@ -267,7 +296,7 @@ def make_train(config):
                 jax.debug.print("traj_batch.info {}", traj_batch.info, ordered=config.ORDERED)
 
             # CALCULATE ADVANTAGE
-            train_state, env_state, last_obs, rng = runner_state
+            train_state, env_state, last_obs, rng_epoch, rng_step = runner_state
             last_obs = (env_state.env_state, env_params) if config.USE_GNN else last_obs
             _, last_val = network.apply(train_state.params, *last_obs)
 
@@ -382,13 +411,13 @@ def make_train(config):
                     train_state = train_state.apply_gradients(grads=grads)
                     return train_state, total_loss
 
-                train_state, traj_batch, advantages, targets, rng = update_state
-                rng, _rng = jax.random.split(rng)
+                train_state, traj_batch, advantages, targets, rng_epoch, rng_step = update_state
+                rng_epoch, perm_rng = jax.random.split(rng)
                 batch_size = MINIBATCH_SIZE * config.NUM_MINIBATCHES
                 assert (
                     batch_size == config.NUM_STEPS * config.NUM_ENVS
                 ), "batch size must be equal to number of steps * number of envs"
-                permutation = jax.random.permutation(_rng, batch_size)
+                permutation = jax.random.permutation(perm_rng, batch_size)
                 batch = (traj_batch, advantages, targets)
                 batch = jax.tree_util.tree_map(
                     lambda x: x.reshape((batch_size,) + x.shape[2:]), batch
@@ -405,25 +434,25 @@ def make_train(config):
                 train_state, total_loss = jax.lax.scan(
                     _update_minbatch, train_state, minibatches
                 )
-                update_state = (train_state, traj_batch, advantages, targets, rng)
+                update_state = (train_state, traj_batch, advantages, targets, rng_epoch, rng_step)
                 return update_state, total_loss
 
-            update_state = (train_state, traj_batch, advantages, targets, rng)
+            update_state = (train_state, traj_batch, advantages, targets, rng_epoch, rng_step)
             update_state, loss_info = jax.lax.scan(
                 _update_epoch, update_state, None, config.UPDATE_EPOCHS
             )
             train_state = update_state[0]
             metric = traj_batch.info
-            rng = update_state[-1]
-            runner_state = (train_state, env_state, last_obs, rng)
+            rng_epoch = update_state[-2]
+            rng_step = update_state[-1]
+            runner_state = (train_state, env_state, last_obs, rng_epoch, rng_step)
 
             if config.DEBUG:
                 jax.debug.print("metric {}", metric, ordered=config.ORDERED)
 
             return runner_state, metric
 
-        rng, _rng = jax.random.split(rng)
-        runner_state = (train_state, env_state, obsv, _rng)
+        runner_state = (train_state, env_state, obsv, rng_epoch, rng_step)
         runner_state, metric = jax.lax.scan(
             _update_step, runner_state, None, NUM_UPDATES
         )

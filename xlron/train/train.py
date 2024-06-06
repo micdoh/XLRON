@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 from absl import app, flags
 import xlron.train.parameter_flags
 import numpy as np
+import pandas as pd
 
 
 # TODO - Write function to profile execution time as a function of num_envs for a single device
@@ -14,6 +15,10 @@ import numpy as np
 
 
 FLAGS = flags.FLAGS
+
+
+def moving_average(x, w):
+    return np.convolve(x, np.ones(w), 'valid') / w
 
 
 def main(argv):
@@ -134,18 +139,22 @@ def main(argv):
         orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
         save_args = orbax_utils.save_args_from_target(save_data)
         # Get path to current file
-        model_path = FLAGS.MODEL_PATH if FLAGS.MODEL_PATH else pathlib.Path(__file__).resolve().parents[2] / "models" / run_name
+        model_path = pathlib.Path(FLAGS.MODEL_PATH) if FLAGS.MODEL_PATH else pathlib.Path(__file__).resolve().parents[2] / "models" / run_name
         # If model_path dir already exists, append a number to the end
         i = 1
+        model_path_og = model_path
         while model_path.exists():
-            model_path = FLAGS.MODEL_PATH if FLAGS.MODEL_PATH else pathlib.Path(__file__).resolve().parents[2] / "models" / f"{run_name}_{i}"
+            # Add index to end of model_path
+            model_path = pathlib.Path(str(model_path_og) + f"_{i}") if FLAGS.MODEL_PATH else model_path_og.parent / (model_path_og.name + f"_{i}")
             i += 1
-        print(f"Saving model to {model_path}")
-        orbax_checkpointer.save(model_path, save_data, save_args=save_args)
+        print(f"Saving model to {model_path.absolute()}")
+        orbax_checkpointer.save(model_path.absolute(), save_data, save_args=save_args)
         # Upload model to wandb
         if FLAGS.WANDB:
             print((model_path / "*").absolute())
             wandb.save(str((model_path / "*").absolute()), base_path=str(model_path.parent))
+
+    # END OF TRAINING
 
     # Summarise the returns
     if FLAGS.NUM_SEEDS > 1:
@@ -165,6 +174,8 @@ def main(argv):
         accepted_services_std = out["metrics"]["accepted_services"].mean(-1).std(0).reshape(-1)
         accepted_bitrate_mean = out["metrics"]["accepted_bitrate"].mean(-1).mean(0).reshape(-1)
         accepted_bitrate_std = out["metrics"]["accepted_bitrate"].mean(-1).std(0).reshape(-1)
+        total_bitrate_mean = out["metrics"]["total_bitrate"].mean(-1).mean(0).reshape(-1)
+        total_bitrate_std = out["metrics"]["total_bitrate"].mean(-1).std(0).reshape(-1)
         done = out["metrics"]["done"].mean(-1).mean(0).reshape(-1)
     else:
         # N.B. This is the same as the above code, but without the mean on the seed dimension
@@ -183,26 +194,28 @@ def main(argv):
         accepted_services_std = out["metrics"]["accepted_services"].std(-1).reshape(-1)
         accepted_bitrate_mean = out["metrics"]["accepted_bitrate"].mean(-1).reshape(-1)
         accepted_bitrate_std = out["metrics"]["accepted_bitrate"].std(-1).reshape(-1)
+        total_bitrate_mean = out["metrics"]["total_bitrate"].mean(-1).reshape(-1)
+        total_bitrate_std = out["metrics"]["total_bitrate"].std(-1).reshape(-1)
         done = out["metrics"]["done"].mean(-1).reshape(-1)
 
-    episode_ends = np.where(done == 1)[0]
+    episode_ends = np.where(done == 1)[0] if not FLAGS.continuous_operation else np.arange(0, len(done), FLAGS.max_timesteps)[1:].astype(int)
     # shift end indices by -1
     episode_ends = episode_ends - 1
     # get values of accepted services and bitrate at episode ends
+    service_blocking_probability = 1 - (accepted_services_mean / lengths_mean)
+    service_blocking_probability_std = accepted_services_std / lengths_mean
+    bitrate_blocking_probability = 1 - (accepted_bitrate_mean / total_bitrate_mean)
+    bitrate_blocking_probability_std = accepted_bitrate_std / total_bitrate_mean
     episode_end_accepted_services = accepted_services_mean[episode_ends]
     episode_end_accepted_services_std = accepted_services_std[episode_ends]
     episode_end_accepted_bitrate = accepted_bitrate_mean[episode_ends]
     episode_end_accepted_bitrate_std = accepted_bitrate_std[episode_ends]
-    # Do box and whisker plot of accepted services and bitrate at episode ends
-    plt.boxplot(episode_end_accepted_services)
-    plt.title(experiment_name)
-    plt.show()
-
-    service_blocking_probability = 1 - ((cum_returns_mean + lengths_mean) / (2*lengths_mean))
-    service_blocking_probability_std = returns_std / (2*lengths_mean)
-
-    # TODO - Define blocking probability metric
-    # TODO - Get bit rate blocking and service blocking
+    episode_end_service_blocking_probability = service_blocking_probability[episode_ends]
+    episode_end_service_blocking_probability_std = service_blocking_probability_std[episode_ends]
+    episode_end_bitrate_blocking_probability = bitrate_blocking_probability[episode_ends]
+    episode_end_bitrate_blocking_probability_std = bitrate_blocking_probability_std[episode_ends]
+    episode_end_total_bitrate = total_bitrate_mean[episode_ends]
+    episode_end_total_bitrate_std = total_bitrate_std[episode_ends]
 
     if FLAGS.incremental_loading:
         plot_metric = accepted_services_mean
@@ -212,17 +225,25 @@ def main(argv):
         plot_metric = episode_lengths_mean
         plot_metric_std = episode_lengths_std
         plot_metric_name = "Episode Length"
-    else:
+    elif FLAGS.reward_type == "service":
         plot_metric = service_blocking_probability
         plot_metric_std = service_blocking_probability_std
         plot_metric_name = "Service Blocking Probability"
+    else:
+        plot_metric = bitrate_blocking_probability
+        plot_metric_std = bitrate_blocking_probability_std
+        plot_metric_name = "Bitrate Blocking Probability"
 
-    plt.boxplot(plot_metric[episode_ends])
+    # Do box and whisker plot of accepted services and bitrate at episode ends
+    plt.boxplot(episode_end_accepted_services)
+    plt.ylabel("Accepted Services")
     plt.title(experiment_name)
     plt.show()
 
-    def moving_average(x, w):
-        return np.convolve(x, np.ones(w), 'valid') / w
+    plt.boxplot(episode_end_accepted_bitrate)
+    plt.ylabel("Accepted Bitrate")
+    plt.title(experiment_name)
+    plt.show()
 
     plot_metric = moving_average(plot_metric, min(100, int(len(plot_metric)/2)))
     plot_metric_std = moving_average(plot_metric_std, min(100, int(len(plot_metric_std)/2)))
@@ -237,6 +258,29 @@ def main(argv):
     plt.ylabel(plot_metric_name)
     plt.title(experiment_name)
     plt.savefig(f"{experiment_name}.png")
+    plt.show()
+
+    if FLAGS.DATA_OUTPUT_FILE:
+        # Save episode end metrics to file
+        df = pd.DataFrame({
+            "accepted_services": episode_end_accepted_services,
+            "accepted_services_std": episode_end_accepted_services_std,
+            "accepted_bitrate": episode_end_accepted_bitrate,
+            "accepted_bitrate_std": episode_end_accepted_bitrate_std,
+            "service_blocking_probability": episode_end_service_blocking_probability,
+            "service_blocking_probability_std": episode_end_service_blocking_probability_std,
+            "bitrate_blocking_probability": episode_end_bitrate_blocking_probability,
+            "bitrate_blocking_probability_std": episode_end_bitrate_blocking_probability_std,
+            "total_bitrate": episode_end_total_bitrate,
+            "total_bitrate_std": episode_end_total_bitrate_std,
+            "returns": episode_returns_mean[episode_ends],
+            "returns_std": episode_returns_std[episode_ends],
+            "cum_returns": cum_returns_mean[episode_ends],
+            "cum_returns_std": cum_returns_std[episode_ends],
+            "lengths": lengths_mean[episode_ends],
+            "lengths_std": lengths_std[episode_ends],
+        })
+        df.to_csv(FLAGS.DATA_OUTPUT_FILE)
 
     if FLAGS.WANDB:
         # Log the data to wandb
@@ -255,6 +299,8 @@ def main(argv):
         lengths_std = lengths_std[chop:].reshape(-1, FLAGS.DOWNSAMPLE_FACTOR).mean(axis=1)
         service_blocking_probability = service_blocking_probability[chop:].reshape(-1, FLAGS.DOWNSAMPLE_FACTOR).mean(axis=1)
         service_blocking_probability_std = service_blocking_probability_std[chop:].reshape(-1, FLAGS.DOWNSAMPLE_FACTOR).mean(axis=1)
+        bitrate_blocking_probability = bitrate_blocking_probability[chop:].reshape(-1, FLAGS.DOWNSAMPLE_FACTOR).mean(axis=1)
+        bitrate_blocking_probability_std = bitrate_blocking_probability_std[chop:].reshape(-1, FLAGS.DOWNSAMPLE_FACTOR).mean(axis=1)
         accepted_services_mean = accepted_services_mean[chop:].reshape(-1, FLAGS.DOWNSAMPLE_FACTOR).mean(axis=1)
         accepted_services_std = accepted_services_std[chop:].reshape(-1, FLAGS.DOWNSAMPLE_FACTOR).mean(axis=1)
         accepted_bitrate_mean = accepted_bitrate_mean[chop:].reshape(-1, FLAGS.DOWNSAMPLE_FACTOR).mean(axis=1)
@@ -286,14 +332,14 @@ def main(argv):
                 "lengths_std": lengths_std[i],
                 "service_blocking_probability": service_blocking_probability[i],
                 "service_blocking_probability_std": service_blocking_probability_std[i],
+                "bitrate_blocking_probability": bitrate_blocking_probability[i],
+                "bitrate_blocking_probability_std": bitrate_blocking_probability_std[i],
                 "accepted_services_mean": accepted_services_mean[i],
                 "accepted_services_std": accepted_services_std[i],
                 "accepted_bitrate_mean": accepted_bitrate_mean[i],
                 "accepted_bitrate_std": accepted_bitrate_std[i],
             }
             wandb.log(log_dict)
-
-    plt.show()
 
 
 if __name__ == "__main__":

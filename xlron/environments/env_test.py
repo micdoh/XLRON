@@ -8,7 +8,7 @@ chex.all_variants() decorator runs the test once for each variant (e.g. jitted, 
 parameterized.named_parameters() decorator runs the test once for each set of parameters passed to the function under test.
 """
 import os
-
+os.environ['XLA_FLAGS'] = "--xla_force_host_platform_device_count=4"
 import distrax
 from absl.testing import absltest
 from absl.testing import parameterized
@@ -21,11 +21,6 @@ from xlron.environments.vone import *
 from xlron.environments.rsa import *
 from xlron.environments.wrappers import *
 from xlron.environments.dataclasses import *
-
-
-# Set CPU devices for all tests with --chex_n_cpu_devices N
-def setUpModule():
-    chex.set_n_cpu_devices()
 
 
 def keys_test_setup():
@@ -2063,8 +2058,58 @@ class RWALightpathReuseTest(parameterized.TestCase):
         chex.assert_trees_all_close(remaining_capacity, expected)
 
 
+class FindBlockStartsTest(parameterized.TestCase):
+
+    def setUp(self):
+        super().setUp()
+
+    @chex.all_variants()
+    @parameterized.named_parameters(
+        ('case_full', jnp.array([1, 1, 1, 1, 1, 1, 1]), jnp.array([0, 0, 0, 0, 0, 0, 0])),
+        ('case_empty', jnp.array([0, 0, 0, 0, 0, 0, 0]), jnp.array([1, 0, 0, 0, 0, 0, 0])),
+        ('case_few', jnp.array([0, 1, 0, 0, 1, 0, 0]), jnp.array([1, 0, 1, 0, 0, 1, 0])),
+        ('case_many', jnp.array([0, 1, 1, 0, 1, 1, 1]), jnp.array([1, 0, 0, 1, 0, 0, 0])),
+    )
+    def test_find_block_starts(self, slots, expected):
+        actual = self.variant(find_block_starts)(slots)
+        chex.assert_trees_all_close(actual, expected)
+
+
+class FindBlockEndsTest(parameterized.TestCase):
+
+    def setUp(self):
+        super().setUp()
+
+    @chex.all_variants()
+    @parameterized.named_parameters(
+        ('case_full', jnp.array([1, 1, 1, 1, 1, 1, 1]), jnp.array([0, 0, 0, 0, 0, 0, 0])),
+        ('case_empty', jnp.array([0, 0, 0, 0, 0, 0, 0]), jnp.array([0, 0, 0, 0, 0, 0, 1])),
+        ('case_few', jnp.array([0, 1, 0, 0, 1, 0, 0]), jnp.array([1, 0, 0, 1, 0, 0, 1])),
+        ('case_many', jnp.array([0, 1, 1, 0, 1, 1, 1]), jnp.array([1, 0, 0, 1, 0, 0, 0])),
+    )
+    def test_find_block_ends(self, slots, expected):
+        actual = self.variant(find_block_ends)(slots)
+        chex.assert_trees_all_close(actual, expected)
+
+
+class FindBlockSizesTest(parameterized.TestCase):
+
+    def setUp(self):
+        super().setUp()
+
+    @chex.all_variants()
+    @parameterized.named_parameters(
+        ('case_full', jnp.array([1, 1, 1, 1, 1, 1, 1]), jnp.array([0, 0, 0, 0, 0, 0, 0])),
+        ('case_empty', jnp.array([0, 0, 0, 0, 0, 0, 0]), jnp.array([7, 0, 0, 0, 0, 0, 0])),
+        ('case_few', jnp.array([0, 1, 0, 0, 1, 0, 0]), jnp.array([1, 0, 2, 0, 0, 2, 0])),
+        ('case_many', jnp.array([0, 1, 1, 0, 1, 1, 1]), jnp.array([1, 0, 0, 1, 0, 0, 0])),
+        ('case_gap', jnp.array([1, 0, 0, 0, 0, 0, 1]), jnp.array([0, 5, 0, 0, 0, 0, 0])),
+    )
+    def test_find_block_sizes(self, slots, expected):
+        actual = self.variant(find_block_sizes)(slots)
+        chex.assert_trees_all_close(actual, expected)
+
+
 if __name__ == '__main__':
-    # Set the number of (emulated) host devices
-    chex._src.fake.set_n_cpu_devices(2)
     jax.config.update('jax_numpy_rank_promotion', 'raise')
     absltest.main()
