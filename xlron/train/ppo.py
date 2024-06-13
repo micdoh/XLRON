@@ -165,23 +165,24 @@ def select_action(rng_key, env, env_state, env_params, network, network_params, 
 def warmup_period(rng, env, state, params, model, model_params, config, last_obs) -> EnvState:
     """Warmup period for DeepRMSA."""
     def body_fn(i, val):
-        rng, env, state, params, model, model_params, config, last_obs = val
+        _rng, _state, _params, _model, _model_params, _last_obs = val
         # SELECT ACTION
-        rng, action_key, step_key = jax.random.split(rng, 3)
+        _rng, action_key, step_key = jax.random.split(_rng, 3)
         action, log_prob, value = select_action(
-            action_key, env, state, params, model, model_params, config, last_obs,
+            action_key, env, _state, _params, _model, _model_params, config, _last_obs,
             deterministic=config.deterministic
         )
         # STEP ENV
         step_key = jax.random.split(step_key, config.NUM_ENVS)
-        obsv, state, reward, done, info = jax.vmap(env.step, in_axes=(0, 0, 0, None))(
-            step_key, state, action, params
+        obsv, _state, reward, done, info = jax.vmap(env.step, in_axes=(0, 0, 0, None))(
+            step_key, _state, action, _params
         )
-        return (rng, env, state, params, model, model_params, config, obsv)
+        obsv = (_state, _params) if config.USE_GNN else tuple([obsv])
+        return _rng, _state, _params, _model, _model_params, obsv
 
     vals = jax.lax.fori_loop(0, config.ENV_WARMUP_STEPS, body_fn,
-                             (rng, env, state, params, model, model_params, config, last_obs))
-    return vals[2]
+                             (rng, state, params, model, model_params, last_obs))
+    return vals[1]
 
 
 def make_train(config):

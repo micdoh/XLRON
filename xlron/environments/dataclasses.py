@@ -87,6 +87,7 @@ class LogEnvState:
     accepted_services: int
     accepted_bitrate: float
     total_bitrate: float
+    utilisation: float
     done: bool
 
 

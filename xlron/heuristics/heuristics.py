@@ -59,12 +59,10 @@ def ksp_bf(state: EnvState, params: EnvParams) -> chex.Array:
     """
     best_slots, fitness = best_fit(state, params)
     # Chosen path is the first one with an available slot
-    path_index = jnp.argmin(jnp.where(best_slots < params.link_resources, 0, 1))
+    path_index = jnp.argmin(jnp.where(fitness < jnp.inf, 0, 1))
     slot_index = best_slots[path_index] % params.link_resources
     # Convert indices to action
     action = path_index * params.link_resources + slot_index
-    # jax.debug.print("path_index {}", path_index, ordered=True)
-    # jax.debug.print("slot_index {}", slot_index, ordered=True)
     return action
 
 
@@ -331,13 +329,10 @@ def get_link_weights(state: EnvState, params: EnvParams):
             params.link_length_array.val, params.path_link_array.val, symbol_rate=100, scale_factor=1.0
         )
         initial_path_capacity = jnp.squeeze(jax.vmap(lambda x: initial_path_capacity[x])(state.path_index_array))
-        jax.debug.print("initial_path_capacity {}", initial_path_capacity, ordered=True)
-        jax.debug.print("diff {}", initial_path_capacity - state.link_capacity_array, ordered=True)
         utilisation = jnp.where(initial_path_capacity - state.link_capacity_array < 0, 0,
                                 initial_path_capacity - state.link_capacity_array) / initial_path_capacity
         link_occupancy = jnp.sum(utilisation, axis=1)
     link_weights = jnp.multiply(params.link_length_array.val.T, (1 / (1 - link_occupancy / (params.link_resources + 1))))[0]
-    jax.debug.print("link_occupancy {}", link_occupancy, ordered=True)
     return link_weights
 
 
@@ -353,56 +348,54 @@ def best_fit(state: EnvState, params: EnvParams) -> chex.Array:
     mask = get_action_mask(state, params)
     link_slot_array = jnp.where(state.link_slot_array < 0, 1., state.link_slot_array)
     nodes_sd, requested_bw = read_rsa_request(state.request_array)
-    # Get index of first available slots for each path
-    block_sizes = jax.vmap(find_block_sizes, in_axes=(0, None))(link_slot_array, False)
+
+    # We need to define a wrapper function in order to vmap with named arguments
+    def _find_block_sizes(arr, starts_only=False, reverse=True):
+        return jax.vmap(find_block_sizes, in_axes=(0, None, None))(arr, starts_only, reverse)
+
+    block_sizes_right = _find_block_sizes(link_slot_array, starts_only=False, reverse=False)
+    block_sizes_left = _find_block_sizes(link_slot_array, starts_only=False, reverse=True)
+    block_sizes = jnp.maximum((block_sizes_left + block_sizes_right) - 1, 0)
     paths = get_paths(params, nodes_sd)
     se = get_paths_se(params, nodes_sd) if params.consider_modulation_format else jnp.ones((params.k_paths,))
     num_slots = jax.vmap(required_slots, in_axes=(None, 0, None, None))(requested_bw, se, params.slot_size, params.guardband)
-    jax.debug.print("paths {}", paths, ordered=True)
-    jax.debug.print("se {}", se, ordered=True)
-    jax.debug.print("requested_bw {}", requested_bw, ordered=True)
-    jax.debug.print("num_slots {}", num_slots, ordered=True)
-    jax.debug.print("block_sizes {}", block_sizes, ordered=True)
 
+    # Quantify how well the request fits within a free spectral block
     def get_bf_on_path(path, blocks, req_slots):
         fits = jax.vmap(lambda x: x - req_slots, in_axes=0)(blocks)
-        #fits = jax.vmap(jnp.sum(jax.vmap(lambda x: x - req_slots, in_axes=0)(blocks)), in_axes=0)(blocks)
-        fits = jnp.where(fits >= 0, fits, 1e6)#params.link_resources + 1)
-        fits0 = jnp.concatenate((fits, jnp.full((fits.shape[0], 1), params.link_resources)), axis=1)
-        fits1 = jnp.concatenate((jnp.full((fits.shape[0], 1), 1e6), fits), axis=1)
-        fits = fits0 + 1/(fits1+1)  # Penalise gaps
-        path_fit = jnp.dot(path, fits)
-        jax.debug.print("fits {}", fits, ordered=True)
-        jax.debug.print("path_fit {}", path_fit, ordered=True)
-        return jnp.argmin(path_fit), jnp.min(path_fit)
+        fits = jnp.where(fits >= 0, fits, params.link_resources)
+        path_fit = jnp.dot(path, fits) / jnp.sum(path)
+        return path_fit
+    fits_block = jax.vmap(lambda x, y, z: get_bf_on_path(x, y, z), in_axes=(0, None, 0))(paths, block_sizes, num_slots)
 
-    best_slots, best_fits = jax.vmap(lambda x, y, z: get_bf_on_path(x, y, z), in_axes=(0, None, 0))(paths, block_sizes, num_slots)
+    # Quantity much of a gap there is between the assigned slots and the next occupied slots on the left
+    def get_bf_on_path_left(path, blocks, req_slots):
+        fits = jax.vmap(lambda x: x - req_slots, in_axes=0)(blocks)
+        fits = jnp.where(fits >= 0, fits, params.link_resources)
+        fits_shift = jax.lax.dynamic_slice(fits, (0, 1), (fits.shape[0], fits.shape[1]-1))
+        fits_shift = jnp.concatenate((jnp.full((fits.shape[0], 1), params.link_resources), fits_shift), axis=1)
+        fits = fits + 1/jnp.maximum(fits_shift, 1)
+        path_fit = jnp.dot(path, fits) / jnp.sum(path)
+        return path_fit
+    fits_left = jax.vmap(lambda x, y, z: get_bf_on_path_left(x, y, z), in_axes=(0, None, 0))(paths, block_sizes_left, num_slots)
 
-    # jax.debug.print("best_slots {}", best_slots, ordered=True)
-    # jax.debug.print("best_fits {}", best_fits, ordered=True)
+    # Quantity much of a gap there is between the assigned slots and the next occupied slots on the right
+    def get_bf_on_path_right(path, blocks, req_slots):
+        fits = jax.vmap(lambda x: x - req_slots, in_axes=0)(blocks)
+        fits = jnp.where(fits >= 0, fits, params.link_resources)
+        fits_shift = jax.lax.dynamic_slice(fits, (0, 0), (fits.shape[0], fits.shape[1] - 1))
+        fits_shift = jnp.concatenate((fits_shift, jnp.full((fits.shape[0], 1), params.link_resources)), axis=1)
+        fits = fits + 1/jnp.maximum(fits_shift, 1)
+        path_fit = jnp.dot(path, fits) / jnp.sum(path)
+        return path_fit
+    fits_right = jax.vmap(lambda x, y, z: get_bf_on_path_right(x, y, z), in_axes=(0, None, 0))(paths, block_sizes_right, num_slots)
 
-    # def get_fit_on_path(i, result):
-    #     initial_slot_index = best_slots[i] % params.link_resources
-    #     path = get_paths(params, nodes_sd)[i]
-    #     se = get_paths_se(params, nodes_sd)[i] if params.consider_modulation_format else 1
-    #     num_slots = required_slots(requested_bw, se, params.slot_size, guardband=params.guardband)
-    #     # Make link-slot_array positive
-    #     updated_slots = vmap_set_path_links(link_slot_array, path, initial_slot_index, num_slots, 1.)
-    #     updated_block_sizes = jax.vmap(find_block_sizes, in_axes=(0,))(updated_slots)
-    #     fit = jax.lax.cond(
-    #         mask[i][initial_slot_index] == 0.,  # If true, no valid action for path
-    #         lambda x: jnp.full((1,), params.link_resources*params.link_resources*params.num_links).astype(jnp.float32), # Return worst
-    #         lambda x: ((jnp.sum(updated_block_sizes) - jnp.sum(block_sizes)) / jnp.sum(path)).reshape((1,)).astype(jnp.float32),  # Else, return quality of fit
-    #         1.
-    #     )
-    #     result = jax.lax.dynamic_update_slice(result, fit, (i,))
-    #     return result
-    #
-    # # Initialise array to hold number of cuts on each path
-    # path_fit_array = jnp.full((mask.shape[0],), 0.)
-    # path_fit_array = jax.lax.fori_loop(0, mask.shape[0], get_fit_on_path, path_fit_array)
-    # jax.debug.print("path_fit_array {}", path_fit_array, ordered=True)
-
+    # Sum the contribution to the overall quality of fit, and scale down the left/right contributions
+    fits = jnp.sum(jnp.stack((fits_block, fits_left/params.link_resources, fits_right/params.link_resources), axis=0), axis=0)
+    # Mask out occupied lightpaths (in case the quality of fit on some links is good enough to be considered, even if the overall path is invalid)
+    fits = jnp.where(mask == 0, jnp.inf, fits)
+    best_slots = jnp.argmin(fits, axis=1)
+    best_fits = jnp.min(fits, axis=1)
     return best_slots, best_fits
 
 
@@ -433,7 +426,7 @@ def most_used(state: EnvState, params: EnvParams, unique_lightpaths, relative) -
         chex.Array: Most used slots (array length = link_resources)
     """
     if params.__class__.__name__ != "RWALightpathReuseEnvParams":
-        most_used_slots = jnp.sum(state.link_slot_array, axis=0) + 1
+        most_used_slots = jnp.count_nonzero(state.link_slot_array, axis=0) + 1
     elif params.__class__.__name__ == "RWALightpathReuseEnvParams" and not unique_lightpaths:
         # Get initial path capacity
         initial_path_capacity = init_path_capacity_array(

@@ -71,20 +71,21 @@ def warmup_period(rng, env, state, params, model, model_params, config, last_obs
     """Warmup period for DeepRMSA."""
 
     def body_fn(i, val):
-        rng, env, state, params, model, model_params, config, last_obs = val
+        _rng, _state, _params, _model, _model_params, _last_obs = val
         # SELECT ACTION
-        rng, action_key, step_key = jax.random.split(rng)
-        action = select_action_eval(config, state, params, env, model, model_params, action_key, last_obs)
+        _rng, action_key, step_key = jax.random.split(_rng, 3)
+        action = select_action_eval(config, _state, _params, env, _model, _model_params, action_key, _last_obs)
         # STEP ENV
         rng_step = jax.random.split(step_key, config.NUM_ENVS)
-        obsv, state, reward, done, info = jax.vmap(env.step, in_axes=(0, 0, 0, None))(
-            rng_step, state, action, params
+        obsv, _state, reward, done, info = jax.vmap(env.step, in_axes=(0, 0, 0, None))(
+            rng_step, _state, action, _params
         )
-        return (rng, env, state, params, model, model_params, config, obsv)
+        obsv = (_state, _params) if config.USE_GNN else tuple([obsv])
+        return (_rng, _state, _params, _model, _model_params, obsv)
 
     val = jax.lax.fori_loop(0, config.ENV_WARMUP_STEPS, body_fn,
-                                  (rng, env, state, params, model, model_params, config, last_obs))
-    return val[2]
+                            (rng, state, params, model, model_params, last_obs))
+    return val[1]
 
 
 def make_eval(config):
@@ -95,7 +96,7 @@ def make_eval(config):
     def evaluate(rng):
 
         # RESET ENV
-        rng, reset_key = jax.random.split(rng)
+        rng, warmup_rng, reset_key = jax.random.split(rng, 3)
         reset_key = jax.random.split(reset_key, config.NUM_ENVS)
         obsv, env_state = jax.vmap(env.reset, in_axes=(0, None))(reset_key, env_params)
         obsv = (env_state.env_state, env_params) if config.USE_GNN else tuple([obsv])
@@ -107,6 +108,10 @@ def make_eval(config):
             print('Evaluating model')
         else:
             network = network_params = None
+
+        # Recreate DeepRMSA warmup period
+        if config.ENV_WARMUP_STEPS:
+            env_state = warmup_period(warmup_rng, env, env_state, env_params, network, network_params, config, obsv)
 
         # COLLECT TRAJECTORIES
         def _env_episode(runner_state, unused):

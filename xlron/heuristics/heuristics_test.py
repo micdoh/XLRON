@@ -378,7 +378,7 @@ class KspBfTest(parameterized.TestCase):
                     [0., 0., 0., 0.],
                     [0., 0., 0., 0.],
                     [0., 0., 0., 0.], ]),
-         jnp.array(3)),
+         jnp.array(0)),
         ("case_full", jnp.array([0, 0, 1]),
          jnp.array([[-1., -1., -1., -1.],
                     [-1., -1., -1., -1.],
@@ -411,6 +411,21 @@ class KspBfTest(parameterized.TestCase):
 
     @chex.all_variants()
     @parameterized.named_parameters(
+        ("case_empty", jnp.array([0, 0, 1]),
+         jnp.array([[0., 0., 1., 0., 1.],
+                    [0., 0., 1., 0., 1.],
+                    [0., 0., 1., 0., 1.],
+                    [0., 0., 1., 0., 1.], ]),
+         jnp.array(3)),
+    )
+    def test_ksp_bf_5_links(self, request_array, link_slot_array, expected):
+        self.key, self.env, self.obs, self.state, self.params = rsa_4node_3_slot_request_test_setup()
+        self.state = self.state.replace(request_array=request_array, link_slot_array=link_slot_array)
+        action = self.variant(ksp_bf, static_argnums=(1,))(self.state, self.params)
+        chex.assert_trees_all_close(action, expected)
+
+    @chex.all_variants()
+    @parameterized.named_parameters(
     ("case_start_edge", jnp.array([0, 0, 1]),
      jnp.array([[0., 0., 0., -1., -1., -1., -1., 0., 0., 0., -1., -1., -1., -1., -1., -1.],
                 [0., 0., 0., -1., -1., -1., -1., -1., -1., -1., -1., -1., -1., -1., -1., -1.],
@@ -434,7 +449,7 @@ class KspBfTest(parameterized.TestCase):
                 [0., 0., 0., -1., -1., -1., -1., -1., -1., -1., -1., -1., -1., -1., -1., -1.],
                 [0., 0., 0., -1., -1., -1., -1., -1., -1., -1., -1., -1., -1., -1., -1., -1.],
                 [0., 0., 0., -1., -1., -1., -1., -1., -1., -1., -1., -1., -1., -1., -1., -1.], ]),
-     jnp.array(2)),
+     jnp.array(0)),
     ("case_end_edge", jnp.array([0, 1, 1]),
      jnp.array([[-1., -1., -1., -1., -1., -1., -1., -1., -1., -1., -1., -1., -1., -1., 0., 0.],
                 [-1., -1., -1., -1., -1., -1., -1., -1., -1., -1., -1., -1., -1., -1., 0., 0.],
@@ -554,7 +569,7 @@ class BfKspTest(parameterized.TestCase):
                     [0., 0., 0., 0.],
                     [0., 0., 0., 0.],
                     [0., 0., 0., 0.], ]),
-         jnp.array(3)),
+         jnp.array(0)),
         ("case_full", jnp.array([0, 0, 1]),
          jnp.array([[-1., -1., -1., -1.],
                     [-1., -1., -1., -1.],
@@ -610,7 +625,7 @@ class BfKspTest(parameterized.TestCase):
                 [0., 0., 0., -1., -1., -1., -1., -1., -1., -1., -1., -1., -1., -1., -1., -1.],
                 [0., 0., 0., -1., -1., -1., -1., -1., -1., -1., -1., -1., -1., -1., -1., -1.],
                 [0., 0., 0., -1., -1., -1., -1., -1., -1., -1., -1., -1., -1., -1., -1., -1.], ]),
-     jnp.array(2)),
+     jnp.array(0)),
     ("case_end_edge", jnp.array([0, 1, 1]),
      jnp.array([[-1., -1., -1., -1., -1., -1., -1., -1., -1., -1., -1., -1., -1., -1., 0., 0.],
                 [-1., -1., -1., -1., -1., -1., -1., -1., -1., -1., -1., -1., -1., -1., 0., 0.],
