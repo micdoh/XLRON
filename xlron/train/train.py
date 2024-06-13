@@ -176,6 +176,8 @@ def main(argv):
         accepted_bitrate_std = out["metrics"]["accepted_bitrate"].mean(-1).std(0).reshape(-1)
         total_bitrate_mean = out["metrics"]["total_bitrate"].mean(-1).mean(0).reshape(-1)
         total_bitrate_std = out["metrics"]["total_bitrate"].mean(-1).std(0).reshape(-1)
+        utilisation_mean = out["metrics"]["utilisation"].mean(-1).mean(0).reshape(-1)
+        utilisation_std = out["metrics"]["utilisation"].mean(-1).std(0).reshape(-1)
         done = out["metrics"]["done"].mean(-1).mean(0).reshape(-1)
     else:
         # N.B. This is the same as the above code, but without the mean on the seed dimension
@@ -196,6 +198,8 @@ def main(argv):
         accepted_bitrate_std = out["metrics"]["accepted_bitrate"].std(-1).reshape(-1)
         total_bitrate_mean = out["metrics"]["total_bitrate"].mean(-1).reshape(-1)
         total_bitrate_std = out["metrics"]["total_bitrate"].std(-1).reshape(-1)
+        utilisation_mean = out["metrics"]["utilisation"].mean(-1).reshape(-1)
+        utilisation_std = out["metrics"]["utilisation"].std(-1).reshape(-1)
         done = out["metrics"]["done"].mean(-1).reshape(-1)
 
     episode_ends = np.where(done == 1)[0] if not FLAGS.continuous_operation else np.arange(0, len(done), FLAGS.max_timesteps)[1:].astype(int)
@@ -217,48 +221,48 @@ def main(argv):
     episode_end_total_bitrate = total_bitrate_mean[episode_ends]
     episode_end_total_bitrate_std = total_bitrate_std[episode_ends]
 
-    if FLAGS.incremental_loading:
-        plot_metric = accepted_services_mean
-        plot_metric_std = accepted_services_std
-        plot_metric_name = "Accepted Services"
-    elif FLAGS.end_first_blocking:
-        plot_metric = episode_lengths_mean
-        plot_metric_std = episode_lengths_std
-        plot_metric_name = "Episode Length"
-    elif FLAGS.reward_type == "service":
-        plot_metric = service_blocking_probability
-        plot_metric_std = service_blocking_probability_std
-        plot_metric_name = "Service Blocking Probability"
-    else:
-        plot_metric = bitrate_blocking_probability
-        plot_metric_std = bitrate_blocking_probability_std
-        plot_metric_name = "Bitrate Blocking Probability"
+    if FLAGS.PLOTTING:
+        if FLAGS.incremental_loading:
+            plot_metric = accepted_services_mean
+            plot_metric_std = accepted_services_std
+            plot_metric_name = "Accepted Services"
+        elif FLAGS.end_first_blocking:
+            plot_metric = episode_lengths_mean
+            plot_metric_std = episode_lengths_std
+            plot_metric_name = "Episode Length"
+        elif FLAGS.reward_type == "service":
+            plot_metric = service_blocking_probability
+            plot_metric_std = service_blocking_probability_std
+            plot_metric_name = "Service Blocking Probability"
+        else:
+            plot_metric = bitrate_blocking_probability
+            plot_metric_std = bitrate_blocking_probability_std
+            plot_metric_name = "Bitrate Blocking Probability"
 
-    # Do box and whisker plot of accepted services and bitrate at episode ends
-    plt.boxplot(episode_end_accepted_services)
-    plt.ylabel("Accepted Services")
-    plt.title(experiment_name)
-    plt.show()
+        # Do box and whisker plot of accepted services and bitrate at episode ends
+        plt.boxplot(episode_end_accepted_services)
+        plt.ylabel("Accepted Services")
+        plt.title(experiment_name)
+        plt.show()
 
-    plt.boxplot(episode_end_accepted_bitrate)
-    plt.ylabel("Accepted Bitrate")
-    plt.title(experiment_name)
-    plt.show()
+        plt.boxplot(episode_end_accepted_bitrate)
+        plt.ylabel("Accepted Bitrate")
+        plt.title(experiment_name)
+        plt.show()
 
-    plot_metric = moving_average(plot_metric, min(100, int(len(plot_metric)/2)))
-    plot_metric_std = moving_average(plot_metric_std, min(100, int(len(plot_metric_std)/2)))
-    plt.plot(plot_metric)
-    plt.fill_between(
-        range(len(plot_metric)),
-        plot_metric - plot_metric_std,
-        plot_metric + plot_metric_std,
-        alpha=0.2
-    )
-    plt.xlabel("Update Step")
-    plt.ylabel(plot_metric_name)
-    plt.title(experiment_name)
-    plt.savefig(f"{experiment_name}.png")
-    plt.show()
+        plot_metric = moving_average(plot_metric, min(100, int(len(plot_metric)/2)))
+        plot_metric_std = moving_average(plot_metric_std, min(100, int(len(plot_metric_std)/2)))
+        plt.plot(plot_metric)
+        plt.fill_between(
+            range(len(plot_metric)),
+            plot_metric - plot_metric_std,
+            plot_metric + plot_metric_std,
+            alpha=0.2
+        )
+        plt.xlabel("Update Step")
+        plt.ylabel(plot_metric_name)
+        plt.title(experiment_name)
+        plt.show()
 
     if FLAGS.DATA_OUTPUT_FILE:
         # Save episode end metrics to file
@@ -273,6 +277,8 @@ def main(argv):
             "bitrate_blocking_probability_std": episode_end_bitrate_blocking_probability_std,
             "total_bitrate": episode_end_total_bitrate,
             "total_bitrate_std": episode_end_total_bitrate_std,
+            "utilisation_mean": utilisation_mean[episode_ends],
+            "utilisation_std": utilisation_std[episode_ends],
             "returns": episode_returns_mean[episode_ends],
             "returns_std": episode_returns_std[episode_ends],
             "cum_returns": cum_returns_mean[episode_ends],

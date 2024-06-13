@@ -620,7 +620,11 @@ def make_rsa_env(config):
     arrival_rate = load / mean_service_holding_time
     num_nodes = len(graph.nodes)
     num_links = len(graph.edges)
-    path_link_array = init_path_link_array(graph, k, disjoint=disjoint_paths, weight=weight, directed=graph.is_directed())
+    scale_factor = config.get("scale_factor", 1.0)
+    path_link_array = init_path_link_array(
+        graph, k, disjoint=disjoint_paths, weight=weight, directed=graph.is_directed(),
+        rwa_lr=True if env_type == "rwa_lightpath_reuse" else False, scale_factor=scale_factor
+    )
     if custom_traffic_matrix_csv_filepath:
         random_traffic = False  # Set this False so that traffic matrix isn't replaced on reset
         traffic_matrix = jnp.array(np.loadtxt(custom_traffic_matrix_csv_filepath, delimiter=","))
@@ -660,24 +664,27 @@ def make_rsa_env(config):
 
     max_bw = max(values_bw)
 
+    link_length_array = init_link_length_array(graph).reshape((num_links, 1))
+
     # Automated calculation of max slots requested
     if consider_modulation_format:
-        link_length_array = init_link_length_array(graph).reshape((num_links, 1))
-        path_length_array = init_path_length_array(path_link_array, graph)
         modulations_array = init_modulations_array(config.get("modulations_csv_filepath", None))
+        if weight is None:  # If paths aren't to be sorted by length alone
+            path_link_array = init_path_link_array(graph, k, disjoint=disjoint_paths, directed=graph.is_directed(), weight=weight, modulations_array=modulations_array)
+        path_length_array = init_path_length_array(path_link_array, graph)
         path_se_array = init_path_se_array(path_length_array, modulations_array)
         min_se = min(path_se_array)  # if consider_modulation_format
         max_slots = required_slots(max_bw, min_se, slot_size, guardband=guardband)
     else:
-        link_length_array = jnp.ones((num_links, 1))
         path_se_array = jnp.array([1])
         if env_type == "rwa_lightpath_reuse":
-            scale_factor = config.get("scale_factor", 1.0)
-            link_length_array = init_link_length_array(graph).reshape((num_links, 1))
             path_capacity_array = init_path_capacity_array(
                 link_length_array, path_link_array, symbol_rate=symbol_rate, scale_factor=scale_factor
             )
             max_requests = int(scale_factor * max_requests)
+        else:
+            # If considering just RSA without physical layer considerations  (not recommended)
+            link_length_array = jnp.ones((num_links, 1))
         max_slots = required_slots(max_bw, 1, slot_size, guardband=guardband)
 
     if incremental_loading:
