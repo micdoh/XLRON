@@ -2,11 +2,12 @@ import orbax.checkpoint
 import pathlib
 import optax
 from flax.training import orbax_utils
-from typing import NamedTuple
+from typing import NamedTuple, Callable
 from absl import flags
+from flax import struct
 from flax.training.train_state import TrainState
 from xlron.environments.env_funcs import *
-from xlron.train.ppo import make_train, define_env, init_network, select_action
+from xlron.train.train_utils import *
 from xlron.environments.vone import *
 from xlron.environments.rsa import *
 from xlron.heuristics.heuristics import *
@@ -20,7 +21,13 @@ class Transition(NamedTuple):
     info: jnp.ndarray
 
 
-def select_action_eval(config, env_state, env_params, env, network, network_params, rng_key, last_obs):
+@struct.dataclass
+class EvalState:
+    apply_fn: Callable
+    params: chex.Array
+
+
+def select_action_eval(config, env_state, env_params, env, eval_state, rng_key, last_obs):
     if config.EVAL_HEURISTIC:
         if config.env_type.lower() == "vone":
             raise NotImplementedError(f"VONE heuristics not yet implemented")
@@ -60,32 +67,39 @@ def select_action_eval(config, env_state, env_params, env, network, network_para
         else:
             raise ValueError(f"Invalid environment type {config.env_type}")
     else:
-        action, _, _ = select_action(
-            rng_key, env, env_state, env_params, network, network_params, config, last_obs,
-            deterministic=config.deterministic
-        )
+        rng_key = jax.random.split(rng_key, config.NUM_ENVS)
+        select_action_state = (rng_key, env_state, last_obs)
+        action, _, _ = jax.vmap(select_action, in_axes=(0, None, None, None, None))(select_action_state, env, env_params, eval_state, config)
     return action
 
 
-def warmup_period(rng, env, state, params, model, model_params, config, last_obs) -> EnvState:
+def get_warmup_fn(warmup_state, env, params, eval_state, config) -> Tuple[EnvState, chex.Array]:
     """Warmup period for DeepRMSA."""
 
-    def body_fn(i, val):
-        _rng, _state, _params, _model, _model_params, _last_obs = val
-        # SELECT ACTION
-        _rng, action_key, step_key = jax.random.split(_rng, 3)
-        action = select_action_eval(config, _state, _params, env, _model, _model_params, action_key, _last_obs)
-        # STEP ENV
-        rng_step = jax.random.split(step_key, config.NUM_ENVS)
-        obsv, _state, reward, done, info = jax.vmap(env.step, in_axes=(0, 0, 0, None))(
-            rng_step, _state, action, _params
-        )
-        obsv = (_state, _params) if config.USE_GNN else tuple([obsv])
-        return (_rng, _state, _params, _model, _model_params, obsv)
+    def warmup_fn(warmup_state):
 
-    val = jax.lax.fori_loop(0, config.ENV_WARMUP_STEPS, body_fn,
-                            (rng, state, params, model, model_params, last_obs))
-    return val[1]
+        rng, state, last_obs = warmup_state
+
+        def warmup_step(i, val):
+            _rng, _state, _params, _last_obs = val
+            # SELECT ACTION
+            _rng, action_key, step_key = jax.random.split(_rng, 3)
+            select_action_state = (_rng, _state, _last_obs)
+            action = select_action_eval(config, _state, _params, env, eval_state, action_key, _last_obs)
+            # STEP ENV
+            rng_step = jax.random.split(step_key, config.NUM_ENVS)
+            obsv, _state, reward, done, info = jax.vmap(env.step, in_axes=(0, 0, 0, None))(
+                rng_step, _state, action, _params
+            )
+            obsv = (_state.env_state, params) if config.USE_GNN else tuple([obsv])
+            return _rng, _state, _params, obsv
+
+        vals = jax.lax.fori_loop(0, config.ENV_WARMUP_STEPS, warmup_step,
+                                 (rng, state, params, last_obs))
+
+        return vals[1], vals[3]
+
+    return warmup_fn
 
 
 def make_eval(config):
@@ -105,13 +119,18 @@ def make_eval(config):
         if config.EVAL_MODEL:
             network, last_obs = init_network(config, env, env_state, env_params)
             network_params = config.model["model"]["params"]
+            apply = network.apply
             print('Evaluating model')
         else:
-            network = network_params = None
+            network_params = apply = None
+
+        eval_state = EvalState(apply_fn=apply, params=network_params)
 
         # Recreate DeepRMSA warmup period
         if config.ENV_WARMUP_STEPS:
-            env_state = warmup_period(warmup_rng, env, env_state, env_params, network, network_params, config, obsv)
+            warmup_state = (warmup_rng, env_state, obsv)
+            warmup_fn = get_warmup_fn(warmup_state, env, env_params, eval_state, config)
+            env_state, obsv = warmup_fn(warmup_state)
 
         # COLLECT TRAJECTORIES
         def _env_episode(runner_state, unused):
@@ -122,7 +141,7 @@ def make_eval(config):
                 rng, action_key, step_key = jax.random.split(rng, 3)
 
                 # SELECT ACTION
-                action = select_action_eval(config, env_state, env_params, env, network, network_params, action_key, last_obs)
+                action = select_action_eval(config, env_state, env_params, env, eval_state, action_key, last_obs)
 
                 # STEP ENV
 
