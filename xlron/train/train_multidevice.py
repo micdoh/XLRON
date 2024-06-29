@@ -1,0 +1,357 @@
+import wandb
+import sys
+import os
+import time
+import pathlib
+import math
+import matplotlib.pyplot as plt
+from absl import app, flags
+import xlron.train.parameter_flags
+import numpy as np
+import pandas as pd
+
+FLAGS = flags.FLAGS
+
+
+def moving_average(x, w):
+    return np.convolve(x, np.ones(w), 'valid') / w
+
+
+def main(argv):
+
+    # Set visible devices
+    if FLAGS.EMULATED_DEVICES:
+        os.environ['XLA_FLAGS'] = f"--xla_force_host_platform_device_count={FLAGS.EMULATED_DEVICES}"
+    os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+    os.environ["CUDA_VISIBLE_DEVICES"] = FLAGS.VISIBLE_DEVICES
+    print(f"CUDA_VISIBLE_DEVICES={os.environ['CUDA_VISIBLE_DEVICES']}")
+    # Allow time for environment variable to take effect
+    time.sleep(2)
+
+    # Jax imports must come after CUDA_VISIBLE_DEVICES is set
+    import jax
+    jax.config.update("jax_debug_nans", FLAGS.DEBUG_NANS)
+    jax.config.update("jax_disable_jit", FLAGS.DEBUG)
+    jax.config.update("jax_enable_x64", FLAGS.ENABLE_X64)
+    print(f"Available devices: {jax.devices()}")
+    print(f"Local devices: {jax.local_devices()}")
+    num_devices = len(jax.devices())  # or len(FLAGS.VISIBLE_DEVICES.split(","))
+    FLAGS.__setattr__("NUM_DEVICES", num_devices)
+    import jax.numpy as jnp
+    import orbax.checkpoint
+    from xlron.environments.env_funcs import create_run_name
+    from xlron.environments.wrappers import TimeIt
+    from xlron.train.ppo import make_train, reshape_keys
+    from xlron.heuristics.eval_heuristic import make_eval
+    from xlron.train.jax_utils import merge_leading_dims, save_model
+    # The following flags can improve GPU performance for jaxlib>=0.4.18
+    os.environ['XLA_FLAGS'] = (
+        '--xla_gpu_enable_triton_softmax_fusion=true '
+        '--xla_gpu_triton_gemm_any=True '
+        '--xla_gpu_enable_async_collectives=true '
+        '--xla_gpu_enable_latency_hiding_scheduler=true '
+        '--xla_gpu_enable_highest_priority_async_stream=true '
+    )
+
+    # Option to print memory usage for debugging OOM errors
+    if FLAGS.PRINT_MEMORY_USE:
+        os.environ["TF_CPP_MIN_LOG_LEVEL"] = "0"
+        os.environ["TF_CPP_VMODULE"] = "bfc_allocator=1"
+
+    # Set the fraction of memory to pre-allocate
+    if FLAGS.PREALLOCATE_MEM:
+        os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "true"
+        os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = FLAGS.PREALLOCATE_MEM_FRACTION
+        print(f"XLA_PYTHON_CLIENT_MEM_FRACTION={os.environ['XLA_PYTHON_CLIENT_MEM_FRACTION']}")
+    else:
+        os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
+    print(f"XLA_PYTHON_CLIENT_PREALLOCATE={os.environ['XLA_PYTHON_CLIENT_PREALLOCATE']}")
+
+    run_name = create_run_name(FLAGS)
+    project_name = FLAGS.PROJECT if FLAGS.PROJECT else run_name
+    experiment_name = FLAGS.EXPERIMENT_NAME if FLAGS.EXPERIMENT_NAME else run_name
+
+    if FLAGS.WANDB:
+        wandb.setup(wandb.Settings(program="train.py", program_relpath="train.py"))
+        run = wandb.init(
+            project=project_name,
+            save_code=True,  # optional
+        )
+        wandb.config.update(FLAGS)
+        run.name = experiment_name
+        wandb.define_metric('episode_count')
+        wandb.define_metric("update_step")
+        wandb.define_metric("lengths", step_metric="update_step")
+        wandb.define_metric("returns", step_metric="update_step")
+        wandb.define_metric("cum_returns", step_metric="update_step")
+        wandb.define_metric("episode_lengths", step_metric="update_step")
+        wandb.define_metric("episode_returns", step_metric="update_step")
+        wandb.define_metric("episode_accepted_services", step_metric="episode_count")
+        wandb.define_metric("episode_accepted_services_std", step_metric="episode_count")
+        wandb.define_metric("episode_accepted_bitrate", step_metric="episode_count")
+        wandb.define_metric("episode_accepted_bitrate_std", step_metric="episode_count")
+
+    # Print every flag and its name
+    if FLAGS.DEBUG:
+        print('non-flag arguments:', argv)
+        jax.numpy.set_printoptions(threshold=sys.maxsize)  # Don't truncate printed arrays
+    for name in FLAGS:
+        print(name, FLAGS[name].value)
+
+    rng = jax.random.PRNGKey(FLAGS.SEED)
+
+    make_func = make_train if not (FLAGS.EVAL_HEURISTIC or FLAGS.EVAL_MODEL) else make_eval
+
+    if FLAGS.LOAD_MODEL or FLAGS.EVAL_MODEL:
+        orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
+        model = orbax_checkpointer.restore(pathlib.Path(FLAGS.MODEL_PATH))
+        FLAGS.__setattr__("model", model)
+
+    if FLAGS.NUM_LEARNERS > 1:
+        rng = jax.random.split(rng, FLAGS.NUM_DEVICES*FLAGS.NUM_LEARNERS)
+        rng = reshape_keys(rng, FLAGS.NUM_DEVICES, FLAGS.NUM_LEARNERS)
+        # If running multiple independent learners, learners are distributed across devices.
+        # Then, set the number of devices=1 to ensure environments aren't distributed across devices.
+        FLAGS.__setattr__("NUM_DEVICES", 1)
+    else:
+        # Reshape keys to match the required (seed_device, seed) shape
+        rng = jax.vmap(jax.random.split, in_axes=(0, None))(jax.random.split(rng, 1), 1)
+
+    # Count total number of independent learners
+    total_learners = math.prod(rng.shape[:-1])
+    NUM_UPDATES = (
+            FLAGS.TOTAL_TIMESTEPS // FLAGS.ROLLOUT_LENGTH // FLAGS.NUM_ENVS // FLAGS.NUM_DEVICES
+    )
+    MINIBATCH_SIZE = (
+            FLAGS.NUM_DEVICES * FLAGS.NUM_ENVS * FLAGS.ROLLOUT_LENGTH // FLAGS.NUM_MINIBATCHES
+    )
+    FLAGS.__setattr__("NUM_UPDATES", NUM_UPDATES)
+    FLAGS.__setattr__("MINIBATCH_SIZE", MINIBATCH_SIZE)
+
+    with TimeIt(tag='COMPILATION'):
+        print(f"\n---BEGINNING COMPILATION---\n"
+              f"Independent learners: {total_learners}\n"
+              f"Environments per learner: {FLAGS.NUM_ENVS}\n"
+              f"Number of devices: {num_devices}\n"
+              f"Seeds per device: {total_learners // num_devices}\n"
+              f"Timesteps per learner: {FLAGS.TOTAL_TIMESTEPS}\n"
+              f"Timesteps per environment: {FLAGS.TOTAL_TIMESTEPS // FLAGS.NUM_ENVS // FLAGS.NUM_DEVICES}\n"
+              f"Total timesteps: {FLAGS.TOTAL_TIMESTEPS * total_learners}\n"
+              f"Total updates: {FLAGS.NUM_UPDATES}\n"
+              f"Batch size: {FLAGS.NUM_DEVICES * FLAGS.NUM_ENVS * FLAGS.ROLLOUT_LENGTH}\n"
+              f"Minibatch size: {FLAGS.MINIBATCH_SIZE}\n")
+        train_jit = jax.pmap(jax.vmap(make_func(FLAGS), axis_name='learner'), axis_name='device_learner').lower(rng).compile()
+
+    # N.B. that increasing number of learners or devices will increase the number of steps
+    # (essentially training separately for total_timesteps per learner)
+
+    with TimeIt(tag='EXECUTION', frames=FLAGS.TOTAL_TIMESTEPS * total_learners):
+        out = train_jit(rng)
+        out["metrics"]["episode_returns"].block_until_ready()  # Wait for all devices to finish
+
+    # Output leaf nodes have dimensions:
+    # (device_learn, learner, num_updates, rollout_length, device_env, num_envs)
+    # For eval, output leaf nodes have dimensions:
+    # (device_learn, learner, num_updates, rollout_length, num_envs)
+
+    # Save model params
+    if FLAGS.SAVE_MODEL:
+        # Merge seed_device and seed dimensions
+        train_state = jax.tree.map(lambda x: merge_leading_dims(x, 2)[0], out["runner_state"])
+        save_model(train_state, run_name, FLAGS)
+
+    # END OF TRAINING
+
+    def merge_func_train(x):
+        # Merge seed_device and seed dimensions
+        x = merge_leading_dims(x, 2)
+        # New dims: (num_seeds, num_updates, rollout_length, env_device, num_envs)
+        # Merge env_device and num_envs dimensions
+        x = jnp.swapaxes(jnp.swapaxes(x, 1, 3), 2, 4)
+        x = merge_leading_dims(x, 3)
+        # New dims: (total_num_envs, num_updates, rollout_length)
+        return x
+
+    def merge_func_eval(x):
+        # Merge seed_device and seed dimensions
+        x = merge_leading_dims(x, 2)
+        # New dims: (num_seeds, num_updates, rollout_length, num_envs)
+        # Merge num_envs and num_episodes dimensions
+        x = jnp.swapaxes(jnp.swapaxes(x, 1, 3), 2, 3)
+        x = merge_leading_dims(x, 2)
+        # New dims: (total_num_envs, num_updates, rollout_length)
+        return x
+
+    merge_func = merge_func_train if not (FLAGS.EVAL_HEURISTIC or FLAGS.EVAL_MODEL) else merge_func_eval
+    merged_out = {k: jax.tree.map(merge_func, v) for k, v in out["metrics"].items()}
+    get_mean = lambda x, y: x[y].mean(0).reshape(-1)
+    get_std = lambda x, y: x[y].std(0).reshape(-1)
+
+    episode_returns_mean = get_mean(merged_out, "episode_returns")
+    episode_returns_std = get_std(merged_out, "episode_returns")
+    episode_lengths_mean = get_mean(merged_out, "episode_lengths")
+    episode_lengths_std = get_std(merged_out, "episode_lengths")
+    cum_returns_mean = get_mean(merged_out, "cum_returns")
+    cum_returns_std = get_std(merged_out, "cum_returns")
+    returns_mean = get_mean(merged_out, "returns")
+    returns_std = get_std(merged_out, "returns")
+    lengths_mean = get_mean(merged_out, "lengths")
+    lengths_std = get_std(merged_out, "lengths")
+    accepted_services_mean = get_mean(merged_out, "accepted_services")
+    accepted_services_std = get_std(merged_out, "accepted_services")
+    accepted_bitrate_mean = get_mean(merged_out, "accepted_bitrate")
+    accepted_bitrate_std = get_std(merged_out, "accepted_bitrate")
+    total_bitrate_mean = get_mean(merged_out, "total_bitrate")
+    total_bitrate_std = get_std(merged_out, "total_bitrate")
+    utilisation_mean = get_mean(merged_out, "utilisation")
+    utilisation_std = get_std(merged_out, "utilisation")
+    done = get_mean(merged_out, "done")
+
+    episode_ends = np.where(done == 1)[0] if not FLAGS.continuous_operation else np.arange(0, len(done), FLAGS.max_timesteps)[1:].astype(int)
+    # shift end indices by -1
+    episode_ends = episode_ends - 1
+    # get values of accepted services and bitrate at episode ends
+    service_blocking_probability = 1 - (accepted_services_mean / lengths_mean)
+    service_blocking_probability_std = accepted_services_std / lengths_mean
+    bitrate_blocking_probability = 1 - (accepted_bitrate_mean / total_bitrate_mean)
+    bitrate_blocking_probability_std = accepted_bitrate_std / total_bitrate_mean
+    episode_end_accepted_services = accepted_services_mean[episode_ends]
+    episode_end_accepted_services_std = accepted_services_std[episode_ends]
+    episode_end_accepted_bitrate = accepted_bitrate_mean[episode_ends]
+    episode_end_accepted_bitrate_std = accepted_bitrate_std[episode_ends]
+    episode_end_service_blocking_probability = service_blocking_probability[episode_ends]
+    episode_end_service_blocking_probability_std = service_blocking_probability_std[episode_ends]
+    episode_end_bitrate_blocking_probability = bitrate_blocking_probability[episode_ends]
+    episode_end_bitrate_blocking_probability_std = bitrate_blocking_probability_std[episode_ends]
+    episode_end_total_bitrate = total_bitrate_mean[episode_ends]
+    episode_end_total_bitrate_std = total_bitrate_std[episode_ends]
+
+    if FLAGS.PLOTTING:
+        if FLAGS.incremental_loading:
+            plot_metric = accepted_services_mean
+            plot_metric_std = accepted_services_std
+            plot_metric_name = "Accepted Services"
+        elif FLAGS.end_first_blocking:
+            plot_metric = episode_lengths_mean
+            plot_metric_std = episode_lengths_std
+            plot_metric_name = "Episode Length"
+        elif FLAGS.reward_type == "service":
+            plot_metric = service_blocking_probability
+            plot_metric_std = service_blocking_probability_std
+            plot_metric_name = "Service Blocking Probability"
+        else:
+            plot_metric = bitrate_blocking_probability
+            plot_metric_std = bitrate_blocking_probability_std
+            plot_metric_name = "Bitrate Blocking Probability"
+
+        # Do box and whisker plot of accepted services and bitrate at episode ends
+        plt.boxplot(episode_end_accepted_services)
+        plt.ylabel("Accepted Services")
+        plt.title(experiment_name)
+        plt.show()
+
+        plt.boxplot(episode_end_accepted_bitrate)
+        plt.ylabel("Accepted Bitrate")
+        plt.title(experiment_name)
+        plt.show()
+
+        plot_metric = moving_average(plot_metric, min(100, int(len(plot_metric)/2)))
+        plot_metric_std = moving_average(plot_metric_std, min(100, int(len(plot_metric_std)/2)))
+        plt.plot(plot_metric)
+        plt.fill_between(
+            range(len(plot_metric)),
+            plot_metric - plot_metric_std,
+            plot_metric + plot_metric_std,
+            alpha=0.2
+        )
+        plt.xlabel("Environment Step")
+        plt.ylabel(plot_metric_name)
+        plt.title(experiment_name)
+        plt.show()
+
+    if FLAGS.DATA_OUTPUT_FILE:
+        # Save episode end metrics to file
+        df = pd.DataFrame({
+            "accepted_services": episode_end_accepted_services,
+            "accepted_services_std": episode_end_accepted_services_std,
+            "accepted_bitrate": episode_end_accepted_bitrate,
+            "accepted_bitrate_std": episode_end_accepted_bitrate_std,
+            "service_blocking_probability": episode_end_service_blocking_probability,
+            "service_blocking_probability_std": episode_end_service_blocking_probability_std,
+            "bitrate_blocking_probability": episode_end_bitrate_blocking_probability,
+            "bitrate_blocking_probability_std": episode_end_bitrate_blocking_probability_std,
+            "total_bitrate": episode_end_total_bitrate,
+            "total_bitrate_std": episode_end_total_bitrate_std,
+            "utilisation_mean": utilisation_mean[episode_ends],
+            "utilisation_std": utilisation_std[episode_ends],
+            "returns": episode_returns_mean[episode_ends],
+            "returns_std": episode_returns_std[episode_ends],
+            "cum_returns": cum_returns_mean[episode_ends],
+            "cum_returns_std": cum_returns_std[episode_ends],
+            "lengths": lengths_mean[episode_ends],
+            "lengths_std": lengths_std[episode_ends],
+        })
+        df.to_csv(FLAGS.DATA_OUTPUT_FILE)
+
+    if FLAGS.WANDB:
+        # Log the data to wandb
+        # Define the downsample factor to speed up upload to wandb
+        # Then reshape the array and compute the mean
+        chop = len(episode_returns_mean) % FLAGS.DOWNSAMPLE_FACTOR
+        episode_returns_mean = episode_returns_mean[chop:].reshape(-1, FLAGS.DOWNSAMPLE_FACTOR).mean(axis=1)
+        episode_returns_std = episode_returns_std[chop:].reshape(-1, FLAGS.DOWNSAMPLE_FACTOR).mean(axis=1)
+        episode_lengths_mean = episode_lengths_mean[chop:].reshape(-1, FLAGS.DOWNSAMPLE_FACTOR).mean(axis=1)
+        episode_lengths_std = episode_lengths_std[chop:].reshape(-1, FLAGS.DOWNSAMPLE_FACTOR).mean(axis=1)
+        cum_returns_mean = cum_returns_mean[chop:].reshape(-1, FLAGS.DOWNSAMPLE_FACTOR).mean(axis=1)
+        cum_returns_std = cum_returns_std[chop:].reshape(-1, FLAGS.DOWNSAMPLE_FACTOR).mean(axis=1)
+        returns_mean = returns_mean[chop:].reshape(-1, FLAGS.DOWNSAMPLE_FACTOR).mean(axis=1)
+        returns_std = returns_std[chop:].reshape(-1, FLAGS.DOWNSAMPLE_FACTOR).mean(axis=1)
+        lengths_mean = lengths_mean[chop:].reshape(-1, FLAGS.DOWNSAMPLE_FACTOR).mean(axis=1)
+        lengths_std = lengths_std[chop:].reshape(-1, FLAGS.DOWNSAMPLE_FACTOR).mean(axis=1)
+        service_blocking_probability = service_blocking_probability[chop:].reshape(-1, FLAGS.DOWNSAMPLE_FACTOR).mean(axis=1)
+        service_blocking_probability_std = service_blocking_probability_std[chop:].reshape(-1, FLAGS.DOWNSAMPLE_FACTOR).mean(axis=1)
+        bitrate_blocking_probability = bitrate_blocking_probability[chop:].reshape(-1, FLAGS.DOWNSAMPLE_FACTOR).mean(axis=1)
+        bitrate_blocking_probability_std = bitrate_blocking_probability_std[chop:].reshape(-1, FLAGS.DOWNSAMPLE_FACTOR).mean(axis=1)
+        accepted_services_mean = accepted_services_mean[chop:].reshape(-1, FLAGS.DOWNSAMPLE_FACTOR).mean(axis=1)
+        accepted_services_std = accepted_services_std[chop:].reshape(-1, FLAGS.DOWNSAMPLE_FACTOR).mean(axis=1)
+        accepted_bitrate_mean = accepted_bitrate_mean[chop:].reshape(-1, FLAGS.DOWNSAMPLE_FACTOR).mean(axis=1)
+        accepted_bitrate_std = accepted_bitrate_std[chop:].reshape(-1, FLAGS.DOWNSAMPLE_FACTOR).mean(axis=1)
+
+        for i in range(len(episode_end_accepted_services)):
+            log_dict = {
+                "episode_count": i,
+                "episode_end_accepted_services": episode_end_accepted_services[i],
+                "episode_end_accepted_services_std": episode_end_accepted_services_std[i],
+                "episode_end_accepted_bitrate": episode_end_accepted_bitrate[i],
+                "episode_end_accepted_bitrate_std": episode_end_accepted_bitrate_std[i],
+            }
+            wandb.log(log_dict)
+
+        for i in range(len(episode_returns_mean)):
+            # Log the data
+            log_dict = {
+                "update_step": i*FLAGS.DOWNSAMPLE_FACTOR,
+                "episode_returns_mean": episode_returns_mean[i],
+                "episode_returns_std": episode_returns_std[i],
+                "episode_lengths_mean": episode_lengths_mean[i],
+                "episode_lengths_std": episode_lengths_std[i],
+                "cum_returns_mean": cum_returns_mean[i],
+                "cum_returns_std": cum_returns_std[i],
+                "returns_mean": returns_mean[i],
+                "returns_std": returns_std[i],
+                "lengths_mean": lengths_mean[i],
+                "lengths_std": lengths_std[i],
+                "service_blocking_probability": service_blocking_probability[i],
+                "service_blocking_probability_std": service_blocking_probability_std[i],
+                "bitrate_blocking_probability": bitrate_blocking_probability[i],
+                "bitrate_blocking_probability_std": bitrate_blocking_probability_std[i],
+                "accepted_services_mean": accepted_services_mean[i],
+                "accepted_services_std": accepted_services_std[i],
+                "accepted_bitrate_mean": accepted_bitrate_mean[i],
+                "accepted_bitrate_std": accepted_bitrate_std[i],
+            }
+            wandb.log(log_dict)
+
+
+if __name__ == "__main__":
+    app.run(main)

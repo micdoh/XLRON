@@ -20,7 +20,7 @@ ___
 
 ___
 
-# Environment functions
+# Constituent functions of environments
 
 ::: environments.env_funcs
 
