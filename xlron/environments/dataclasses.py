@@ -4,6 +4,32 @@ from flax import struct
 
 
 @struct.dataclass
+class VONETransition:
+    done: chex.Array
+    action: chex.Array
+    value: chex.Array
+    reward: chex.Array
+    log_prob: chex.Array
+    obs: chex.Array
+    info: chex.Array
+    action_mask_s: chex.Array
+    action_mask_p: chex.Array
+    action_mask_d: chex.Array
+
+
+@struct.dataclass
+class RSATransition:
+    done: chex.Array
+    action: chex.Array
+    value: chex.Array
+    reward: chex.Array
+    log_prob: chex.Array
+    obs: chex.Array
+    info: chex.Array
+    action_mask: chex.Array
+
+
+@struct.dataclass
 class EnvState:
     """Dataclass to hold environment state. State is mutable and arrays are traced on JIT compilation.
 
@@ -25,6 +51,7 @@ class EnvState:
     full_link_slot_mask: chex.Array
     accepted_services: chex.Array
     accepted_bitrate: chex.Array
+    total_bitrate: chex.Array
 
 
 @struct.dataclass
@@ -57,6 +84,9 @@ class EnvParams:
     aggregate_slots: chex.Scalar = struct.field(pytree_node=False)
     guardband: chex.Scalar = struct.field(pytree_node=False)
     directed_graph: bool = struct.field(pytree_node=False)
+    reward_type: str = struct.field(pytree_node=False)
+    values_bw: chex.Array = struct.field(pytree_node=False)
+    truncate_holding_time: bool = struct.field(pytree_node=False)
 
 
 @struct.dataclass
@@ -82,6 +112,8 @@ class LogEnvState:
     episode_returns: float
     accepted_services: int
     accepted_bitrate: float
+    total_bitrate: float
+    utilisation: float
     done: bool
 
 
@@ -95,14 +127,12 @@ class RSAEnvState(EnvState):
         link_slot_departure_array (chex.Array): Link slot departure array
         link_slot_mask (chex.Array): Link slot mask
         traffic_matrix (chex.Array): Traffic matrix
-        values_bw (chex.Array): Values for bandwidth
     """
     link_slot_array: chex.Array
     request_array: chex.Array
     link_slot_departure_array: chex.Array
     link_slot_mask: chex.Array
     traffic_matrix: chex.Array
-    values_bw: chex.Array
 
 
 @struct.dataclass
@@ -197,7 +227,6 @@ class VONEEnvState(EnvState):
         node_mask_d (chex.Array): Node mask for destination node
         virtual_topology_patterns (chex.Array): Virtual topology patterns
         values_nodes (chex.Array): Values for nodes
-        values_bw (chex.Array): Values for bandwidth
     """
     link_slot_array: chex.Array
     node_capacity_array: chex.Array
@@ -212,7 +241,6 @@ class VONEEnvState(EnvState):
     node_mask_d: chex.Array
     virtual_topology_patterns: chex.Array
     values_nodes: chex.Array
-    values_bw: chex.Array
 
 
 @struct.dataclass

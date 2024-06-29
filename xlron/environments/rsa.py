@@ -17,7 +17,7 @@ from xlron.environments.env_funcs import (
     mask_slots, make_graph, init_path_length_array, init_modulations_array, init_path_se_array, required_slots,
     init_values_bandwidth, calculate_path_stats, normalise_traffic_matrix, init_graph_tuple, init_link_length_array,
     init_link_capacity_array, init_path_capacity_array, init_path_index_array, mask_slots_rwa_lightpath_reuse,
-    implement_rwa_lightpath_reuse_action, check_rwa_lightpath_reuse_action, pad_array
+    implement_rwa_lightpath_reuse_action, check_rwa_lightpath_reuse_action, pad_array, read_rsa_request
 )
 from xlron.environments.dataclasses import *
 from xlron.environments.wrappers import *
@@ -32,7 +32,6 @@ class RSAEnv(environment.Environment):
             self,
             key: chex.PRNGKey,
             params: RSAEnvParams,
-            values_bw: chex.Array = jnp.array([0]),
             traffic_matrix: chex.Array = None
     ):
         """Initialise the environment state and set as initial state.
@@ -40,7 +39,6 @@ class RSAEnv(environment.Environment):
         Args:
             key: PRNG key
             params: Environment parameters
-            values_bw: Bandwidth values for each modulation format
             traffic_matrix (optional): Traffic matrix
 
         Returns:
@@ -57,11 +55,11 @@ class RSAEnv(environment.Environment):
             request_array=init_rsa_request_array(),
             link_slot_mask=init_link_slot_mask(params, agg=params.aggregate_slots),
             traffic_matrix=traffic_matrix if traffic_matrix is not None else init_traffic_matrix(key, params),
-            values_bw=values_bw,
             graph=None,
             full_link_slot_mask=init_link_slot_mask(params),
             accepted_services=0,
             accepted_bitrate=0.,
+            total_bitrate=0.,
         )
         self.initial_state = state.replace(graph=init_graph_tuple(state, params))
 
@@ -169,9 +167,9 @@ class RSAEnv(environment.Environment):
             if params.__class__.__name__ == "RWALightpathReuseEnvParams" else check_rsa_action(state)
         state, reward = jax.lax.cond(
             check,  # Fail if true
-            lambda x: (undo_link_slot_action(x), self.get_reward_failure(x)),
-            lambda x: (finalise_rsa_action(x), self.get_reward_success(x)),  # Finalise actions if complete
-            state
+            lambda x: (undo_link_slot_action(x[0]), self.get_reward_failure(*x)),
+            lambda x: (finalise_rsa_action(x[0]), self.get_reward_success(*x)),  # Finalise actions if complete
+            (state, params)
         )
         # TODO - write separate functions for deterministic transition (above) and stochastic transition (below)
         # Generate new request
@@ -182,7 +180,7 @@ class RSAEnv(environment.Environment):
         if params.continuous_operation:
             done = jnp.array(False)
         elif params.end_first_blocking:
-            done = jnp.array(reward == self.get_reward_failure())
+            done = jnp.array(reward == self.get_reward_failure(state, params))
         else:
             done = self.is_terminal(state, params)
         info = {}
@@ -307,7 +305,7 @@ class RSAEnv(environment.Environment):
         """
         return jax.lax.select(self.is_terminal(state, params), 0.0, 1.0)
 
-    def get_reward_failure(self, state: Optional[EnvState] = None) -> chex.Array:
+    def get_reward_failure(self, state: Optional[EnvState] = None, params: Optional[EnvParams] = None) -> chex.Array:
         """Return reward for current state.
 
         Args:
@@ -316,9 +314,15 @@ class RSAEnv(environment.Environment):
         Returns:
             reward: Reward for failure
         """
-        return jnp.array(-1.0)
+        if params.reward_type == "service":
+            reward = jnp.array(-1.0)
+        elif params.reward_type == "bitrate":
+            reward = state.request_array[1] * -1.0 / jnp.max(params.values_bw.val)
+        else:
+            reward = jnp.array(-1.0)
+        return reward
 
-    def get_reward_success(self, state: Optional[EnvState] = None) -> chex.Array:
+    def get_reward_success(self, state: Optional[EnvState] = None, params: Optional[EnvParams] = None) -> chex.Array:
         """Return reward for current state.
 
         Args:
@@ -327,7 +331,13 @@ class RSAEnv(environment.Environment):
         Returns:
             reward: Reward for success
         """
-        return jnp.array(1.0)
+        if params.reward_type == "service":
+            reward = jnp.array(1.0)
+        elif params.reward_type == "bitrate":
+            reward = state.request_array[1] * 1.0 / jnp.max(params.values_bw.val)
+        else:
+            reward = jnp.array(1.0)
+        return reward
 
     @property
     def name(self) -> str:
@@ -379,10 +389,9 @@ class DeepRMSAEnv(RSAEnv):
             self,
             key: chex.PRNGKey,
             params: RSAEnvParams,
-            values_bw: chex.Array = jnp.array([0]),
             traffic_matrix: chex.Array = None
     ):
-        super().__init__(key, params, values_bw=values_bw, traffic_matrix=traffic_matrix)
+        super().__init__(key, params, traffic_matrix=traffic_matrix)
         self.initial_state = DeepRMSAEnvState(
             current_time=0,
             holding_time=0,
@@ -392,12 +401,13 @@ class DeepRMSAEnv(RSAEnv):
             link_slot_departure_array=init_link_slot_departure_array(params),
             request_array=init_rsa_request_array(),
             link_slot_mask=jnp.ones(params.k_paths),
+            full_link_slot_mask=jnp.ones(params.k_paths),
             traffic_matrix=traffic_matrix if traffic_matrix is not None else init_traffic_matrix(key, params),
-            values_bw=values_bw,
             path_stats=calculate_path_stats(self.initial_state, params, self.initial_state.request_array),
             graph=None,
             accepted_services=0,
             accepted_bitrate=0.,
+            total_bitrate=0.,
         )
 
     def step_env(
@@ -422,19 +432,9 @@ class DeepRMSAEnv(RSAEnv):
             done: Termination flag
             info: Additional information
         """
-        # Do action
-        # state = mask_slots(state, params, state.request_array)
-        # mask = jnp.reshape(state.link_slot_mask, (params.k_paths, -1))
-        # # Add a column of ones to the mask to make sure that occupied paths have non-zero index in "first_slots"
-        # mask = jnp.concatenate((mask, jnp.full((mask.shape[0], 1), 1)), axis=1)
-        # # Get index of first available slots for each path
-        # first_slots = jax.vmap(jnp.argmax, in_axes=(0))(mask)
-        # slot_index = first_slots[action] % params.link_resources
-        # # Convert indices to action
-        # action = action * params.link_resources + slot_index
         # TODO - alter this if allowing J>1
-        slot_index = jnp.squeeze(jax.lax.dynamic_slice(state.path_stats, (action, 2), (1, 1)))
-        action = action * params.link_resources + slot_index * params.link_resources  # Undo normalisation
+        slot_index = jnp.squeeze(jax.lax.dynamic_slice(state.path_stats, (action, 1), (1, 1)))
+        action = jnp.array(action * params.link_resources + slot_index).astype(jnp.int32)
         return super().step_env(key, state, action, params)
 
     @partial(jax.jit, static_argnums=(0, 2,))
@@ -448,7 +448,7 @@ class DeepRMSAEnv(RSAEnv):
         Returns:
             state: Environment state with action mask
         """
-        mask = jnp.where(state.path_stats[:, 3] >= 1, 1., 0.)
+        mask = jnp.where(state.path_stats[:, 0] >= 1, 1., 0.)
         # If mask is all zeros, make all ones
         mask = jnp.where(jnp.sum(mask) == 0, 1., mask)
         state = state.replace(link_slot_mask=mask)
@@ -471,10 +471,8 @@ class DeepRMSAEnv(RSAEnv):
         s = jax.nn.one_hot(s, params.num_nodes)
         d = jax.lax.dynamic_slice(request, (2,), (1,))
         d = jax.nn.one_hot(d, params.num_nodes)
-        request_encoding = s + d
         return jnp.concatenate(
             (
-                #jnp.reshape(request_encoding, (-1,)),
                 jnp.reshape(s, (-1,)),
                 jnp.reshape(d, (-1,)),
                 jnp.reshape(state.holding_time, (-1,)),
@@ -508,7 +506,6 @@ class RWALightpathReuseEnv(RSAEnv):
             self,
             key: chex.PRNGKey,
             params: RSAEnvParams,
-            values_bw: chex.Array = jnp.array([0]),
             traffic_matrix: chex.Array = None,
             path_capacity_array: chex.Array = None,
     ):
@@ -517,14 +514,13 @@ class RWALightpathReuseEnv(RSAEnv):
         Args:
             key: PRNG key
             params: Environment parameters
-            values_bw: Bandwidth values for each modulation format
             traffic_matrix (optional): Traffic matrix
             path_capacity_array: Array of path capacities
 
         Returns:
             None
         """
-        super().__init__(key, params, values_bw=values_bw, traffic_matrix=traffic_matrix)
+        super().__init__(key, params, traffic_matrix=traffic_matrix)
         state = RWALightpathReuseEnvState(
             current_time=0,
             holding_time=0,
@@ -535,7 +531,6 @@ class RWALightpathReuseEnv(RSAEnv):
             request_array=init_rsa_request_array(),
             link_slot_mask=init_link_slot_mask(params, agg=params.aggregate_slots),
             traffic_matrix=traffic_matrix if traffic_matrix is not None else init_traffic_matrix(key, params),
-            values_bw=values_bw,
             graph=None,
             full_link_slot_mask=init_link_slot_mask(params),
             path_index_array=init_path_index_array(params),
@@ -543,6 +538,7 @@ class RWALightpathReuseEnv(RSAEnv):
             link_capacity_array=init_link_capacity_array(params),
             accepted_services=0,
             accepted_bitrate=0.,
+            total_bitrate=0.,
         )
         self.initial_state = state.replace(graph=init_graph_tuple(state, params))
 
@@ -603,6 +599,8 @@ def make_rsa_env(config):
     symbol_rate = config.get("symbol_rate", 100)
     weight = config.get("weight", None)
     remove_array_wrappers = config.get("remove_array_wrappers", False)
+    reward_type = config.get("reward_type", "bitrate")
+    truncate_holding_time = config.get("truncate_holding_time", False)
 
     rng = jax.random.PRNGKey(seed)
     rng, _, _, _, _ = jax.random.split(rng, 5)
@@ -610,7 +608,11 @@ def make_rsa_env(config):
     arrival_rate = load / mean_service_holding_time
     num_nodes = len(graph.nodes)
     num_links = len(graph.edges)
-    path_link_array = init_path_link_array(graph, k, disjoint=disjoint_paths, weight=weight, directed=graph.is_directed())
+    scale_factor = config.get("scale_factor", 1.0)
+    path_link_array = init_path_link_array(
+        graph, k, disjoint=disjoint_paths, weight=weight, directed=graph.is_directed(),
+        rwa_lr=True if env_type == "rwa_lightpath_reuse" else False, scale_factor=scale_factor
+    )
     if custom_traffic_matrix_csv_filepath:
         random_traffic = False  # Set this False so that traffic matrix isn't replaced on reset
         traffic_matrix = jnp.array(np.loadtxt(custom_traffic_matrix_csv_filepath, delimiter=","))
@@ -650,24 +652,27 @@ def make_rsa_env(config):
 
     max_bw = max(values_bw)
 
+    link_length_array = init_link_length_array(graph).reshape((num_links, 1))
+
     # Automated calculation of max slots requested
     if consider_modulation_format:
-        link_length_array = init_link_length_array(graph).reshape((num_links, 1))
-        path_length_array = init_path_length_array(path_link_array, graph)
         modulations_array = init_modulations_array(config.get("modulations_csv_filepath", None))
+        if weight is None:  # If paths aren't to be sorted by length alone
+            path_link_array = init_path_link_array(graph, k, disjoint=disjoint_paths, directed=graph.is_directed(), weight=weight, modulations_array=modulations_array)
+        path_length_array = init_path_length_array(path_link_array, graph)
         path_se_array = init_path_se_array(path_length_array, modulations_array)
         min_se = min(path_se_array)  # if consider_modulation_format
         max_slots = required_slots(max_bw, min_se, slot_size, guardband=guardband)
     else:
-        link_length_array = jnp.ones((num_links, 1))
         path_se_array = jnp.array([1])
         if env_type == "rwa_lightpath_reuse":
-            scale_factor = config.get("scale_factor", 1.0)
-            link_length_array = init_link_length_array(graph).reshape((num_links, 1))
             path_capacity_array = init_path_capacity_array(
                 link_length_array, path_link_array, symbol_rate=symbol_rate, scale_factor=scale_factor
             )
             max_requests = int(scale_factor * max_requests)
+        else:
+            # If considering just RSA without physical layer considerations  (not recommended)
+            link_length_array = jnp.ones((num_links, 1))
         max_slots = required_slots(max_bw, 1, slot_size, guardband=guardband)
 
     if incremental_loading:
@@ -710,6 +715,9 @@ def make_rsa_env(config):
         list_of_requests=HashableArrayWrapper(list_of_requests),
         multiple_topologies=False,
         directed_graph=graph.is_directed(),
+        values_bw=HashableArrayWrapper(values_bw),
+        reward_type=reward_type,
+        truncate_holding_time=truncate_holding_time,
     ) if not remove_array_wrappers else env_params(
         max_requests=max_requests,
         max_timesteps=max_timesteps,
@@ -737,6 +745,9 @@ def make_rsa_env(config):
         list_of_requests=list_of_requests,
         multiple_topologies=False,
         directed_graph=graph.is_directed(),
+        values_bw=values_bw,
+        reward_type=reward_type,
+        truncate_holding_time=truncate_holding_time,
     )
 
     # If training single model on multiple topologies, must store params for each topology within top-level params
@@ -770,11 +781,11 @@ def make_rsa_env(config):
         env = None
     else:
         if env_type == "deeprmsa":
-            env = DeepRMSAEnv(rng, params, values_bw=values_bw, traffic_matrix=traffic_matrix)
+            env = DeepRMSAEnv(rng, params, traffic_matrix=traffic_matrix)
         elif env_type == "rwa_lightpath_reuse":
             env = RWALightpathReuseEnv(
-                rng, params, values_bw=values_bw, traffic_matrix=traffic_matrix, path_capacity_array=path_capacity_array)
+                rng, params, traffic_matrix=traffic_matrix, path_capacity_array=path_capacity_array)
         else:
-            env = RSAEnv(rng, params, values_bw=values_bw, traffic_matrix=traffic_matrix)
+            env = RSAEnv(rng, params, traffic_matrix=traffic_matrix)
 
     return env, params

@@ -18,6 +18,12 @@ ___
 
 ___
 
+### *_Accepted to [Optical Fibre Communication Conference (OFC)](https://www.ofcconference.org/en-us/home/about/) - San Diego, CA, 24-28 March 2024_*
+
+___
+
+### To recreate plots from papers follow instructions in `/examples` directory
+
 ## 🌎 Overview 🌎 
 
 XLRON ("ex-el-er-on") is an open-source project that provides a suite of gym-style environments for simulating resource allocation problems in optical networks and applying reinforcement learning techniques. It is built on the JAX machine learning framework, enabling accelerated training on GPU and TPU hardware.

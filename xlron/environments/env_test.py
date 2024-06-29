@@ -8,7 +8,7 @@ chex.all_variants() decorator runs the test once for each variant (e.g. jitted, 
 parameterized.named_parameters() decorator runs the test once for each set of parameters passed to the function under test.
 """
 import os
-
+os.environ['XLA_FLAGS'] = "--xla_force_host_platform_device_count=4"
 import distrax
 from absl.testing import absltest
 from absl.testing import parameterized
@@ -21,11 +21,6 @@ from xlron.environments.vone import *
 from xlron.environments.rsa import *
 from xlron.environments.wrappers import *
 from xlron.environments.dataclasses import *
-
-
-# Set CPU devices for all tests with --chex_n_cpu_devices N
-def setUpModule():
-    chex.set_n_cpu_devices()
 
 
 def keys_test_setup():
@@ -300,15 +295,22 @@ class GenerateArrivalHoldingTimesTest(parameterized.TestCase):
 
     def setUp(self):
         super().setUp()
-        self.key, self.env, self.obs, self.state, self.params = vone_4node_test_setup()
+        self.key, self.env, self.obs, self.state, self.params = rsa_4node_test_setup()
 
     @chex.all_variants()
     @parameterized.named_parameters(
         ('case_base', (jnp.array([0.08356591]), jnp.array([0.29246438]))),
     )
     def test_generate_arrival_times(self, expected):
-        key = np.array([1, 2], dtype=np.uint32)
-        arrival_time, holding_time = self.variant(generate_arrival_holding_times)(key, self.params)
+        min_arr, min_hold = 0, 0
+        rng = jax.random.PRNGKey(0)
+        for i in range(1, 10000):
+            rng, key = jax.random.split(rng)
+            arrival_time, holding_time = self.variant(generate_arrival_holding_times)(key, self.params)
+            min_arr = jnp.minimum(min_arr, arrival_time)
+            min_hold = jnp.minimum(min_hold, holding_time)
+            print(i, arrival_time, holding_time)
+        print(min_arr, min_hold)
         chex.assert_trees_all_close(arrival_time, expected[0])
         chex.assert_trees_all_close(holding_time, expected[1])
 
@@ -1123,19 +1125,26 @@ class FinaliseRsaActionTest(parameterized.TestCase):
     def setUp(self):
         super().setUp()
         self.key, self.env, self.obs, self.state, self.params = rsa_4node_test_setup()
-        self.state = self.state.replace(current_time=1, holding_time=1)
-        self.state = implement_rsa_action(self.state, jnp.array(0), self.params)
 
     @chex.all_variants()
     @parameterized.named_parameters(
-        ('case_pass', jnp.array([[2, 0, 0, 0],
+        ('case_pass', jnp.array([[0, 0, 0, 0],
+                                 [4, 0, 0, 0],
                                  [0, 0, 0, 0],
-                                 [2, 0, 0, 0],
-                                 [0, 0, 0, 0]]))
+                                 [4, 0, 0, 0]]),
+         jnp.array([[0, 0, 0, 0],
+                   [-2, 0, 0, 0],
+                   [0, 0, 0, 0],
+                   [-2, 0, 0, 0]])),
     )
-    def test_finalise_rsa_action(self, expected):
-        actual = self.variant(finalise_rsa_action)(self.state).link_slot_departure_array
-        chex.assert_trees_all_close(actual, expected)
+    def test_finalise_rsa_action(self, expected_dept, expected_link_slot):
+        self.state = self.state.replace(current_time=1, holding_time=1)
+        self.state = implement_rsa_action(self.state, jnp.array(0), self.params)
+        self.state = implement_rsa_action(self.state, jnp.array(0), self.params)
+        actual_dept = self.variant(finalise_rsa_action)(self.state).link_slot_departure_array
+        actual_link_slot = self.variant(finalise_rsa_action)(self.state).link_slot_array
+        chex.assert_trees_all_close(actual_dept, expected_dept)
+        chex.assert_trees_all_close(actual_link_slot, expected_link_slot)
 
 
 class PathActionOnlyTest(parameterized.TestCase):
@@ -2063,8 +2072,85 @@ class RWALightpathReuseTest(parameterized.TestCase):
         chex.assert_trees_all_close(remaining_capacity, expected)
 
 
+class FindBlockStartsTest(parameterized.TestCase):
+
+    def setUp(self):
+        super().setUp()
+
+    @chex.all_variants()
+    @parameterized.named_parameters(
+        ('case_full', jnp.array([1, 1, 1, 1, 1, 1, 1]), jnp.array([0, 0, 0, 0, 0, 0, 0])),
+        ('case_empty', jnp.array([0, 0, 0, 0, 0, 0, 0]), jnp.array([1, 0, 0, 0, 0, 0, 0])),
+        ('case_few', jnp.array([0, 1, 0, 0, 1, 0, 0]), jnp.array([1, 0, 1, 0, 0, 1, 0])),
+        ('case_many', jnp.array([0, 1, 1, 0, 1, 1, 1]), jnp.array([1, 0, 0, 1, 0, 0, 0])),
+    )
+    def test_find_block_starts(self, slots, expected):
+        actual = self.variant(find_block_starts)(slots)
+        chex.assert_trees_all_close(actual, expected)
+
+
+class FindBlockEndsTest(parameterized.TestCase):
+
+    def setUp(self):
+        super().setUp()
+
+    @chex.all_variants()
+    @parameterized.named_parameters(
+        ('case_full', jnp.array([1, 1, 1, 1, 1, 1, 1]), jnp.array([0, 0, 0, 0, 0, 0, 0])),
+        ('case_empty', jnp.array([0, 0, 0, 0, 0, 0, 0]), jnp.array([0, 0, 0, 0, 0, 0, 1])),
+        ('case_few', jnp.array([0, 1, 0, 0, 1, 0, 0]), jnp.array([1, 0, 0, 1, 0, 0, 1])),
+        ('case_many', jnp.array([0, 1, 1, 0, 1, 1, 1]), jnp.array([1, 0, 0, 1, 0, 0, 0])),
+    )
+    def test_find_block_ends(self, slots, expected):
+        actual = self.variant(find_block_ends)(slots)
+        chex.assert_trees_all_close(actual, expected)
+
+
+class FindBlockSizesTest(parameterized.TestCase):
+
+    def setUp(self):
+        super().setUp()
+
+    @chex.all_variants()
+    @parameterized.named_parameters(
+        ('case_full', jnp.array([1, 1, 1, 1, 1, 1, 1]), jnp.array([0, 0, 0, 0, 0, 0, 0])),
+        ('case_empty', jnp.array([0, 0, 0, 0, 0, 0, 0]), jnp.array([7, 0, 0, 0, 0, 0, 0])),
+        ('case_few', jnp.array([0, 1, 0, 0, 1, 0, 0]), jnp.array([1, 0, 2, 0, 0, 2, 0])),
+        ('case_many', jnp.array([0, 1, 1, 0, 1, 1, 1]), jnp.array([1, 0, 0, 1, 0, 0, 0])),
+        ('case_gap', jnp.array([1, 0, 0, 0, 0, 0, 1]), jnp.array([0, 5, 0, 0, 0, 0, 0])),
+    )
+    def test_find_block_sizes(self, slots, expected):
+        actual = self.variant(find_block_sizes)(slots)
+        chex.assert_trees_all_close(actual, expected)
+
+    # Don't test on device as it causes static_argnames to be traced...
+    @chex.variants(without_device=True)
+    @parameterized.named_parameters(
+        ('case_full', jnp.array([1, 1, 1, 1, 1, 1, 1]), jnp.array([0, 0, 0, 0, 0, 0, 0])),
+        ('case_empty', jnp.array([0, 0, 0, 0, 0, 0, 0]), jnp.array([1, 2, 3, 4, 5, 6, 7])),
+        ('case_few', jnp.array([0, 1, 0, 0, 1, 0, 0]), jnp.array([1, 0, 1, 2, 0, 1, 2])),
+        ('case_many', jnp.array([0, 1, 1, 0, 1, 1, 1]), jnp.array([1, 0, 0, 1, 0, 0, 0])),
+        ('case_gap', jnp.array([1, 0, 0, 0, 0, 0, 1]), jnp.array([0, 1, 2, 3, 4, 5, 0])),
+        ('case_tricky', jnp.array([0,0,0,0,0,0,0,1,1,1,1,0,0,0,0,0,1,1,0,1]),
+         jnp.array([1,2,3,4,5,6,7,0,0,0,0,1,2,3,4,5,0,0,1,0]))
+    )
+    def test_find_block_sizes_reverse(self, slots, expected):
+        actual = self.variant(find_block_sizes, static_argnames=("starts_only", "reverse"))(slots, starts_only=False, reverse=True)
+        chex.assert_trees_all_close(actual, expected)
+
+    @chex.variants(without_device=True)
+    @parameterized.named_parameters(
+        ('case_full', jnp.array([1, 1, 1, 1, 1, 1, 1]), jnp.array([0, 0, 0, 0, 0, 0, 0])),
+        ('case_empty', jnp.array([0, 0, 0, 0, 0, 0, 0]), jnp.array([7, 6, 5, 4, 3, 2, 1])),
+        ('case_few', jnp.array([0, 1, 0, 0, 1, 0, 0]), jnp.array([1, 0, 2, 1, 0, 2, 1])),
+        ('case_many', jnp.array([0, 1, 1, 0, 1, 1, 1]), jnp.array([1, 0, 0, 1, 0, 0, 0])),
+        ('case_gap', jnp.array([1, 0, 0, 0, 0, 0, 1]), jnp.array([0, 5, 4, 3, 2, 1, 0])),
+    )
+    def test_find_block_sizes_not_starts_only(self, slots, expected):
+        actual = self.variant(find_block_sizes, static_argnames=("starts_only", "reverse"))(slots, starts_only=False)
+        chex.assert_trees_all_close(actual, expected)
+
+
 if __name__ == '__main__':
-    # Set the number of (emulated) host devices
-    chex._src.fake.set_n_cpu_devices(2)
     jax.config.update('jax_numpy_rank_promotion', 'raise')
     absltest.main()
