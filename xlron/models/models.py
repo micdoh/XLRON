@@ -357,10 +357,11 @@ class ActorCriticGNN(nn.Module):
     normalise_by_link_length: bool = True  # Normalise the processed edge features by the link length
     gnn_layer_norm: bool = True
     mlp_layer_norm: bool = False
+    vmap: bool = True
 
     @nn.compact
     def __call__(self, state: EnvState, params: EnvParams):
-        actor = jax.vmap(ActorGNN(
+        actor = ActorGNN(
             gnn_latent=self.gnn_latent,
             message_passing_steps=self.message_passing_steps,
             output_edges_size=self.output_edges_size,
@@ -371,8 +372,8 @@ class ActorCriticGNN(nn.Module):
             normalise_by_link_length=self.normalise_by_link_length,
             gnn_layer_norm=self.gnn_layer_norm,
             mlp_layer_norm=self.mlp_layer_norm,
-        ), in_axes=0)(state, params)
-        critic = jax.vmap(CriticGNN(
+        )
+        critic = CriticGNN(
             activation=self.activation,
             num_layers=self.num_layers,
             num_units=self.num_units,
@@ -385,9 +386,15 @@ class ActorCriticGNN(nn.Module):
             use_attention=self.use_attention,
             gnn_layer_norm=self.gnn_layer_norm,
             mlp_layer_norm=self.mlp_layer_norm,
-        ), in_axes=0)(state, params)
+        )
+
+        if self.vmap:
+            actor = jax.vmap(actor, in_axes=(0, None))
+            critic = jax.vmap(critic, in_axes=(0, None))
+        actor_out = actor(state, params)
+        critic_out = critic(state, params)
         # Actor is returned as a list for compatibility with MLP VONE option in PPO script
-        return [actor], critic
+        return [actor_out], critic_out
 
 
 # TODO - adapt to VONE environment

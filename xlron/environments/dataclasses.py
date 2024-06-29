@@ -4,6 +4,32 @@ from flax import struct
 
 
 @struct.dataclass
+class VONETransition:
+    done: chex.Array
+    action: chex.Array
+    value: chex.Array
+    reward: chex.Array
+    log_prob: chex.Array
+    obs: chex.Array
+    info: chex.Array
+    action_mask_s: chex.Array
+    action_mask_p: chex.Array
+    action_mask_d: chex.Array
+
+
+@struct.dataclass
+class RSATransition:
+    done: chex.Array
+    action: chex.Array
+    value: chex.Array
+    reward: chex.Array
+    log_prob: chex.Array
+    obs: chex.Array
+    info: chex.Array
+    action_mask: chex.Array
+
+
+@struct.dataclass
 class EnvState:
     """Dataclass to hold environment state. State is mutable and arrays are traced on JIT compilation.
 

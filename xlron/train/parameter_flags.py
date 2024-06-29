@@ -3,13 +3,20 @@ from absl import flags
 # N.B. Use can pass the flag --flagfile=PATH_TO_FLAGFILE to add flags without typing them out
 
 # Training hyperparameters
-flags.DEFINE_float("LR", 5e-4, "Learning rate")
-flags.DEFINE_integer("NUM_ENVS", 1, "Number of environments")
-flags.DEFINE_integer("NUM_STEPS", 150, "Number of steps per environment")
+flags.DEFINE_integer("SEED", 42, "Random seed")
+flags.DEFINE_integer("NUM_LEARNERS", 1, "Number of independent learners i.e. how many independent experiments to run "
+                                        "with a unique set of learned parameters each")
+flags.DEFINE_integer("NUM_DEVICES", 1, "Number of devices")
+flags.DEFINE_integer("NUM_ENVS", 1, "Number of environments per device")
+flags.DEFINE_integer("ROLLOUT_LENGTH", 150, "Number of steps per rollout per environment")
+flags.DEFINE_integer("NUM_UPDATES", 1, "Number of rollouts per environment")
+flags.DEFINE_integer("MINIBATCH_SIZE", 1, "Minibatch size")
 flags.DEFINE_float("TOTAL_TIMESTEPS", 1e6, "Total number of timesteps")
 flags.DEFINE_integer("UPDATE_EPOCHS", 10, "Number of epochs per update")
 flags.DEFINE_integer("NUM_MINIBATCHES", 1, "Number of minibatches per update")
-flags.DEFINE_float("GAMMA", 0.99, "Discount factor")
+
+flags.DEFINE_float("LR", 5e-4, "Learning rate")
+flags.DEFINE_float("GAMMA", 0.999, "Discount factor")
 flags.DEFINE_float("GAE_LAMBDA", 0.95, "GAE lambda parameter")
 flags.DEFINE_float("CLIP_EPS", 0.2, "PPO clipping parameter")
 flags.DEFINE_float("ENT_COEF", 0.0, "Entropy coefficient")
@@ -27,8 +34,6 @@ flags.DEFINE_integer("SCHEDULE_MULTIPLIER", 1, "Increase the learning rate sched
 flags.DEFINE_float("WARMUP_PEAK_MULTIPLIER", 1, "Increase the learning rate warmup peak compared to init")
 flags.DEFINE_float("WARMUP_STEPS_FRACTION", 0.2, "Fraction of total timesteps to use for warmup")
 flags.DEFINE_float("WARMUP_END_FRACTION", 0.1, "Fraction of init LR that is final LR")
-flags.DEFINE_integer("SEED", 42, "Random seed")
-flags.DEFINE_integer("NUM_SEEDS", 1, "Number of seeds")
 flags.DEFINE_integer("NUM_LAYERS", 2, "Number of layers in actor and critic networks")
 flags.DEFINE_integer("NUM_UNITS", 64, "Number of hidden units in actor and critic networks")
 # Additional training parameters
@@ -36,7 +41,6 @@ flags.DEFINE_string("VISIBLE_DEVICES", "0", "Comma-separated indices of (desired
 flags.DEFINE_boolean("PREALLOCATE_MEM", True, "Preallocate GPU memory")
 flags.DEFINE_string("PREALLOCATE_MEM_FRACTION", "0.95", "Fraction of GPU memory to preallocate")
 flags.DEFINE_boolean("PRINT_MEMORY_USE", False, "Print memory usage")
-flags.DEFINE_boolean("USE_PMAP", False, "Use pmap")
 flags.DEFINE_boolean("WANDB", False, "Use wandb")
 flags.DEFINE_boolean("SAVE_MODEL", False, "Save model (will be saved to --MODEL_PATH locally and uploaded to wandb if --WANDB is True)")
 flags.DEFINE_boolean("DEBUG", False, "Debug mode")
@@ -54,6 +58,7 @@ flags.DEFINE_boolean("ACTION_MASKING", False, "Use invalid action masking")
 flags.DEFINE_boolean("LOAD_MODEL", False, "Load model for retraining or evaluation")
 flags.DEFINE_string("DATA_OUTPUT_FILE", None, "Path to save data output")
 flags.DEFINE_boolean("PLOTTING", False, "Plotting")
+flags.DEFINE_integer("EMULATED_DEVICES", None, "Number of devices to emulate")
 # Environment parameters
 flags.DEFINE_string("env_type", "vone", "Environment type")
 flags.DEFINE_float("load", 250, "Load")

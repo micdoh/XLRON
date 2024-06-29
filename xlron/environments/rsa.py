@@ -432,19 +432,9 @@ class DeepRMSAEnv(RSAEnv):
             done: Termination flag
             info: Additional information
         """
-        # Do action
-        # state = mask_slots(state, params, state.request_array)
-        # mask = jnp.reshape(state.link_slot_mask, (params.k_paths, -1))
-        # # Add a column of ones to the mask to make sure that occupied paths have non-zero index in "first_slots"
-        # mask = jnp.concatenate((mask, jnp.full((mask.shape[0], 1), 1)), axis=1)
-        # # Get index of first available slots for each path
-        # first_slots = jax.vmap(jnp.argmax, in_axes=(0))(mask)
-        # slot_index = first_slots[action] % params.link_resources
-        # # Convert indices to action
-        # action = action * params.link_resources + slot_index
         # TODO - alter this if allowing J>1
-        slot_index = jnp.squeeze(jax.lax.dynamic_slice(state.path_stats, (action, 2), (1, 1)))
-        action = action * params.link_resources + slot_index * params.link_resources  # Undo normalisation
+        slot_index = jnp.squeeze(jax.lax.dynamic_slice(state.path_stats, (action, 1), (1, 1)))
+        action = jnp.array(action * params.link_resources + slot_index).astype(jnp.int32)
         return super().step_env(key, state, action, params)
 
     @partial(jax.jit, static_argnums=(0, 2,))
@@ -458,7 +448,7 @@ class DeepRMSAEnv(RSAEnv):
         Returns:
             state: Environment state with action mask
         """
-        mask = jnp.where(state.path_stats[:, 3] >= 1, 1., 0.)
+        mask = jnp.where(state.path_stats[:, 0] >= 1, 1., 0.)
         # If mask is all zeros, make all ones
         mask = jnp.where(jnp.sum(mask) == 0, 1., mask)
         state = state.replace(link_slot_mask=mask)
@@ -481,10 +471,8 @@ class DeepRMSAEnv(RSAEnv):
         s = jax.nn.one_hot(s, params.num_nodes)
         d = jax.lax.dynamic_slice(request, (2,), (1,))
         d = jax.nn.one_hot(d, params.num_nodes)
-        request_encoding = s + d
         return jnp.concatenate(
             (
-                #jnp.reshape(request_encoding, (-1,)),
                 jnp.reshape(s, (-1,)),
                 jnp.reshape(d, (-1,)),
                 jnp.reshape(state.holding_time, (-1,)),

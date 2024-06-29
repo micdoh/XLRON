@@ -24,7 +24,6 @@ from typing import Generic, TypeVar
 from collections import defaultdict
 from xlron.environments.dataclasses import *
 
-# TODO - add donate_argnums to jitted functions where appropriate
 
 Shape = Sequence[int]
 T = TypeVar('T')      # Declare type variable
@@ -820,6 +819,7 @@ def remove_expired_node_requests(state: EnvState) -> EnvState:
     return state
 
 
+@partial(jax.jit, donate_argnums=(0,))
 def undo_node_action(state: EnvState) -> EnvState:
     """If the request is unsuccessful i.e. checks fail, then remove the partial (unfinalised) resource allocation.
     Partial resource allocation is indicated by negative time in node departure array.
@@ -845,6 +845,7 @@ def undo_node_action(state: EnvState) -> EnvState:
     return state
 
 
+@partial(jax.jit, donate_argnums=(0,))
 def undo_link_slot_action(state: EnvState) -> EnvState:
     """If the request is unsuccessful i.e. checks fail, then remove the partial (unfinalised) resource allocation.
     Partial resource allocation is indicated by negative time in link slot departure array.
@@ -1239,6 +1240,7 @@ def make_positive(x):
     return jnp.where(x < 0, -x, x)
 
 
+@partial(jax.jit, donate_argnums=(0,))
 def finalise_vone_action(state):
     """Turn departure times positive.
 
@@ -1257,6 +1259,7 @@ def finalise_vone_action(state):
     return state
 
 
+@partial(jax.jit, donate_argnums=(0,))
 def finalise_rsa_action(state):
     """Turn departure times positive.
 
@@ -1774,10 +1777,11 @@ def find_block_sizes(path_slots: chex.Array, starts_only: bool = True, reverse: 
 def calculate_path_stats(state: EnvState, params: EnvParams, request: chex.Array) -> chex.Array:
     """For use in DeepRMSA agent observation space.
     Calculate:
-    1. Required slots on path
-    2. Total available slots on path
-    3. Size of 1st free spectrum block
+    1. Size of 1st suitable free spectrum block
+    2. Index of 1st suitable free spectrum block
+    3. Required slots on path
     4. Avg. free block size
+    5. Free slots
 
     Args:
         state: Environment state
@@ -1794,18 +1798,18 @@ def calculate_path_stats(state: EnvState, params: EnvParams, request: chex.Array
         slots = get_path_slots(state.link_slot_array, params, nodes_sd, i)
         se = get_paths_se(params, nodes_sd)[i] if params.consider_modulation_format else jnp.array([1])
         req_slots = jnp.squeeze(required_slots(requested_bw, se, params.slot_size, guardband=params.guardband))
-        req_slots_norm = req_slots*params.slot_size / jnp.max(params.values_bw.val)
-        free_slots = jnp.sum(jnp.where(slots == 0, 1, 0)) / params.link_resources
+        req_slots_norm = req_slots#*params.slot_size / jnp.max(params.values_bw.val)
+        free_slots_norm = jnp.sum(jnp.where(slots == 0, 1, 0)) #/ params.link_resources
         block_sizes = find_block_sizes(slots)
         first_block_index = jnp.argmax(block_sizes >= req_slots)
-        first_block_index_norm = jnp.argmax(block_sizes >= req_slots) / params.link_resources
-        first_block_size = jnp.squeeze(
+        first_block_index_norm = first_block_index #/ params.link_resources
+        first_block_size_norm = jnp.squeeze(
             jax.lax.dynamic_slice(block_sizes, (first_block_index,), (1,))
         ) / req_slots
-        avg_block_size = jnp.sum(block_sizes) / (jnp.sum(find_block_starts(slots))+1) / req_slots
+        avg_block_size_norm = jnp.sum(block_sizes) / jnp.max(jnp.array([jnp.sum(find_block_starts(slots)), 1])) #/ req_slots
         val = jax.lax.dynamic_update_slice(
             val,
-            jnp.array([[req_slots_norm, free_slots, first_block_index_norm, first_block_size, avg_block_size]]),
+            jnp.array([[first_block_size_norm, first_block_index_norm, req_slots_norm, avg_block_size_norm, free_slots_norm]]),
             (i, 0)
         )  # N.B. that all values are normalised
         return val
@@ -1955,6 +1959,7 @@ def check_rwa_lightpath_reuse_action(state: EnvState, params: EnvParams, action:
     )))
 
 
+@partial(jax.jit, static_argnums=(2,))
 def implement_rwa_lightpath_reuse_action(state: EnvState, action: chex.Array, params: EnvParams) -> EnvState:
     """For use in RWALightpathReuseEnv.
     Update link_slot_array and link_slot_departure_array to reflect new lightpath assignment.
