@@ -206,12 +206,12 @@ def get_learner_fn(
                 return train_state, total_loss
 
             train_state, traj_batch, advantages, targets, rng, rng_epoch, rng_step = update_state
-            rng_epoch, perm_rng = jax.random.split(rng_epoch, 2)
+            rng_epoch, perm_key = jax.random.split(rng_epoch, 2)
             batch_size = config.MINIBATCH_SIZE * config.NUM_MINIBATCHES
             assert (
                 batch_size == config.ROLLOUT_LENGTH * config.NUM_ENVS
             ), "batch size must be equal to number of steps * number of envs * number of devices"
-            permutation = jax.random.permutation(perm_rng, batch_size)
+            permutation = jax.random.permutation(perm_key, batch_size)
             batch = (traj_batch, advantages, targets)
             batch = jax.tree.map(
                 lambda x: x.reshape((batch_size,) + x.shape[2:]), batch
