@@ -108,8 +108,6 @@ class LogEnvState:
     lengths: float
     returns: float
     cum_returns: float
-    episode_lengths: int
-    episode_returns: float
     accepted_services: int
     accepted_bitrate: float
     total_bitrate: float
