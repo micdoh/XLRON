@@ -35,15 +35,15 @@ def main(argv):
     jax.config.update("jax_enable_x64", FLAGS.ENABLE_X64)
     print(f"Available devices: {jax.devices()}")
     print(f"Local devices: {jax.local_devices()}")
-    num_devices = len(jax.devices())  # or len(FLAGS.VISIBLE_DEVICES.split(","))
+    num_devices = len(jax.devices())
     FLAGS.__setattr__("NUM_DEVICES", num_devices)
     import jax.numpy as jnp
     import orbax.checkpoint
     from xlron.environments.env_funcs import create_run_name
     from xlron.environments.wrappers import TimeIt
-    from xlron.train.ppo import make_train, reshape_keys
+    from xlron.train.ppo_multidevice import learner_data_setup, get_learner_fn
     from xlron.heuristics.eval_heuristic import make_eval
-    from xlron.train.train_utils import merge_leading_dims, save_model, log_metrics
+    from xlron.train.train_utils import save_model, log_metrics, setup_wandb, reshape_keys, merge_leading_dims
     # The following flags can improve GPU performance for jaxlib>=0.4.18
     os.environ['XLA_FLAGS'] = (
         '--xla_gpu_enable_triton_softmax_fusion=true '
@@ -71,25 +71,9 @@ def main(argv):
     project_name = FLAGS.PROJECT if FLAGS.PROJECT else run_name
     experiment_name = FLAGS.EXPERIMENT_NAME if FLAGS.EXPERIMENT_NAME else run_name
 
+    # Setup wandb
     if FLAGS.WANDB:
-        wandb.setup(wandb.Settings(program="train.py", program_relpath="train.py"))
-        run = wandb.init(
-            project=project_name,
-            save_code=True,  # optional
-        )
-        wandb.config.update(FLAGS)
-        run.name = experiment_name
-        wandb.define_metric('episode_count')
-        wandb.define_metric("update_step")
-        wandb.define_metric("lengths", step_metric="update_step")
-        wandb.define_metric("returns", step_metric="update_step")
-        wandb.define_metric("cum_returns", step_metric="update_step")
-        wandb.define_metric("episode_lengths", step_metric="update_step")
-        wandb.define_metric("episode_returns", step_metric="update_step")
-        wandb.define_metric("episode_accepted_services", step_metric="episode_count")
-        wandb.define_metric("episode_accepted_services_std", step_metric="episode_count")
-        wandb.define_metric("episode_accepted_bitrate", step_metric="episode_count")
-        wandb.define_metric("episode_accepted_bitrate_std", step_metric="episode_count")
+        setup_wandb(FLAGS, project_name, experiment_name)
 
     # Print every flag and its name
     if FLAGS.DEBUG:
@@ -99,23 +83,21 @@ def main(argv):
         print(name, FLAGS[name].value)
 
     rng = jax.random.PRNGKey(FLAGS.SEED)
-
-    make_func = make_train if not (FLAGS.EVAL_HEURISTIC or FLAGS.EVAL_MODEL) else make_eval
-
-    if FLAGS.LOAD_MODEL or FLAGS.EVAL_MODEL:
-        orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
-        model = orbax_checkpointer.restore(pathlib.Path(FLAGS.MODEL_PATH))
-        FLAGS.__setattr__("model", model)
-
     if FLAGS.NUM_LEARNERS > 1:
-        rng = jax.random.split(rng, FLAGS.NUM_DEVICES*FLAGS.NUM_LEARNERS)
-        rng = reshape_keys(rng, FLAGS.NUM_DEVICES, FLAGS.NUM_LEARNERS)
+        rng = jax.random.split(rng, FLAGS.NUM_DEVICES * FLAGS.NUM_LEARNERS)
+        #rng = reshape_keys(rng, FLAGS.NUM_DEVICES, FLAGS.NUM_LEARNERS)
         # If running multiple independent learners, learners are distributed across devices.
         # Then, set the number of devices=1 to ensure environments aren't distributed across devices.
         FLAGS.__setattr__("NUM_DEVICES", 1)
     else:
         # Reshape keys to match the required (seed_device, seed) shape
+        num_devices = 0
         rng = jax.vmap(jax.random.split, in_axes=(0, None))(jax.random.split(rng, 1), 1)
+
+    if FLAGS.LOAD_MODEL or FLAGS.EVAL_MODEL:
+        orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
+        model = orbax_checkpointer.restore(pathlib.Path(FLAGS.MODEL_PATH))
+        FLAGS.__setattr__("model", model)
 
     # Count total number of independent learners
     total_learners = math.prod(rng.shape[:-1])
@@ -137,18 +119,33 @@ def main(argv):
               f"Timesteps per learner: {FLAGS.TOTAL_TIMESTEPS}\n"
               f"Timesteps per environment: {FLAGS.TOTAL_TIMESTEPS // FLAGS.NUM_ENVS // FLAGS.NUM_DEVICES}\n"
               f"Total timesteps: {FLAGS.TOTAL_TIMESTEPS * total_learners}\n"
-              f"Total updates: {FLAGS.NUM_UPDATES}\n"
+              f"Total updates: {FLAGS.NUM_UPDATES * FLAGS.NUM_MINIBATCHES}\n"
               f"Batch size: {FLAGS.NUM_DEVICES * FLAGS.NUM_ENVS * FLAGS.ROLLOUT_LENGTH}\n"
               f"Minibatch size: {FLAGS.MINIBATCH_SIZE}\n")
-        train_jit = jax.pmap(jax.vmap(make_func(FLAGS), axis_name='learner'), axis_name='device_learner').lower(rng).compile()
+        if not (FLAGS.EVAL_HEURISTIC or FLAGS.EVAL_MODEL):
+            # experiment_input, env, env_params = jax.pmap(
+            #     jax.vmap(learner_data_setup_fn, axis_name='learner'),
+            #     axis_name='device_learner'
+            # )(FLAGS, rng)
+            experiment_input, env, env_params = jax.vmap(learner_data_setup, in_axes=(None, 0), axis_name='learner')(FLAGS, rng)
+            train_state, env_state, obsv, rng = experiment_input
+            learn = get_learner_fn(env, env_params, experiment_input[0], FLAGS)
+            env_state, obsv = jax.tree.map(lambda x: jnp.reshape(x, (num_devices, FLAGS.NUM_LEARNERS, FLAGS.NUM_DEVICES, *x.shape[2:])), [env_state, obsv])
+            train_state = jax.tree.map(lambda x: jnp.reshape(x, (num_devices, FLAGS.NUM_LEARNERS, *x.shape[1:])), train_state)
+            rng = jnp.reshape(rng, (num_devices, FLAGS.NUM_LEARNERS, -1))
+            experiment_input = (train_state, env_state, obsv, rng)
+            run_experiment = jax.pmap(jax.vmap(learn, axis_name='learner'), axis_name='device_learner').lower(experiment_input).compile()
+        else:
+            run_experiment = jax.pmap(jax.vmap(make_eval(FLAGS), axis_name='learner'), axis_name='device_learner').lower(rng).compile()
+            experiment_input = rng
 
     # N.B. that increasing number of learners or devices will increase the number of steps
     # (essentially training separately for total_timesteps per learner)
 
     start_time = time.time()
     with TimeIt(tag='EXECUTION', frames=FLAGS.TOTAL_TIMESTEPS * total_learners):
-        out = train_jit(rng)
-        out["metrics"]["episode_returns"].block_until_ready()  # Wait for all devices to finish
+        out = run_experiment(experiment_input)
+        out["metrics"]["returns"].block_until_ready()  # Wait for all devices to finish
     total_time = time.time() - start_time
 
     # Output leaf nodes have dimensions:

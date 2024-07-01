@@ -7,7 +7,6 @@ import absl
 import optax
 from flax import core, struct
 from flax.linen.fp8_ops import OVERWRITE_WITH_GRADIENT
-from flax.training.train_state import TrainState
 from flax.training import orbax_utils
 import orbax.checkpoint
 import pathlib
@@ -403,6 +402,26 @@ def reshape_keys(keys, size1, size2):
     return reshape(jnp.stack(keys))
 
 
+def setup_wandb(config, project_name, experiment_name):
+    wandb.setup(wandb.Settings(program="train.py", program_relpath="train.py"))
+    run = wandb.init(
+        project=project_name,
+        save_code=True,  # optional
+    )
+    wandb.config.update(config)
+    run.name = experiment_name
+    wandb.define_metric('episode_count')
+    wandb.define_metric("env_step")
+    wandb.define_metric("lengths", step_metric="env_step")
+    wandb.define_metric("returns", step_metric="env_step")
+    wandb.define_metric("cum_returns", step_metric="update_step")
+    wandb.define_metric("episode_accepted_services", step_metric="episode_count")
+    wandb.define_metric("episode_accepted_services_std", step_metric="episode_count")
+    wandb.define_metric("episode_accepted_bitrate", step_metric="episode_count")
+    wandb.define_metric("episode_accepted_bitrate_std", step_metric="episode_count")
+    wandb.define_metric("episode_end_training_time", step_metric="episode_count")
+
+
 def log_metrics(config, out, experiment_name, total_time, merge_func):
     merged_out = {k: jax.tree.map(merge_func, v) for k, v in out["metrics"].items()}
     get_mean = lambda x, y: x[y].mean(0).reshape(-1)
@@ -439,7 +458,7 @@ def log_metrics(config, out, experiment_name, total_time, merge_func):
     service_blocking_probability_std_episode_end = accepted_services_std_episode_end / lengths_mean_episode_end
     bitrate_blocking_probability_episode_end = 1 - (accepted_bitrate_mean_episode_end / total_bitrate_mean_episode_end)
     bitrate_blocking_probability_std_episode_end = accepted_bitrate_std_episode_end / total_bitrate_mean_episode_end
-    training_time_episode_end = np.arange(returns_mean_episode_end) / returns_mean_episode_end * total_time
+    training_time_episode_end = np.arange(len(returns_mean_episode_end)) / returns_mean_episode_end * total_time
 
     returns_mean = get_mean(merged_out, "returns") if not config.end_first_blocking else returns_mean_episode_end
     returns_std = get_std(merged_out, "returns") if not config.end_first_blocking else returns_std_episode_end
@@ -455,7 +474,7 @@ def log_metrics(config, out, experiment_name, total_time, merge_func):
     total_bitrate_std = get_std(merged_out, "total_bitrate") if not config.end_first_blocking else total_bitrate_std_episode_end
     utilisation_mean = get_mean(merged_out, "utilisation") if not config.end_first_blocking else utilisation_mean_episode_end
     utilisation_std = get_std(merged_out, "utilisation") if not config.end_first_blocking else utilisation_std_episode_end
-    training_time = np.arange(returns_mean) / returns_mean * total_time
+    training_time = np.arange(len(returns_mean)) / returns_mean * total_time
     # get values of service and bitrate blocking probs
     service_blocking_probability = 1 - (accepted_services_mean / lengths_mean) if not config.end_first_blocking else service_blocking_probability_episode_end
     service_blocking_probability_std = accepted_services_std / lengths_mean if not config.end_first_blocking else service_blocking_probability_std_episode_end
