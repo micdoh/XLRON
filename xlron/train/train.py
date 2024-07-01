@@ -42,7 +42,7 @@ def main(argv):
     from xlron.environments.wrappers import TimeIt
     from xlron.train.ppo import learner_data_setup, get_learner_fn
     from xlron.heuristics.eval_heuristic import make_eval
-    from xlron.train.train_utils import save_model, log_metrics
+    from xlron.train.train_utils import save_model, log_metrics, setup_wandb
     # The following flags can improve GPU performance for jaxlib>=0.4.18
     os.environ['XLA_FLAGS'] = (
         '--xla_gpu_enable_triton_softmax_fusion=true '
@@ -70,23 +70,9 @@ def main(argv):
     project_name = FLAGS.PROJECT if FLAGS.PROJECT else run_name
     experiment_name = FLAGS.EXPERIMENT_NAME if FLAGS.EXPERIMENT_NAME else run_name
 
+    # Setup wandb
     if FLAGS.WANDB:
-        wandb.setup(wandb.Settings(program="train.py", program_relpath="train.py"))
-        run = wandb.init(
-            project=project_name,
-            save_code=True,  # optional
-        )
-        wandb.config.update(FLAGS)
-        run.name = experiment_name
-        wandb.define_metric('episode_count')
-        wandb.define_metric("env_step")
-        wandb.define_metric("lengths", step_metric="env_step")
-        wandb.define_metric("returns", step_metric="env_step")
-        wandb.define_metric("cum_returns", step_metric="env_step")
-        wandb.define_metric("episode_accepted_services", step_metric="episode_count")
-        wandb.define_metric("episode_accepted_services_std", step_metric="episode_count")
-        wandb.define_metric("episode_accepted_bitrate", step_metric="episode_count")
-        wandb.define_metric("episode_accepted_bitrate_std", step_metric="episode_count")
+        setup_wandb(FLAGS, project_name, experiment_name)
 
     # Print every flag and its name
     if FLAGS.DEBUG:
@@ -125,9 +111,9 @@ def main(argv):
               f"Batch size: {FLAGS.NUM_ENVS * FLAGS.ROLLOUT_LENGTH}\n"
               f"Minibatch size: {FLAGS.MINIBATCH_SIZE}\n")
         if not (FLAGS.EVAL_HEURISTIC or FLAGS.EVAL_MODEL):
-            experiment_input, env, env_params = jax.vmap(learner_data_setup, in_axes=(None, 0))(FLAGS, rng)
+            experiment_input, env, env_params = jax.vmap(learner_data_setup, axis_name='learner', in_axes=(None, 0))(FLAGS, rng)
             learn = get_learner_fn(env, env_params, experiment_input[0], FLAGS)
-            run_experiment = jax.jit(jax.vmap(learn)).lower(experiment_input).compile()
+            run_experiment = jax.jit(jax.vmap(learn, axis_name='learner')).lower(experiment_input).compile()
         else:
             run_experiment = jax.jit(jax.vmap(make_eval(FLAGS))).lower(rng).compile()
             experiment_input = rng
@@ -138,7 +124,7 @@ def main(argv):
     start_time = time.time()
     with TimeIt(tag='EXECUTION', frames=FLAGS.TOTAL_TIMESTEPS * FLAGS.NUM_LEARNERS):
         out = run_experiment(experiment_input)
-        out["metrics"]["episode_returns"].block_until_ready()  # Wait for all devices to finish
+        out["metrics"]["returns"].block_until_ready()  # Wait for all devices to finish
     total_time = time.time() - start_time
 
     # Output leaf nodes have dimensions:
