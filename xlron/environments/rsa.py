@@ -688,6 +688,8 @@ def make_rsa_env(config):
     else:
         env_params = RSAEnvParams
 
+    max_timesteps = max_requests
+
     params = env_params(
         max_requests=max_requests,
         max_timesteps=max_timesteps,
