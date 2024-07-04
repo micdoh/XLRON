@@ -511,12 +511,12 @@ def generate_vone_request(key: chex.PRNGKey, state: EnvState, params: EnvParams)
         total_requests=state.total_requests + 1
     )
     state = remove_expired_node_requests(state) if not params.incremental_loading else state
-    state = remove_expired_slot_requests(state) if not params.incremental_loading else state
+    state = remove_expired_services_rsa(state) if not params.incremental_loading else state
     return state
 
 
 @partial(jax.jit, static_argnums=(2,))
-def generate_rsa_request(key: chex.PRNGKey, state: EnvState, params: EnvParams) -> EnvState:
+def generate_request_rsa(key: chex.PRNGKey, state: EnvState, params: EnvParams) -> EnvState:
     # Flatten the probabilities to a 1D array
     key_sd, key_slot, key_times = jax.random.split(key, 3)
     if params.deterministic_requests:
@@ -541,7 +541,48 @@ def generate_rsa_request(key: chex.PRNGKey, state: EnvState, params: EnvParams) 
         request_array=jnp.stack((source, bw, dest)),
         total_requests=state.total_requests + 1
     )
-    state = remove_expired_slot_requests(state) if not params.incremental_loading else state
+    # Removal of expired services is different for RWA-LR
+    remove_expired_services = remove_expired_services_rsa
+    if params.__class__.__name__ == "RWALightpathReuseEnvParams":
+        state = state.replace(time_since_last_departure=state.time_since_last_departure + arrival_time)
+        remove_expired_services = remove_expired_services_rwalr
+    state = remove_expired_services(state) if not params.incremental_loading else state
+    return state
+
+
+@partial(jax.jit, static_argnums=(2,))
+def generate_request_rwalr(key: chex.PRNGKey, state: EnvState, params: EnvParams) -> EnvState:
+    # Flatten the probabilities to a 1D array
+    key_sd, key_slot, key_times = jax.random.split(key, 3)
+    if params.deterministic_requests:
+        request = params.list_of_requests[state.total_requests]
+        source = jax.lax.dynamic_slice(request, (0,), (1,))[0]
+        bw = jax.lax.dynamic_slice(request, (1,), (1,))[0]
+        dest = jax.lax.dynamic_slice(request, (2,), (1,))[0]
+    else:
+        shape = state.traffic_matrix.shape
+        probabilities = state.traffic_matrix.ravel()
+        # Use jax.random.choice to select index based on the probabilities
+        source_dest_index = jax.random.choice(key_sd, jnp.arange(state.traffic_matrix.size), p=probabilities)
+        # Convert 1D index back to 2D
+        nodes = jnp.unravel_index(source_dest_index, shape)
+        source, dest = jnp.stack(nodes) if params.directed_graph else jnp.sort(jnp.stack(nodes))
+        # Vectorized conditional replacement using mask
+        bw = jax.random.choice(key_slot, params.values_bw.val)
+    arrival_time, holding_time = generate_arrival_holding_times(key_times, params)
+    state = state.replace(
+        holding_time=holding_time,
+        current_time=state.current_time + arrival_time,
+        request_array=jnp.stack((source, bw, dest)),
+        total_requests=state.total_requests + 1,
+        time_since_last_departure=state.time_since_last_departure + arrival_time
+    )
+    # Removal of expired services is different for RWA-LR
+    remove_expired_services = remove_expired_services_rsa
+    if params.__class__.__name__ == "RWALightpathReuseEnvParams":
+        state = state.replace(time_since_last_departure=state.time_since_last_departure + arrival_time)
+        remove_expired_services = remove_expired_services_rwalr
+    state = remove_expired_services(state) if not params.incremental_loading else state
     return state
 
 
@@ -776,10 +817,28 @@ def update_node_array(node_indices, array, node, request):
     return jnp.where(node_indices == node, array-request, array)
 
 
-def remove_expired_slot_requests(state: EnvState) -> EnvState:
+def remove_expired_services_rsa(state: EnvState) -> EnvState:
     """Check for values in link_slot_departure_array that are less than the current time but greater than zero
     (negative time indicates the request is not yet finalised).
     If found, set to zero in link_slot_array and link_slot_departure_array.
+
+    Args:
+        state: Environment state
+
+    Returns:
+        Updated environment state
+    """
+    mask = jnp.where(state.link_slot_departure_array < jnp.squeeze(state.current_time), 1, 0)
+    mask = jnp.where(0 <= state.link_slot_departure_array, mask, 0)
+    state = state.replace(
+        link_slot_array=jnp.where(mask == 1, 0, state.link_slot_array),
+        link_slot_departure_array=jnp.where(mask == 1, 0, state.link_slot_departure_array)
+    )
+    return state
+
+
+def remove_expired_services_rwalr(state: EnvState) -> EnvState:
+    """
 
     Args:
         state: Environment state
@@ -846,7 +905,7 @@ def undo_node_action(state: EnvState) -> EnvState:
 
 
 @partial(jax.jit, donate_argnums=(0,))
-def undo_link_slot_action(state: EnvState) -> EnvState:
+def undo_action_rsa(state: EnvState) -> EnvState:
     """If the request is unsuccessful i.e. checks fail, then remove the partial (unfinalised) resource allocation.
     Partial resource allocation is indicated by negative time in link slot departure array.
     Check for values in link_slot_departure_array that are less than zero.
@@ -867,6 +926,37 @@ def undo_link_slot_action(state: EnvState) -> EnvState:
     mask = jnp.where(state.link_slot_array < -1, 1, mask)
     state = state.replace(
         link_slot_array=jnp.where(mask == 1, state.link_slot_array+1, state.link_slot_array),
+        link_slot_departure_array=jnp.where(
+            mask == 1,
+            state.link_slot_departure_array + state.current_time + state.holding_time,
+            state.link_slot_departure_array),
+        total_bitrate=state.total_bitrate + read_rsa_request(state.request_array)[1][0]
+    )
+    return state
+
+
+@partial(jax.jit, donate_argnums=(0,))
+def undo_action_rwalr(state: EnvState) -> EnvState:
+    """If the request is unsuccessful i.e. checks fail, then remove the partial (unfinalised) resource allocation.
+    Partial resource allocation is indicated by negative time in link slot departure array.
+    Check for values in link_slot_departure_array that are less than zero.
+    If found, increase link_slot_array by +1 and link_slot_departure_array by current_time + holding_time of current request.
+
+    Args:
+        state: Environment state
+
+    Returns:
+        Updated environment state
+    """
+    # If departure array is negative, then undo the action
+    mask = jnp.where(state.link_slot_departure_array < 0, 1, 0)
+    # If link slot array is < -1, then undo the action
+    # (departure might be positive because existing service had holding time after current)
+    # e.g. (time_in_array = t1 - t2) where t2 < t1 and t2 = current_time + holding_time
+    # but link_slot_array = -2 due to double allocation, so undo the action
+    mask = jnp.where(state.link_slot_array < -1, 1, mask)
+    state = state.replace(
+        link_slot_array=jnp.where(mask == 1, state.link_slot_array + 1, state.link_slot_array),
         link_slot_departure_array=jnp.where(
             mask == 1,
             state.link_slot_departure_array + state.current_time + state.holding_time,
@@ -1150,7 +1240,7 @@ def implement_vone_action(
 
 
 @partial(jax.jit, static_argnums=(2,))
-def implement_rsa_action(
+def implement_action_rsa(
         state: EnvState,
         action: chex.Array,
         params: EnvParams,
@@ -1260,7 +1350,27 @@ def finalise_vone_action(state):
 
 
 @partial(jax.jit, donate_argnums=(0,))
-def finalise_rsa_action(state):
+def finalise_action_rsa(state):
+    """Turn departure times positive.
+
+    Args:
+        state: current state
+
+    Returns:
+        state: updated state
+    """
+    _, bw_request = read_rsa_request(state.request_array)
+    state = state.replace(
+        link_slot_departure_array=make_positive(state.link_slot_departure_array),
+        accepted_services=state.accepted_services + 1,
+        accepted_bitrate=state.accepted_bitrate + bw_request[0],
+        total_bitrate=state.total_bitrate + bw_request[0]
+    )
+    return state
+
+
+@partial(jax.jit, donate_argnums=(0,))
+def finalise_action_rwalr(state):
     """Turn departure times positive.
 
     Args:
@@ -1321,7 +1431,7 @@ def check_vone_action(state, remaining_actions, total_requested_nodes):
     return jnp.any(checks)
 
 
-def check_rsa_action(state):
+def check_action_rsa(state):
     """Check if action is valid.
     Combines checks for:
     - no spectrum reuse
@@ -1666,7 +1776,6 @@ def mask_nodes(state: EnvState, num_nodes: chex.Scalar) -> EnvState:
     return state
 
 
-# TODO - write tests
 @partial(jax.jit, static_argnums=(1, 4))
 def get_path_slots(link_slot_array: chex.Array, params: EnvParams, nodes_sd: chex.Array, i: int, agg_func: str = "max") -> chex.Array:
     """Get slots on each constitutent link of path from link_slot_array (L x S),
@@ -1854,10 +1963,27 @@ def init_path_index_array(params):
     return jnp.full((params.num_links, params.link_resources), -1)
 
 
-def calculate_path_capacity(path_length, symbol_rate=100, min_request=100, scale_factor=1.0, span_length=100):
-    N_spans = jnp.floor(path_length / span_length)  # Number of fibre spans on path
-    path_NSR = jnp.where(N_spans < 1, 1, N_spans) / 405  # Noise-to-signal ratio per path
-    path_capacity = 2 * symbol_rate * jnp.log2(1 + 1 / path_NSR)  # Capacity of path in Gbps
+def calculate_path_capacity(
+        path_length,
+        min_request=100,  # Minimum data rate request size
+        scale_factor=1.0,  # Scale factor for link capacity
+        alpha=0.2e-3, # Fibre attenuation coefficient
+        NF=4.5,  # Amplifier noise figure
+        B=10e12,  # Total modulated bandwidth
+        R_s=100e9,  # Symbol rate
+        beta_2=-21.7e-27,  # Dispersion parameter
+        gamma=1.2e-3,  # Nonlinear coefficient
+        L_s=100e3,  # span length
+        lambda0=1550e-9,  # Wavelength
+):
+    alpha_lin = alpha / 4.343  # Linear attenuation coefficient
+    N_spans = jnp.floor(path_length * 1e3 / L_s)  # Number of fibre spans on path
+    L_eff = (1 - jnp.exp(-alpha_lin * L_s)) / alpha_lin  # Effective length of span in m
+    sigma_2_ase = (jnp.exp(alpha_lin * L_s) - 1) * 10**(NF/10) * 6.626e-34 * 2.998e8 * R_s / lambda0  # ASE noise power
+    span_NSR = jnp.cbrt(2 * sigma_2_ase**2 * alpha_lin * gamma**2 * L_eff**2 *
+                        jnp.log(jnp.pi**2 * jnp.abs(beta_2) * B**2 / alpha_lin) / (jnp.pi * jnp.abs(beta_2) * R_s**2))  # Noise-to-signal ratio per span
+    path_NSR = jnp.where(N_spans < 1, 1, N_spans) * span_NSR  # Noise-to-signal ratio per path
+    path_capacity = 2 * R_s/1e9 * jnp.log2(1 + 1/path_NSR)  # Capacity of path in Gbps
     # Round link capacity up to nearest increment of minimum request size and apply scale factor
     path_capacity = jnp.floor(path_capacity * scale_factor / min_request) * min_request
     return path_capacity
@@ -1866,9 +1992,16 @@ def calculate_path_capacity(path_length, symbol_rate=100, min_request=100, scale
 def init_path_capacity_array(
         link_length_array: chex.Array,
         path_link_array: chex.Array,
-        symbol_rate: int = 100,
-        min_request: int = 100,
-        scale_factor=1.0
+        min_request=1,  # Minimum data rate request size
+        scale_factor=1.0,  # Scale factor for link capacity
+        alpha=0.2e-3,  # Fibre attenuation coefficient
+        NF=4.5,  # Amplifier noise figure
+        B=10e12,  # Total modulated bandwidth
+        R_s=100e9,  # Symbol rate
+        beta_2=-21.7e-27,  # Dispersion parameter
+        gamma=1.2e-3,  # Nonlinear coefficient
+        L_s=100e3,  # span length
+        lambda0=1550e-9,  # Wavelength
 ) -> chex.Array:
     """Calculated from Nevin paper:
     https://api.repository.cam.ac.uk/server/api/core/bitstreams/b80e7a9c-a86b-4b30-a6d6-05017c60b0c8/content
@@ -1876,16 +2009,33 @@ def init_path_capacity_array(
     Args:
         link_length_array (chex.Array): Array of link lengths
         path_link_array (chex.Array): Array of links on paths
-        symbol_rate (int, optional): Symbol rate in Gbaud. Defaults to 100.
-        min_request (int, optional): Minimum data rate request size. Defaults to 100.
+        min_request (int, optional): Minimum data rate request size. Defaults to 100 GBps.
         scale_factor (float, optional): Scale factor for link capacity. Defaults to 1.0.
+        alpha (float, optional): Fibre attenuation coefficient. Defaults to 0.2e-3 /m
+        NF (float, optional): Amplifier noise figure. Defaults to 4.5 dB.
+        B (float, optional): Total modulated bandwidth. Defaults to 10e12 Hz.
+        R_s (float, optional): Symbol rate. Defaults to 100e9 Baud.
+        beta_2 (float, optional): Dispersion parameter. Defaults to -21.7e-27 s^2/m.
+        gamma (float, optional): Nonlinear coefficient. Defaults to 1.2e-3 /W/m.
+        L_s (float, optional): Span length. Defaults to 100e3 m.
+        lambda0 (float, optional): Wavelength. Defaults to 1550e-9 m.
 
     Returns:
         chex.Array: Array of link capacities in Gbps
     """
     path_length_array = jnp.dot(path_link_array, link_length_array)
     path_capacity_array = calculate_path_capacity(
-        path_length_array, symbol_rate, min_request, scale_factor
+        path_length_array,
+        min_request=min_request,
+        scale_factor=scale_factor,
+        alpha=alpha,
+        NF=NF,
+        B=B,
+        R_s=R_s,
+        beta_2=beta_2,
+        gamma=gamma,
+        L_s=L_s,
+        lambda0=lambda0,
     )
     return path_capacity_array
 
@@ -1941,7 +2091,7 @@ def check_lightpath_available_and_existing(state: EnvState, params: EnvParams, a
     return lightpath_available_check, lightpath_existing_check, curr_lightpath_capacity, lightpath_index
 
 
-def check_rwa_lightpath_reuse_action(state: EnvState, params: EnvParams, action: chex.Array) -> bool:
+def check_action_rwalr(state: EnvState, params: EnvParams, action: chex.Array) -> bool:
     """Combines checks for:
     - no spectrum reuse
     - lightpath available and existing
@@ -1960,7 +2110,7 @@ def check_rwa_lightpath_reuse_action(state: EnvState, params: EnvParams, action:
 
 
 @partial(jax.jit, static_argnums=(2,))
-def implement_rwa_lightpath_reuse_action(state: EnvState, action: chex.Array, params: EnvParams) -> EnvState:
+def implement_action_rwalr(state: EnvState, action: chex.Array, params: EnvParams) -> EnvState:
     """For use in RWALightpathReuseEnv.
     Update link_slot_array and link_slot_departure_array to reflect new lightpath assignment.
     Update link_capacity_array with new capacity if lightpath is available.
@@ -2028,7 +2178,7 @@ def implement_rwa_lightpath_reuse_action(state: EnvState, action: chex.Array, pa
 
 
 @partial(jax.jit, static_argnums=(1,))
-def mask_slots_rwa_lightpath_reuse(state: EnvState, params: EnvParams, request: chex.Array) -> EnvState:
+def mask_slots_rwalr(state: EnvState, params: EnvParams, request: chex.Array) -> EnvState:
     """For use in RWALightpathReuseEnv.
     Each lightpath has a maximum capacity defined in path_capacity_array. This is updated when a lightpath is assigned.
     If remaining path capacity is less than current request, corresponding link-slots are masked out.

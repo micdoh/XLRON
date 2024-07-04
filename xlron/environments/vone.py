@@ -10,7 +10,7 @@ from gymnax.environments import environment, spaces
 from xlron.environments.env_funcs import (
     init_vone_request_array, init_link_slot_array, init_path_link_array,
     init_values_bandwidth, init_link_slot_mask, init_link_slot_departure_array, implement_vone_action,
-    check_vone_action, undo_link_slot_action, finalise_vone_action, generate_vone_request, mask_slots, make_graph,
+    check_vone_action, undo_action_rsa, finalise_vone_action, generate_vone_request, mask_slots, make_graph,
     init_node_capacity_array, init_node_mask, init_node_resource_array, init_node_departure_array, init_values_nodes,
     init_action_counter, init_action_history, update_action_history, decrease_last_element, undo_node_action,
     init_virtual_topology_patterns, mask_nodes, init_path_length_array, init_path_se_array, init_modulations_array,
@@ -120,7 +120,7 @@ class VONEEnv(environment.Environment):
         check = check_vone_action(state, remaining_actions, total_requested_nodes)
         state, reward = jax.lax.cond(
             check,  # Fail if true
-            lambda x: (undo_link_slot_action(undo_node_action(x)), self.get_reward_failure(x)),
+            lambda x: (undo_action_rsa(undo_node_action(x)), self.get_reward_failure(x)),
             lambda x: jax.lax.cond(
                 jnp.any(remaining_actions <= 1),  # Final action
                 lambda xx: (finalise_vone_action(xx), self.get_reward_success(xx)),  # Finalise actions if complete

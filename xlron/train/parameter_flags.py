@@ -79,7 +79,6 @@ flags.DEFINE_boolean("continuous_operation", False, "If True, do not reset the e
 flags.DEFINE_integer("aggregate_slots", 1, "Number of slots to aggregate into a single action")
 flags.DEFINE_boolean("disjoint_paths", False, "Use disjoint paths (k paths still considered)")
 flags.DEFINE_integer("guardband", 1, "Guard band in slots")
-flags.DEFINE_integer("symbol_rate", 100, "Symbol rate in Gbaud (only used in RWA with lightpath reuse")
 flags.DEFINE_float("scale_factor", 1.0, "Scale factor for link capacity (only used in RWA with lightpath reuse)")
 flags.DEFINE_string("weight", None, "Edge attribute name for ordering k-shortest paths")
 flags.DEFINE_string("modulations_csv_filepath", "./examples/modulations.csv", "Modulation format definitions for RSA environment")
@@ -94,6 +93,13 @@ flags.DEFINE_integer("ENV_WARMUP_STEPS", None, "Number of warmup steps before tr
 # RSA-specific environment parameters
 flags.DEFINE_boolean("random_traffic", False, "Random traffic matrix for RSA on each reset (else uniform or custom)")
 flags.DEFINE_string("custom_traffic_matrix_csv_filepath", None, "Path to custom traffic matrix CSV file")
+flags.DEFINE_float("alpha", 0.2, "Fibre attenuation coefficient, alpha [dB/km]")
+flags.DEFINE_float("amplifier_noise_figure", 4.5, "Amplifier noise figure [dB]")
+flags.DEFINE_float("symbol_rate", 100, "Symbol rate [Gbaud]")
+flags.DEFINE_float("beta_2", -21.7, "Dispersion parameter [ps^2/km]")
+flags.DEFINE_float("gamma", 1.2e-3, "Nonlinear coefficient")
+flags.DEFINE_float("span_length", 100, "Span length [km]")
+flags.DEFINE_float("lambda0", 1550, "Wavelength [nm]")
 # VONE-specific environment parameters
 flags.DEFINE_integer("node_resources", 4, "Number of node resources")
 flags.DEFINE_list("virtual_topologies", "3_ring", "Virtual topologies")
