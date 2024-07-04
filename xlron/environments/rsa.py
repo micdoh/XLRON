@@ -13,11 +13,12 @@ from gymnax.environments import environment, spaces
 from xlron.environments.env_funcs import (
     init_rsa_request_array, init_link_slot_array, init_path_link_array,
     convert_node_probs_to_traffic_matrix, init_link_slot_mask, init_link_slot_departure_array, init_traffic_matrix,
-    implement_rsa_action, check_rsa_action, undo_link_slot_action, finalise_rsa_action, generate_rsa_request,
+    implement_action_rsa, check_action_rsa, undo_action_rsa, finalise_action_rsa, generate_request_rsa,
     mask_slots, make_graph, init_path_length_array, init_modulations_array, init_path_se_array, required_slots,
     init_values_bandwidth, calculate_path_stats, normalise_traffic_matrix, init_graph_tuple, init_link_length_array,
-    init_link_capacity_array, init_path_capacity_array, init_path_index_array, mask_slots_rwa_lightpath_reuse,
-    implement_rwa_lightpath_reuse_action, check_rwa_lightpath_reuse_action, pad_array, read_rsa_request
+    init_link_capacity_array, init_path_capacity_array, init_path_index_array, mask_slots_rwalr,
+    implement_action_rwalr, check_action_rwalr, pad_array, undo_action_rwalr,
+    finalise_action_rwalr, generate_request_rwalr
 )
 from xlron.environments.dataclasses import *
 from xlron.environments.wrappers import *
@@ -159,21 +160,32 @@ class RSAEnv(environment.Environment):
             info: Additional information
         """
         # Do action
-        implement_action = implement_rwa_lightpath_reuse_action \
-            if params.__class__.__name__ == "RWALightpathReuseEnvParams" else implement_rsa_action
-        state = implement_action(state, action, params)
-        # Check if action was valid, calculate reward
-        check = check_rwa_lightpath_reuse_action(state, params, action) \
-            if params.__class__.__name__ == "RWALightpathReuseEnvParams" else check_rsa_action(state)
+        undo = undo_action_rsa
+        finalise = finalise_action_rsa
+        generate_request = generate_request_rsa
+        if params.__class__.__name__ == "RWALightpathReuseEnvParams":
+            implement_action = implement_action_rwalr
+            check_action = check_action_rwalr
+            input_state = [state, params, action]
+            if not params.incremental_loading:
+                undo = undo_action_rwalr
+                finalise = finalise_action_rwalr
+                generate_request = generate_request_rwalr
+        else:
+            implement_action = implement_action_rsa
+            check_action = check_action_rsa
+            input_state = [state]
+        input_state[0] = implement_action(*input_state)
+        check = check_action(*input_state)
         state, reward = jax.lax.cond(
             check,  # Fail if true
-            lambda x: (undo_link_slot_action(x[0]), self.get_reward_failure(*x)),
-            lambda x: (finalise_rsa_action(x[0]), self.get_reward_success(*x)),  # Finalise actions if complete
+            lambda x: (undo(x[0]), self.get_reward_failure(*x)),
+            lambda x: (finalise(x[0]), self.get_reward_success(*x)),  # Finalise actions if complete
             (state, params)
         )
         # TODO - write separate functions for deterministic transition (above) and stochastic transition (below)
         # Generate new request
-        state = generate_rsa_request(key, state, params)
+        state = generate_request(key, state, params)
         state = state.replace(total_timesteps=state.total_timesteps + 1)
         # Terminate if max_timesteps or max_requests exceeded or, if consecutive loading,
         # then terminate if reward is failure but not before min number of timesteps before update
@@ -223,7 +235,7 @@ class RSAEnv(environment.Environment):
             )
         else:
             state = self.initial_state
-        state = generate_rsa_request(key, state, params)
+        state = generate_request_rsa(key, state, params)
         return self.get_obs(state, params), state
 
     @partial(jax.jit, static_argnums=(0, 2,))
@@ -539,6 +551,7 @@ class RWALightpathReuseEnv(RSAEnv):
             accepted_services=0,
             accepted_bitrate=0.,
             total_bitrate=0.,
+            time_since_last_departure=0.,
         )
         self.initial_state = state.replace(graph=init_graph_tuple(state, params))
 
@@ -553,7 +566,7 @@ class RWALightpathReuseEnv(RSAEnv):
         Returns:
             state: Environment state with action mask
         """
-        state = mask_slots_rwa_lightpath_reuse(state, params, state.request_array)
+        state = mask_slots_rwalr(state, params, state.request_array)
         return state
 
 
@@ -596,11 +609,18 @@ def make_rsa_env(config):
     aggregate_slots = config.get("aggregate_slots", 1)
     disjoint_paths = config.get("disjoint_paths", False)
     guardband = config.get("guardband", 1)
-    symbol_rate = config.get("symbol_rate", 100)
     weight = config.get("weight", None)
     remove_array_wrappers = config.get("remove_array_wrappers", False)
     reward_type = config.get("reward_type", "bitrate")
     truncate_holding_time = config.get("truncate_holding_time", False)
+    alpha = config.get("alpha", 0.2) * 1e-3
+    symbol_rate = config.get("symbol_rate", 100)*1e9
+    amplifier_noise_figure = config.get("amplifier_noise_figure", 4.5)
+    beta_2 = config.get("beta_2", -21.7) * 1e-27
+    gamma = config.get("gamma", 1.2) * 1e-3
+    span_length = config.get("span_length", 100) * 1e3
+    lambda0 = config.get("lambda0", 1550) * 1e-9
+    B = slot_size * link_resources  # Total modulated bandwidth
 
     rng = jax.random.PRNGKey(seed)
     rng, _, _, _, _ = jax.random.split(rng, 5)
@@ -667,7 +687,8 @@ def make_rsa_env(config):
         path_se_array = jnp.array([1])
         if env_type == "rwa_lightpath_reuse":
             path_capacity_array = init_path_capacity_array(
-                link_length_array, path_link_array, symbol_rate=symbol_rate, scale_factor=scale_factor
+                link_length_array, path_link_array, R_s=symbol_rate, scale_factor=scale_factor, alpha=alpha,
+                NF=amplifier_noise_figure, beta_2=beta_2, gamma=gamma, L_s=span_length, lambda0=lambda0, B=B
             )
             max_requests = int(scale_factor * max_requests)
         else:
