@@ -47,6 +47,7 @@ flags.DEFINE_boolean("DEBUG", False, "Debug mode")
 flags.DEFINE_boolean("DEBUG_NANS", False, "Debug NaNs")
 flags.DEFINE_boolean("ORDERED", True, "Order print statements when debugging "
                                       "(must be false if using pmap)")
+flags.DEFINE_boolean("NO_PRINT_FLAGS", False, "Do not print flags")
 flags.DEFINE_string("MODEL_PATH", None, "Path to save/load model")
 flags.DEFINE_string("PROJECT", "", "Name of project (same as experiment name if unspecified)")
 flags.DEFINE_string("EXPERIMENT_NAME", "", "Name of experiment (equivalent to run name in wandb) "
@@ -59,6 +60,7 @@ flags.DEFINE_boolean("LOAD_MODEL", False, "Load model for retraining or evaluati
 flags.DEFINE_string("DATA_OUTPUT_FILE", None, "Path to save data output")
 flags.DEFINE_boolean("PLOTTING", False, "Plotting")
 flags.DEFINE_integer("EMULATED_DEVICES", None, "Number of devices to emulate")
+flags.DEFINE_boolean("log_actions", False, "Log actions taken and other details")
 # Environment parameters
 flags.DEFINE_string("env_type", "vone", "Environment type")
 flags.DEFINE_float("load", 250, "Load")

@@ -24,6 +24,7 @@ from typing import Generic, TypeVar
 from collections import defaultdict
 from jax import tree_util
 from xlron.environments.dataclasses import *
+from xlron.environments.env_funcs import get_path_indices, process_path_action, read_rsa_request, get_path_slots, get_paths
 
 
 Shape = Sequence[int]
@@ -75,6 +76,18 @@ class LogWrapper(GymnaxWrapper):
         info["accepted_bitrate"] = state.accepted_bitrate
         info["total_bitrate"] = state.total_bitrate
         info["utilisation"] = state.utilisation
+        # Log path length if required, to calculate average path length and number of hops
+        if params.log_actions:
+            nodes_sd, bw_request = read_rsa_request(state.env_state.request_array)
+            source, dest = nodes_sd
+            i = get_path_indices(source, dest, params.k_paths, params.num_nodes, directed=params.directed_graph).astype(
+                jnp.int32)
+            path_index, slot_index = process_path_action(state.env_state, params, action)
+            info["path_index"] = i + path_index
+            info["slot_index"] = slot_index
+            info["source"] = source
+            info["dest"] = dest
+            info["data_rate"] = bw_request[0]
         info["done"] = done
         return obs, state, reward, done, info
 

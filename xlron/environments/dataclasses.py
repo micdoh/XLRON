@@ -167,6 +167,7 @@ class RSAEnvParams(EnvParams):
     deterministic_requests: bool = struct.field(pytree_node=False)
     list_of_requests: chex.Array = struct.field(pytree_node=False)
     multiple_topologies: bool = struct.field(pytree_node=False)
+    log_actions: bool = struct.field(pytree_node=False)
 
 
 @struct.dataclass

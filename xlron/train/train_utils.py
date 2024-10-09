@@ -611,3 +611,70 @@ def log_metrics(config, out, experiment_name, total_time, merge_func):
                 "training_time": training_time[i],
             }
             wandb.log(log_dict)
+
+    print(f"Service Blocking Probability: {service_blocking_probability[-1]:.5f} ± {service_blocking_probability_std[-1]:.5f}")
+    print(f"Bitrate Blocking Probability: {bitrate_blocking_probability[-1]:.5f} ± {bitrate_blocking_probability_std[-1]:.5f}")
+    print(f"Accepted Services Episode: {accepted_services_mean[-1]:.0f} ± {accepted_services_std[-1]:.0f}")
+    print(f"Accepted Bitrate Episode: {accepted_bitrate_mean[-1]:.0f} ± {accepted_bitrate_std[-1]:.0f}")
+
+    if config.log_actions:
+        env, params = define_env(config)
+        request_source = merged_out["source"]
+        request_dest = merged_out["dest"]
+        request_data_rate = merged_out["data_rate"]
+        path_indices = merged_out["path_index"]
+        slot_indices = merged_out["slot_index"]
+        returns = merged_out["returns"]
+        # Get the link length array
+        topology_name = config.topology_name
+        graph = make_graph(topology_name, topology_directory=config.topology_directory)
+        link_length_array = init_link_length_array(graph)
+        # Get path, path lengths, number of hops
+        paths = jnp.take(params.path_link_array.val, path_indices, axis=0)
+        path_lengths = jax.vmap(lambda x: jnp.dot(x, link_length_array), in_axes=(0))(paths)
+        num_hops = jnp.sum(paths, axis=-1)
+        path_lengths_mean = path_lengths.mean()
+        path_lengths_std = path_lengths.std()
+        num_hops_mean = num_hops.mean()
+        num_hops_std = num_hops.std()
+        print(f"Average path length: {path_lengths_mean:.0f} ± {path_lengths_std:.0f}")
+        print(f"Average number of hops: {num_hops_mean:.2f} ± {num_hops_std:.2f}")
+
+        request_source = jnp.squeeze(merged_out["source"])
+        request_dest = jnp.squeeze(merged_out["dest"])
+        request_data_rate = jnp.squeeze(merged_out["data_rate"])
+        path_indices = jnp.squeeze(merged_out["path_index"])
+        slot_indices = jnp.squeeze(merged_out["slot_index"])
+        #slots = jnp.squeeze(merged_out["slots"])
+
+        # for s, d, dr, pi, si in zip(request_source, request_dest, request_data_rate, path_indices, slot_indices):
+        #     print(f"({s+1}, {d+1}, {dr}),")
+        # for s, d, dr, pi, si, r in zip(request_source, request_dest, request_data_rate, path_indices, slot_indices, returns):
+        #     print(f"{s+1}, {d+1}, {dr}, {pi}, {si}, {r}")
+
+        # Compare the available paths
+        df_path_links = pd.DataFrame(params.path_link_array.val).reset_index(drop=True)
+        # Set config.weight = "weight" to use the length of the path for ordering else no. of hops
+        config.weight = "weight" if not config.weight else None
+        env, params = define_env(config)
+        df_path_links_alt = pd.DataFrame(params.path_link_array.val).reset_index(drop=True)
+        # Find rows that are unique to each dataframe
+        # First, make a unique identifer for each row
+        df_path_id = df_path_links.apply(lambda x: hash(tuple(x)), axis=1).reset_index(drop=True)
+        df_path_id_alt = df_path_links_alt.apply(lambda x: hash(tuple(x)), axis=1).reset_index(drop=True)
+        # Then check uniqueness (unique to the path ordering compared to alternate ordering)
+        unique_paths = df_path_id[~df_path_id.isin(df_path_id_alt)]
+        print(f"Fraction of paths that are unique to ordering: {len(unique_paths) / len(df_path_id):.2f}")
+        # Then for each path index we have, see if it corresponds to a unique path
+        # Get indices of unique paths
+        unique_path_indices = jnp.array(unique_paths.index)
+        # Get the path indices of the requests
+        unique_paths_used = jnp.isin(path_indices, unique_path_indices)
+        # Remove elements from unique_paths_used that have negative returns
+        unique_paths_used = jnp.where(returns > 0, unique_paths_used, 0)
+        unique_paths_used_count = jnp.count_nonzero(unique_paths_used, axis=-1)
+        positive_return_count = jnp.count_nonzero(jnp.where(returns > 0, returns, 0), axis=-1)
+        unique_paths_used_mean = (unique_paths_used_count / positive_return_count).mean(0)[0]
+        unique_paths_used_std = (unique_paths_used_count / positive_return_count).std(0)[0]
+        print(f"Fraction of successful actions that use unique paths: {unique_paths_used_mean:.3f} ± {unique_paths_used_std:.3f}")
+
