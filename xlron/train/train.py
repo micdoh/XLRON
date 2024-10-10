@@ -42,7 +42,7 @@ def main(argv):
     from xlron.environments.wrappers import TimeIt
     from xlron.train.ppo import learner_data_setup, get_learner_fn
     from xlron.heuristics.eval_heuristic import make_eval
-    from xlron.train.train_utils import save_model, log_metrics, setup_wandb
+    from xlron.train.train_utils import save_model, log_metrics, setup_wandb, define_env
     # The following flags can improve GPU performance for jaxlib>=0.4.18
     os.environ['XLA_FLAGS'] = (
         '--xla_gpu_enable_triton_softmax_fusion=true '
