@@ -287,12 +287,11 @@ def learner_data_setup(config: absl.flags.FlagValues, rng: chex.PRNGKey) -> Tupl
     )
 
     # Recreate DeepRMSA warmup period
-    if config.ENV_WARMUP_STEPS:
-        warmup_key = jax.random.split(warmup_key, config.NUM_ENVS)
-        warmup_state = (warmup_key, env_state, obsv)
-        warmup_fn = get_warmup_fn(warmup_state, env, env_params, train_state, config)
-        warmup_fn = jax.vmap(warmup_fn)
-        env_state, obsv = warmup_fn(warmup_state)
+    warmup_key = jax.random.split(warmup_key, config.NUM_ENVS)
+    warmup_state = (warmup_key, env_state, obsv)
+    warmup_fn = get_warmup_fn(warmup_state, env, env_params, train_state, config)
+    warmup_fn = jax.vmap(warmup_fn)
+    env_state, obsv = warmup_fn(warmup_state)
 
     # Initialise learner state.
     init_train_state = (train_state, env_state, obsv, rng)
