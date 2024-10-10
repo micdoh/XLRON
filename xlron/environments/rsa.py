@@ -746,6 +746,7 @@ def make_rsa_env(config):
         values_bw=HashableArrayWrapper(values_bw),
         reward_type=reward_type,
         truncate_holding_time=truncate_holding_time,
+        log_actions=log_actions,
     ) if not remove_array_wrappers else env_params(
         max_requests=max_requests,
         max_timesteps=max_timesteps,
