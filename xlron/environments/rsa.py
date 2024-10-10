@@ -166,7 +166,7 @@ class RSAEnv(environment.Environment):
         if params.__class__.__name__ == "RWALightpathReuseEnvParams":
             implement_action = implement_action_rwalr
             check_action = check_action_rwalr
-            input_state = [state, params, action]
+            input_state = check_state = [state, action, params]
             if not params.incremental_loading:
                 undo = undo_action_rwalr
                 finalise = finalise_action_rwalr
@@ -174,9 +174,10 @@ class RSAEnv(environment.Environment):
         else:
             implement_action = implement_action_rsa
             check_action = check_action_rsa
-            input_state = [state]
-        input_state[0] = implement_action(*input_state)
-        check = check_action(*input_state)
+            input_state = [state, action, params]
+            check_state = [state]
+        check_state[0] = state = implement_action(*input_state)
+        check = check_action(*check_state)
         state, reward = jax.lax.cond(
             check,  # Fail if true
             lambda x: (undo(x[0]), self.get_reward_failure(*x)),
