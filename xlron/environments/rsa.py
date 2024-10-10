@@ -611,6 +611,7 @@ def make_rsa_env(config):
     multiple_topologies_directory = config.get("multiple_topologies_directory", None)
     aggregate_slots = config.get("aggregate_slots", 1)
     disjoint_paths = config.get("disjoint_paths", False)
+    log_actions = config.get("log_actions", False)
     guardband = config.get("guardband", 1)
     weight = config.get("weight", None)
     remove_array_wrappers = config.get("remove_array_wrappers", False)
@@ -695,7 +696,8 @@ def make_rsa_env(config):
             )
             max_requests = int(scale_factor * max_requests)
         else:
-            # If considering just RSA without physical layer considerations  (not recommended)
+            # If considering just RSA without physical layer considerations
+            slot_size = 1
             link_length_array = jnp.ones((num_links, 1))
         max_slots = required_slots(max_bw, 1, slot_size, guardband=guardband)
 
