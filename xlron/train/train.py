@@ -78,8 +78,10 @@ def main(argv):
     if FLAGS.DEBUG:
         print('non-flag arguments:', argv)
         jax.numpy.set_printoptions(threshold=sys.maxsize)  # Don't truncate printed arrays
-    for name in FLAGS:
-        print(name, FLAGS[name].value)
+
+    if not FLAGS.NO_PRINT_FLAGS:
+        for name in FLAGS:
+            print(name, FLAGS[name].value)
 
     rng = jax.random.PRNGKey(FLAGS.SEED)
     rng = jax.random.split(rng, FLAGS.NUM_LEARNERS)
