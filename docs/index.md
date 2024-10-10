@@ -24,9 +24,7 @@ XLRON is a product of my PhD research, which is focused on the application of Re
 
 ___
 
-## 🏎️ Speed Benchmarks 🏎️ 
-
-#### tldr: Expect approximately 500x speed-up! 🚀
+## 🧠 Understanding XLRON 🧠
 
 XLRON is faster than CPU-based training because of the following factors:
 
@@ -35,6 +33,16 @@ XLRON is faster than CPU-based training because of the following factors:
 - End-to-end JAX implementation (both environment and RL algorithm) allows entire training loop to be compiled and optimised as a single program
 - GPU-compatiblity allows parallelisation to make maximum use of accelerator hardware (GPU or TPU)
 - Running entirely on GPU avoids CPU-GPU data transfer bottleneck and eliminates any overhead from Python interpreter
+
+To further understand the architecture of XLRON and how it allows distributed training for multiple environments across multiple devices and even for multiple learners (neural network parameters), take a look at the below diagram:
+
+<img src="./images/xlron_training_vert.png">
+
+
+## 🏎️ Speed Benchmarks 🏎️ 
+
+#### tldr: Expect approximately 500x speed-up! 🚀
+
 
 For the comparisons shown, the CPU is 10-core Apple M1 Pro and the GPU is Nvidia A100.
 
