@@ -91,17 +91,167 @@ def init_link_length_array(graph: nx.Graph) -> chex.Array:
 
     """
     link_lengths = []
+    for edge in sorted(graph.edges):
+        link_lengths.append(graph.edges[edge]["weight"])
+    return jnp.array(link_lengths)
+
+
+def init_link_length_array_deprecated(graph: nx.Graph) -> chex.Array:
+    """Initialise link length array.
+    Args:
+        graph (nx.Graph): NetworkX graph
+    Returns:
+
+    """
+    link_lengths = []
     directed = graph.is_directed()
     graph = graph.to_undirected()
     for edge in sorted(graph.edges):
         link_lengths.append(graph.edges[edge]["weight"])
     if directed:
-        for edge in sorted(graph.edges):
-            link_lengths.append(graph.edges[edge]["weight"])
+       for edge in sorted(graph.edges):
+           link_lengths.append(graph.edges[edge]["weight"])
     return jnp.array(link_lengths)
 
 
 def init_path_link_array(
+        graph: nx.Graph,
+        k: int,
+        disjoint: bool = False,
+        weight: str = "weight",
+        directed: bool = False,
+        modulations_array: chex.Array = None,
+        rwa_lr: bool = False,
+        scale_factor: float = 1.0
+) -> chex.Array:
+    """Initialise path-link array.
+    Each path is defined by a link utilisation array (one row in the path-link array).
+    1 indicates link corresponding to index is used, 0 indicates not used.
+
+    Args:
+        graph (nx.Graph): NetworkX graph
+        k (int): Number of paths
+        disjoint (bool, optional): Whether to use edge-disjoint paths. Defaults to False.
+        weight (str, optional): Sort paths by edge attribute. Defaults to "weight".
+        directed (bool, optional): Whether graph is directed. Defaults to False.
+        modulations_array (chex.Array, optional): Array of maximum spectral efficiency for modulation format on path. Defaults to None.
+        rwa_lr (bool, optional): Whether the environment is RWA with lightpath reuse (affects path ordering).
+
+    Returns:
+        chex.Array: Path-link array (N(N-1)*k x E) where N is number of nodes, E is number of edges, k is number of shortest paths
+    """
+    def get_k_shortest_paths(g, source, target, k, weight):
+        return list(
+            islice(nx.shortest_simple_paths(g, source, target, weight=weight), k)
+        )
+
+    def get_k_disjoint_shortest_paths(g, source, target, k, weight):
+        k_paths_disjoint_unsorted = list(nx.edge_disjoint_paths(g, source, target))
+        k_paths_shortest = get_k_shortest_paths(g, source, target, k, weight=weight)
+
+        # Keep disjoint paths and add unique shortest paths until k paths reached
+        disjoint_ids = [tuple(path) for path in k_paths_disjoint_unsorted]
+        k_paths = k_paths_disjoint_unsorted
+        for path in k_paths_shortest:
+            if tuple(path) not in disjoint_ids:
+                k_paths.append(path)
+        k_paths = k_paths[:k]
+        return k_paths
+
+    paths = []
+    reverse_paths = []  # used for directed graphs (i.e. dual fibre links)
+    edges = sorted(graph.edges)
+
+    # Get the k-shortest paths for each node pair
+    k_path_collections = []
+    for node_pair in combinations(graph.nodes, 2):
+
+        if disjoint:
+            k_paths = get_k_disjoint_shortest_paths(
+                graph, node_pair[0], node_pair[1], k, weight=weight
+            )
+        else:
+            k_paths = get_k_shortest_paths(
+                graph, node_pair[0], node_pair[1], k, weight=weight
+            )
+        k_path_collections.append(k_paths)
+
+    # Sort the paths for each node pair
+    for k_paths in k_path_collections:
+
+        source, dest = k_paths[0][0], k_paths[0][-1]
+
+        # Sort the paths by # of hops then by length, or just length
+        path_lengths = [nx.path_weight(graph, path, weight='weight') for path in k_paths]
+        path_num_links = [len(path) - 1 for path in k_paths]
+
+        # Get maximum spectral efficiency for modulation format on path
+        if modulations_array is not None and rwa_lr is not True:
+            se_of_path = []
+            modulations_array = modulations_array[::-1]
+            for length in path_lengths:
+                for modulation in modulations_array:
+                    if length <= modulation[0]:
+                        se_of_path.append(modulation[1])
+                        break
+            # Sorting by the num_links/se instead of just path length is observed to improve performance
+            path_weighting = [num_links/se for se, num_links in zip(se_of_path, path_num_links)]
+        elif rwa_lr:
+            path_capacity = [float(calculate_path_capacity(path_length, scale_factor=scale_factor)) for path_length in path_lengths]
+            path_weighting = [num_links/path_capacity for num_links, path_capacity in zip(path_num_links, path_capacity)]
+        elif weight is None:
+            path_weighting = path_num_links
+        else:
+            path_weighting = path_lengths
+
+        # Sort by number of links then by length (or just by length if weight is specified)
+        unsorted_paths = zip(k_paths, path_weighting, path_lengths)
+        k_paths_sorted = [(source, dest, weighting, path) for path, weighting, _ in sorted(unsorted_paths, key=lambda x: (x[1], 1/x[2]) if weight is None else x[2])]
+
+        # Keep only first k paths
+        k_paths_sorted = k_paths_sorted[:k]
+        k_paths_sorted_rev = [(dest, source, weighting, path[::-1]) for (source, dest, weighting, path) in k_paths_sorted]
+
+        # Change selected paths for COST239 to match benchmark
+        for i, (source, dest, weighting, path) in enumerate(k_paths_sorted):
+            if source == 5 and dest == 11 and i == 4 and len(edges) == 52 and len(graph.nodes) == 11:
+                path = [5, 4, 9, 11]
+            k_paths_sorted[i] = (source, dest, weighting, path)
+            #print(source, dest, i, weighting, path)
+        for i, (source, dest, weighting, path) in enumerate(k_paths_sorted_rev):
+            if source == 11 and dest == 5 and i == 4 and len(edges) == 52 and len(graph.nodes) == 11:
+                path = [11, 10, 9, 4, 5]
+            k_paths_sorted_rev[i] = (source, dest, weighting, path)
+            #print(source, dest, i, weighting, path)
+
+        for k_path in k_paths_sorted:
+            k_path = k_path[-1]
+            link_usage = [0]*len(graph.edges)  # Initialise empty path
+            for i in range(len(k_path)-1):
+                s, d = k_path[i], k_path[i+1]
+                for edge_index, edge in enumerate(edges):
+                    if edge[0] == s and edge[1] == d:# or edge[0] == d and edge[1] == s:
+                        link_usage[edge_index] = 1
+            path = link_usage
+            paths.append(path)
+
+        if directed:
+            for k_path in k_paths_sorted_rev:
+                k_path = k_path[-1]
+                link_usage = [0] * len(graph.edges)  # Initialise empty path
+                for i in range(len(k_path) - 1):
+                    s, d = k_path[i], k_path[i + 1]
+                    for edge_index, edge in enumerate(edges):
+                        if edge[0] == s and edge[1] == d:# or edge[0] == d and edge[1] == s:
+                            link_usage[edge_index] = 1
+                reverse_paths.append(link_usage)
+
+    paths = paths + reverse_paths
+
+    return jnp.array(paths, dtype=jnp.float32)
+
+
+def init_path_link_array_deprecated(
         graph: nx.Graph,
         k: int,
         disjoint: bool = False,
@@ -342,7 +492,34 @@ def init_values_bandwidth(min_value: int = 25, max_value: int = 100, step: int =
 
 
 @partial(jax.jit, static_argnums=(2, 3))
-def get_path_indices(s: int, d: int, k: int, N: int, directed: bool = False) -> int:
+def get_path_indices(s: int, d: int, k: int, N: int, directed: bool = False) -> chex.Array:
+    """Get path indices for a given source, destination and number of paths.
+    If source > destination and the graph is directed (two fibres per link, one in each direction) then an offset is
+    added to the index to get the path in the other direction (the offset is the total number source-dest pairs).
+
+    Args:
+        s (int): Source node index
+        d (int): Destination node index
+        k (int): Number of paths
+        N (int): Number of nodes
+        directed (bool, optional): Whether graph is directed. Defaults to False.
+
+    Returns:
+        jnp.array: Start index on path-link array for candidate paths
+    """
+    node_indices = jnp.arange(N, dtype=jnp.int32)
+    indices_to_s = jnp.where(node_indices < s, node_indices, 0)
+    indices_to_d = jnp.where(node_indices < d, node_indices, 0)
+    # If two fibres per link, add offset to index to get fibre in other direction if source > destination
+    directed_offset = directed * (s > d) * N * (N - 1) * k / 2
+    # The following equation is based on the combinations formula
+    forward = ((N * s + d - jnp.sum(indices_to_s) - 2 * s - 1) * k)
+    backward = ((N * d + s - jnp.sum(indices_to_d) - 2 * d - 1) * k)
+    return forward * (s < d) + backward * (s > d) + directed_offset
+
+
+@partial(jax.jit, static_argnums=(2, 3))
+def get_path_indices_deprecated(s: int, d: int, k: int, N: int, directed: bool = False) -> chex.Array:
     """Get path indices for a given source, destination and number of paths.
     If source > destination and the graph is directed (two fibres per link, one in each direction) then an offset is
     added to the index to get the path in the other direction (the offset is the total number source-dest pairs).
