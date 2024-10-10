@@ -2150,9 +2150,10 @@ def calculate_path_capacity(
         R_s=100e9,  # Symbol rate
         beta_2=-21.7e-27,  # Dispersion parameter
         gamma=1.2e-3,  # Nonlinear coefficient
-        L_s=100e3,  # span length
+        L_s=100e3,  # Span length
         lambda0=1550e-9,  # Wavelength
 ):
+    """From Nevin JOCN paper 2022: https://discovery.ucl.ac.uk/id/eprint/10175456/1/RL_JOCN_accepted.pdf"""
     alpha_lin = alpha / 4.343  # Linear attenuation coefficient
     N_spans = jnp.floor(path_length * 1e3 / L_s)  # Number of fibre spans on path
     L_eff = (1 - jnp.exp(-alpha_lin * L_s)) / alpha_lin  # Effective length of span in m
@@ -2161,7 +2162,7 @@ def calculate_path_capacity(
                         jnp.log(jnp.pi**2 * jnp.abs(beta_2) * B**2 / alpha_lin) / (jnp.pi * jnp.abs(beta_2) * R_s**2))  # Noise-to-signal ratio per span
     path_NSR = jnp.where(N_spans < 1, 1, N_spans) * span_NSR  # Noise-to-signal ratio per path
     path_capacity = 2 * R_s/1e9 * jnp.log2(1 + 1/path_NSR)  # Capacity of path in Gbps
-    # Round link capacity up to nearest increment of minimum request size and apply scale factor
+    # Round link capacity down to nearest increment of minimum request size and apply scale factor
     path_capacity = jnp.floor(path_capacity * scale_factor / min_request) * min_request
     return path_capacity
 
