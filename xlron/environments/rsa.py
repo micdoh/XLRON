@@ -777,6 +777,7 @@ def make_rsa_env(config):
         values_bw=values_bw,
         reward_type=reward_type,
         truncate_holding_time=truncate_holding_time,
+        log_actions=log_actions,
     )
 
     # If training single model on multiple topologies, must store params for each topology within top-level params
