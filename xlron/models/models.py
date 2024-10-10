@@ -262,8 +262,6 @@ class CriticGNN(nn.Module):
         # Take first half processed_graph.edges as edge features
         edge_features = processed_graph.edges if params.directed_graph else processed_graph.edges[:len(processed_graph.edges) // 2]
         edge_features = edge_features * (params.link_length_array.val/jnp.sum(params.link_length_array.val))
-        # TODO - does processed graph include processed globals in node and edge features?
-        #  Or does globals feature the node and edge features, but not the other way round?
         # Index every other row of the edge features to get the link-slot array
         edge_features_flat = jnp.reshape(edge_features, (-1,))
         # pass aggregated features through MLP
