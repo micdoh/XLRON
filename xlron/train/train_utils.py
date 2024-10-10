@@ -2,6 +2,7 @@ import chex
 import jax
 import jax.numpy as jnp
 import numpy as np
+import pandas as pd
 from typing import Any, Callable, Union, Sequence, NamedTuple, Any, Tuple
 import absl
 import optax
@@ -19,123 +20,92 @@ from xlron.environments.vone import make_vone_env
 from xlron.environments.rsa import make_rsa_env
 from xlron.models.models import ActorCriticGNN, ActorCriticMLP
 from xlron.environments.dataclasses import EnvState
+from xlron.environments.env_funcs import init_link_length_array, make_graph
 
 
 class TrainState(struct.PyTreeNode):
-  """Simple train state for the common case with a single Optax optimizer.
+    """Simple train state for the common case with a single Optax optimizer.
 
-  Example usage::
+    Note that you can easily extend this dataclass by subclassing it for storing
+    additional data (e.g. additional variable collections).
 
-    >>> import flax.linen as nn
-    >>> from flax.training.train_state import TrainState
-    >>> import jax, jax.numpy as jnp
-    >>> import optax
-
-    >>> x = jnp.ones((1, 2))
-    >>> y = jnp.ones((1, 2))
-    >>> model = nn.Dense(2)
-    >>> variables = model.init(jax.random.key(0), x)
-    >>> tx = optax.adam(1e-3)
-
-    >>> state = TrainState.create(
-    ...     apply_fn=model.apply,
-    ...     params=variables['params'],
-    ...     tx=tx)
-
-    >>> def loss_fn(params, x, y):
-    ...   predictions = state.apply_fn({'params': params}, x)
-    ...   loss = optax.l2_loss(predictions=predictions, targets=y).mean()
-    ...   return loss
-    >>> loss_fn(state.params, x, y)
-    Array(3.3514676, dtype=float32)
-
-    >>> grads = jax.grad(loss_fn)(state.params, x, y)
-    >>> state = state.apply_gradients(grads=grads)
-    >>> loss_fn(state.params, x, y)
-    Array(3.343844, dtype=float32)
-
-  Note that you can easily extend this dataclass by subclassing it for storing
-  additional data (e.g. additional variable collections).
-
-  For more exotic usecases (e.g. multiple optimizers) it's probably best to
-  fork the class and modify it.
-
-  Args:
-    step: Counter starts at 0 and is incremented by every call to
-      ``.apply_gradients()``.
-    apply_fn: Usually set to ``model.apply()``. Kept in this dataclass for
-      convenience to have a shorter params list for the ``train_step()`` function
-      in your training loop.
-    params: The parameters to be updated by ``tx`` and used by ``apply_fn``.
-    tx: An Optax gradient transformation.
-    opt_state: The state for ``tx``.
-  """
-
-  step: Union[int, jax.Array]
-  apply_fn: Callable = struct.field(pytree_node=False)
-  params: core.FrozenDict[str, Any] = struct.field(pytree_node=True)
-  tx: optax.GradientTransformation = struct.field(pytree_node=False)
-  opt_state: optax.OptState = struct.field(pytree_node=True)
-
-  def apply_gradients(self, *, grads, **kwargs):
-    """Updates ``step``, ``params``, ``opt_state`` and ``**kwargs`` in return value.
-
-    Note that internally this function calls ``.tx.update()`` followed by a call
-    to ``optax.apply_updates()`` to update ``params`` and ``opt_state``.
+    For more exotic usecases (e.g. multiple optimizers) it's probably best to
+    fork the class and modify it.
 
     Args:
-      grads: Gradients that have the same pytree structure as ``.params``.
-      **kwargs: Additional dataclass attributes that should be ``.replace()``-ed.
-
-    Returns:
-      An updated instance of ``self`` with ``step`` incremented by one, ``params``
-      and ``opt_state`` updated by applying ``grads``, and additional attributes
-      replaced as specified by ``kwargs``.
+        step: Counter starts at 0 and is incremented by every call to ``.apply_gradients()``.
+        apply_fn: Usually set to ``model.apply()``. Kept in this dataclass for convenience
+        to have a shorter params list for the ``train_step()`` function in your training loop.
+        params: The parameters to be updated by ``tx`` and used by ``apply_fn``.
+        tx: An Optax gradient transformation.
+        opt_state: The state for ``tx``.
     """
-    if OVERWRITE_WITH_GRADIENT in grads:
-      grads_with_opt = grads['params']
-      params_with_opt = self.params['params']
-    else:
-      grads_with_opt = grads
-      params_with_opt = self.params
 
-    updates, new_opt_state = self.tx.update(
-      grads_with_opt, self.opt_state, params_with_opt
-    )
-    new_params_with_opt = optax.apply_updates(params_with_opt, updates)
+    step: Union[int, jax.Array]
+    apply_fn: Callable = struct.field(pytree_node=False)
+    params: core.FrozenDict[str, Any] = struct.field(pytree_node=True)
+    tx: optax.GradientTransformation = struct.field(pytree_node=False)
+    opt_state: optax.OptState = struct.field(pytree_node=True)
 
-    # As implied by the OWG name, the gradients are used directly to update the
-    # parameters.
-    if OVERWRITE_WITH_GRADIENT in grads:
-      new_params = {
-        'params': new_params_with_opt,
-        OVERWRITE_WITH_GRADIENT: grads[OVERWRITE_WITH_GRADIENT],
-      }
-    else:
-      new_params = new_params_with_opt
-    return self.replace(
-      step=self.step + 1,
-      params=new_params,
-      opt_state=new_opt_state,
-      **kwargs,
-    )
+    def apply_gradients(self, *, grads, **kwargs):
+        """Updates ``step``, ``params``, ``opt_state`` and ``**kwargs`` in return value.
 
-  @classmethod
-  def create(cls, *, apply_fn, params, tx, **kwargs):
-    """Creates a new instance with ``step=0`` and initialized ``opt_state``."""
-    # We exclude OWG params when present because they do not need opt states.
-    params_with_opt = (
-      params['params'] if OVERWRITE_WITH_GRADIENT in params else params
-    )
-    opt_state = tx.init(params_with_opt)
-    return cls(
-      step=jnp.array(0),
-      apply_fn=apply_fn,
-      params=params,
-      tx=tx,
-      opt_state=opt_state,
-      **kwargs,
-    )
+        Note that internally this function calls ``.tx.update()`` followed by a call
+        to ``optax.apply_updates()`` to update ``params`` and ``opt_state``.
+
+        Args:
+          grads: Gradients that have the same pytree structure as ``.params``.
+          **kwargs: Additional dataclass attributes that should be ``.replace()``-ed.
+
+        Returns:
+          An updated instance of ``self`` with ``step`` incremented by one, ``params``
+          and ``opt_state`` updated by applying ``grads``, and additional attributes
+          replaced as specified by ``kwargs``.
+        """
+        if OVERWRITE_WITH_GRADIENT in grads:
+            grads_with_opt = grads['params']
+            params_with_opt = self.params['params']
+        else:
+            grads_with_opt = grads
+            params_with_opt = self.params
+
+        updates, new_opt_state = self.tx.update(
+            grads_with_opt, self.opt_state, params_with_opt
+        )
+        new_params_with_opt = optax.apply_updates(params_with_opt, updates)
+
+        # As implied by the OWG name, the gradients are used directly to update the
+        # parameters.
+        if OVERWRITE_WITH_GRADIENT in grads:
+            new_params = {
+                'params': new_params_with_opt,
+                OVERWRITE_WITH_GRADIENT: grads[OVERWRITE_WITH_GRADIENT],
+            }
+        else:
+            new_params = new_params_with_opt
+        return self.replace(
+            step=self.step + 1,
+            params=new_params,
+            opt_state=new_opt_state,
+            **kwargs,
+        )
+
+    @classmethod
+    def create(cls, *, apply_fn, params, tx, **kwargs):
+        """Creates a new instance with ``step=0`` and initialized ``opt_state``."""
+        # We exclude OWG params when present because they do not need opt states.
+        params_with_opt = (
+            params['params'] if OVERWRITE_WITH_GRADIENT in params else params
+        )
+        opt_state = tx.init(params_with_opt)
+        return cls(
+            step=jnp.array(0),
+            apply_fn=apply_fn,
+            params=params,
+            tx=tx,
+            opt_state=opt_state,
+            **kwargs,
+        )
 
 
 def scale_gradient(g: chex.Array, scale: float = 1) -> chex.Array:
@@ -209,7 +179,7 @@ def save_model(train_state: TrainState, run_name, flags: absl.flags.FlagValues):
     while model_path.exists():
         # Add index to end of model_path
         model_path = pathlib.Path(str(model_path_og) + f"_{i}") if flags.MODEL_PATH else model_path_og.parent / (
-                    model_path_og.name + f"_{i}")
+                model_path_og.name + f"_{i}")
         i += 1
     print(f"Saving model to {model_path.absolute()}")
     orbax_checkpointer.save(model_path.absolute(), save_data, save_args=save_args)
@@ -237,7 +207,7 @@ def init_network(config, env, env_state, env_params):
                                  activation=config.ACTIVATION,
                                  num_layers=config.NUM_LAYERS,
                                  num_units=config.NUM_UNITS,
-                                 layer_norm=config.LAYER_NORM,)
+                                 layer_norm=config.LAYER_NORM, )
         init_x = tuple([jnp.zeros(env.observation_space(env_params).n)])
     elif config.env_type.lower() in ["rsa", "rmsa", "rwa", "deeprmsa", "rwa_lightpath_reuse"]:
         if config.USE_GNN:
@@ -262,7 +232,7 @@ def init_network(config, env, env_state, env_params):
                                      activation=config.ACTIVATION,
                                      num_layers=config.NUM_LAYERS,
                                      num_units=config.NUM_UNITS,
-                                     layer_norm=config.LAYER_NORM,)
+                                     layer_norm=config.LAYER_NORM, )
 
             init_x = tuple([jnp.zeros(env.observation_space(env_params).n)])
     else:
@@ -345,7 +315,6 @@ def get_warmup_fn(warmup_state, env, params, train_state, config) -> Tuple[EnvSt
     """Warmup period for DeepRMSA."""
 
     def warmup_fn(warmup_state):
-
         rng, state, last_obs = warmup_state
 
         def warmup_step(i, val):
@@ -370,7 +339,6 @@ def get_warmup_fn(warmup_state, env, params, train_state, config) -> Tuple[EnvSt
 
 
 def make_lr_schedule(config):
-
     def linear_schedule(count):
         frac = (1.0 - (count // (config.NUM_MINIBATCHES * config.UPDATE_EPOCHS)) /
                 (config.NUM_UPDATES * config.SCHEDULE_MULTIPLIER))
@@ -381,10 +349,10 @@ def make_lr_schedule(config):
         if config.LR_SCHEDULE == "warmup_cosine":
             schedule = optax.warmup_cosine_decay_schedule(
                 init_value=config.LR,
-                peak_value=config.LR*config.WARMUP_PEAK_MULTIPLIER,
+                peak_value=config.LR * config.WARMUP_PEAK_MULTIPLIER,
                 warmup_steps=int(total_steps * config.WARMUP_STEPS_FRACTION),
                 decay_steps=total_steps,
-                end_value=config.LR*config.WARMUP_END_FRACTION)
+                end_value=config.LR * config.WARMUP_END_FRACTION)
         elif config.LR_SCHEDULE == "linear":
             schedule = linear_schedule
         elif config.LR_SCHEDULE == "constant":
@@ -435,7 +403,8 @@ def log_metrics(config, out, experiment_name, total_time, merge_func):
     else:
         # Episode lengths are uniform so return the mean and std across envs at each episode end
         episode_ends = np.where(merged_out["done"].mean(0).reshape(-1) == 1)[0] - 1 \
-            if not config.continuous_operation else np.arange(0, config.TOTAL_TIMESTEPS, config.max_timesteps)[1:].astype(int) - 1
+            if not config.continuous_operation else np.arange(0, config.TOTAL_TIMESTEPS, config.max_timesteps)[
+                                                    1:].astype(int) - 1
         get_episode_end_mean = lambda x: x.mean(0).reshape(-1)[episode_ends]
         get_episode_end_std = lambda x: x.std(0).reshape(-1)[episode_ends]
 
@@ -464,23 +433,34 @@ def log_metrics(config, out, experiment_name, total_time, merge_func):
     returns_std = get_std(merged_out, "returns") if not config.end_first_blocking else returns_std_episode_end
     lengths_mean = get_mean(merged_out, "lengths") if not config.end_first_blocking else lengths_mean_episode_end
     lengths_std = get_std(merged_out, "lengths") if not config.end_first_blocking else lengths_std_episode_end
-    cum_returns_mean = get_mean(merged_out, "cum_returns") if not config.end_first_blocking else cum_returns_mean_episode_end
-    cum_returns_std = get_std(merged_out, "cum_returns") if not config.end_first_blocking else cum_returns_std_episode_end
-    accepted_services_mean = get_mean(merged_out, "accepted_services") if not config.end_first_blocking else accepted_services_mean_episode_end
-    accepted_services_std = get_std(merged_out, "accepted_services") if not config.end_first_blocking else accepted_services_std_episode_end
-    accepted_bitrate_mean = get_mean(merged_out, "accepted_bitrate") if not config.end_first_blocking else accepted_bitrate_mean_episode_end
-    accepted_bitrate_std = get_std(merged_out, "accepted_bitrate") if not config.end_first_blocking else accepted_bitrate_std_episode_end
-    total_bitrate_mean = get_mean(merged_out, "total_bitrate") if not config.end_first_blocking else total_bitrate_mean_episode_end
-    total_bitrate_std = get_std(merged_out, "total_bitrate") if not config.end_first_blocking else total_bitrate_std_episode_end
-    utilisation_mean = get_mean(merged_out, "utilisation") if not config.end_first_blocking else utilisation_mean_episode_end
-    utilisation_std = get_std(merged_out, "utilisation") if not config.end_first_blocking else utilisation_std_episode_end
+    cum_returns_mean = get_mean(merged_out,
+                                "cum_returns") if not config.end_first_blocking else cum_returns_mean_episode_end
+    cum_returns_std = get_std(merged_out,
+                              "cum_returns") if not config.end_first_blocking else cum_returns_std_episode_end
+    accepted_services_mean = get_mean(merged_out,
+                                      "accepted_services") if not config.end_first_blocking else accepted_services_mean_episode_end
+    accepted_services_std = get_std(merged_out,
+                                    "accepted_services") if not config.end_first_blocking else accepted_services_std_episode_end
+    accepted_bitrate_mean = get_mean(merged_out,
+                                     "accepted_bitrate") if not config.end_first_blocking else accepted_bitrate_mean_episode_end
+    accepted_bitrate_std = get_std(merged_out,
+                                   "accepted_bitrate") if not config.end_first_blocking else accepted_bitrate_std_episode_end
+    total_bitrate_mean = get_mean(merged_out,
+                                  "total_bitrate") if not config.end_first_blocking else total_bitrate_mean_episode_end
+    total_bitrate_std = get_std(merged_out,
+                                "total_bitrate") if not config.end_first_blocking else total_bitrate_std_episode_end
+    utilisation_mean = get_mean(merged_out,
+                                "utilisation") if not config.end_first_blocking else utilisation_mean_episode_end
+    utilisation_std = get_std(merged_out,
+                              "utilisation") if not config.end_first_blocking else utilisation_std_episode_end
     training_time = np.arange(len(returns_mean)) / returns_mean * total_time
     # get values of service and bitrate blocking probs
-    service_blocking_probability = 1 - (accepted_services_mean / lengths_mean) if not config.end_first_blocking else service_blocking_probability_episode_end
+    service_blocking_probability = 1 - (
+                accepted_services_mean / lengths_mean) if not config.end_first_blocking else service_blocking_probability_episode_end
     service_blocking_probability_std = accepted_services_std / lengths_mean if not config.end_first_blocking else service_blocking_probability_std_episode_end
-    bitrate_blocking_probability = 1 - (accepted_bitrate_mean / total_bitrate_mean) if not config.end_first_blocking else bitrate_blocking_probability_episode_end
+    bitrate_blocking_probability = 1 - (
+                accepted_bitrate_mean / total_bitrate_mean) if not config.end_first_blocking else bitrate_blocking_probability_episode_end
     bitrate_blocking_probability_std = accepted_bitrate_std / total_bitrate_mean if not config.end_first_blocking else bitrate_blocking_probability_std_episode_end
-
 
     if config.PLOTTING:
         if config.incremental_loading:
@@ -511,8 +491,8 @@ def log_metrics(config, out, experiment_name, total_time, merge_func):
         plt.title(experiment_name)
         plt.show()
 
-        plot_metric = moving_average(plot_metric, min(100, int(len(plot_metric)/2)))
-        plot_metric_std = moving_average(plot_metric_std, min(100, int(len(plot_metric_std)/2)))
+        plot_metric = moving_average(plot_metric, min(100, int(len(plot_metric) / 2)))
+        plot_metric_std = moving_average(plot_metric_std, min(100, int(len(plot_metric_std) / 2)))
         plt.plot(plot_metric)
         plt.fill_between(
             range(len(plot_metric)),
@@ -563,10 +543,16 @@ def log_metrics(config, out, experiment_name, total_time, merge_func):
         lengths_std = lengths_std[chop:].reshape(-1, config.DOWNSAMPLE_FACTOR).mean(axis=1)
         total_bitrate_mean = total_bitrate_mean[chop:].reshape(-1, config.DOWNSAMPLE_FACTOR).mean(axis=1)
         total_bitrate_std = total_bitrate_std[chop:].reshape(-1, config.DOWNSAMPLE_FACTOR).mean(axis=1)
-        service_blocking_probability = service_blocking_probability[chop:].reshape(-1, config.DOWNSAMPLE_FACTOR).mean(axis=1)
-        service_blocking_probability_std = service_blocking_probability_std[chop:].reshape(-1, config.DOWNSAMPLE_FACTOR).mean(axis=1)
-        bitrate_blocking_probability = bitrate_blocking_probability[chop:].reshape(-1, config.DOWNSAMPLE_FACTOR).mean(axis=1)
-        bitrate_blocking_probability_std = bitrate_blocking_probability_std[chop:].reshape(-1, config.DOWNSAMPLE_FACTOR).mean(axis=1)
+        service_blocking_probability = service_blocking_probability[chop:].reshape(-1, config.DOWNSAMPLE_FACTOR).mean(
+            axis=1)
+        service_blocking_probability_std = service_blocking_probability_std[chop:].reshape(-1,
+                                                                                           config.DOWNSAMPLE_FACTOR).mean(
+            axis=1)
+        bitrate_blocking_probability = bitrate_blocking_probability[chop:].reshape(-1, config.DOWNSAMPLE_FACTOR).mean(
+            axis=1)
+        bitrate_blocking_probability_std = bitrate_blocking_probability_std[chop:].reshape(-1,
+                                                                                           config.DOWNSAMPLE_FACTOR).mean(
+            axis=1)
         accepted_services_mean = accepted_services_mean[chop:].reshape(-1, config.DOWNSAMPLE_FACTOR).mean(axis=1)
         accepted_services_std = accepted_services_std[chop:].reshape(-1, config.DOWNSAMPLE_FACTOR).mean(axis=1)
         accepted_bitrate_mean = accepted_bitrate_mean[chop:].reshape(-1, config.DOWNSAMPLE_FACTOR).mean(axis=1)
@@ -589,7 +575,7 @@ def log_metrics(config, out, experiment_name, total_time, merge_func):
         for i in range(len(returns_mean)):
             # Log the data
             log_dict = {
-                "update_step": i*config.DOWNSAMPLE_FACTOR,
+                "update_step": i * config.DOWNSAMPLE_FACTOR,
                 "cum_returns_mean": cum_returns_mean[i],
                 "cum_returns_std": cum_returns_std[i],
                 "returns_mean": returns_mean[i],
