@@ -184,6 +184,8 @@ class RSAEnv(environment.Environment):
             lambda x: (finalise(x[0]), self.get_reward_success(*x)),  # Finalise actions if complete
             (state, params)
         )
+        # TODO - calculate allocated bandwidth
+        # TODO - generate new request if allocated DR equals requested DR, else update requested DR do not advance time do not replace source-dest
         # TODO - write separate functions for deterministic transition (above) and stochastic transition (below)
         # Generate new request
         state = generate_request(key, state, params)
