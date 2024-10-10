@@ -2269,7 +2269,7 @@ def check_lightpath_available_and_existing(state: EnvState, params: EnvParams, a
     return lightpath_available_check, lightpath_existing_check, curr_lightpath_capacity, lightpath_index
 
 
-def check_action_rwalr(state: EnvState, params: EnvParams, action: chex.Array) -> bool:
+def check_action_rwalr(state: EnvState, action: chex.Array, params: EnvParams) -> bool:
     """Combines checks for:
     - no spectrum reuse
     - lightpath available and existing
