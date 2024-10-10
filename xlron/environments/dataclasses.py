@@ -194,10 +194,12 @@ class RWALightpathReuseEnvState(RSAEnvState):
     """Dataclass to hold environment state for RWA with lightpath reuse.
 
     Args:
+        time_since_last_departure (chex.Array): Time since last departure event
         path_index_array (chex.Array): Contains indices of lightpaths in use on slots
         path_capacity_array (chex.Array): Contains remaining capacity of each lightpath
         link_capacity_array (chex.Array): Contains remaining capacity of lightpath on each link-slot
     """
+    time_since_last_departure: chex.Array # Time since last departure
     path_index_array: chex.Array  # Contains indices of lightpaths in use on slots
     path_capacity_array: chex.Array  # Contains remaining capacity of each lightpath
     link_capacity_array: chex.Array  # Contains remaining capacity of lightpath on each link-slot
