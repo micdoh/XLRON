@@ -2820,7 +2820,7 @@ def set_c_l_band_gap(link_slot_array: chex.Array, params: RSAGNModelEnvParams, v
 
 
 @partial(jax.jit, static_argnums=(1,))
-def check_rsa_gn_model_action(state: EnvState, params: EnvParams, action: Optional[chex.Array]) -> bool:
+def check_action_rsa_gn_model(state: EnvState, params: EnvParams, action: Optional[chex.Array]) -> bool:
     """Check if action is valid for RSA GN model
     Args:
         state (EnvState): Environment state
@@ -2839,7 +2839,7 @@ def check_rsa_gn_model_action(state: EnvState, params: EnvParams, action: Option
 
 
 @partial(jax.jit, static_argnums=(2,))
-def implement_rsa_gn_model_action(state: RSAGNModelEnvState, action: chex.Array, params: RSAGNModelEnvParams) -> EnvState:
+def implement_action_rsa_gn_model(state: RSAGNModelEnvState, action: chex.Array, params: RSAGNModelEnvParams) -> EnvState:
     """Implement action for RSA GN model
     Args:
         state (EnvState): Environment state
@@ -2881,7 +2881,7 @@ def implement_rsa_gn_model_action(state: RSAGNModelEnvState, action: chex.Array,
 
 
 @partial(jax.jit, static_argnums=(1,))
-def undo_rsa_gn_model_action(state: RSAGNModelEnvState, params: RSAGNModelEnvParams) -> EnvState:
+def undo_action_rsa_gn_model(state: RSAGNModelEnvState, params: RSAGNModelEnvParams) -> EnvState:
     """Undo action for RSA GN model
     Args:
         state (EnvState): Environment state
@@ -2890,7 +2890,7 @@ def undo_rsa_gn_model_action(state: RSAGNModelEnvState, params: RSAGNModelEnvPar
     Returns:
         EnvState: Updated environment state
     """
-    state = undo_link_slot_action(state, params)  # Undo link_slot_array and link_slot_departure_array
+    state = undo_action_rsa(state, params)  # Undo link_slot_array and link_slot_departure_array
     state = state.replace(
         link_slot_array=set_c_l_band_gap(state.link_slot_array, params, -1.),  # Set C+L band gap
         # TODO - investigate more memory-efficient way to undo arrays
@@ -2903,8 +2903,8 @@ def undo_rsa_gn_model_action(state: RSAGNModelEnvState, params: RSAGNModelEnvPar
     return state
 
 
-def finalise_rsa_gn_model_action(state: RSAGNModelEnvState, params: Optional[EnvParams]) -> EnvState:
-    state = finalise_rsa_action(state, params)
+def finalise_action_rsa_gn_model(state: RSAGNModelEnvState, params: Optional[EnvParams]) -> EnvState:
+    state = finalise_action_rsa(state, params)
     state = state.replace(
         link_slot_array=set_c_l_band_gap(state.link_slot_array, params, -1.),  # Set C+L band gap
         channel_centre_bw_array_prev=state.channel_centre_bw_array,
