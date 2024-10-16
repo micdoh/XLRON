@@ -663,6 +663,7 @@ def make_rsa_env(config):
     """
     seed = config.get("seed", 0)
     topology_name = config.get("topology_name", "conus")
+    load = config.get("load", 100)
     k = config.get("k", 5)
     incremental_loading = config.get("incremental_loading", False)
     end_first_blocking = config.get("end_first_blocking", False)
@@ -687,21 +688,18 @@ def make_rsa_env(config):
     disjoint_paths = config.get("disjoint_paths", False)
     log_actions = config.get("log_actions", False)
     guardband = config.get("guardband", 1)
-    symbol_rate = config.get("symbol_rate", 100)
     weight = config.get("weight", None)
     remove_array_wrappers = config.get("remove_array_wrappers", False)
     maximise_throughput = config.get("maximise_throughput", False)
     reward_type = config.get("reward_type", "bitrate")
     truncate_holding_time = config.get("truncate_holding_time", False)
     alpha = config.get("alpha", 0.2) * 1e-3
-    symbol_rate = config.get("symbol_rate", 100)*1e9
     amplifier_noise_figure = config.get("amplifier_noise_figure", 4.5)
     beta_2 = config.get("beta_2", -21.7) * 1e-27
     gamma = config.get("gamma", 1.2) * 1e-3
     span_length = config.get("span_length", 100) * 1e3
     lambda0 = config.get("lambda0", 1550) * 1e-9
     B = slot_size * link_resources  # Total modulated bandwidth
-
 
     # GN model parameters
     max_span_length = config.get("max_span_length", 100e3)
@@ -735,7 +733,6 @@ def make_rsa_env(config):
     if traffic_intensity:
         arrival_rate = traffic_intensity / mean_service_holding_time
     else:
-        load = config.get("load", 100)
         arrival_rate = load / mean_service_holding_time
     num_nodes = len(graph.nodes)
     num_links = len(graph.edges)
@@ -781,7 +778,6 @@ def make_rsa_env(config):
     else:
         consider_modulation_format = True
 
-    min_bw = min(values_bw)
     max_bw = max(values_bw)
 
     link_length_array = init_link_length_array(graph).reshape((num_links, 1))
@@ -790,7 +786,8 @@ def make_rsa_env(config):
     if consider_modulation_format:
         modulations_array = init_modulations_array(config.get("modulations_csv_filepath", None))
         if weight is None:  # If paths aren't to be sorted by length alone
-            path_link_array = init_path_link_array(graph, k, disjoint=disjoint_paths, directed=graph.is_directed(), weight=weight, modulations_array=modulations_array)
+            path_link_array = init_path_link_array(graph, k, disjoint=disjoint_paths, directed=graph.is_directed(),
+                                                   weight=weight, modulations_array=modulations_array)
         path_length_array = init_path_length_array(path_link_array, graph)
         path_se_array = init_path_se_array(path_length_array, modulations_array)
         min_se = min(path_se_array)  # if consider_modulation_format
@@ -802,7 +799,7 @@ def make_rsa_env(config):
         path_se_array = jnp.array([1])
         if env_type == "rwa_lightpath_reuse":
             path_capacity_array = init_path_capacity_array(
-                link_length_array, path_link_array, R_s=symbol_rate, scale_factor=scale_factor, alpha=alpha,
+                link_length_array, path_link_array, R_s=100, scale_factor=scale_factor, alpha=alpha,
                 NF=amplifier_noise_figure, beta_2=beta_2, gamma=gamma, L_s=span_length, lambda0=lambda0, B=B
             )
             max_requests = int(scale_factor * max_requests)
@@ -817,13 +814,6 @@ def make_rsa_env(config):
 
     # Define edges for use with heuristics and GNNs
     edges = jnp.array(sorted(graph.edges))
-
-    if env_type == "deeprmsa":
-        env_params = DeepRMSAEnvParams
-    elif env_type == "rwa_lightpath_reuse":
-        env_params = RWALightpathReuseEnvParams
-    else:
-        env_params = RSAEnvParams
 
     max_timesteps = max_requests
 
