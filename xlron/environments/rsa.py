@@ -345,7 +345,7 @@ class RSAEnv(environment.Environment):
         elif params.reward_type == "bitrate":
             reward = state.request_array[1] * -1.0 / jnp.max(params.values_bw.val)
         else:
-            reward = -1.0 * read_rsa_request(state.request_array)[1] / jnp.max(state.values_bw) if params.maximise_throughput else jnp.array(-1)
+            reward = -1.0 * read_rsa_request(state.request_array)[1] / jnp.max(state.values_bw) if params.maximise_throughput else jnp.array(-1.0)
         return reward
 
     def get_reward_success(self, state: Optional[EnvState] = None, params: Optional[EnvParams] = None) -> chex.Array:
@@ -362,7 +362,7 @@ class RSAEnv(environment.Environment):
         elif params.reward_type == "bitrate":
             reward = state.request_array[1] * 1.0 / jnp.max(params.values_bw.val)
         else:
-            reward = read_rsa_request(state.request_array)[1] / jnp.max(state.values_bw) if params.maximise_throughput else jnp.array(1)
+            reward = read_rsa_request(state.request_array)[1] / jnp.max(state.values_bw) if params.maximise_throughput else jnp.array(1.0)
         return reward
 
     @property
