@@ -598,10 +598,18 @@ def log_metrics(config, out, experiment_name, total_time, merge_func):
             }
             wandb.log(log_dict)
 
-    print(f"Service Blocking Probability: {service_blocking_probability[-1]:.5f} ± {service_blocking_probability_std[-1]:.5f}")
-    print(f"Bitrate Blocking Probability: {bitrate_blocking_probability[-1]:.5f} ± {bitrate_blocking_probability_std[-1]:.5f}")
-    print(f"Accepted Services Episode: {accepted_services_mean[-1]:.0f} ± {accepted_services_std[-1]:.0f}")
-    print(f"Accepted Bitrate Episode: {accepted_bitrate_mean[-1]:.0f} ± {accepted_bitrate_std[-1]:.0f}")
+    print(f"Service Blocking Probability: "
+          f"{service_blocking_probability[-1] if config.continuous_operation else service_blocking_probability_episode_end.mean():.5f}"
+          f" ± {service_blocking_probability_std[-1] if config.continuous_operation else service_blocking_probability_std_episode_end.mean():.5f}")
+    print(f"Bitrate Blocking Probability: "
+          f"{bitrate_blocking_probability[-1] if config.continuous_operation else bitrate_blocking_probability_episode_end.mean():.5f}"
+          f" ± {bitrate_blocking_probability_std[-1] if config.continuous_operation else bitrate_blocking_probability_std_episode_end.mean():.5f}")
+    print(f"Accepted Services Episode: "
+          f"{accepted_services_mean[-1] if config.continuous_operation else accepted_services_mean_episode_end.mean():.0f}"
+          f" ± {accepted_services_std[-1] if config.continuous_operation else accepted_services_std_episode_end.mean():.0f}")
+    print(f"Accepted Bitrate Episode: "
+          f"{accepted_bitrate_mean[-1] if config.continuous_operation else accepted_bitrate_mean_episode_end.mean():.0f}"
+          f" ± {accepted_bitrate_std[-1] if config.continuous_operation else accepted_bitrate_std_episode_end.mean():.0f}")
 
     if config.log_actions:
         env, params = define_env(config)
@@ -631,12 +639,6 @@ def log_metrics(config, out, experiment_name, total_time, merge_func):
         request_data_rate = jnp.squeeze(merged_out["data_rate"])
         path_indices = jnp.squeeze(merged_out["path_index"])
         slot_indices = jnp.squeeze(merged_out["slot_index"])
-        #slots = jnp.squeeze(merged_out["slots"])
-
-        # for s, d, dr, pi, si in zip(request_source, request_dest, request_data_rate, path_indices, slot_indices):
-        #     print(f"({s+1}, {d+1}, {dr}),")
-        # for s, d, dr, pi, si, r in zip(request_source, request_dest, request_data_rate, path_indices, slot_indices, returns):
-        #     print(f"{s+1}, {d+1}, {dr}, {pi}, {si}, {r}")
 
         # Compare the available paths
         df_path_links = pd.DataFrame(params.path_link_array.val).reset_index(drop=True)
@@ -660,7 +662,7 @@ def log_metrics(config, out, experiment_name, total_time, merge_func):
         unique_paths_used = jnp.where(returns > 0, unique_paths_used, 0)
         unique_paths_used_count = jnp.count_nonzero(unique_paths_used, axis=-1)
         positive_return_count = jnp.count_nonzero(jnp.where(returns > 0, returns, 0), axis=-1)
-        unique_paths_used_mean = (unique_paths_used_count / positive_return_count).mean(0)[0]
-        unique_paths_used_std = (unique_paths_used_count / positive_return_count).std(0)[0]
+        unique_paths_used_mean = (unique_paths_used_count / positive_return_count).reshape(-1).mean()
+        unique_paths_used_std = (unique_paths_used_count / positive_return_count).reshape(-1).std()
         print(f"Fraction of successful actions that use unique paths: {unique_paths_used_mean:.3f} ± {unique_paths_used_std:.3f}")
 
