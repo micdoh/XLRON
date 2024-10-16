@@ -40,7 +40,7 @@ XLRON is a product of my PhD research, which is focused on the application of Re
 
 XLRON is faster than CPU-based training because of the following factors:
 
-<img src="./images/xlron_diagram.png">
+![xlron_diagram.png](docs%2Fimages%2Fxlron_diagram.png)
 
 - End-to-end JAX implementation (both environment and RL algorithm) allows entire training loop to be compiled and optimised as a single program
 - GPU-compatiblity allows parallelisation to make maximum use of accelerator hardware (GPU or TPU)
