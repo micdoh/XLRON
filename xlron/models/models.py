@@ -41,6 +41,8 @@ def add_graphs_tuples(
 def make_dense_layers(x, num_units, num_layers, activation, layer_norm=False):
     if activation == "relu":
         activation = nn.relu
+    elif activation == "crelu":
+        activation = crelu
     else:
         activation = nn.tanh
     layer = nn.Dense(
