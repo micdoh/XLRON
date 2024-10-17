@@ -227,6 +227,7 @@ class RSAGNModelEnvState(RSAEnvState):
     modulation_format_index_array_prev: chex.Array  # Modulation format index for each active connection in previous timestep
     active_path_array: chex.Array  # Active path array (Nlink x Nchannel x Nlink)
     active_path_array_prev: chex.Array  # Active path array in previous timestep
+    launch_power_array: chex.Array  # Launch power array
 
 
 @struct.dataclass
@@ -239,7 +240,6 @@ class RSAGNModelEnvParams(RSAEnvParams):
     ref_lambda: chex.Scalar = struct.field(pytree_node=False)
     max_spans: chex.Scalar = struct.field(pytree_node=False)
     max_span_length: chex.Scalar = struct.field(pytree_node=False)
-    launch_power: chex.Scalar = struct.field(pytree_node=False)
     nonlinear_coeff: chex.Scalar = struct.field(pytree_node=False)
     raman_gain_slope: chex.Scalar = struct.field(pytree_node=False)
     attenuation: chex.Scalar = struct.field(pytree_node=False)
@@ -247,7 +247,7 @@ class RSAGNModelEnvParams(RSAEnvParams):
     dispersion_coeff: chex.Scalar = struct.field(pytree_node=False)
     dispersion_slope: chex.Scalar = struct.field(pytree_node=False)
     noise_figure: chex.Scalar = struct.field(pytree_node=False)
-    coherent: chex.Scalar = struct.field(pytree_node=False)
+    coherent: bool = struct.field(pytree_node=False)
     modulations_array: chex.Array = struct.field(pytree_node=False)
     mod_format_correction: bool = struct.field(pytree_node=False)
     interband_gap: chex.Scalar = struct.field(pytree_node=False)
@@ -256,6 +256,7 @@ class RSAGNModelEnvParams(RSAEnvParams):
     num_roadms: chex.Scalar = struct.field(pytree_node=False)
     roadm_loss: chex.Scalar = struct.field(pytree_node=False)
     num_spans: chex.Scalar = struct.field(pytree_node=False)
+    launch_power_type: chex.Scalar = struct.field(pytree_node=False)
 
 
 @struct.dataclass
