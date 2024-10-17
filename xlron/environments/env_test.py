@@ -110,7 +110,7 @@ def rsa_4node_3_slot_request_test_setup():
 
 def rsa_nsfnet_16_test_setup():
     key = jax.random.PRNGKey(0)
-    settings_rsa_nsfnet_16 = dict(load=100, k=5, topology_name="nsfnet", link_resources=16, max_requests=10,
+    settings_rsa_nsfnet_16 = dict(load=100, k=5, topology_name="nsfnet_deeprmsa_undirected", link_resources=16, max_requests=10,
                                   values_bw=[1, 2, 3], slot_size=1, mean_service_holding_time=10)
     env, params = make_rsa_env(settings_rsa_nsfnet_16)
     obs, state = env.reset(key, params)
@@ -119,7 +119,7 @@ def rsa_nsfnet_16_test_setup():
 
 def rsa_nsfnet_16_mod_test_setup():
     key = jax.random.PRNGKey(0)
-    settings_rsa_nsfnet_16_mod = dict(load=100, k=5, topology_name="nsfnet", link_resources=16, max_requests=10,
+    settings_rsa_nsfnet_16_mod = dict(load=100, k=5, topology_name="nsfnet_deeprmsa_undirected", link_resources=16, max_requests=10,
                                   consider_modulation_format=True, slot_size=12.5, mean_service_holding_time=10)
     env, params = make_rsa_env(settings_rsa_nsfnet_16_mod)
     obs, state = env.reset(key, params)
@@ -129,7 +129,7 @@ def rsa_nsfnet_16_mod_test_setup():
 
 def rsa_nsfnet_4_test_setup():
     key = jax.random.PRNGKey(0)
-    settings_rsa_nsfnet_4 = dict(load=1000, k=5, topology_name="nsfnet", link_resources=4, max_requests=10,
+    settings_rsa_nsfnet_4 = dict(load=1000, k=5, topology_name="nsfnet_deeprmsa_undirected", link_resources=4, max_requests=10,
                                  values_bw=[1, 2, 3], slot_size=1, mean_service_holding_time=10)
     env, params = make_rsa_env(settings_rsa_nsfnet_4)
     obs, state = env.reset(key, params)
@@ -138,7 +138,7 @@ def rsa_nsfnet_4_test_setup():
 
 def rwa_lightpath_reuse_4_nsfnet_test_setup():
     key = jax.random.PRNGKey(0)
-    settings_rwa_lr_nsfnet_4 = dict(k=5, topology_name="nsfnet", link_resources=4, max_requests=1000,
+    settings_rwa_lr_nsfnet_4 = dict(k=5, topology_name="nsfnet_deeprmsa_undirected", link_resources=4, max_requests=1000,
                                  values_bw=[100], incremental_loading=True, env_type="rwa_lightpath_reuse", scale_factor=0.2)
     env, params = make_rsa_env(settings_rwa_lr_nsfnet_4)
     obs, state = env.reset(key, params)
@@ -157,7 +157,7 @@ def rwa_lightpath_reuse_4node_test_setup():
 def rsa_gn_model_4_nsfnet_test_setup():
     key = jax.random.PRNGKey(0)
     settings_rwa_lr_nsfnet_4 = dict(
-        k=5, topology_name="nsfnet", link_resources=4, max_requests=1000,
+        k=5, topology_name="nsfnet_deeprmsa_undirected", link_resources=4, max_requests=1000,
         values_bw=[100], incremental_loading=True, env_type="rsa_gn_model",
         interband_gap=0, slot_size=25, mod_format_correction=False, launch_power=0.0
     )
