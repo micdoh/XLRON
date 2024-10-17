@@ -134,7 +134,9 @@ flags.DEFINE_string("step_traffic", "0.1", "Step size for traffic values between
 flags.DEFINE_boolean("deterministic", False, "Deterministic evaluation (use mode of action distribution)")
 # GN model parameters
 flags.DEFINE_float("ref_lambda", 1577.5e-9, "Reference wavelength [m]")
-flags.DEFINE_float("launch_power", -2, "Launch power [dBm]")
+flags.DEFINE_float("launch_power", -2.0, "Launch power [dBm]")
+flags.DEFINE_string("launch_power_type", "fixed", "Can be fixed (same power per transceiver), "
+                                                  "tabular (power depends on path), or rl (power selected by agent).")
 flags.DEFINE_float("nonlinear_coefficient", 1.2e-3, "Nonlinear coefficient [1/W^2]")
 flags.DEFINE_float("raman_gain_slope", 0.028 / 1e3 / 1e12, "Raman gain slope [1/m/W]")
 flags.DEFINE_float("attenuation", 0.2 / 4.343 / 1e3, "Attenuation [1/m]")
@@ -144,8 +146,8 @@ flags.DEFINE_float("dispersion_slope", 0.067 * 1e-12 / 1e-9 / 1e3 / 1e-9, "Dispe
 flags.DEFINE_float("noise_figure", 4, "Amplifier noise figure [dB]")
 flags.DEFINE_float("num_roadms", 1, "Consider ROADM loss in SNR calculation (1 ROADM per link)")
 flags.DEFINE_float("roadm_loss", 18, "ROADM losses [dB]")
-flags.DEFINE_float("coherent", 1.0, "Add NLI contribution coherently per span")
-flags.DEFINE_boolean("mod_format_correction", True, "Apply non-Gaussian modulation format correction")
+flags.DEFINE_boolean("coherent", False, "Add NLI contribution coherently per span")
+flags.DEFINE_boolean("mod_format_correction", False, "Apply non-Gaussian modulation format correction")
 flags.DEFINE_float("interband_gap", 500, "Gap between C+L bands [GHz]")
 # Flags for optimize_launch_power.py
 flags.DEFINE_float("num_spans", 10, "Number of spans")

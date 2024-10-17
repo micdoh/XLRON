@@ -193,7 +193,7 @@ def define_env(config: absl.flags.FlagValues):
     config_dict = {k: v.value for k, v in config.__flags.items()}
     if config.env_type.lower() == "vone":
         env, env_params = make_vone_env(config_dict)
-    elif config.env_type.lower() in ["rsa", "rmsa", "rwa", "deeprmsa", "rwa_lightpath_reuse"]:
+    elif config.env_type.lower() in ["rsa", "rmsa", "rwa", "deeprmsa", "rwa_lightpath_reuse", "rsa_gn_model"]:
         env, env_params = make_rsa_env(config_dict)
     else:
         raise ValueError(f"Invalid environment type {config.env_type}")
@@ -209,7 +209,7 @@ def init_network(config, env, env_state, env_params):
                                  num_units=config.NUM_UNITS,
                                  layer_norm=config.LAYER_NORM, )
         init_x = tuple([jnp.zeros(env.observation_space(env_params).n)])
-    elif config.env_type.lower() in ["rsa", "rmsa", "rwa", "deeprmsa", "rwa_lightpath_reuse"]:
+    elif config.env_type.lower() in ["rsa", "rmsa", "rwa", "deeprmsa", "rwa_lightpath_reuse", "rsa_gn_model"]:
         if config.USE_GNN:
             network = ActorCriticGNN(
                 activation=config.ACTIVATION,
