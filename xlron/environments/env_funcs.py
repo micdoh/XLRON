@@ -2820,7 +2820,7 @@ def set_c_l_band_gap(link_slot_array: chex.Array, params: RSAGNModelEnvParams, v
 
 
 @partial(jax.jit, static_argnums=(1,))
-def check_action_rsa_gn_model(state: EnvState, params: EnvParams, action: Optional[chex.Array]) -> bool:
+def check_action_rsa_gn_model(state: EnvState, action: Optional[chex.Array], params: EnvParams) -> bool:
     """Check if action is valid for RSA GN model
     Args:
         state (EnvState): Environment state
