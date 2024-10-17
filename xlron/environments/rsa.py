@@ -182,6 +182,7 @@ class RSAEnv(environment.Environment):
             check_action = check_action_rsa_gn_model
             undo = undo_action_rsa_gn_model
             finalise = finalise_action_rsa_gn_model
+            input_state = check_state = [state, action, params]
         else:
             implement_action = implement_action_rsa
             check_action = check_action_rsa
@@ -191,8 +192,8 @@ class RSAEnv(environment.Environment):
         check = check_action(*check_state)
         state, reward = jax.lax.cond(
             check,  # Fail if true
-            lambda x: (undo(x[0]), self.get_reward_failure(*x)),
-            lambda x: (finalise(x[0]), self.get_reward_success(*x)),  # Finalise actions if complete
+            lambda x: (undo(*x), self.get_reward_failure(*x)),
+            lambda x: (finalise(*x), self.get_reward_success(*x)),  # Finalise actions if complete
             (state, params)
         )
         # TODO - calculate allocated bandwidth
@@ -345,7 +346,7 @@ class RSAEnv(environment.Environment):
         elif params.reward_type == "bitrate":
             reward = state.request_array[1] * -1.0 / jnp.max(params.values_bw.val)
         else:
-            reward = -1.0 * read_rsa_request(state.request_array)[1] / jnp.max(state.values_bw) if params.maximise_throughput else jnp.array(-1.0)
+            reward = -1.0 * read_rsa_request(state.request_array)[1] / jnp.max(params.values_bw) if params.maximise_throughput else jnp.array(-1.0)
         return reward
 
     def get_reward_success(self, state: Optional[EnvState] = None, params: Optional[EnvParams] = None) -> chex.Array:
@@ -362,7 +363,7 @@ class RSAEnv(environment.Environment):
         elif params.reward_type == "bitrate":
             reward = state.request_array[1] * 1.0 / jnp.max(params.values_bw.val)
         else:
-            reward = read_rsa_request(state.request_array)[1] / jnp.max(state.values_bw) if params.maximise_throughput else jnp.array(1.0)
+            reward = read_rsa_request(state.request_array)[1] / jnp.max(params.values_bw) if params.maximise_throughput else jnp.array(1.0)
         return reward
 
     @property
@@ -590,21 +591,21 @@ class RSAGNModelEnv(RSAEnv):
             self,
             key: chex.PRNGKey,
             params: RSAGNModelEnvParams,
-            values_bw: chex.Array = jnp.array([0]),
             traffic_matrix: chex.Array = None,
+            launch_power_array: chex.Array = None,
     ):
         """Initialise the environment state and set as initial state.
 
         Args:
             key: PRNG key
             params: Environment parameters
-            values_bw: Bandwidth values for each modulation format
             traffic_matrix (optional): Traffic matrix
+            launch_power_array (optional): Launch power array
 
         Returns:
             None
         """
-        super().__init__(key, params, values_bw=values_bw, traffic_matrix=traffic_matrix)
+        super().__init__(key, params, traffic_matrix=traffic_matrix)
         state = RSAGNModelEnvState(
             current_time=0,
             holding_time=0,
@@ -615,11 +616,11 @@ class RSAGNModelEnv(RSAEnv):
             request_array=init_rsa_request_array(),
             link_slot_mask=init_link_slot_mask(params, agg=params.aggregate_slots),
             traffic_matrix=traffic_matrix if traffic_matrix is not None else init_traffic_matrix(key, params),
-            values_bw=values_bw,
             graph=None,
             full_link_slot_mask=init_link_slot_mask(params),
             accepted_services=0,
             accepted_bitrate=0.,
+            total_bitrate=0.,
             link_snr_array=init_link_snr_array(params),
             path_index_array=init_path_index_array(params),
             channel_centre_bw_array=init_channel_centre_bw_array(params),
@@ -631,6 +632,7 @@ class RSAGNModelEnv(RSAEnv):
             modulation_format_index_array_prev=init_modulation_format_index_array(params),
             active_path_array=init_active_path_array(params),
             active_path_array_prev=init_active_path_array(params),
+            launch_power_array=launch_power_array,
         )
         self.initial_state = state.replace(graph=init_graph_tuple(state, params))
 
@@ -704,14 +706,13 @@ def make_rsa_env(config):
     # GN model parameters
     max_span_length = config.get("max_span_length", 100e3)
     ref_lambda = config.get("ref_lambda", 1577.5e-9)  # centre of C+L bands (1530-1625nm)
-    launch_power = config.get("launch_power", -2.0)
     nonlinear_coeff = config.get("nonlinear_coeff", 1.2 / 1e3)
     raman_gain_slope = config.get("raman_gain_slope", 0.028 / 1e3 / 1e12)
     attenuation = config.get("attenuation", 0.2 / 4.343 / 1e3)
     attenuation_bar = config.get("attenuation_bar", 0.2 / 4.343 / 1e3)
     dispersion_coeff = config.get("dispersion_coeff", 17 * 1e-12 / 1e-9 / 1e3)
     dispersion_slope = config.get("dispersion_slope", 0.067 * 1e-12 / 1e-9 / 1e3 / 1e-9)
-    coherent = config.get("coherent", 1)
+    coherent = config.get("coherent", False)
     noise_figure = config.get("noise_figure", 4)
     interband_gap = config.get("interband_gap", 500)
     gap_width = int(math.ceil(interband_gap / slot_size))
@@ -741,6 +742,26 @@ def make_rsa_env(config):
         graph, k, disjoint=disjoint_paths, weight=weight, directed=graph.is_directed(),
         rwa_lr=True if env_type == "rwa_lightpath_reuse" else False, scale_factor=scale_factor
     )
+
+    launch_power_type = config.get("launch_power_type", "fixed")
+    # The launch power type determines whether to use:
+    # 1. Fixed power for all paths.
+    # 2. Tabulated values of power for each path
+    # 3. RL to determine power for each path
+    if env_type == "rsa_gn_model":
+        # TODO - If optimise_launch_power is True, use below values else load from file
+        if launch_power_type == "fixed":
+            launch_power_array = jnp.array([config.get("launch_power", -2.0)])
+            launch_power_type = 1
+        elif launch_power_type == "tabular":
+            launch_power_array = jnp.zeros(path_link_array.shape[0])
+            launch_power_type = 2
+        elif launch_power_type == "rl":
+            launch_power_array = jnp.zeros([1])
+            launch_power_type = 3
+        else:
+            pass
+
     if custom_traffic_matrix_csv_filepath:
         random_traffic = False  # Set this False so that traffic matrix isn't replaced on reset
         traffic_matrix = jnp.array(np.loadtxt(custom_traffic_matrix_csv_filepath, delimiter=","))
@@ -857,14 +878,15 @@ def make_rsa_env(config):
         env_params = RWALightpathReuseEnvParams
     elif env_type == "rsa_gn_model":
         env_params = RSAGNModelEnvParams
-        params_dict.update(ref_lambda=ref_lambda, max_spans=max_spans, max_span_length=max_span_length, launch_power=launch_power,
+        params_dict.update(ref_lambda=ref_lambda, max_spans=max_spans, max_span_length=max_span_length,
+                           #launch_power_array=HashableArrayWrapper(launch_power_array) if not remove_array_wrappers else launch_power_array,
                            nonlinear_coeff=nonlinear_coeff, raman_gain_slope=raman_gain_slope, attenuation=attenuation,
                            attenuation_bar=attenuation_bar, dispersion_coeff=dispersion_coeff,
                            dispersion_slope=dispersion_slope, coherent=coherent,
                            modulations_array=HashableArrayWrapper(modulations_array) if not remove_array_wrappers else modulations_array,
                            noise_figure=noise_figure, interband_gap=interband_gap, mod_format_correction=mod_format_correction,
                            gap_start=gap_start, gap_width=gap_width, roadm_loss=roadm_loss, num_roadms=num_roadms,
-                           num_spans=num_spans)
+                           num_spans=num_spans, launch_power_type=launch_power_type)
         # TODO - calculate maximum reach here and update modulations_array. Write a function that takes params_dict as input, does the launch power optimisation, returns the maximum reach
     else:
         env_params = RSAEnvParams
@@ -907,7 +929,7 @@ def make_rsa_env(config):
             env = RWALightpathReuseEnv(
                 rng, params, traffic_matrix=traffic_matrix, path_capacity_array=path_capacity_array)
         elif env_type == "rsa_gn_model":
-            env = RSAGNModelEnv(rng, params, traffic_matrix=traffic_matrix)
+            env = RSAGNModelEnv(rng, params, traffic_matrix=traffic_matrix, launch_power_array=launch_power_array)
         else:
             env = RSAEnv(rng, params, traffic_matrix=traffic_matrix)
 

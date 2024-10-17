@@ -32,7 +32,7 @@ def select_action_eval(config, env_state, env_params, env, eval_state, rng_key, 
         if config.env_type.lower() == "vone":
             raise NotImplementedError(f"VONE heuristics not yet implemented")
 
-        elif config.env_type.lower() in ["rsa", "rwa", "rmsa", "deeprmsa", "rwa_lightpath_reuse"]:
+        elif config.env_type.lower() in ["rsa", "rwa", "rmsa", "deeprmsa", "rwa_lightpath_reuse", "rsa_gn_model"]:
             if config.path_heuristic.lower() == "ksp_ff":
                 action = jax.vmap(ksp_ff, in_axes=(0, None))(env_state.env_state, env_params)
             elif config.path_heuristic.lower() == "ff_ksp":

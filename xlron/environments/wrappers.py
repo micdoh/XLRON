@@ -78,7 +78,7 @@ class LogWrapper(GymnaxWrapper):
         info["utilisation"] = state.utilisation
         # Log path length if required, to calculate average path length and number of hops
         if params.log_actions:
-            nodes_sd, bw_request = read_rsa_request(state.env_state.request_array)
+            nodes_sd, dr_request = read_rsa_request(state.env_state.request_array)
             source, dest = nodes_sd
             i = get_path_indices(source, dest, params.k_paths, params.num_nodes, directed=params.directed_graph).astype(
                 jnp.int32)
@@ -87,7 +87,7 @@ class LogWrapper(GymnaxWrapper):
             info["slot_index"] = slot_index
             info["source"] = source
             info["dest"] = dest
-            info["data_rate"] = bw_request[0]
+            info["data_rate"] = dr_request[0]
         info["done"] = done
         return obs, state, reward, done, info
 
