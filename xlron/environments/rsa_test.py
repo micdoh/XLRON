@@ -793,8 +793,8 @@ class FinaliseRsaActionTest(parameterized.TestCase):
         self.state = self.state.replace(current_time=1, holding_time=1)
         self.state = implement_action_rsa(self.state, jnp.array(0), self.params)
         self.state = implement_action_rsa(self.state, jnp.array(0), self.params)
-        actual_dept = self.variant(finalise_action_rsa)(self.state).link_slot_departure_array
-        actual_link_slot = self.variant(finalise_action_rsa)(self.state).link_slot_array
+        actual_dept = self.variant(finalise_action_rsa)(self.state, self.params).link_slot_departure_array
+        actual_link_slot = self.variant(finalise_action_rsa)(self.state, self.params).link_slot_array
         chex.assert_trees_all_close(actual_dept, expected_dept)
         chex.assert_trees_all_close(actual_link_slot, expected_link_slot)
 

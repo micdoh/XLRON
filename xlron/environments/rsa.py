@@ -622,11 +622,11 @@ class RSAGNModelEnv(RSAEnv):
             accepted_bitrate=0.,
             total_bitrate=0.,
             link_snr_array=init_link_snr_array(params),
-            path_index_array=init_path_index_array(params),
+            #path_index_array=init_path_index_array(params),
+            #path_index_array_prev=init_path_index_array(params),
             channel_centre_bw_array=init_channel_centre_bw_array(params),
             channel_power_array=init_channel_power_array(params),
             modulation_format_index_array=init_modulation_format_index_array(params),
-            path_index_array_prev=init_path_index_array(params),
             channel_centre_bw_array_prev=init_channel_centre_bw_array(params),
             channel_power_array_prev=init_channel_power_array(params),
             modulation_format_index_array_prev=init_modulation_format_index_array(params),
@@ -714,12 +714,13 @@ def make_rsa_env(config):
     dispersion_slope = config.get("dispersion_slope", 0.067 * 1e-12 / 1e-9 / 1e3 / 1e-9)
     coherent = config.get("coherent", False)
     noise_figure = config.get("noise_figure", 4)
-    interband_gap = config.get("interband_gap", 500)
+    interband_gap = config.get("interband_gap", 100)
     gap_width = int(math.ceil(interband_gap / slot_size))
-    gap_start = int(math.floor(link_resources / 2 - gap_width / 2))
+    gap_start = config.get("gap_start", link_resources//2)
     mod_format_correction = config.get("mod_format_correction", True)
     num_roadms = config.get("num_roadms", 1)
     roadm_loss = config.get("roadm_loss", 18)
+    snr_margin = config.get("snr_margin", 1)
 
     # optimize_launch_power.py parameters
     num_spans = config.get("num_spans", 10)
@@ -886,7 +887,7 @@ def make_rsa_env(config):
                            modulations_array=HashableArrayWrapper(modulations_array) if not remove_array_wrappers else modulations_array,
                            noise_figure=noise_figure, interband_gap=interband_gap, mod_format_correction=mod_format_correction,
                            gap_start=gap_start, gap_width=gap_width, roadm_loss=roadm_loss, num_roadms=num_roadms,
-                           num_spans=num_spans, launch_power_type=launch_power_type)
+                           num_spans=num_spans, launch_power_type=launch_power_type, snr_margin=snr_margin)
         # TODO - calculate maximum reach here and update modulations_array. Write a function that takes params_dict as input, does the launch power optimisation, returns the maximum reach
     else:
         env_params = RSAEnvParams
