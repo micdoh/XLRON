@@ -579,6 +579,8 @@ def generate_request_rsa(key: chex.PRNGKey, state: EnvState, params: EnvParams) 
     if params.__class__.__name__ == "RWALightpathReuseEnvParams":
         state = state.replace(time_since_last_departure=state.time_since_last_departure + arrival_time)
         remove_expired_services = remove_expired_services_rwalr
+    elif params.__class__.__name__ == "RSAGNModelEnvParams":
+        remove_expired_services = remove_expired_services_rsa_gn_model
     state = remove_expired_services(state) if not params.incremental_loading else state
     return state
 
@@ -893,6 +895,26 @@ def remove_expired_services_rwalr(state: EnvState) -> EnvState:
     return state
 
 
+def remove_expired_services_rsa_gn_model(state: EnvState) -> EnvState:
+    """
+
+    Args:
+        state: Environment state
+
+    Returns:
+        Updated environment state
+    """
+    mask = jnp.where(state.link_slot_departure_array < jnp.squeeze(state.current_time), 1, 0)
+    mask = jnp.where(0 <= state.link_slot_departure_array, mask, 0)
+    mask3d = jnp.repeat(mask[:, :, jnp.newaxis], state.active_path_array.shape[2], axis=2)
+    state = state.replace(
+        link_slot_array=jnp.where(mask == 1, 0, state.link_slot_array),
+        link_slot_departure_array=jnp.where(mask == 1, 0, state.link_slot_departure_array),
+        active_path_array=jnp.where(mask3d == 1, 0, state.active_path_array)
+    )
+    return state
+
+
 def remove_expired_node_requests(state: EnvState) -> EnvState:
     """Check for values in node_departure_array that are less than the current time but greater than zero
     (negative time indicates the request is not yet finalised).
@@ -1136,8 +1158,6 @@ def implement_node_action(state: EnvState, s_node: chex.Array, d_node: chex.Arra
     # curr_selected_nodes is N x 1 array, with requested node resources at index of selected node
     curr_selected_nodes = update_node_array(node_indices, curr_selected_nodes, d_node, -d_request)
     curr_selected_nodes = jax.lax.cond(n == 2, lambda x: update_node_array(*x), lambda x: x[1], (node_indices, curr_selected_nodes, s_node, -s_request))
-    # TODO - experiment with jax.lax.fori_loop here to replace cond
-    # e.g. curr_selected_nodes = jax.lax.scan(lambda c, x: update_node_array(*x), jnp.concatenate(...requests...), (node_indices, curr_selected_nodes, s_node, -s_request))
 
     node_capacity_array = state.node_capacity_array - curr_selected_nodes
 
@@ -1241,20 +1261,20 @@ def implement_vone_action(
     """
     request = jax.lax.dynamic_slice(state.request_array[0], ((remaining_actions-1)*2, ), (3, ))
     node_request_s = jax.lax.dynamic_slice(request, (2, ), (1, ))
-    bw_request = jax.lax.dynamic_slice(request, (1,), (1,))
+    requested_datarate = jax.lax.dynamic_slice(request, (1,), (1,))
     node_request_d = jax.lax.dynamic_slice(request, (0, ), (1, ))
     nodes = action[::2]
     path_index, initial_slot_index = process_path_action(state, params, action[1])
     path = get_paths(params, nodes)[path_index]
     se = get_paths_se(params, nodes)[path_index] if params.consider_modulation_format else jnp.array([1])
-    num_slots = required_slots(bw_request, se, params.slot_size, guardband=params.guardband)
+    num_slots = required_slots(requested_datarate, se, params.slot_size, guardband=params.guardband)
 
     # jax.debug.print("state.request_array {}", state.request_array, ordered=True)
     # jax.debug.print("path {}", path, ordered=True)
     # jax.debug.print("slots {}", jnp.max(jnp.where(path.reshape(-1,1) == 1, state.link_slot_array, jnp.zeros(params.num_links).reshape(-1,1)), axis=0), ordered=True)
     # jax.debug.print("path_index {}", path_index, ordered=True)
     # jax.debug.print("initial_slot_index {}", initial_slot_index, ordered=True)
-    # jax.debug.print("bw_request {}", bw_request, ordered=True)
+    # jax.debug.print("requested_datarate {}", requested_datarate, ordered=True)
     # jax.debug.print("request {}", request, ordered=True)
     # jax.debug.print("se {}", se, ordered=True)
     # jax.debug.print("num_slots {}", num_slots, ordered=True)
@@ -1293,20 +1313,20 @@ def implement_action_rsa(
     Returns:
         state: updated state
     """
-    nodes_sd, bw_request = read_rsa_request(state.request_array)
+    nodes_sd, requested_datarate = read_rsa_request(state.request_array)
     path_index, initial_slot_index = process_path_action(state, params, action)
     path = get_paths(params, nodes_sd)[path_index]
     if params.__class__.__name__ == "RWALightpathReuseEnvParams":
         #jax.debug.print("link_capacity_array before {}", state.link_capacity_array, ordered=True)
         state = state.replace(
             link_capacity_array=vmap_update_path_links(
-                state.link_capacity_array, path, initial_slot_index, 1, bw_request
+                state.link_capacity_array, path, initial_slot_index, 1, requested_datarate
             )
         )
         #jax.debug.print("link_capacity_array after {}", state.link_capacity_array, ordered=True)
         #jax.debug.print("link_slot_array before {}", state.link_slot_array, ordered=True)
-        # TODO - to support diverse bw_requests for RWA-LR, need to update masking
-        # TODO - In order to enable dynamic RWA with lightpath reuse (as opposed to just incremental loading),
+        # TODO (Dynamic-RWALR) - to support diverse requested_datarates for RWA-LR, need to update masking
+        # TODO (Dynamic-RWALR) - In order to enable dynamic RWA with lightpath reuse (as opposed to just incremental loading),
         #  need to keep track of active requests OR just randomly remove connections
         #  (could do this by using the link_slot_departure array in a novel way... i.e. don't fill it with departure time but current bw)
         capacity_mask = jnp.where(state.link_capacity_array <= 0., -1., 0.)
@@ -1322,7 +1342,7 @@ def implement_action_rsa(
         #jax.debug.print("link_slot_array after {}", state.link_slot_array, ordered=True)
     else:
         se = get_paths_se(params, nodes_sd)[path_index] if params.consider_modulation_format else 1
-        num_slots = required_slots(bw_request, se, params.slot_size, guardband=params.guardband)
+        num_slots = required_slots(requested_datarate, se, params.slot_size, guardband=params.guardband)
         state = implement_path_action(state, path, initial_slot_index, num_slots)
     return state
 
@@ -1357,10 +1377,10 @@ def read_rsa_request(request_array: chex.Array) -> Tuple[chex.Array, chex.Array]
         Tuple[chex.Array, chex.Array]: source-destination nodes and bandwidth request
     """
     node_s = jax.lax.dynamic_slice(request_array, (0,), (1,))
-    bw_request = jax.lax.dynamic_slice(request_array, (1,), (1,))
+    requested_datarate = jax.lax.dynamic_slice(request_array, (1,), (1,))
     node_d = jax.lax.dynamic_slice(request_array, (2,), (1,))
     nodes_sd = jnp.concatenate((node_s, node_d))
-    return nodes_sd, bw_request
+    return nodes_sd, requested_datarate
 
 
 def make_positive(x):
@@ -1396,12 +1416,12 @@ def finalise_action_rsa(state: EnvState, params: Optional[EnvParams]):
     Returns:
         state: updated state
     """
-    _, bw_request = read_rsa_request(state.request_array)
+    _, requested_datarate = read_rsa_request(state.request_array)
     state = state.replace(
         link_slot_departure_array=make_positive(state.link_slot_departure_array),
         accepted_services=state.accepted_services + 1,
-        accepted_bitrate=state.accepted_bitrate + bw_request[0],
-        total_bitrate=state.total_bitrate + bw_request[0]
+        accepted_bitrate=state.accepted_bitrate + requested_datarate[0],
+        total_bitrate=state.total_bitrate + requested_datarate[0]
     )
     return state
 
@@ -1416,12 +1436,12 @@ def finalise_action_rwalr(state: EnvState, params: Optional[EnvParams]):
     Returns:
         state: updated state
     """
-    _, bw_request = read_rsa_request(state.request_array)
+    _, requested_datarate = read_rsa_request(state.request_array)
     state = state.replace(
         link_slot_departure_array=make_positive(state.link_slot_departure_array),
         accepted_services=state.accepted_services + 1,
-        accepted_bitrate=state.accepted_bitrate + bw_request[0],
-        total_bitrate=state.total_bitrate + bw_request[0]
+        accepted_bitrate=state.accepted_bitrate + requested_datarate[0],
+        total_bitrate=state.total_bitrate + requested_datarate[0]
     )
     return state
 
@@ -1447,7 +1467,7 @@ def check_vone_action(state, remaining_actions, total_requested_nodes):
     checks = jnp.stack((
         check_node_capacities(state.node_capacity_array),
         check_unique_nodes(state.node_departure_array),
-        # TODO - Remove two nodes check if impairs performance
+        # TODO (VONE) - Remove two nodes check if impairs performance
         #  (check_all_nodes_assigned is sufficient but fails after last action of request instead of earlier)
         check_min_two_nodes_assigned(state.node_departure_array),
         jax.lax.cond(
@@ -1590,7 +1610,7 @@ def mask_slots(state: EnvState, params: EnvParams, request: chex.Array) -> EnvSt
     Returns:
         state: Updated environment state
     """
-    nodes_sd, requested_bw = read_rsa_request(request)
+    nodes_sd, requested_datarate = read_rsa_request(request)
     init_mask = jnp.zeros((params.link_resources * params.k_paths))
 
     def mask_path(i, mask):
@@ -1600,7 +1620,7 @@ def mask_slots(state: EnvState, params: EnvParams, request: chex.Array) -> EnvSt
         slots = jnp.concatenate((slots, jnp.ones(params.max_slots)))
         # Convert bandwidth to slots for each path
         spectral_efficiency = get_paths_se(params, nodes_sd)[i] if params.consider_modulation_format else 1
-        requested_slots = required_slots(requested_bw, spectral_efficiency, params.slot_size, guardband=params.guardband)
+        requested_slots = required_slots(requested_datarate, spectral_efficiency, params.slot_size, guardband=params.guardband)
         # Get mask used to check if request will fit slots
         request_mask = get_request_mask(requested_slots[0], params)
 
@@ -1924,7 +1944,6 @@ def find_block_sizes(path_slots: chex.Array, starts_only: bool = True, reverse: 
     return block_sizes
 
 
-# TODO - write tests
 @partial(jax.jit, static_argnums=(1,))
 def calculate_path_stats(state: EnvState, params: EnvParams, request: chex.Array) -> chex.Array:
     """For use in DeepRMSA agent observation space.
@@ -1943,13 +1962,13 @@ def calculate_path_stats(state: EnvState, params: EnvParams, request: chex.Array
     Returns:
         stats: Array of calculated path statistics
     """
-    nodes_sd, requested_bw = read_rsa_request(request)
+    nodes_sd, requested_datarate = read_rsa_request(request)
     init_val = jnp.zeros((params.k_paths, 5))
 
     def body_fun(i, val):
         slots = get_path_slots(state.link_slot_array, params, nodes_sd, i)
         se = get_paths_se(params, nodes_sd)[i] if params.consider_modulation_format else jnp.array([1])
-        req_slots = jnp.squeeze(required_slots(requested_bw, se, params.slot_size, guardband=params.guardband))
+        req_slots = jnp.squeeze(required_slots(requested_datarate, se, params.slot_size, guardband=params.guardband))
         req_slots_norm = req_slots#*params.slot_size / jnp.max(params.values_bw.val)
         free_slots_norm = jnp.sum(jnp.where(slots == 0, 1, 0)) #/ params.link_resources
         block_sizes = find_block_sizes(slots)
@@ -2106,7 +2125,7 @@ def check_lightpath_available_and_existing(state: EnvState, params: EnvParams, a
     Returns:
         lightpath_available_check: True if lightpath is available
     """
-    nodes_sd, bw_request = read_rsa_request(state.request_array)
+    nodes_sd, requested_datarate = read_rsa_request(state.request_array)
     path_index, initial_slot_index = process_path_action(state, params, action)
     path = get_paths(params, nodes_sd)[path_index]
     # Get unique lightpath index
@@ -2168,7 +2187,7 @@ def implement_action_rwalr(state: EnvState, action: chex.Array, params: EnvParam
     Returns:
         state: Updated environment state
     """
-    nodes_sd, bw_request = read_rsa_request(state.request_array)
+    nodes_sd, requested_datarate = read_rsa_request(state.request_array)
     path_index, initial_slot_index = process_path_action(state, params, action)
     path = get_paths(params, nodes_sd)[path_index]
     lightpath_available_check, lightpath_existing_check, curr_lightpath_capacity, lightpath_index = (
@@ -2177,8 +2196,8 @@ def implement_action_rwalr(state: EnvState, action: chex.Array, params: EnvParam
     # Get path capacity - request
     lightpath_capacity = jax.lax.cond(
         lightpath_existing_check,
-        lambda x: curr_lightpath_capacity - bw_request,  # Subtract bw_request from current lightpath
-        lambda x: jnp.squeeze(jax.lax.dynamic_slice_in_dim(state.path_capacity_array, x, 1)) - bw_request,  # Get initial capacity of lightpath - request
+        lambda x: curr_lightpath_capacity - requested_datarate,  # Subtract requested_datarate from current lightpath
+        lambda x: jnp.squeeze(jax.lax.dynamic_slice_in_dim(state.path_capacity_array, x, 1)) - requested_datarate,  # Get initial capacity of lightpath - request
         lightpath_index
     )
     # Update link_capacity_array with new capacity if lightpath is available
@@ -2201,7 +2220,7 @@ def implement_action_rwalr(state: EnvState, action: chex.Array, params: EnvParam
     # N.B. this will fail if requested capacity is greater than total original capacity of lightpath
     lightpath_capacity_before_action = jax.lax.cond(
         lightpath_existing_check,
-        lambda x: curr_lightpath_capacity,  # Subtract bw_request from current lightpath
+        lambda x: curr_lightpath_capacity,  # Subtract requested_datarate from current lightpath
         lambda x: 1e6,  # Empty slots have high capacity (1e6)
         # Get initial capacity of lightpath - request
         None,
@@ -2240,7 +2259,7 @@ def mask_slots_rwalr(state: EnvState, params: EnvParams, request: chex.Array) ->
     Returns:
         state: Updated environment state
     """
-    nodes_sd, requested_bw = read_rsa_request(request)
+    nodes_sd, requested_datarate = read_rsa_request(request)
     init_mask = jnp.zeros((params.link_resources * params.k_paths))
     source, dest = nodes_sd
     path_start_index = get_path_indices(source, dest, params.k_paths, params.num_nodes, directed=params.directed_graph).astype(jnp.int32)
@@ -2249,7 +2268,7 @@ def mask_slots_rwalr(state: EnvState, params: EnvParams, request: chex.Array) ->
 
     def mask_path(i, mask):
         # Step 1 - mask capacity
-        capacity_mask = jnp.where(state.link_capacity_array < requested_bw, 1., 0.)
+        capacity_mask = jnp.where(state.link_capacity_array < requested_datarate, 1., 0.)
         #jax.debug.print("capacity_mask {}", capacity_mask, ordered=True)
         capacity_slots = get_path_slots(capacity_mask, params, nodes_sd, i)
         #jax.debug.print("capacity_slots {}", capacity_slots, ordered=True)
@@ -2323,7 +2342,7 @@ def pad_array(array, fill_value):
     return result
 
 
-# TODO(ECOC) - decide how to set per-transceiver (uniform) launch power (maybe run RSA at different launch powers and choose maximum?)
+# TODO (ECOC) - decide how to set per-transceiver (uniform) launch power (maybe run RSA at different launch powers and choose maximum?)
 def init_link_length_array_gn_model(graph: nx.Graph, span_length: int,  max_spans: int) -> chex.Array:
     """Initialise link length array.
     Args:
@@ -2401,7 +2420,7 @@ def init_modulation_format_index_array(params: EnvParams):
 
 
 def init_active_path_array(params: EnvParams):
-    """Initialise active path array.
+    """Initialise active path array. Stores details of full path utilised by lightpath on each frequency slot.
     Args:
         params (EnvParams): Environment parameters
     Returns:
@@ -2442,9 +2461,9 @@ def get_centre_frequency(initial_slot_index: int, num_slots: int, params: RSAGNM
     """Get centre frequency for new lightpath
 
     Args:
-        start_centre_frequency (chex.Array): Centre frequency of first slot
-        slot_width (float): Slot width
+        initial_slot_index (chex.Array): Centre frequency of first slot
         num_slots (float): Number of slots
+        params (RSAGNModelEnvParams): Environment parameters
 
     Returns:
         chex.Array: Centre frequency for new lightpath
@@ -2505,13 +2524,13 @@ def get_lightpath_snr(state: RSAGNModelEnvParams, params: RSAGNModelEnvParams) -
     Returns:
         chex.array: SNR for each link on path
     """
-    # TODO - Decide if there is advantage in defining this in params and updating with each step(), or just computing here
-    active_path_array = get_path_from_path_index_array(state.path_index_array, params.path_link_array)
+    # TODO - Decide if there is advantage in defining this in state and updating with each step(), or just computing here
+    #active_path_array = get_path_from_path_index_array(state.path_index_array, params.path_link_array)
     # Get the SNR for the channel that the path occupies
     lightpath_snr_array = (jax.vmap(
         jax.vmap(lambda x, y, z: get_snr_for_path(x, y, z)[0], in_axes=(0, None, None)),
         in_axes=(0, None, None)
-    )(active_path_array, state.link_snr_array, params))
+    )(state.active_path_array, state.link_snr_array, params))
     return lightpath_snr_array
 
 
@@ -2572,7 +2591,7 @@ def get_snr_link_array(state: EnvState, params: EnvParams) -> chex.Array:
             coherent=params.coherent,
             num_roadms=params.num_roadms,
             roadm_loss=params.roadm_loss,
-            noise_figure=params.noise_figure,  # TODO - support separate noise figures for C and L bands (4 and 6 dB)
+            noise_figure=params.noise_figure,  # TODO (GN MODEL) - support separate noise figures for C and L bands (4 and 6 dB)
             mod_format_correction=params.mod_format_correction,
             ch_power_W_i=ch_power_link.reshape((params.link_resources, 1)),
             ch_centre_i=ch_centres_link.reshape((params.link_resources, 1))*1e9,
@@ -2622,7 +2641,9 @@ def get_best_modulation_format(state: EnvState, path: chex.Array, initial_slot_i
 
 
 @partial(jax.jit, static_argnums=(3,))
-def get_best_modulation_format_simple(state: EnvState, path: chex.Array, initial_slot_index: int, params: EnvParams) -> chex.Array:
+def get_best_modulation_format_simple(
+        state: RSAGNModelEnvState, path: chex.Array, initial_slot_index: int, params: RSAGNModelEnvParams
+) -> chex.Array:
     """Get modulation format for lightpath.
     Assume worst case (least Gaussian) modulation format when calculating SNR.
     Args:
@@ -2634,11 +2655,13 @@ def get_best_modulation_format_simple(state: EnvState, path: chex.Array, initial
         jnp.array: Acceptable modulation format indices
     """
     link_snr_array = get_snr_link_array(state, params)
-    snr_value = get_snr_for_path(path, link_snr_array, params)[initial_slot_index]
+    snr_value = get_snr_for_path(path, link_snr_array, params)[initial_slot_index] - params.snr_margin  # Margin
     mod_format_count = params.modulations_array.val.shape[0]
     acceptable_mod_format_indices = jnp.arange(mod_format_count)
     req_snr = params.modulations_array.val[:, 2]
-    acceptable_mod_format_indices = jnp.where(snr_value >= req_snr, acceptable_mod_format_indices, jnp.full((mod_format_count,), -1))
+    acceptable_mod_format_indices = jnp.where(snr_value >= req_snr,
+                                              acceptable_mod_format_indices,
+                                              jnp.full((mod_format_count,), -1))
     return acceptable_mod_format_indices
 
 
@@ -2678,30 +2701,38 @@ def check_action_rsa_gn_model(state: EnvState, action: Optional[chex.Array], par
 
 
 @partial(jax.jit, static_argnums=(2,))
-def implement_action_rsa_gn_model(state: RSAGNModelEnvState, action: chex.Array, params: RSAGNModelEnvParams) -> EnvState:
-    """Implement action for RSA GN model
+def implement_action_rsa_gn_model(
+        state: RSAGNModelEnvState, action: chex.Array, params: RSAGNModelEnvParams
+) -> EnvState:
+    """Implement action for RSA GN model. Update following arrays:
+    - link_slot_array
+    - link_slot_departure_array
+    - link_snr_array
+    - modulation_format_index_array
+    - channel_power_array
+    - active_path_array
     Args:
         state (EnvState): Environment state
-        action (chex.Array): Action array
+        action (chex.Array): Action tuple (first is path action, second is launch_power)
         params (EnvParams): Environment parameters
     Returns:
         EnvState: Updated environment state
     """
-    # TODO - allow action to include launch power and update channel power array
-    # Update link_slot_array, link_slot_departure_array, link_snr_array, path_index_array, modulation_format_index_array, channel_power_array
-    nodes_sd, bw_request = read_rsa_request(state.request_array)
-    k_path_index, initial_slot_index = process_path_action(state, params, action)
-    lightpath_index = get_lightpath_index(params, nodes_sd, k_path_index)
+    nodes_sd, requested_datarate = read_rsa_request(state.request_array)
+    path_action, power_action = action
+    path_action = path_action.astype(jnp.int32)
+    k_path_index, initial_slot_index = process_path_action(state, params, path_action)
+    #lightpath_index = get_lightpath_index(params, nodes_sd, k_path_index)
     path = get_paths(params, nodes_sd)[k_path_index]
-    launch_power = get_launch_power(state, action, params)
+    launch_power = get_launch_power(state, path_action, power_action, params)
     # Update channel_power_array and channel_centre_bw_array
     state = state.replace(
         active_path_array=vmap_set_path_links(state.active_path_array, path, initial_slot_index, 1, path),
-        path_index_array=vmap_set_path_links(state.path_index_array, path, initial_slot_index, 1, lightpath_index),
+        #path_index_array=vmap_set_path_links(state.path_index_array, path, initial_slot_index, 1, lightpath_index),
         channel_power_array=vmap_set_path_links(state.channel_power_array, path, initial_slot_index, 1, launch_power),
-        channel_centre_bw_array=vmap_set_path_links(state.channel_centre_bw_array, path, initial_slot_index, 1, bw_request)
+        channel_centre_bw_array=vmap_set_path_links(state.channel_centre_bw_array, path, initial_slot_index, 1, requested_datarate)
     )
-    # TODO - get mod. format based on maximum reach
+    # TODO (GN MODEL) - get mod. format based on maximum reach
     # Get acceptable modulation formats
     mod_format_indices = get_best_modulation_format_simple(state, path, initial_slot_index, params)
     # Highest index is best modulation format
@@ -2711,7 +2742,7 @@ def implement_action_rsa_gn_model(state: RSAGNModelEnvState, action: chex.Array,
         modulation_format_index_array=vmap_set_path_links(state.modulation_format_index_array, path, initial_slot_index, 1, mod_format_index)
     )
     se = params.modulations_array.val[mod_format_index][1]
-    num_slots = required_slots(bw_request, se, params.slot_size, guardband=params.guardband)
+    num_slots = required_slots(requested_datarate, se, params.slot_size, guardband=params.guardband)
     # Update link_slot_array and link_slot_departure_array
     state = implement_path_action(state, path, initial_slot_index, num_slots)
     # Update link_snr_array
@@ -2734,7 +2765,7 @@ def undo_action_rsa_gn_model(state: RSAGNModelEnvState, params: RSAGNModelEnvPar
         link_slot_array=set_c_l_band_gap(state.link_slot_array, params, -1.),  # Set C+L band gap
         # TODO - investigate more memory-efficient way to undo arrays
         channel_centre_bw_array=state.channel_centre_bw_array_prev,
-        path_index_array=state.path_index_array_prev,
+        #path_index_array=state.path_index_array_prev,
         channel_power_array=state.channel_power_array_prev,
         modulation_format_index_array=state.modulation_format_index_array_prev,
         active_path_array=state.active_path_array_prev,
@@ -2747,7 +2778,7 @@ def finalise_action_rsa_gn_model(state: RSAGNModelEnvState, params: Optional[Env
     state = state.replace(
         link_slot_array=set_c_l_band_gap(state.link_slot_array, params, -1.),  # Set C+L band gap
         channel_centre_bw_array_prev=state.channel_centre_bw_array,
-        path_index_array_prev=state.path_index_array,
+        #path_index_array_prev=state.path_index_array,
         channel_power_array_prev=state.channel_power_array,
         modulation_format_index_array_prev=state.modulation_format_index_array,
         active_path_array_prev=state.active_path_array,
@@ -2774,7 +2805,7 @@ def mask_slots_rsa_gn_model(state: RSAGNModelEnvState, params: RSAGNModelEnvPara
     Returns:
         state: Updated environment state
     """
-    nodes_sd, requested_bw = read_rsa_request(request)
+    nodes_sd, requested_datarate = read_rsa_request(request)
     init_mask = jnp.zeros((params.link_resources * params.k_paths))
 
     def mask_path(i, mask):
@@ -2786,19 +2817,32 @@ def mask_slots_rsa_gn_model(state: RSAGNModelEnvState, params: RSAGNModelEnvPara
         # 0 means slot is free, 1 is occupied
         slots = jnp.concatenate((slots, jnp.ones(params.max_slots)))
         slots = -slots + 1  # 1 if slot is free, 0 if slot is occupied
-        launch_power = get_launch_power(state, i, params)
+        launch_power = get_launch_power(state, i, state.launch_power_array[0], params)
+        # TODO - fix this >>>>
+        # For mod format in rows of mod format table:
+        # Get the first and last available slots on "slots"
+        # Do the temp state trick,
+
+        required_bandwidth = requested_datarate
+        #def check_modulation_format(i, best_mod_format_index)
+        #first_available_slot_index
+        #se = params.modulations_array.val[mod_format_index][1]
+        #req_slots = required_slots(requested_datarate, se, params.slot_size, guardband=params.guardband)[0]
+        #link_slot_mask = jax.lax.fori_loop(0, params.k_paths, mask_path, init_mask)
 
         # TODO - instead of recalculating SNR for each slot, interpolate between SNR values
+        # TODO - NEED TO KNOW MOD-FORMAT UPFRONT TO ESTIMATE required bandwidth
+        # TODO -
         def check_snr_get_mod_return_slots(initial_slot_index):
             # Get acceptable modulation formats
             temp_state = state.replace(
-                channel_centre_bw_array=vmap_set_path_links(state.channel_centre_bw_array, path, initial_slot_index, 1, requested_bw),
+                channel_centre_bw_array=vmap_set_path_links(state.channel_centre_bw_array, path, initial_slot_index, 1, required_bandwidth),
                 channel_power_array=vmap_set_path_links(state.channel_power_array, path, initial_slot_index, 1, launch_power),
             )
             mod_format_indices = get_best_modulation_format_simple(temp_state, path, initial_slot_index, params)
             mod_format_index = jnp.max(mod_format_indices)  # -1 if no suitable mod format due to low SNR
             se = params.modulations_array.val[mod_format_index][1]
-            req_slots = required_slots(requested_bw, se, params.slot_size, guardband=params.guardband)[0]
+            req_slots = required_slots(requested_datarate, se, params.slot_size, guardband=params.guardband)[0]
             options = jnp.array([mod_format_index, req_slots])
             req_slots = options[jnp.argmin(jnp.array([mod_format_index*1000, req_slots]))]  # will always return -1 if SNR is too low, else required slots
             return req_slots.astype(jnp.float32)
@@ -2834,12 +2878,15 @@ def mask_slots_rsa_gn_model(state: RSAGNModelEnvState, params: RSAGNModelEnvPara
         # Check that existing lightpaths are ok, set 0 if not
         def apply_action_check_snr(state, params, initial_slot_index):
             req_slots_val = req_slots_path[initial_slot_index]  # -1 if None required
-            mod_format_index = (jnp.floor(requested_bw / (req_slots_val * params.slot_size)) - 1)
+            mod_format_index = (jnp.floor(requested_datarate / (req_slots_val * params.slot_size)) - 1)
             mod_format_index = jnp.max(jnp.concatenate([jnp.zeros(1), mod_format_index])).astype(jnp.int32)  # Ensure mod_format_index is not negative
-            launch_power = get_launch_power(state, i, params)
+            launch_power = get_launch_power(state, i, state.launch_power_array[0], params)
+            # TODO - fix this >>>>
+            required_bandwidth = requested_datarate
             temp_state = state.replace(
-                path_index_array=vmap_set_path_links(state.path_index_array, path, initial_slot_index, 1, lightpath_index),
-                channel_centre_bw_array=vmap_set_path_links(state.channel_centre_bw_array, path, initial_slot_index, 1, requested_bw),
+                #path_index_array=vmap_set_path_links(state.path_index_array, path, initial_slot_index, 1, lightpath_index),
+                active_path_array=vmap_set_path_links(state.active_path_array, path, initial_slot_index, 1, path),
+                channel_centre_bw_array=vmap_set_path_links(state.channel_centre_bw_array, path, initial_slot_index, 1, required_bandwidth),
                 channel_power_array=vmap_set_path_links(state.channel_power_array, path, initial_slot_index, 1, launch_power),
                 modulation_format_index_array=vmap_set_path_links(state.modulation_format_index_array, path, initial_slot_index, 1, mod_format_index),
             )
@@ -2868,12 +2915,16 @@ def mask_slots_rsa_gn_model(state: RSAGNModelEnvState, params: RSAGNModelEnvPara
 
 
 @partial(jax.jit, static_argnums=(1,))
-def get_launch_power(state: EnvState, action: chex.Array, params: EnvParams) -> chex.Array:
+def get_launch_power(state: EnvState, path_action: chex.Array, power_action: chex.Array, params: EnvParams) -> chex.Array:
     """Get launch power for new lightpath. N.B. launch power is specified in dBm but is converted to linear units
     when stored in channel_power_array. This func returns linear units.
+    Path action is used to determine the launch power in the case of tabular launch power type.
+    Power action is used to determine the launch power in the case of RL launch power type. During masking,
+    power action is set as state.launch_power_array[0], which is set by the RL agent.
     Args:
         state (EnvState): Environment state
-        action (chex.Array): Action specifying path index (0 to k_paths-1) or launch power
+        path_action (chex.Array): Action specifying path index (0 to k_paths-1)
+        power_action (chex.Array): Action specifying launch power in dBm
         params (EnvParams): Environment parameters
     Returns:
         chex.Array: Launch power for new lightpath
@@ -2881,14 +2932,14 @@ def get_launch_power(state: EnvState, action: chex.Array, params: EnvParams) -> 
     if params.launch_power_type == 1:  # Fixed
         launch_power = state.launch_power_array[0]
     elif params.launch_power_type == 2:  # Tabular (one row per path)
-        nodes_sd, requested_bw = read_rsa_request(state.request_array)
-        k_path_index, initial_slot_index = process_path_action(state, params, action)
+        nodes_sd, requested_datarate = read_rsa_request(state.request_array)
+        k_path_index, initial_slot_index = process_path_action(state, params, path_action)
         source, dest = nodes_sd
         i = get_path_indices(source, dest, params.k_paths, params.num_nodes, directed=params.directed_graph).astype(
             jnp.int32)
         launch_power = state.launch_power_array[i+k_path_index]
     elif params.launch_power_type == 3:
-        launch_power = action
+        launch_power = power_action
     else:
         raise ValueError("Invalid launch power type. Check params.launch_power_type")
     return isrs_gn_model.from_dbm(launch_power)

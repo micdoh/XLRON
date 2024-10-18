@@ -149,5 +149,7 @@ flags.DEFINE_float("roadm_loss", 18, "ROADM losses [dB]")
 flags.DEFINE_boolean("coherent", False, "Add NLI contribution coherently per span")
 flags.DEFINE_boolean("mod_format_correction", False, "Apply non-Gaussian modulation format correction")
 flags.DEFINE_float("interband_gap", 500, "Gap between C+L bands [GHz]")
+flags.DEFINE_integer("gap_start", 44, "Start index of gap between C+L bands [slots]")
+flags.DEFINE_float("snr_margin", 0.5, "Margin required for estimated SNR for mod. format selection [dB]")
 # Flags for optimize_launch_power.py
 flags.DEFINE_float("num_spans", 10, "Number of spans")
