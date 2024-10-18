@@ -61,8 +61,15 @@ def select_action_eval(config, env_state, env_params, env, eval_state, rng_key, 
                 action = jax.vmap(ksp_bf, in_axes=(0, None))(env_state.env_state, env_params)
             elif config.path_heuristic.lower() == "bf_ksp":
                 action = jax.vmap(bf_ksp, in_axes=(0, None))(env_state.env_state, env_params)
+            elif config.path_heuristic.lower() == "ksp_lf":
+                action = jax.vmap(ksp_lf, in_axes=(0, None))(env_state.env_state, env_params)
             else:
                 raise ValueError(f"Invalid path heuristic {config.path_heuristic}")
+            if env_params.__class__.__name__ == "RSAGNModelEnvParams":
+                launch_power = jax.vmap(get_launch_power, in_axes=(0, 0, 0, None))(env_state.env_state, action, action, env_params)
+                launch_power = launch_power.reshape((config.NUM_ENVS, -1))
+                action = action.reshape((config.NUM_ENVS, -1))
+                action = jnp.concatenate([action, launch_power], axis=1)
 
         else:
             raise ValueError(f"Invalid environment type {config.env_type}")
@@ -84,7 +91,6 @@ def get_warmup_fn(warmup_state, env, params, eval_state, config) -> Tuple[EnvSta
             _rng, _state, _params, _last_obs = val
             # SELECT ACTION
             _rng, action_key, step_key = jax.random.split(_rng, 3)
-            select_action_state = (_rng, _state, _last_obs)
             action = select_action_eval(config, _state, _params, env, eval_state, action_key, _last_obs)
             # STEP ENV
             rng_step = jax.random.split(step_key, config.NUM_ENVS)
@@ -144,7 +150,6 @@ def make_eval(config):
                 action = select_action_eval(config, env_state, env_params, env, eval_state, action_key, last_obs)
 
                 # STEP ENV
-
                 step_key = jax.random.split(step_key, config.NUM_ENVS)
                 obsv, env_state, reward, done, info = jax.vmap(env.step, in_axes=(0,0,0,None))(
                     step_key, env_state, action, env_params

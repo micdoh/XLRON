@@ -440,8 +440,8 @@ def first_fit(state: EnvState, params: EnvParams) -> chex.Array:
 def last_fit(state: EnvState, params: EnvParams) -> chex.Array:
     """Last-Fit Spectrum Allocation. Returns the last fit slot for each path."""
     mask = get_action_mask(state, params)
-    # Add a column of zeros to the mask to make sure that occupied paths have non-zero index in "last_slots"
-    mask = jnp.concatenate((jnp.full((mask.shape[0], 1), 0), mask), axis=1)
+    # Add a column of ones to the mask to make sure that occupied paths have non-zero index in "last_slots"
+    mask = jnp.concatenate((jnp.full((mask.shape[0], 1), 1), mask), axis=1)
     # Get index of last available slots for each path
     last_slots = jnp.argmax(mask[:, ::-1], axis=1)
     # Convert to index from the left
