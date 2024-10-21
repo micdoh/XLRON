@@ -45,6 +45,7 @@ flags.DEFINE_boolean("WANDB", False, "Use wandb")
 flags.DEFINE_boolean("SAVE_MODEL", False, "Save model (will be saved to --MODEL_PATH locally and uploaded to wandb if --WANDB is True)")
 flags.DEFINE_boolean("DEBUG", False, "Debug mode")
 flags.DEFINE_boolean("DEBUG_NANS", False, "Debug NaNs")
+flags.DEFINE_boolean("NO_TRUNCATE", False, "Do not truncate printed arrays")
 flags.DEFINE_boolean("ORDERED", True, "Order print statements when debugging "
                                       "(must be false if using pmap)")
 flags.DEFINE_boolean("NO_PRINT_FLAGS", False, "Do not print flags")
@@ -151,5 +152,8 @@ flags.DEFINE_boolean("mod_format_correction", False, "Apply non-Gaussian modulat
 flags.DEFINE_float("interband_gap", 500, "Gap between C+L bands [GHz]")
 flags.DEFINE_integer("gap_start", 44, "Start index of gap between C+L bands [slots]")
 flags.DEFINE_float("snr_margin", 0.5, "Margin required for estimated SNR for mod. format selection [dB]")
+flags.DEFINE_float("max_power", 9, "Maximum launch power [dBm]")
+flags.DEFINE_float("min_power", -5, "Minimum launch power [dBm]")
+flags.DEFINE_boolean("first_fit", False, "Use KSP-FF for path_action, else KSP-LF")
 # Flags for optimize_launch_power.py
 flags.DEFINE_float("num_spans", 10, "Number of spans")

@@ -76,6 +76,9 @@ class LogWrapper(GymnaxWrapper):
         info["accepted_bitrate"] = state.accepted_bitrate
         info["total_bitrate"] = state.total_bitrate
         info["utilisation"] = state.utilisation
+        if params.__class__.__name__ == "RSAGNModelEnvParams":
+            pass
+            #info["snr"] = env_state.snr
         # Log path length if required, to calculate average path length and number of hops
         if params.log_actions:
             nodes_sd, dr_request = read_rsa_request(state.env_state.request_array)
