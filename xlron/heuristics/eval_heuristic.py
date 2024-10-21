@@ -1,8 +1,9 @@
+import chex
 import orbax.checkpoint
 import pathlib
 import optax
 from flax.training import orbax_utils
-from typing import NamedTuple, Callable
+from typing import NamedTuple, Callable, Dict
 from absl import flags
 from flax import struct
 from flax.training.train_state import TrainState
@@ -108,17 +109,18 @@ def get_warmup_fn(warmup_state, env, params, eval_state, config) -> Tuple[EnvSta
     return warmup_fn
 
 
-def make_eval(config):
+def make_eval(config: flags.FlagValues) -> Callable:
 
     # INIT ENV
     env, env_params = define_env(config)
 
-    def evaluate(rng):
+    def evaluate(rng: chex.PRNGKey, launch_power_array: Optional[jnp.ndarray] = None) -> Dict[str, Any]:
 
         # RESET ENV
         rng, warmup_rng, reset_key = jax.random.split(rng, 3)
         reset_key = jax.random.split(reset_key, config.NUM_ENVS)
         obsv, env_state = jax.vmap(env.reset, in_axes=(0, None))(reset_key, env_params)
+        env_state = env_state.env_state.replace(launch_power_array=launch_power_array) if launch_power_array is not None else env_state.env_state
         obsv = (env_state.env_state, env_params) if config.USE_GNN else tuple([obsv])
 
         # # LOAD MODEL
