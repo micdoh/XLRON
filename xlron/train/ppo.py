@@ -69,7 +69,7 @@ def get_learner_fn(
                 jax.debug.print("log_prob {}", log_prob, ordered=config.ORDERED)
                 jax.debug.print("action {}", action, ordered=config.ORDERED)
                 jax.debug.print("reward {}", reward, ordered=config.ORDERED)
-                #jax.debug.print("link_slot_array {}", env_state.env_state.link_slot_array, ordered=config.ORDERED)
+                jax.debug.print("link_slot_array {}", env_state.env_state.link_slot_array, ordered=config.ORDERED)
                 #jax.debug.print("link_slot_mask {}", env_state.env_state.link_slot_mask, ordered=config.ORDERED)
                 if config.env_type.lower() == "vone":
                     jax.debug.print("node_mask_s {}", env_state.env_state.node_mask_s, ordered=config.ORDERED)
@@ -149,6 +149,13 @@ def get_learner_fn(
                         pi_masked = distrax.Categorical(logits=jnp.where(traj_batch.action_mask, pi[0]._logits, -1e8))
                         log_prob = pi_masked.log_prob(traj_batch.action)
                         entropy = pi_masked.entropy().mean()
+
+                    elif config.env_type.lower() == "rsa_gn_model" and config.launch_power_type == "rl":
+                        power_action = traj_batch.action[:, 1]
+                        # Re-scale action from [min_power, max_power] to [0, 1]
+                        power_action = (power_action - env_params.min_power) / (env_params.max_power - env_params.min_power)
+                        log_prob = pi[0].log_prob(power_action)
+                        entropy = pi[0].entropy().mean()
 
                     else:
                         log_prob = pi[0].log_prob(traj_batch.action)
