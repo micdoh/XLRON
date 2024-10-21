@@ -155,5 +155,6 @@ flags.DEFINE_float("snr_margin", 0.5, "Margin required for estimated SNR for mod
 flags.DEFINE_float("max_power", 9, "Maximum launch power [dBm]")
 flags.DEFINE_float("min_power", -5, "Minimum launch power [dBm]")
 flags.DEFINE_boolean("first_fit", False, "Use KSP-FF for path_action, else KSP-LF")
+flags.DEFINE_boolean("optimise_launch_power", False, "Optimise launch power")
 # Flags for optimize_launch_power.py
 flags.DEFINE_float("num_spans", 10, "Number of spans")
