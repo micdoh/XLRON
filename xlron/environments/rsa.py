@@ -21,7 +21,7 @@ from xlron.environments.env_funcs import (
     finalise_action_rwalr, generate_request_rwalr, init_link_snr_array,
     init_channel_centre_bw_array, check_action_rsa_gn_model, read_rsa_request, implement_action_rsa_gn_model,
     undo_action_rsa_gn_model, finalise_action_rsa_gn_model, init_modulation_format_index_array,
-    init_channel_power_array, mask_slots_rsa_gn_model, init_link_length_array_gn_model, init_active_path_array
+    init_channel_power_array, mask_slots_rsa_gn_model, init_link_length_array_gn_model, get_snr_for_path, get_lightpath_snr
 )
 from xlron.environments.dataclasses import *
 from xlron.environments.wrappers import *
@@ -168,6 +168,7 @@ class RSAEnv(environment.Environment):
         generate_request = generate_request_rsa
         input_state = [state, action, params]
         check_state = [state]
+        undo_finalise_state = [state, params]
         if params.__class__.__name__ == "RWALightpathReuseEnvParams":
             implement_action = implement_action_rwalr
             check_action = check_action_rwalr
@@ -183,22 +184,23 @@ class RSAEnv(environment.Environment):
             undo = undo_action_rsa_gn_model
             finalise = finalise_action_rsa_gn_model
             input_state = check_state = [state, action, params]
+            undo_finalise_state = [state, params, action]
         else:
             implement_action = implement_action_rsa
             check_action = check_action_rsa
 
         # Check if action was valid, calculate reward
-        check_state[0] = state = implement_action(*input_state)
+        check_state[0] = undo_finalise_state[0] = state = implement_action(*input_state)
         check = check_action(*check_state)
         state, reward = jax.lax.cond(
             check,  # Fail if true
-            lambda x: (undo(*x), self.get_reward_failure(*x)),
-            lambda x: (finalise(*x), self.get_reward_success(*x)),  # Finalise actions if complete
-            (state, params)
+            lambda x: (undo(*x[:2]), self.get_reward_failure(*x)),
+            lambda x: (finalise(*x[:2]), self.get_reward_success(*x)),  # Finalise actions if complete
+            undo_finalise_state
         )
-        # TODO - calculate allocated bandwidth
-        # TODO - generate new request if allocated DR equals requested DR, else update requested DR do not advance time do not replace source-dest
-        # TODO - write separate functions for deterministic transition (above) and stochastic transition (below)
+        # TODO (DYNAMIC-RWALR) - calculate allocated bandwidth
+        # TODO (DYNAMIC-RWALR) - generate new request if allocated DR equals requested DR, else update requested DR do not advance time do not replace source-dest
+        # TODO (AFTERSTATE) - write separate functions for deterministic transition (above) and stochastic transition (below)
         # Generate new request
         state = generate_request(key, state, params)
         state = state.replace(total_timesteps=state.total_timesteps + 1)
@@ -332,7 +334,12 @@ class RSAEnv(environment.Environment):
         """
         return jax.lax.select(self.is_terminal(state, params), 0.0, 1.0)
 
-    def get_reward_failure(self, state: Optional[EnvState] = None, params: Optional[EnvParams] = None) -> chex.Array:
+    def get_reward_failure(
+            self,
+            state: Optional[EnvState] = None,
+            params: Optional[EnvParams] = None,
+            action: Optional[chex.Array] = None,
+    ) -> chex.Array:
         """Return reward for current state.
 
         Args:
@@ -345,11 +352,19 @@ class RSAEnv(environment.Environment):
             reward = jnp.array(-1.0)
         elif params.reward_type == "bitrate":
             reward = state.request_array[1] * -1.0 / jnp.max(params.values_bw.val)
+            if params.__class__.__name__ == "RSAGNModelEnvParams":
+                # multiply by minimum required SNR from modulation format array
+                reward = reward * params.modulations_array.val[0][2]
         else:
             reward = -1.0 * read_rsa_request(state.request_array)[1] / jnp.max(params.values_bw) if params.maximise_throughput else jnp.array(-1.0)
         return reward
 
-    def get_reward_success(self, state: Optional[EnvState] = None, params: Optional[EnvParams] = None) -> chex.Array:
+    def get_reward_success(
+            self,
+            state: Optional[EnvState] = None,
+            params: Optional[EnvParams] = None,
+            action: Optional[chex.Array] = None
+    ) -> chex.Array:
         """Return reward for current state.
 
         Args:
@@ -362,6 +377,15 @@ class RSAEnv(environment.Environment):
             reward = jnp.array(1.0)
         elif params.reward_type == "bitrate":
             reward = state.request_array[1] * 1.0 / jnp.max(params.values_bw.val)
+            if params.__class__.__name__ == "RSAGNModelEnvParams":
+                # Need to get the SNR of the path
+                path_action, power_action = action
+                path_index, slot_index = process_path_action(state, params, path_action)
+                path = params.path_link_array[path_index]
+                path_snr = get_snr_for_path(path, state.link_snr_array, params)[slot_index.astype(jnp.int32)]
+                # set to 0 if negative
+                path_snr = jnp.where(path_snr < 0, 0, path_snr)
+                reward = reward * path_snr
         else:
             reward = read_rsa_request(state.request_array)[1] / jnp.max(params.values_bw) if params.maximise_throughput else jnp.array(1.0)
         return reward
@@ -622,16 +646,16 @@ class RSAGNModelEnv(RSAEnv):
             accepted_bitrate=0.,
             total_bitrate=0.,
             link_snr_array=init_link_snr_array(params),
-            #path_index_array=init_path_index_array(params),
-            #path_index_array_prev=init_path_index_array(params),
+            path_index_array=init_path_index_array(params),
+            path_index_array_prev=init_path_index_array(params),
             channel_centre_bw_array=init_channel_centre_bw_array(params),
             channel_power_array=init_channel_power_array(params),
             modulation_format_index_array=init_modulation_format_index_array(params),
             channel_centre_bw_array_prev=init_channel_centre_bw_array(params),
             channel_power_array_prev=init_channel_power_array(params),
             modulation_format_index_array_prev=init_modulation_format_index_array(params),
-            active_path_array=init_active_path_array(params),
-            active_path_array_prev=init_active_path_array(params),
+            #active_path_array=init_active_path_array(params),
+            #active_path_array_prev=init_active_path_array(params),
             launch_power_array=launch_power_array,
         )
         self.initial_state = state.replace(graph=init_graph_tuple(state, params))
@@ -649,6 +673,71 @@ class RSAGNModelEnv(RSAEnv):
         """
         state = mask_slots_rsa_gn_model(state, params, state.request_array)
         return state
+
+    @partial(jax.jit, static_argnums=(0, 2,))
+    def get_obs(self, state: RSAGNModelEnvState, params: RSAGNModelEnvParams) -> chex.Array:
+        """For launch power optimisation, this function is scanned across the """
+        request_array = state.request_array.reshape((-1,))
+        path_stats = calculate_path_stats(state, params, request_array)
+        # Remove first 3 items of path stats for each path
+        path_stats = path_stats[:, 3:]
+        link_length_array = jnp.sum(params.link_length_array.val, axis=1)
+        lightpath_snr_array = get_lightpath_snr(state, params)
+        nodes_sd, requested_datarate = read_rsa_request(request_array)
+        source, dest = nodes_sd
+
+        def calculate_gn_path_stats(k_path_index, init_val):
+            # Get path index
+            path_index = get_path_indices(source, dest, params.k_paths, params.num_nodes, directed=params.directed_graph).astype(
+                jnp.int32) + k_path_index
+            path = params.path_link_array[path_index]
+            path_length = jnp.dot(path, link_length_array) / 100
+            # Connections on path
+            num_connections = jnp.where(path == 1, jnp.where(state.modulation_format_index_array > -1, 1, 0).sum(axis=1), 0).sum()
+            # Mean power of connections on path
+            # make path with row length equal to link_resource
+            mean_power = jnp.nan_to_num(jnp.where(path == 1, state.channel_power_array.sum(axis=1), 0).sum() / num_connections, nan=-50, posinf=-50, neginf=-50)
+            # Mean SNR of connections on the path links
+            mean_snr = jnp.nan_to_num(jnp.where(path == 1, lightpath_snr_array.sum(axis=1), 0).sum() / num_connections, nan=-50, posinf=-50, neginf=-50)
+            return jax.lax.dynamic_update_slice(
+                init_val,
+                jnp.array([path_length, num_connections, mean_power, mean_snr]).reshape((1, 4)),
+                (k_path_index, 0),
+            )
+        gn_path_stats = jnp.zeros((params.k_paths, 4))
+        gn_path_stats = jax.lax.fori_loop(
+            0, params.k_paths, calculate_gn_path_stats, gn_path_stats
+        )
+        all_stats = jnp.concatenate([path_stats, gn_path_stats], axis=1)
+        return jnp.concatenate(
+            (
+                request_array,
+                jnp.reshape(state.holding_time, (-1,)),
+                jnp.reshape(all_stats.reshape((-1,)), (-1,)),
+            ),
+            axis=0,
+        )
+
+    @staticmethod
+    def num_actions(params: RSAEnvParams) -> int:
+        """Number of actions possible in environment."""
+        return 1
+
+    def observation_space(self, params: RSAEnvParams):
+        """Observation space of the environment."""
+        return spaces.Discrete(
+            3 +  # Request array
+            1 +  # Holding time
+            6 * params.k_paths
+            # Path stats:
+            # Mean free block size
+            # Free slots
+            # Path length
+            # Number of connections on path
+            # Mean power of connection on path
+            # Mean SNR of connection on path
+        )
+
 
 
 def make_rsa_env(config):
@@ -721,6 +810,9 @@ def make_rsa_env(config):
     num_roadms = config.get("num_roadms", 1)
     roadm_loss = config.get("roadm_loss", 18)
     snr_margin = config.get("snr_margin", 1)
+    path_snr = True if env_type == "rsa_gn_model" else False
+    max_power = config.get("max_power", 9)
+    min_power = config.get("min_power", -5)
 
     # optimize_launch_power.py parameters
     num_spans = config.get("num_spans", 10)
@@ -741,7 +833,7 @@ def make_rsa_env(config):
     scale_factor = config.get("scale_factor", 1.0)
     path_link_array = init_path_link_array(
         graph, k, disjoint=disjoint_paths, weight=weight, directed=graph.is_directed(),
-        rwa_lr=True if env_type == "rwa_lightpath_reuse" else False, scale_factor=scale_factor
+        rwa_lr=True if env_type == "rwa_lightpath_reuse" else False, scale_factor=scale_factor, path_snr=path_snr
     )
 
     launch_power_type = config.get("launch_power_type", "fixed")
@@ -809,7 +901,7 @@ def make_rsa_env(config):
         modulations_array = init_modulations_array(config.get("modulations_csv_filepath", None))
         if weight is None:  # If paths aren't to be sorted by length alone
             path_link_array = init_path_link_array(graph, k, disjoint=disjoint_paths, directed=graph.is_directed(),
-                                                   weight=weight, modulations_array=modulations_array)
+                                                   weight=weight, modulations_array=modulations_array, path_snr=path_snr)
         path_length_array = init_path_length_array(path_link_array, graph)
         path_se_array = init_path_se_array(path_length_array, modulations_array)
         min_se = min(path_se_array)  # if consider_modulation_format
@@ -887,7 +979,8 @@ def make_rsa_env(config):
                            modulations_array=HashableArrayWrapper(modulations_array) if not remove_array_wrappers else modulations_array,
                            noise_figure=noise_figure, interband_gap=interband_gap, mod_format_correction=mod_format_correction,
                            gap_start=gap_start, gap_width=gap_width, roadm_loss=roadm_loss, num_roadms=num_roadms,
-                           num_spans=num_spans, launch_power_type=launch_power_type, snr_margin=snr_margin)
+                           num_spans=num_spans, launch_power_type=launch_power_type, snr_margin=snr_margin,
+                           first_fit=config.get("first_fit", False), max_power=max_power, min_power=min_power)
         # TODO - calculate maximum reach here and update modulations_array. Write a function that takes params_dict as input, does the launch power optimisation, returns the maximum reach
     else:
         env_params = RSAEnvParams

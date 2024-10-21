@@ -77,6 +77,11 @@ def update_graph_tuple(state: EnvState, params: EnvParams):
     Returns:
         state (EnvState): Environment state with updated graph tuple
     """
+    # if params.__class__.__name__ == "RSAGNModelEnvParams":
+    #     # Update link SNR array to be
+    #     update_array =
+    # else:
+    #     update_array = state.link_slot_array
     edge_features = state.link_slot_array if params.directed_graph else jnp.repeat(state.link_slot_array, 2, axis=0)
     node_features = getattr(state, "node_capacity_array", jnp.zeros(params.num_nodes))
     node_features = node_features.reshape(-1, 1)
@@ -890,7 +895,8 @@ def remove_expired_services_rwalr(state: EnvState) -> EnvState:
     mask = jnp.where(0 <= state.link_slot_departure_array, mask, 0)
     state = state.replace(
         link_slot_array=jnp.where(mask == 1, 0, state.link_slot_array),
-        link_slot_departure_array=jnp.where(mask == 1, 0, state.link_slot_departure_array)
+        link_slot_departure_array=jnp.where(mask == 1, 0, state.link_slot_departure_array),
+        path_index_array=jnp.where(mask == 1, 0, state.path_index_array),
     )
     return state
 
@@ -906,11 +912,20 @@ def remove_expired_services_rsa_gn_model(state: EnvState) -> EnvState:
     """
     mask = jnp.where(state.link_slot_departure_array < jnp.squeeze(state.current_time), 1, 0)
     mask = jnp.where(0 <= state.link_slot_departure_array, mask, 0)
-    mask3d = jnp.repeat(mask[:, :, jnp.newaxis], state.active_path_array.shape[2], axis=2)
+    #mask3d = jnp.repeat(mask[:, :, jnp.newaxis], state.active_path_array.shape[2], axis=2)
     state = state.replace(
         link_slot_array=jnp.where(mask == 1, 0, state.link_slot_array),
         link_slot_departure_array=jnp.where(mask == 1, 0, state.link_slot_departure_array),
-        active_path_array=jnp.where(mask3d == 1, 0, state.active_path_array)
+        #active_path_array=jnp.where(mask3d == 1, 0, state.active_path_array)
+        link_snr_array=jnp.where(mask == 1, 0., state.link_snr_array),
+        path_index_array=jnp.where(mask == 1, -1, state.path_index_array),
+        channel_centre_bw_array=jnp.where(mask == 1, 0, state.channel_centre_bw_array),
+        channel_power_array=jnp.where(mask == 1, 0, state.channel_power_array),
+        modulation_format_index_array=jnp.where(mask == 1, -1, state.modulation_format_index_array),
+        path_index_array_prev=jnp.where(mask == 1, -1, state.path_index_array_prev),
+        channel_centre_bw_array_prev=jnp.where(mask == 1, 0, state.channel_centre_bw_array_prev),
+        channel_power_array_prev=jnp.where(mask == 1, 0, state.channel_power_array_prev),
+        modulation_format_index_array_prev=jnp.where(mask == 1, -1, state.modulation_format_index_array_prev),
     )
     return state
 
@@ -1317,14 +1332,11 @@ def implement_action_rsa(
     path_index, initial_slot_index = process_path_action(state, params, action)
     path = get_paths(params, nodes_sd)[path_index]
     if params.__class__.__name__ == "RWALightpathReuseEnvParams":
-        #jax.debug.print("link_capacity_array before {}", state.link_capacity_array, ordered=True)
         state = state.replace(
             link_capacity_array=vmap_update_path_links(
                 state.link_capacity_array, path, initial_slot_index, 1, requested_datarate
             )
         )
-        #jax.debug.print("link_capacity_array after {}", state.link_capacity_array, ordered=True)
-        #jax.debug.print("link_slot_array before {}", state.link_slot_array, ordered=True)
         # TODO (Dynamic-RWALR) - to support diverse requested_datarates for RWA-LR, need to update masking
         # TODO (Dynamic-RWALR) - In order to enable dynamic RWA with lightpath reuse (as opposed to just incremental loading),
         #  need to keep track of active requests OR just randomly remove connections
@@ -1332,14 +1344,12 @@ def implement_action_rsa(
         capacity_mask = jnp.where(state.link_capacity_array <= 0., -1., 0.)
         over_capacity_mask = jnp.where(state.link_capacity_array < 0., -1., 0.)
         total_mask = capacity_mask + over_capacity_mask
-        #jax.debug.print("total_mask {}", total_mask, ordered=True)
         state = state.replace(
             link_slot_array=total_mask,
             link_slot_departure_array=vmap_update_path_links(state.link_slot_departure_array, path,
                                                                        initial_slot_index, 1,
                                                                        state.current_time + state.holding_time)
         )
-        #jax.debug.print("link_slot_array after {}", state.link_slot_array, ordered=True)
     else:
         se = get_paths_se(params, nodes_sd)[path_index] if params.consider_modulation_format else 1
         num_slots = required_slots(requested_datarate, se, params.slot_size, guardband=params.guardband)
@@ -2348,7 +2358,7 @@ def init_link_length_array_gn_model(graph: nx.Graph, span_length: int,  max_span
     Args:
         graph (nx.Graph): NetworkX graph
     Returns:
-
+        jnp.array: Link length array (L x max_spans)
     """
     link_lengths = []
     directed = graph.is_directed()
@@ -2406,7 +2416,7 @@ def init_channel_centre_bw_array(params: EnvParams):
     Returns:
         jnp.array: Channel centre array
     """
-    return jnp.full((params.num_links, params.link_resources), 0)
+    return jnp.full((params.num_links, params.link_resources), 0.)
 
 
 def init_modulation_format_index_array(params: EnvParams):
@@ -2524,13 +2534,20 @@ def get_lightpath_snr(state: RSAGNModelEnvParams, params: RSAGNModelEnvParams) -
     Returns:
         chex.array: SNR for each link on path
     """
-    # TODO - Decide if there is advantage in defining this in state and updating with each step(), or just computing here
-    #active_path_array = get_path_from_path_index_array(state.path_index_array, params.path_link_array)
     # Get the SNR for the channel that the path occupies
-    lightpath_snr_array = (jax.vmap(
-        jax.vmap(lambda x, y, z: get_snr_for_path(x, y, z)[0], in_axes=(0, None, None)),
-        in_axes=(0, None, None)
-    )(state.active_path_array, state.link_snr_array, params))
+    # TODO - is it more efficient to go through every available frequency slot, or should we just get the SNR for every possible path then substitute in?
+
+    path_snr_array = jax.vmap(get_snr_for_path, in_axes=(0, None, None))(params.path_link_array.val, state.link_snr_array, params)
+    # Where value in path_index_array matches index of path_snr_array, substitute in SNR value
+    slot_indices = jnp.arange(params.link_resources)
+    lightpath_snr_array = jax.vmap(jax.vmap(lambda x, si: path_snr_array[x][si], in_axes=(0, 0)), in_axes=(0, None))(state.path_index_array, slot_indices)
+
+    # slot_indices = jnp.arange(params.link_resources)
+    # lightpath_snr_array = (jax.vmap(
+    #     jax.vmap(lambda x, y, si, z: get_snr_for_path(x, y, z)[si], in_axes=(0, None, 0, None)),
+    #     in_axes=(0, None, None, None)
+    # )(state.active_path_array, state.link_snr_array, slot_indices, params))
+
     return lightpath_snr_array
 
 
@@ -2546,10 +2563,10 @@ def check_snr_sufficient(state: RSAGNModelEnvState, params: RSAGNModelEnvParams)
     required_snr_array = get_required_snr_se_kurtosis_array(state.modulation_format_index_array, 2, params)
     # Transform lightpath index array by getting lightpath value, getting path-link array, and summing inverse link SNRs
     lightpath_snr_array = get_lightpath_snr(state, params)
-    #jax.debug.print("lightpath_snr_array {}", lightpath_snr_array, ordered=True)
-    #jax.debug.print("required_snr_array {}", required_snr_array, ordered=True)
-    #check_snr_sufficient = jax.numpy.equal(lightpath_snr_array, lightpath_snr_array)
+    # jax.debug.print("required_snr_array {}", required_snr_array, ordered=True)
+    # jax.debug.print("lightpath_snr_array {}", lightpath_snr_array, ordered=True)
     check_snr_sufficient = jnp.where(lightpath_snr_array >= required_snr_array, 0, 1)
+    # jax.debug.print("check_snr_sufficient {}", check_snr_sufficient, ordered=True)
     return jnp.any(check_snr_sufficient)
 
 
@@ -2619,18 +2636,30 @@ def get_best_modulation_format(state: EnvState, path: chex.Array, initial_slot_i
     Returns:
         jnp.array: Acceptable modulation format indices
     """
+    _, requested_datarate = read_rsa_request(state.request_array)
+    mod_format_count = params.modulations_array.val.shape[0]
+    acceptable_mod_format_indices = jnp.full((mod_format_count,), -2)
+
     def acceptable_modulation_format(i, acceptable_format_indices):
         req_snr = params.modulations_array.val[i][2]
+        se = params.modulations_array.val[i][1]
+        req_slots = required_slots(requested_datarate, se, params.slot_size, params.guardband)
+        requested_bandwidth = req_slots * params.slot_size
         new_state = state.replace(
-            modulation_format_index_array=vmap_set_path_links(state.modulation_format_index_array, path, initial_slot_index, 1, i),
+            modulation_format_index_array=vmap_set_path_links(
+                state.modulation_format_index_array, path, initial_slot_index, 1, i),
+            channel_centre_bw_array=vmap_set_path_links(
+                state.channel_centre_bw_array, path, initial_slot_index, 1, requested_bandwidth)
         )
         link_snr_array = get_snr_link_array(new_state, params)
-        snr_value = get_snr_for_path(path, link_snr_array, params)[initial_slot_index]
-        acceptable_format_indices = jnp.where(snr_value >= req_snr, acceptable_format_indices, -1)
+        snr_value = get_snr_for_path(path, link_snr_array, params)[initial_slot_index] - params.snr_margin
+        # jax.debug.print("snr_value {}", snr_value, ordered=True)
+        # jax.debug.print("req_snr {}", req_snr, ordered=True)
+        acceptable_format_index = jnp.where(snr_value >= req_snr, i, -1).reshape((1,))
+        acceptable_format_indices = jax.lax.dynamic_update_slice(acceptable_format_indices, acceptable_format_index, (i,))
+        # jax.debug.print("acceptable_format_indices {}", acceptable_format_indices, ordered=True)
         return acceptable_format_indices
 
-    mod_format_count = params.modulations_array.val.shape[0]
-    acceptable_mod_format_indices = jnp.arange(mod_format_count)
     acceptable_mod_format_indices = jax.lax.fori_loop(
         0,
         mod_format_count,
@@ -2661,7 +2690,7 @@ def get_best_modulation_format_simple(
     req_snr = params.modulations_array.val[:, 2]
     acceptable_mod_format_indices = jnp.where(snr_value >= req_snr,
                                               acceptable_mod_format_indices,
-                                              jnp.full((mod_format_count,), -1))
+                                              jnp.full((mod_format_count,), -2))
     return acceptable_mod_format_indices
 
 
@@ -2694,6 +2723,8 @@ def check_action_rsa_gn_model(state: EnvState, action: Optional[chex.Array], par
     # Check if action is valid
     snr_sufficient_check = check_snr_sufficient(state, params)
     spectrum_reuse_check = check_no_spectrum_reuse(state.link_slot_array)
+    # jax.debug.print("spectrum_reuse_check {}", spectrum_reuse_check, ordered=True)
+    # jax.debug.print("snr_sufficient_check {}", snr_sufficient_check, ordered=True)
     return jnp.any(jnp.stack((
         spectrum_reuse_check,
         snr_sufficient_check,
@@ -2722,31 +2753,42 @@ def implement_action_rsa_gn_model(
     path_action, power_action = action
     path_action = path_action.astype(jnp.int32)
     k_path_index, initial_slot_index = process_path_action(state, params, path_action)
-    #lightpath_index = get_lightpath_index(params, nodes_sd, k_path_index)
+    lightpath_index = get_lightpath_index(params, nodes_sd, k_path_index)
+    # jax.debug.print("k_path_index {}", k_path_index, ordered=True)
+    # jax.debug.print("initial_slot_index {}", initial_slot_index, ordered=True)
     path = get_paths(params, nodes_sd)[k_path_index]
     launch_power = get_launch_power(state, path_action, power_action, params)
     # Update channel_power_array and channel_centre_bw_array
+    # jax.debug.print("path_sr pre {}", get_snr_for_path(path, state.link_snr_array, params)[initial_slot_index], ordered=True)
     state = state.replace(
-        active_path_array=vmap_set_path_links(state.active_path_array, path, initial_slot_index, 1, path),
-        #path_index_array=vmap_set_path_links(state.path_index_array, path, initial_slot_index, 1, lightpath_index),
+        #active_path_array=vmap_set_path_links(state.active_path_array, path, initial_slot_index, 1, path),
+        path_index_array=vmap_set_path_links(state.path_index_array, path, initial_slot_index, 1, lightpath_index),
         channel_power_array=vmap_set_path_links(state.channel_power_array, path, initial_slot_index, 1, launch_power),
-        channel_centre_bw_array=vmap_set_path_links(state.channel_centre_bw_array, path, initial_slot_index, 1, requested_datarate)
     )
     # TODO (GN MODEL) - get mod. format based on maximum reach
     # Get acceptable modulation formats
-    mod_format_indices = get_best_modulation_format_simple(state, path, initial_slot_index, params)
+    mod_format_indices = get_best_modulation_format(state, path, initial_slot_index, params)
     # Highest index is best modulation format
     mod_format_index = jnp.max(mod_format_indices)
-    # Update modulation_format_index_array
-    state = state.replace(
-        modulation_format_index_array=vmap_set_path_links(state.modulation_format_index_array, path, initial_slot_index, 1, mod_format_index)
-    )
+    # Get spectral efficiency and required bandwidth
     se = params.modulations_array.val[mod_format_index][1]
     num_slots = required_slots(requested_datarate, se, params.slot_size, guardband=params.guardband)
+    required_bandwidth = num_slots * params.slot_size
     # Update link_slot_array and link_slot_departure_array
+    # jax.debug.print("path_slots pre {}", get_path_slots(state.link_slot_array, params, nodes_sd, k_path_index), ordered=True)
     state = implement_path_action(state, path, initial_slot_index, num_slots)
+    # Update modulation_format_index_array and channel_centre_bw_array
+    # jax.debug.print("path_slots {}", get_path_slots(state.link_slot_array, params, nodes_sd, k_path_index), ordered=True)
+    # jax.debug.print("mod_format_indices {}", mod_format_indices, ordered=True)
+    # jax.debug.print("selected mod_format_index {}", mod_format_index, ordered=True)
+    state = state.replace(
+        modulation_format_index_array=vmap_set_path_links(state.modulation_format_index_array, path, initial_slot_index, 1, mod_format_index),
+        channel_centre_bw_array=vmap_set_path_links(state.channel_centre_bw_array, path, initial_slot_index, 1, required_bandwidth),
+    )
     # Update link_snr_array
     state = state.replace(link_snr_array=get_snr_link_array(state, params))
+    # jax.debug.print("path_snr {}", get_snr_for_path(path, state.link_snr_array, params)[initial_slot_index], ordered=True)
+    # jax.debug.print("required_snr {}", params.modulations_array.val[mod_format_index][2], ordered=True)
     return state
 
 
@@ -2765,10 +2807,10 @@ def undo_action_rsa_gn_model(state: RSAGNModelEnvState, params: RSAGNModelEnvPar
         link_slot_array=set_c_l_band_gap(state.link_slot_array, params, -1.),  # Set C+L band gap
         # TODO - investigate more memory-efficient way to undo arrays
         channel_centre_bw_array=state.channel_centre_bw_array_prev,
-        #path_index_array=state.path_index_array_prev,
+        path_index_array=state.path_index_array_prev,
         channel_power_array=state.channel_power_array_prev,
         modulation_format_index_array=state.modulation_format_index_array_prev,
-        active_path_array=state.active_path_array_prev,
+        #active_path_array=state.active_path_array_prev,
     )
     return state
 
@@ -2778,10 +2820,10 @@ def finalise_action_rsa_gn_model(state: RSAGNModelEnvState, params: Optional[Env
     state = state.replace(
         link_slot_array=set_c_l_band_gap(state.link_slot_array, params, -1.),  # Set C+L band gap
         channel_centre_bw_array_prev=state.channel_centre_bw_array,
-        #path_index_array_prev=state.path_index_array,
+        path_index_array_prev=state.path_index_array,
         channel_power_array_prev=state.channel_power_array,
         modulation_format_index_array_prev=state.modulation_format_index_array,
-        active_path_array_prev=state.active_path_array,
+        #active_path_array_prev=state.active_path_array,
     )
     return state
 
@@ -2809,90 +2851,153 @@ def mask_slots_rsa_gn_model(state: RSAGNModelEnvState, params: RSAGNModelEnvPara
     init_mask = jnp.zeros((params.link_resources * params.k_paths))
 
     def mask_path(i, mask):
-        lightpath_index = get_lightpath_index(params, nodes_sd, i)
         path = get_paths(params, nodes_sd)[i]
         # Get slots for path
         slots = get_path_slots(state.link_slot_array, params, nodes_sd, i)
         # Add padding to slots at end
         # 0 means slot is free, 1 is occupied
         slots = jnp.concatenate((slots, jnp.ones(params.max_slots)))
-        slots = -slots + 1  # 1 if slot is free, 0 if slot is occupied
+        #slots = -slots + 1  # 1 if slot is free, 0 if slot is occupied
         launch_power = get_launch_power(state, i, state.launch_power_array[0], params)
-        # TODO - fix this >>>>
-        # For mod format in rows of mod format table:
-        # Get the first and last available slots on "slots"
-        # Do the temp state trick,
+        #jax.debug.print("slots {}", slots, ordered=True)
 
-        required_bandwidth = requested_datarate
-        #def check_modulation_format(i, best_mod_format_index)
-        #first_available_slot_index
-        #se = params.modulations_array.val[mod_format_index][1]
-        #req_slots = required_slots(requested_datarate, se, params.slot_size, guardband=params.guardband)[0]
-        #link_slot_mask = jax.lax.fori_loop(0, params.k_paths, mask_path, init_mask)
+        # This function checks through each available modulation format, checks the first and last available slots,
+        # calculates the SNR, checks it meets the requirements, and returns the resulting mask
+        def check_modulation_format(mod_format_index, init_path_mask):
+            se = params.modulations_array.val[mod_format_index][1]
+            req_slots = required_slots(requested_datarate, se, params.slot_size, guardband=params.guardband)[0]
+            required_bandwidth = req_slots * params.slot_size
+            req_snr = params.modulations_array.val[mod_format_index][2]
+            # Get mask used to check if request will fit slots
+            request_mask = get_request_mask(req_slots, params)
+            #jax.debug.print("required_bandwidth {}", required_bandwidth, ordered=True)
+            #jax.debug.print("req_slots {}", req_slots, ordered=True)
+            #jax.debug.print("request_mask {}", request_mask, ordered=True)
+
+            def check_slots_available(j, val):
+                # Multiply through by request mask to check if slots available
+                slot_sum = jnp.sum(request_mask * jax.lax.dynamic_slice(val, (j,), (params.max_slots,))) <= 0
+                slot_sum = slot_sum.reshape((1,)).astype(jnp.float32)
+                return jax.lax.dynamic_update_slice(val, slot_sum, (j,))
+
+            # Mask out slots that are not valid
+            slot_mask = jax.lax.fori_loop(
+                0,
+                int(params.link_resources + 1),  # No need to check last requested_slots-1 slots
+                check_slots_available,
+                slots,
+            )
+            # Cut off padding
+            slot_mask = jax.lax.dynamic_slice(slot_mask, (0,), (params.link_resources,))
+            #jax.debug.print("slot_mask {}", slot_mask, ordered=True)
+            # Check first and last available slots for suitability
+            ff_path_mask = jnp.concatenate((slot_mask, jnp.ones((1,))), axis=0)
+            lf_path_mask = jnp.concatenate((jnp.ones((1,)), slot_mask), axis=0)
+            #jax.debug.print("ff_path_mask {}", ff_path_mask, ordered=True)
+            #jax.debug.print("lf_path_mask {}", lf_path_mask, ordered=True)
+            first_available_slot_index = jnp.argmax(ff_path_mask)
+            last_available_slot_index = params.link_resources - jnp.argmax(jnp.flip(lf_path_mask)) - 1
+            ff_temp_state = state.replace(
+                channel_centre_bw_array=vmap_set_path_links(state.channel_centre_bw_array, path, first_available_slot_index, 1, required_bandwidth),
+                channel_power_array=vmap_set_path_links(state.channel_power_array, path, first_available_slot_index, 1, launch_power),
+            )
+            lf_temp_state = state.replace(
+                channel_centre_bw_array=vmap_set_path_links(state.channel_centre_bw_array, path, last_available_slot_index, 1, required_bandwidth),
+                channel_power_array=vmap_set_path_links(state.channel_power_array, path, last_available_slot_index, 1, launch_power),
+            )
+            # ff_acceptable_mod_format_indices = get_best_modulation_format_simple(ff_temp_state, path, first_available_slot_index, params)
+            # ff_mod_format_index = jnp.max(ff_acceptable_mod_format_indices)
+            # lf_acceptable_mod_format_indices = get_best_modulation_format_simple(lf_temp_state, path, last_available_slot_index, params)
+            # lf_mod_format_index = jnp.max(lf_acceptable_mod_format_indices)
+            ff_snr_value = get_snr_for_path(path, get_snr_link_array(ff_temp_state, params), params)[first_available_slot_index] - params.snr_margin  # Margin
+            lf_snr_value = get_snr_for_path(path, get_snr_link_array(lf_temp_state, params), params)[last_available_slot_index] - params.snr_margin  # Margin
+            ff_mod_format_index = jnp.where(ff_snr_value >= req_snr, 1, -1)
+            lf_mod_format_index = jnp.where(lf_snr_value >= req_snr, 1, -1)
+            slot_indices = jnp.arange(params.link_resources)
+            mod_format_mask = jnp.where(slot_indices == first_available_slot_index, ff_mod_format_index, -1)
+            mod_format_mask = jnp.where(slot_indices == last_available_slot_index, lf_mod_format_index, mod_format_mask)
+            #jax.debug.print("mod_format_mask {}", mod_format_mask, ordered=True)
+            # Change >0 to 1s
+            mod_format_mask = jnp.where(mod_format_mask > -1, 1, 0)
+            # Change -1s to 0s
+            mod_format_mask = jnp.where(mod_format_mask == -1, 0, mod_format_mask)
+            #jax.debug.print("first_available_slot_index {}", first_available_slot_index, ordered=True)
+            #jax.debug.print("last_available_slot_index {}", last_available_slot_index, ordered=True)
+            #jax.debug.print("mod_format_index {}", mod_format_index, ordered=True)
+            #jax.debug.print("ff_mod_format_index {}", ff_mod_format_index, ordered=True)
+            #jax.debug.print("lf_mod_format_index {}", lf_mod_format_index, ordered=True)
+            #jax.debug.print("mod_format_mask {}", mod_format_mask, ordered=True)
+            # Combine with initial mask
+            path_mask = jnp.where(mod_format_mask == 1, mod_format_mask, init_path_mask)
+            # jax.debug.print("path_mask {}", path_mask, ordered=True)
+            return path_mask
+
+        path_mask = jax.lax.fori_loop(0, params.modulations_array.val.shape[0], check_modulation_format, jnp.zeros((params.link_resources,)))
+        # jax.debug.print("path_mask {}", path_mask[:params.link_resources], ordered=True)
 
         # TODO - instead of recalculating SNR for each slot, interpolate between SNR values
         # TODO - NEED TO KNOW MOD-FORMAT UPFRONT TO ESTIMATE required bandwidth
         # TODO -
-        def check_snr_get_mod_return_slots(initial_slot_index):
-            # Get acceptable modulation formats
-            temp_state = state.replace(
-                channel_centre_bw_array=vmap_set_path_links(state.channel_centre_bw_array, path, initial_slot_index, 1, required_bandwidth),
-                channel_power_array=vmap_set_path_links(state.channel_power_array, path, initial_slot_index, 1, launch_power),
-            )
-            mod_format_indices = get_best_modulation_format_simple(temp_state, path, initial_slot_index, params)
-            mod_format_index = jnp.max(mod_format_indices)  # -1 if no suitable mod format due to low SNR
-            se = params.modulations_array.val[mod_format_index][1]
-            req_slots = required_slots(requested_datarate, se, params.slot_size, guardband=params.guardband)[0]
-            options = jnp.array([mod_format_index, req_slots])
-            req_slots = options[jnp.argmin(jnp.array([mod_format_index*1000, req_slots]))]  # will always return -1 if SNR is too low, else required slots
-            return req_slots.astype(jnp.float32)
-
-        slot_indices = jnp.arange(params.link_resources)
-        req_slots_path = jax.vmap(check_snr_get_mod_return_slots)(slot_indices)
-        # Add padding
-        req_slots_path = jnp.concatenate((req_slots_path, jnp.full((params.max_slots,), -1)))
-        # Contains +ve integer for required slots, -1 if slot is occupied or SNR too low
-        req_slots_path = jnp.where(
-            slots == 1,
-            req_slots_path,
-            slots
-        )
-
-        # Make all request masks in advance, then use a scan to apply them to slots
-        xs = jnp.vstack((req_slots_path, jnp.arange(req_slots_path.shape[0]))).T
-        masks = jax.vmap(lambda x: get_request_mask(x, params))(jnp.arange(params.max_slots))
-
-        def scan_fn(carry, x):
-            req_slots = x[0].astype(jnp.int32)
-            index = x[1].astype(jnp.int32)
-            mask = masks[req_slots, :]
-            sum = jnp.sum(mask * jax.lax.dynamic_slice(slots, (index,), (mask.shape[0],)))
-            y = (sum == req_slots) & (sum > 0)
-            return carry, y.astype(jnp.float32)
-
-        _, path_mask = jax.lax.scan(scan_fn, slots, xs, length=slots.shape[0])
-
-        # Cut off padding
-        path_mask = jax.lax.dynamic_slice(path_mask, (0,), (params.link_resources,))
+        # def check_snr_get_mod_return_slots(initial_slot_index):
+        #     # Get acceptable modulation formats
+        #     temp_state = state.replace(
+        #         channel_centre_bw_array=vmap_set_path_links(state.channel_centre_bw_array, path, initial_slot_index, 1, required_bandwidth),
+        #         channel_power_array=vmap_set_path_links(state.channel_power_array, path, initial_slot_index, 1, launch_power),
+        #     )
+        #     mod_format_indices = get_best_modulation_format_simple(temp_state, path, initial_slot_index, params)
+        #     mod_format_index = jnp.max(mod_format_indices)  # -1 if no suitable mod format due to low SNR
+        #     se = params.modulations_array.val[mod_format_index][1]
+        #     req_slots = required_slots(requested_datarate, se, params.slot_size, guardband=params.guardband)[0]
+        #     options = jnp.array([mod_format_index, req_slots])
+        #     req_slots = options[jnp.argmin(jnp.array([mod_format_index*1000, req_slots]))]  # will always return -1 if SNR is too low, else required slots
+        #     return req_slots.astype(jnp.float32)
+        #
+        # slot_indices = jnp.arange(params.link_resources)
+        # req_slots_path = jax.vmap(check_snr_get_mod_return_slots)(slot_indices)
+        # # Add padding
+        # req_slots_path = jnp.concatenate((req_slots_path, jnp.full((params.max_slots,), -1)))
+        # # Contains +ve integer for required slots, -1 if slot is occupied or SNR too low
+        # req_slots_path = jnp.where(
+        #     slots == 1,
+        #     req_slots_path,
+        #     slots
+        # )
+        #
+        # # Make all request masks in advance, then use a scan to apply them to slots
+        # xs = jnp.vstack((req_slots_path, jnp.arange(req_slots_path.shape[0]))).T
+        # masks = jax.vmap(lambda x: get_request_mask(x, params))(jnp.arange(params.max_slots))
+        #
+        # def scan_fn(carry, x):
+        #     req_slots = x[0].astype(jnp.int32)
+        #     index = x[1].astype(jnp.int32)
+        #     mask = masks[req_slots, :]
+        #     sum = jnp.sum(mask * jax.lax.dynamic_slice(slots, (index,), (mask.shape[0],)))
+        #     y = (sum == req_slots) & (sum > 0)
+        #     return carry, y.astype(jnp.float32)
+        #
+        # _, path_mask = jax.lax.scan(scan_fn, slots, xs, length=slots.shape[0])
+        #
+        # # Cut off padding
+        # path_mask = jax.lax.dynamic_slice(path_mask, (0,), (params.link_resources,))
 
         # Check that existing lightpaths are ok, set 0 if not
-        def apply_action_check_snr(state, params, initial_slot_index):
-            req_slots_val = req_slots_path[initial_slot_index]  # -1 if None required
-            mod_format_index = (jnp.floor(requested_datarate / (req_slots_val * params.slot_size)) - 1)
-            mod_format_index = jnp.max(jnp.concatenate([jnp.zeros(1), mod_format_index])).astype(jnp.int32)  # Ensure mod_format_index is not negative
-            launch_power = get_launch_power(state, i, state.launch_power_array[0], params)
-            # TODO - fix this >>>>
-            required_bandwidth = requested_datarate
-            temp_state = state.replace(
-                #path_index_array=vmap_set_path_links(state.path_index_array, path, initial_slot_index, 1, lightpath_index),
-                active_path_array=vmap_set_path_links(state.active_path_array, path, initial_slot_index, 1, path),
-                channel_centre_bw_array=vmap_set_path_links(state.channel_centre_bw_array, path, initial_slot_index, 1, required_bandwidth),
-                channel_power_array=vmap_set_path_links(state.channel_power_array, path, initial_slot_index, 1, launch_power),
-                modulation_format_index_array=vmap_set_path_links(state.modulation_format_index_array, path, initial_slot_index, 1, mod_format_index),
-            )
-            # check_snr_sufficient returns False if sufficient, so need to invert
-            check = jnp.logical_not(check_snr_sufficient(temp_state, params)).astype(jnp.float32)
-            return check
+        # def apply_action_check_snr(state, params, initial_slot_index):
+        #     req_slots_val = req_slots_path[initial_slot_index]  # -1 if None required
+        #     mod_format_index = (jnp.floor(requested_datarate / (req_slots_val * params.slot_size)) - 1)
+        #     mod_format_index = jnp.max(jnp.concatenate([jnp.zeros(1), mod_format_index])).astype(jnp.int32)  # Ensure mod_format_index is not negative
+        #     launch_power = get_launch_power(state, i, state.launch_power_array[0], params)
+        #     # TODO - fix this >>>>
+        #     required_bandwidth = requested_datarate
+        #     temp_state = state.replace(
+        #         #path_index_array=vmap_set_path_links(state.path_index_array, path, initial_slot_index, 1, lightpath_index),
+        #         active_path_array=vmap_set_path_links(state.active_path_array, path, initial_slot_index, 1, path),
+        #         channel_centre_bw_array=vmap_set_path_links(state.channel_centre_bw_array, path, initial_slot_index, 1, required_bandwidth),
+        #         channel_power_array=vmap_set_path_links(state.channel_power_array, path, initial_slot_index, 1, launch_power),
+        #         modulation_format_index_array=vmap_set_path_links(state.modulation_format_index_array, path, initial_slot_index, 1, mod_format_index),
+        #     )
+        #     # check_snr_sufficient returns False if sufficient, so need to invert
+        #     check = jnp.logical_not(check_snr_sufficient(temp_state, params)).astype(jnp.float32)
+        #     return check
 
         # Check SNR impact on updating every channel
         #snr_check_mask = jax.vmap(apply_action_check_snr, in_axes=(None, None, 0))(state, params, slot_indices)
@@ -2911,6 +3016,7 @@ def mask_slots_rsa_gn_model(state: RSAGNModelEnvState, params: RSAGNModelEnvPara
         link_slot_mask, _ = aggregate_slots(link_slot_mask.reshape(params.k_paths, -1), params)
         link_slot_mask = link_slot_mask.reshape(-1)
     state = state.replace(link_slot_mask=link_slot_mask)
+    # jax.debug.print("link_slot_mask {}", link_slot_mask, ordered=True)
     return state
 
 

@@ -18,9 +18,10 @@ import matplotlib.pyplot as plt
 from xlron.environments.wrappers import LogWrapper
 from xlron.environments.vone import make_vone_env
 from xlron.environments.rsa import make_rsa_env
-from xlron.models.models import ActorCriticGNN, ActorCriticMLP
+from xlron.models.models import ActorCriticGNN, ActorCriticMLP, LaunchPowerActorCriticMLP
 from xlron.environments.dataclasses import EnvState
 from xlron.environments.env_funcs import init_link_length_array, make_graph
+from xlron.heuristics.heuristics import ksp_ff, ksp_lf
 
 
 class TrainState(struct.PyTreeNode):
@@ -227,6 +228,13 @@ def init_network(config, env, env_state, env_params):
                 vmap=False,
             )
             init_x = (env_state.env_state, env_params)
+        elif config.env_type.lower() == "rsa_gn_model" and env_params.launch_power_type == 3:
+            network = LaunchPowerActorCriticMLP([env.action_space(env_params).n],
+                                     activation=config.ACTIVATION,
+                                     num_layers=config.NUM_LAYERS,
+                                     num_units=config.NUM_UNITS,
+                                     layer_norm=config.LAYER_NORM, )
+            init_x = tuple([jnp.zeros(env.observation_space(env_params).n)])
         else:
             network = ActorCriticMLP([env.action_space(env_params).n],
                                      activation=config.ACTIVATION,
@@ -261,6 +269,11 @@ def select_action(select_action_state, env, env_params, train_state, config):
     """
     rng_key, env_state, last_obs = select_action_state
     last_obs = (env_state.env_state, env_params) if config.USE_GNN else last_obs
+    # if config.__class__.__name__ == "RSAGNModelEnvParams":
+    #     path_indices = jnp.arange(env_params.k_paths)
+    #     observations = jax.lax.fori_loop(0, env_params.k_paths, lambda i: env.get_obs(env_state.env_state, env_params, i), path_indices)
+    #     pi, value = train_state.apply_fn(train_state.params, *observations)
+    # else:
     pi, value = train_state.apply_fn(train_state.params, *last_obs)
     action_keys = jax.random.split(rng_key, len(pi))
 
@@ -293,6 +306,15 @@ def select_action(select_action_state, env, env_params, train_state, config):
         log_prob_path = pi_path.log_prob(action_p)
         log_prob_dest = pi_dest.log_prob(action_d)
         log_prob = log_prob_dest + log_prob_path + log_prob_source
+
+    elif config.env_type.lower() == "rsa_gn_model" and config.launch_power_type == "rl":
+        power_action = pi[0].sample(seed=action_keys[0]) if not config.deterministic else pi[0].mode()
+        log_prob = pi[0].log_prob(power_action)[0]
+        power_action = power_action * (env_params.max_power - env_params.min_power) + env_params.min_power
+        env_state = env_state.env_state.replace(launch_power_array=power_action)
+        path_action = ksp_ff(env_state, env_params) if env_params.first_fit is True else ksp_lf(
+            env_state, env_params)
+        action = jnp.concatenate([path_action.reshape((1,)), power_action.reshape((1,))], axis=0)
 
     elif config.ACTION_MASKING:
         env_state = env_state.replace(env_state=env.action_mask(env_state.env_state, env_params))
@@ -610,6 +632,9 @@ def log_metrics(config, out, experiment_name, total_time, merge_func):
     print(f"Accepted Bitrate Episode: "
           f"{accepted_bitrate_mean[-1] if config.continuous_operation else accepted_bitrate_mean_episode_end.mean():.0f}"
           f" ± {accepted_bitrate_std[-1] if config.continuous_operation else accepted_bitrate_std_episode_end.mean():.0f}")
+    print("Utilisation: "
+          f"{utilisation_mean[-1] if config.continuous_operation else utilisation_mean_episode_end.mean():.2f}"
+            f" ± {utilisation_std[-1] if config.continuous_operation else utilisation_std_episode_end.mean():.2f}")
 
     if config.log_actions:
         env, params = define_env(config)
@@ -639,6 +664,11 @@ def log_metrics(config, out, experiment_name, total_time, merge_func):
         request_data_rate = jnp.squeeze(merged_out["data_rate"])
         path_indices = jnp.squeeze(merged_out["path_index"])
         slot_indices = jnp.squeeze(merged_out["slot_index"])
+        # Get path lengths where returns are positive, 0 otherwise
+        utilised_path_lengths = jnp.where(returns > 0, jnp.take(path_lengths, path_indices), 0)
+        utilised_path_hops = jnp.where(returns > 0, jnp.take(num_hops, path_indices), 0)
+        print(f"Average path length for successful actions: {utilised_path_lengths.mean():.0f}")
+        print(f"Average number of hops for successful actions: {utilised_path_hops.mean():.2f}")
 
         # Compare the available paths
         df_path_links = pd.DataFrame(params.path_link_array.val).reset_index(drop=True)
