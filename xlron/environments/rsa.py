@@ -692,6 +692,7 @@ class RSAGNModelEnv(RSAEnv):
                 jnp.int32) + k_path_index
             path = params.path_link_array[path_index]
             path_length = jnp.dot(path, link_length_array) / 100
+            path_length_hops = jnp.sum(path)
             # Connections on path
             num_connections = jnp.where(path == 1, jnp.where(state.modulation_format_index_array > -1, 1, 0).sum(axis=1), 0).sum()
             # Mean power of connections on path
@@ -701,10 +702,10 @@ class RSAGNModelEnv(RSAEnv):
             mean_snr = jnp.nan_to_num(jnp.where(path == 1, lightpath_snr_array.sum(axis=1), 0).sum() / num_connections, nan=-50, posinf=-50, neginf=-50)
             return jax.lax.dynamic_update_slice(
                 init_val,
-                jnp.array([path_length, num_connections, mean_power, mean_snr]).reshape((1, 4)),
+                jnp.array([path_length, path_length_hops, num_connections, mean_power, mean_snr]).reshape((1, 5)),
                 (k_path_index, 0),
             )
-        gn_path_stats = jnp.zeros((params.k_paths, 4))
+        gn_path_stats = jnp.zeros((params.k_paths, 5))
         gn_path_stats = jax.lax.fori_loop(
             0, params.k_paths, calculate_gn_path_stats, gn_path_stats
         )
@@ -728,19 +729,19 @@ class RSAGNModelEnv(RSAEnv):
         return spaces.Discrete(
             3 +  # Request array
             1 +  # Holding time
-            6 * params.k_paths
+            7 * params.k_paths
             # Path stats:
             # Mean free block size
             # Free slots
-            # Path length
+            # Path length (100 km)
+            # Path length (hops)
             # Number of connections on path
             # Mean power of connection on path
             # Mean SNR of connection on path
         )
 
 
-
-def make_rsa_env(config):
+def make_rsa_env(config: dict, launch_power_array: Optional[chex.Array] = None):
     """Create RSA environment. This function is the entry point to setting up any RSA-type environment.
     This function takes a dictionary of the commandline flag parameters and configures the
     RSA environment and parameters accordingly.
@@ -842,12 +843,11 @@ def make_rsa_env(config):
     # 2. Tabulated values of power for each path
     # 3. RL to determine power for each path
     if env_type == "rsa_gn_model":
-        # TODO - If optimise_launch_power is True, use below values else load from file
         if launch_power_type == "fixed":
-            launch_power_array = jnp.array([config.get("launch_power", -2.0)])
+            launch_power_array = jnp.array([config.get("launch_power", -2.0)]) if not flags.optimise_launch_power else launch_power_array
             launch_power_type = 1
         elif launch_power_type == "tabular":
-            launch_power_array = jnp.zeros(path_link_array.shape[0])
+            launch_power_array = jnp.zeros(path_link_array.shape[0]) if not flags.optimise_launch_power else launch_power_array
             launch_power_type = 2
         elif launch_power_type == "rl":
             launch_power_array = jnp.zeros([1])

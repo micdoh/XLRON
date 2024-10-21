@@ -410,6 +410,13 @@ def setup_wandb(config, project_name, experiment_name):
     wandb.define_metric("episode_accepted_bitrate", step_metric="episode_count")
     wandb.define_metric("episode_accepted_bitrate_std", step_metric="episode_count")
     wandb.define_metric("episode_end_training_time", step_metric="episode_count")
+    if config.env_type.lower() == "rsa_gn_model":
+        wandb.define_metric("launch_power", step_metric="env_step")
+        wandb.define_metric("path_index", step_metric="env_step")
+        wandb.define_metric("slot_index", step_metric="env_step")
+        wandb.define_metric("source", step_metric="env_step")
+        wandb.define_metric("dest", step_metric="env_step")
+        wandb.define_metric("data_rate", step_metric="env_step")
 
 
 def log_metrics(config, out, experiment_name, total_time, merge_func):
@@ -449,7 +456,7 @@ def log_metrics(config, out, experiment_name, total_time, merge_func):
     service_blocking_probability_std_episode_end = accepted_services_std_episode_end / lengths_mean_episode_end
     bitrate_blocking_probability_episode_end = 1 - (accepted_bitrate_mean_episode_end / total_bitrate_mean_episode_end)
     bitrate_blocking_probability_std_episode_end = accepted_bitrate_std_episode_end / total_bitrate_mean_episode_end
-    training_time_episode_end = np.arange(len(returns_mean_episode_end)) / returns_mean_episode_end * total_time
+    training_time_episode_end = np.arange(len(returns_mean_episode_end)) / len(returns_mean_episode_end) * total_time
 
     returns_mean = get_mean(merged_out, "returns") if not config.end_first_blocking else returns_mean_episode_end
     returns_std = get_std(merged_out, "returns") if not config.end_first_blocking else returns_std_episode_end
@@ -475,7 +482,7 @@ def log_metrics(config, out, experiment_name, total_time, merge_func):
                                 "utilisation") if not config.end_first_blocking else utilisation_mean_episode_end
     utilisation_std = get_std(merged_out,
                               "utilisation") if not config.end_first_blocking else utilisation_std_episode_end
-    training_time = np.arange(len(returns_mean)) / returns_mean * total_time
+    training_time = np.arange(len(returns_mean)) / len(returns_mean) * total_time
     # get values of service and bitrate blocking probs
     service_blocking_probability = 1 - (
                 accepted_services_mean / lengths_mean) if not config.end_first_blocking else service_blocking_probability_episode_end
@@ -557,31 +564,59 @@ def log_metrics(config, out, experiment_name, total_time, merge_func):
         # Define the downsample factor to speed up upload to wandb
         # Then reshape the array and compute the mean
         chop = len(returns_mean) % config.DOWNSAMPLE_FACTOR
-        cum_returns_mean = cum_returns_mean[chop:].reshape(-1, config.DOWNSAMPLE_FACTOR).mean(axis=1)
-        cum_returns_std = cum_returns_std[chop:].reshape(-1, config.DOWNSAMPLE_FACTOR).mean(axis=1)
-        returns_mean = returns_mean[chop:].reshape(-1, config.DOWNSAMPLE_FACTOR).mean(axis=1)
-        returns_std = returns_std[chop:].reshape(-1, config.DOWNSAMPLE_FACTOR).mean(axis=1)
-        lengths_mean = lengths_mean[chop:].reshape(-1, config.DOWNSAMPLE_FACTOR).mean(axis=1)
-        lengths_std = lengths_std[chop:].reshape(-1, config.DOWNSAMPLE_FACTOR).mean(axis=1)
-        total_bitrate_mean = total_bitrate_mean[chop:].reshape(-1, config.DOWNSAMPLE_FACTOR).mean(axis=1)
-        total_bitrate_std = total_bitrate_std[chop:].reshape(-1, config.DOWNSAMPLE_FACTOR).mean(axis=1)
-        service_blocking_probability = service_blocking_probability[chop:].reshape(-1, config.DOWNSAMPLE_FACTOR).mean(
-            axis=1)
-        service_blocking_probability_std = service_blocking_probability_std[chop:].reshape(-1,
-                                                                                           config.DOWNSAMPLE_FACTOR).mean(
-            axis=1)
-        bitrate_blocking_probability = bitrate_blocking_probability[chop:].reshape(-1, config.DOWNSAMPLE_FACTOR).mean(
-            axis=1)
-        bitrate_blocking_probability_std = bitrate_blocking_probability_std[chop:].reshape(-1,
-                                                                                           config.DOWNSAMPLE_FACTOR).mean(
-            axis=1)
-        accepted_services_mean = accepted_services_mean[chop:].reshape(-1, config.DOWNSAMPLE_FACTOR).mean(axis=1)
-        accepted_services_std = accepted_services_std[chop:].reshape(-1, config.DOWNSAMPLE_FACTOR).mean(axis=1)
-        accepted_bitrate_mean = accepted_bitrate_mean[chop:].reshape(-1, config.DOWNSAMPLE_FACTOR).mean(axis=1)
-        accepted_bitrate_std = accepted_bitrate_std[chop:].reshape(-1, config.DOWNSAMPLE_FACTOR).mean(axis=1)
-        utilisation_mean = utilisation_mean[chop:].reshape(-1, config.DOWNSAMPLE_FACTOR).mean(axis=1)
-        utilisation_std = utilisation_std[chop:].reshape(-1, config.DOWNSAMPLE_FACTOR).mean(axis=1)
-        training_time = training_time[chop:].reshape(-1, config.DOWNSAMPLE_FACTOR).mean(axis=1)
+        downsample_mean = lambda x: x[chop:].reshape(-1, config.DOWNSAMPLE_FACTOR).mean(axis=1)
+        cum_returns_mean = downsample_mean(cum_returns_mean)
+        cum_returns_std = downsample_mean(cum_returns_std)
+        returns_mean = downsample_mean(returns_mean)
+        returns_std = downsample_mean(returns_std)
+        lengths_mean = downsample_mean(lengths_mean)
+        lengths_std = downsample_mean(lengths_std)
+        service_blocking_probability = downsample_mean(service_blocking_probability)
+        service_blocking_probability_std = downsample_mean(service_blocking_probability_std)
+        bitrate_blocking_probability = downsample_mean(bitrate_blocking_probability)
+        bitrate_blocking_probability_std = downsample_mean(bitrate_blocking_probability_std)
+        accepted_services_mean = downsample_mean(accepted_services_mean)
+        accepted_services_std = downsample_mean(accepted_services_std)
+        accepted_bitrate_mean = downsample_mean(accepted_bitrate_mean)
+        accepted_bitrate_std = downsample_mean(accepted_bitrate_std)
+        total_bitrate_mean = downsample_mean(total_bitrate_mean)
+        total_bitrate_std = downsample_mean(total_bitrate_std)
+        utilisation_mean = downsample_mean(utilisation_mean)
+        utilisation_std = downsample_mean(utilisation_std)
+        training_time = downsample_mean(training_time)
+        if config.env_type.lower() == "rsa_gn_model":
+            merged_out["launch_power"] = downsample_mean(merged_out["launch_power"])
+            merged_out["path_index"] = downsample_mean(merged_out["path_index"])
+            merged_out["slot_index"] = downsample_mean(merged_out["slot_index"])
+            merged_out["source"] = downsample_mean(merged_out["source"])
+            merged_out["dest"] = downsample_mean(merged_out["dest"])
+            merged_out["data_rate"] = downsample_mean(merged_out["data_rate"])
+        # cum_returns_mean = cum_returns_mean[chop:].reshape(-1, config.DOWNSAMPLE_FACTOR).mean(axis=1)
+        # cum_returns_std = cum_returns_std[chop:].reshape(-1, config.DOWNSAMPLE_FACTOR).mean(axis=1)
+        # returns_mean = returns_mean[chop:].reshape(-1, config.DOWNSAMPLE_FACTOR).mean(axis=1)
+        # returns_std = returns_std[chop:].reshape(-1, config.DOWNSAMPLE_FACTOR).mean(axis=1)
+        # lengths_mean = lengths_mean[chop:].reshape(-1, config.DOWNSAMPLE_FACTOR).mean(axis=1)
+        # lengths_std = lengths_std[chop:].reshape(-1, config.DOWNSAMPLE_FACTOR).mean(axis=1)
+        # total_bitrate_mean = total_bitrate_mean[chop:].reshape(-1, config.DOWNSAMPLE_FACTOR).mean(axis=1)
+        # total_bitrate_std = total_bitrate_std[chop:].reshape(-1, config.DOWNSAMPLE_FACTOR).mean(axis=1)
+        # service_blocking_probability = service_blocking_probability[chop:].reshape(-1, config.DOWNSAMPLE_FACTOR).mean(
+        #     axis=1)
+        # service_blocking_probability_std = service_blocking_probability_std[chop:].reshape(-1,
+        #                                                                                    config.DOWNSAMPLE_FACTOR).mean(
+        #     axis=1)
+        # bitrate_blocking_probability = bitrate_blocking_probability[chop:].reshape(-1, config.DOWNSAMPLE_FACTOR).mean(
+        #     axis=1)
+        # bitrate_blocking_probability_std = bitrate_blocking_probability_std[chop:].reshape(-1,
+        #                                                                                    config.DOWNSAMPLE_FACTOR).mean(
+        #     axis=1)
+        # accepted_services_mean = accepted_services_mean[chop:].reshape(-1, config.DOWNSAMPLE_FACTOR).mean(axis=1)
+        # accepted_services_std = accepted_services_std[chop:].reshape(-1, config.DOWNSAMPLE_FACTOR).mean(axis=1)
+        # accepted_bitrate_mean = accepted_bitrate_mean[chop:].reshape(-1, config.DOWNSAMPLE_FACTOR).mean(axis=1)
+        # accepted_bitrate_std = accepted_bitrate_std[chop:].reshape(-1, config.DOWNSAMPLE_FACTOR).mean(axis=1)
+        # utilisation_mean = utilisation_mean[chop:].reshape(-1, config.DOWNSAMPLE_FACTOR).mean(axis=1)
+        # utilisation_std = utilisation_std[chop:].reshape(-1, config.DOWNSAMPLE_FACTOR).mean(axis=1)
+        # training_time = training_time[chop:].reshape(-1, config.DOWNSAMPLE_FACTOR).mean(axis=1)
+
 
         for i in range(len(episode_ends)):
             log_dict = {
@@ -618,6 +653,13 @@ def log_metrics(config, out, experiment_name, total_time, merge_func):
                 "utilisation_std": utilisation_std[i],
                 "training_time": training_time[i],
             }
+            if config.EVAL_HEURISTIC or config.EVAL_MODEL:
+                log_dict["launch_power"] = merged_out["launch_power"][i]
+                log_dict["path_index"] = merged_out["path_index"][i]
+                log_dict["slot_index"] = merged_out["slot_index"][i]
+                log_dict["source"] = merged_out["source"][i]
+                log_dict["dest"] = merged_out["dest"][i]
+                log_dict["data_rate"] = merged_out["data_rate"][i]
             wandb.log(log_dict)
 
     print(f"Service Blocking Probability: "
