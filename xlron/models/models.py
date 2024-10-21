@@ -59,6 +59,29 @@ def make_dense_layers(x, num_units, num_layers, activation, layer_norm=False):
     return layer
 
 
+class MLP(nn.Module):
+    """A multi-layer perceptron."""
+
+    feature_sizes: Sequence[int]
+    dropout_rate: float = 0
+    deterministic: bool = True
+    activation: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu
+    layer_norm: bool = False
+
+    @nn.compact
+    def __call__(self, inputs):
+        x = inputs
+        for size in self.feature_sizes:
+            x = nn.Dense(features=size)(x)
+            x = self.activation(x)
+            x = nn.Dropout(rate=self.dropout_rate, deterministic=self.deterministic)(
+                x
+            )
+            if self.layer_norm:
+                x = nn.LayerNorm()(x)
+        return x
+
+
 # TODO - Remove request from observation that is fed to state value function
 #  requires separation of actor and critic into separate classes and modification of flax train_state
 #  to hold two sets of params (alternatively can just set request array to all zeroes before passing to critic)
@@ -89,27 +112,33 @@ class ActorCriticMLP(nn.Module):
         return action_dists, jnp.squeeze(critic, axis=-1)
 
 
-class MLP(nn.Module):
-    """A multi-layer perceptron."""
-
-    feature_sizes: Sequence[int]
-    dropout_rate: float = 0
-    deterministic: bool = True
-    activation: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu
-    layer_norm: bool = False
+class LaunchPowerActorCriticMLP(nn.Module):
+    action_dim: Sequence[int]
+    activation: str = "tanh"
+    num_layers: int = 2
+    num_units: int = 64
+    layer_norm: bool = True
 
     @nn.compact
-    def __call__(self, inputs):
-        x = inputs
-        for size in self.feature_sizes:
-            x = nn.Dense(features=size)(x)
-            x = self.activation(x)
-            x = nn.Dropout(rate=self.dropout_rate, deterministic=self.deterministic)(
-                x
-            )
-            if self.layer_norm:
-                x = nn.LayerNorm()(x)
-        return x
+    def __call__(self, x):
+        actor_mean = make_dense_layers(x, self.num_units, self.num_layers, self.activation)
+        action_dists = []
+        #for dim in self.action_dim:
+            # actor_mean_dim = nn.Dense(
+            #     dim, kernel_init=orthogonal(0.01), bias_init=constant(0.0)
+            # )(actor_mean)
+            # Output
+        alpha = nn.softplus(nn.Dense(1, kernel_init=orthogonal(0.01), bias_init=constant(0.0))(actor_mean)) + 1e-5
+        beta = nn.softplus(nn.Dense(1, kernel_init=orthogonal(0.01), bias_init=constant(0.0))(actor_mean)) + 1e-5
+        dist = distrax.Beta(alpha, beta)
+        action_dists.append(dist)
+
+        critic = make_dense_layers(x, self.num_units, self.num_layers, self.activation, layer_norm=self.layer_norm)
+        critic = nn.Dense(1, kernel_init=orthogonal(1.0), bias_init=constant(0.0))(
+            critic
+        )
+
+        return action_dists, jnp.squeeze(critic, axis=-1)
 
 
 class GraphNet(nn.Module):
@@ -243,6 +272,7 @@ class CriticGNN(nn.Module):
     output_globals_size: int = 1
     gnn_mlp_layers: int = 1
     use_attention: bool = True
+    normalise_by_link_length: bool = True  # Normalise the processed edge features by the link length
     gnn_layer_norm: bool = True
     mlp_layer_norm: bool = False
 
@@ -263,7 +293,8 @@ class CriticGNN(nn.Module):
         )(state.graph)
         # Take first half processed_graph.edges as edge features
         edge_features = processed_graph.edges if params.directed_graph else processed_graph.edges[:len(processed_graph.edges) // 2]
-        edge_features = edge_features * (params.link_length_array.val/jnp.sum(params.link_length_array.val))
+        if self.normalise_by_link_length:
+            edge_features = edge_features * (params.link_length_array.val/jnp.sum(params.link_length_array.val))
         # Index every other row of the edge features to get the link-slot array
         edge_features_flat = jnp.reshape(edge_features, (-1,))
         # pass aggregated features through MLP
@@ -384,6 +415,7 @@ class ActorCriticGNN(nn.Module):
             output_globals_size=self.output_globals_size,
             gnn_mlp_layers=self.gnn_mlp_layers,
             use_attention=self.use_attention,
+            normalise_by_link_length=self.normalise_by_link_length,
             gnn_layer_norm=self.gnn_layer_norm,
             mlp_layer_norm=self.mlp_layer_norm,
         )

@@ -77,7 +77,10 @@ def main(argv):
     # Print every flag and its name
     if FLAGS.DEBUG:
         print('non-flag arguments:', argv)
+    if FLAGS.NO_TRUNCATE:
         jax.numpy.set_printoptions(threshold=sys.maxsize)  # Don't truncate printed arrays
+        # increase line length for numpy print options
+        jax.numpy.set_printoptions(linewidth=1000)
 
     if not FLAGS.NO_PRINT_FLAGS:
         for name in FLAGS:

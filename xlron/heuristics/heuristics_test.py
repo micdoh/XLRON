@@ -2973,6 +2973,12 @@ class KsplfTest(parameterized.TestCase):
                     [0, 0, 0, 1],
                     [0, 0, 0, 1], ]),
          jnp.array(3)),
+        ("case_lf", jnp.array([0, 0, 1]),
+         jnp.array([[1, 0, 0, 1],
+                    [0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                    [0, 0, 0, 0], ]),
+         jnp.array(2)),
     )
     def test_ksp_lf(self, request_array, link_slot_array, expected):
         self.state = self.state.replace(request_array=request_array, link_slot_array=link_slot_array)
