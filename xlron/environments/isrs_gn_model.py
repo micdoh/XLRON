@@ -18,6 +18,8 @@ from scipy.constants import pi, h, c
 from jax import numpy as jnp, jit
 import jax
 
+# Small constant to avoid division by zero
+EPS = 1e-10
 
 def isrs_gn_model(
         num_channels: int = 420,
@@ -115,10 +117,6 @@ def isrs_gn_model(
     beta2 = -dispersion * ref_lambda ** 2 / (2 * pi * c)
     beta3 = ref_lambda ** 2 / (2 * pi * c) ** 2 * (ref_lambda ** 2 * dispersion_slope + 2 * ref_lambda * dispersion)
 
-    # closed-form formula for average coherence factor extended by dispersion slope, cf. Ref. [2, Eq. (22)]
-    eps = lambda B_i, f_i, a_i, l_i: (3 / 10) * jnp.log(1 + (6 / a_i) / (
-            l_i * jnp.arcsinh(pi ** 2 / 2 * jnp.abs(jnp.mean(beta2) + 2 * pi * jnp.mean(beta3) * f_i) / a_i * B_i ** 2)))
-
     Phi = excess_kurtosis_i
     # indicates this channels first transmission span is span j=1 of channel i
     tx1_i = jnp.ones((num_channels, 1))
@@ -126,7 +124,7 @@ def isrs_gn_model(
     tx2_i = jnp.ones((num_channels, 1))
     T_0 = (a + a_bar - f * power * cr) ** 2
     phi_ik = 2 * pi ** 2 * (f.T - f) * (beta2 + pi * beta3 * (f + f.T))
-    eta_xpm_corr = _xpm_corr_diff(ch_pow, ch_pow.T, phi_ik, T_0.T, ch_bw, ch_bw.T, a.T, a_bar.T, gamma, Phi.T, tx1_i)
+    eta_xpm_corr = _xpm_corr(ch_pow, ch_pow.T, phi_ik, T_0.T, ch_bw, ch_bw.T, a.T, a_bar.T, gamma, Phi.T, tx1_i)
 
     # @jax.jit
     # def _fun(i, val):
@@ -218,14 +216,19 @@ def isrs_gn_model(
         T_k = T_i.T  # T_k of INT in fiber span j
 
         # computation of SPM contribution in fiber span j
-        _eta_spm = carry[0] + jnp.squeeze(_spm(phi_i, T_i, ch_bw_i, a_i, a_bar_i, gamma) * num_spans ** (1 + (eps(ch_bw_i, f_i, a_i, l_mean) * coherent)))
+        spm = _spm(phi_i, T_i, ch_bw_i, a_i, a_bar_i, gamma)
+        eps = _eps(ch_bw_i, f_i, a_i, l_mean, beta2, beta3)
+        # jax.debug.print("ch_bw_i {}", ch_bw_i.T, ordered=True)
+        # jax.debug.print("spm {}", spm.T, ordered=True)
+        # jax.debug.print("eps {}", eps.T, ordered=True)
+        _eta_spm = carry[0] + jnp.squeeze(spm * num_spans ** (1 + (eps * coherent)))
 
         # computation of XPM contribution in fiber span j
-        _eta_xpm = carry[1] + _xpm_diff(ch_pow_i, ch_pow_k, phi_ik, T_k, ch_bw_i, ch_bw_k, a_k, a_bar_k, gamma)
+        _eta_xpm = carry[1] + _xpm(ch_pow_i, ch_pow_k, phi_ik, T_k, ch_bw_i, ch_bw_k, a_k, a_bar_k, gamma)
 
         # Asymptotic correction for non-Gaussian modulation format
         # TODO - should this use length or L_mean?
-        _eta_xpm_corr_asymp = carry[2] + _xpm_corr_asymp_diff(ch_pow_i, ch_pow_k, phi_ik, phi, T_k, ch_bw_k, a_k, a_bar_k, gamma, df, Phi_k, tx2_i, l_span)
+        _eta_xpm_corr_asymp = carry[2] + _xpm_corr_asymp(ch_pow_i, ch_pow_k, phi_ik, phi, T_k, ch_bw_k, a_k, a_bar_k, gamma, df, Phi_k, tx2_i, l_span)
 
         return (_eta_spm, _eta_xpm, _eta_xpm_corr_asymp), (_eta_spm, _eta_xpm, _eta_xpm_corr_asymp)
 
@@ -238,13 +241,6 @@ def isrs_gn_model(
     eta_spm = final_state[0]
     eta_xpm = final_state[1]
     eta_xpm_corr_asymp = final_state[2]
-    # jax.debug.print("finalstate {}", final_state)
-    # jax.debug.print("traj {}", traj)
-
-    # jax.debug.print("eta_spm {}", eta_spm)
-    # jax.debug.print("eta_xpm {}", eta_xpm)
-    # jax.debug.print("eta_xpm_corr {}", eta_xpm_corr)
-    # jax.debug.print("eta_xpm_corr_asymp {}", eta_xpm_corr_asymp)
 
     if not mod_format_correction:
         eta_xpm_corr = jnp.zeros((num_channels,))
@@ -252,88 +248,117 @@ def isrs_gn_model(
 
     # computation of NLI - see Ref. [1, Eq. (5)]
     eta_n = (eta_spm + eta_xpm + eta_xpm_corr_asymp).T + eta_xpm_corr
+    # jax.debug.print("eta_n {}", eta_n, ordered=True)
+    # jax.debug.print("eta_spm {}", eta_spm, ordered=True)
+    # jax.debug.print("eta_xpm {}", eta_xpm, ordered=True)
+    # jax.debug.print("eta_xpm_corr_asymp {}", eta_xpm_corr_asymp, ordered=True)
+    # jax.debug.print("eta_xpm_corr {}", eta_xpm_corr, ordered=True)
     NLI = jnp.squeeze(ch_pow) ** 3 * eta_n  # Ref. [1, Eq. (1)]
     return NLI, eta_n
 
 
-def _eps(b_i, f_i, a_i, l_mean, beta2, beta3, beta4):
+def _eps(B_i, f_i, a_i, l_i, beta2, beta3):
     """
     Closed-for formula for average coherence factor extended by dispersion slope, cf. Ref. [2, Eq. (22)]
     """
-    return (3 / 10) * jnp.log(1 + (6 / a_i) / (l_mean * jnp.arcsinh(
-        pi ** 2 / 2 * jnp.abs(jnp.mean(beta2) + 2 * pi * jnp.mean(beta3) * f_i + 2 * pi ** 2 * jnp.mean(beta4) * f_i ** 2) / a_i * b_i ** 2)))
+    # closed-form formula for average coherence factor extended by dispersion slope, cf. Ref. [2, Eq. (22)]
+    eps = (3 / 10 * jnp.log(
+        jnp.clip(
+        1 + (6 / a_i) / (
+                l_i * jnp.arcsinh(pi ** 2 / 2 * jnp.abs(jnp.mean(beta2) + 2 * pi * jnp.mean(beta3) * f_i / a_i * B_i ** 2))
+        ), min=EPS)))
+    return eps
 
 
-def _spm(phi_i, t_i, b_i, a_i, a_bar_i, gamma):
+def _spm(phi_i, t_i, B_i, a_i, a_bar_i, gamma):
     """
     Closed-form formula for SPM contribution, see Ref. [1, Eq. (9-10)]
     """
-    return (
-        4 / 9 * gamma ** 2 / b_i ** 2 * pi / (phi_i * a_bar_i * (2 * a_i + a_bar_i)) * (
-            (t_i - a_i ** 2) / a_i * jnp.arcsinh(phi_i * b_i ** 2 / a_i / pi) +
-            ((a_i + a_bar_i) ** 2 - t_i) / (a_i + a_bar_i) * jnp.arcsinh(phi_i * b_i ** 2 / (a_i + a_bar_i) / pi)
-        )
-    )
+    B_i = jnp.where(B_i > 0., B_i, EPS)
+    a = gamma ** 2 / jnp.where(B_i > EPS, B_i ** 2, 0.)
+    b = jnp.arcsinh(phi_i * B_i ** 2 / a_i / pi)
+    b = jnp.where(B_i > EPS, b, 0.)
+    c = jnp.arcsinh(phi_i * B_i ** 2 / (a_i + a_bar_i) / pi)
+    c = jnp.where(B_i > EPS, c, 0.)
+    return (4 / 9 * a * pi / (phi_i * a_bar_i * (2 * a_i + a_bar_i)) * (t_i - a_i ** 2) / a_i * b +
+        ((a_i + a_bar_i) ** 2 - t_i) / (a_i + a_bar_i) * c)
 
 
 def _xpm(p_i, p_k, phi_ik, T_k, B_i, B_k, a_k, a_bar_k, gamma):
     """
     Closed-form formula for XPM contribution, see Ref. [1, Eq. (11)]
     """
-    a = (p_k / p_i) ** 2 * gamma ** 2 / (B_k * phi_ik * a_bar_k * (2 * a_k + a_bar_k))
+    p_i = jnp.where(p_i > 0., p_i, 1.)
+    B_k = jnp.where(B_k > 0., B_k, 1.)
+    a1 = jnp.where(p_i > 1., p_k / p_i, 0.) ** 2
+    a2 = (B_k * phi_ik * a_bar_k * (2 * a_k + a_bar_k))
+    a2 = gamma ** jnp.where(a2 > EPS, 2 / a2, 0.)
+    a = a1 * a2
     b = (T_k - a_k ** 2) / a_k * jnp.arctan(phi_ik * B_i / a_k)
     c = ((a_k + a_bar_k) ** 2 - T_k) / (a_k + a_bar_k) * jnp.arctan(phi_ik * B_i / (a_k + a_bar_k))
     r = a * (b + c)
-    return 32 / 27 * jnp.nansum(r, axis=1 if r.ndim > 1 else 0)
-
-
-def _xpm_diff(p_i, p_k, phi_ik, T_k, B_i, B_k, a_k, a_bar_k, gamma):
-    """Differentiable version of the XPM contribution"""
-    a = ((p_k / p_i) ** 2 * gamma ** 2 / jnp.where((B_k * phi_ik * a_bar_k * (2 * a_k + a_bar_k)) == 0, 1, (B_k * phi_ik * a_bar_k * (2 * a_k + a_bar_k))))
-    b = (T_k - a_k ** 2) / a_k * jnp.arctan(phi_ik * B_i / a_k)
-    c = ((a_k + a_bar_k) ** 2 - T_k) / (a_k + a_bar_k) * jnp.arctan(phi_ik * B_i / (a_k + a_bar_k))
-    r = jnp.nan_to_num(a, neginf=0, posinf=0) * (b + c)
-    return 32 / 27 * jnp.nansum(r, axis=1 if r.ndim > 1 else 0)
+    # jax.debug.print("a1 {}", a1, ordered=True)
+    # jax.debug.print("a2 {}", a2, ordered=True)
+    return 32 / 27 * jnp.sum(r, axis=1 if r.ndim > 1 else 0)
 
 
 def _xpm_corr(p_i, p_k, phi_ik, T_k, B_i, B_k, a_k, a_bar_k, gamma, Phi, TX1):
+    p_i = jnp.where(p_i > 0., p_i, 1.)
+    B_k = jnp.where(B_k > 0., B_k, 1.)
+    a = Phi * TX1.T * jnp.where(p_i > 1., p_k / p_i, 0.) ** 2
+    b = gamma ** jnp.where(B_k > 1., 2 / B_k, 0.)
     return 5 / 6 * 32 / 27 * jnp.sum(
-        jnp.nan_to_num(
-            Phi * TX1.T * (p_k / p_i) ** 2 * gamma ** 2 / B_k / (phi_ik * a_bar_k * (2 * a_k + a_bar_k)) * (
-                    (T_k - a_k ** 2) / a_k * jnp.arctan(phi_ik * B_i / a_k) +
-                    ((a_k + a_bar_k) ** 2 - T_k) / (a_k + a_bar_k) * jnp.arctan(phi_ik * B_i / (a_k + a_bar_k))
-            ),
-            copy=False),
-        axis=1)
-
-
-def _xpm_corr_diff(p_i, p_k, phi_ik, T_k, B_i, B_k, a_k, a_bar_k, gamma, Phi, TX1):
-    """Differentiable version of the XPM correction"""
-    return 5 / 6 * 32 / 27 * jnp.sum(
-        jnp.nan_to_num(
-            Phi * TX1.T * (p_k / p_i) ** 2 * gamma ** 2 / jnp.nan_to_num(B_k / (phi_ik * a_bar_k * (2 * a_k + a_bar_k))) * (
-                    (T_k - a_k ** 2) / a_k * jnp.arctan(phi_ik * B_i / a_k) +
-                    ((a_k + a_bar_k) ** 2 - T_k) / (a_k + a_bar_k) * jnp.arctan(phi_ik * B_i / (a_k + a_bar_k))
-            ),
-            copy=False),
+        a * b / (phi_ik * a_bar_k * (2 * a_k + a_bar_k)) * (T_k - a_k ** 2) / a_k * jnp.arctan(phi_ik * B_i / a_k) +
+        ((a_k + a_bar_k) ** 2 - T_k) / (a_k + a_bar_k) * jnp.arctan(phi_ik * B_i / (a_k + a_bar_k)),
         axis=1)
 
 
 def _xpm_corr_asymp(p_i, p_k, phi_ik, phi, T_k, B_k, a, a_bar, gamma, df, Phi, TX2, L):
+    p_i = jnp.where(p_i > 0., p_i, 1)
+    B_k = jnp.where(B_k > 0., B_k, 1)
+    a0 = jnp.where(p_i > 1., p_k / p_i, 0.) ** 2
+    a1 = jnp.where(B_k > 1, T_k / jnp.where(B_k > 1., phi / B_k, 1.), 0.) ** 3
+    a2 = jnp.where(B_k > 1, jnp.log(jnp.clip((2 * df - B_k) / (2 * df + B_k), min=EPS) + 2 * B_k), 0)
     return 5 / 3 * 32 / 27 * jnp.sum(
-        jnp.nan_to_num(
-            (phi_ik != 0) * (p_k / p_i) ** 2 * TX2 * gamma ** 2 / L * Phi * pi * T_k / phi / B_k ** 3 / a ** 2 /
-            (a + a_bar) ** 2 * ((2. * df - B_k) * jnp.log((2 * df - B_k) / (2 * df + B_k)) + 2 * B_k),
-            copy=False),
+        (phi_ik != 0) * a0 * TX2 * gamma ** 2 / L * Phi * pi * a1 / a ** 2 / (a + a_bar) ** 2 *
+        (2. * df - B_k) * a2,
         axis=1)
 
 
-def _xpm_corr_asymp_diff(p_i, p_k, phi_ik, phi, T_k, B_k, a, a_bar, gamma, df, Phi, TX2, L):
-    """Differentiable version of the asymptotic correction for XPM"""
-    return 5 / 3 * 32 / 27 * jnp.sum(
-            (p_k / p_i) ** 2 * TX2 * gamma ** 2 / L * Phi * pi * T_k / phi / B_k ** 3 / a ** 2 / (a + a_bar) ** 2
-            * ((2. * df - B_k) * jnp.nan_to_num(jnp.log(jnp.clip((2 * df - B_k) / (2 * df + B_k), a_min=0.)), neginf=0) + 2 * B_k) * (phi_ik != 0).astype(jnp.float32),
-        axis=1)
+# def _xpm_diff(p_i, p_k, phi_ik, T_k, B_i, B_k, a_k, a_bar_k, gamma):
+#     """Differentiable version of the XPM contribution"""
+#     a = jnp.nan_to_num(p_k / p_i, nan=0.) ** 2 * gamma ** jnp.nan_to_num(2 / (B_k * phi_ik * a_bar_k * (2 * a_k + a_bar_k)), nan=0.)
+#     b = (T_k - a_k ** 2) / a_k * jnp.arctan(phi_ik * B_i / a_k)
+#     c = ((a_k + a_bar_k) ** 2 - T_k) / (a_k + a_bar_k) * jnp.arctan(phi_ik * B_i / (a_k + a_bar_k))
+#     r = jnp.nan_to_num(a, nan=0., neginf=-1e6, posinf=1e6) * (b + c)
+#     return 32 / 27 * jnp.nansum(r, axis=1 if r.ndim > 1 else 0)
+
+
+# def _xpm_corr_diff(p_i, p_k, phi_ik, T_k, B_i, B_k, a_k, a_bar_k, gamma, Phi, TX1):
+#     """Differentiable version of the XPM correction"""
+#     B_k = jnp.where(B_k == 0., 1., B_k)
+#     p_i = jnp.where(p_i == 0., EPS, p_i)
+#     return 5 / 6 * 32 / 27 * jnp.sum(
+#         jnp.nan_to_num(
+#             Phi * TX1.T * jnp.nan_to_num(p_k / p_i, nan=0.) ** 2 * gamma ** 2 / jnp.where(B_k == 0., 1., B_k) / (phi_ik * a_bar_k * (2 * a_k + a_bar_k)) * (
+#                     (T_k - a_k ** 2) / a_k * jnp.arctan(phi_ik * B_i / a_k) +
+#                     ((a_k + a_bar_k) ** 2 - T_k) / (a_k + a_bar_k) * jnp.arctan(phi_ik * B_i / (a_k + a_bar_k))
+#             ),
+#             nan=0., neginf=-1e6, posinf=1e6),
+#         axis=1)
+
+
+# def _xpm_corr_asymp_diff(p_i, p_k, phi_ik, phi, T_k, B_k, a, a_bar, gamma, df, Phi, TX2, L):
+#     """Differentiable version of the asymptotic correction for XPM"""
+#     p_i = jnp.where(p_i == 0., EPS, p_i)
+#     B_k = jnp.where(B_k == 0., EPS, B_k)
+#     return 5 / 3 * 32 / 27 * jnp.nansum(
+#         jnp.nan_to_num(
+#             (phi_ik != 0) * jnp.nan_to_num(p_k / p_i, nan=0.) ** 2 * TX2 * gamma ** 2 / L * Phi * pi *
+#             jnp.nan_to_num(T_k / phi / B_k, nan=0.) ** 3 / a ** 2 / (a + a_bar) ** 2 *
+#             ((2. * df - B_k) * jnp.nan_to_num(jnp.log(jnp.clip((2 * df - B_k) / (2 * df + B_k), a_min=0.)), nan=0.) + 2 * B_k),
+#             nan=0., neginf=-1e6, posinf=1e6),
+#         axis=1)
 
 
 def get_ASE_power(noise_figure, attenuation_i, length, ref_lambda, ch_centre_i, ch_bandwidth, gain=None):
@@ -421,9 +446,14 @@ def get_snr(
     # jax.debug.print("p_ASE {}", p_ASE)
     # jax.debug.print("p_NLI {}", p_NLI)
     # jax.debug.print("p_ASE_ROADM {}", p_ASE_ROADM)
-    # jax.debug.print("ch_power_W_i {}", ch_power_W_i)
-    # jax.debug.print("FRESH SNR {}", jnp.squeeze(ch_power_W_i) / (p_ASE + p_NLI))
-    return jnp.squeeze(ch_power_W_i) / (p_ASE + p_NLI + p_ASE_ROADM), eta_NLI
+    # jax.debug.print("ch_power_W_i {}", ch_power_W_i.T)
+    noise_power = p_ASE + p_NLI + p_ASE_ROADM
+    noise_power = jnp.where(noise_power > 0, noise_power, EPS)
+    ch_power_W_i = jnp.squeeze(ch_power_W_i)
+    snr = jnp.where(ch_power_W_i > 0, ch_power_W_i / noise_power, 1e5)
+    # jax.debug.print("noise_power {}", noise_power, ordered=True)
+    # jax.debug.print("snr {}", snr, ordered=True)
+    return snr, eta_NLI
 
 
 def to_db(x):

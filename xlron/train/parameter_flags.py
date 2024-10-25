@@ -36,6 +36,8 @@ flags.DEFINE_float("WARMUP_STEPS_FRACTION", 0.2, "Fraction of total timesteps to
 flags.DEFINE_float("WARMUP_END_FRACTION", 0.1, "Fraction of init LR that is final LR")
 flags.DEFINE_integer("NUM_LAYERS", 2, "Number of layers in actor and critic networks")
 flags.DEFINE_integer("NUM_UNITS", 64, "Number of hidden units in actor and critic networks")
+flags.DEFINE_float("TEMPERATURE", 1.0, "Temperature for softmax action selection "
+                                       "(high temperature, more exploration) or (low temperature, more exploitation)")
 # Additional training parameters
 flags.DEFINE_string("VISIBLE_DEVICES", "0", "Comma-separated indices of (desired) visible GPUs e.g. 1,2,3")
 flags.DEFINE_boolean("PREALLOCATE_MEM", True, "Preallocate GPU memory")
@@ -154,7 +156,12 @@ flags.DEFINE_integer("gap_start", 44, "Start index of gap between C+L bands [slo
 flags.DEFINE_float("snr_margin", 0.5, "Margin required for estimated SNR for mod. format selection [dB]")
 flags.DEFINE_float("max_power", 9, "Maximum launch power [dBm]")
 flags.DEFINE_float("min_power", -5, "Minimum launch power [dBm]")
+flags.DEFINE_float("step_power", 0.1, "Step size for launch power values between min and max")
+flags.DEFINE_boolean("discrete_launch_power", False, "Discrete launch power values")
 flags.DEFINE_boolean("first_fit", False, "Use KSP-FF for path_action, else KSP-LF")
-flags.DEFINE_boolean("optimise_launch_power", False, "Optimise launch power")
 # Flags for optimize_launch_power.py
-flags.DEFINE_float("num_spans", 10, "Number of spans")
+flags.DEFINE_boolean("optimise_launch_power", False, "Use deteministic requests from list_of_requests to optimise launch power")
+flags.DEFINE_integer('EVAL_STEPS', 100, 'Number of steps to run in each evaluation')
+flags.DEFINE_integer('OPTIMIZATION_ITERATIONS', 5, 'Number of optimization iterations')
+flags.DEFINE_boolean('traffic_array', False, 'Use traffic array')
+flags.DEFINE_list("list_of_requests", None, "Traffic request list")

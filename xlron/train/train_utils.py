@@ -14,6 +14,7 @@ import pathlib
 import wandb
 import distrax
 import math
+import pickle
 import matplotlib.pyplot as plt
 from xlron.environments.wrappers import LogWrapper
 from xlron.environments.vone import make_vone_env
@@ -36,6 +37,7 @@ class TrainState(struct.PyTreeNode):
     Args:
         step: Counter starts at 0 and is incremented by every call to ``.apply_gradients()``.
         apply_fn: Usually set to ``model.apply()``. Kept in this dataclass for convenience
+        sample_fn: A function that samples actions from the policy.
         to have a shorter params list for the ``train_step()`` function in your training loop.
         params: The parameters to be updated by ``tx`` and used by ``apply_fn``.
         tx: An Optax gradient transformation.
@@ -44,6 +46,7 @@ class TrainState(struct.PyTreeNode):
 
     step: Union[int, jax.Array]
     apply_fn: Callable = struct.field(pytree_node=False)
+    sample_fn: Callable = struct.field(pytree_node=False)
     params: core.FrozenDict[str, Any] = struct.field(pytree_node=True)
     tx: optax.GradientTransformation = struct.field(pytree_node=False)
     opt_state: optax.OptState = struct.field(pytree_node=True)
@@ -92,7 +95,7 @@ class TrainState(struct.PyTreeNode):
         )
 
     @classmethod
-    def create(cls, *, apply_fn, params, tx, **kwargs):
+    def create(cls, *, apply_fn, params, tx, sample_fn=None, **kwargs):
         """Creates a new instance with ``step=0`` and initialized ``opt_state``."""
         # We exclude OWG params when present because they do not need opt states.
         params_with_opt = (
@@ -102,6 +105,7 @@ class TrainState(struct.PyTreeNode):
         return cls(
             step=jnp.array(0),
             apply_fn=apply_fn,
+            sample_fn=sample_fn,
             params=params,
             tx=tx,
             opt_state=opt_state,
@@ -174,6 +178,8 @@ def save_model(train_state: TrainState, run_name, flags: absl.flags.FlagValues):
     # Get path to current file
     model_path = pathlib.Path(flags.MODEL_PATH) if flags.MODEL_PATH else pathlib.Path(__file__).resolve().parents[
                                                                              2] / "models" / run_name
+    # Print model params
+    print(f"TRAIN_STATE.PARAMS:\n {train_state.params}")
     # If model_path dir already exists, append a number to the end
     i = 1
     model_path_og = model_path
@@ -229,11 +235,17 @@ def init_network(config, env, env_state, env_params):
             )
             init_x = (env_state.env_state, env_params)
         elif config.env_type.lower() == "rsa_gn_model" and env_params.launch_power_type == 3:
-            network = LaunchPowerActorCriticMLP([env.action_space(env_params).n],
-                                     activation=config.ACTIVATION,
-                                     num_layers=config.NUM_LAYERS,
-                                     num_units=config.NUM_UNITS,
-                                     layer_norm=config.LAYER_NORM, )
+            network = LaunchPowerActorCriticMLP(
+                action_dim=[env.action_space(env_params).n],
+                activation=config.ACTIVATION,
+                num_layers=config.NUM_LAYERS,
+                num_units=config.NUM_UNITS,
+                layer_norm=config.LAYER_NORM,
+                discrete=config.discrete_launch_power,
+                min_power_dbm=config.min_power,
+                max_power_dbm=config.max_power,
+                step_power_dbm=config.step_power,
+            )
             init_x = tuple([jnp.zeros(env.observation_space(env_params).n)])
         else:
             network = ActorCriticMLP([env.action_space(env_params).n],
@@ -253,15 +265,11 @@ def select_action(select_action_state, env, env_params, train_state, config):
     If using VONE, the action is a tuple of (source, path, destination).
     Otherwise, the action is a single lightpath.
     Args:
-        rng: jax.random.PRNGKey
+        select_action_state: Tuple of (rng_key, env_state, last_obs)
         env: Environment
-        env_state: Environment state
         env_params: Environment parameters
-        network: Policy and value network
-        network_params: Policy and value network parameters
-        config: Config
-        last_obs: Last observation
-        deterministic: Whether to use the mode of the action distribution
+        train_state: TrainState
+        config: Configuration
     Returns:
         action: Action
         log_prob: Log probability of action
@@ -308,9 +316,7 @@ def select_action(select_action_state, env, env_params, train_state, config):
         log_prob = log_prob_dest + log_prob_path + log_prob_source
 
     elif config.env_type.lower() == "rsa_gn_model" and config.launch_power_type == "rl":
-        power_action = pi[0].sample(seed=action_keys[0]) if not config.deterministic else pi[0].mode()
-        log_prob = pi[0].log_prob(power_action)[0]
-        power_action = power_action * (env_params.max_power - env_params.min_power) + env_params.min_power
+        power_action, log_prob = train_state.sample_fn(action_keys[0], pi[0], log_prob=True, deterministic=config.deterministic)
         env_state = env_state.env_state.replace(launch_power_array=power_action)
         path_action = ksp_ff(env_state, env_params) if env_params.first_fit is True else ksp_lf(
             env_state, env_params)
@@ -329,7 +335,8 @@ def select_action(select_action_state, env, env_params, train_state, config):
     else:
         action = pi[0].sample(seed=action_keys[0]) if not config.deterministic else pi[0].mode()
         log_prob = pi[0].log_prob(action)
-
+    jax.debug.print("last_obs {}", last_obs, ordered=config.ORDERED)
+    jax.debug.print("action {} log_prob {}", action, log_prob, ordered=config.ORDERED)
     return action, log_prob, value
 
 
@@ -402,123 +409,117 @@ def setup_wandb(config, project_name, experiment_name):
     run.name = experiment_name
     wandb.define_metric('episode_count')
     wandb.define_metric("env_step")
-    wandb.define_metric("lengths", step_metric="env_step")
-    wandb.define_metric("returns", step_metric="env_step")
-    wandb.define_metric("cum_returns", step_metric="update_step")
-    wandb.define_metric("episode_accepted_services", step_metric="episode_count")
-    wandb.define_metric("episode_accepted_services_std", step_metric="episode_count")
-    wandb.define_metric("episode_accepted_bitrate", step_metric="episode_count")
-    wandb.define_metric("episode_accepted_bitrate_std", step_metric="episode_count")
-    wandb.define_metric("episode_end_training_time", step_metric="episode_count")
-    if config.env_type.lower() == "rsa_gn_model":
-        wandb.define_metric("launch_power", step_metric="env_step")
-        wandb.define_metric("path_index", step_metric="env_step")
-        wandb.define_metric("slot_index", step_metric="env_step")
-        wandb.define_metric("source", step_metric="env_step")
-        wandb.define_metric("dest", step_metric="env_step")
-        wandb.define_metric("data_rate", step_metric="env_step")
+    for metric in [
+        "returns",
+        "lengths",
+        "cum_returns",
+        "accepted_services",
+        "accepted_bitrate",
+        "total_bitrate",
+        "utilisation",
+        "service_blocking_probability",
+        "bitrate_blocking_probability"
+    ]:
+        for agg in [
+            "mean",
+            "std",
+            "iqr_upper",
+            "iqr_lower"
+        ]:
+            wandb.define_metric(f"{metric}_{agg}", step_metric="env_step")
+            wandb.define_metric(f"episode_end_{metric}_{agg}", step_metric="episode_count")
+    wandb.define_metric("training_time", step_metric="env_step")
 
 
 def log_metrics(config, out, experiment_name, total_time, merge_func):
+    """Log metrics to wandb and/or save episode end metrics to CSV."""
+
     merged_out = {k: jax.tree.map(merge_func, v) for k, v in out["metrics"].items()}
-    get_mean = lambda x, y: x[y].mean(0).reshape(-1)
-    get_std = lambda x, y: x[y].std(0).reshape(-1)
 
-    if config.end_first_blocking:
-        # Episode lengths are variable so return the episode end values and the std of the episode end values
-        episode_ends = np.where(merged_out["done"].reshape(-1) == 1)[0] - 1
-        get_episode_end_mean = lambda x: x.reshape(-1)[episode_ends]
-        get_episode_end_std = lambda x: jnp.full(x.reshape(-1)[episode_ends].shape, x.reshape(-1)[episode_ends].std())
+    # Calculate blocking probabilities
+    merged_out["service_blocking_probability"] = 1 - (
+            merged_out["accepted_services"] / jnp.where(merged_out["lengths"] == 0, 1, merged_out["lengths"])
+    )
+    merged_out["bitrate_blocking_probability"] = 1 - (
+            merged_out["accepted_bitrate"] / jnp.where(merged_out["total_bitrate"] == 0, 1, merged_out["total_bitrate"])
+    )
+
+    if config.continuous_operation:
+        # For continuous operation, define max_timesteps as the episode end
+        episode_ends = np.arange(0, config.TOTAL_TIMESTEPS // config.NUM_ENVS // config.NUM_LEARNERS, config.max_timesteps)[1:].astype(int) - 1
     else:
-        # Episode lengths are uniform so return the mean and std across envs at each episode end
-        episode_ends = np.where(merged_out["done"].mean(0).reshape(-1) == 1)[0] - 1 \
-            if not config.continuous_operation else np.arange(0, config.TOTAL_TIMESTEPS, config.max_timesteps)[
-                                                    1:].astype(int) - 1
-        get_episode_end_mean = lambda x: x.mean(0).reshape(-1)[episode_ends]
-        get_episode_end_std = lambda x: x.std(0).reshape(-1)[episode_ends]
+        episode_ends = np.where(merged_out["done"].mean(0).reshape(-1) == 1)[0] - 1
 
-    # Get episode end metrics
-    returns_mean_episode_end = get_episode_end_mean(merged_out["returns"])
-    returns_std_episode_end = get_episode_end_std(merged_out["returns"])
-    lengths_mean_episode_end = get_episode_end_mean(merged_out["lengths"])
-    lengths_std_episode_end = get_episode_end_std(merged_out["lengths"])
-    cum_returns_mean_episode_end = get_episode_end_mean(merged_out["cum_returns"])
-    cum_returns_std_episode_end = get_episode_end_std(merged_out["cum_returns"])
-    accepted_services_mean_episode_end = get_episode_end_mean(merged_out["accepted_services"])
-    accepted_services_std_episode_end = get_episode_end_std(merged_out["accepted_services"])
-    accepted_bitrate_mean_episode_end = get_episode_end_mean(merged_out["accepted_bitrate"])
-    accepted_bitrate_std_episode_end = get_episode_end_std(merged_out["accepted_bitrate"])
-    total_bitrate_mean_episode_end = get_episode_end_mean(merged_out["total_bitrate"])
-    total_bitrate_std_episode_end = get_episode_end_std(merged_out["total_bitrate"])
-    utilisation_mean_episode_end = get_episode_end_mean(merged_out["utilisation"])
-    utilisation_std_episode_end = get_episode_end_std(merged_out["utilisation"])
-    service_blocking_probability_episode_end = 1 - (accepted_services_mean_episode_end / lengths_mean_episode_end)
-    service_blocking_probability_std_episode_end = accepted_services_std_episode_end / lengths_mean_episode_end
-    bitrate_blocking_probability_episode_end = 1 - (accepted_bitrate_mean_episode_end / total_bitrate_mean_episode_end)
-    bitrate_blocking_probability_std_episode_end = accepted_bitrate_std_episode_end / total_bitrate_mean_episode_end
-    training_time_episode_end = np.arange(len(returns_mean_episode_end)) / len(returns_mean_episode_end) * total_time
+    def get_mean_std_iqr(x, y):
+        _mean = x[y].mean(0).reshape(-1)
+        _std = x[y].std(0).reshape(-1)
+        _iqr_upper = np.percentile(x[y], 75, axis=0).reshape(-1)
+        _iqr_lower = np.percentile(x[y], 25, axis=0).reshape(-1)
+        return _mean, _std, _iqr_upper, _iqr_lower
 
-    returns_mean = get_mean(merged_out, "returns") if not config.end_first_blocking else returns_mean_episode_end
-    returns_std = get_std(merged_out, "returns") if not config.end_first_blocking else returns_std_episode_end
-    lengths_mean = get_mean(merged_out, "lengths") if not config.end_first_blocking else lengths_mean_episode_end
-    lengths_std = get_std(merged_out, "lengths") if not config.end_first_blocking else lengths_std_episode_end
-    cum_returns_mean = get_mean(merged_out,
-                                "cum_returns") if not config.end_first_blocking else cum_returns_mean_episode_end
-    cum_returns_std = get_std(merged_out,
-                              "cum_returns") if not config.end_first_blocking else cum_returns_std_episode_end
-    accepted_services_mean = get_mean(merged_out,
-                                      "accepted_services") if not config.end_first_blocking else accepted_services_mean_episode_end
-    accepted_services_std = get_std(merged_out,
-                                    "accepted_services") if not config.end_first_blocking else accepted_services_std_episode_end
-    accepted_bitrate_mean = get_mean(merged_out,
-                                     "accepted_bitrate") if not config.end_first_blocking else accepted_bitrate_mean_episode_end
-    accepted_bitrate_std = get_std(merged_out,
-                                   "accepted_bitrate") if not config.end_first_blocking else accepted_bitrate_std_episode_end
-    total_bitrate_mean = get_mean(merged_out,
-                                  "total_bitrate") if not config.end_first_blocking else total_bitrate_mean_episode_end
-    total_bitrate_std = get_std(merged_out,
-                                "total_bitrate") if not config.end_first_blocking else total_bitrate_std_episode_end
-    utilisation_mean = get_mean(merged_out,
-                                "utilisation") if not config.end_first_blocking else utilisation_mean_episode_end
-    utilisation_std = get_std(merged_out,
-                              "utilisation") if not config.end_first_blocking else utilisation_std_episode_end
-    training_time = np.arange(len(returns_mean)) / len(returns_mean) * total_time
-    # get values of service and bitrate blocking probs
-    service_blocking_probability = 1 - (
-                accepted_services_mean / lengths_mean) if not config.end_first_blocking else service_blocking_probability_episode_end
-    service_blocking_probability_std = accepted_services_std / lengths_mean if not config.end_first_blocking else service_blocking_probability_std_episode_end
-    bitrate_blocking_probability = 1 - (
-                accepted_bitrate_mean / total_bitrate_mean) if not config.end_first_blocking else bitrate_blocking_probability_episode_end
-    bitrate_blocking_probability_std = accepted_bitrate_std / total_bitrate_mean if not config.end_first_blocking else bitrate_blocking_probability_std_episode_end
+    def get_episode_end_mean_std_iqr(x, y):
+        _end_mean = x[y].mean(0).reshape(-1)[episode_ends]
+        if not config.end_first_blocking:
+            _end_std = x[y].std(0).reshape(-1)[episode_ends]
+            _end_iqr_upper = np.percentile(x[y], 75, axis=0).reshape(-1)[episode_ends]
+            _end_iqr_lower = np.percentile(x[y], 25, axis=0).reshape(-1)[episode_ends]
+        else:
+            # For end_first_blocking, episode_ends are variable so calculate std and iqr for all episodes
+            _end_std = jnp.full(x.reshape(-1)[episode_ends].shape, x.reshape(-1)[episode_ends].std())
+            _end_iqr_upper = jnp.full(x.reshape(-1)[episode_ends].shape, np.percentile(x.reshape(-1)[episode_ends], 75))
+            _end_iqr_lower = jnp.full(x.reshape(-1)[episode_ends].shape, np.percentile(x.reshape(-1)[episode_ends], 25))
+        return _end_mean, _end_std, _end_iqr_upper, _end_iqr_lower
+
+    processed_data = {}
+    for key in [
+        "returns",
+        "lengths",
+        "cum_returns",
+        "accepted_services",
+        "accepted_bitrate",
+        "total_bitrate",
+        "utilisation",
+        "service_blocking_probability",
+        "bitrate_blocking_probability",
+    ]:
+        episode_end_mean, episode_end_std, episode_end_iqr_upper, episode_end_iqr_lower = (
+            get_episode_end_mean_std_iqr(merged_out, key)
+        )
+        mean, std, iqr_upper, iqr_lower = get_mean_std_iqr(merged_out, key) if not config.end_first_blocking else (
+            episode_end_mean, episode_end_std, episode_end_iqr_upper, episode_end_iqr_lower
+        )
+        processed_data[key] = {
+            "mean": mean,
+            "std": std,
+            "iqr_upper": iqr_upper,
+            "iqr_lower": iqr_lower,
+            "episode_end_mean": episode_end_mean,
+            "episode_end_std": episode_end_std,
+            "episode_end_iqr_upper": episode_end_iqr_upper,
+            "episode_end_iqr_lower": episode_end_iqr_lower,
+        }
+    all_metrics = list(processed_data.keys())
+    processed_data["training_time"] = (
+            np.arange(len(processed_data["returns"]["mean"])) / len(processed_data["returns"]["mean"]) * total_time
+    )
 
     if config.PLOTTING:
         if config.incremental_loading:
-            plot_metric = accepted_services_mean
-            plot_metric_std = accepted_services_std
+            plot_metric = processed_data["accepted_services"]["mean"]
+            plot_metric_std = processed_data["accepted_services"]["std"]
             plot_metric_name = "Accepted Services"
         elif config.end_first_blocking:
-            plot_metric = lengths_mean_episode_end
-            plot_metric_std = lengths_std_episode_end
+            plot_metric = processed_data["lengths"]["mean"]
+            plot_metric_std = processed_data["lengths"]["std"]
             plot_metric_name = "Episode Length"
         elif config.reward_type == "service":
-            plot_metric = service_blocking_probability
-            plot_metric_std = service_blocking_probability_std
+            plot_metric = processed_data["service_blocking_probability"]["mean"]
+            plot_metric_std = processed_data["service_blocking_probability"]["std"]
             plot_metric_name = "Service Blocking Probability"
         else:
-            plot_metric = bitrate_blocking_probability
-            plot_metric_std = bitrate_blocking_probability_std
+            plot_metric = processed_data["bitrate_blocking_probability"]["mean"]
+            plot_metric_std = processed_data["bitrate_blocking_probability"]["std"]
             plot_metric_name = "Bitrate Blocking Probability"
-
-        # Do box and whisker plot of accepted services and bitrate at episode ends
-        plt.boxplot(accepted_services_mean)
-        plt.ylabel("Accepted Services")
-        plt.title(experiment_name)
-        plt.show()
-
-        plt.boxplot(accepted_bitrate_mean)
-        plt.ylabel("Accepted Bitrate")
-        plt.title(experiment_name)
-        plt.show()
 
         plot_metric = moving_average(plot_metric, min(100, int(len(plot_metric) / 2)))
         plot_metric_std = moving_average(plot_metric_std, min(100, int(len(plot_metric_std) / 2)))
@@ -536,147 +537,67 @@ def log_metrics(config, out, experiment_name, total_time, merge_func):
 
     if config.DATA_OUTPUT_FILE:
         # Save episode end metrics to file
-        df = pd.DataFrame({
-            "accepted_services": accepted_services_mean_episode_end,
-            "accepted_services_std": accepted_services_std_episode_end,
-            "accepted_bitrate": accepted_bitrate_mean_episode_end,
-            "accepted_bitrate_std": accepted_bitrate_std_episode_end,
-            "service_blocking_probability": service_blocking_probability_episode_end,
-            "service_blocking_probability_std": service_blocking_probability_std_episode_end,
-            "bitrate_blocking_probability": bitrate_blocking_probability_episode_end,
-            "bitrate_blocking_probability_std": bitrate_blocking_probability_std_episode_end,
-            "total_bitrate": total_bitrate_mean_episode_end,
-            "total_bitrate_std": total_bitrate_std_episode_end,
-            "utilisation_mean": utilisation_mean_episode_end,
-            "utilisation_std": utilisation_std_episode_end,
-            "returns": returns_mean_episode_end,
-            "returns_std": returns_std_episode_end,
-            "cum_returns": cum_returns_mean_episode_end,
-            "cum_returns_std": cum_returns_std_episode_end,
-            "lengths": lengths_mean_episode_end,
-            "lengths_std": lengths_std_episode_end,
-            "training_time": training_time_episode_end,
+        episode_end_df = pd.DataFrame({
+            f"{metric}_{stat}": processed_data[metric][stat] for metric in all_metrics for stat in [
+                "episode_end_mean",
+                "episode_end_std",
+                "episode_end_iqr_upper",
+                "episode_end_iqr_lower",
+            ]
         })
-        df.to_csv(config.DATA_OUTPUT_FILE)
+        episode_end_df.to_csv(config.DATA_OUTPUT_FILE)
+        # Pickle merged_out for further analysis
+        with open(config.DATA_OUTPUT_FILE.replace(".csv", ".pkl"), "wb") as f:
+            pickle.dump(merged_out, f)
 
     if config.WANDB:
         # Log the data to wandb
         # Define the downsample factor to speed up upload to wandb
         # Then reshape the array and compute the mean
-        chop = len(returns_mean) % config.DOWNSAMPLE_FACTOR
+        chop = len(processed_data["returns"]["mean"]) % config.DOWNSAMPLE_FACTOR
         downsample_mean = lambda x: x[chop:].reshape(-1, config.DOWNSAMPLE_FACTOR).mean(axis=1)
-        cum_returns_mean = downsample_mean(cum_returns_mean)
-        cum_returns_std = downsample_mean(cum_returns_std)
-        returns_mean = downsample_mean(returns_mean)
-        returns_std = downsample_mean(returns_std)
-        lengths_mean = downsample_mean(lengths_mean)
-        lengths_std = downsample_mean(lengths_std)
-        service_blocking_probability = downsample_mean(service_blocking_probability)
-        service_blocking_probability_std = downsample_mean(service_blocking_probability_std)
-        bitrate_blocking_probability = downsample_mean(bitrate_blocking_probability)
-        bitrate_blocking_probability_std = downsample_mean(bitrate_blocking_probability_std)
-        accepted_services_mean = downsample_mean(accepted_services_mean)
-        accepted_services_std = downsample_mean(accepted_services_std)
-        accepted_bitrate_mean = downsample_mean(accepted_bitrate_mean)
-        accepted_bitrate_std = downsample_mean(accepted_bitrate_std)
-        total_bitrate_mean = downsample_mean(total_bitrate_mean)
-        total_bitrate_std = downsample_mean(total_bitrate_std)
-        utilisation_mean = downsample_mean(utilisation_mean)
-        utilisation_std = downsample_mean(utilisation_std)
-        training_time = downsample_mean(training_time)
-        if config.env_type.lower() == "rsa_gn_model":
-            merged_out["launch_power"] = downsample_mean(merged_out["launch_power"])
-            merged_out["path_index"] = downsample_mean(merged_out["path_index"])
-            merged_out["slot_index"] = downsample_mean(merged_out["slot_index"])
-            merged_out["source"] = downsample_mean(merged_out["source"])
-            merged_out["dest"] = downsample_mean(merged_out["dest"])
-            merged_out["data_rate"] = downsample_mean(merged_out["data_rate"])
-        # cum_returns_mean = cum_returns_mean[chop:].reshape(-1, config.DOWNSAMPLE_FACTOR).mean(axis=1)
-        # cum_returns_std = cum_returns_std[chop:].reshape(-1, config.DOWNSAMPLE_FACTOR).mean(axis=1)
-        # returns_mean = returns_mean[chop:].reshape(-1, config.DOWNSAMPLE_FACTOR).mean(axis=1)
-        # returns_std = returns_std[chop:].reshape(-1, config.DOWNSAMPLE_FACTOR).mean(axis=1)
-        # lengths_mean = lengths_mean[chop:].reshape(-1, config.DOWNSAMPLE_FACTOR).mean(axis=1)
-        # lengths_std = lengths_std[chop:].reshape(-1, config.DOWNSAMPLE_FACTOR).mean(axis=1)
-        # total_bitrate_mean = total_bitrate_mean[chop:].reshape(-1, config.DOWNSAMPLE_FACTOR).mean(axis=1)
-        # total_bitrate_std = total_bitrate_std[chop:].reshape(-1, config.DOWNSAMPLE_FACTOR).mean(axis=1)
-        # service_blocking_probability = service_blocking_probability[chop:].reshape(-1, config.DOWNSAMPLE_FACTOR).mean(
-        #     axis=1)
-        # service_blocking_probability_std = service_blocking_probability_std[chop:].reshape(-1,
-        #                                                                                    config.DOWNSAMPLE_FACTOR).mean(
-        #     axis=1)
-        # bitrate_blocking_probability = bitrate_blocking_probability[chop:].reshape(-1, config.DOWNSAMPLE_FACTOR).mean(
-        #     axis=1)
-        # bitrate_blocking_probability_std = bitrate_blocking_probability_std[chop:].reshape(-1,
-        #                                                                                    config.DOWNSAMPLE_FACTOR).mean(
-        #     axis=1)
-        # accepted_services_mean = accepted_services_mean[chop:].reshape(-1, config.DOWNSAMPLE_FACTOR).mean(axis=1)
-        # accepted_services_std = accepted_services_std[chop:].reshape(-1, config.DOWNSAMPLE_FACTOR).mean(axis=1)
-        # accepted_bitrate_mean = accepted_bitrate_mean[chop:].reshape(-1, config.DOWNSAMPLE_FACTOR).mean(axis=1)
-        # accepted_bitrate_std = accepted_bitrate_std[chop:].reshape(-1, config.DOWNSAMPLE_FACTOR).mean(axis=1)
-        # utilisation_mean = utilisation_mean[chop:].reshape(-1, config.DOWNSAMPLE_FACTOR).mean(axis=1)
-        # utilisation_std = utilisation_std[chop:].reshape(-1, config.DOWNSAMPLE_FACTOR).mean(axis=1)
-        # training_time = training_time[chop:].reshape(-1, config.DOWNSAMPLE_FACTOR).mean(axis=1)
+        for key in all_metrics:
+            processed_data[key]["mean"] = downsample_mean(processed_data[key]["mean"])
+            processed_data[key]["std"] = downsample_mean(processed_data[key]["std"])
+            processed_data[key]["iqr_upper"] = downsample_mean(processed_data[key]["iqr_upper"])
+            processed_data[key]["iqr_lower"] = downsample_mean(processed_data[key]["iqr_lower"])
+        processed_data["training_time"] = downsample_mean(processed_data["training_time"])
 
-
+        # Log episode end metrics
         for i in range(len(episode_ends)):
             log_dict = {
-                "episode_count": i,
-                "episode_end_accepted_services": accepted_services_mean_episode_end[i],
-                "episode_end_accepted_services_std": accepted_services_std_episode_end[i],
-                "episode_end_accepted_bitrate": accepted_bitrate_mean_episode_end[i],
-                "episode_end_accepted_bitrate_std": accepted_bitrate_std_episode_end[i],
-                "episode_end_training_time": training_time_episode_end[i],
+                f"episode_end_{metric}_{agg}": processed_data[metric][agg][i] for metric in all_metrics for agg in [
+                    "mean",
+                    "std",
+                    "iqr_upper",
+                    "iqr_lower"
+                ]
             }
+            log_dict["episode_count"] = i
             wandb.log(log_dict)
 
-        for i in range(len(returns_mean)):
-            # Log the data
+        # Log per step metrics
+        for i in range(len(processed_data["returns"]["mean"])):
             log_dict = {
-                "update_step": i * config.DOWNSAMPLE_FACTOR,
-                "cum_returns_mean": cum_returns_mean[i],
-                "cum_returns_std": cum_returns_std[i],
-                "returns_mean": returns_mean[i],
-                "returns_std": returns_std[i],
-                "lengths_mean": lengths_mean[i],
-                "lengths_std": lengths_std[i],
-                "service_blocking_probability": service_blocking_probability[i],
-                "service_blocking_probability_std": service_blocking_probability_std[i],
-                "bitrate_blocking_probability": bitrate_blocking_probability[i],
-                "bitrate_blocking_probability_std": bitrate_blocking_probability_std[i],
-                "accepted_services_mean": accepted_services_mean[i],
-                "accepted_services_std": accepted_services_std[i],
-                "accepted_bitrate_mean": accepted_bitrate_mean[i],
-                "accepted_bitrate_std": accepted_bitrate_std[i],
-                "total_bitrate_mean": total_bitrate_mean[i],
-                "total_bitrate_std": total_bitrate_std[i],
-                "utilisation_mean": utilisation_mean[i],
-                "utilisation_std": utilisation_std[i],
-                "training_time": training_time[i],
+                f"{metric}_{agg}": processed_data[metric][agg][i] for metric in all_metrics for agg in [
+                    "mean",
+                    "std",
+                    "iqr_upper",
+                    "iqr_lower"
+                ]
             }
-            if config.EVAL_HEURISTIC or config.EVAL_MODEL:
-                log_dict["launch_power"] = merged_out["launch_power"][i]
-                log_dict["path_index"] = merged_out["path_index"][i]
-                log_dict["slot_index"] = merged_out["slot_index"][i]
-                log_dict["source"] = merged_out["source"][i]
-                log_dict["dest"] = merged_out["dest"][i]
-                log_dict["data_rate"] = merged_out["data_rate"][i]
+            log_dict["training_time"] = processed_data["training_time"][i]
+            log_dict["env_step"] = i
             wandb.log(log_dict)
 
-    print(f"Service Blocking Probability: "
-          f"{service_blocking_probability[-1] if config.continuous_operation else service_blocking_probability_episode_end.mean():.5f}"
-          f" ± {service_blocking_probability_std[-1] if config.continuous_operation else service_blocking_probability_std_episode_end.mean():.5f}")
-    print(f"Bitrate Blocking Probability: "
-          f"{bitrate_blocking_probability[-1] if config.continuous_operation else bitrate_blocking_probability_episode_end.mean():.5f}"
-          f" ± {bitrate_blocking_probability_std[-1] if config.continuous_operation else bitrate_blocking_probability_std_episode_end.mean():.5f}")
-    print(f"Accepted Services Episode: "
-          f"{accepted_services_mean[-1] if config.continuous_operation else accepted_services_mean_episode_end.mean():.0f}"
-          f" ± {accepted_services_std[-1] if config.continuous_operation else accepted_services_std_episode_end.mean():.0f}")
-    print(f"Accepted Bitrate Episode: "
-          f"{accepted_bitrate_mean[-1] if config.continuous_operation else accepted_bitrate_mean_episode_end.mean():.0f}"
-          f" ± {accepted_bitrate_std[-1] if config.continuous_operation else accepted_bitrate_std_episode_end.mean():.0f}")
-    print("Utilisation: "
-          f"{utilisation_mean[-1] if config.continuous_operation else utilisation_mean_episode_end.mean():.2f}"
-            f" ± {utilisation_std[-1] if config.continuous_operation else utilisation_std_episode_end.mean():.2f}")
+    # Print the final metrics to console
+    for metric in all_metrics:
+        if config.continuous_operation:
+            print(f"{metric}: {processed_data[metric]['mean'][-1]:.5f} ± {processed_data[metric]['std'][-1]:.5f}")
+        else:
+            print(f"{metric}: {processed_data[metric]['episode_end_mean'].mean():.5f} ± {processed_data[metric]['episode_end_std'].mean():.5f}")
+    if config.env_type.lower() == "rsa_gn_model" and config.launch_power_type == "rl":
+        print(f"Mean launch power: {merged_out['launch_power'].mean():.5f} ± {merged_out['launch_power'].std():.5f}")
 
     if config.log_actions:
         env, params = define_env(config)

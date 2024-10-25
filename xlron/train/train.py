@@ -77,10 +77,11 @@ def main(argv):
     # Print every flag and its name
     if FLAGS.DEBUG:
         print('non-flag arguments:', argv)
+        jax.config.update("jax_debug_nans", True)
     if FLAGS.NO_TRUNCATE:
         jax.numpy.set_printoptions(threshold=sys.maxsize)  # Don't truncate printed arrays
         # increase line length for numpy print options
-        jax.numpy.set_printoptions(linewidth=1000)
+        jax.numpy.set_printoptions(linewidth=220)
 
     if not FLAGS.NO_PRINT_FLAGS:
         for name in FLAGS:
@@ -140,6 +141,7 @@ def main(argv):
     # Save model params
     if FLAGS.SAVE_MODEL:
         # Merge seed_device and seed dimensions
+        print(out["runner_state"])
         train_state = jax.tree.map(lambda x: x[0], out["runner_state"][0])
         save_model(train_state, run_name, FLAGS)
 
