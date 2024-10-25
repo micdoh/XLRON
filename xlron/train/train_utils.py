@@ -444,7 +444,7 @@ def log_metrics(config, out, experiment_name, total_time, merge_func):
 
     if config.continuous_operation:
         # For continuous operation, define max_timesteps as the episode end
-        episode_ends = np.arange(0, config.TOTAL_TIMESTEPS // config.NUM_ENVS // config.NUM_LEARNERS, config.max_timesteps)[1:].astype(int) - 1
+        episode_ends = np.arange(0, (config.TOTAL_TIMESTEPS // config.NUM_LEARNERS) + 1, config.max_timesteps)[1:].astype(int) - 1
     else:
         episode_ends = np.where(merged_out["done"].mean(0).reshape(-1) == 1)[0] - 1
 
