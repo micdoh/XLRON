@@ -88,6 +88,7 @@ class EnvParams:
     reward_type: str = struct.field(pytree_node=False)
     values_bw: chex.Array = struct.field(pytree_node=False)
     truncate_holding_time: bool = struct.field(pytree_node=False)
+    traffic_array: bool = struct.field(pytree_node=False)
 
 
 @struct.dataclass

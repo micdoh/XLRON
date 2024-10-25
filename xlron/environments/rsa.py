@@ -21,7 +21,8 @@ from xlron.environments.env_funcs import (
     finalise_action_rwalr, generate_request_rwalr, init_link_snr_array,
     init_channel_centre_bw_array, check_action_rsa_gn_model, read_rsa_request, implement_action_rsa_gn_model,
     undo_action_rsa_gn_model, finalise_action_rsa_gn_model, init_modulation_format_index_array,
-    init_channel_power_array, mask_slots_rsa_gn_model, init_link_length_array_gn_model, get_snr_for_path, get_lightpath_snr
+    init_channel_power_array, mask_slots_rsa_gn_model, init_link_length_array_gn_model, get_snr_for_path, get_lightpath_snr,
+    generate_source_dest_pairs
 )
 from xlron.environments.dataclasses import *
 from xlron.environments.wrappers import *
@@ -354,7 +355,7 @@ class RSAEnv(environment.Environment):
             reward = state.request_array[1] * -1.0 / jnp.max(params.values_bw.val)
             if params.__class__.__name__ == "RSAGNModelEnvParams":
                 # multiply by minimum required SNR from modulation format array
-                reward = reward * params.modulations_array.val[0][2]
+                reward = reward * params.modulations_array.val[0][2] / 50.  # divide by large SNR to scale below 1
         else:
             reward = -1.0 * read_rsa_request(state.request_array)[1] / jnp.max(params.values_bw) if params.maximise_throughput else jnp.array(-1.0)
         return reward
@@ -383,9 +384,10 @@ class RSAEnv(environment.Environment):
                 path_index, slot_index = process_path_action(state, params, path_action)
                 path = params.path_link_array[path_index]
                 path_snr = get_snr_for_path(path, state.link_snr_array, params)[slot_index.astype(jnp.int32)]
-                # set to 0 if negative
-                path_snr = jnp.where(path_snr < 0, 0, path_snr)
-                reward = reward * path_snr
+                # set to 0 if negative and divide by large SNR (50. dB) to scale below 1
+                # N.B. negative SNR in dB would be a fail anyway since min. required is 10dB
+                path_snr_norm = jnp.where(path_snr < 0, 0, path_snr) / 50.
+                reward = reward * path_snr_norm
         else:
             reward = read_rsa_request(state.request_array)[1] / jnp.max(params.values_bw) if params.maximise_throughput else jnp.array(1.0)
         return reward
@@ -674,6 +676,170 @@ class RSAGNModelEnv(RSAEnv):
         state = mask_slots_rsa_gn_model(state, params, state.request_array)
         return state
 
+    # def get_obs(self, state: RSAGNModelEnvState, params: RSAGNModelEnvParams) -> chex.Array:
+    #     """Get observation space for launch power optimization with numerical stability.
+    #
+    #     Args:
+    #         state: Current environment state
+    #         params: Environment parameters
+    #
+    #     Returns:
+    #         chex.Array: Concatenated observation vector
+    #     """
+    #     eps = 1e-10  # Small constant for numerical stability
+    #
+    #     # Safely reshape request array
+    #     request_array = jnp.reshape(state.request_array, (-1,))
+    #
+    #     # Calculate base path stats
+    #     path_stats = calculate_path_stats(state, params, request_array)
+    #     # Ensure we have enough columns before slicing
+    #     min_cols = 4  # Minimum columns needed (3 to remove + 1 to keep)
+    #     path_stats = jnp.where(
+    #         path_stats.shape[1] >= min_cols,
+    #         path_stats[:, 3:],
+    #         jnp.zeros((path_stats.shape[0], max(0, path_stats.shape[1] - 3)))
+    #     )
+    #
+    #     # Safely calculate link lengths
+    #     link_length_array = jnp.nan_to_num(
+    #         jnp.sum(params.link_length_array.val, axis=1),
+    #         nan=0.0, posinf=0.0, neginf=0.0
+    #     )
+    #
+    #     # Get SNR array with error handling
+    #     lightpath_snr_array = jnp.nan_to_num(
+    #         get_lightpath_snr(state, params),
+    #         nan=-50.0, posinf=100.0, neginf=-50.0
+    #     )
+    #
+    #     # Safely get source-destination nodes
+    #     nodes_sd, requested_datarate = read_rsa_request(request_array)
+    #     source, dest = nodes_sd
+    #
+    #     def calculate_gn_path_stats(k_path_index, init_val):
+    #         """Calculate path statistics with numerical stability."""
+    #         # Get path index safely
+    #         path_index = jnp.clip(
+    #             get_path_indices(source, dest, params.k_paths, params.num_nodes,
+    #                              directed=params.directed_graph).astype(jnp.int32) + k_path_index,
+    #             0, params.path_link_array.shape[0] - 1
+    #         )
+    #
+    #         # Get path safely
+    #         path = params.path_link_array[path_index]
+    #
+    #         # Calculate path length with unit conversion
+    #         path_length = jnp.clip(jnp.dot(path, link_length_array) / 100, 0.0, 1e6)
+    #
+    #         # Calculate path hops
+    #         path_length_hops = jnp.sum(jnp.abs(path))
+    #
+    #         # Calculate number of connections safely
+    #         path_mask = (path == 1).astype(jnp.float32)
+    #         mod_mask = (state.modulation_format_index_array > -1).astype(jnp.float32)
+    #         num_connections = jnp.sum(
+    #             jnp.where(path_mask.reshape(-1, 1), mod_mask, 0.0)
+    #         )
+    #
+    #         # Calculate mean power safely
+    #         power_sum = jnp.sum(
+    #             jnp.where(path_mask.reshape(-1, 1),
+    #                       state.channel_power_array,
+    #                       0.0)
+    #         )
+    #         # Avoid division by zero
+    #         mean_power = jnp.where(
+    #             num_connections > eps,
+    #             power_sum / (num_connections + eps),
+    #             -50.0  # Default value for no connections
+    #         )
+    #
+    #         # Calculate mean SNR safely
+    #         snr_sum = jnp.sum(
+    #             jnp.where(path_mask.reshape(-1, 1),
+    #                       lightpath_snr_array,
+    #                       0.0)
+    #         )
+    #         mean_snr = jnp.where(
+    #             num_connections > eps,
+    #             snr_sum / (num_connections + eps),
+    #             -50.0  # Default value for no connections
+    #         )
+    #
+    #         # Clip values to reasonable ranges
+    #         mean_power = jnp.clip(mean_power, -50.0, 10.0)  # dBm range
+    #         mean_snr = jnp.clip(mean_snr, -50.0, 100.0)  # dB range
+    #
+    #         # Create stats array with safe values
+    #         path_stats = jnp.array([
+    #             path_length,
+    #             path_length_hops,
+    #             num_connections,
+    #             mean_power,
+    #             mean_snr
+    #         ])
+    #
+    #         # Handle NaN/Inf values
+    #         path_stats = jnp.nan_to_num(
+    #             path_stats,
+    #             nan=-50.0, posinf=100.0, neginf=-50.0
+    #         )
+    #
+    #         return jax.lax.dynamic_update_slice(
+    #             init_val,
+    #             path_stats.reshape((1, 5)),
+    #             (k_path_index, 0),
+    #         )
+    #
+    #     # Initialize path stats array
+    #     gn_path_stats = jnp.zeros((params.k_paths, 5))
+    #
+    #     # Calculate path stats for each path
+    #     gn_path_stats = jax.lax.fori_loop(
+    #         0, params.k_paths, calculate_gn_path_stats, gn_path_stats
+    #     )
+    #
+    #     # Ensure all values are finite
+    #     gn_path_stats = jnp.nan_to_num(
+    #         gn_path_stats,
+    #         nan=-50.0, posinf=100.0, neginf=-50.0
+    #     )
+    #
+    #     # Safely concatenate stats
+    #     try:
+    #         all_stats = jnp.concatenate([path_stats, gn_path_stats], axis=1)
+    #     except:
+    #         # Fallback if shapes don't match
+    #         all_stats = gn_path_stats
+    #
+    #     # Final array construction with shape checking
+    #     holding_time = jnp.reshape(state.holding_time, (-1,))
+    #     all_stats_flat = jnp.reshape(all_stats, (-1,))
+    #
+    #     # Ensure all components have expected shapes before concatenating
+    #     expected_length = 3 + holding_time.shape[0] + all_stats_flat.shape[0]
+    #     result = jnp.concatenate(
+    #         (
+    #             request_array,
+    #             holding_time,
+    #             all_stats_flat,
+    #         ),
+    #         axis=0,
+    #     )
+    #
+    #     # Final safeguard against any remaining NaN/Inf values
+    #     result = jnp.nan_to_num(
+    #         result,
+    #         nan=-50.0, posinf=100.0, neginf=-50.0
+    #     )
+    #
+    #     # Clip final values to reasonable ranges
+    #     result = jnp.clip(result, -1e6, 1e6)
+    #     jax.debug.print("result {}", result, ordered=True)
+    #
+    #     return result
+
     @partial(jax.jit, static_argnums=(0, 2,))
     def get_obs(self, state: RSAGNModelEnvState, params: RSAGNModelEnvParams) -> chex.Array:
         """For launch power optimisation, this function is scanned across the """
@@ -691,18 +857,30 @@ class RSAGNModelEnv(RSAEnv):
             path_index = get_path_indices(source, dest, params.k_paths, params.num_nodes, directed=params.directed_graph).astype(
                 jnp.int32) + k_path_index
             path = params.path_link_array[path_index]
-            path_length = jnp.dot(path, link_length_array) / 100
-            path_length_hops = jnp.sum(path)
+            path_length = jnp.dot(path, link_length_array)
+            max_path_length = jnp.max(jnp.dot(params.path_link_array.val, link_length_array))
+            path_length_norm = path_length / max_path_length
+            path_length_hops_norm = jnp.sum(path) / jnp.max(jnp.sum(params.path_link_array.val, axis=1))
             # Connections on path
             num_connections = jnp.where(path == 1, jnp.where(state.modulation_format_index_array > -1, 1, 0).sum(axis=1), 0).sum()
+            num_connections_norm = num_connections / params.link_resources
             # Mean power of connections on path
-            # make path with row length equal to link_resource
-            mean_power = jnp.nan_to_num(jnp.where(path == 1, state.channel_power_array.sum(axis=1), 0).sum() / num_connections, nan=-50, posinf=-50, neginf=-50)
+            # make path with row length equal to link_resource (+1 to avoid zero division)
+            mean_power_norm = (jnp.where(path == 1, state.channel_power_array.sum(axis=1), 0).sum() /
+                               (jnp.where(num_connections > 0., num_connections, 1.) * params.max_power))
             # Mean SNR of connections on the path links
-            mean_snr = jnp.nan_to_num(jnp.where(path == 1, lightpath_snr_array.sum(axis=1), 0).sum() / num_connections, nan=-50, posinf=-50, neginf=-50)
+            max_snr = 50. # Nominal value for max GSNR in dB
+            mean_snr_norm = (jnp.where(path == 1, lightpath_snr_array.sum(axis=1), 0).sum() /
+                             (jnp.where(num_connections > 0., num_connections, 1.) * max_snr))
             return jax.lax.dynamic_update_slice(
                 init_val,
-                jnp.array([path_length, path_length_hops, num_connections, mean_power, mean_snr]).reshape((1, 5)),
+                jnp.array([[
+                    path_length,
+                    path_length_hops_norm,
+                    num_connections_norm,
+                    mean_power_norm,
+                    mean_snr_norm
+                ]]),
                 (k_path_index, 0),
             )
         gn_path_stats = jnp.zeros((params.k_paths, 5))
@@ -712,9 +890,11 @@ class RSAGNModelEnv(RSAEnv):
         all_stats = jnp.concatenate([path_stats, gn_path_stats], axis=1)
         return jnp.concatenate(
             (
-                request_array,
+                jnp.array([source]),
+                requested_datarate / 100.,
+                jnp.array([dest]),
                 jnp.reshape(state.holding_time, (-1,)),
-                jnp.reshape(all_stats.reshape((-1,)), (-1,)),
+                jnp.reshape(all_stats, (-1,)),
             ),
             axis=0,
         )
@@ -814,6 +994,8 @@ def make_rsa_env(config: dict, launch_power_array: Optional[chex.Array] = None):
     path_snr = True if env_type == "rsa_gn_model" else False
     max_power = config.get("max_power", 9)
     min_power = config.get("min_power", -5)
+    optimise_launch_power = config.get("optimise_launch_power", False)
+    traffic_array = config.get("traffic_array", False)
 
     # optimize_launch_power.py parameters
     num_spans = config.get("num_spans", 10)
@@ -844,14 +1026,20 @@ def make_rsa_env(config: dict, launch_power_array: Optional[chex.Array] = None):
     # 3. RL to determine power for each path
     if env_type == "rsa_gn_model":
         if launch_power_type == "fixed":
-            launch_power_array = jnp.array([config.get("launch_power", -2.0)]) if not flags.optimise_launch_power else launch_power_array
+            launch_power_array = jnp.array([config.get("launch_power", -2.0)]) \
+                if launch_power_array is None else launch_power_array
             launch_power_type = 1
         elif launch_power_type == "tabular":
-            launch_power_array = jnp.zeros(path_link_array.shape[0]) if not flags.optimise_launch_power else launch_power_array
+            launch_power_array = jnp.zeros(path_link_array.shape[0]) \
+                if launch_power_array is None else launch_power_array
             launch_power_type = 2
         elif launch_power_type == "rl":
             launch_power_array = jnp.zeros([1])
             launch_power_type = 3
+        elif launch_power_type == "scaled":
+            launch_power_array = jnp.array([config.get("launch_power", -2.0)]) \
+                if launch_power_array is None else launch_power_array
+            launch_power_type = 4
         else:
             pass
 
@@ -863,6 +1051,8 @@ def make_rsa_env(config: dict, launch_power_array: Optional[chex.Array] = None):
         random_traffic = False  # Set this False so that traffic matrix isn't replaced on reset
         node_probabilities = [float(prob) for prob in config.get("node_probs")]
         traffic_matrix = convert_node_probs_to_traffic_matrix(node_probabilities)
+    elif traffic_array:
+        traffic_matrix = generate_source_dest_pairs(num_nodes, graph.is_directed())
     else:
         traffic_matrix = None
 
@@ -872,6 +1062,9 @@ def make_rsa_env(config: dict, launch_power_array: Optional[chex.Array] = None):
         list_of_requests = np.loadtxt(traffic_requests_csv_filepath, delimiter=",")[1:, :]
         list_of_requests = jnp.array(list_of_requests)
         max_requests = len(list_of_requests)
+    elif optimise_launch_power:
+        deterministic_requests = True
+        list_of_requests = jnp.array(config.get("list_of_requests", []))
     else:
         deterministic_requests = False
         list_of_requests = jnp.array([])
@@ -963,6 +1156,7 @@ def make_rsa_env(config: dict, launch_power_array: Optional[chex.Array] = None):
         reward_type=reward_type,
         truncate_holding_time=truncate_holding_time,
         log_actions=log_actions,
+        traffic_array=traffic_array,
     )
 
     if env_type == "deeprmsa":
