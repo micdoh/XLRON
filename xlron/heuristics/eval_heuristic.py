@@ -25,6 +25,7 @@ class Transition(NamedTuple):
 @struct.dataclass
 class EvalState:
     apply_fn: Callable
+    sample_fn: Callable
     params: chex.Array
 
 
@@ -120,7 +121,8 @@ def make_eval(config: flags.FlagValues) -> Callable:
         rng, warmup_rng, reset_key = jax.random.split(rng, 3)
         reset_key = jax.random.split(reset_key, config.NUM_ENVS)
         obsv, env_state = jax.vmap(env.reset, in_axes=(0, None))(reset_key, env_params)
-        env_state = env_state.env_state.replace(launch_power_array=launch_power_array) if launch_power_array is not None else env_state.env_state
+        inner_state = env_state.env_state.replace(launch_power_array=launch_power_array) if launch_power_array is not None else env_state.env_state
+        env_state = env_state.replace(env_state=inner_state)
         obsv = (env_state.env_state, env_params) if config.USE_GNN else tuple([obsv])
 
         # # LOAD MODEL
@@ -128,11 +130,12 @@ def make_eval(config: flags.FlagValues) -> Callable:
             network, last_obs = init_network(config, env, env_state, env_params)
             network_params = config.model["model"]["params"]
             apply = network.apply
+            sample = network.sample_action
             print('Evaluating model')
         else:
-            network_params = apply = None
+            network_params = apply = sample = None
 
-        eval_state = EvalState(apply_fn=apply, params=network_params)
+        eval_state = EvalState(apply_fn=apply, sample_fn=sample, params=network_params)
 
         # Recreate DeepRMSA warmup period
         if config.ENV_WARMUP_STEPS:

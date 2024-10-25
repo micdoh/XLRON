@@ -92,6 +92,7 @@ class ActorCriticMLP(nn.Module):
     num_layers: int = 2
     num_units: int = 64
     layer_norm: bool = False
+    temperature: float = 1.0
 
     @nn.compact
     def __call__(self, x):
@@ -101,7 +102,8 @@ class ActorCriticMLP(nn.Module):
             actor_mean_dim = nn.Dense(
                 dim, kernel_init=orthogonal(0.01), bias_init=constant(0.0)
             )(actor_mean)
-            pi_dim = distrax.Categorical(logits=actor_mean_dim)
+            logits = actor_mean_dim / self.temperature
+            pi_dim = distrax.Categorical(logits=logits)
             action_dists.append(pi_dim)
 
         critic = make_dense_layers(x, self.num_units, self.num_layers, self.activation, layer_norm=self.layer_norm)
@@ -111,34 +113,110 @@ class ActorCriticMLP(nn.Module):
 
         return action_dists, jnp.squeeze(critic, axis=-1)
 
+    def sample_action(self, seed,  dist, log_prob=False, deterministic=False):
+        """Sample an action from the distribution"""
+        action = jnp.argmax(dist.probs()) if deterministic else dist.sample(seed=seed)
+        if log_prob:
+            return action, dist.log_prob(action)
+        return action
+
 
 class LaunchPowerActorCriticMLP(nn.Module):
     action_dim: Sequence[int]
     activation: str = "tanh"
     num_layers: int = 2
     num_units: int = 64
-    layer_norm: bool = True
+    layer_norm: bool = False
+    min_power_dbm: float = 0.0
+    max_power_dbm: float = 2.0
+    step_power_dbm: float = 0.1
+    discrete: bool = True
+    temperature: float = 1.0
+    # Beta distribution parameters (used only if discrete=False)
+    min_concentration: float = 0.1
+    max_concentration: float = 20.0
+    epsilon: float = 1e-6
+
+    @property
+    def num_power_levels(self):
+        """Calculate number of power levels dynamically"""
+        return int((self.max_power_dbm - self.min_power_dbm) / self.step_power_dbm) + 1
+
+    @property
+    def power_levels(self):
+        """Calculate power levels dynamically"""
+        return jnp.linspace(self.min_power_dbm, self.max_power_dbm, self.num_power_levels)
 
     @nn.compact
     def __call__(self, x):
         actor_mean = make_dense_layers(x, self.num_units, self.num_layers, self.activation)
         action_dists = []
-        #for dim in self.action_dim:
-            # actor_mean_dim = nn.Dense(
-            #     dim, kernel_init=orthogonal(0.01), bias_init=constant(0.0)
-            # )(actor_mean)
-            # Output
-        alpha = nn.softplus(nn.Dense(1, kernel_init=orthogonal(0.01), bias_init=constant(0.0))(actor_mean)) + 1e-5
-        beta = nn.softplus(nn.Dense(1, kernel_init=orthogonal(0.01), bias_init=constant(0.0))(actor_mean)) + 1e-5
-        dist = distrax.Beta(alpha, beta)
+
+        if self.discrete:
+            # Discrete case: output logits for categorical distribution
+            logits = nn.Dense(
+                self.num_power_levels,
+                kernel_init=orthogonal(0.01),
+                bias_init=constant(0.0)
+            )(actor_mean)
+
+            # Apply temperature scaling to logits
+            scaled_logits = logits / self.temperature
+            dist = distrax.Categorical(logits=scaled_logits)
+        else:
+            # Continuous case: output alpha and beta for Beta distribution
+            raw_alpha = nn.Dense(1, kernel_init=orthogonal(0.01),
+                                 bias_init=constant(0.0))(actor_mean)
+            raw_beta = nn.Dense(1, kernel_init=orthogonal(0.01),
+                                bias_init=constant(0.0))(actor_mean)
+
+            alpha = self.min_concentration + jax.nn.softplus(raw_alpha) * (
+                    self.max_concentration - self.min_concentration
+            )
+            beta = self.min_concentration + jax.nn.softplus(raw_beta) * (
+                    self.max_concentration - self.min_concentration
+            )
+            dist = distrax.Beta(alpha, beta)
+
         action_dists.append(dist)
 
-        critic = make_dense_layers(x, self.num_units, self.num_layers, self.activation, layer_norm=self.layer_norm)
-        critic = nn.Dense(1, kernel_init=orthogonal(1.0), bias_init=constant(0.0))(
-            critic
-        )
+        critic = make_dense_layers(x, self.num_units, self.num_layers, self.activation,
+                                   layer_norm=self.layer_norm)
+        critic = nn.Dense(1, kernel_init=orthogonal(1.0),
+                          bias_init=constant(0.0))(critic)
 
         return action_dists, jnp.squeeze(critic, axis=-1)
+
+    def sample_action(self, seed, dist, log_prob=False, deterministic=False):
+        """Sample an action and convert to power level"""
+        if self.discrete:
+            if deterministic:
+                # Take most probable action
+                raw_action = dist.mode()
+            else:
+                # Sample from distribution
+                raw_action = dist.sample(seed=seed)
+            processed_action = self.power_levels[raw_action].reshape((1, 1))
+        else:
+            if deterministic:
+                # Use mean of Beta distribution for deterministic action
+                mean = dist.alpha / (dist.alpha + dist.beta)
+                raw_action = jnp.clip(mean, self.epsilon, 1.0 - self.epsilon)
+            else:
+                # Sample from Beta (clipping to avoid edge values with undefined gradient) and scale to power range
+                raw_action = jnp.clip(dist.sample(seed=seed), self.epsilon, 1.0 - self.epsilon)
+            processed_action = self.min_power_dbm + raw_action * (self.max_power_dbm - self.min_power_dbm)
+        if log_prob:
+            return processed_action, dist.log_prob(raw_action)
+        return processed_action
+
+    def get_action_probs(self, dist):
+        """Get probabilities for discrete case or pdf for continuous case"""
+        if self.discrete:
+            return dist.probs()
+        else:
+            x = jnp.linspace(0, 1, 100)
+            return dist.prob(x)
 
 
 class GraphNet(nn.Module):
@@ -320,6 +398,7 @@ class ActorGNN(nn.Module):
     normalise_by_link_length: bool = True  # Normalise the processed edge features by the link length
     gnn_layer_norm: bool = True
     mlp_layer_norm: bool = False
+    temperature: float = 1.0
 
     @nn.compact
     def __call__(self, state: EnvState, params: EnvParams):
@@ -369,8 +448,9 @@ class ActorGNN(nn.Module):
             return action_array
 
         action_dist = jax.lax.fori_loop(0, params.k_paths, get_path_action_dist, init_action_array)
+        logits = action_dist / self.temperature
         # Return a distrax.Categorical distribution over actions (which can be masked later)
-        return distrax.Categorical(logits=jnp.reshape(action_dist, (-1,)))
+        return distrax.Categorical(logits=jnp.reshape(logits, (-1,)))
 
 
 class ActorCriticGNN(nn.Module):
@@ -389,6 +469,7 @@ class ActorCriticGNN(nn.Module):
     gnn_layer_norm: bool = True
     mlp_layer_norm: bool = False
     vmap: bool = True
+    temperature: float = 1.0
 
     @nn.compact
     def __call__(self, state: EnvState, params: EnvParams):
@@ -403,6 +484,7 @@ class ActorCriticGNN(nn.Module):
             normalise_by_link_length=self.normalise_by_link_length,
             gnn_layer_norm=self.gnn_layer_norm,
             mlp_layer_norm=self.mlp_layer_norm,
+            temperature=self.temperature,
         )
         critic = CriticGNN(
             activation=self.activation,
@@ -427,6 +509,13 @@ class ActorCriticGNN(nn.Module):
         critic_out = critic(state, params)
         # Actor is returned as a list for compatibility with MLP VONE option in PPO script
         return [actor_out], critic_out
+
+    def sample_action(self, seed, dist, log_prob=False, deterministic=False):
+        """Sample an action from the distribution"""
+        action = jnp.argmax(dist.probs()) if deterministic else dist.sample(seed=seed)
+        if log_prob:
+            return action, dist.log_prob(action)
+        return action
 
 
 # TODO - adapt to VONE environment

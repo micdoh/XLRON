@@ -553,6 +553,13 @@ def generate_vone_request(key: chex.PRNGKey, state: EnvState, params: EnvParams)
     return state
 
 
+def generate_source_dest_pairs(num_nodes, directed_graph):
+    indices = [(i, j) for i in range(num_nodes) for j in range(num_nodes) if i != j]
+    # Append reverse if directed graph
+    indices = indices + [(j, i) for i, j in indices] if directed_graph else indices
+    return jnp.array(indices)
+
+
 @partial(jax.jit, static_argnums=(2,))
 def generate_request_rsa(key: chex.PRNGKey, state: EnvState, params: EnvParams) -> EnvState:
     # Flatten the probabilities to a 1D array
@@ -563,13 +570,18 @@ def generate_request_rsa(key: chex.PRNGKey, state: EnvState, params: EnvParams) 
         bw = jax.lax.dynamic_slice(request, (1,), (1,))[0]
         dest = jax.lax.dynamic_slice(request, (2,), (1,))[0]
     else:
-        shape = state.traffic_matrix.shape
-        probabilities = state.traffic_matrix.ravel()
-        # Use jax.random.choice to select index based on the probabilities
-        source_dest_index = jax.random.choice(key_sd, jnp.arange(state.traffic_matrix.size), p=probabilities)
-        # Convert 1D index back to 2D
-        nodes = jnp.unravel_index(source_dest_index, shape)
-        source, dest = jnp.stack(nodes) if params.directed_graph else jnp.sort(jnp.stack(nodes))
+        if params.traffic_array:
+            source_dest_index = jax.random.choice(key_sd, jnp.arange(state.traffic_matrix.shape[0]))
+            source, dest = state.traffic_matrix[source_dest_index]
+            source, dest = jnp.stack((source, dest)) if params.directed_graph else jnp.sort(jnp.stack((source, dest)))
+        else:
+            shape = state.traffic_matrix.shape
+            probabilities = state.traffic_matrix.ravel()
+            # Use jax.random.choice to select index based on the probabilities
+            source_dest_index = jax.random.choice(key_sd, jnp.arange(state.traffic_matrix.size), p=probabilities)
+            # Convert 1D index back to 2D
+            nodes = jnp.unravel_index(source_dest_index, shape)
+            source, dest = jnp.stack(nodes) if params.directed_graph else jnp.sort(jnp.stack(nodes))
         # Vectorized conditional replacement using mask
         bw = jax.random.choice(key_slot, params.values_bw.val)
     arrival_time, holding_time = generate_arrival_holding_times(key_times, params)
@@ -599,6 +611,7 @@ def generate_request_rwalr(key: chex.PRNGKey, state: EnvState, params: EnvParams
         source = jax.lax.dynamic_slice(request, (0,), (1,))[0]
         bw = jax.lax.dynamic_slice(request, (1,), (1,))[0]
         dest = jax.lax.dynamic_slice(request, (2,), (1,))[0]
+        jax.debug.print("request {}", request, ordered=True)
     else:
         shape = state.traffic_matrix.shape
         probabilities = state.traffic_matrix.ravel()
@@ -2758,6 +2771,7 @@ def implement_action_rsa_gn_model(
     # jax.debug.print("initial_slot_index {}", initial_slot_index, ordered=True)
     path = get_paths(params, nodes_sd)[k_path_index]
     launch_power = get_launch_power(state, path_action, power_action, params)
+    #jax.debug.print("request {} LP {}", state.request_array, launch_power, ordered=True)
     # Update channel_power_array and channel_centre_bw_array
     # jax.debug.print("path_sr pre {}", get_snr_for_path(path, state.link_snr_array, params)[initial_slot_index], ordered=True)
     state = state.replace(
@@ -3016,7 +3030,6 @@ def mask_slots_rsa_gn_model(state: RSAGNModelEnvState, params: RSAGNModelEnvPara
         link_slot_mask, _ = aggregate_slots(link_slot_mask.reshape(params.k_paths, -1), params)
         link_slot_mask = link_slot_mask.reshape(-1)
     state = state.replace(link_slot_mask=link_slot_mask)
-    # jax.debug.print("link_slot_mask {}", link_slot_mask, ordered=True)
     return state
 
 
@@ -3046,6 +3059,17 @@ def get_launch_power(state: EnvState, path_action: chex.Array, power_action: che
         launch_power = state.launch_power_array[i+k_path_index]
     elif params.launch_power_type == 3:
         launch_power = power_action
+    elif params.launch_power_type == 4:
+        nodes_sd, requested_datarate = read_rsa_request(state.request_array)
+        k_path_index, initial_slot_index = process_path_action(state, params, path_action)
+        source, dest = nodes_sd
+        i = get_path_indices(source, dest, params.k_paths, params.num_nodes, directed=params.directed_graph).astype(
+            jnp.int32)
+        # Get path length
+        link_length_array = jnp.sum(params.link_length_array.val, axis=1)
+        path_length = jnp.sum(link_length_array[i+k_path_index])
+        maximum_path_length = jnp.max(jnp.dot(params.path_link_array.val, params.link_length_array.val))
+        launch_power = state.launch_power_array[0] * (path_length / maximum_path_length)
     else:
         raise ValueError("Invalid launch power type. Check params.launch_power_type")
     return isrs_gn_model.from_dbm(launch_power)
