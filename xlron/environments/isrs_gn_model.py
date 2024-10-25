@@ -297,12 +297,13 @@ def _xpm(p_i, p_k, phi_ik, T_k, B_i, B_k, a_k, a_bar_k, gamma):
     b = (T_k - a_k ** 2) / a_k * jnp.arctan(phi_ik * B_i / a_k)
     c = ((a_k + a_bar_k) ** 2 - T_k) / (a_k + a_bar_k) * jnp.arctan(phi_ik * B_i / (a_k + a_bar_k))
     r = a * (b + c)
-    # jax.debug.print("a1 {}", a1, ordered=True)
-    # jax.debug.print("a2 {}", a2, ordered=True)
     return 32 / 27 * jnp.sum(r, axis=1 if r.ndim > 1 else 0)
 
 
 def _xpm_corr(p_i, p_k, phi_ik, T_k, B_i, B_k, a_k, a_bar_k, gamma, Phi, TX1):
+    """
+    Closed-form formula for XPM correction, see Ref. 1
+    """
     p_i = jnp.where(p_i > 0., p_i, 1.)
     B_k = jnp.where(B_k > 0., B_k, 1.)
     a = Phi * TX1.T * jnp.where(p_i > 1., p_k / p_i, 0.) ** 2
@@ -314,6 +315,9 @@ def _xpm_corr(p_i, p_k, phi_ik, T_k, B_i, B_k, a_k, a_bar_k, gamma, Phi, TX1):
 
 
 def _xpm_corr_asymp(p_i, p_k, phi_ik, phi, T_k, B_k, a, a_bar, gamma, df, Phi, TX2, L):
+    """
+    Closed-form formula for asymptotic XPM correction, see Ref. 1
+    """
     p_i = jnp.where(p_i > 0., p_i, 1)
     B_k = jnp.where(B_k > 0., B_k, 1)
     a0 = jnp.where(p_i > 1., p_k / p_i, 0.) ** 2
@@ -325,43 +329,7 @@ def _xpm_corr_asymp(p_i, p_k, phi_ik, phi, T_k, B_k, a, a_bar, gamma, df, Phi, T
         axis=1)
 
 
-# def _xpm_diff(p_i, p_k, phi_ik, T_k, B_i, B_k, a_k, a_bar_k, gamma):
-#     """Differentiable version of the XPM contribution"""
-#     a = jnp.nan_to_num(p_k / p_i, nan=0.) ** 2 * gamma ** jnp.nan_to_num(2 / (B_k * phi_ik * a_bar_k * (2 * a_k + a_bar_k)), nan=0.)
-#     b = (T_k - a_k ** 2) / a_k * jnp.arctan(phi_ik * B_i / a_k)
-#     c = ((a_k + a_bar_k) ** 2 - T_k) / (a_k + a_bar_k) * jnp.arctan(phi_ik * B_i / (a_k + a_bar_k))
-#     r = jnp.nan_to_num(a, nan=0., neginf=-1e6, posinf=1e6) * (b + c)
-#     return 32 / 27 * jnp.nansum(r, axis=1 if r.ndim > 1 else 0)
-
-
-# def _xpm_corr_diff(p_i, p_k, phi_ik, T_k, B_i, B_k, a_k, a_bar_k, gamma, Phi, TX1):
-#     """Differentiable version of the XPM correction"""
-#     B_k = jnp.where(B_k == 0., 1., B_k)
-#     p_i = jnp.where(p_i == 0., EPS, p_i)
-#     return 5 / 6 * 32 / 27 * jnp.sum(
-#         jnp.nan_to_num(
-#             Phi * TX1.T * jnp.nan_to_num(p_k / p_i, nan=0.) ** 2 * gamma ** 2 / jnp.where(B_k == 0., 1., B_k) / (phi_ik * a_bar_k * (2 * a_k + a_bar_k)) * (
-#                     (T_k - a_k ** 2) / a_k * jnp.arctan(phi_ik * B_i / a_k) +
-#                     ((a_k + a_bar_k) ** 2 - T_k) / (a_k + a_bar_k) * jnp.arctan(phi_ik * B_i / (a_k + a_bar_k))
-#             ),
-#             nan=0., neginf=-1e6, posinf=1e6),
-#         axis=1)
-
-
-# def _xpm_corr_asymp_diff(p_i, p_k, phi_ik, phi, T_k, B_k, a, a_bar, gamma, df, Phi, TX2, L):
-#     """Differentiable version of the asymptotic correction for XPM"""
-#     p_i = jnp.where(p_i == 0., EPS, p_i)
-#     B_k = jnp.where(B_k == 0., EPS, B_k)
-#     return 5 / 3 * 32 / 27 * jnp.nansum(
-#         jnp.nan_to_num(
-#             (phi_ik != 0) * jnp.nan_to_num(p_k / p_i, nan=0.) ** 2 * TX2 * gamma ** 2 / L * Phi * pi *
-#             jnp.nan_to_num(T_k / phi / B_k, nan=0.) ** 3 / a ** 2 / (a + a_bar) ** 2 *
-#             ((2. * df - B_k) * jnp.nan_to_num(jnp.log(jnp.clip((2 * df - B_k) / (2 * df + B_k), a_min=0.)), nan=0.) + 2 * B_k),
-#             nan=0., neginf=-1e6, posinf=1e6),
-#         axis=1)
-
-
-def get_ASE_power(noise_figure, attenuation_i, length, ref_lambda, ch_centre_i, ch_bandwidth, gain=None):
+def get_ase_power(noise_figure, attenuation_i, length, ref_lambda, ch_centre_i, ch_bandwidth, gain=None):
     if gain is None:
         a = jnp.mean(attenuation_i)
         gain = 10 ** (a * length / 10)
@@ -370,7 +338,6 @@ def get_ASE_power(noise_figure, attenuation_i, length, ref_lambda, ch_centre_i, 
     return jnp.squeeze(p_ASE)
 
 
-#@partial(jax.jit, static_argnums=(x for x in range(14)))
 def get_snr(
         num_channels: int = 420,
         max_spans: int = 20,
@@ -388,7 +355,7 @@ def get_snr(
         num_roadms: int = 1,
         length: chex.Array = 100 * 1e3 * jnp.ones(20),
         num_spans: int = 20,
-        ch_power_W_i: chex.Array = 10 ** (0 / 10) * 0.001 * jnp.ones((420, 1)),
+        ch_power_w_i: chex.Array = 10 ** (0 / 10) * 0.001 * jnp.ones((420, 1)),
         ch_centre_i: chex.Array = ((jnp.arange(420) - (420 - 1) / 2) * 25e-9).reshape((420, 1)),
         ch_bandwidth_i: chex.Array = 25e9 * jnp.ones((420, 1)),
         excess_kurtosis_i: chex.Array = jnp.zeros((420, 1)),
@@ -405,7 +372,7 @@ def get_snr(
         length: fiber length per span [m]
         attenuation_i: attenuation coefficient [1/m]
         attenuation_bar_i: attenuation coefficient [1/m]
-        ch_power_W_i: channel power [W]
+        ch_power_w_i: channel power [W]
         nonlinear_coeff: Nonlinear coefficient [1/W^2]
         ch_centre_i: channel center frequency [Hz]
         ch_bandwidth_i: channel bandwidth [Hz]
@@ -417,14 +384,15 @@ def get_snr(
         mod_format_correction: apply modulation format correction
         excess_kurtosis_i: excess kurtosis of modulation format
         roadm_loss: ROADM loss [dB]
+        num_roadms: number of ROADMs per link (i.e. one at receive end or none)
 
     Returns:
         snr: signal-to-noise ratio (linear units)
     """
     span_length = jnp.sum(length) / num_spans
-    p_ASE = get_ASE_power(noise_figure, attenuation_i, span_length, ref_lambda, ch_centre_i, ch_bandwidth_i) * num_spans
-    p_ASE_ROADM = num_roadms * get_ASE_power(noise_figure, roadm_loss, span_length, ref_lambda, ch_centre_i, ch_bandwidth_i, gain=10**(roadm_loss/10))
-    p_NLI, eta_NLI = isrs_gn_model(
+    p_ase = get_ase_power(noise_figure, attenuation_i, span_length, ref_lambda, ch_centre_i, ch_bandwidth_i) * num_spans
+    p_ase_roadm = num_roadms * get_ase_power(noise_figure, roadm_loss, span_length, ref_lambda, ch_centre_i, ch_bandwidth_i, gain=10**(roadm_loss/10))
+    p_nli, eta_nli = isrs_gn_model(
         num_channels=num_channels,
         num_spans=num_spans,
         max_spans=max_spans,
@@ -432,7 +400,7 @@ def get_snr(
         length=length,
         attenuation_i=attenuation_i,
         attenuation_bar_i=attenuation_bar_i,
-        ch_power_W_i=ch_power_W_i,
+        ch_power_W_i=ch_power_w_i,
         nonlinear_coeff=nonlinear_coeff,
         ch_centre_i=ch_centre_i,
         ch_bandwidth_i=ch_bandwidth_i,
@@ -443,17 +411,17 @@ def get_snr(
         mod_format_correction=mod_format_correction,
         excess_kurtosis_i=excess_kurtosis_i,
     )
+    noise_power = p_ase + p_ase_roadm + p_nli
+    noise_power = jnp.where(noise_power > 0, noise_power, EPS)
+    ch_power_W_i = jnp.squeeze(ch_power_w_i)
+    snr = jnp.where(ch_power_W_i > 0, ch_power_W_i / noise_power, 1e5)
     # jax.debug.print("p_ASE {}", p_ASE)
     # jax.debug.print("p_NLI {}", p_NLI)
     # jax.debug.print("p_ASE_ROADM {}", p_ASE_ROADM)
     # jax.debug.print("ch_power_W_i {}", ch_power_W_i.T)
-    noise_power = p_ASE + p_NLI + p_ASE_ROADM
-    noise_power = jnp.where(noise_power > 0, noise_power, EPS)
-    ch_power_W_i = jnp.squeeze(ch_power_W_i)
-    snr = jnp.where(ch_power_W_i > 0, ch_power_W_i / noise_power, 1e5)
     # jax.debug.print("noise_power {}", noise_power, ordered=True)
     # jax.debug.print("snr {}", snr, ordered=True)
-    return snr, eta_NLI
+    return snr, eta_nli
 
 
 def to_db(x):
@@ -524,7 +492,7 @@ if __name__ == "__main__":
     # print(f"P_NLI_no_ISRS: {to_db(p_nli_1span_noISRSm)[0]}")
 
     noise_figure_span = 4  # dB
-    p_ase = get_ASE_power(noise_figure_span, P['attenuation_i'], P['length'], P['ref_lambda'], P['ch_centre_i'], P['ch_bandwidth_i'])
+    p_ase = get_ase_power(noise_figure_span, P['attenuation_i'], P['length'], P['ref_lambda'], P['ch_centre_i'], P['ch_bandwidth_i'])
     print(f"ASE power: {to_db(p_ase)[0]}")
 
     P['noise_figure'] = noise_figure_span
