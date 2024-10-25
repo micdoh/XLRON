@@ -2623,7 +2623,7 @@ def get_snr_link_array(state: EnvState, params: EnvParams) -> chex.Array:
             roadm_loss=params.roadm_loss,
             noise_figure=params.noise_figure,  # TODO (GN MODEL) - support separate noise figures for C and L bands (4 and 6 dB)
             mod_format_correction=params.mod_format_correction,
-            ch_power_W_i=ch_power_link.reshape((params.link_resources, 1)),
+            ch_power_w_i=ch_power_link.reshape((params.link_resources, 1)),
             ch_centre_i=ch_centres_link.reshape((params.link_resources, 1))*1e9,
             ch_bandwidth_i=bw_link.reshape((params.link_resources, 1))*1e9,
             excess_kurtosis_i=kurtosis_link.reshape((params.link_resources, 1)),

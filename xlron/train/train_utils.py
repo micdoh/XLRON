@@ -335,8 +335,6 @@ def select_action(select_action_state, env, env_params, train_state, config):
     else:
         action = pi[0].sample(seed=action_keys[0]) if not config.deterministic else pi[0].mode()
         log_prob = pi[0].log_prob(action)
-    jax.debug.print("last_obs {}", last_obs, ordered=config.ORDERED)
-    jax.debug.print("action {} log_prob {}", action, log_prob, ordered=config.ORDERED)
     return action, log_prob, value
 
 
