@@ -66,10 +66,15 @@ def get_learner_fn(
             runner_state = (train_state, env_state, obsv, rng, rng_epoch, rng_step)
 
             if config.DEBUG:
-                jax.debug.print("log_prob {}", log_prob, ordered=config.ORDERED)
+                path_action = action[0][0] if config.env_type.lower() == "rsa_gn_model" else action
+                path_index, slot_index = process_path_action(env_state.env_state, env_params, path_action)
+                path = env_params.path_link_array[path_index]
+                get_path_links = lambda x: jnp.dot(path, x)
+                jax.debug.print("state.request_array {}", env_state.env_state.request_array, ordered=config.ORDERED)
                 jax.debug.print("action {}", action, ordered=config.ORDERED)
+                jax.debug.print("log_prob {}", log_prob, ordered=config.ORDERED)
                 jax.debug.print("reward {}", reward, ordered=config.ORDERED)
-                jax.debug.print("link_slot_array {}", env_state.env_state.link_slot_array, ordered=config.ORDERED)
+                jax.debug.print("link_slot_array {}", get_path_links(env_state.env_state.link_slot_array), ordered=config.ORDERED)
                 #jax.debug.print("link_slot_mask {}", env_state.env_state.link_slot_mask, ordered=config.ORDERED)
                 if config.env_type.lower() == "vone":
                     jax.debug.print("node_mask_s {}", env_state.env_state.node_mask_s, ordered=config.ORDERED)
@@ -78,6 +83,12 @@ def get_learner_fn(
                     jax.debug.print("action_counter {}", env_state.env_state.action_counter, ordered=config.ORDERED)
                     jax.debug.print("request_array {}", env_state.env_state.request_array, ordered=config.ORDERED)
                     jax.debug.print("node_capacity_array {}", env_state.env_state.node_capacity_array, ordered=config.ORDERED)
+                elif config.env_type.lower() == "rsa_gn_model":
+                    path_obs_index = 5 + action[0][0].astype(jnp.int32) % config.link_resources * config.k
+                    jax.debug.print("path_length {}", last_obs[0][0][path_obs_index], ordered=config.ORDERED)
+                    jax.debug.print("modulation_format_index_array {}", get_path_links(env_state.env_state.modulation_format_index_array), ordered=config.ORDERED)
+                    jax.debug.print("channel_centre_bw_array {}", get_path_links(env_state.env_state.channel_centre_bw_array), ordered=config.ORDERED)
+                    jax.debug.print("link_snr_array {}", get_path_links(env_state.env_state.link_snr_array), ordered=config.ORDERED)
             return runner_state, transition
 
         runner_state, traj_batch = jax.lax.scan(
@@ -289,6 +300,7 @@ def learner_data_setup(config: absl.flags.FlagValues, rng: chex.PRNGKey) -> Tupl
     )
     train_state = TrainState.create(
         apply_fn=network.apply,
+        sample_fn=network.sample_action,
         params=network_params,
         tx=tx,
     )
