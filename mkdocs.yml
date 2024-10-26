@@ -36,12 +36,13 @@ plugins:
             show_root_heading: false
 nav:
     - Home: 'index.md'
-    - 'Getting Started':
-        - 'Installation': 'installation.md'
-        - 'Quick Start': 'quickstart.md'
+    - Getting Started:
+      - Installation: 'installation.md'
+      - Quick Start: 'quickstart.md'
     - 'User Guide':
-      - 'Understanding XLRON': 'understanding_xlron.md'
-      - Reference: 'reference.md'
+      - Understanding XLRON: 'understanding_xlron.md'
+      - Command-line options: 'flags_reference.md'
+      - Function reference: 'reference.md'
     - About:
-        - 'License and Support': 'license.md'
-        - 'Change Log': 'changelog.md'
+      - 'License and Support': 'license.md'
+      - 'Change Log': 'changelog.md'
