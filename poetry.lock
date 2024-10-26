@@ -1179,7 +1179,7 @@ files = [
 [package.dependencies]
 fsspec = {version = "*", optional = true, markers = "extra == \"epath\""}
 importlib_resources = {version = "*", optional = true, markers = "extra == \"epath\""}
-typing_extensions = {version = "*", optional = true, markers = "extra == \"epath\" or extra == \"epy\""}
+typing_extensions = {version = "*", optional = true, markers = "extra == \"epy\""}
 zipp = {version = "*", optional = true, markers = "extra == \"epath\""}
 
 [package.extras]
@@ -2982,22 +2982,24 @@ reference = "pypi-public"
 
 [[package]]
 name = "mkdocstrings"
-version = "0.22.0"
+version = "0.26.2"
 description = "Automatic documentation from sources, for MkDocs."
 optional = false
-python-versions = ">=3.7"
+python-versions = ">=3.9"
 files = [
-    {file = "mkdocstrings-0.22.0-py3-none-any.whl", hash = "sha256:2d4095d461554ff6a778fdabdca3c00c468c2f1459d469f7a7f622a2b23212ba"},
-    {file = "mkdocstrings-0.22.0.tar.gz", hash = "sha256:82a33b94150ebb3d4b5c73bab4598c3e21468c79ec072eff6931c8f3bfc38256"},
+    {file = "mkdocstrings-0.26.2-py3-none-any.whl", hash = "sha256:1248f3228464f3b8d1a15bd91249ce1701fe3104ac517a5f167a0e01ca850ba5"},
+    {file = "mkdocstrings-0.26.2.tar.gz", hash = "sha256:34a8b50f1e6cfd29546c6c09fbe02154adfb0b361bb758834bf56aa284ba876e"},
 ]
 
 [package.dependencies]
+click = ">=7.0"
 Jinja2 = ">=2.11.1"
-Markdown = ">=3.3"
+Markdown = ">=3.6"
 MarkupSafe = ">=1.1"
-mkdocs = ">=1.2"
-mkdocs-autorefs = ">=0.3.1"
+mkdocs = ">=1.4"
+mkdocs-autorefs = ">=1.2"
 mkdocstrings-python = {version = ">=0.5.2", optional = true, markers = "extra == \"python\""}
+platformdirs = ">=2.2"
 pymdown-extensions = ">=6.3"
 
 [package.extras]
@@ -6029,4 +6031,4 @@ cuda = []
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.10,<3.12"
-content-hash = "cdf6bfd094cd4fb6b70f88f2a378b770311ee4060e212946728778a9516701f4"
+content-hash = "838001c65ed98cd73f14bbddff65923f6cdf330c883d1580247f534fe3560a03"
