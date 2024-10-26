@@ -36,7 +36,7 @@ distrax = "^0.1.4"
 mkdocs = "^1.5.2"
 ruff = "^0.0.286"
 mkdocs-material = "^9.2.6"
-mkdocstrings = {extras = ["python"], version = "^0.26.2"}
+mkdocstrings = {version = ">=0.18", extras = ["python"]}
 pytest-cov = "^4.1.0"
 absl-py = "^1.4.0"
 dm-haiku = "^0.0.10"
@@ -48,6 +48,8 @@ mkinit = "^1.1.0"
 ipykernel = "^6.29.4"
 jupyter = "^1.0.0"
 penzai = "^0.1.2"
+griffe = "^1.5.1"
+mkdocstrings-python = "^1.12.2"
 
 [tool.poetry.extras]
 cuda = ["nvidia-cuda-runtime-cu11", "torch", "torchvision"]
