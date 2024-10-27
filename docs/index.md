@@ -4,7 +4,9 @@
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 [![codecov](https://codecov.io/gh/micdoh/XLRON/graph/badge.svg?token=UW9CCLRAFJ)](https://codecov.io/gh/micdoh/XLRON)
 
-<img src="./images/xlron_nobackground.png">
+<p align="center">
+<img src="./images/xlron_logo_upscaled.png" width="500">
+</p>
 
 ___
 
@@ -26,9 +28,11 @@ ___
 
 ## 🧠 Understanding XLRON 🧠
 
+Check out [this page](./understanding_xlron.md) to get a deeper understanding of XLRON's architecture and how it works.
+
 XLRON is faster than CPU-based training because of the following factors:
 
-<img src="./images/xlron_diagram.png">
+<img src="./images/xlron_diagram.png" width="600">
 
 - End-to-end JAX implementation (both environment and RL algorithm) allows entire training loop to be compiled and optimised as a single program
 - GPU-compatiblity allows parallelisation to make maximum use of accelerator hardware (GPU or TPU)
@@ -36,7 +40,7 @@ XLRON is faster than CPU-based training because of the following factors:
 
 To further understand the architecture of XLRON and how it allows distributed training for multiple environments across multiple devices and even for multiple learners (neural network parameters), take a look at the below diagram:
 
-<img src="./images/xlron_training_vert.png">
+<img src="./images/xlron_training_vert.png" width="600">
 
 
 ## 🏎️ Speed Benchmarks 🏎️ 
@@ -52,7 +56,7 @@ To fairly assess the speed-up offered by XLRON, we implement a "DeepRMSA" enviro
 
 The below figure shows the training curves for both implementations, with 250 or 2000 parallel envs shown for XLRON. Shaded areas indicate the standard deviation of values across environments (each with a unique random seed) for XLRON and across 3 random seeds for SB3. The left figure shows the training progression with episode count, the right figure shows training progression with time on a log scale.
 
-<img src="./images/ofc2023_comp_all.png">
+<img src="./images/ofc2023_comp_all.png" width="800">
 
 Increasing the number of parallel environments decreases the time required to train on a given number of environment steps, but changes the training dynamics so hyperparameters should be tuned accordingly for different numbers of parallel environments.
 
@@ -71,14 +75,14 @@ There are 4 horizontal bars per experiment:
 
 Experiment names on y-axis follow the naming convention: topology name (NSFNET or CONUS) - number of FSU per link - JAX or numpy environment - device type - number of vectorised environments.
 
-<img src="./images/ofc2023_vone_comparison.png">
+<img src="./images/ofc2023_vone_comparison.png" width="500">
 
 
 #### Compilation times
 
-See below figure for compilatiion times of different environments. Compilation typically takes a few seconds, therefore adds very little overhead to the training process.
+See below figure for compilation times of different environments. Compilation typically takes a few seconds, therefore adds very little overhead to the training process.
 
-<img src="./images/compilation_xlron.png">
+<img src="./images/compilation_xlron.png" width="500">
 
 
 
@@ -88,6 +92,8 @@ See below figure for compilatiion times of different environments. Compilation t
 The gym-style environments follow the example set in [Gymnax](https://github.com/RobertTLange/gymnax)
 
 The PPO implementation in this project derives from the excellent [PureJaxRL](https://github.com/luchris429/purejaxrl)
+
+Multi-device support takes inspiration from [Stoix](https://github.com/EdanToledo/Stoix)
 
 ___
 

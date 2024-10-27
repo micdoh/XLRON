@@ -1,10 +1,13 @@
 
+
+<img src="docs/images/xlron_logo_upscaled.png" width="500" class="center">
+
+
 [<img src="https://img.shields.io/badge/license-MIT-blue">](https://github.com/micdoh/ONDRLax/LICENSE)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 [![codecov](https://codecov.io/gh/micdoh/XLRON/graph/badge.svg?token=UW9CCLRAFJ)](https://codecov.io/gh/micdoh/XLRON)
 
 
-<img src="docs/images/xlron_background.png">
 
 ## See the documentation at https://micdoh.github.io/XLRON/
 
