@@ -1,4 +1,4 @@
-# Commandline Options
+# Command-line Options
 
 ```commandline
 xlron.train.parameter_flags:
