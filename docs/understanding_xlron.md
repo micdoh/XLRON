@@ -23,7 +23,7 @@ The JAX documentation (https://jax.readthedocs.io/en/latest/) is excellent and p
 
 To use XLRON, it helps to understand the logical structure of a typical training loop and have a mental picture of how the different components interact. The diagram below shows the main components of a training loop in XLRON:
 
-<img src="images/xlron_training_vert.png" width="600" alt="xlron_training_vert.png">
+![xlron_training_vert.png](images/xlron_training_vert.png){width="600"}
 
 The upper section of the diagram details the logical components of the parallelisation scheme: DEVICE<sub>LEARN</sub>, LEARNER, DEVICE<sub>ENV</sub>, and ENV. 
 
