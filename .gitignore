@@ -9,5 +9,7 @@ figures/
 jax/
 site/
 config/
+data/
+models/
 .coverage
 .run
