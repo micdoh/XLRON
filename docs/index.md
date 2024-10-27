@@ -12,17 +12,18 @@ ___
 
 
 
-XLRON ("ex-el-er-on") is an open-source project that provides a suite of gym-style environments for simulating resource allocation problems in optical networks using reinforcement learning techniques. It is built on the JAX numerical computing framework, enabling accelerated training on GPU and TPU hardware.
+XLRON ("ex-el-er-on") is an open-source project that provides a suite of gym-style environments for simulating resource allocation problems in optical networks and applying reinforcement learning techniques. It is built on the JAX numerical computing framework, enabling accelerated training on GPU and TPU hardware.
 
-XLRON is a product of my PhD research, which is focused on the application of Reinforcement Learning (RL) to the same set of resource allocation and combinatorial optimisation problems in Optical Networks. The project is currently in the early stages of development.
+XLRON is a product of my PhD research, which is focused on the application of Reinforcement Learning (RL) to a set of combinatorial optimisation problems that occur in resource allocation for in optical networks. The project is currently in active development.
 
 ### Key Features
 
-- Gym-style environments for optical network resource allocation problems.
-- Powered by JAX for accelerated training on GPU and TPU.
-- Facilitates the development and discovery of optimal resource allocation policies.
-- Implementations of heuristics (kSP-FF, etc.) for benchmarking and comparison.
-- Ideal for research, experimentation, and innovation in optical network optimization.
+- Gym-style environments for optical network resource allocation problems (RWA, RSA, RMSA, RWA-LR, VONE, ...)
+- Powered by JAX for accelerated training on GPU and TPU
+- Command-line interface for running experiments with customisable hyperparameters
+- Advanced deep learning architectures (GNN, GAT) and physical layer models (ISRS GN model).
+- Implementations of heuristics (KSP-FF, etc.) for benchmarking and comparison.
+- Ideal for research and innovation in optical network optimization.
 
 ___
 
