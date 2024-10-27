@@ -46,3 +46,5 @@ nav:
     - About:
       - 'License and Support': 'license.md'
       - 'Change Log': 'changelog.md'
+extra_files:
+  - example_sweep_config.yml
