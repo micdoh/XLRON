@@ -9,7 +9,8 @@ flags.DEFINE_integer("NUM_LEARNERS", 1, "Number of independent learners i.e. how
 flags.DEFINE_integer("NUM_DEVICES", 1, "Number of devices")
 flags.DEFINE_integer("NUM_ENVS", 1, "Number of environments per device")
 flags.DEFINE_integer("ROLLOUT_LENGTH", 150, "Number of steps per rollout per environment")
-flags.DEFINE_integer("NUM_UPDATES", 1, "Number of rollouts per environment")
+flags.DEFINE_integer("NUM_UPDATES", 1, "Number of rollouts per environment (calculated in train.py "
+                                       "but included here so that it can be passed to the model)")
 flags.DEFINE_integer("MINIBATCH_SIZE", 1, "Minibatch size")
 flags.DEFINE_float("TOTAL_TIMESTEPS", 1e6, "Total number of timesteps")
 flags.DEFINE_integer("UPDATE_EPOCHS", 10, "Number of epochs per update")
