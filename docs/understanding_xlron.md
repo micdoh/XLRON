@@ -23,7 +23,7 @@ The JAX documentation (https://jax.readthedocs.io/en/latest/) is excellent and p
 
 To use XLRON, it helps to understand the logical structure of a typical training loop and have a mental picture of how the different components interact. The diagram below shows the main components of a training loop in XLRON:
 
-<img src="images/xlron_training_vert.png" width="600">
+<img src="images/xlron_training_vert.png" width="600" alt="xlron_training_vert.png">
 
 The upper section of the diagram details the logical components of the parallelisation scheme: DEVICE<sub>LEARN</sub>, LEARNER, DEVICE<sub>ENV</sub>, and ENV. 
 
@@ -161,7 +161,7 @@ XLRON features support for wandb experiment tracking and hyperparameter sweeps. 
     (default: 'false')
 ```
 
-To run a hyperparameter sweep, you must define a sweep configuration file (e.g. `sweep.yaml`) and run the sweep using the `wandb sweep` command. We provide an example sweep configuration file here: [example_sweep_config.yaml](example_sweep_config.yaml). Once you have defined your sweep configuration file, you can initialise the sweep using the following command:
+To run a hyperparameter sweep, you must define a sweep configuration file (e.g. `sweep.yaml`) and run the sweep using the `wandb sweep` command. We provide an example sweep configuration file here: [example_sweep_config.yaml](example_sweep_config.yml). Once you have defined your sweep configuration file, you can initialise the sweep using the following command:
 
 ```bash
 wandb sweep sweep.yaml
