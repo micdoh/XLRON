@@ -32,7 +32,7 @@ jax = {extras = ["cpu"], version = "^0.4.11"}  # for CPU-only
 
 ## Running experiments
 
-Every experiment in XLRON is defined through command-line options. No need to edit the source code. See [configuration options](flags-reference.md) for a full list of options.
+Every experiment in XLRON is defined through command-line options. No need to edit the source code. See [configuration options](./flags-reference.md) for a full list of options.
 
 To run an experiment, use the `train.py` script. For example, to recreate the training of DeepRMSA:
 
