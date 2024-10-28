@@ -11,3 +11,5 @@ site/
 config/
 .coverage
 .run
+.venv
+.zed
