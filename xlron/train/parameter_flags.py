@@ -67,7 +67,7 @@ flags.DEFINE_integer("EMULATED_DEVICES", None, "Number of devices to emulate")
 flags.DEFINE_boolean("log_actions", False, "Log actions taken and other details")
 flags.DEFINE_boolean("PROFILE", False, "Profile programme with perfetto")
 # Environment parameters
-flags.DEFINE_string("env_type", "vone", "Environment type")
+flags.DEFINE_string("env_type", "rmsa", "Environment type")
 flags.DEFINE_float("load", 250, "Load")
 flags.DEFINE_float("mean_service_holding_time", 25, "Mean service holding time")
 flags.DEFINE_integer("k", 5, "Number of paths")
@@ -166,3 +166,8 @@ flags.DEFINE_integer('EVAL_STEPS', 100, 'Number of steps to run in each evaluati
 flags.DEFINE_integer('OPTIMIZATION_ITERATIONS', 5, 'Number of optimization iterations')
 flags.DEFINE_boolean('traffic_array', False, 'Use traffic array')
 flags.DEFINE_list("list_of_requests", None, "Traffic request list")
+# Flags for finding cut-sets only
+flags.DEFINE_integer("CUTSET_BATCH_SIZE", 1, "Batch size for cut-set generation")
+flags.DEFINE_integer("CUTSET_ITERATIONS", 1, "Number of iterations per parallel process")
+flags.DEFINE_boolean("CUTSET_EXHAUSTIVE", False, "Use exhaustive search method to find cut-sets (else shortest paths method)")
+flags.DEFINE_integer("CUTSET_TOP_K", 10, "Number of top congested cutsets to return")
