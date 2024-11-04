@@ -13,3 +13,6 @@ config/
 .run
 .venv
 .zed
+models/
+data_processing/
+data/
