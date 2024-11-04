@@ -3,7 +3,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import pandas as pd
-from typing import Any, Callable, Union, Sequence, NamedTuple, Any, Tuple
+from typing import Any, Callable, Union, Tuple
 import absl
 import optax
 from flax import core, struct
@@ -95,7 +95,7 @@ class TrainState(struct.PyTreeNode):
         )
 
     @classmethod
-    def create(cls, *, apply_fn, params, tx, sample_fn=None, **kwargs):
+    def create(cls, *, apply_fn, params, tx, sample_fn=lambda x: x, **kwargs):
         """Creates a new instance with ``step=0`` and initialized ``opt_state``."""
         # We exclude OWG params when present because they do not need opt states.
         params_with_opt = (
@@ -123,7 +123,7 @@ def count_parameters(params: chex.ArrayTree) -> int:
     return sum(x.size for x in jax.tree_util.tree_leaves(params))
 
 
-def ndim_at_least(x: chex.Array, num_dims: chex.Numeric) -> chex.Array:
+def ndim_at_least(x: chex.Array, num_dims: chex.Numeric) -> jax.Array:
     """Check if the number of dimensions of `x` is at least `num_dims`."""
     if not (isinstance(x, jax.Array) or isinstance(x, np.ndarray)):
         x = jnp.asarray(x)
@@ -338,13 +338,13 @@ def select_action(select_action_state, env, env_params, train_state, config):
     return action, log_prob, value
 
 
-def get_warmup_fn(warmup_state, env, params, train_state, config) -> Tuple[EnvState, chex.Array]:
+def get_warmup_fn(warmup_state, env, params, train_state, config) -> Callable[[Tuple], Tuple]:
     """Warmup period for DeepRMSA."""
 
-    def warmup_fn(warmup_state):
+    def warmup_fn(warmup_state) -> Tuple[EnvState, chex.Array]:
         rng, state, last_obs = warmup_state
 
-        def warmup_step(i, val):
+        def warmup_step(i, val) -> Tuple:
             _rng, _state, _params, _train_state, _last_obs = val
             # SELECT ACTION
             _rng, action_key, step_key = jax.random.split(_rng, 3)
@@ -383,7 +383,8 @@ def make_lr_schedule(config):
         elif config.LR_SCHEDULE == "linear":
             schedule = linear_schedule
         elif config.LR_SCHEDULE == "constant":
-            schedule = lambda x: config.LR
+            def schedule(x):
+                return config.LR
         else:
             raise ValueError(f"Invalid LR schedule {config.LR_SCHEDULE}")
         return schedule(count)
@@ -393,7 +394,8 @@ def make_lr_schedule(config):
 
 def reshape_keys(keys, size1, size2):
     dimensions = (size1, size2)
-    reshape = lambda x: x.reshape(dimensions + x.shape[1:])
+    def reshape(x):
+        return x.reshape(dimensions + x.shape[1:])
     return reshape(jnp.stack(keys))
 
 
@@ -553,7 +555,8 @@ def log_metrics(config, out, experiment_name, total_time, merge_func):
         # Define the downsample factor to speed up upload to wandb
         # Then reshape the array and compute the mean
         chop = len(processed_data["returns"]["mean"]) % config.DOWNSAMPLE_FACTOR
-        downsample_mean = lambda x: x[chop:].reshape(-1, config.DOWNSAMPLE_FACTOR).mean(axis=1)
+        def downsample_mean(x):
+            return x[chop:].reshape(-1, config.DOWNSAMPLE_FACTOR).mean(axis=1)
         for key in all_metrics:
             processed_data[key]["mean"] = downsample_mean(processed_data[key]["mean"])
             processed_data[key]["std"] = downsample_mean(processed_data[key]["std"])

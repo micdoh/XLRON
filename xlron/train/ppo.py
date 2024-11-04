@@ -1,21 +1,7 @@
-import os
-import math
-import absl
-import chex
-import jax
-import jax.numpy as jnp
-import flax.linen as nn
-import optax
-import distrax
-from flax.linen.initializers import constant, orthogonal
-from typing import Sequence, NamedTuple, Any, Tuple, Callable
+from absl import flags
 from flax.training.train_state import TrainState
 from gymnax.environments import environment
-from xlron.environments.env_funcs import *
-from xlron.environments.wrappers import LogWrapper
-from xlron.environments.vone import make_vone_env
-from xlron.environments.rsa import make_rsa_env
-from xlron.models.models import ActorCriticGNN, ActorCriticMLP
+from xlron.environments.env_funcs import process_path_action
 from xlron.environments.dataclasses import EnvState, EnvParams, VONETransition, RSATransition
 from xlron.train.train_utils import *
 
@@ -24,7 +10,7 @@ def get_learner_fn(
     env: environment.Environment,
     env_params: EnvParams,
     train_state: TrainState,
-    config: absl.flags.FlagValues,
+    config: flags.FlagValues,
 ) -> Callable:
 
     # TRAIN LOOP
@@ -273,7 +259,7 @@ def get_learner_fn(
     return learner_fn
 
 
-def learner_data_setup(config: absl.flags.FlagValues, rng: chex.PRNGKey) -> Tuple:
+def learner_data_setup(config: flags.FlagValues, rng: chex.PRNGKey) -> Tuple:
 
     env, env_params = define_env(config)
     rng, rng_epoch, rng_step, reset_key, network_key, warmup_key = jax.random.split(rng, 6)
