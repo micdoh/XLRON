@@ -196,6 +196,12 @@ def init_path_link_array(
         else:
             path_weighting = path_lengths
 
+        # if less then k unique paths, add empty paths
+        empty_path = [0] * len(graph.edges)
+        k_paths = k_paths + [empty_path] * (k - len(k_paths))
+        path_weighting = path_weighting + [1e6] * (k - len(path_weighting))
+        path_lengths = path_lengths + [1e6] * (k - len(path_lengths))
+
         # Sort by number of links then by length (or just by length if weight is specified)
         unsorted_paths = zip(k_paths, path_weighting, path_lengths)
         k_paths_sorted = [(source, dest, weighting, path) for path, weighting, _ in sorted(unsorted_paths, key=lambda x: (x[1], 1/x[2]) if weight is None else x[2])]
@@ -204,41 +210,35 @@ def init_path_link_array(
         k_paths_sorted = k_paths_sorted[:k]
         k_paths_sorted_rev = [(dest, source, weighting, path[::-1]) for (source, dest, weighting, path) in k_paths_sorted]
 
-        # Change selected paths for COST239 to match benchmark
-        for i, (source, dest, weighting, path) in enumerate(k_paths_sorted):
-            if source == 5 and dest == 11 and i == 4 and len(edges) == 52 and len(graph.nodes) == 11:
-                path = [5, 4, 9, 11]
-            k_paths_sorted[i] = (source, dest, weighting, path)
-            #print(source, dest, i, weighting, path)
-        for i, (source, dest, weighting, path) in enumerate(k_paths_sorted_rev):
-            if source == 11 and dest == 5 and i == 4 and len(edges) == 52 and len(graph.nodes) == 11:
-                path = [11, 10, 9, 4, 5]
-            k_paths_sorted_rev[i] = (source, dest, weighting, path)
-            #print(source, dest, i, weighting, path)
+        # # Change selected paths for COST239 to match benchmark
+        # for i, (source, dest, weighting, path) in enumerate(k_paths_sorted):
+        #     if source == 5 and dest == 11 and i == 4 and len(edges) == 52 and len(graph.nodes) == 11:
+        #         path = [5, 4, 9, 11]
+        #     k_paths_sorted[i] = (source, dest, weighting, path)
+        # for i, (source, dest, weighting, path) in enumerate(k_paths_sorted_rev):
+        #     if source == 11 and dest == 5 and i == 4 and len(edges) == 52 and len(graph.nodes) == 11:
+        #         path = [11, 10, 9, 4, 5]
+        #     k_paths_sorted_rev[i] = (source, dest, weighting, path)
 
+        k_paths_sorted = k_paths_sorted + k_paths_sorted_rev if directed else k_paths_sorted
+
+        prev_link_usage = empty_path
         for k_path in k_paths_sorted:
             k_path = k_path[-1]
             link_usage = [0]*len(graph.edges)  # Initialise empty path
-            for i in range(len(k_path)-1):
-                s, d = k_path[i], k_path[i+1]
-                for edge_index, edge in enumerate(edges):
-                    if edge[0] == s and edge[1] == d:# or edge[0] == d and edge[1] == s:
-                        link_usage[edge_index] = 1
-            path = link_usage
-            paths.append(path)
-
-        if directed:
-            for k_path in k_paths_sorted_rev:
-                k_path = k_path[-1]
-                link_usage = [0] * len(graph.edges)  # Initialise empty path
-                for i in range(len(k_path) - 1):
+            if sum(k_path) == 0:
+                link_usage = prev_link_usage
+            else:
+                for i in range(len(k_path)-1):
                     s, d = k_path[i], k_path[i + 1]
                     for edge_index, edge in enumerate(edges):
-                        if edge[0] == s and edge[1] == d:# or edge[0] == d and edge[1] == s:
+                        condition = (edge[0] == s and edge[1] == d) if directed else \
+                            ((edge[0] == s and edge[1] == d) or (edge[0] == d and edge[1] == s))
+                        if condition:
                             link_usage[edge_index] = 1
-                reverse_paths.append(link_usage)
-
-    paths = paths + reverse_paths
+            path = link_usage
+            prev_link_usage = link_usage
+            paths.append(path)
 
     # If using GN model, add extra row of zeroes for empty paths for SNR calculation
     if path_snr:
