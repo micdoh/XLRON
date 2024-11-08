@@ -52,6 +52,7 @@ class EnvState:
     accepted_services: chex.Array
     accepted_bitrate: chex.Array
     total_bitrate: chex.Array
+    list_of_requests: chex.Array
 
 
 @struct.dataclass
@@ -152,7 +153,6 @@ class RSAEnvParams(EnvParams):
         max_slots (chex.Scalar): Maximum number of slots
         path_se_array (chex.Array): Path spectral efficiency array
         deterministic_requests (bool): If True, use deterministic requests
-        list_of_requests (chex.Array): List of requests
         multiple_topologies (bool): If True, use multiple topologies
     """
     num_nodes: chex.Scalar = struct.field(pytree_node=False)
@@ -167,7 +167,6 @@ class RSAEnvParams(EnvParams):
     max_slots: chex.Scalar = struct.field(pytree_node=False)
     path_se_array: chex.Array = struct.field(pytree_node=False)
     deterministic_requests: bool = struct.field(pytree_node=False)
-    list_of_requests: chex.Array = struct.field(pytree_node=False)
     multiple_topologies: bool = struct.field(pytree_node=False)
     log_actions: bool = struct.field(pytree_node=False)
 

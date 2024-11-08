@@ -21,8 +21,9 @@ from xlron.environments.env_funcs import (
     finalise_action_rwalr, generate_request_rwalr, init_link_snr_array,
     init_channel_centre_bw_array, check_action_rsa_gn_model, read_rsa_request, implement_action_rsa_gn_model,
     undo_action_rsa_gn_model, finalise_action_rsa_gn_model, init_modulation_format_index_array,
-    init_channel_power_array, mask_slots_rsa_gn_model, init_link_length_array_gn_model, get_snr_for_path, get_lightpath_snr,
-    generate_source_dest_pairs
+    init_channel_power_array, mask_slots_rsa_gn_model, init_link_length_array_gn_model, get_snr_for_path,
+    get_lightpath_snr,
+    generate_source_dest_pairs, init_list_of_requests
 )
 from xlron.environments.dataclasses import *
 from xlron.environments.wrappers import *
@@ -37,7 +38,8 @@ class RSAEnv(environment.Environment):
             self,
             key: chex.PRNGKey,
             params: RSAEnvParams,
-            traffic_matrix: chex.Array = None
+            traffic_matrix: chex.Array = None,
+            list_of_requests: chex.Array = None,
     ):
         """Initialise the environment state and set as initial state.
 
@@ -60,6 +62,7 @@ class RSAEnv(environment.Environment):
             request_array=init_rsa_request_array(),
             link_slot_mask=init_link_slot_mask(params, agg=params.aggregate_slots),
             traffic_matrix=traffic_matrix if traffic_matrix is not None else init_traffic_matrix(key, params),
+            list_of_requests=list_of_requests,
             graph=None,
             full_link_slot_mask=init_link_slot_mask(params),
             accepted_services=0,
@@ -1016,8 +1019,7 @@ def make_rsa_env(config: dict, launch_power_array: Optional[chex.Array] = None):
     scale_factor = config.get("scale_factor", 1.0)
     path_link_array = init_path_link_array(
         graph, k, disjoint=disjoint_paths, weight=weight, directed=graph.is_directed(),
-        rwa_lr=True if env_type == "rwa_lightpath_reuse" else False, scale_factor=scale_factor, path_snr=path_snr
-    )
+        rwa_lr=True if env_type == "rwa_lightpath_reuse" else False, scale_factor=scale_factor, path_snr=path_snr)
 
     launch_power_type = config.get("launch_power_type", "fixed")
     # The launch power type determines whether to use:
@@ -1056,11 +1058,14 @@ def make_rsa_env(config: dict, launch_power_array: Optional[chex.Array] = None):
     else:
         traffic_matrix = None
 
-    if traffic_requests_csv_filepath:
+    if config.get("deterministic_requests"):
         deterministic_requests = True
         # Remove headers from array
-        list_of_requests = np.loadtxt(traffic_requests_csv_filepath, delimiter=",")[1:, :]
-        list_of_requests = jnp.array(list_of_requests)
+        if traffic_requests_csv_filepath:
+            list_of_requests = np.loadtxt(traffic_requests_csv_filepath, delimiter=",")[1:, :]
+            list_of_requests = jnp.array(list_of_requests)
+        else:
+            list_of_requests = init_list_of_requests(int(max_requests))
         max_requests = len(list_of_requests)
     elif optimise_launch_power:
         deterministic_requests = True
@@ -1094,7 +1099,8 @@ def make_rsa_env(config: dict, launch_power_array: Optional[chex.Array] = None):
         modulations_array = init_modulations_array(config.get("modulations_csv_filepath", None))
         if weight is None:  # If paths aren't to be sorted by length alone
             path_link_array = init_path_link_array(graph, k, disjoint=disjoint_paths, directed=graph.is_directed(),
-                                                   weight=weight, modulations_array=modulations_array, path_snr=path_snr)
+                                                   weight=weight, modulations_array=modulations_array,
+                                                   path_snr=path_snr)
         path_length_array = init_path_length_array(path_link_array, graph)
         path_se_array = init_path_se_array(path_length_array, modulations_array)
         min_se = min(path_se_array)  # if consider_modulation_format
@@ -1148,7 +1154,6 @@ def make_rsa_env(config: dict, launch_power_array: Optional[chex.Array] = None):
         aggregate_slots=aggregate_slots,
         guardband=guardband,
         deterministic_requests=deterministic_requests,
-        list_of_requests=HashableArrayWrapper(list_of_requests) if not remove_array_wrappers else list_of_requests,
         multiple_topologies=False,
         directed_graph=graph.is_directed(),
         maximise_throughput=maximise_throughput,
@@ -1219,6 +1224,6 @@ def make_rsa_env(config: dict, launch_power_array: Optional[chex.Array] = None):
         elif env_type == "rsa_gn_model":
             env = RSAGNModelEnv(rng, params, traffic_matrix=traffic_matrix, launch_power_array=launch_power_array)
         else:
-            env = RSAEnv(rng, params, traffic_matrix=traffic_matrix)
+            env = RSAEnv(rng, params, traffic_matrix=traffic_matrix, list_of_requests=list_of_requests)
 
     return env, params
