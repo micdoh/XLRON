@@ -300,6 +300,10 @@ def init_path_se_array(path_length_array, modulations_array):
     return jnp.array(se_list)
 
 
+def init_list_of_requests(num_requests: int = 1000):
+    return jnp.zeros([num_requests, 6])
+
+
 def init_virtual_topology_patterns(pattern_names: str) -> chex.Array:
     """Initialise virtual topology patterns.
     First 3 digits comprise the "action counter": first index is num unique nodes, second index is total steps,
@@ -376,7 +380,7 @@ def init_values_bandwidth(min_value: int = 25, max_value: int = 100, step: int =
         return jnp.arange(min_value, max_value+1, step)
 
 
-@partial(jax.jit, static_argnums=(2, 3))
+@partial(jax.jit, static_argnums=(2, 3, 4))
 def get_path_indices(s: int, d: int, k: int, N: int, directed: bool = False) -> chex.Array:
     """Get path indices for a given source, destination and number of paths.
     If source > destination and the graph is directed (two fibres per link, one in each direction) then an offset is
@@ -494,7 +498,7 @@ def normalise_traffic_matrix(traffic_matrix):
 
 
 @partial(jax.jit, static_argnums=(2,3))
-def required_slots(bit_rate: float, se: int, channel_width: float, guardband: int = 1) -> int:
+def required_slots(bitrate: float, se: int, channel_width: float, guardband: int = 1) -> int:
     """Calculate required slots for a given bitrate and spectral efficiency.
 
     Args:
@@ -506,7 +510,8 @@ def required_slots(bit_rate: float, se: int, channel_width: float, guardband: in
     Returns:
         int: Required slots
     """
-    return jnp.int32(jnp.ceil(bit_rate/(se*channel_width))+guardband)
+    # If bitrate is zero, then required slots should be zero
+    return jnp.int32((jnp.ceil(bitrate/(se*channel_width))+guardband) * (1 - (bitrate == 0)))
 
 
 @partial(jax.jit, static_argnums=(2,))
@@ -565,10 +570,13 @@ def generate_request_rsa(key: chex.PRNGKey, state: EnvState, params: EnvParams) 
     # Flatten the probabilities to a 1D array
     key_sd, key_slot, key_times = jax.random.split(key, 3)
     if params.deterministic_requests:
-        request = params.list_of_requests[state.total_requests]
-        source = jax.lax.dynamic_slice(request, (0,), (1,))[0]
-        bw = jax.lax.dynamic_slice(request, (1,), (1,))[0]
-        dest = jax.lax.dynamic_slice(request, (2,), (1,))[0]
+        request = state.list_of_requests[state.total_requests]
+        source = jax.lax.dynamic_slice(request, (0,), (1,))[0].astype(jnp.int32)
+        bw = jax.lax.dynamic_slice(request, (1,), (1,))[0].astype(jnp.int32)
+        dest = jax.lax.dynamic_slice(request, (2,), (1,))[0].astype(jnp.int32)
+        arrival_time = jax.lax.dynamic_slice(request, (3,), (1,))
+        holding_time = jax.lax.dynamic_slice(request, (4,), (1,))
+        current_time = jax.lax.dynamic_slice(request, (5,), (1,))
     else:
         if params.traffic_array:
             source_dest_index = jax.random.choice(key_sd, jnp.arange(state.traffic_matrix.shape[0]))
@@ -584,10 +592,11 @@ def generate_request_rsa(key: chex.PRNGKey, state: EnvState, params: EnvParams) 
             source, dest = jnp.stack(nodes) if params.directed_graph else jnp.sort(jnp.stack(nodes))
         # Vectorized conditional replacement using mask
         bw = jax.random.choice(key_slot, params.values_bw.val)
-    arrival_time, holding_time = generate_arrival_holding_times(key_times, params)
+        arrival_time, holding_time = generate_arrival_holding_times(key_times, params)
+        current_time = state.current_time + arrival_time
     state = state.replace(
         holding_time=holding_time,
-        current_time=state.current_time + arrival_time,
+        current_time=current_time,
         request_array=jnp.stack((source, bw, dest)),
         total_requests=state.total_requests + 1
     )
@@ -607,11 +616,13 @@ def generate_request_rwalr(key: chex.PRNGKey, state: EnvState, params: EnvParams
     # Flatten the probabilities to a 1D array
     key_sd, key_slot, key_times = jax.random.split(key, 3)
     if params.deterministic_requests:
-        request = params.list_of_requests[state.total_requests]
+        request = state.list_of_requests[state.total_requests]
         source = jax.lax.dynamic_slice(request, (0,), (1,))[0]
         bw = jax.lax.dynamic_slice(request, (1,), (1,))[0]
         dest = jax.lax.dynamic_slice(request, (2,), (1,))[0]
-        jax.debug.print("request {}", request, ordered=True)
+        arrival_time = jax.lax.dynamic_slice(request, (3,), (1,))[0]
+        holding_time = jax.lax.dynamic_slice(request, (4,), (1,))[0]
+        current_time = jax.lax.dynamic_slice(request, (5,), (1,))[0]
     else:
         shape = state.traffic_matrix.shape
         probabilities = state.traffic_matrix.ravel()
@@ -622,10 +633,11 @@ def generate_request_rwalr(key: chex.PRNGKey, state: EnvState, params: EnvParams
         source, dest = jnp.stack(nodes) if params.directed_graph else jnp.sort(jnp.stack(nodes))
         # Vectorized conditional replacement using mask
         bw = jax.random.choice(key_slot, params.values_bw.val)
-    arrival_time, holding_time = generate_arrival_holding_times(key_times, params)
+        arrival_time, holding_time = generate_arrival_holding_times(key_times, params)
+        current_time = state.current_time + arrival_time
     state = state.replace(
         holding_time=holding_time,
-        current_time=state.current_time + arrival_time,
+        current_time=current_time,
         request_array=jnp.stack((source, bw, dest)),
         total_requests=state.total_requests + 1,
         time_since_last_departure=state.time_since_last_departure + arrival_time
