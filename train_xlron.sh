@@ -25,3 +25,4 @@ poetry run python ./xlron/train/train.py \
   --GAMMA=0.95 \
   --ACTION_MASKING \
   --WANDB
+  # --SAVE_MODEL
