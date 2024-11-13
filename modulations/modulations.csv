@@ -1,7 +1,7 @@
-name,maximum_length,spectral_efficiency,minimum_osnr,inband_xt,excess_kurtosis
-BPSK,100000,1,10.5,-14,-1
-QPSK,2000,2,13.5,-17,-1
-8QAM,1000,3,18.6,-20,-0.82
-16QAM,500,4,20.2,-23,-0.68
-32QAM,250,5,23.3,-26,-0.565
-64QAM,125,6,26.3,-29,-0.619
+name,maximum_length,spectral_efficiency,minimum_osnr,inband_xt
+BPSK,100000,1,12.6,-14
+QPSK,2000,2,12.6,-17
+8QAM,1000,3,18.6,-20
+16QAM,500,4,22.4,-23
+32QAM,250,5,26.4,-26
+64QAM,125,6,30.4,-29

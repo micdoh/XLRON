@@ -1,30 +1,12 @@
 from itertools import combinations, islice
 from functools import partial
-from typing import Sequence, Union, Optional, Tuple, Callable, Dict, Any
+from typing import Callable
 import sys
 import absl.app as app
-from gymnax.environments import environment
-from gymnax.wrappers.purerl import GymnaxWrapper
 from absl import flags
-import math
-import pathlib
-import itertools
-import networkx as nx
 import jax.numpy as jnp
 import chex
 import jax
-import timeit
-import json
-import numpy as np
-import jraph
-import jaxopt
-from flax import struct
-from jax._src import core
-from jax._src import dtypes
-from jax._src import prng
-from jax._src.typing import Array, ArrayLike, DTypeLike
-from typing import Generic, TypeVar
-from collections import defaultdict
 import xlron.train.parameter_flags
 from xlron.environments.dataclasses import *
 from xlron.environments import isrs_gn_model
@@ -70,8 +52,9 @@ def generate_request_list(rng: jnp.ndarray, num_requests: int, state: EnvState, 
 
 @partial(jax.jit, static_argnums=(0, 1))
 def sort_requests(requests: jnp.ndarray, params: EnvParams) -> jnp.ndarray:
+
     # Sort by required_slots x number of hops for shortest path
-    def get_required_resources(request):
+    def get_required_resources_sp(request):
         nodes_sd = jnp.concatenate([request[0].reshape(1), request[2].reshape(1)])
         spectral_efficiency = get_paths_se(params, nodes_sd)[0] if params.consider_modulation_format else 1
         requested_slots = required_slots(request[1], spectral_efficiency, params.slot_size,
@@ -79,22 +62,31 @@ def sort_requests(requests: jnp.ndarray, params: EnvParams) -> jnp.ndarray:
         path = get_paths(params, nodes_sd)[0]
         return requested_slots * jnp.sum(path)
 
+    # Sort by sum of required_slots x number of hops for k-shortest paths, weighted by 1/k
+    # We weight the required resources for each k-path by the inverse of the index,
+    # such that the shorter more-likely-to-be-selected paths have higher weighting
+    def get_required_resources_weighted_sp(request):
+        nodes_sd = jnp.concatenate([request[0].reshape(1), request[2].reshape(1)])
+        spectral_efficiency = get_paths_se(params, nodes_sd) if params.consider_modulation_format else jnp.ones(params.k_paths)
+        requested_slots = (jax.vmap(required_slots, in_axes=(None, 0, None, None))
+                           (request[1], spectral_efficiency, params.slot_size, params.guardband))
+        paths = get_paths(params, nodes_sd)
+        required_resources_per_path = requested_slots * jnp.sum(paths, axis=1)
+        inverse_k_indices = 1/jnp.arange(1, params.k_paths+1)
+        weighted_required_resources = jnp.sum(required_resources_per_path * inverse_k_indices)
+        return weighted_required_resources
+
     # Sort by required resources
-    sort_resources = jax.vmap(get_required_resources)(requests)
+    sort_resources = jax.vmap(get_required_resources_weighted_sp)(requests)
     sort_indices_resources = jnp.argsort(sort_resources, descending=True)
     sorted_requests = requests[sort_indices_resources]
     # We want to return the indices of the original positions of the sorted requests
     unsorted_current_times = sorted_requests[:, 5]
     sort_indices_time = jnp.argsort(unsorted_current_times)
-    jax.debug.print("sort_indices_resources {}", sort_indices_resources, ordered=True)
-    jax.debug.print("sort_indices_time {}", sort_indices_time, ordered=True)
-    #jax.debug.print("requests {}", requests, ordered=True)
-    jax.debug.print("sorted_times {}", sorted_requests[sort_indices_time][:, 5], ordered=True)
-
     return sorted_requests, sort_indices_time
 
 
-def get_active_requests(requests: jnp.ndarray, i: int, params: EnvParams) -> jnp.ndarray:
+def get_active_requests(requests: jnp.ndarray, i: int) -> jnp.ndarray:
     """Returns the subset of requests that are active at the current time.
 
     Args:
@@ -157,28 +149,34 @@ def get_eval_fn(config, env, env_params) -> Callable:
         return {"runner_state": runner_state, "metrics": metric}
 
 
+    @partial(jax.jit, static_argnums=(4, 5))
     def run_reconfigurable_routing_bound(
-            rng, requests, init_obs, env_state, env_params
+            rng, requests, init_obs, env_state, env_params, _sort_requests=False,
     ):
         """This function runs the evaluate function for the given requests and returns the blocking probability.
-        The requests array must be modified first to identify only active requests, which are sorted in descending order
-        of required resources. Then,
+        The requests array must be modified first to identify only active requests, which have been sorted in
+        descending order of required resources. Then, all of the requests are allocated. If any are blocked, then
+        the bitrate of the blocked request is set to 0 and the process is repeated.
 
         Args:
-            carry: Tuple containing the requests, state, and parameters.
-            i: The current timestep.
+            rng: A PRNGKey.
+            requests: Request array, with columns [source, bitrate, destination, arrival_time, holding_time].
+            init_obs: Initial observation.
+            env_state: The current environment state.
+            env_params: The environment parameters.
+            _sort_requests: Whether to sort the requests by required resources
 
         Returns:
             Tuple containing the (updated requests, state, parameters), and the blocking probability.
         """
 
-        sorted_requests, sort_indices = sort_requests(requests, env_params)
+        sorted_requests, sort_indices = sort_requests(requests, env_params) if _sort_requests else (requests, jnp.arange(requests.shape[0]))
 
         def estimate_blocking_step(carry, i):
             _sorted_requests, state, params = carry
             # jax.debug.print("sorted_requests[i] {} {}", i, _sorted_requests[i], ordered=config.ORDERED)
             # jax.debug.print("sorted_requests {}", _sorted_requests, ordered=config.ORDERED)
-            active_requests = get_active_requests(_sorted_requests, i, env_params)
+            active_requests = get_active_requests(_sorted_requests, i)
             # jax.debug.print("active_requests {}", active_requests, ordered=config.ORDERED)
             state = state.replace(env_state=state.env_state.replace(list_of_requests=active_requests))
             runner_state = (state, init_obs, rng)
@@ -209,6 +207,7 @@ def main(argv):
     FLAGS.__setattr__("max_requests", FLAGS.TOTAL_TIMESTEPS)
     FLAGS.__setattr__("max_timesteps", FLAGS.TOTAL_TIMESTEPS)
     jax.config.update("jax_default_device", jax.devices()[int(FLAGS.VISIBLE_DEVICES)])
+    print(f"Using device {jax.devices()[int(FLAGS.VISIBLE_DEVICES)]}")
     jax.numpy.set_printoptions(threshold=sys.maxsize)  # Don't truncate printed arrays
     jax.numpy.set_printoptions(linewidth=220)
     env, env_params = define_env(FLAGS)
@@ -226,21 +225,24 @@ def main(argv):
     FLAGS.__setattr__("deterministic_requests", True)
     env, env_params = define_env(FLAGS)
 
+    print(f"Sort requests: {FLAGS.sort_requests}")
+    _sort_requests = FLAGS.sort_requests
+
     # Define the heuristic evaluation function
     env_keys = jax.random.split(rng, FLAGS.NUM_ENVS)
     with TimeIt(tag='COMPILATION'):
         eval_fn = get_eval_fn(FLAGS, env, env_params)
         run_experiment = jax.jit(
             jax.vmap(
-                eval_fn, in_axes=(0, 0, 0, 0, None)
-            )
+                eval_fn, in_axes=(0, 0, 0, 0, None, None)
+            ), static_argnums=(4, 5)
         ).lower(
-            env_keys, request_arrays, init_obs, env_states, env_params
+            env_keys, request_arrays, init_obs, env_states, env_params, _sort_requests
         ).compile()
 
     with TimeIt(tag='EXECUTION', frames=FLAGS.TOTAL_TIMESTEPS ** 2 * FLAGS.NUM_ENVS):
         requests, env_state, blocking_events = run_experiment(
-            env_keys, request_arrays, init_obs, env_states, env_params
+            env_keys, request_arrays, init_obs, env_states#, env_params, _sort_requests
         )
         blocking_events = blocking_events.block_until_ready()
 
@@ -252,8 +254,8 @@ def main(argv):
     blocking_prob_std = jnp.std(blocking_probs)
     blocking_prob_iqr_lower = jnp.percentile(blocking_probs, 25)
     blocking_prob_iqr_upper = jnp.percentile(blocking_probs, 75)
-    print(f"Blocking Probability: {blocking_prob_mean:.2f} ± {blocking_prob_std:.2f}")
-    print(f"Blocking Probability IQR: {blocking_prob_iqr_lower:.2f} - {blocking_prob_iqr_upper:.2f}")
+    print(f"Blocking Probability: {blocking_prob_mean:.5f} ± {blocking_prob_std:.5f}")
+    print(f"Blocking Probability IQR: {blocking_prob_iqr_lower:.5f} - {blocking_prob_iqr_upper:.5f}")
 
 if __name__ == "__main__":
     app.run(main)
