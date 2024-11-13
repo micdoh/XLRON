@@ -29,7 +29,7 @@ flags.DEFINE_boolean("LAYER_NORM", False, "Use layer normalization")
 flags.DEFINE_float("MAX_GRAD_NORM", 0.5, "Maximum gradient norm")
 flags.DEFINE_string("ACTIVATION", "tanh", "Activation function")
 flags.DEFINE_string("LR_SCHEDULE", "warmup_cosine", "Learning rate schedule")
-flags.DEFINE_float("SCHEDULE_MULTIPLIER", 1, "Increase the learning rate schedule horizon "
+flags.DEFINE_integer("SCHEDULE_MULTIPLIER", 1, "Increase the learning rate schedule horizon "
                                                "by this factor (to keep schedule for longer final training runs "
                                                "consistent with that from tuning runs)")
 flags.DEFINE_float("WARMUP_PEAK_MULTIPLIER", 1, "Increase the learning rate warmup peak compared to init")
@@ -173,3 +173,4 @@ flags.DEFINE_boolean("CUTSET_EXHAUSTIVE", False, "Use exhaustive search method t
 flags.DEFINE_integer("CUTSET_TOP_K", 50, "Number of top congested cutsets to return")
 # Flags for capacity estimation with Baroni method
 flags.DEFINE_boolean("deterministic_requests", False, "Use deterministic requests")
+flags.DEFINE_boolean("sort_requests", True, "Sort requests in descending order of required resources")
