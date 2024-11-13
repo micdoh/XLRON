@@ -209,6 +209,10 @@ class RWALightpathReuseEnvState(RSAEnvState):
 class RWALightpathReuseEnvParams(RSAEnvParams):
     pass
 
+# TODO(MULTIBAND) - Add MultiBandRSAEnvState and MultiBandRSAEnvParams.
+#  They should inherit from RSAEnvState and RSAEnvParams respectively. You can leave them empty for now (pass),
+#  or start to include the new parameters we define in "parameter_flags.py"
+
 
 @struct.dataclass
 class VONEEnvState(EnvState):

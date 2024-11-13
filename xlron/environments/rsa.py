@@ -573,6 +573,9 @@ class RWALightpathReuseEnv(RSAEnv):
         return state
 
 
+# TODO(MULTIBAND) - Define MultiBandRSAEnv class (inherit from RSAEnv)
+
+
 def make_rsa_env(config):
     """Create RSA environment. This function is the entry point to setting up any RSA-type environment.
     This function takes a dictionary of the commandline flag parameters and configures the
@@ -626,6 +629,8 @@ def make_rsa_env(config):
     lambda0 = config.get("lambda0", 1550) * 1e-9
     B = slot_size * link_resources  # Total modulated bandwidth
 
+    # TODO(MULTIBAND) - We need to read any new parameter flags that we define for the MultiBandRSAEnv
+
     rng = jax.random.PRNGKey(seed)
     rng, _, _, _, _ = jax.random.split(rng, 5)
     graph = make_graph(topology_name, topology_directory=config.get("topology_directory", None))
@@ -660,7 +665,7 @@ def make_rsa_env(config):
 
     values_bw = init_values_bandwidth(min_bw, max_bw, step_bw, values_bw)
 
-    if env_type[:3] == "rsa":
+    if env_type == "rsa":
         consider_modulation_format = False
     elif env_type == "rwa":
         values_bw = jnp.array([0])
@@ -707,78 +712,50 @@ def make_rsa_env(config):
     # Define edges for use with heuristics and GNNs
     edges = jnp.array(sorted(graph.edges))
 
+    max_timesteps = max_requests
+
+    params_dict = dict(
+        max_requests=max_requests,
+        max_timesteps=max_timesteps,
+        mean_service_holding_time=mean_service_holding_time,
+        k_paths=k,
+        link_resources=link_resources,
+        num_nodes=num_nodes,
+        num_links=num_links,
+        load=load,
+        arrival_rate=arrival_rate,
+        path_link_array=HashableArrayWrapper(path_link_array) if not remove_array_wrappers else path_link_array,
+        incremental_loading=incremental_loading,
+        end_first_blocking=end_first_blocking,
+        edges=HashableArrayWrapper(edges) if not remove_array_wrappers else edges,
+        random_traffic=random_traffic,
+        path_se_array=HashableArrayWrapper(path_se_array) if not remove_array_wrappers else path_se_array,
+        link_length_array=HashableArrayWrapper(link_length_array) if not remove_array_wrappers else link_length_array,
+        max_slots=int(max_slots),
+        consider_modulation_format=consider_modulation_format,
+        slot_size=slot_size,
+        continuous_operation=continuous_operation,
+        aggregate_slots=aggregate_slots,
+        guardband=guardband,
+        deterministic_requests=deterministic_requests,
+        multiple_topologies=False,
+        directed_graph=graph.is_directed(),
+        values_bw=HashableArrayWrapper(values_bw) if not remove_array_wrappers else values_bw,
+        reward_type=reward_type,
+        truncate_holding_time=truncate_holding_time,
+        log_actions=log_actions,
+        list_of_requests=HashableArrayWrapper(list_of_requests) if not remove_array_wrappers else list_of_requests,
+    )
+
     if env_type == "deeprmsa":
         env_params = DeepRMSAEnvParams
     elif env_type == "rwa_lightpath_reuse":
         env_params = RWALightpathReuseEnvParams
+    # TODO(MULTIBAND) - Add any new parameters that are unique to the MultiBandRSAEnv to the params_dict
     else:
         env_params = RSAEnvParams
 
-    max_timesteps = max_requests
-
-    params = env_params(
-        max_requests=max_requests,
-        max_timesteps=max_timesteps,
-        mean_service_holding_time=mean_service_holding_time,
-        k_paths=k,
-        link_resources=link_resources,
-        num_nodes=num_nodes,
-        num_links=num_links,
-        load=load,
-        arrival_rate=arrival_rate,
-        path_link_array=HashableArrayWrapper(path_link_array),
-        incremental_loading=incremental_loading,
-        end_first_blocking=end_first_blocking,
-        edges=HashableArrayWrapper(edges),
-        random_traffic=random_traffic,
-        path_se_array=HashableArrayWrapper(path_se_array),
-        link_length_array=HashableArrayWrapper(link_length_array),
-        max_slots=int(max_slots),
-        consider_modulation_format=consider_modulation_format,
-        slot_size=slot_size,
-        continuous_operation=continuous_operation,
-        aggregate_slots=aggregate_slots,
-        guardband=guardband,
-        deterministic_requests=deterministic_requests,
-        list_of_requests=HashableArrayWrapper(list_of_requests),
-        multiple_topologies=False,
-        directed_graph=graph.is_directed(),
-        values_bw=HashableArrayWrapper(values_bw),
-        reward_type=reward_type,
-        truncate_holding_time=truncate_holding_time,
-        log_actions=log_actions,
-    ) if not remove_array_wrappers else env_params(
-        max_requests=max_requests,
-        max_timesteps=max_timesteps,
-        mean_service_holding_time=mean_service_holding_time,
-        k_paths=k,
-        link_resources=link_resources,
-        num_nodes=num_nodes,
-        num_links=num_links,
-        load=load,
-        arrival_rate=arrival_rate,
-        path_link_array=path_link_array,
-        incremental_loading=incremental_loading,
-        end_first_blocking=end_first_blocking,
-        edges=edges,
-        random_traffic=random_traffic,
-        path_se_array=path_se_array,
-        link_length_array=link_length_array,
-        max_slots=int(max_slots),
-        consider_modulation_format=consider_modulation_format,
-        slot_size=slot_size,
-        continuous_operation=continuous_operation,
-        aggregate_slots=aggregate_slots,
-        guardband=guardband,
-        deterministic_requests=deterministic_requests,
-        list_of_requests=list_of_requests,
-        multiple_topologies=False,
-        directed_graph=graph.is_directed(),
-        values_bw=values_bw,
-        reward_type=reward_type,
-        truncate_holding_time=truncate_holding_time,
-        log_actions=log_actions,
-    )
+    params = env_params(**params_dict)
 
     # If training single model on multiple topologies, must store params for each topology within top-level params
     if multiple_topologies_directory:
