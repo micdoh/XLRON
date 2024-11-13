@@ -573,6 +573,9 @@ class RWALightpathReuseEnv(RSAEnv):
         return state
 
 
+# TODO(MULTIBAND) - Define MultiBandRSAEnv class (inherit from RSAEnv)
+
+
 def make_rsa_env(config):
     """Create RSA environment. This function is the entry point to setting up any RSA-type environment.
     This function takes a dictionary of the commandline flag parameters and configures the
@@ -625,6 +628,8 @@ def make_rsa_env(config):
     span_length = config.get("span_length", 100) * 1e3
     lambda0 = config.get("lambda0", 1550) * 1e-9
     B = slot_size * link_resources  # Total modulated bandwidth
+
+    # TODO(MULTIBAND) - We need to read any new parameter flags that we define for the MultiBandRSAEnv
 
     rng = jax.random.PRNGKey(seed)
     rng, _, _, _, _ = jax.random.split(rng, 5)
