@@ -751,6 +751,7 @@ def make_rsa_env(config):
         env_params = DeepRMSAEnvParams
     elif env_type == "rwa_lightpath_reuse":
         env_params = RWALightpathReuseEnvParams
+    # TODO(MULTIBAND) - Add any new parameters that are unique to the MultiBandRSAEnv to the params_dict
     else:
         env_params = RSAEnvParams
 
