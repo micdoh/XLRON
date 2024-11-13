@@ -199,7 +199,7 @@ class RWALightpathReuseEnvState(RSAEnvState):
         path_capacity_array (chex.Array): Contains remaining capacity of each lightpath
         link_capacity_array (chex.Array): Contains remaining capacity of lightpath on each link-slot
     """
-    time_since_last_departure: chex.Array # Time since last departure
+    time_since_last_departure: chex.Array  # Time since last departure
     path_index_array: chex.Array  # Contains indices of lightpaths in use on slots
     path_capacity_array: chex.Array  # Contains remaining capacity of each lightpath
     link_capacity_array: chex.Array  # Contains remaining capacity of lightpath on each link-slot
@@ -209,9 +209,23 @@ class RWALightpathReuseEnvState(RSAEnvState):
 class RWALightpathReuseEnvParams(RSAEnvParams):
     pass
 
+
 # TODO(MULTIBAND) - Add MultiBandRSAEnvState and MultiBandRSAEnvParams.
 #  They should inherit from RSAEnvState and RSAEnvParams respectively. You can leave them empty for now (pass),
 #  or start to include the new parameters we define in "parameter_flags.py"
+
+@struct.dataclass
+class MultiBandRSAEnvState(RSAEnvState):
+    """Dataclass to hold environment state for MultiBandRSA (RBSA).
+    """
+    pass
+
+
+@struct.dataclass
+class MultiBandRSAEnvParams(RSAEnvParams):
+    """Dataclass to hold environment parameters for MultiBandRSA (RBSA).
+    """
+    pass
 
 
 @struct.dataclass
@@ -282,3 +296,4 @@ class VONEEnvParams(EnvParams):
     max_slots: chex.Scalar = struct.field(pytree_node=False)
     path_se_array: chex.Array = struct.field(pytree_node=False)
     # TODO - Add Laplacian matrix (for node heuristics)
+
