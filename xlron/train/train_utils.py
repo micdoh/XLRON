@@ -612,6 +612,11 @@ def log_metrics(config, out, experiment_name, total_time, merge_func):
           f" ± {accepted_bitrate_std[-1] if config.continuous_operation else accepted_bitrate_std_episode_end.mean():.0f}")
 
     if config.log_actions:
+        # TODO(TRAJ_VIZ): We get the agent actions here but we dpon't sdave them anywhere!cWQe need to save them
+        #  to file or to WANDB to start analysing. Bear in mind that "merged_out" is a dictionary containing arrays
+        #  that have a leading dimension equal to the number of parallel environments. I recommend placing breakpoints
+        #  to have a look at the data structure, then implement saving it to file and/or WANDB.
+
         env, params = define_env(config)
         request_source = merged_out["source"]
         request_dest = merged_out["dest"]
