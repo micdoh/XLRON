@@ -50,7 +50,7 @@ def generate_request_list(rng: jnp.ndarray, num_requests: int, state: EnvState, 
     return requests
 
 
-@partial(jax.jit, static_argnums=(0, 1))
+@partial(jax.jit, static_argnums=(1, ))
 def sort_requests(requests: jnp.ndarray, params: EnvParams) -> jnp.ndarray:
 
     # Sort by required_slots x number of hops for shortest path
@@ -103,10 +103,11 @@ def get_active_requests(requests: jnp.ndarray, i: int) -> jnp.ndarray:
         future_condition = request[5] > current_time
         condition = jnp.logical_or(expired_condition, future_condition)
         inactive_request = request.at[1].set(0)
-        return jnp.where(condition , inactive_request, request)
+        return jnp.where(condition, inactive_request, request)
+
     requests = jax.vmap(ignore_expired_and_future_request)(requests)
 
-    # Add times back in
+    # We add in new arrival and holding times such that the active requests at each step remain active for the full step-episode
     arrival_times = jnp.ones((requests.shape[0], 1))
     holding_times = jnp.full((requests.shape[0], 1), requests.shape[0])
     current_times = jnp.arange(requests.shape[0]).reshape(-1, 1)
@@ -139,19 +140,19 @@ def get_eval_fn(config, env, env_params) -> Callable:
             return runner_state, transition
 
         runner_state, traj_episode = jax.lax.scan(
-            _env_step, runner_state, None, config.max_requests
+            _env_step, runner_state, None, config.TOTAL_TIMESTEPS
         )
         if config.PROFILE:
             jax.profiler.save_device_memory_profile("memory_scan.prof")
 
-        metric = traj_episode.info
-
-        return {"runner_state": runner_state, "metrics": metric}
+        # metric = traj_episode.info
+        # return {"runner_state": runner_state, "metrics": metric}
+        return traj_episode.reward
 
 
     @partial(jax.jit, static_argnums=(4, 5))
     def run_reconfigurable_routing_bound(
-            rng, requests, init_obs, env_state, env_params, _sort_requests=False,
+            rng, requests, init_obs, env_state, env_params, _sort_requests=True,
     ):
         """This function runs the evaluate function for the given requests and returns the blocking probability.
         The requests array must be modified first to identify only active requests, which have been sorted in
@@ -171,29 +172,32 @@ def get_eval_fn(config, env, env_params) -> Callable:
         """
 
         sorted_requests, sort_indices = sort_requests(requests, env_params) if _sort_requests else (requests, jnp.arange(requests.shape[0]))
+        jax.debug.print("sorted_requests {}", sorted_requests, ordered=FLAGS.ORDERED)
 
         def estimate_blocking_step(carry, i):
             _sorted_requests, state, params = carry
-            # jax.debug.print("sorted_requests[i] {} {}", i, _sorted_requests[i], ordered=config.ORDERED)
-            # jax.debug.print("sorted_requests {}", _sorted_requests, ordered=config.ORDERED)
             active_requests = get_active_requests(_sorted_requests, i)
-            # jax.debug.print("active_requests {}", active_requests, ordered=config.ORDERED)
+            jax.debug.print("active_requests {}", active_requests, ordered=config.ORDERED)
             state = state.replace(env_state=state.env_state.replace(list_of_requests=active_requests))
             runner_state = (state, init_obs, rng)
             # Reshape runner_state elements to be (NUM_ENVS, ...)
-            out = _env_episode(runner_state)
-            returns = out["metrics"]["returns"]
+            returns = _env_episode(runner_state)
             blocking = jnp.any(returns < 0)
             # jax.debug.print("returns {}", returns, ordered=config.ORDERED)
             jax.debug.print("{} blocking {}", i, blocking, ordered=config.ORDERED)
             # After eval, set current request bitrate to 0 if blocking_prob > 0
-            blocked_request = jnp.zeros((_sorted_requests.shape[1]))
-            _sorted_requests = jax.lax.cond(blocking, lambda x: _sorted_requests.at[i].set(blocked_request), lambda x: x, _sorted_requests)
+            # If blocking is True then val should be 0, otherwise val should be requests[i].at[1]
+            val = jnp.where(blocking, 0, _sorted_requests[i].at[1].get())
+            blocked_request = _sorted_requests[i].at[1].set(val)
+            _sorted_requests = _sorted_requests.at[i].set(blocked_request)
+            jax.debug.print("updated_requests {}", _sorted_requests, ordered=config.ORDERED)
             return (_sorted_requests, state, params), blocking
 
         # Scan through step
         (sorted_requests, env_state, env_params), blocking_events = \
-        jax.lax.scan(estimate_blocking_step, (sorted_requests, env_state, env_params), sort_indices)
+        jax.lax.scan(estimate_blocking_step, (sorted_requests, env_state, env_params), sort_indices, unroll=True)
+        # TODO - scan is slow on GPU... and we're using a nested scan here so... I dunno figure it out
+        
 
         return requests, env_state, blocking_events
 
@@ -206,7 +210,7 @@ def main(argv):
     FLAGS.__setattr__("deterministic_requests", False)
     FLAGS.__setattr__("max_requests", FLAGS.TOTAL_TIMESTEPS)
     FLAGS.__setattr__("max_timesteps", FLAGS.TOTAL_TIMESTEPS)
-    jax.config.update("jax_default_device", jax.devices()[int(FLAGS.VISIBLE_DEVICES)])
+    #jax.config.update("jax_default_device", jax.devices()[int(FLAGS.VISIBLE_DEVICES)])
     print(f"Using device {jax.devices()[int(FLAGS.VISIBLE_DEVICES)]}")
     jax.numpy.set_printoptions(threshold=sys.maxsize)  # Don't truncate printed arrays
     jax.numpy.set_printoptions(linewidth=220)
@@ -242,7 +246,7 @@ def main(argv):
 
     with TimeIt(tag='EXECUTION', frames=FLAGS.TOTAL_TIMESTEPS ** 2 * FLAGS.NUM_ENVS):
         requests, env_state, blocking_events = run_experiment(
-            env_keys, request_arrays, init_obs, env_states#, env_params, _sort_requests
+            env_keys, request_arrays, init_obs, env_states
         )
         blocking_events = blocking_events.block_until_ready()
 
