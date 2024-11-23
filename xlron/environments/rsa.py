@@ -576,21 +576,17 @@ class RWALightpathReuseEnv(RSAEnv):
 # TODO(MULTIBAND) - Define MultiBandRSAEnv class (inherit from RSAEnv)
 
 class MultiBandRSAEnv(RSAEnv):
+    """This environment simulates the Multiband problem
+    """
     def __init__(
             self,
             key: chex.PRNGKey, 
             params: RSAEnvParams, 
-            traffic_matrix: chex.Array = None, 
-            multiband_params: chex.Array = None
+            traffic_matrix: chex.Array = None,
     ):
         super().__init__(key, params, traffic_matrix=traffic_matrix)
-        
-        if multiband_params:
-            self.multiband_params = multiband_params
-        else:
-            self.multiband_params = {}
 
-        initial_state= RSAEnvState(
+        initial_state = RSAEnvState(
             current_time=0,
             holding_time=0,
             total_timesteps=0,
@@ -663,10 +659,7 @@ def make_rsa_env(config):
 
     # TODO(MULTIBAND) - We need to read any new parameter flags that we define for the MultiBandRSAEnv
     if env_type == "multiband_rsa":
-       multiband_params = {}
-
-    else:
-       multiband_params = None
+       pass
 
     rng = jax.random.PRNGKey(seed)
     rng, _, _, _, _ = jax.random.split(rng, 5)
@@ -790,10 +783,7 @@ def make_rsa_env(config):
         env_params = RWALightpathReuseEnvParams
     # TODO(MULTIBAND) - Add any new parameters that are unique to the MultiBandRSAEnv to the params_dict
     elif env_type == "multiband_rsa":
-        env_params == MultiBandRSAEnvParams
-        multiband_params = {}
-        params_dict.update(multiband_params)
-    
+        env_params = MultiBandRSAEnvParams
     else:
         env_params = RSAEnvParams
 
