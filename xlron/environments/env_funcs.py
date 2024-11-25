@@ -151,22 +151,20 @@ def init_path_link_array(
         return k_paths
 
     paths = []
-    reverse_paths = []  # used for directed graphs (i.e. dual fibre links)
     edges = sorted(graph.edges)
 
     # Get the k-shortest paths for each node pair
     k_path_collections = []
+    get_paths = get_k_disjoint_shortest_paths if disjoint else get_k_shortest_paths
     for node_pair in combinations(graph.nodes, 2):
 
-        if disjoint:
-            k_paths = get_k_disjoint_shortest_paths(
-                graph, node_pair[0], node_pair[1], k, weight=weight
-            )
-        else:
-            k_paths = get_k_shortest_paths(
-                graph, node_pair[0], node_pair[1], k, weight=weight
-            )
+        k_paths = get_paths(graph, node_pair[0], node_pair[1], k, weight=weight)
         k_path_collections.append(k_paths)
+
+    if directed:  # Get paths in reverse direction
+        for node_pair in combinations(graph.nodes, 2):
+            k_paths_rev = get_paths(graph, node_pair[1], node_pair[0], k, weight=weight)
+            k_path_collections.append(k_paths_rev)
 
     # Sort the paths for each node pair
     for k_paths in k_path_collections:
@@ -208,19 +206,6 @@ def init_path_link_array(
 
         # Keep only first k paths
         k_paths_sorted = k_paths_sorted[:k]
-        k_paths_sorted_rev = [(dest, source, weighting, path[::-1]) for (source, dest, weighting, path) in k_paths_sorted]
-
-        # # Change selected paths for COST239 to match benchmark
-        # for i, (source, dest, weighting, path) in enumerate(k_paths_sorted):
-        #     if source == 5 and dest == 11 and i == 4 and len(edges) == 52 and len(graph.nodes) == 11:
-        #         path = [5, 4, 9, 11]
-        #     k_paths_sorted[i] = (source, dest, weighting, path)
-        # for i, (source, dest, weighting, path) in enumerate(k_paths_sorted_rev):
-        #     if source == 11 and dest == 5 and i == 4 and len(edges) == 52 and len(graph.nodes) == 11:
-        #         path = [11, 10, 9, 4, 5]
-        #     k_paths_sorted_rev[i] = (source, dest, weighting, path)
-
-        k_paths_sorted = k_paths_sorted + k_paths_sorted_rev if directed else k_paths_sorted
 
         prev_link_usage = empty_path
         for k_path in k_paths_sorted:

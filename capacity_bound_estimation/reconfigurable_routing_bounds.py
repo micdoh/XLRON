@@ -171,18 +171,26 @@ def get_eval_fn(config, env, env_params) -> Callable:
         """
 
         def estimate_blocking_step(carry, i):
-            _sorted_requests, state, params = carry
+            _sorted_requests, initial_state, params = carry
             active_requests = get_active_requests(_sorted_requests, i)
-            state = state.replace(env_state=state.env_state.replace(list_of_requests=active_requests))
+            jax.debug.print("active_requests {}", active_requests, ordered=FLAGS.ORDERED)
+            state = initial_state.replace(env_state=initial_state.env_state.replace(
+                list_of_requests=active_requests
+            ))
+            state = state.replace(env_state=generate_request_rsa(rng, state.env_state, env_params))
             runner_state = (state, init_obs, rng)
             returns = _env_episode(runner_state)
             blocking = jnp.any(returns < 0)
+            jax.debug.print("returns {}", returns, ordered=FLAGS.ORDERED)
             # After eval, set current request bitrate to 0 if blocking_prob > 0
             # If blocking is True then val should be 0, otherwise val should be requests[i].at[1]
             val = jnp.where(blocking, 0, _sorted_requests[i].at[1].get())
             blocked_request = _sorted_requests[i].at[1].set(val)
             _sorted_requests = _sorted_requests.at[i].set(blocked_request)
-            return (_sorted_requests, state, params), blocking
+            jax.debug.print("blocking {}", blocking, ordered=FLAGS.ORDERED)
+            jax.debug.print("{} active_requests {}", i, active_requests, ordered=FLAGS.ORDERED)
+            jax.debug.print("{} _sorted_requests {}", i, _sorted_requests, ordered=FLAGS.ORDERED)
+            return (_sorted_requests, initial_state, params), blocking
 
         # Scan through step
         _, blocking_events = \
@@ -209,13 +217,12 @@ def main(argv):
     setup_keys = jax.random.split(rng, FLAGS.NUM_ENVS)
     init_obs, env_states = jax.vmap(env.reset, in_axes=(0, None))(setup_keys, env_params)
     request_arrays = jax.vmap(generate_request_list, in_axes=(0, None, 0, None))(setup_keys, FLAGS.TOTAL_TIMESTEPS, env_states, env_params)
-    # Set the requests arrays for each state
-    inner_states = jax.vmap(lambda x, y: x.replace(list_of_requests=y), in_axes=(0, 0))(env_states.env_state, request_arrays)
-    env_states = env_states.replace(env_state=inner_states)
-
     # Define env again but this time with deterministic requests
     FLAGS.__setattr__("deterministic_requests", True)
     env, env_params = define_env(FLAGS)
+    # Set the requests arrays for each state
+    inner_states = jax.vmap(lambda x, y: x.replace(list_of_requests=y), in_axes=(0, 0))(env_states.env_state, request_arrays)
+    env_states = env_states.replace(env_state=inner_states)
 
     print(f"Sort requests: {FLAGS.sort_requests}")
     sorted_requests, sort_indices = jax.vmap(sort_requests, in_axes=(0, None))(request_arrays, env_params) if FLAGS.sort_requests\
