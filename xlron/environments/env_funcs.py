@@ -408,6 +408,18 @@ def init_link_slot_array(params: EnvParams):
     return jnp.zeros((params.num_links, params.link_resources))
 
 
+# TODO(MULTIBAND) - Add function(s) to initialise multi-band array(s)
+@partial(jax.jit, static_argnums=(0,))
+def init_link_slot_array_multiband(params: EnvParams):
+    init_array = jnp.zeros((params.num_links, params.link_resources))
+    # Mask column at bandgap
+    bandgap_slots = int(params.bandgap / params.slot_size)
+    bandgap_start_slots = int(params.bandgap_start / params.slot_size)
+    result = init_array.at[:,bandgap_start_slots:bandgap_start_slots+bandgap_slots].set(-1)
+    jax.debug.print("init_link_slot_array_multiband {}", result, ordered=True)
+    return result
+
+
 @partial(jax.jit, static_argnums=(0,))
 def init_vone_request_array(params: EnvParams):
     """Initialize request array either with uniform resources"""
