@@ -388,30 +388,6 @@ def get_path_indices(s: int, d: int, k: int, N: int, directed: bool = False) -> 
     return forward * (s < d) + backward * (s > d) + directed_offset
 
 
-@partial(jax.jit, static_argnums=(2, 3))
-def get_path_indices_deprecated(s: int, d: int, k: int, N: int, directed: bool = False) -> chex.Array:
-    """Get path indices for a given source, destination and number of paths.
-    If source > destination and the graph is directed (two fibres per link, one in each direction) then an offset is
-    added to the index to get the path in the other direction (the offset is the total number source-dest pairs).
-
-    Args:
-        s (int): Source node index
-        d (int): Destination node index
-        k (int): Number of paths
-        N (int): Number of nodes
-        directed (bool, optional): Whether graph is directed. Defaults to False.
-
-    Returns:
-        jnp.array: Start index on path-link array for candidate paths
-    """
-    node_indices = jnp.arange(N, dtype=jnp.int32)
-    indices_to_s = jnp.where(node_indices < s, node_indices, 0)
-    # If two fibres per link, add offset to index to get fibre in other direction if source > destination
-    directed_offset = directed*(s > d)*N*(N-1)*k/2
-    # The following equation is based on the combinations formula
-    return ((N*s + d - jnp.sum(indices_to_s) - 2*s - 1) * k) + directed_offset
-
-
 @partial(jax.jit, static_argnums=(0,))
 def init_node_capacity_array(params: EnvParams):
     """Initialize node array with uniform resources.
