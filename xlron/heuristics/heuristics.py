@@ -70,6 +70,27 @@ def ff_ksp(state: EnvState, params: EnvParams) -> chex.Array:
 
 
 @partial(jax.jit, static_argnums=(1,))
+def lf_ksp(state: EnvState, params: EnvParams) -> chex.Array:
+    """Get the last available slot from all paths
+    Method: Go through action mask and find the last available slot on all paths
+
+    Args:
+        state (EnvState): Environment state
+        params (EnvParams): Environment parameters
+
+    Returns:
+        chex.Array: Action
+    """
+    last_slots = last_fit(state, params)
+    # Chosen path is the one with the highest index of last available slot
+    path_index = jnp.argmax(last_slots)
+    slot_index = last_slots[path_index] % params.link_resources
+    # Convert indices to action
+    action = path_index * params.link_resources + slot_index
+    return action
+
+
+@partial(jax.jit, static_argnums=(1,))
 def ksp_bf(state: EnvState, params: EnvParams) -> chex.Array:
     """Get the first available slot from all k-shortest paths
     Method: Go through action mask and find the first available slot, starting from shortest path

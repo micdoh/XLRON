@@ -451,18 +451,18 @@ def log_metrics(config, out, experiment_name, total_time, merge_func):
         episode_ends = np.where(merged_out["done"].mean(0).reshape(-1) == 1)[0] - 1
 
     def get_mean_std_iqr(x, y):
-        _mean = x[y].mean(0).reshape(-1)
-        _std = x[y].std(0).reshape(-1)
-        _iqr_upper = np.percentile(x[y], 75, axis=0).reshape(-1)
-        _iqr_lower = np.percentile(x[y], 25, axis=0).reshape(-1)
-        return _mean, _std, _iqr_upper, _iqr_lower
+        _mean = x[y].mean(axis=0).reshape(-1)
+        _std = x[y].std(axis=0).reshape(-1)
+        _iqr_upper = jnp.percentile(x[y], 75, axis=0).reshape(-1)
+        _iqr_lower = jnp.percentile(x[y], 25, axis=0).reshape(-1)
+        return np.array(_mean), np.array(_std), np.array(_iqr_upper), np.array(_iqr_lower)
 
     def get_episode_end_mean_std_iqr(x, y):
         _end_mean = x[y].mean(0).reshape(-1)[episode_ends]
         if not config.end_first_blocking:
             _end_std = x[y].std(0).reshape(-1)[episode_ends]
-            _end_iqr_upper = np.percentile(x[y], 75, axis=0).reshape(-1)[episode_ends]
-            _end_iqr_lower = np.percentile(x[y], 25, axis=0).reshape(-1)[episode_ends]
+            _end_iqr_upper = jnp.percentile(x[y], 75, axis=0).reshape(-1)[episode_ends]
+            _end_iqr_lower = jnp.percentile(x[y], 25, axis=0).reshape(-1)[episode_ends]
         else:
             # For end_first_blocking, episode_ends are variable so calculate std and iqr for all episodes
             _end_std = jnp.full(x.reshape(-1)[episode_ends].shape, x.reshape(-1)[episode_ends].std())
@@ -506,28 +506,33 @@ def log_metrics(config, out, experiment_name, total_time, merge_func):
     if config.PLOTTING:
         if config.incremental_loading:
             plot_metric = processed_data["accepted_services"]["mean"]
-            plot_metric_std = processed_data["accepted_services"]["std"]
+            plot_metric_upper = processed_data["accepted_services"]["iqr_upper"]
+            plot_metric_lower = processed_data["accepted_services"]["iqr_lower"]
             plot_metric_name = "Accepted Services"
         elif config.end_first_blocking:
             plot_metric = processed_data["lengths"]["mean"]
-            plot_metric_std = processed_data["lengths"]["std"]
+            plot_metric_upper = processed_data["lengths"]["iqr_upper"]
+            plot_metric_lower = processed_data["lengths"]["iqr_lower"]
             plot_metric_name = "Episode Length"
         elif config.reward_type == "service":
             plot_metric = processed_data["service_blocking_probability"]["mean"]
-            plot_metric_std = processed_data["service_blocking_probability"]["std"]
+            plot_metric_upper = processed_data["service_blocking_probability"]["iqr_upper"]
+            plot_metric_lower = processed_data["service_blocking_probability"]["iqr_lower"]
             plot_metric_name = "Service Blocking Probability"
         else:
             plot_metric = processed_data["bitrate_blocking_probability"]["mean"]
-            plot_metric_std = processed_data["bitrate_blocking_probability"]["std"]
+            plot_metric_upper = processed_data["bitrate_blocking_probability"]["iqr_upper"]
+            plot_metric_lower = processed_data["bitrate_blocking_probability"]["iqr_lower"]
             plot_metric_name = "Bitrate Blocking Probability"
 
         plot_metric = moving_average(plot_metric, min(100, int(len(plot_metric) / 2)))
-        plot_metric_std = moving_average(plot_metric_std, min(100, int(len(plot_metric_std) / 2)))
+        plot_metric_upper = moving_average(plot_metric_upper, min(100, int(len(plot_metric_upper) / 2)))
+        plot_metric_lower = moving_average(plot_metric_lower, min(100, int(len(plot_metric_lower) / 2)))
         plt.plot(plot_metric)
         plt.fill_between(
             range(len(plot_metric)),
-            plot_metric - plot_metric_std,
-            plot_metric + plot_metric_std,
+            plot_metric_lower,
+            plot_metric_upper,
             alpha=0.2
         )
         plt.xlabel("Environment Step" if not config.end_first_blocking else "Episode Count")
@@ -595,8 +600,16 @@ def log_metrics(config, out, experiment_name, total_time, merge_func):
     for metric in all_metrics:
         if config.continuous_operation:
             print(f"{metric}: {processed_data[metric]['mean'][-1]:.5f} ± {processed_data[metric]['std'][-1]:.5f}")
+            print(f"{metric} mean: {processed_data[metric]['mean'][-1]:.5f}")
+            print(f"{metric} std: {processed_data[metric]['std'][-1]:.5f}")
+            print(f"{metric} IQR lower: {processed_data[metric]['iqr_lower'][-1]:.5f}")
+            print(f"{metric} IQR upper: {processed_data[metric]['iqr_upper'][-1]:.5f}")
         else:
             print(f"{metric}: {processed_data[metric]['episode_end_mean'].mean():.5f} ± {processed_data[metric]['episode_end_std'].mean():.5f}")
+            print(f"{metric} mean: {processed_data[metric]['episode_end_mean'].mean():.5f}")
+            print(f"{metric} std: {processed_data[metric]['episode_end_std'].mean():.5f}")
+            print(f"{metric} IQR lower: {processed_data[metric]['episode_end_iqr_lower'].mean():.5f}")
+            print(f"{metric} IQR upper: {processed_data[metric]['episode_end_iqr_upper'].mean():.5f}")
     if config.env_type.lower() == "rsa_gn_model" and config.launch_power_type == "rl":
         print(f"Mean launch power: {merged_out['launch_power'].mean():.5f} ± {merged_out['launch_power'].std():.5f}")
 

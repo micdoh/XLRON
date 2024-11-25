@@ -45,7 +45,7 @@ def get_eval_fn(config, env, env_params) -> Callable:
             return runner_state, transition
 
         runner_state, traj_episode = jax.lax.scan(
-            _env_step, runner_state, None, config.TOTAL_TIMESTEPS
+            _env_step, runner_state, None, config.TOTAL_TIMESTEPS, unroll=min(config.TOTAL_TIMESTEPS, 5)
         )
         if config.PROFILE:
             jax.profiler.save_device_memory_profile("memory_scan.prof")
@@ -176,6 +176,9 @@ def main(argv):
     FLAGS.__setattr__("deterministic_requests", True)
     env, env_params = define_env(FLAGS)
 
+    jax.debug.print("sorted_requests \n {}", sorted_requests, ordered=FLAGS.ORDERED)
+    jax.debug.print("sort_indices \n {}", sort_indices, ordered=FLAGS.ORDERED)
+
     with TimeIt(tag='COMPILATION'):
         eval_fn = get_eval_fn(FLAGS, env, env_params)
         run_experiment = jax.jit(eval_fn).lower(
@@ -188,6 +191,8 @@ def main(argv):
         )
         blocking_events = blocking_events.block_until_ready()
 
+    jax.debug.print("blocking_events {}", blocking_events, ordered=FLAGS.ORDERED)
+    jax.debug.print("1 - blocking_events {}", 1 - blocking_events, ordered=FLAGS.ORDERED)
     blocking_probs = jnp.sum(blocking_events) / FLAGS.TOTAL_TIMESTEPS
     blocking_prob_mean = jnp.mean(blocking_probs)
     blocking_prob_std = jnp.std(blocking_probs)
