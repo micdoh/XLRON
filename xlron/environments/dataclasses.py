@@ -213,6 +213,16 @@ class RWALightpathReuseEnvParams(RSAEnvParams):
 #  They should inherit from RSAEnvState and RSAEnvParams respectively. You can leave them empty for now (pass),
 #  or start to include the new parameters we define in "parameter_flags.py"
 
+@struct.dataclass
+class MultiBandRSAEnvState(RSAEnvState):
+    pass
+
+
+@struct.dataclass
+class MultiBandRSAEnvParams(RSAEnvParams):
+    bandgap_start: chex.Scalar = struct.field(pytree_node=False)
+    bandgap: chex.Scalar = struct.field(pytree_node=False)
+
 
 @struct.dataclass
 class VONEEnvState(EnvState):
