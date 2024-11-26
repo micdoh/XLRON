@@ -18,7 +18,7 @@ from xlron.environments.env_funcs import (
     init_values_bandwidth, calculate_path_stats, normalise_traffic_matrix, init_graph_tuple, init_link_length_array,
     init_link_capacity_array, init_path_capacity_array, init_path_index_array, mask_slots_rwalr,
     implement_action_rwalr, check_action_rwalr, pad_array, undo_action_rwalr,
-    finalise_action_rwalr, generate_request_rwalr
+    finalise_action_rwalr, generate_request_rwalr, init_link_slot_array_multiband
 )
 from xlron.environments.dataclasses import *
 from xlron.environments.wrappers import *
@@ -574,6 +574,32 @@ class RWALightpathReuseEnv(RSAEnv):
 
 
 # TODO(MULTIBAND) - Define MultiBandRSAEnv class (inherit from RSAEnv)
+class MultiBandRSAEnv(RSAEnv):
+
+    def __init__(
+            self,
+            key: chex.PRNGKey,
+            params: RSAEnvParams,
+            traffic_matrix: chex.Array = None
+    ):
+        super().__init__(key, params, traffic_matrix=traffic_matrix)
+        state = MultiBandRSAEnvState(
+            current_time=0,
+            holding_time=0,
+            total_timesteps=0,
+            total_requests=-1,
+            link_slot_array=init_link_slot_array_multiband(params),
+            link_slot_departure_array=init_link_slot_departure_array(params),
+            request_array=init_rsa_request_array(),
+            link_slot_mask=init_link_slot_mask(params, agg=params.aggregate_slots),
+            traffic_matrix=traffic_matrix if traffic_matrix is not None else init_traffic_matrix(key, params),
+            graph=None,
+            full_link_slot_mask=init_link_slot_mask(params),
+            accepted_services=0,
+            accepted_bitrate=0.,
+            total_bitrate=0.,
+        )
+        self.initial_state = state.replace(graph=init_graph_tuple(state, params))
 
 class MultiBandRSAEnv(RSAEnv):
     """This environment simulates the Multiband problem
@@ -658,8 +684,8 @@ def make_rsa_env(config):
     B = slot_size * link_resources  # Total modulated bandwidth
 
     # TODO(MULTIBAND) - We need to read any new parameter flags that we define for the MultiBandRSAEnv
-    if env_type == "multiband_rsa":
-       pass
+    bandgap = config.get("bandgap", 50)
+    bandgap_start = config.get("bandgap_start", 200)
 
     rng = jax.random.PRNGKey(seed)
     rng, _, _, _, _ = jax.random.split(rng, 5)
@@ -775,6 +801,8 @@ def make_rsa_env(config):
         truncate_holding_time=truncate_holding_time,
         log_actions=log_actions,
         list_of_requests=HashableArrayWrapper(list_of_requests) if not remove_array_wrappers else list_of_requests,
+        bandgap=bandgap,
+        bandgap_start=bandgap_start,
     )
 
     if env_type == "deeprmsa":
@@ -782,7 +810,7 @@ def make_rsa_env(config):
     elif env_type == "rwa_lightpath_reuse":
         env_params = RWALightpathReuseEnvParams
     # TODO(MULTIBAND) - Add any new parameters that are unique to the MultiBandRSAEnv to the params_dict
-    elif env_type == "multiband_rsa":
+    elif env_type == "multibandrsa":
         env_params = MultiBandRSAEnvParams
     else:
         env_params = RSAEnvParams
@@ -824,6 +852,8 @@ def make_rsa_env(config):
         elif env_type == "rwa_lightpath_reuse":
             env = RWALightpathReuseEnv(
                 rng, params, traffic_matrix=traffic_matrix, path_capacity_array=path_capacity_array)
+        elif env_type == "multibandrsa":
+            env = MultiBandRSAEnv(rng, params, traffic_matrix=traffic_matrix)
         else:
             env = RSAEnv(rng, params, traffic_matrix=traffic_matrix)
 

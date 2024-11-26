@@ -169,6 +169,9 @@ flags.DEFINE_integer("CUTSET_TOP_K", 50, "Number of top congested cutsets to ret
 # Flags for capacity estimation with Baroni method
 flags.DEFINE_boolean("deterministic_requests", False, "Use deterministic requests")
 flags.DEFINE_boolean("sort_requests", True, "Sort requests in descending order of required resources")
+# Multi-band parameters
+flags.DEFINE_integer("bandgap_start", 200, "Start index of bandgap [GHz]")
+flags.DEFINE_integer("bandgap", 50, "Bandgap width [GHz]")
 # TODO(MULTIBAND) - Add additional parameters that we'll need to define the multiband environment.
 #  We still need to think about this... but we might want to define the total bandwidth,
 #  the frequencies at which the bands end, the frequency gap between bands,
