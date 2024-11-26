@@ -225,8 +225,9 @@ class MultiBandRSAEnvState(RSAEnvState):
 class MultiBandRSAEnvParams(RSAEnvParams):
     """Dataclass to hold environment parameters for MultiBandRSA (RBSA).
     """
-    pass
-
+    bandgap_start: chex.Scalar = struct.field(pytree_node=False)
+    bandgap: chex.Scalar = struct.field(pytree_node=False)
+      
 
 @struct.dataclass
 class VONEEnvState(EnvState):
