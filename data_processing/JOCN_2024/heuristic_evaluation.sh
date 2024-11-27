@@ -133,7 +133,7 @@ for weight in "--weight=weight" ""; do
 
     # MaskRSA NSFNET
     args="--env_type rmsa --link_resources 80 --max_bw 50 --guardband 0 --slot_size 12.5 --mean_service_holding_time 12 $weight"
-    for traffic_load in 100 110 120 130 140 150 160; do
+    for traffic_load in 80 90 100 110 120 130 140 150 160; do
         run_experiment "MaskRSA" "nsfnet_deeprmsa_undirected" "$traffic_load" "$k" "$args"
     done
 
@@ -165,14 +165,14 @@ for weight in "--weight=weight" ""; do
 
     # NSFNET PtrNet-RSA-40
     args="$base_args --link_resources 40 --values_bw 1"
-    for traffic_load in 200 210 220 230 240; do
+    for traffic_load in 180 190 200 210 220 230 240; do
         run_experiment "PtrNet-RSA-40" "nsfnet_deeprmsa_undirected" "$traffic_load" "$k" "$args"
     done
 
     # NSFNET PtrNet-RSA-80
     var_bw="1,1,1,1,1,1,1,1,1,1,1,1,1,1,2,2,2,3,3,4"
     args="$base_args --link_resources 80 --values_bw $var_bw"
-    for traffic_load in 220 230 240; do
+    for traffic_load in 200 210 220 230 240; do
         run_experiment "PtrNet-RSA-80" "nsfnet_deeprmsa_undirected" "$traffic_load" "$k" "$args"
     done
 
@@ -190,7 +190,7 @@ for weight in "--weight=weight" ""; do
 
     # USNET PtrNet-RSA-40
     args="$base_args --link_resources 40 --values_bw 1"
-    for traffic_load in 200 220 240 260 280; do
+    for traffic_load in 210 220 230 240 250 260 270 280; do
         run_experiment "PtrNet-RSA-40" "usnet_ptrnet_undirected" "$traffic_load" "$k" "$args"
     done
 
