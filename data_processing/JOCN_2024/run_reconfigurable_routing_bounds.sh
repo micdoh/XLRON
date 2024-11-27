@@ -95,7 +95,7 @@ done
 # NSFNET PtrNet-RSA-80
 var_bw="1,1,1,1,1,1,1,1,1,1,1,1,1,1,2,2,2,3,3,4"
 args="$base_args --link_resources 80 --values_bw $var_bw"
-for traffic_load in 220 230 240; do
+for traffic_load in 220 230 240 250; do
     run_experiment "PtrNet-RSA-80" "nsfnet_deeprmsa_undirected" "$traffic_load" "50" "$args"
 done
 
@@ -113,7 +113,7 @@ done
 
 # USNET PtrNet-RSA-40
 args="$base_args --link_resources 40 --values_bw 1"
-for traffic_load in 200 220 240 260 280; do
+for traffic_load in 210 220 230 240 250 260 270 280; do
     run_experiment "PtrNet-RSA-40" "usnet_ptrnet_undirected" "$traffic_load" "50" "$args"
 done
 
