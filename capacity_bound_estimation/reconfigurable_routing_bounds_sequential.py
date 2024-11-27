@@ -114,6 +114,8 @@ def main(argv):
     jax.numpy.set_printoptions(linewidth=220)
 
     all_blocking_probs = []
+    all_block_counts = []
+    all_fix_counts = []
 
     for seed in range(10):
 
@@ -147,11 +149,14 @@ def main(argv):
 
         with (TimeIt(tag='EXECUTION', frames=FLAGS.TOTAL_TIMESTEPS)):
             blocking_events = []
+            block_count = 0
+            fix_count = 0
             for i in range(int(FLAGS.TOTAL_TIMESTEPS)):
                 # Step through the environment
                 obsv, env_state, reward, done, info = step_env(env_key, env, env_state, env_params)
                 blocking = 1 if reward < 0 else 0
                 if blocking:
+                    block_count += 1
                     sort_index = sort_indices[i]
                     sorted_requests, new_env_state, blocking = run_defrag(env_key, sorted_requests, sort_index, init_obs, initial_state)
                     if not blocking:
@@ -163,23 +168,52 @@ def main(argv):
                         )
                         inner = finalise_action_rsa(inner, env_params)
                         env_state = env_state.replace(env_state=inner)
+                        fix_count += 1
                 # Replace env_state requests with unsorted ones
                 env_state = env_state.replace(env_state=env_state.env_state.replace(list_of_requests=request_array))
                 blocking_events.append(blocking)
             print(f"Blocking prob. : {sum(blocking_events) / FLAGS.TOTAL_TIMESTEPS}")
             blocking_prob = sum(blocking_events) / FLAGS.TOTAL_TIMESTEPS
             all_blocking_probs.append(blocking_prob)
+            all_block_counts.append(block_count)
+            all_fix_counts.append(fix_count)
 
     blocking_probs = jnp.array(all_blocking_probs)
+    block_counts = jnp.array(all_block_counts)
+    fix_counts = jnp.array(all_fix_counts)
     blocking_prob_mean = jnp.mean(blocking_probs)
     blocking_prob_std = jnp.std(blocking_probs)
     blocking_prob_iqr_lower = jnp.percentile(blocking_probs, 25)
     blocking_prob_iqr_upper = jnp.percentile(blocking_probs, 75)
+    block_count_mean = jnp.mean(block_counts)
+    block_count_std = jnp.std(block_counts)
+    block_count_iqr_lower = jnp.percentile(block_counts, 25)
+    block_count_iqr_upper = jnp.percentile(block_counts, 75)
+    fix_count_mean = jnp.mean(fix_counts)
+    fix_count_std = jnp.std(fix_counts)
+    fix_count_iqr_lower = jnp.percentile(fix_counts, 25)
+    fix_count_iqr_upper = jnp.percentile(fix_counts, 75)
+    fix_ratio = fix_count_mean / block_count_mean
+    fix_ratio_std = jnp.std(fix_counts / block_counts)
+    fix_ratio_iqr_lower = jnp.percentile(fix_counts / block_counts, 25)
+    fix_ratio_iqr_upper = jnp.percentile(fix_counts / block_counts, 75)
     print(f"Blocking Probability: {blocking_prob_mean:.5f} ± {blocking_prob_std:.5f}")
     print(f"Blocking Probability mean: {blocking_prob_mean:.5f}")
     print(f"Blocking Probability std: {blocking_prob_std:.5f}")
     print(f"Blocking Probability IQR lower: {blocking_prob_iqr_lower:.5f}")
     print(f"Blocking Probability IQR upper: {blocking_prob_iqr_upper:.5f}")
+    print(f"Block Count mean: {block_count_mean:.5f}")
+    print(f"Block Count std: {block_count_std:.5f}") 
+    print(f"Block Count IQR lower: {block_count_iqr_lower:.5f}")
+    print(f"Block Count IQR upper: {block_count_iqr_upper:.5f}")
+    print(f"Fix Count mean: {fix_count_mean:.5f}")
+    print(f"Fix Count std: {fix_count_std:.5f}")
+    print(f"Fix Count IQR lower: {fix_count_iqr_lower:.5f}")
+    print(f"Fix Count IQR upper: {fix_count_iqr_upper:.5f}")
+    print(f"Fix Ratio mean: {fix_ratio:.5f}")
+    print(f"Fix Ratio std: {fix_ratio_std:.5f}")
+    print(f"Fix Ratio IQR lower: {fix_ratio_iqr_lower:.5f}")
+    print(f"Fix Ratio IQR upper: {fix_ratio_iqr_upper:.5f}")
 
 if __name__ == "__main__":
     app.run(main)
