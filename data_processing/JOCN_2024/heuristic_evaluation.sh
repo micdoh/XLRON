@@ -1,7 +1,7 @@
 #!/bin/bash
 
 PYTHON_PATH="/Users/michaeldoherty/Library/Caches/pypoetry/virtualenvs/xlron-QeH3eSKC-py3.11/bin/python"
-SCRIPT_PATH="/Users/michaeldoherty/git/XLRON/capacity_bound_estimation/reconfigurable_routing_bounds_sequential.py"
+SCRIPT_PATH="/home/uceedoh/git/XLRON/xlron/train/train.py"
 
 # Create/overwrite output CSV file with headers
 OUTPUT_FILE="experiment_results_eval.csv"
@@ -119,7 +119,7 @@ run_experiment() {
 
 for weight in "--weight=weight" ""; do
 
-  for k in 5 50; do
+  for k in 5 $([ -z "$weight" ] && echo "" || echo "50"); do
 
     # DeepRMSA Experiments
     run_experiment "DeepRMSA" "nsfnet_deeprmsa_directed" "250" "$k" "--env_type rmsa --link_resources 100 --mean_service_holding_time 25 --truncate_holding_time $weight"
