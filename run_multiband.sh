@@ -1,10 +1,11 @@
 #!/bin/bash
 
-# Run the training script with specified parameters
 python /Users/ianwang/PycharmProjects/XLRON/xlron/train/train.py \
   --env_type=multibandrsa \
   --continuous_operation \
+# Change the load to 400
   --load=400 \
+
   --k=5 \
   --topology_name=nsfnet_deeprmsa_directed \
   --link_resources=100 \
@@ -14,7 +15,9 @@ python /Users/ianwang/PycharmProjects/XLRON/xlron/train/train.py \
   --continuous_operation \
   --EVAL_HEURISTIC \
   --path_heuristic=ksp_ff \
+# Change the number of environments to 10
   --NUM_ENVS=10 \
+
   --TOTAL_TIMESTEPS=100000 \
   --PLOTTING \
   --slot_size=50 \
