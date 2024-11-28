@@ -362,11 +362,52 @@ if __name__ == '__main__':
     plt.rcParams.update({'xtick.labelsize': 24})
     plt.rcParams.update({'ytick.labelsize': 24})
 
+    data_file = '../data/experiment_results_eval.csv'
+    df = pd.read_csv(data_file)
+    # Filter to only have these columns: NAME,TOPOLOGY,LOAD,K,service_blocking_probability_mean/std/iqr_lower/iqr_upper
+    df = df[['NAME', 'TOPOLOGY', 'LOAD', 'K', 'WEIGHT', 'service_blocking_probability_mean', 'service_blocking_probability_std',
+                'service_blocking_probability_iqr_lower', 'service_blocking_probability_iqr_upper']]
+    def get_n_slots(name):
+        return 40 if name == 'PtrNet-RSA-40' else 80 if name in ['PtrNet-RSA-80', 'MaskRSA'] else 100
+    def get_topology(name):
+        return 'JPN48' if 'JPN48' in name.upper() else 'COST239' if 'COST239' in name.upper() else 'USNET' if 'USNET' in name.upper() else 'NSFNET'
+    def get_publication(name):
+        return 'PtrNet-RSA' if 'PtrNet-RSA' in name else name
+    # Add in the number of slots
+    df['N_slots'] = df['NAME'].apply(get_n_slots)
+    # Add in the topology
+    df['topology'] = df['TOPOLOGY'].apply(get_topology)
+    # Add in the publication
+    df['publication'] = df['NAME'].apply(get_publication)
+    # Rename columns to match publication,topology,N_slots,load,mean,stddev
+    df = df.rename(columns={'LOAD': 'load', 'K': 'k',
+                            'service_blocking_probability_mean': 'mean',
+                            'service_blocking_probability_std': 'stddev',
+                            'service_blocking_probability_iqr_lower': 'iqr_lower',
+                            'service_blocking_probability_iqr_upper': 'iqr_upper'})
+    # Multiply mean, stddev, iqr_lower, iqr_upper by 100 to get percentages
+    # Add 0.0001 to values to avoid zeros and ensure plotting
+    df['mean'] *= 100
+    df['stddev'] *= 100
+    df['iqr_lower'] *= 100
+    df['iqr_upper'] *= 100
+    # if IQR upper is zero, set it to df['mean']
+    mask_mean = df[df['iqr_upper'] == 0]['mean']
+    mask_stddev = df[df['iqr_upper'] == 0]['stddev']
+    df.loc[mask_mean.index, 'iqr_upper'] = mask_mean
+    df.loc[mask_mean.index, 'iqr_lower'] = mask_mean - mask_stddev
+
+    # Filter by weight=="" to get df_hops
+    df_hops = df[df['WEIGHT'] != '--weight=weight']
+
+    # Filter by weight=='--weight' to get df_length_ours
+    df_length_ours = df[df['WEIGHT'] == '--weight=weight']
+
     # Read the CSV data
-    df_hops = pd.read_csv(StringIO(csv_data_hops))
+    #df_hops = pd.read_csv(StringIO(csv_data_hops))
     df_rl = pd.read_csv(StringIO(csv_data_rl))
     df_length = pd.read_csv(StringIO(csv_data_length))
-    df_length_ours = pd.read_csv(StringIO(csv_data_length_ours))
+    #df_length_ours = pd.read_csv(StringIO(csv_data_length_ours))
 
     # Define the publications and topologies
     publications = ['DeepRMSA', 'Reward-RMSA', 'GCN-RMSA', 'MaskRSA', 'PtrNet-RSA-40', 'PtrNet-RSA-80']
@@ -381,7 +422,7 @@ if __name__ == '__main__':
     # orange
     hops_5_col = '#ff7f0e'
     # purple
-    hops_20_col = '#9467bd'
+    hops_50_col = '#9467bd'
 
     # Function to plot data for a single case
     def plot_case(ax, pub, topology, n_slots):
@@ -409,8 +450,13 @@ if __name__ == '__main__':
                                 label='5-SP-FF$_{published}$', marker='x', capsize=5, color=length_col, linewidth=3, markersize=20)
             line3 = ax.errorbar(case_length_ours['load'], case_length_ours['mean'], yerr=case_length_ours['stddev'],
                                 label='5-SP-FF$_{ours}$', marker='o', capsize=5, color=length_ours_col, linewidth=3, markersize=10)
-            line4 = ax.errorbar(case_hops['load'], case_hops['mean'], yerr=case_hops['stddev'],
+            case_hops_5 = case_hops[case_hops['k'] == 5]
+            case_hops_50 = case_hops[case_hops['k'] == 50]
+            line4 = ax.errorbar(case_hops_5['load'], case_hops_5['mean'], yerr=case_hops_5['stddev'],
                                 label='5-SP-FF$_{hops}$', marker='o', capsize=5, color=hops_5_col, linewidth=3, markersize=10)
+            line5 = ax.errorbar(case_hops_50['load'], case_hops_50['mean'], yerr=case_hops_50['stddev'],
+                                label='5-SP-FF$_{hops}$', marker='o', capsize=5, color=hops_50_col, linewidth=3,
+                                markersize=10)
             #lines.extend([line1, line2, line3, line4])
             #labels.extend(['RL', '5-SP-FF$_{published}$', '5-SP-FF$_{hops}$', '5-SP-FF$_{ours}$'])
 
@@ -439,16 +485,16 @@ if __name__ == '__main__':
                 lines.append(line[0])
                 labels.append('5-SP-FF$_{ours}$')
 
-            # Plot hops data for k=5 and k=20 if available
-            for k in [5, 20]:
+            # Plot hops data for k=5 and k=50 if available
+            for k in [5, 50]:
                 case_hops_k = case_hops[case_hops['k'] == k]
                 if not case_hops_k.empty:
                     line = ax.plot(case_hops_k['load'], case_hops_k['mean'], label=f'{k}'+'-SP-FF$_{hops}$',
-                                   marker='o', linestyle='-', color=hops_5_col if k == 5 else hops_20_col)
+                                   marker='o', linestyle='-', color=hops_5_col if k == 5 else hops_50_col)
                     # Do fillbetween for error region
                     ax.fill_between(case_hops_k['load'], case_hops_k['mean'] - case_hops_k['stddev'],
                                     case_hops_k['mean'] + case_hops_k['stddev'], alpha=0.2,
-                                    color=hops_5_col if k == 5 else hops_20_col)
+                                    color=hops_5_col if k == 5 else hops_50_col)
                     lines.append(line[0])
                     labels.append(f'{k}'+'-SP-FF$_{hops}$')
 
@@ -480,7 +526,7 @@ if __name__ == '__main__':
     # Loop through each subplot
     for col, publication in enumerate(publications):
         #pub = 'PtrNet-RSA' if 'PtrNet-RSA' in publication else publication
-        n_slots = 40 if publication == 'PtrNet-RSA-40' else 80 if publication in ['PtrNet-RSA-80', 'MaskRSA'] else 100
+        n_slots = get_n_slots(publication)
 
         col_def = grid[col]
 
@@ -499,6 +545,8 @@ if __name__ == '__main__':
                 # show grid for y-axis
                 ax.yaxis.grid(True)
                 ax.set_xticks(np.arange(0, 1000, 25))
+                if publication == 'PtrNet-RSA-40' and topology == 'COST239':
+                    ax.set_ylim(0.0005, 9.9)
 
             # Plot the case and check if data was plotted
             data_plotted, lines, labels = plot_case(ax, publication, topology, n_slots)
