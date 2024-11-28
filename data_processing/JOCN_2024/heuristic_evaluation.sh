@@ -5,7 +5,7 @@ SCRIPT_PATH="/Users/michaeldoherty/git/XLRON/xlron/train/train.py"
 
 # Create/overwrite output CSV file with headers
 OUTPUT_FILE="experiment_results_eval.csv"
-echo "HEUR,TOPOLOGY,LOAD,K,WEIGHT,returns_mean,returns_std,returns_iqr_lower,returns_iqr_upper,lengths_mean,lengths_std,lengths_iqr_lower,lengths_iqr_upper,cum_returns_mean,cum_returns_std,cum_returns_iqr_lower,cum_returns_iqr_upper,accepted_services_mean,accepted_services_std,accepted_services_iqr_lower,accepted_services_iqr_upper,accepted_bitrate_mean,accepted_bitrate_std,accepted_bitrate_iqr_lower,accepted_bitrate_iqr_upper,total_bitrate_mean,total_bitrate_std,total_bitrate_iqr_lower,total_bitrate_iqr_upper,utilisation_mean,utilisation_std,utilisation_iqr_lower,utilisation_iqr_upper,service_blocking_probability_mean,service_blocking_probability_std,service_blocking_probability_iqr_lower,service_blocking_probability_iqr_upper,bitrate_blocking_probability_mean,bitrate_blocking_probability_std,bitrate_blocking_probability_iqr_lower,bitrate_blocking_probability_iqr_upper" > $OUTPUT_FILE
+echo "NAME,HEUR,TOPOLOGY,LOAD,K,WEIGHT,returns_mean,returns_std,returns_iqr_lower,returns_iqr_upper,lengths_mean,lengths_std,lengths_iqr_lower,lengths_iqr_upper,cum_returns_mean,cum_returns_std,cum_returns_iqr_lower,cum_returns_iqr_upper,accepted_services_mean,accepted_services_std,accepted_services_iqr_lower,accepted_services_iqr_upper,accepted_bitrate_mean,accepted_bitrate_std,accepted_bitrate_iqr_lower,accepted_bitrate_iqr_upper,total_bitrate_mean,total_bitrate_std,total_bitrate_iqr_lower,total_bitrate_iqr_upper,utilisation_mean,utilisation_std,utilisation_iqr_lower,utilisation_iqr_upper,service_blocking_probability_mean,service_blocking_probability_std,service_blocking_probability_iqr_lower,service_blocking_probability_iqr_upper,bitrate_blocking_probability_mean,bitrate_blocking_probability_std,bitrate_blocking_probability_iqr_lower,bitrate_blocking_probability_iqr_upper" > $OUTPUT_FILE
 
 run_experiment() {
     local name=$1
@@ -35,7 +35,7 @@ run_experiment() {
         $additional_args)
 
     # Extract metrics using awk and store in CSV format
-    echo "$OUTPUT" | awk -v heur="ksp_ff" -v topo="$topology" -v l="$traffic_load" -v k="$k" -v weight="$weight" '
+    echo "$OUTPUT" | awk -v name="$name" -v heur="ksp_ff" -v topo="$topology" -v l="$traffic_load" -v k="$k" -v weight="$weight" '
         BEGIN {
             started=0
             # Define the order of metrics we want in output
@@ -106,7 +106,7 @@ run_experiment() {
             values[metric]=value
         }
         END {
-            printf "%s,%s,%s,%s,%s", heur, topo, l, k, weight
+            printf "%s,%s,%s,%s,%s,%s", name, heur, topo, l, k, weight
             # Output values in the defined order
             for (i=1; i<=36; i++) {
                 if (values[metrics[i]] != "") {
@@ -145,19 +145,19 @@ for weight in "--weight=weight" ""; do
     done
 
     # GCN-RMSA NSFNET
-    args="--env_type rmsa --link_resources 100 --mean_service_holding_time 14 $weight"
+    args="--env_type rmsa --link_resources 100 --mean_service_holding_time 14 --truncate_holding_time $weight"
     for traffic_load in 154 168 182 196 210; do
         run_experiment "GCN-RMSA" "nsfnet_deeprmsa_directed" "$traffic_load" "$k" "$weight" "$args"
     done
 
     # GCN-RMSA COST239
-    args="--env_type rmsa --link_resources 100 --mean_service_holding_time 23 $weight"
+    args="--env_type rmsa --link_resources 100 --mean_service_holding_time 23 --truncate_holding_time $weight"
     for traffic_load in 368 391 414 437 460; do
         run_experiment "GCN-RMSA" "cost239_deeprmsa_directed" "$traffic_load" "$k" "$weight" "$args"
     done
 
     # GCN-RMSA USNET
-    args="--env_type rmsa --link_resources 100 --mean_service_holding_time 20 $weight"
+    args="--env_type rmsa --link_resources 100 --mean_service_holding_time 20 --truncate_holding_time $weight"
     for traffic_load in 320 340 360 380 400; do
         run_experiment "GCN-RMSA" "usnet_gcnrnn_directed" "$traffic_load" "$k" "$weight" "$args"
     done
