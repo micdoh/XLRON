@@ -601,34 +601,6 @@ class MultiBandRSAEnv(RSAEnv):
         )
         self.initial_state = state.replace(graph=init_graph_tuple(state, params))
 
-class MultiBandRSAEnv(RSAEnv):
-    """This environment simulates the Multiband problem
-    """
-    def __init__(
-            self,
-            key: chex.PRNGKey, 
-            params: RSAEnvParams, 
-            traffic_matrix: chex.Array = None,
-    ):
-        super().__init__(key, params, traffic_matrix=traffic_matrix)
-
-        initial_state = RSAEnvState(
-            current_time=0,
-            holding_time=0,
-            total_timesteps=0,
-            total_requests=-1,
-            link_slot_array=init_link_slot_array(params),
-            link_slot_departure_array=init_link_slot_departure_array(params),
-            request_array=init_rsa_request_array(),
-            link_slot_mask=init_link_slot_mask(params, agg=params.aggregate_slots),
-            traffic_matrix=traffic_matrix if traffic_matrix is not None else init_traffic_matrix(key, params),
-            graph=None,
-            full_link_slot_mask=init_link_slot_mask(params),
-            accepted_services=0,
-            accepted_bitrate=0.,
-            total_bitrate=0.,
-        )
-        self.initial_state = initial_state
 
 def make_rsa_env(config):
     """Create RSA environment. This function is the entry point to setting up any RSA-type environment.
