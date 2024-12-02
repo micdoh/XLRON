@@ -17,11 +17,11 @@ TOPOLOGY_LOADS["cost239_deeprmsa_directed"]="${COST239_LOADS[*]}"
 TOPOLOGY_LOADS["usnet_gcnrnn_directed"]="${USNET_LOADS[*]}"
 TOPOLOGY_LOADS["jpn48_directed"]="${JPN48_LOADS[*]}"
 
-HEURISTICS=("ksp_ff")
-K_VALUES=(2 5 8 11 14 17 20 25 30 40)
+HEURISTICS=("ksp_ff" "ff_ksp" "ksp_bf" "bf_ksp" "kme_ff" "kca_ff") # "kmc_ff" "kmf_ff"
+K_VALUES=(50)
 
 # Create/overwrite output CSV file with headers
-OUTPUT_FILE="experiment_results_k.csv"
+OUTPUT_FILE="experiment_results_traffic.csv"
 echo "HEUR,TOPOLOGY,LOAD,K,returns_mean,returns_std,returns_iqr_lower,returns_iqr_upper,lengths_mean,lengths_std,lengths_iqr_lower,lengths_iqr_upper,cum_returns_mean,cum_returns_std,cum_returns_iqr_lower,cum_returns_iqr_upper,accepted_services_mean,accepted_services_std,accepted_services_iqr_lower,accepted_services_iqr_upper,accepted_bitrate_mean,accepted_bitrate_std,accepted_bitrate_iqr_lower,accepted_bitrate_iqr_upper,total_bitrate_mean,total_bitrate_std,total_bitrate_iqr_lower,total_bitrate_iqr_upper,utilisation_mean,utilisation_std,utilisation_iqr_lower,utilisation_iqr_upper,service_blocking_probability_mean,service_blocking_probability_std,service_blocking_probability_iqr_lower,service_blocking_probability_iqr_upper,bitrate_blocking_probability_mean,bitrate_blocking_probability_std,bitrate_blocking_probability_iqr_lower,bitrate_blocking_probability_iqr_upper" > $OUTPUT_FILE
 
 for HEUR in "${HEURISTICS[@]}"; do

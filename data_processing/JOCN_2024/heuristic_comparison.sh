@@ -5,12 +5,12 @@ SCRIPT_PATH="/home/uceedoh/git/XLRON/xlron/train/train.py"
 
 # Define arrays for parameter combinations
 declare -A TOPOLOGY_LOADS=(
-    #["nsfnet_deeprmsa_directed"]="145"
+    ["nsfnet_deeprmsa_directed"]="145"
     ["cost239_deeprmsa_directed"]="317"
-    #["usnet_gcnrnn_directed"]="265"
-    ["jpn48_directed"]="102"
+    ["usnet_gcnrnn_directed"]="265"
+    ["jpn48_directed"]="115"
 )
-HEURISTICS=("ksp_ff" "ff_ksp" "ksp_bf" "bf_ksp" "kmc_ff" "kmf_ff" "kme_ff" "kca_ff")
+HEURISTICS=("ksp_ff" "ff_ksp" "ksp_bf" "bf_ksp" "kme_ff" "kca_ff") # "kmc_ff" "kmf_ff"
 K_VALUES=(2 5 8 11 14 17 20 23 26)
 
 # Create/overwrite output CSV file with headers
