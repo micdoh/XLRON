@@ -15,7 +15,7 @@ from xlron.environments.env_funcs import generate_request_rsa, get_paths_se, req
     implement_action_rsa, finalise_action_rsa, check_action_rsa
 from xlron.environments.wrappers import TimeIt
 from xlron.train.train_utils import define_env
-from xlron.heuristics.heuristics import ksp_ff
+from xlron.heuristics.heuristics import ksp_ff, ff_ksp
 from reconfigurable_routing_bounds import generate_request_list, sort_requests
 
 FLAGS = flags.FLAGS
@@ -56,7 +56,8 @@ def get_eval_fn(config, env, env_params) -> Callable:
             rng, action_key, step_key = jax.random.split(rng, 3)
 
             # SELECT ACTION
-            action = ksp_ff(env_state.env_state, env_params)
+            action = ksp_ff(env_state.env_state, env_params) if config.path_heuristic == 'ksp_ff'\
+                else ff_ksp(env_state.env_state, env_params)
             state = implement_action_rsa(env_state.env_state, action, env_params)
             blocking = check_action_rsa(state)
             state = finalise_action_rsa(state, env_params)
@@ -99,7 +100,8 @@ def step_env(rng, env, env_state, env_params):
     # Step through the environment
     rng, action_key, step_key = jax.random.split(rng, 3)
     # SELECT ACTION
-    action = ksp_ff(env_state.env_state, env_params)
+    action = ksp_ff(env_state.env_state, env_params) if FLAGS.path_heuristic == 'ksp_ff'\
+        else ff_ksp(env_state.env_state, env_params)
     # STEP ENV
     obsv, env_state, reward, done, info = env.step(step_key, env_state, action, env_params)
     return obsv, env_state, reward, done, info
@@ -117,7 +119,7 @@ def main(argv):
     all_block_counts = []
     all_fix_counts = []
 
-    for seed in range(10):
+    for seed in range(3):
 
         # Define environment
         FLAGS.__setattr__("deterministic_requests", False)
@@ -156,6 +158,7 @@ def main(argv):
                 obsv, env_state, reward, done, info = step_env(env_key, env, env_state, env_params)
                 blocking = 1 if reward < 0 else 0
                 if blocking:
+                    print(i)
                     block_count += 1
                     sort_index = sort_indices[i]
                     sorted_requests, new_env_state, blocking = run_defrag(env_key, sorted_requests, sort_index, init_obs, initial_state)
@@ -193,10 +196,10 @@ def main(argv):
     fix_count_std = jnp.std(fix_counts)
     fix_count_iqr_lower = jnp.percentile(fix_counts, 25)
     fix_count_iqr_upper = jnp.percentile(fix_counts, 75)
-    fix_ratio = fix_count_mean / block_count_mean
-    fix_ratio_std = jnp.std(fix_counts / block_counts)
-    fix_ratio_iqr_lower = jnp.percentile(fix_counts / block_counts, 25)
-    fix_ratio_iqr_upper = jnp.percentile(fix_counts / block_counts, 75)
+    fix_ratio_mean = jnp.nan_to_num(fix_count_mean / block_count_mean, nan=1)
+    fix_ratio_std = jnp.nan_to_num(jnp.std(fix_counts / block_counts), nan=0)
+    fix_ratio_iqr_lower = jnp.nan_to_num(jnp.percentile(fix_counts / block_counts, 25), nan=fix_ratio_mean)
+    fix_ratio_iqr_upper = jnp.nan_to_num(jnp.percentile(fix_counts / block_counts, 75), nan=fix_ratio_mean)
     print(f"Blocking Probability: {blocking_prob_mean:.5f} ± {blocking_prob_std:.5f}")
     print(f"Blocking Probability mean: {blocking_prob_mean:.5f}")
     print(f"Blocking Probability std: {blocking_prob_std:.5f}")
@@ -210,7 +213,7 @@ def main(argv):
     print(f"Fix Count std: {fix_count_std:.5f}")
     print(f"Fix Count IQR lower: {fix_count_iqr_lower:.5f}")
     print(f"Fix Count IQR upper: {fix_count_iqr_upper:.5f}")
-    print(f"Fix Ratio mean: {fix_ratio:.5f}")
+    print(f"Fix Ratio mean: {fix_ratio_mean:.5f}")
     print(f"Fix Ratio std: {fix_ratio_std:.5f}")
     print(f"Fix Ratio IQR lower: {fix_ratio_iqr_lower:.5f}")
     print(f"Fix Ratio IQR upper: {fix_ratio_iqr_upper:.5f}")
