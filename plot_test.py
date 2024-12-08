@@ -17,7 +17,7 @@ plt.xlabel("Traffic Load (Erlangs)", fontsize=12)
 plt.ylabel("Blocking Probability", fontsize=12)
 plt.title("Single Band vs Multi Band Performance", fontsize=14)
 #plt.ylim([1e-10, 1])
-plt.yticks([1e-10, 1e-8, 1e-6, 1e-4, 1e-2, 1])
+#plt.yticks([1e-10, 1e-8, 1e-6, 1e-4, 1e-2, 1])
 plt.legend()
 
 plt.tight_layout()
