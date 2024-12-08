@@ -3,7 +3,7 @@
 poetry run python ./xlron/train/train.py \
   --env_type=multibandrsa \
   --continuous_operation \
-  --load=850 \
+  --load=550 \
   --k=5 \
   --topology_name=nsfnet_deeprmsa_directed \
   --link_resources=100 \
