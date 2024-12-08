@@ -6,10 +6,10 @@ SCRIPT_PATH="/home/uceedoh/git/XLRON/xlron/train/train.py"
 # Define arrays for parameter combinations
 declare -A TOPOLOGY_LOADS
 # Initialize arrays of loads for each topology
-NSFNET_LOADS=(90 103 119 137 157 181)
-COST239_LOADS=(190 218 251 289 332 382)
-USNET_LOADS=(140 160 184 211 243 279)
-JPN48_LOADS=(52 61 72 91 100 120)
+NSFNET_LOADS=(103 119 137 157 181)
+COST239_LOADS=(218 251 289 332 382)
+USNET_LOADS=(160 184 211 243 279)
+JPN48_LOADS=(61 72 91 100 120)
 
 # Associate loads with topologies
 TOPOLOGY_LOADS["nsfnet_deeprmsa_directed"]="${NSFNET_LOADS[*]}"
