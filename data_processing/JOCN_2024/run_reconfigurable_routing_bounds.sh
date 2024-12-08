@@ -48,19 +48,19 @@ run_experiment() {
 
 # DeepRMSA, Reward-RMSA, GCN-RMSA  Experiments
 args="--env_type rmsa --link_resources 100 --mean_service_holding_time 20 --continuous_operation --truncate_holding_time"
-for traffic_load in 240 250 260; do
+for traffic_load in 232 240 250 260; do
   run_experiment "DeepRMSA~Reward-RMSA~GCN-RMSA" "nsfnet_deeprmsa_directed" "$traffic_load" "50" "$args" "ksp_ff"
 done
-for traffic_load in 500 550 600; do
+for traffic_load in 500 540 550 575 600; do
   run_experiment "DeepRMSA~Reward-RMSA~GCN-RMSA" "cost239_deeprmsa_directed" "$traffic_load" "50" "$args" "ksp_ff"
 done
-for traffic_load in 450 475 500; do
+for traffic_load in 450 460 475 478 500; do
   run_experiment "DeepRMSA~Reward-RMSA~GCN-RMSA" "usnet_gcnrnn_directed" "$traffic_load" "50" "$args" "ksp_ff"
 done
 
 # MaskRSA NSFNET
 args="--env_type rmsa --link_resources 80 --max_bw 50 --guardband 0 --slot_size 12.5 --mean_service_holding_time 12 --continuous_operation"
-for traffic_load in 125 130 135; do
+for traffic_load in 122; do #125 130 135; do
 run_experiment "MaskRSA" "nsfnet_deeprmsa_undirected" "$traffic_load" "50" "$args" "ksp_ff"
 done
 # MaskRSA JPN48
@@ -73,7 +73,7 @@ var_bw="1,1,1,1,1,1,1,1,1,1,1,1,1,1,2,2,2,3,3,4"
 
  # NSFNET PtrNet-RSA-40
 args="$base_args --link_resources 40 --values_bw 1"
-for traffic_load in 230 240 250; do
+for traffic_load in 225 230 240 250; do
 run_experiment "PtrNet-RSA-40" "nsfnet_deeprmsa_undirected" "$traffic_load" "50" "$args" "ksp_ff"
 done
 # COST239 PtrNet-RSA-40
@@ -83,7 +83,7 @@ run_experiment "PtrNet-RSA-40" "cost239_ptrnet_real_undirected" "$traffic_load" 
 done
 # USNET PtrNet-RSA-40
 args="$base_args --link_resources 40 --values_bw 1"
-for traffic_load in 250 260 270; do
+for traffic_load in 250 255 260 270; do
 run_experiment "PtrNet-RSA-40" "usnet_ptrnet_undirected" "$traffic_load" "50" "$args" "ksp_ff"
 done
 
@@ -94,7 +94,7 @@ run_experiment "PtrNet-RSA-80" "nsfnet_deeprmsa_undirected" "$traffic_load" "50"
 done
 # COST239 PtrNet-RSA-80
 args="$base_args --link_resources 80 --values_bw $var_bw"
-for traffic_load in 600 615 630; do
+for traffic_load in 600 608 615 630; do
 run_experiment "PtrNet-RSA-80" "cost239_ptrnet_real_undirected" "$traffic_load" "50" "$args" "ksp_ff"
 done
 # USNET PtrNet-RSA-80
