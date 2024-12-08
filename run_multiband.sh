@@ -1,9 +1,9 @@
 #!/bin/bash
 
-python /Users/ianwang/PycharmProjects/XLRON/xlron/train/train.py \
+poetry run python ./xlron/train/train.py \
   --env_type=multibandrsa \
   --continuous_operation \
-  --load=400 \
+  --load=850 \
   --k=5 \
   --topology_name=nsfnet_deeprmsa_directed \
   --link_resources=100 \
