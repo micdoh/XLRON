@@ -706,7 +706,7 @@ def _poisson(key, lam, shape, dtype) -> Array:
 @partial(jax.jit, static_argnums=(1,))
 def generate_arrival_holding_times(key, params):
     """
-    Generate arrival and holding times based on Poission distirbuted events.
+    Generate arrival and holding times based on Poisson distributed events.
     To understand how sampling from e^-x can be transformed to sample from lambda*e^-(x/lambda) see:
     https://en.wikipedia.org/wiki/Inverse_transform_sampling#Examples
     Basically, inverse transform sampling is used to sample from a distribution with CDF F(x).

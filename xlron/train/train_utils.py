@@ -448,7 +448,15 @@ def log_metrics(config, out, experiment_name, total_time, merge_func):
         # For continuous operation, define max_timesteps as the episode end
         episode_ends = np.arange(0, (config.TOTAL_TIMESTEPS // config.NUM_LEARNERS // config.NUM_ENVS) + 1, config.max_timesteps)[1:].astype(int) - 1
     else:
-        episode_ends = np.where(merged_out["done"].mean(0).reshape(-1) == 1)[0] - 1
+        if not config.end_first_blocking:
+            episode_ends = np.where(merged_out["done"].mean(0).reshape(-1) == 1)[0] - 1
+        else:
+            keep_dims = merged_out["done"].shape[:-2]
+            ends = merged_out["done"].reshape((*keep_dims, -1))
+            episode_ends = (np.where(ends == 1)[-1] - 1)
+        for end in episode_ends.reshape(-1):
+            if end is True:
+                print(end)
 
     def get_mean_std_iqr(x, y):
         _mean = x[y].mean(axis=0).reshape(-1)
@@ -465,9 +473,14 @@ def log_metrics(config, out, experiment_name, total_time, merge_func):
             _end_iqr_lower = jnp.percentile(x[y], 25, axis=0).reshape(-1)[episode_ends]
         else:
             # For end_first_blocking, episode_ends are variable so calculate std and iqr for all episodes
-            _end_std = jnp.full(x.reshape(-1)[episode_ends].shape, x.reshape(-1)[episode_ends].std())
-            _end_iqr_upper = jnp.full(x.reshape(-1)[episode_ends].shape, np.percentile(x.reshape(-1)[episode_ends], 75))
-            _end_iqr_lower = jnp.full(x.reshape(-1)[episode_ends].shape, np.percentile(x.reshape(-1)[episode_ends], 25))
+            # merge the final two dimension of x[y], keeping the rest the same
+            vals = x[y].reshape(-1)[episode_ends]
+            shape_out = vals.reshape(-1).shape
+            _end_std = jnp.full(shape_out, vals.std())
+            _end_iqr_upper = jnp.full(shape_out, np.percentile(vals, 75))
+            _end_iqr_lower = jnp.full(shape_out, np.percentile(vals, 25))
+            # _end_iqr_upper = jnp.full(x[y].reshape(-1)[episode_ends].shape, np.percentile(x[y].reshape(-1)[episode_ends], 75))
+            # _end_iqr_lower = jnp.full(x[y].reshape(-1)[episode_ends].shape, np.percentile(x[y].reshape(-1)[episode_ends], 25))
         return _end_mean, _end_std, _end_iqr_upper, _end_iqr_lower
 
     processed_data = {}
@@ -636,19 +649,23 @@ def log_metrics(config, out, experiment_name, total_time, merge_func):
         path_lengths_iqr_lower = np.percentile(path_lengths, 25)
         num_hops_mean = num_hops.mean()
         num_hops_std = num_hops.std()
-        print(f"Average path length: {path_lengths_mean:.0f} ± {path_lengths_std:.0f}")
+        print(f"Average path length mean: {path_lengths_mean:.0f}")
+        print(f"Average path length std: {path_lengths_std:.0f}")
         print(f"Average path length IQR upper: {path_lengths_iqr_upper:.0f}")
         print(f"Average path length IQR lower: {path_lengths_iqr_lower:.0f}")
-        print(f"Average number of hops: {num_hops_mean:.2f} ± {num_hops_std:.2f}")
+        print(f"Average number of hops mean: {num_hops_mean:.2f}")
+        print(f"Average number of hops std: {num_hops_std:.2f}")
         print(f"Average number of hops IQR upper: {np.percentile(num_hops, 75):.2f}")
         print(f"Average number of hops IQR lower: {np.percentile(num_hops, 25):.2f}")
         # Get path lengths where returns are positive, 0 otherwise
         utilised_path_lengths = jnp.where(returns > 0, jnp.take(path_lengths, path_indices), 0)
         utilised_path_hops = jnp.where(returns > 0, jnp.take(num_hops, path_indices), 0)
-        print(f"Average path length for successful actions: {utilised_path_lengths.mean():.0f} ± {utilised_path_lengths.std():.0f}")
+        print(f"Average path length for successful actions mean: {utilised_path_lengths.mean():.0f}")
+        print(f"Average path length for successful actions std: {utilised_path_lengths.std():.0f}")
         print(f"Average path length for successful actions IQR upper: {np.percentile(utilised_path_lengths, 75):.0f}")
         print(f"Average path length for successful actions IQR lower: {np.percentile(utilised_path_lengths, 25):.0f}")
-        print(f"Average number of hops for successful actions: {utilised_path_hops.mean():.2f} ± {utilised_path_hops.std():.2f}")
+        print(f"Average number of hops for successful actions mean: {utilised_path_hops.mean():.2f}")
+        print(f"Average number of hops for successful actions std: {utilised_path_hops.std():.2f}")
         print(f"Average number of hops for successful actions IQR upper: {np.percentile(utilised_path_hops, 75):.2f}")
         print(f"Average number of hops for successful actions IQR lower: {np.percentile(utilised_path_hops, 25):.2f}")
 
@@ -682,5 +699,9 @@ def log_metrics(config, out, experiment_name, total_time, merge_func):
         positive_return_count = jnp.count_nonzero(jnp.where(returns > 0, returns, 0), axis=-1)
         unique_paths_used_mean = (unique_paths_used_count / positive_return_count).reshape(-1).mean()
         unique_paths_used_std = (unique_paths_used_count / positive_return_count).reshape(-1).std()
-        print(f"Fraction of successful actions that use unique paths: {unique_paths_used_mean:.3f} ± {unique_paths_used_std:.3f}")
-
+        unique_paths_used_iqr_upper = np.percentile(unique_paths_used_count / positive_return_count, 75)
+        unique_paths_used_iqr_lower = np.percentile(unique_paths_used_count / positive_return_count, 25)
+        print(f"Fraction of successful actions that use unique paths mean: {unique_paths_used_mean:.3f}")
+        print(f"Fraction of successful actions that use unique paths std: {unique_paths_used_std:.3f}")
+        print(f"Fraction of successful actions that use unique paths IQR upper: {unique_paths_used_iqr_upper:.3f}")
+        print(f"Fraction of successful actions that use unique paths IQR lower: {unique_paths_used_iqr_lower:.3f}")

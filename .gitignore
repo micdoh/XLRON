@@ -16,3 +16,4 @@ config/
 models/
 data_processing/
 data/
+.ipynb_checkpoints/
