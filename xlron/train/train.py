@@ -138,6 +138,7 @@ def main(argv):
     if FLAGS.SAVE_MODEL:
         # Merge seed_device and seed dimensions
         train_state = jax.tree.map(lambda x: x[0], out["runner_state"][0])
+        print("train_state", train_state)
         save_model(train_state, run_name, FLAGS)
 
     # END OF TRAINING

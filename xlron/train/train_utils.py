@@ -20,7 +20,7 @@ from xlron.environments.vone import make_vone_env
 from xlron.environments.rsa import make_rsa_env
 from xlron.models.models import ActorCriticGNN, ActorCriticMLP
 from xlron.environments.dataclasses import EnvState
-from xlron.environments.env_funcs import init_link_length_array, make_graph
+from xlron.environments.env_funcs import init_link_length_array, make_graph, get_paths
 
 
 class TrainState(struct.PyTreeNode):
@@ -167,7 +167,7 @@ def moving_average(x, w):
 
 
 def save_model(train_state: TrainState, run_name, flags: absl.flags.FlagValues):
-    save_data = {"model": train_state, "config": flags}
+    save_data = {"model": train_state, "config": flags.flag_values_dict()}
     orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
     save_args = orbax_utils.save_args_from_target(save_data)
     # Get path to current file
@@ -505,31 +505,6 @@ def log_metrics(config, out, experiment_name, total_time, merge_func):
         plt.title(experiment_name)
         plt.show()
 
-    if config.DATA_OUTPUT_FILE:
-        # Save episode end metrics to file
-        df = pd.DataFrame({
-            "accepted_services": accepted_services_mean_episode_end,
-            "accepted_services_std": accepted_services_std_episode_end,
-            "accepted_bitrate": accepted_bitrate_mean_episode_end,
-            "accepted_bitrate_std": accepted_bitrate_std_episode_end,
-            "service_blocking_probability": service_blocking_probability_episode_end,
-            "service_blocking_probability_std": service_blocking_probability_std_episode_end,
-            "bitrate_blocking_probability": bitrate_blocking_probability_episode_end,
-            "bitrate_blocking_probability_std": bitrate_blocking_probability_std_episode_end,
-            "total_bitrate": total_bitrate_mean_episode_end,
-            "total_bitrate_std": total_bitrate_std_episode_end,
-            "utilisation_mean": utilisation_mean_episode_end,
-            "utilisation_std": utilisation_std_episode_end,
-            "returns": returns_mean_episode_end,
-            "returns_std": returns_std_episode_end,
-            "cum_returns": cum_returns_mean_episode_end,
-            "cum_returns_std": cum_returns_std_episode_end,
-            "lengths": lengths_mean_episode_end,
-            "lengths_std": lengths_std_episode_end,
-            "training_time": training_time_episode_end,
-        })
-        df.to_csv(config.DATA_OUTPUT_FILE)
-
     if config.WANDB:
         # Log the data to wandb
         # Define the downsample factor to speed up upload to wandb
@@ -612,10 +587,6 @@ def log_metrics(config, out, experiment_name, total_time, merge_func):
           f" ± {accepted_bitrate_std[-1] if config.continuous_operation else accepted_bitrate_std_episode_end.mean():.0f}")
 
     if config.log_actions:
-        # TODO(TRAJ_VIZ): We get the agent actions here but we dpon't sdave them anywhere!cWQe need to save them
-        #  to file or to WANDB to start analysing. Bear in mind that "merged_out" is a dictionary containing arrays
-        #  that have a leading dimension equal to the number of parallel environments. I recommend placing breakpoints
-        #  to have a look at the data structure, then implement saving it to file and/or WANDB.
 
         env, params = define_env(config)
         request_source = merged_out["source"]
@@ -638,12 +609,6 @@ def log_metrics(config, out, experiment_name, total_time, merge_func):
         num_hops_std = num_hops.std()
         print(f"Average path length: {path_lengths_mean:.0f} ± {path_lengths_std:.0f}")
         print(f"Average number of hops: {num_hops_mean:.2f} ± {num_hops_std:.2f}")
-
-        request_source = jnp.squeeze(merged_out["source"])
-        request_dest = jnp.squeeze(merged_out["dest"])
-        request_data_rate = jnp.squeeze(merged_out["data_rate"])
-        path_indices = jnp.squeeze(merged_out["path_index"])
-        slot_indices = jnp.squeeze(merged_out["slot_index"])
 
         # Compare the available paths
         df_path_links = pd.DataFrame(params.path_link_array.val).reset_index(drop=True)
@@ -670,4 +635,66 @@ def log_metrics(config, out, experiment_name, total_time, merge_func):
         unique_paths_used_mean = (unique_paths_used_count / positive_return_count).reshape(-1).mean()
         unique_paths_used_std = (unique_paths_used_count / positive_return_count).reshape(-1).std()
         print(f"Fraction of successful actions that use unique paths: {unique_paths_used_mean:.3f} ± {unique_paths_used_std:.3f}")
+
+        # Reshape to combine episodes into a single trajectory. Only keep the first environment's output.
+        request_source = request_source.reshape((request_source.shape[0], -1))[0]
+        request_dest = request_dest.reshape((request_dest.shape[0], -1))[0]
+        request_data_rate = request_data_rate.reshape((request_data_rate.shape[0], -1))[0]
+        path_indices = path_indices.reshape((path_indices.shape[0], -1))[0]
+        slot_indices = slot_indices.reshape((slot_indices.shape[0], -1))[0]
+        returns = returns.reshape((returns.shape[0], -1))[0]
+
+        # TODO(TRAJ_VIZ): Keep track of request arrival and departure times for visualisation (need to log these in the env)
+
+        # TODO(TRAJ_VIZ): Use the paths array (below) for your visualisation.
+        #  Each row of the paths array represents the links utilised by the paths as a binary array (1,0,1,1,1,0,0,...)
+        #  1 means the link is used by the path, 0 means it is not.
+        paths_list = []
+        for path_index, slot_index, source, dest in zip(path_indices, slot_indices, request_source, request_dest):
+            source, dest = source.reshape(1), dest.reshape(1)
+            path_links = get_paths(params, jnp.concatenate([source, dest]))[path_index]
+            # Make path links into a string
+            path_str = "".join([str(x.astype(jnp.int32)) for x in path_links])
+            paths_list.append(path_str)
+
+        if config.TRAJ_DATA_OUTPUT_FILE:
+            # TODO(TRAJ_VIZ): We save save to file here. Maybe we also want to save to WANDB.
+            print(f"Saving trajectory metrics to {config.TRAJ_DATA_OUTPUT_FILE}")
+            # Save episode end metrics to file
+            df = pd.DataFrame({
+                "request_source": request_source,
+                "request_dest": request_dest,
+                "request_data_rate": request_data_rate,
+                "path_indices": path_indices,
+                "slot_indices": slot_indices,
+                "returns": returns,
+                "path_links": paths_list,
+            })
+            df.to_csv(config.TRAJ_DATA_OUTPUT_FILE)
+
+    if config.EPISODE_END_DATA_OUTPUT_FILE:
+        print(f"Saving metrics to {config.EPISODE_END_DATA_OUTPUT_FILE}")
+        # Save episode end metrics to file
+        df = pd.DataFrame({
+            "accepted_services": accepted_services_mean_episode_end,
+            "accepted_services_std": accepted_services_std_episode_end,
+            "accepted_bitrate": accepted_bitrate_mean_episode_end,
+            "accepted_bitrate_std": accepted_bitrate_std_episode_end,
+            "service_blocking_probability": service_blocking_probability_episode_end,
+            "service_blocking_probability_std": service_blocking_probability_std_episode_end,
+            "bitrate_blocking_probability": bitrate_blocking_probability_episode_end,
+            "bitrate_blocking_probability_std": bitrate_blocking_probability_std_episode_end,
+            "total_bitrate": total_bitrate_mean_episode_end,
+            "total_bitrate_std": total_bitrate_std_episode_end,
+            "utilisation_mean": utilisation_mean_episode_end,
+            "utilisation_std": utilisation_std_episode_end,
+            "returns": returns_mean_episode_end,
+            "returns_std": returns_std_episode_end,
+            "cum_returns": cum_returns_mean_episode_end,
+            "cum_returns_std": cum_returns_std_episode_end,
+            "lengths": lengths_mean_episode_end,
+            "lengths_std": lengths_std_episode_end,
+            "training_time": training_time_episode_end,
+        })
+        df.to_csv(config.EPISODE_END_DATA_OUTPUT_FILE)
 
