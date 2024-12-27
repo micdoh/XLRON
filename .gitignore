@@ -14,6 +14,6 @@ config/
 .venv
 .zed
 models/
-data_processing/
+data_processing/misc
 data/
 .ipynb_checkpoints/
