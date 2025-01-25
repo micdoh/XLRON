@@ -356,9 +356,6 @@ class RSAEnv(environment.Environment):
             reward = jnp.array(-1.0)
         elif params.reward_type == "bitrate":
             reward = state.request_array[1] * -1.0 / jnp.max(params.values_bw.val)
-            if params.__class__.__name__ == "RSAGNModelEnvParams":
-                # multiply by minimum required SNR from modulation format array
-                reward = reward * params.modulations_array.val[0][2] / 50.  # divide by large SNR to scale below 1
         else:
             reward = -1.0 * read_rsa_request(state.request_array)[1] / jnp.max(params.values_bw) if params.maximise_throughput else jnp.array(-1.0)
         return reward
