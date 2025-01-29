@@ -138,7 +138,7 @@ flags.DEFINE_string("step_traffic", "0.1", "Step size for traffic values between
 flags.DEFINE_boolean("deterministic", False, "Deterministic evaluation (use mode of action distribution)")
 # GN model parameters
 flags.DEFINE_float("ref_lambda", 1577.5e-9, "Reference wavelength [m]")
-flags.DEFINE_float("launch_power", -2.0, "Launch power [dBm]")
+flags.DEFINE_float("launch_power", 0.5, "Launch power [dBm]")
 flags.DEFINE_string("launch_power_type", "fixed", "Can be fixed (same power per transceiver), "
                                                   "tabular (power depends on path), or rl (power selected by agent).")
 flags.DEFINE_float("nonlinear_coefficient", 1.2e-3, "Nonlinear coefficient [1/W^2]")
@@ -159,7 +159,7 @@ flags.DEFINE_float("max_power", 9, "Maximum launch power [dBm]")
 flags.DEFINE_float("min_power", -5, "Minimum launch power [dBm]")
 flags.DEFINE_float("step_power", 0.1, "Step size for launch power values between min and max")
 flags.DEFINE_boolean("discrete_launch_power", False, "Discrete launch power values")
-flags.DEFINE_boolean("first_fit", False, "Use KSP-FF for path_action, else KSP-LF")
+flags.DEFINE_boolean("last_fit", False, "Use KSP-FF for path_action, else KSP-LF")
 # Flags for optimize_launch_power.py
 flags.DEFINE_boolean("optimise_launch_power", False, "Use deteministic requests from list_of_requests to optimise launch power")
 flags.DEFINE_integer('EVAL_STEPS', 100, 'Number of steps to run in each evaluation')

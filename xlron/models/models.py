@@ -122,6 +122,11 @@ class ActorCriticMLP(nn.Module):
 
 
 class LaunchPowerActorCriticMLP(nn.Module):
+    """In this implementation, we take an observation of th current request + statistics on each of the K candidate paths.
+    We make K forward passes, one for each path, and output a distribution over power levels for each path.
+    In action selection, we then sample from each distribution and use the sampled power levels to mask paths for the
+    routing heuristc, which then determines the path taken. The selected path index is then used to select which output
+    action, distribution, and value to use for the loss calculation."""
     action_dim: Sequence[int]
     activation: str = "tanh"
     num_layers: int = 2
@@ -132,6 +137,9 @@ class LaunchPowerActorCriticMLP(nn.Module):
     step_power_dbm: float = 0.1
     discrete: bool = True
     temperature: float = 1.0
+    k_paths: int = 5
+    num_base_features: int = 4
+    num_path_features: int = 7
     # Beta distribution parameters (used only if discrete=False)
     min_concentration: float = 0.1
     max_concentration: float = 20.0
@@ -149,43 +157,182 @@ class LaunchPowerActorCriticMLP(nn.Module):
 
     @nn.compact
     def __call__(self, x):
-        actor_mean = make_dense_layers(x, self.num_units, self.num_layers, self.activation)
-        action_dists = []
+        # Helper function to create MLP layers
+        def make_mlp(prefix):
+            layers = []
+            for i in range(self.num_layers):
+                layers.append(nn.Dense(
+                    self.num_units,
+                    kernel_init=orthogonal(np.sqrt(2)),
+                    name=f"{prefix}_dense_{i}"
+                ))
+                if self.layer_norm:
+                    layers.append(nn.LayerNorm(name=f"{prefix}_norm_{i}"))
+            return layers
 
+        # Initialize actor network layers
+        actor_net = make_mlp("actor")
         if self.discrete:
-            # Discrete case: output logits for categorical distribution
-            logits = nn.Dense(
+            actor_out = nn.Dense(
                 self.num_power_levels,
                 kernel_init=orthogonal(0.01),
-                bias_init=constant(0.0)
-            )(actor_mean)
-
-            # Apply temperature scaling to logits
-            scaled_logits = logits / self.temperature
-            dist = distrax.Categorical(logits=scaled_logits)
+                name="actor_output"
+            )
         else:
-            # Continuous case: output alpha and beta for Beta distribution
-            raw_alpha = nn.Dense(1, kernel_init=orthogonal(0.01),
-                                 bias_init=constant(0.0))(actor_mean)
-            raw_beta = nn.Dense(1, kernel_init=orthogonal(0.01),
-                                bias_init=constant(0.0))(actor_mean)
+            alpha_out = nn.Dense(1, kernel_init=orthogonal(0.01), name="alpha")
+            beta_out = nn.Dense(1, kernel_init=orthogonal(0.01), name="beta")
 
-            alpha = self.min_concentration + jax.nn.softplus(raw_alpha) * (
-                    self.max_concentration - self.min_concentration
-            )
-            beta = self.min_concentration + jax.nn.softplus(raw_beta) * (
-                    self.max_concentration - self.min_concentration
-            )
-            dist = distrax.Beta(alpha, beta)
+        # Initialize critic network layers
+        critic_net = make_mlp("critic")
+        critic_out = nn.Dense(1, kernel_init=orthogonal(1.0), name="critic_output")
 
-        action_dists.append(dist)
+        def activate(x):
+            if self.activation == "relu": return jax.nn.relu(x)
+            if self.activation == "crelu": return crelu(x)
+            return jnp.tanh(x)
 
-        critic = make_dense_layers(x, self.num_units, self.num_layers, self.activation,
-                                   layer_norm=self.layer_norm)
-        critic = nn.Dense(1, kernel_init=orthogonal(1.0),
-                          bias_init=constant(0.0))(critic)
+        def forward(x, layers):
+            for layer in layers:
+                x = layer(x)
+                if isinstance(layer, nn.Dense):
+                    x = activate(x)
+            return x
 
-        return action_dists, jnp.squeeze(critic, axis=-1)
+        num_base_features = self.num_base_features
+        num_path_features = self.num_path_features
+        temperature = self.temperature
+        discrete = self.discrete
+        min_concentration = self.min_concentration
+        max_concentration = self.max_concentration
+
+        # Create a class to handle the scan
+        class PathProcessor(nn.Module):
+            def __call__(self, carry, i):
+                base = x[:num_base_features]
+                path = jax.lax.dynamic_slice(
+                    x,
+                    (num_base_features + i *num_path_features,),
+                    (num_path_features,)
+                )
+                features = jnp.concatenate([base, path])
+
+                critic_value = critic_out(forward(features, critic_net))
+
+                actor_hidden = forward(features, actor_net)
+                if discrete:
+                    out = actor_out(actor_hidden) / temperature
+                else:
+                    alpha = min_concentration + jax.nn.softplus(alpha_out(actor_hidden)) * (
+                            max_concentration - min_concentration
+                    )
+                    beta = min_concentration + jax.nn.softplus(beta_out(actor_hidden)) * (
+                            max_concentration - min_concentration
+                    )
+                    out = (alpha, beta)
+
+                return carry, (out, jnp.squeeze(critic_value))
+
+        # Scan over paths
+        _, (dist_params, values) = nn.scan(
+            PathProcessor,
+            variable_broadcast="params",
+            split_rngs={"params": False},
+            length=self.k_paths,
+        )()(None, jnp.arange(self.k_paths))
+
+        # Create appropriate distribution
+        if self.discrete:
+            dists = distrax.Categorical(logits=dist_params)
+        else:
+            dists = distrax.Beta(dist_params[0].reshape((self.k_paths,)), dist_params[1].reshape((self.k_paths,)))
+        # N.B. that this is a single distribution object, but it is batched over K paths
+
+        return [dists], values
+
+    # @nn.compact
+    # def __call__(self, x):
+    #     # Create actor layers
+    #     def make_mlp(name_prefix):
+    #         layers = []
+    #         for i in range(self.num_layers):
+    #             layers.append(
+    #                 nn.Dense(
+    #                     self.num_units,
+    #                     kernel_init=orthogonal(np.sqrt(2)),
+    #                     bias_init=constant(0.0),
+    #                     name=f"{name_prefix}_dense_{i}"
+    #                 )
+    #             )
+    #             if self.layer_norm:
+    #                 layers.append(nn.LayerNorm(name=f"{name_prefix}_norm_{i}"))
+    #         return layers
+    #
+    #     # Create all layers before scan
+    #     actor_layers = make_mlp("actor")
+    #     critic_layers = make_mlp("critic")
+    #
+    #     if self.discrete:
+    #         final_actor_layer = nn.Dense(
+    #             self.num_power_levels,
+    #             kernel_init=orthogonal(0.01),
+    #             bias_init=constant(0.0),
+    #             name="actor_output"
+    #         )
+    #     else:
+    #         alpha_layer = nn.Dense(1, kernel_init=orthogonal(0.01), bias_init=constant(0.0), name="alpha")
+    #         beta_layer = nn.Dense(1, kernel_init=orthogonal(0.01), bias_init=constant(0.0), name="beta")
+    #
+    #     critic_final = nn.Dense(1, kernel_init=orthogonal(1.0), bias_init=constant(0.0), name="critic_output")
+    #
+    #     def apply_layers(x, layers):
+    #         hidden = x
+    #         for layer in layers:
+    #             hidden = layer(hidden)
+    #             if isinstance(layer, nn.Dense):  # Only apply activation after Dense layers
+    #                 if self.activation == "relu":
+    #                     hidden = jax.nn.relu(hidden)
+    #                 elif self.activation == "crelu":
+    #                     hidden = crelu(hidden)
+    #                 else:
+    #                     hidden = jnp.tanh(hidden)
+    #         return hidden
+    #
+    #     def get_path_dists(carry, i):
+    #         base_features = x[:self.num_base_features]
+    #         path_features = jax.lax.dynamic_slice(
+    #             x,
+    #             (self.num_base_features + i * self.num_path_features,),
+    #             (self.num_path_features,)
+    #         )
+    #         combined_features = jnp.concatenate([base_features, path_features])
+    #
+    #         # Apply critic
+    #         critic_hidden = apply_layers(combined_features, critic_layers)
+    #         critic_value = critic_final(critic_hidden)
+    #
+    #         # Apply networks using pre-created layers
+    #         actor_hidden = apply_layers(combined_features, actor_layers)
+    #
+    #         if self.discrete:
+    #             logits = final_actor_layer(actor_hidden)
+    #             out = logits / self.temperature
+    #         else:
+    #             raw_alpha = alpha_layer(actor_hidden)
+    #             raw_beta = beta_layer(actor_hidden)
+    #             alpha = self.min_concentration + jax.nn.softplus(raw_alpha) * (
+    #                     self.max_concentration - self.min_concentration
+    #             )
+    #             beta = self.min_concentration + jax.nn.softplus(raw_beta) * (
+    #                     self.max_concentration - self.min_concentration
+    #             )
+    #             out = (alpha, beta)
+    #
+    #         return carry, (out, jnp.squeeze(critic_value))
+    #
+    #     # Scan through paths
+    #     _, (dist_params, values) = nn.scan(get_path_dists, None, jnp.arange(self.k_paths))
+    #     dists = distrax.Categorical(logits=dist_params) if self.discrete else distrax.Beta(dist_params[0].reshape((2,)), dist_params[1].reshape((2,)))
+    #     return [dists], values
 
     def sample_action(self, seed, dist, log_prob=False, deterministic=False):
         """Sample an action and convert to power level"""
@@ -196,7 +343,7 @@ class LaunchPowerActorCriticMLP(nn.Module):
             else:
                 # Sample from distribution
                 raw_action = dist.sample(seed=seed)
-            processed_action = self.power_levels[raw_action].reshape((1, 1))
+            processed_action = self.power_levels[raw_action].reshape((self.k_paths, 1))
         else:
             if deterministic:
                 # Use mean of Beta distribution for deterministic action
