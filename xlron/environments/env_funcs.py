@@ -2869,8 +2869,7 @@ def mask_slots_rsa_gn_model(state: RSAGNModelEnvState, params: RSAGNModelEnvPara
         # 0 means slot is free, 1 is occupied
         slots = jnp.concatenate((slots, jnp.ones(params.max_slots)))
         #slots = -slots + 1  # 1 if slot is free, 0 if slot is occupied
-        launch_power = get_launch_power(state, i, state.launch_power_array[0], params)
-        #jax.debug.print("slots {}", slots, ordered=True)
+        launch_power = get_launch_power(state, i, state.launch_power_array[i], params)
 
         # This function checks through each available modulation format, checks the first and last available slots,
         # calculates the SNR, checks it meets the requirements, and returns the resulting mask
@@ -3033,7 +3032,7 @@ def mask_slots_rsa_gn_model(state: RSAGNModelEnvState, params: RSAGNModelEnvPara
 @partial(jax.jit, static_argnums=(1,))
 def get_launch_power(state: EnvState, path_action: chex.Array, power_action: chex.Array, params: EnvParams) -> chex.Array:
     """Get launch power for new lightpath. N.B. launch power is specified in dBm but is converted to linear units
-    when stored in channel_power_array. This func returns linear units.
+    when stored in channel_power_array. This func returns linear units (mW).
     Path action is used to determine the launch power in the case of tabular launch power type.
     Power action is used to determine the launch power in the case of RL launch power type. During masking,
     power action is set as state.launch_power_array[0], which is set by the RL agent.
@@ -3045,11 +3044,11 @@ def get_launch_power(state: EnvState, path_action: chex.Array, power_action: che
     Returns:
         chex.Array: Launch power for new lightpath
     """
+    k_path_index, initial_slot_index = process_path_action(state, params, path_action)
     if params.launch_power_type == 1:  # Fixed
         launch_power = state.launch_power_array[0]
     elif params.launch_power_type == 2:  # Tabular (one row per path)
         nodes_sd, requested_datarate = read_rsa_request(state.request_array)
-        k_path_index, initial_slot_index = process_path_action(state, params, path_action)
         source, dest = nodes_sd
         i = get_path_indices(source, dest, params.k_paths, params.num_nodes, directed=params.directed_graph).astype(
             jnp.int32)
@@ -3058,7 +3057,6 @@ def get_launch_power(state: EnvState, path_action: chex.Array, power_action: che
         launch_power = power_action
     elif params.launch_power_type == 4:
         nodes_sd, requested_datarate = read_rsa_request(state.request_array)
-        k_path_index, initial_slot_index = process_path_action(state, params, path_action)
         source, dest = nodes_sd
         i = get_path_indices(source, dest, params.k_paths, params.num_nodes, directed=params.directed_graph).astype(
             jnp.int32)

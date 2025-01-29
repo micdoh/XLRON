@@ -1,6 +1,9 @@
+import jax
 from absl import flags
 from flax.training.train_state import TrainState
 from gymnax.environments import environment
+from tensorflow_probability.substrates.jax.distributions.student_t import entropy
+
 from xlron.environments.env_funcs import process_path_action
 from xlron.environments.dataclasses import EnvState, EnvParams, VONETransition, RSATransition
 from xlron.train.train_utils import *
@@ -89,6 +92,13 @@ def get_learner_fn(
         axes = (None, 0, None) if config.USE_GNN else (None, 0)
         _, last_val = jax.vmap(train_state.apply_fn, in_axes=axes)(train_state.params, *last_obs)
 
+        if config.env_type.lower() == "rsa_gn_model":
+            # Get the path index from the action and then use that to index on the correct value
+            last_path_action = traj_batch.action[-1, :, 0]
+            #last_path_action = jax.vmap(jax.lax.dynamic_slice(), in_axes=(0,))(traj_batch.action)
+            last_path_index = jax.vmap(process_path_action, in_axes=(0, None, 0))(env_state.env_state, env_params, last_path_action)[0]
+            last_val = jax.vmap(lambda x, i: jax.lax.dynamic_slice(x, (i,), (1,))[0])(last_val, last_path_index)
+
         def _calculate_gae(traj_batch, last_val):
             def _get_advantages(gae_and_next_value, transition):
                 gae, next_value = gae_and_next_value
@@ -148,10 +158,18 @@ def get_learner_fn(
                         entropy = pi_masked.entropy().mean()
 
                     elif config.env_type.lower() == "rsa_gn_model" and config.launch_power_type == "rl":
+                        # get path action, then path index, then index pi and value on the path index
+                        path_actions = traj_batch.action[:, 0]
+                        path_indices = jax.vmap(process_path_action, in_axes=(0, None, 0))(traj_batch.obs[0], env_params, path_actions)[0]
+                        value = jax.vmap(lambda x, i: jax.lax.dynamic_slice(x, (i,), (1,)))(value, path_indices)
                         power_action = traj_batch.action[:, 1]
                         # Re-scale action from [min_power, max_power] to [0, 1]
                         power_action = (power_action - env_params.min_power) / (env_params.max_power - env_params.min_power)
+                        # Repeat the power action along the last axis K-paths time
+                        power_action = jnp.repeat(power_action, config.k).reshape(-1, config.k)
                         log_prob = pi[0].log_prob(power_action)
+                        # Slice log prob to just take the path index
+                        log_prob = jax.vmap(lambda x, i: jax.lax.dynamic_slice(x, (i,), (1,)))(log_prob, path_indices)
                         entropy = pi[0].entropy().mean()
 
                     else:

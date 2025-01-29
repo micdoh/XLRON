@@ -21,7 +21,7 @@ from xlron.environments.vone import make_vone_env
 from xlron.environments.rsa import make_rsa_env
 from xlron.models.models import ActorCriticGNN, ActorCriticMLP, LaunchPowerActorCriticMLP
 from xlron.environments.dataclasses import EnvState
-from xlron.environments.env_funcs import init_link_length_array, make_graph
+from xlron.environments.env_funcs import init_link_length_array, make_graph, process_path_action
 from xlron.heuristics.heuristics import ksp_ff, ksp_lf
 
 
@@ -245,6 +245,7 @@ def init_network(config, env, env_state, env_params):
                 min_power_dbm=config.min_power,
                 max_power_dbm=config.max_power,
                 step_power_dbm=config.step_power,
+                k_paths=env_params.k_paths,
             )
             init_x = tuple([jnp.zeros(env.observation_space(env_params).n)])
         else:
@@ -318,8 +319,9 @@ def select_action(select_action_state, env, env_params, train_state, config):
     elif config.env_type.lower() == "rsa_gn_model" and config.launch_power_type == "rl":
         power_action, log_prob = train_state.sample_fn(action_keys[0], pi[0], log_prob=True, deterministic=config.deterministic)
         env_state = env_state.env_state.replace(launch_power_array=power_action)
-        path_action = ksp_ff(env_state, env_params) if env_params.first_fit is True else ksp_lf(
-            env_state, env_params)
+        path_action = ksp_lf(env_state, env_params) if env_params.last_fit is True else ksp_ff(env_state, env_params)
+        path_index, _ = process_path_action(env_state, env_params, path_action)
+        power_action, log_prob, value = power_action[path_index], log_prob[path_index], value[path_index]
         action = jnp.concatenate([path_action.reshape((1,)), power_action.reshape((1,))], axis=0)
 
     elif config.ACTION_MASKING:
@@ -350,6 +352,13 @@ def get_warmup_fn(warmup_state, env, params, train_state, config) -> Callable[[T
             _rng, action_key, step_key = jax.random.split(_rng, 3)
             select_action_state = (_rng, _state, _last_obs)
             action, log_prob, value = select_action(select_action_state, env, _params, _train_state, config)
+            if config.env_type.lower() == "rsa_gn_model" and config.launch_power_type == "rl":
+                # If the action is launch power, the action is this shape:
+                # jnp.concatenate([path_action.reshape((1,)), power_action.reshape((1,))], axis=0)
+                # We want to overwrite the launch power with a default launch_power
+                action = jnp.concatenate([jnp.asarray(action[0]).reshape((1,)), jnp.array([params.default_launch_power,])], axis=0)
+            elif config.env_type.lower() == "rsa_gn_model" and config.launch_power_type != "rl" and not config.EVAL_HEURISTIC:
+                raise ValueError("Check that EVAL_HEURISTIC is set to True if using a heuristic")
             # STEP ENV
             obsv, _state, reward, done, info = env.step(
                 step_key, _state, action, params

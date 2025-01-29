@@ -261,7 +261,8 @@ class RSAGNModelEnvParams(RSAEnvParams):
     snr_margin: chex.Scalar = struct.field(pytree_node=False)
     max_power: chex.Scalar = struct.field(pytree_node=False)
     min_power: chex.Scalar = struct.field(pytree_node=False)
-    first_fit: bool = struct.field(pytree_node=False)
+    last_fit: bool = struct.field(pytree_node=False)
+    default_launch_power: chex.Scalar = struct.field(pytree_node=False)
 
 
 @struct.dataclass

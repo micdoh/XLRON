@@ -619,6 +619,7 @@ class RSAGNModelEnv(RSAEnv):
             params: RSAGNModelEnvParams,
             traffic_matrix: chex.Array = None,
             launch_power_array: chex.Array = None,
+            list_of_requests: chex.Array = None,
     ):
         """Initialise the environment state and set as initial state.
 
@@ -631,7 +632,7 @@ class RSAGNModelEnv(RSAEnv):
         Returns:
             None
         """
-        super().__init__(key, params, traffic_matrix=traffic_matrix)
+        super().__init__(key, params, traffic_matrix=traffic_matrix, list_of_requests=list_of_requests)
         state = RSAGNModelEnvState(
             current_time=0,
             holding_time=0,
@@ -647,6 +648,7 @@ class RSAGNModelEnv(RSAEnv):
             accepted_services=0,
             accepted_bitrate=0.,
             total_bitrate=0.,
+            list_of_requests=list_of_requests,
             link_snr_array=init_link_snr_array(params),
             path_index_array=init_path_index_array(params),
             path_index_array_prev=init_path_index_array(params),
@@ -842,7 +844,8 @@ class RSAGNModelEnv(RSAEnv):
 
     @partial(jax.jit, static_argnums=(0, 2,))
     def get_obs(self, state: RSAGNModelEnvState, params: RSAGNModelEnvParams) -> chex.Array:
-        """For launch power optimisation, this function is scanned across the """
+        # TODO - make this just show the stats from just one path at a time
+        """Get observation space for launch power optimization (with numerical stability)."""
         request_array = state.request_array.reshape((-1,))
         path_stats = calculate_path_stats(state, params, request_array)
         # Remove first 3 items of path stats for each path
@@ -994,6 +997,7 @@ def make_rsa_env(config: dict, launch_power_array: Optional[chex.Array] = None):
     path_snr = True if env_type == "rsa_gn_model" else False
     max_power = config.get("max_power", 9)
     min_power = config.get("min_power", -5)
+    default_launch_power = config.get("launch_power", 0.5)
     optimise_launch_power = config.get("optimise_launch_power", False)
     traffic_array = config.get("traffic_array", False)
 
@@ -1020,24 +1024,28 @@ def make_rsa_env(config: dict, launch_power_array: Optional[chex.Array] = None):
 
     launch_power_type = config.get("launch_power_type", "fixed")
     # The launch power type determines whether to use:
-    # 1. Fixed power for all paths.
-    # 2. Tabulated values of power for each path
-    # 3. RL to determine power for each path
+    # 1. Fixed power for all channels.
+    # 2. Tabulated values of power for each path.
+    # 3. RL to determine power for each channel.
+    # 4. Fixed power scaled by path length.
     if env_type == "rsa_gn_model":
+        default_launch_power_array = jnp.full((k, 1), default_launch_power)
         if launch_power_type == "fixed":
-            launch_power_array = jnp.array([config.get("launch_power", -2.0)]) \
-                if launch_power_array is None else launch_power_array
+            # Same power for all channels
+            launch_power_array = default_launch_power_array if launch_power_array is None else launch_power_array
             launch_power_type = 1
         elif launch_power_type == "tabular":
+            # The power of a channel is determined by the path it takes
             launch_power_array = jnp.zeros(path_link_array.shape[0]) \
                 if launch_power_array is None else launch_power_array
             launch_power_type = 2
         elif launch_power_type == "rl":
-            launch_power_array = jnp.zeros([1])
+            # RL sets power per channel
+            launch_power_array = default_launch_power_array
             launch_power_type = 3
         elif launch_power_type == "scaled":
-            launch_power_array = jnp.array([config.get("launch_power", -2.0)]) \
-                if launch_power_array is None else launch_power_array
+            # Power scaled by path length
+            launch_power_array = default_launch_power_array if launch_power_array is None else launch_power_array
             launch_power_type = 4
         else:
             pass
@@ -1169,6 +1177,7 @@ def make_rsa_env(config: dict, launch_power_array: Optional[chex.Array] = None):
         env_params = RSAGNModelEnvParams
         params_dict.update(ref_lambda=ref_lambda, max_spans=max_spans, max_span_length=max_span_length,
                            #launch_power_array=HashableArrayWrapper(launch_power_array) if not remove_array_wrappers else launch_power_array,
+                           default_launch_power=default_launch_power,
                            nonlinear_coeff=nonlinear_coeff, raman_gain_slope=raman_gain_slope, attenuation=attenuation,
                            attenuation_bar=attenuation_bar, dispersion_coeff=dispersion_coeff,
                            dispersion_slope=dispersion_slope, coherent=coherent,
@@ -1176,8 +1185,10 @@ def make_rsa_env(config: dict, launch_power_array: Optional[chex.Array] = None):
                            noise_figure=noise_figure, interband_gap=interband_gap, mod_format_correction=mod_format_correction,
                            gap_start=gap_start, gap_width=gap_width, roadm_loss=roadm_loss, num_roadms=num_roadms,
                            num_spans=num_spans, launch_power_type=launch_power_type, snr_margin=snr_margin,
-                           first_fit=config.get("first_fit", False), max_power=max_power, min_power=min_power)
-        # TODO - calculate maximum reach here and update modulations_array. Write a function that takes params_dict as input, does the launch power optimisation, returns the maximum reach
+                           last_fit=config.get("last_fit", False), max_power=max_power, min_power=min_power)
+        # TODO - In order to do masking based on maximum reach of mod. format (which avoids extra calculation)
+        #  calculate maximum reach here and update modulations_array.
+        #  Write a function that takes params_dict as input, does the launch power optimisation, returns the maximum reach
     else:
         env_params = RSAEnvParams
 
@@ -1219,7 +1230,8 @@ def make_rsa_env(config: dict, launch_power_array: Optional[chex.Array] = None):
             env = RWALightpathReuseEnv(
                 rng, params, traffic_matrix=traffic_matrix, path_capacity_array=path_capacity_array)
         elif env_type == "rsa_gn_model":
-            env = RSAGNModelEnv(rng, params, traffic_matrix=traffic_matrix, launch_power_array=launch_power_array)
+            env = RSAGNModelEnv(rng, params, traffic_matrix=traffic_matrix, launch_power_array=launch_power_array,
+                                list_of_requests=list_of_requests)
         else:
             env = RSAEnv(rng, params, traffic_matrix=traffic_matrix, list_of_requests=list_of_requests)
 
