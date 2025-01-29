@@ -665,47 +665,6 @@ class ActorCriticGNN(nn.Module):
         return action
 
 
-# TODO - adapt to VONE environment
-# class ActorGNNVone(nn.Module):
-#     """
-#     Actor network for PPO algorithm. Takes the current state and returns a distrax.Categorical distribution
-#     over actions.
-#     """
-#
-#     @nn.compact
-#     def __call__(self, state: EnvState, params: EnvParams, config, action: chex.Array = None):
-#         """
-#         :param state: EnvState
-#         :param params: EnvParams
-#         :param config: Config - flags from parent script (e.g. train.py) used to configure the environment
-#         :param action: (optional) chex.Array - only used for VONE environment
-#         """
-#         processed_graph = GraphNet(
-#             latent_size=128,
-#             message_passing_steps=1,
-#             output_edges_size=10,
-#             output_nodes_size=1,
-#             output_globals_size=0,
-#             num_mlp_layers=1
-#         )(state.graph)
-#         # Index edge features to resemble the link-slot array
-#         edge_features = processed_graph.edges[::2]
-#         # Get the current request and initialise array of action distributions per path
-#         request = format_vone_slot_request(state, action) if config.env_name == "vone" else state.request_array
-#         nodes_sd, requested_bw = read_rsa_request(request)
-#         init_action_array = jnp.zeros(params.k_paths * config.output_edges_size)
-#
-#         # Define a budy func to retrieve path slots and update action array
-#         def get_path_action_dist(i, action_array):
-#             path_features = get_path_slots(edge_features, params, nodes_sd, i)
-#             action_array = jax.lax.dynamic_update_slice(action_array, path_features, (i * config.output_edges_size,))
-#             return action_array
-#
-#         action_dist = jax.lax.fori_loop(0, params.k_paths, get_path_action_dist, init_action_array)
-#         # Return a distrax.Categorical distribution over actions
-#         return distrax.Categorical(logits=jnp.reshape(action_dist, (-1,)))
-
-
 if __name__ == "__main__":
     from collections import namedtuple
     #env, env_params = make_vone_env({"link_resources": 10})
