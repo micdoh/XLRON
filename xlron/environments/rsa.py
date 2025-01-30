@@ -995,6 +995,7 @@ def make_rsa_env(config: dict, launch_power_array: Optional[chex.Array] = None):
     roadm_loss = config.get("roadm_loss", 18)
     snr_margin = config.get("snr_margin", 1)
     path_snr = True if env_type == "rsa_gn_model" else False
+    max_snr = config.get("max_snr", 50.)
     max_power = config.get("max_power", 9)
     min_power = config.get("min_power", -5)
     default_launch_power = config.get("launch_power", 0.5)
@@ -1185,7 +1186,8 @@ def make_rsa_env(config: dict, launch_power_array: Optional[chex.Array] = None):
                            noise_figure=noise_figure, interband_gap=interband_gap, mod_format_correction=mod_format_correction,
                            gap_start=gap_start, gap_width=gap_width, roadm_loss=roadm_loss, num_roadms=num_roadms,
                            num_spans=num_spans, launch_power_type=launch_power_type, snr_margin=snr_margin,
-                           last_fit=config.get("last_fit", False), max_power=max_power, min_power=min_power)
+                           last_fit=config.get("last_fit", False), max_power=max_power, min_power=min_power,
+                           max_snr=max_snr)
         # TODO - In order to do masking based on maximum reach of mod. format (which avoids extra calculation)
         #  calculate maximum reach here and update modulations_array.
         #  Write a function that takes params_dict as input, does the launch power optimisation, returns the maximum reach

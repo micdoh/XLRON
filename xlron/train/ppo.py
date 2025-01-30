@@ -137,12 +137,13 @@ def get_learner_fn(
                     pi, value = jax.vmap(train_state.apply_fn, in_axes=axes)(params, *traj_batch.obs)
 
                     if config.env_type.lower() == "vone":
+                        # TODO - change this to use logits not separate pi
                         pi_source = distrax.Categorical(
-                            logits=jnp.where(traj_batch.action_mask_s, pi[0]._logits, -1e8))
+                            logits=jnp.where(traj_batch.action_mask_s, pi._logits, -1e8))
                         pi_path = distrax.Categorical(
-                            logits=jnp.where(traj_batch.action_mask_p, pi[1]._logits, -1e8))
+                            logits=jnp.where(traj_batch.action_mask_p, pi._logits, -1e8))
                         pi_dest = distrax.Categorical(
-                            logits=jnp.where(traj_batch.action_mask_d, pi[2]._logits, -1e8))
+                            logits=jnp.where(traj_batch.action_mask_d, pi._logits, -1e8))
                         action_s = traj_batch.action[:, 0]
                         action_p = traj_batch.action[:, 1]
                         action_d = traj_batch.action[:, 2]
@@ -153,7 +154,7 @@ def get_learner_fn(
                         entropy = pi_source.entropy().mean() + pi_path.entropy().mean() + pi_dest.entropy().mean()
 
                     elif config.ACTION_MASKING:
-                        pi_masked = distrax.Categorical(logits=jnp.where(traj_batch.action_mask, pi[0]._logits, -1e8))
+                        pi_masked = distrax.Categorical(logits=jnp.where(traj_batch.action_mask, pi._logits, -1e8))
                         log_prob = pi_masked.log_prob(traj_batch.action)
                         entropy = pi_masked.entropy().mean()
 
@@ -167,14 +168,14 @@ def get_learner_fn(
                         power_action = (power_action - env_params.min_power) / (env_params.max_power - env_params.min_power)
                         # Repeat the power action along the last axis K-paths time
                         power_action = jnp.repeat(power_action, config.k).reshape(-1, config.k)
-                        log_prob = pi[0].log_prob(power_action)
+                        log_prob = pi.log_prob(power_action)
                         # Slice log prob to just take the path index
                         log_prob = jax.vmap(lambda x, i: jax.lax.dynamic_slice(x, (i,), (1,)))(log_prob, path_indices)
-                        entropy = pi[0].entropy().mean()
+                        entropy = (pi.entropy().mean())
 
                     else:
-                        log_prob = pi[0].log_prob(traj_batch.action)
-                        entropy = pi[0].entropy().mean()
+                        log_prob = pi.log_prob(traj_batch.action)
+                        entropy = pi.entropy().mean()
 
                     # CALCULATE VALUE LOSS
                     value_pred_clipped = traj_batch.value + (

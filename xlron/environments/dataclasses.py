@@ -219,7 +219,7 @@ class RSAGNModelEnvState(RSAEnvState):
     """
     link_snr_array: chex.Array  # Available SNR on each link
     channel_centre_bw_array: chex.Array  # Channel centre bandwidth for each active connection
-    path_index_array: chex.Array  # Contains indices of lightpaths in use on slots
+    path_index_array: chex.Array  # Contains indices of lightpaths in use on slots (used for lightpath SNR calculation)
     channel_power_array: chex.Array  # Channel power for each active connection
     modulation_format_index_array: chex.Array  # Modulation format index for each active connection
     channel_centre_bw_array_prev: chex.Array  # Channel centre bandwidth for each active connection in previous timestep
@@ -259,6 +259,7 @@ class RSAGNModelEnvParams(RSAEnvParams):
     num_spans: chex.Scalar = struct.field(pytree_node=False)
     launch_power_type: chex.Scalar = struct.field(pytree_node=False)
     snr_margin: chex.Scalar = struct.field(pytree_node=False)
+    max_snr: chex.Scalar = struct.field(pytree_node=False)
     max_power: chex.Scalar = struct.field(pytree_node=False)
     min_power: chex.Scalar = struct.field(pytree_node=False)
     last_fit: bool = struct.field(pytree_node=False)
