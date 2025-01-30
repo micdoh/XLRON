@@ -143,5 +143,16 @@ The simulation generates a CSV file with detailed information about each traffic
 - `bitrate_blocking_probability`: Probability of blocking based on bit rate (running average)
 - `service_blocking_probability`: Probability of blocking based on service count (running average)
 
-## Visualizing the Results
-[This section will be completed with specific visualization instructions...]
+## Analyzing and Visualizing the Results
+
+The output data files can be analyzed to understand how different agents (heuristic vs RL) behave. Here are several approaches to analyze the results:
+
+### State-Space Analysis
+One powerful way to analyze the behavior is to track how the network state changes over time. A network state can be represented as a binary matrix where each row represents a link and each column represents a frequency slot. This allows us to:
+- Track how different agents/heuristics change the network state
+
+### Action Pattern Analysis
+We can compare the action patterns between different agents by analyzing:
+- Path selection frequencies (which paths are preferred)
+- Slot selection patterns (which starting slots are chosen more often)
+- Correlation between path/slot choices and network state
