@@ -491,8 +491,8 @@ def log_metrics(config, out, experiment_name, total_time, merge_func):
         plt.title(experiment_name)
         plt.show()
 
-        plot_metric = moving_average(plot_metric, min(100, int(len(plot_metric) / 2)))
-        plot_metric_std = moving_average(plot_metric_std, min(100, int(len(plot_metric_std) / 2)))
+        #plot_metric = moving_average(plot_metric, min(100, int(len(plot_metric))))
+        #plot_metric_std = moving_average(plot_metric_std, min(100, int(len(plot_metric_std))))
         plt.plot(plot_metric)
         plt.fill_between(
             range(len(plot_metric)),
@@ -595,6 +595,19 @@ def log_metrics(config, out, experiment_name, total_time, merge_func):
         path_indices = merged_out["path_index"]
         slot_indices = merged_out["slot_index"]
         returns = merged_out["returns"]
+        arrival_time = merged_out["arrival_time"]
+        departure_time = merged_out["departure_time"]
+
+        # Reshape to combine episodes into a single trajectory. Only keep the first environment's output.
+        request_source = request_source.reshape((request_source.shape[0], -1))[0]
+        request_dest = request_dest.reshape((request_dest.shape[0], -1))[0]
+        request_data_rate = request_data_rate.reshape((request_data_rate.shape[0], -1))[0]
+        path_indices = path_indices.reshape((path_indices.shape[0], -1))[0]
+        slot_indices = slot_indices.reshape((slot_indices.shape[0], -1))[0]
+        arrival_time = arrival_time.reshape((arrival_time.shape[0], -1))[0]
+        departure_time = departure_time.reshape((departure_time.shape[0], -1))[0]
+        returns = returns.reshape((returns.shape[0], -1))[0]
+
         # Get the link length array
         topology_name = config.topology_name
         graph = make_graph(topology_name, topology_directory=config.topology_directory)
@@ -603,72 +616,43 @@ def log_metrics(config, out, experiment_name, total_time, merge_func):
         paths = jnp.take(params.path_link_array.val, path_indices, axis=0)
         path_lengths = jax.vmap(lambda x: jnp.dot(x, link_length_array), in_axes=(0))(paths)
         num_hops = jnp.sum(paths, axis=-1)
-        path_lengths_mean = path_lengths.mean()
-        path_lengths_std = path_lengths.std()
-        num_hops_mean = num_hops.mean()
-        num_hops_std = num_hops.std()
-        print(f"Average path length: {path_lengths_mean:.0f} ± {path_lengths_std:.0f}")
-        print(f"Average number of hops: {num_hops_mean:.2f} ± {num_hops_std:.2f}")
-
-        # Compare the available paths
-        df_path_links = pd.DataFrame(params.path_link_array.val).reset_index(drop=True)
-        # Set config.weight = "weight" to use the length of the path for ordering else no. of hops
-        config.weight = "weight" if not config.weight else None
-        env, params = define_env(config)
-        df_path_links_alt = pd.DataFrame(params.path_link_array.val).reset_index(drop=True)
-        # Find rows that are unique to each dataframe
-        # First, make a unique identifer for each row
-        df_path_id = df_path_links.apply(lambda x: hash(tuple(x)), axis=1).reset_index(drop=True)
-        df_path_id_alt = df_path_links_alt.apply(lambda x: hash(tuple(x)), axis=1).reset_index(drop=True)
-        # Then check uniqueness (unique to the path ordering compared to alternate ordering)
-        unique_paths = df_path_id[~df_path_id.isin(df_path_id_alt)]
-        print(f"Fraction of paths that are unique to ordering: {len(unique_paths) / len(df_path_id):.2f}")
-        # Then for each path index we have, see if it corresponds to a unique path
-        # Get indices of unique paths
-        unique_path_indices = jnp.array(unique_paths.index)
-        # Get the path indices of the requests
-        unique_paths_used = jnp.isin(path_indices, unique_path_indices)
-        # Remove elements from unique_paths_used that have negative returns
-        unique_paths_used = jnp.where(returns > 0, unique_paths_used, 0)
-        unique_paths_used_count = jnp.count_nonzero(unique_paths_used, axis=-1)
-        positive_return_count = jnp.count_nonzero(jnp.where(returns > 0, returns, 0), axis=-1)
-        unique_paths_used_mean = (unique_paths_used_count / positive_return_count).reshape(-1).mean()
-        unique_paths_used_std = (unique_paths_used_count / positive_return_count).reshape(-1).std()
-        print(f"Fraction of successful actions that use unique paths: {unique_paths_used_mean:.3f} ± {unique_paths_used_std:.3f}")
-
-        # Reshape to combine episodes into a single trajectory. Only keep the first environment's output.
-        request_source = request_source.reshape((request_source.shape[0], -1))[0]
-        request_dest = request_dest.reshape((request_dest.shape[0], -1))[0]
-        request_data_rate = request_data_rate.reshape((request_data_rate.shape[0], -1))[0]
-        path_indices = path_indices.reshape((path_indices.shape[0], -1))[0]
-        slot_indices = slot_indices.reshape((slot_indices.shape[0], -1))[0]
-        returns = returns.reshape((returns.shape[0], -1))[0]
-
-        # TODO(TRAJ_VIZ): Keep track of request arrival and departure times for visualisation (need to log these in the env)
 
         # TODO(TRAJ_VIZ): Use the paths array (below) for your visualisation.
         #  Each row of the paths array represents the links utilised by the paths as a binary array (1,0,1,1,1,0,0,...)
         #  1 means the link is used by the path, 0 means it is not.
         paths_list = []
-        for path_index, slot_index, source, dest in zip(path_indices, slot_indices, request_source, request_dest):
+        spectral_efficiency_list = []
+        required_slots_list = []
+
+        for path_index, slot_index, source, dest, data_rate in zip(path_indices, slot_indices, request_source, request_dest, request_data_rate):
             source, dest = source.reshape(1), dest.reshape(1)
             path_links = get_paths(params, jnp.concatenate([source, dest]))[path_index]
             # Make path links into a string
             path_str = "".join([str(x.astype(jnp.int32)) for x in path_links])
             paths_list.append(path_str)
+            path_spectral_efficiency = params.path_se_array.val[path_index]
+            required_slots = int(jnp.ceil(data_rate / (path_spectral_efficiency*params.slot_size)))
+            required_slots_list.append(required_slots)
+            spectral_efficiency_list.append(path_spectral_efficiency)
 
         if config.TRAJ_DATA_OUTPUT_FILE:
-            # TODO(TRAJ_VIZ): We save save to file here. Maybe we also want to save to WANDB.
             print(f"Saving trajectory metrics to {config.TRAJ_DATA_OUTPUT_FILE}")
             # Save episode end metrics to file
             df = pd.DataFrame({
                 "request_source": request_source,
                 "request_dest": request_dest,
                 "request_data_rate": request_data_rate,
+                "arrival_time": arrival_time,
+                "departure_time": departure_time,
                 "path_indices": path_indices,
                 "slot_indices": slot_indices,
                 "returns": returns,
                 "path_links": paths_list,
+                "path_spectral_efficiency": spectral_efficiency_list,
+                "required_slots": required_slots_list,
+                "utilization": utilisation_mean,
+                "bitrate_blocking_probability": bitrate_blocking_probability,
+                "service_blocking_probability": service_blocking_probability,
             })
             df.to_csv(config.TRAJ_DATA_OUTPUT_FILE)
 
