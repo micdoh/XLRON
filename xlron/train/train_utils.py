@@ -210,7 +210,7 @@ def define_env(config: absl.flags.FlagValues):
 
 def init_network(config, env, env_state, env_params):
     if config.env_type.lower() == "vone":
-        network = ActorCriticMLP([space.n for space in env.action_space(env_params).spaces],
+        network = ActorCriticMLP(env.action_space(env_params).n,
                                  activation=config.ACTIVATION,
                                  num_layers=config.NUM_LAYERS,
                                  num_units=config.NUM_UNITS,
@@ -218,6 +218,12 @@ def init_network(config, env, env_state, env_params):
         init_x = tuple([jnp.zeros(env.observation_space(env_params).n)])
     elif config.env_type.lower() in ["rsa", "rmsa", "rwa", "deeprmsa", "rwa_lightpath_reuse", "rsa_gn_model"]:
         if config.USE_GNN:
+            if config.env_type.lower() == "rsa_gn_model" and env_params.launch_power_type == 3:
+                output_nodes_size = int((env_params.max_power - env_params.min_power) / env_params.step_power) + 1 if config.discrete_launch_power else 2
+                output_globals_size = 1
+            else:
+                output_nodes_size = config.output_nodes_size
+                output_globals_size = config.output_globals_size
             network = ActorCriticGNN(
                 activation=config.ACTIVATION,
                 num_layers=config.NUM_LAYERS,
@@ -226,8 +232,8 @@ def init_network(config, env, env_state, env_params):
                 message_passing_steps=config.message_passing_steps,
                 # output_edges_size must equal number of slot actions
                 output_edges_size=math.ceil(env_params.link_resources / env_params.aggregate_slots),
-                output_nodes_size=config.output_nodes_size,
-                output_globals_size=config.output_globals_size,
+                output_nodes_size=output_nodes_size,
+                output_globals_size=output_globals_size,
                 gnn_mlp_layers=config.gnn_mlp_layers,
                 normalise_by_link_length=config.normalize_by_link_length,
                 mlp_layer_norm=config.LAYER_NORM,
@@ -236,7 +242,7 @@ def init_network(config, env, env_state, env_params):
             init_x = (env_state.env_state, env_params)
         elif config.env_type.lower() == "rsa_gn_model" and env_params.launch_power_type == 3:
             network = LaunchPowerActorCriticMLP(
-                action_dim=[env.action_space(env_params).n],
+                action_dim=env.action_space(env_params).n,
                 activation=config.ACTIVATION,
                 num_layers=config.NUM_LAYERS,
                 num_units=config.NUM_UNITS,
@@ -249,7 +255,7 @@ def init_network(config, env, env_state, env_params):
             )
             init_x = tuple([jnp.zeros(env.observation_space(env_params).n)])
         else:
-            network = ActorCriticMLP([env.action_space(env_params).n],
+            network = ActorCriticMLP(env.action_space(env_params).n,
                                      activation=config.ACTIVATION,
                                      num_layers=config.NUM_LAYERS,
                                      num_units=config.NUM_UNITS,
@@ -276,18 +282,14 @@ def select_action(select_action_state, env, env_params, train_state, config):
         log_prob: Log probability of action
         value: Value of state
     """
-    rng_key, env_state, last_obs = select_action_state
+    rng, env_state, last_obs = select_action_state
     last_obs = (env_state.env_state, env_params) if config.USE_GNN else last_obs
-    # if config.__class__.__name__ == "RSAGNModelEnvParams":
-    #     path_indices = jnp.arange(env_params.k_paths)
-    #     observations = jax.lax.fori_loop(0, env_params.k_paths, lambda i: env.get_obs(env_state.env_state, env_params, i), path_indices)
-    #     pi, value = train_state.apply_fn(train_state.params, *observations)
-    # else:
     pi, value = train_state.apply_fn(train_state.params, *last_obs)
-    action_keys = jax.random.split(rng_key, len(pi))
+    rng, action_key = jax.random.split(rng)
 
     # Always do action masking with VONE
     if config.env_type.lower() == "vone":
+        # TODO - change this to work with single set of logits (probably just slice them)
         vmap_mask_nodes = jax.vmap(env.action_mask_nodes, in_axes=(0, None))
         vmap_mask_slots = jax.vmap(env.action_mask_slots, in_axes=(0, None, 0))
         vmap_mask_dest_node = jax.vmap(env.action_mask_dest_node, in_axes=(0, None, 0))
@@ -295,20 +297,20 @@ def select_action(select_action_state, env, env_params, train_state, config):
         env_state = env_state.replace(env_state=vmap_mask_nodes(env_state.env_state, env_params))
         pi_source = distrax.Categorical(logits=jnp.where(env_state.env_state.node_mask_s, pi[0]._logits, -1e8))
 
-        action_s = pi_source.sample(seed=action_keys[0]) if not config.deterministic else pi_source.mode()
+        action_s = pi_source.sample(seed=action_key) if not config.deterministic else pi_source.mode()
 
         # Update destination mask now source has been selected
         env_state = env_state.replace(env_state=vmap_mask_dest_node(env_state.env_state, env_params, action_s))
         pi_dest = distrax.Categorical(
-            logits=jnp.where(env_state.env_state.node_mask_d, pi[2]._logits, -1e8))
+            logits=jnp.where(env_state.env_state.node_mask_d, pi[0]._logits, -1e8))
 
         action_p = jnp.full(action_s.shape, 0)
-        action_d = pi_dest.sample(seed=action_keys[2]) if not config.deterministic else pi_dest.mode()
+        action_d = pi_dest.sample(seed=action_key) if not config.deterministic else pi_dest.mode()
         action = jnp.stack((action_s, action_p, action_d), axis=1)
 
         env_state = env_state.replace(env_state=vmap_mask_slots(env_state.env_state, env_params, action))
-        pi_path = distrax.Categorical(logits=jnp.where(env_state.env_state.link_slot_mask, pi[1]._logits, -1e8))
-        action_p = pi_path.sample(seed=action_keys[1]) if not config.deterministic else pi_path.mode()
+        pi_path = distrax.Categorical(logits=jnp.where(env_state.env_state.link_slot_mask, pi[0]._logits, -1e8))
+        action_p = pi_path.sample(seed=action_key) if not config.deterministic else pi_path.mode()
         action = jnp.stack((action_s, action_p, action_d), axis=1)
 
         log_prob_source = pi_source.log_prob(action_s)
@@ -317,7 +319,7 @@ def select_action(select_action_state, env, env_params, train_state, config):
         log_prob = log_prob_dest + log_prob_path + log_prob_source
 
     elif config.env_type.lower() == "rsa_gn_model" and config.launch_power_type == "rl":
-        power_action, log_prob = train_state.sample_fn(action_keys[0], pi[0], log_prob=True, deterministic=config.deterministic)
+        power_action, log_prob = train_state.sample_fn(action_key, pi, log_prob=True, deterministic=config.deterministic)
         env_state = env_state.env_state.replace(launch_power_array=power_action)
         path_action = ksp_lf(env_state, env_params) if env_params.last_fit is True else ksp_ff(env_state, env_params)
         path_index, _ = process_path_action(env_state, env_params, path_action)
@@ -326,17 +328,17 @@ def select_action(select_action_state, env, env_params, train_state, config):
 
     elif config.ACTION_MASKING:
         env_state = env_state.replace(env_state=env.action_mask(env_state.env_state, env_params))
-        pi_masked = distrax.Categorical(logits=jnp.where(env_state.env_state.link_slot_mask, pi[0]._logits, -1e8))
+        pi_masked = distrax.Categorical(logits=jnp.where(env_state.env_state.link_slot_mask, pi._logits, -1e8))
         if config.DEBUG:
-            jax.debug.print("pi {}", pi[0]._logits, ordered=config.ORDERED)
+            jax.debug.print("pi {}", pi._logits, ordered=config.ORDERED)
             jax.debug.print("pi_masked {}", pi_masked._logits, ordered=config.ORDERED)
             jax.debug.print("last_obs {}", last_obs[0].graph.edges, ordered=config.ORDERED)
-        action = pi_masked.sample(seed=action_keys[0]) if not config.deterministic else pi[0].mode()
+        action = pi_masked.sample(seed=action_key) if not config.deterministic else pi.mode()
         log_prob = pi_masked.log_prob(action)
 
     else:
-        action = pi[0].sample(seed=action_keys[0]) if not config.deterministic else pi[0].mode()
-        log_prob = pi[0].log_prob(action)
+        action = pi.sample(seed=action_key) if not config.deterministic else pi.mode()
+        log_prob = pi.log_prob(action)
     return action, log_prob, value
 
 
@@ -592,17 +594,18 @@ def log_metrics(config, out, experiment_name, total_time, merge_func):
         processed_data["training_time"] = downsample_mean(processed_data["training_time"])
 
         # Log episode end metrics
-        for i in range(len(episode_ends)):
-            log_dict = {
-                f"episode_end_{metric}_{agg}": processed_data[metric][agg][i] for metric in all_metrics for agg in [
-                    "mean",
-                    "std",
-                    "iqr_upper",
-                    "iqr_lower"
-                ]
-            }
-            log_dict["episode_count"] = i
-            wandb.log(log_dict)
+        if not config.continuous_operation:
+            for i in range(len(episode_ends)):
+                log_dict = {
+                    f"episode_end_{metric}_{agg}": processed_data[metric][agg][i] for metric in all_metrics for agg in [
+                        "mean",
+                        "std",
+                        "iqr_upper",
+                        "iqr_lower"
+                    ]
+                }
+                log_dict["episode_count"] = i
+                wandb.log(log_dict)
 
         # Log per step metrics
         for i in range(len(processed_data["returns"]["mean"])):
@@ -632,7 +635,7 @@ def log_metrics(config, out, experiment_name, total_time, merge_func):
             print(f"{metric} std: {processed_data[metric]['episode_end_std'].mean():.5f}")
             print(f"{metric} IQR lower: {processed_data[metric]['episode_end_iqr_lower'].mean():.5f}")
             print(f"{metric} IQR upper: {processed_data[metric]['episode_end_iqr_upper'].mean():.5f}")
-    if config.env_type.lower() == "rsa_gn_model" and config.launch_power_type == "rl":
+    if config.env_type.lower() == "rsa_gn_model":
         print(f"Mean launch power: {merged_out['launch_power'].mean():.5f} ± {merged_out['launch_power'].std():.5f}")
 
     if config.log_actions:

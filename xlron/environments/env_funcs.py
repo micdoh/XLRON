@@ -31,6 +31,50 @@ Shape = Sequence[int]
 T = TypeVar('T')      # Declare type variable
 
 
+@partial(jax.jit, static_argnums=(0,))
+def get_num_spectral_features(n_nodes: int) -> int:
+    """Heuristic for number of spectral features based on graph size.
+
+    Args:
+        n_nodes: Number of nodes in the graph
+
+    Returns:
+        Number of spectral features to use, clamped between 3 and 15.
+        Follows log2(n_nodes) scaling as reasonable default.
+    """
+    return jnp.minimum(jnp.maximum(3, jnp.floor(jnp.log2(n_nodes))), 15).astype(int)
+
+
+@partial(jax.jit, static_argnums=(1,))
+def get_spectral_features(graphs: jraph.GraphsTuple, num_features: int) -> jnp.ndarray:
+    """Compute spectral node features from symmetric normalized graph Laplacian.
+
+    Args:
+        graphs: Input graph in jraph.GraphsTuple format
+        num_features: Number of eigenvector features to extract
+
+    Returns:
+        Array of shape (n_nodes, num_features) containing eigenvectors corresponding
+        to the smallest non-zero eigenvalues of the graph Laplacian.
+
+    Notes:
+        - Skips trivial eigenvectors (those with near-zero eigenvalues)
+        - Eigenvectors are ordered by ascending eigenvalue magnitude
+        - Runtime is O(n^3) - use only for small/medium graphs
+        - Eigenvector signs are arbitrary (may vary between runs)
+    """
+    adj = jraph.utils.graphs_tuple_to_adjacency_matrix(graphs)
+    n_nodes = adj.shape[0]
+    deg = jnp.sum(adj, axis=1)
+    deg_sqrt_inv = jnp.where(deg > 0, 1.0 / jnp.sqrt(deg), 0.0)
+    laplacian = jnp.eye(n_nodes) - deg_sqrt_inv[:, None] * adj * deg_sqrt_inv[None, :]
+    eigenvalues, eigenvectors = jax.lax.eigh(laplacian)
+    # Skip trivial eigenvectors (zero eigenvalues for connected components)
+    num_zero = jnp.sum(jnp.abs(eigenvalues) < 1e-5)
+    valid_features = jnp.minimum(num_features, n_nodes - num_zero)
+    return eigenvectors[:, num_zero:num_zero + valid_features]
+
+
 @partial(jax.jit, static_argnums=(1,))
 def init_graph_tuple(state: EnvState, params: EnvParams):
     """Initialise graph tuple for use with Jraph GNNs.
@@ -40,31 +84,52 @@ def init_graph_tuple(state: EnvState, params: EnvParams):
     Returns:
         jraph.GraphsTuple: Graph tuple
     """
-    senders = params.edges.val.T[0]  # .val because of HashableArrayWrapper
+    senders = params.edges.val.T[0]
     receivers = params.edges.val.T[1]
-    edge_features = state.link_slot_array
+
+    if params.__class__.__name__ == "RSAGNModelEnvParams":
+        # Mask and normalize optical parameters using link slots
+        link_mask = state.link_slot_array > 0  # [n_edges]
+
+        # Apply mask and normalize by max parameters
+        masked_snr = jnp.where(link_mask, state.link_snr_array, 0.0)
+        normalized_snr = masked_snr / params.max_snr
+        masked_power = jnp.where(link_mask, state.channel_power_array, 0.0)
+        normalized_power = masked_power / params.max_power
+        edge_features = jnp.stack([normalized_snr, normalized_power], axis=-1)  # [n_edges, 2]
+
+        # Compute spectral node features (precomputed for fixed topology)
+        structural_graph = jraph.GraphsTuple(
+            nodes=jnp.zeros(params.num_nodes),
+            edges=jnp.zeros(len(senders)),
+            senders=senders,
+            receivers=receivers,
+            n_node=jnp.array([params.num_nodes]),
+            n_edge=jnp.array([len(senders)]),
+            globals=None
+        )
+        node_features = get_spectral_features(structural_graph, num_features=15)
+
+    else:
+        edge_features = state.link_slot_array  # [n_edges] or [n_edges, ...]
+        node_features = getattr(state, "node_capacity_array", jnp.zeros(params.num_nodes))
+        node_features = node_features.reshape(-1, 1)
+
+    # Handle undirected graphs (duplicate edges after normalization)
     if not params.directed_graph:
-        # TODO - investigate just using senders or receivers to avoid duplication for undirected graphs
-        senders_undir = jnp.concatenate((senders, receivers))
-        receivers_undir = jnp.concatenate((receivers, senders))
-        senders = senders_undir
-        receivers = receivers_undir
-        # Repeat every row of link_slot_array so that it matches length of senders/receivers
+        senders = jnp.concatenate([senders, receivers])
+        receivers = jnp.concatenate([receivers, senders])
         edge_features = jnp.repeat(edge_features, 2, axis=0)
-    # Get node features from node_capacity_array if available (VONE problem)
-    node_features = getattr(state, "node_capacity_array", jnp.zeros(params.num_nodes))
-    node_features = node_features.reshape(-1, 1)
-    graph = jraph.GraphsTuple(
+
+    return jraph.GraphsTuple(
         nodes=node_features,
         edges=edge_features,
         senders=senders,
         receivers=receivers,
         n_node=jnp.reshape(params.num_nodes, (1,)),
-        n_edge=jnp.reshape(jnp.array(len(senders)), (1,)),
-        # Store current request as global feature and reshape so that downstream processed graph features have same shape
+        n_edge=jnp.reshape(len(senders), (1,)),
         globals=jnp.reshape(state.request_array, (1, -1)),
     )
-    return graph
 
 
 def update_graph_tuple(state: EnvState, params: EnvParams):
@@ -77,14 +142,21 @@ def update_graph_tuple(state: EnvState, params: EnvParams):
     Returns:
         state (EnvState): Environment state with updated graph tuple
     """
-    # if params.__class__.__name__ == "RSAGNModelEnvParams":
-    #     # Update link SNR array to be
-    #     update_array =
-    # else:
-    #     update_array = state.link_slot_array
-    edge_features = state.link_slot_array if params.directed_graph else jnp.repeat(state.link_slot_array, 2, axis=0)
-    node_features = getattr(state, "node_capacity_array", jnp.zeros(params.num_nodes))
-    node_features = node_features.reshape(-1, 1)
+    if params.__class__.__name__ == "RSAGNModelEnvParams":
+        # Mask and normalize optical parameters using link slots
+        link_mask = state.link_slot_array > 0  # [n_edges]
+        # Apply mask and normalize by max parameters
+        masked_snr = jnp.where(link_mask, state.link_snr_array, 0.0)
+        normalized_snr = masked_snr / params.max_snr
+        masked_power = jnp.where(link_mask, state.channel_power_array, 0.0)
+        normalized_power = masked_power / params.max_power
+        edge_features = jnp.stack([normalized_snr, normalized_power], axis=-1)  # [n_edges, 2]
+        node_features = state.graph.nodes
+    else:
+        edge_features = state.link_slot_array
+        node_features = getattr(state, "node_capacity_array", jnp.zeros(params.num_nodes))
+        node_features = node_features.reshape(-1, 1)
+    edge_features = edge_features if params.directed_graph else jnp.repeat(edge_features, 2, axis=0)
     graph = state.graph._replace(nodes=node_features, edges=edge_features, globals=state.request_array)
     state = state.replace(graph=graph)
     return state
@@ -2407,7 +2479,6 @@ def init_link_snr_array(params: EnvParams):
     return jnp.full((params.num_links, params.link_resources), 0.)
 
 
-# TODO - use channel power array when optimising launch power
 def init_channel_power_array(params: EnvParams):
     """Initialise channel power array.
 
@@ -2868,7 +2939,6 @@ def mask_slots_rsa_gn_model(state: RSAGNModelEnvState, params: RSAGNModelEnvPara
         # Add padding to slots at end
         # 0 means slot is free, 1 is occupied
         slots = jnp.concatenate((slots, jnp.ones(params.max_slots)))
-        #slots = -slots + 1  # 1 if slot is free, 0 if slot is occupied
         launch_power = get_launch_power(state, i, state.launch_power_array[i], params)
 
         # This function checks through each available modulation format, checks the first and last available slots,
@@ -2880,9 +2950,6 @@ def mask_slots_rsa_gn_model(state: RSAGNModelEnvState, params: RSAGNModelEnvPara
             req_snr = params.modulations_array.val[mod_format_index][2]
             # Get mask used to check if request will fit slots
             request_mask = get_request_mask(req_slots, params)
-            #jax.debug.print("required_bandwidth {}", required_bandwidth, ordered=True)
-            #jax.debug.print("req_slots {}", req_slots, ordered=True)
-            #jax.debug.print("request_mask {}", request_mask, ordered=True)
 
             def check_slots_available(j, val):
                 # Multiply through by request mask to check if slots available
@@ -2899,12 +2966,9 @@ def mask_slots_rsa_gn_model(state: RSAGNModelEnvState, params: RSAGNModelEnvPara
             )
             # Cut off padding
             slot_mask = jax.lax.dynamic_slice(slot_mask, (0,), (params.link_resources,))
-            #jax.debug.print("slot_mask {}", slot_mask, ordered=True)
             # Check first and last available slots for suitability
             ff_path_mask = jnp.concatenate((slot_mask, jnp.ones((1,))), axis=0)
             lf_path_mask = jnp.concatenate((jnp.ones((1,)), slot_mask), axis=0)
-            #jax.debug.print("ff_path_mask {}", ff_path_mask, ordered=True)
-            #jax.debug.print("lf_path_mask {}", lf_path_mask, ordered=True)
             first_available_slot_index = jnp.argmax(ff_path_mask)
             last_available_slot_index = params.link_resources - jnp.argmax(jnp.flip(lf_path_mask)) - 1
             ff_temp_state = state.replace(
@@ -2915,10 +2979,6 @@ def mask_slots_rsa_gn_model(state: RSAGNModelEnvState, params: RSAGNModelEnvPara
                 channel_centre_bw_array=vmap_set_path_links(state.channel_centre_bw_array, path, last_available_slot_index, 1, required_bandwidth),
                 channel_power_array=vmap_set_path_links(state.channel_power_array, path, last_available_slot_index, 1, launch_power),
             )
-            # ff_acceptable_mod_format_indices = get_best_modulation_format_simple(ff_temp_state, path, first_available_slot_index, params)
-            # ff_mod_format_index = jnp.max(ff_acceptable_mod_format_indices)
-            # lf_acceptable_mod_format_indices = get_best_modulation_format_simple(lf_temp_state, path, last_available_slot_index, params)
-            # lf_mod_format_index = jnp.max(lf_acceptable_mod_format_indices)
             ff_snr_value = get_snr_for_path(path, get_snr_link_array(ff_temp_state, params), params)[first_available_slot_index] - params.snr_margin  # Margin
             lf_snr_value = get_snr_for_path(path, get_snr_link_array(lf_temp_state, params), params)[last_available_slot_index] - params.snr_margin  # Margin
             ff_mod_format_index = jnp.where(ff_snr_value >= req_snr, 1, -1)
@@ -2926,28 +2986,20 @@ def mask_slots_rsa_gn_model(state: RSAGNModelEnvState, params: RSAGNModelEnvPara
             slot_indices = jnp.arange(params.link_resources)
             mod_format_mask = jnp.where(slot_indices == first_available_slot_index, ff_mod_format_index, -1)
             mod_format_mask = jnp.where(slot_indices == last_available_slot_index, lf_mod_format_index, mod_format_mask)
-            #jax.debug.print("mod_format_mask {}", mod_format_mask, ordered=True)
             # Change >0 to 1s
             mod_format_mask = jnp.where(mod_format_mask > -1, 1, 0)
             # Change -1s to 0s
             mod_format_mask = jnp.where(mod_format_mask == -1, 0, mod_format_mask)
-            #jax.debug.print("first_available_slot_index {}", first_available_slot_index, ordered=True)
-            #jax.debug.print("last_available_slot_index {}", last_available_slot_index, ordered=True)
-            #jax.debug.print("mod_format_index {}", mod_format_index, ordered=True)
-            #jax.debug.print("ff_mod_format_index {}", ff_mod_format_index, ordered=True)
-            #jax.debug.print("lf_mod_format_index {}", lf_mod_format_index, ordered=True)
-            #jax.debug.print("mod_format_mask {}", mod_format_mask, ordered=True)
             # Combine with initial mask
             path_mask = jnp.where(mod_format_mask == 1, mod_format_mask, init_path_mask)
-            # jax.debug.print("path_mask {}", path_mask, ordered=True)
             return path_mask
 
         path_mask = jax.lax.fori_loop(0, params.modulations_array.val.shape[0], check_modulation_format, jnp.zeros((params.link_resources,)))
-        # jax.debug.print("path_mask {}", path_mask[:params.link_resources], ordered=True)
 
         # TODO - instead of recalculating SNR for each slot, interpolate between SNR values
         # TODO - NEED TO KNOW MOD-FORMAT UPFRONT TO ESTIMATE required bandwidth
         # TODO -
+        # This approach instead tries every slot, calculates the SNR and therefore best mod. format,
         # def check_snr_get_mod_return_slots(initial_slot_index):
         #     # Get acceptable modulation formats
         #     temp_state = state.replace(
@@ -3008,11 +3060,11 @@ def mask_slots_rsa_gn_model(state: RSAGNModelEnvState, params: RSAGNModelEnvPara
         #     # check_snr_sufficient returns False if sufficient, so need to invert
         #     check = jnp.logical_not(check_snr_sufficient(temp_state, params)).astype(jnp.float32)
         #     return check
-
+        #
         # Check SNR impact on updating every channel
-        #snr_check_mask = jax.vmap(apply_action_check_snr, in_axes=(None, None, 0))(state, params, slot_indices)
+        # snr_check_mask = jax.vmap(apply_action_check_snr, in_axes=(None, None, 0))(state, params, slot_indices)
         # Combine SNR impact mask only on slots where channels could be assigned
-        #path_mask = jnp.where(path_mask == 1, snr_check_mask, path_mask)
+        # path_mask = jnp.where(path_mask == 1, snr_check_mask, path_mask)
 
         # Update total mask with path mask
         mask = jax.lax.dynamic_update_slice(mask, path_mask, (i * params.link_resources,))
@@ -3044,7 +3096,7 @@ def get_launch_power(state: EnvState, path_action: chex.Array, power_action: che
     Returns:
         chex.Array: Launch power for new lightpath
     """
-    k_path_index, initial_slot_index = process_path_action(state, params, path_action)
+    k_path_index, _ = process_path_action(state, params, path_action)
     if params.launch_power_type == 1:  # Fixed
         launch_power = state.launch_power_array[0]
     elif params.launch_power_type == 2:  # Tabular (one row per path)
@@ -3053,9 +3105,9 @@ def get_launch_power(state: EnvState, path_action: chex.Array, power_action: che
         i = get_path_indices(source, dest, params.k_paths, params.num_nodes, directed=params.directed_graph).astype(
             jnp.int32)
         launch_power = state.launch_power_array[i+k_path_index]
-    elif params.launch_power_type == 3:
+    elif params.launch_power_type == 3:  # RL
         launch_power = power_action
-    elif params.launch_power_type == 4:
+    elif params.launch_power_type == 4:  # Scaled
         nodes_sd, requested_datarate = read_rsa_request(state.request_array)
         source, dest = nodes_sd
         i = get_path_indices(source, dest, params.k_paths, params.num_nodes, directed=params.directed_graph).astype(
