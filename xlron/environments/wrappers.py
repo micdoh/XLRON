@@ -88,6 +88,8 @@ class LogWrapper(GymnaxWrapper):
             info["source"] = source
             info["dest"] = dest
             info["data_rate"] = bw_request[0]
+            info["arrival_time"] = env_state.current_time[0]
+            info["departure_time"] = env_state.current_time[0] + env_state.holding_time[0]
         info["done"] = done
         return obs, state, reward, done, info
 
