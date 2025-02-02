@@ -425,11 +425,18 @@ def get_snr(
 
 
 def to_db(x):
-    return 10*jnp.log(x)/jnp.log(10)
+    return 10*jnp.log10(x)
+
+def to_dbm(x):
+    return 10*jnp.log10(x/0.001)
 
 
 def from_dbm(x):
-    return 10**(x/10) * 0.001
+    return jnp.round(10**(x/10) * 0.001, decimals=6)
+
+
+def from_db(x):
+    return jnp.round(10**(x/10), decimals=6)
 
 
 if __name__ == "__main__":

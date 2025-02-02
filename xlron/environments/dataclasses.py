@@ -1,6 +1,7 @@
 import chex
 import jraph
 from flax import struct
+from typing import NamedTuple, Callable
 
 
 @struct.dataclass
@@ -27,6 +28,23 @@ class RSATransition:
     obs: chex.Array
     info: chex.Array
     action_mask: chex.Array
+
+
+@struct.dataclass
+class Transition:
+    done: chex.Array
+    action: chex.Array
+    reward: chex.Array
+    obs: chex.Array
+    info: chex.Array
+
+
+@struct.dataclass
+class EvalState:
+    apply_fn: Callable
+    sample_fn: Callable
+    params: chex.Array
+
 
 
 @struct.dataclass
@@ -262,6 +280,7 @@ class RSAGNModelEnvParams(RSAEnvParams):
     max_snr: chex.Scalar = struct.field(pytree_node=False)
     max_power: chex.Scalar = struct.field(pytree_node=False)
     min_power: chex.Scalar = struct.field(pytree_node=False)
+    step_power: chex.Scalar = struct.field(pytree_node=False)
     last_fit: bool = struct.field(pytree_node=False)
     default_launch_power: chex.Scalar = struct.field(pytree_node=False)
 
