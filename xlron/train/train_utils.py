@@ -16,13 +16,15 @@ import distrax
 import math
 import pickle
 import matplotlib.pyplot as plt
+
+from xlron.environments.isrs_gn_model import isrs_gn_model, from_dbm, to_dbm
 from xlron.environments.wrappers import LogWrapper
 from xlron.environments.vone import make_vone_env
 from xlron.environments.rsa import make_rsa_env
 from xlron.models.models import ActorCriticGNN, ActorCriticMLP, LaunchPowerActorCriticMLP
-from xlron.environments.dataclasses import EnvState
-from xlron.environments.env_funcs import init_link_length_array, make_graph, process_path_action
-from xlron.heuristics.heuristics import ksp_ff, ksp_lf
+from xlron.environments.dataclasses import EnvState, EvalState
+from xlron.environments.env_funcs import init_link_length_array, make_graph, process_path_action, get_launch_power
+from xlron.heuristics.heuristics import ksp_ff, ff_ksp, kmc_ff, kmf_ff, ksp_mu, mu_ksp, kca_ff, kme_ff, ksp_bf, bf_ksp, ksp_lf
 
 
 class TrainState(struct.PyTreeNode):
@@ -219,10 +221,8 @@ def init_network(config, env, env_state, env_params):
     elif config.env_type.lower() in ["rsa", "rmsa", "rwa", "deeprmsa", "rwa_lightpath_reuse", "rsa_gn_model"]:
         if config.USE_GNN:
             if config.env_type.lower() == "rsa_gn_model" and env_params.launch_power_type == 3:
-                output_nodes_size = int((env_params.max_power - env_params.min_power) / env_params.step_power) + 1 if config.discrete_launch_power else 2
-                output_globals_size = 1
+                output_globals_size = int((env_params.max_power - env_params.min_power) / env_params.step_power) + 1 if config.discrete_launch_power else 1
             else:
-                output_nodes_size = config.output_nodes_size
                 output_globals_size = config.output_globals_size
             network = ActorCriticGNN(
                 activation=config.ACTIVATION,
@@ -232,12 +232,19 @@ def init_network(config, env, env_state, env_params):
                 message_passing_steps=config.message_passing_steps,
                 # output_edges_size must equal number of slot actions
                 output_edges_size=math.ceil(env_params.link_resources / env_params.aggregate_slots),
-                output_nodes_size=output_nodes_size,
+                output_nodes_size=config.output_nodes_size,
                 output_globals_size=output_globals_size,
                 gnn_mlp_layers=config.gnn_mlp_layers,
                 normalise_by_link_length=config.normalize_by_link_length,
                 mlp_layer_norm=config.LAYER_NORM,
                 vmap=False,
+                discrete=config.discrete_launch_power,
+                min_power_dbm=config.min_power,
+                max_power_dbm=config.max_power,
+                step_power_dbm=config.step_power,
+                # Bools to determine which actions to output
+                output_path = config.GNN_OUTPUT_RSA,
+                output_power = config.GNN_OUTPUT_LP,
             )
             init_x = (env_state.env_state, env_params)
         elif config.env_type.lower() == "rsa_gn_model" and env_params.launch_power_type == 3:
@@ -267,6 +274,69 @@ def init_network(config, env, env_state, env_params):
     return network, init_x
 
 
+def experiment_data_setup(config: absl.flags.FlagValues, rng: chex.PRNGKey) -> Tuple:
+    # INIT ENV
+    env, env_params = define_env(config)
+    rng, rng_step, rng_epoch, warmup_key, reset_key, network_key = jax.random.split(rng, 6)
+    reset_key = jax.random.split(reset_key, config.NUM_ENVS)
+    obsv, env_state = jax.vmap(env.reset, in_axes=(0, None))(reset_key, env_params)
+    obsv = (env_state.env_state, env_params) if config.USE_GNN else tuple([obsv])
+
+    # TRAINING MODE
+    if not config.EVAL_HEURISTIC and not config.EVAL_MODEL:
+
+        # INIT NETWORK
+        network, init_x = init_network(config, env, env_state, env_params)
+        init_x = (jax.tree.map(lambda x: x[0], init_x[0]), init_x[1]) if config.USE_GNN else init_x
+
+        if config.RETRAIN_MODEL:
+            network_params = config.model["model"]["params"]
+            print('Retraining model')
+        else:
+            network_params = network.init(network_key, *init_x)
+
+        # INIT LEARNING RATE SCHEDULE AND OPTIMIZER
+        lr_schedule = make_lr_schedule(config)
+        tx = optax.chain(
+            optax.clip_by_global_norm(config.MAX_GRAD_NORM),
+            optax.adam(learning_rate=lr_schedule, eps=config.ADAM_EPS, b1=config.ADAM_BETA1, b2=config.ADAM_BETA2),
+        )
+
+        runner_state = TrainState.create(
+            apply_fn=network.apply,
+            sample_fn=network.sample_action,
+            params=network_params,
+            tx=tx,
+        )
+
+    # EVALUATION MODE
+    else:
+        # LOAD MODEL
+        if config.EVAL_HEURISTIC:
+            network_params = apply = sample = None
+
+        elif config.EVAL_MODEL:
+            network, last_obs = init_network(config, env, env_state, env_params)
+            network_params = config.model["model"]["params"]
+            apply = network.apply
+            sample = network.sample_action
+            print('Evaluating model')
+
+        runner_state = EvalState(apply_fn=apply, sample_fn=sample, params=network_params)
+
+    # Recreate DeepRMSA warmup period
+    warmup_key = jax.random.split(warmup_key, config.NUM_ENVS)
+    warmup_state = (warmup_key, env_state, obsv)
+    warmup_fn = get_warmup_fn(warmup_state, env, env_params, runner_state, config)
+    warmup_fn = jax.vmap(warmup_fn)
+    env_state, obsv = warmup_fn(warmup_state)
+
+    # Initialise eval state
+    init_runner_state = (runner_state, env_state, obsv, rng_step, rng_epoch)
+
+    return init_runner_state, env, env_params
+
+
 def select_action(select_action_state, env, env_params, train_state, config):
     """Select an action from the policy.
     If using VONE, the action is a tuple of (source, path, destination).
@@ -282,10 +352,10 @@ def select_action(select_action_state, env, env_params, train_state, config):
         log_prob: Log probability of action
         value: Value of state
     """
-    rng, env_state, last_obs = select_action_state
+    action_key, env_state, last_obs = select_action_state
     last_obs = (env_state.env_state, env_params) if config.USE_GNN else last_obs
     pi, value = train_state.apply_fn(train_state.params, *last_obs)
-    rng, action_key = jax.random.split(rng)
+    #rng, action_key = jax.random.split(rng)
 
     # Always do action masking with VONE
     if config.env_type.lower() == "vone":
@@ -319,27 +389,85 @@ def select_action(select_action_state, env, env_params, train_state, config):
         log_prob = log_prob_dest + log_prob_path + log_prob_source
 
     elif config.env_type.lower() == "rsa_gn_model" and config.launch_power_type == "rl":
-        power_action, log_prob = train_state.sample_fn(action_key, pi, log_prob=True, deterministic=config.deterministic)
-        env_state = env_state.env_state.replace(launch_power_array=power_action)
-        path_action = ksp_lf(env_state, env_params) if env_params.last_fit is True else ksp_ff(env_state, env_params)
-        path_index, _ = process_path_action(env_state, env_params, path_action)
-        power_action, log_prob, value = power_action[path_index], log_prob[path_index], value[path_index]
+        if config.GNN_OUTPUT_RSA:
+            env_state = env_state.replace(env_state=env.action_mask(env_state.env_state, env_params))
+            pi_masked = distrax.Categorical(logits=jnp.where(env_state.env_state.link_slot_mask, pi[0]._logits, -1e8))
+            if config.GNN_OUTPUT_LP:
+                path_action, power_action, log_prob = train_state.sample_fn(action_key, (pi_masked, pi[1]), log_prob=True, deterministic=config.deterministic)
+            else:
+                path_action, log_prob = train_state.sample_fn(action_key, pi_masked, log_prob=True, deterministic=config.deterministic)
+        else:
+            # TODO(GNN_LP) - modify this so its possible to have routing from GNN and LP from another source (maybe)
+            power_action, log_prob = train_state.sample_fn(action_key, pi[1], log_prob=True, deterministic=config.deterministic)
+            env_state = env_state.env_state.replace(launch_power_array=power_action)
+            path_action = ksp_lf(env_state, env_params) if env_params.last_fit is True else ksp_ff(env_state, env_params)
+            if not config.GNN_OUTPUT_LP:
+                path_index, _ = process_path_action(env_state, env_params, path_action)
+                power_action, log_prob = power_action[path_index], log_prob[path_index]
         action = jnp.concatenate([path_action.reshape((1,)), power_action.reshape((1,))], axis=0)
 
     elif config.ACTION_MASKING:
         env_state = env_state.replace(env_state=env.action_mask(env_state.env_state, env_params))
-        pi_masked = distrax.Categorical(logits=jnp.where(env_state.env_state.link_slot_mask, pi._logits, -1e8))
-        if config.DEBUG:
-            jax.debug.print("pi {}", pi._logits, ordered=config.ORDERED)
-            jax.debug.print("pi_masked {}", pi_masked._logits, ordered=config.ORDERED)
-            jax.debug.print("last_obs {}", last_obs[0].graph.edges, ordered=config.ORDERED)
-        action = pi_masked.sample(seed=action_key) if not config.deterministic else pi.mode()
+        pi_masked = distrax.Categorical(logits=jnp.where(env_state.env_state.link_slot_mask, pi[0]._logits, -1e8))
+        action = pi_masked.sample(seed=action_key) if not config.deterministic else pi_masked.mode()
         log_prob = pi_masked.log_prob(action)
 
     else:
         action = pi.sample(seed=action_key) if not config.deterministic else pi.mode()
         log_prob = pi.log_prob(action)
     return action, log_prob, value
+
+
+def select_action_eval(select_action_state, env, env_params, eval_state, config):
+
+    rng, env_state, last_obs = select_action_state
+
+    if config.EVAL_HEURISTIC:
+        if config.env_type.lower() == "vone":
+            raise NotImplementedError(f"VONE heuristics not yet implemented")
+
+        elif config.env_type.lower() in ["rsa", "rwa", "rmsa", "deeprmsa", "rwa_lightpath_reuse", "rsa_gn_model"]:
+            if config.path_heuristic.lower() == "ksp_ff":
+                action = ksp_ff(env_state.env_state, env_params)
+            elif config.path_heuristic.lower() == "ff_ksp":
+                action = ff_ksp(env_state.env_state, env_params)
+            elif config.path_heuristic.lower() == "kmc_ff":
+                action = kmc_ff(env_state.env_state, env_params)
+            elif config.path_heuristic.lower() == "kmf_ff":
+                action = kmf_ff(env_state.env_state, env_params)
+            elif config.path_heuristic.lower() == "ksp_mu":
+                action = ksp_mu(env_state.env_state, env_params, False, True)
+            elif config.path_heuristic.lower() == "ksp_mu_nonrel":
+                action = ksp_mu(env_state.env_state, env_params, False, False)
+            elif config.path_heuristic.lower() == "ksp_mu_unique":
+                action = ksp_mu(env_state.env_state, env_params, True, True)
+            elif config.path_heuristic.lower() == "mu_ksp":
+                action = mu_ksp(env_state.env_state, env_params, False, True)
+            elif config.path_heuristic.lower() == "mu_ksp_nonrel":
+                action = mu_ksp(env_state.env_state, env_params, False, False)
+            elif config.path_heuristic.lower() == "mu_ksp_unique":
+                action = mu_ksp(env_state.env_state, env_params, True, True)
+            elif config.path_heuristic.lower() == "kca_ff":
+                action = kca_ff(env_state.env_state, env_params)
+            elif config.path_heuristic.lower() == "kme_ff":
+                action = kme_ff(env_state.env_state, env_params)
+            elif config.path_heuristic.lower() == "ksp_bf":
+                action = ksp_bf(env_state.env_state, env_params)
+            elif config.path_heuristic.lower() == "bf_ksp":
+                action = bf_ksp(env_state.env_state, env_params)
+            elif config.path_heuristic.lower() == "ksp_lf":
+                action = ksp_lf(env_state.env_state, env_params)
+            else:
+                raise ValueError(f"Invalid path heuristic {config.path_heuristic}")
+            if env_params.__class__.__name__ == "RSAGNModelEnvParams":
+                launch_power = get_launch_power(env_state.env_state, action, action, env_params)
+                action = jnp.concatenate([action.reshape((1,)), launch_power.reshape((1,))], axis=0)
+
+        else:
+            raise ValueError(f"Invalid environment type {config.env_type}")
+    else:
+        action, _, _ = select_action(select_action_state, env, env_params, eval_state, config)
+    return action, None, None
 
 
 def get_warmup_fn(warmup_state, env, params, train_state, config) -> Callable[[Tuple], Tuple]:
@@ -353,12 +481,16 @@ def get_warmup_fn(warmup_state, env, params, train_state, config) -> Callable[[T
             # SELECT ACTION
             _rng, action_key, step_key = jax.random.split(_rng, 3)
             select_action_state = (_rng, _state, _last_obs)
-            action, log_prob, value = select_action(select_action_state, env, _params, _train_state, config)
+            action_fn = select_action if not config.EVAL_HEURISTIC else select_action_eval
+            action, log_prob, value = action_fn(select_action_state, env, _params, _train_state, config)
             if config.env_type.lower() == "rsa_gn_model" and config.launch_power_type == "rl":
                 # If the action is launch power, the action is this shape:
                 # jnp.concatenate([path_action.reshape((1,)), power_action.reshape((1,))], axis=0)
                 # We want to overwrite the launch power with a default launch_power
-                action = jnp.concatenate([jnp.asarray(action[0]).reshape((1,)), jnp.array([params.default_launch_power,])], axis=0)
+                path_action = ksp_lf(_state.env_state, _params) if _params.last_fit is True else ksp_ff(_state.env_state, _params)
+                action = jnp.concatenate([path_action.reshape((1,)), jnp.array([params.default_launch_power,])], axis=0)
+            if config.env_type.lower() == "rsa_gn_model":
+                jax.debug.print("Warmup action {}", action, ordered=True)
             elif config.env_type.lower() == "rsa_gn_model" and config.launch_power_type != "rl" and not config.EVAL_HEURISTIC:
                 raise ValueError("Check that EVAL_HEURISTIC is set to True if using a heuristic")
             # STEP ENV
@@ -655,65 +787,66 @@ def log_metrics(config, out, experiment_name, total_time, merge_func):
         path_lengths = jax.vmap(lambda x: jnp.dot(x, link_length_array), in_axes=(0))(paths)
         num_hops = jnp.sum(paths, axis=-1)
 
-        path_lengths_mean = path_lengths.mean()
-        path_lengths_std = path_lengths.std()
-        path_lengths_iqr_upper = np.percentile(path_lengths, 75)
-        path_lengths_iqr_lower = np.percentile(path_lengths, 25)
-        num_hops_mean = num_hops.mean()
-        num_hops_std = num_hops.std()
-        print(f"Average path length mean: {path_lengths_mean:.0f}")
-        print(f"Average path length std: {path_lengths_std:.0f}")
-        print(f"Average path length IQR upper: {path_lengths_iqr_upper:.0f}")
-        print(f"Average path length IQR lower: {path_lengths_iqr_lower:.0f}")
-        print(f"Average number of hops mean: {num_hops_mean:.2f}")
-        print(f"Average number of hops std: {num_hops_std:.2f}")
-        print(f"Average number of hops IQR upper: {np.percentile(num_hops, 75):.2f}")
-        print(f"Average number of hops IQR lower: {np.percentile(num_hops, 25):.2f}")
-        # Get path lengths where returns are positive, 0 otherwise
-        utilised_path_lengths = jnp.where(returns > 0, jnp.take(path_lengths, path_indices), 0)
-        utilised_path_hops = jnp.where(returns > 0, jnp.take(num_hops, path_indices), 0)
-        print(f"Average path length for successful actions mean: {utilised_path_lengths.mean():.0f}")
-        print(f"Average path length for successful actions std: {utilised_path_lengths.std():.0f}")
-        print(f"Average path length for successful actions IQR upper: {np.percentile(utilised_path_lengths, 75):.0f}")
-        print(f"Average path length for successful actions IQR lower: {np.percentile(utilised_path_lengths, 25):.0f}")
-        print(f"Average number of hops for successful actions mean: {utilised_path_hops.mean():.2f}")
-        print(f"Average number of hops for successful actions std: {utilised_path_hops.std():.2f}")
-        print(f"Average number of hops for successful actions IQR upper: {np.percentile(utilised_path_hops, 75):.2f}")
-        print(f"Average number of hops for successful actions IQR lower: {np.percentile(utilised_path_hops, 25):.2f}")
+        if config.log_path_lengths:
+            path_lengths_mean = path_lengths.mean()
+            path_lengths_std = path_lengths.std()
+            path_lengths_iqr_upper = np.percentile(path_lengths, 75)
+            path_lengths_iqr_lower = np.percentile(path_lengths, 25)
+            num_hops_mean = num_hops.mean()
+            num_hops_std = num_hops.std()
+            print(f"Average path length mean: {path_lengths_mean:.0f}")
+            print(f"Average path length std: {path_lengths_std:.0f}")
+            print(f"Average path length IQR upper: {path_lengths_iqr_upper:.0f}")
+            print(f"Average path length IQR lower: {path_lengths_iqr_lower:.0f}")
+            print(f"Average number of hops mean: {num_hops_mean:.2f}")
+            print(f"Average number of hops std: {num_hops_std:.2f}")
+            print(f"Average number of hops IQR upper: {np.percentile(num_hops, 75):.2f}")
+            print(f"Average number of hops IQR lower: {np.percentile(num_hops, 25):.2f}")
+            # Get path lengths where returns are positive, 0 otherwise
+            utilised_path_lengths = jnp.where(returns > 0, jnp.take(path_lengths, path_indices), 0)
+            utilised_path_hops = jnp.where(returns > 0, jnp.take(num_hops, path_indices), 0)
+            print(f"Average path length for successful actions mean: {utilised_path_lengths.mean():.0f}")
+            print(f"Average path length for successful actions std: {utilised_path_lengths.std():.0f}")
+            print(f"Average path length for successful actions IQR upper: {np.percentile(utilised_path_lengths, 75):.0f}")
+            print(f"Average path length for successful actions IQR lower: {np.percentile(utilised_path_lengths, 25):.0f}")
+            print(f"Average number of hops for successful actions mean: {utilised_path_hops.mean():.2f}")
+            print(f"Average number of hops for successful actions std: {utilised_path_hops.std():.2f}")
+            print(f"Average number of hops for successful actions IQR upper: {np.percentile(utilised_path_hops, 75):.2f}")
+            print(f"Average number of hops for successful actions IQR lower: {np.percentile(utilised_path_hops, 25):.2f}")
 
-        request_source = jnp.squeeze(merged_out["source"])
-        request_dest = jnp.squeeze(merged_out["dest"])
-        request_data_rate = jnp.squeeze(merged_out["data_rate"])
-        path_indices = jnp.squeeze(merged_out["path_index"])
-        slot_indices = jnp.squeeze(merged_out["slot_index"])
+            request_source = jnp.squeeze(merged_out["source"])
+            request_dest = jnp.squeeze(merged_out["dest"])
+            request_data_rate = jnp.squeeze(merged_out["data_rate"])
+            path_indices = jnp.squeeze(merged_out["path_index"])
+            slot_indices = jnp.squeeze(merged_out["slot_index"])
 
-        # Compare the available paths
-        df_path_links = pd.DataFrame(params.path_link_array.val).reset_index(drop=True)
-        # Set config.weight = "weight" to use the length of the path for ordering else no. of hops
-        config.weight = "weight" if not config.weight else None
-        env, params = define_env(config)
-        df_path_links_alt = pd.DataFrame(params.path_link_array.val).reset_index(drop=True)
-        # Find rows that are unique to each dataframe
-        # First, make a unique identifer for each row
-        df_path_id = df_path_links.apply(lambda x: hash(tuple(x)), axis=1).reset_index(drop=True)
-        df_path_id_alt = df_path_links_alt.apply(lambda x: hash(tuple(x)), axis=1).reset_index(drop=True)
-        # Then check uniqueness (unique to the path ordering compared to alternate ordering)
-        unique_paths = df_path_id[~df_path_id.isin(df_path_id_alt)]
-        print(f"Fraction of paths that are unique to ordering: {len(unique_paths) / len(df_path_id):.2f}")
-        # Then for each path index we have, see if it corresponds to a unique path
-        # Get indices of unique paths
-        unique_path_indices = jnp.array(unique_paths.index)
-        # Get the path indices of the requests
-        unique_paths_used = jnp.isin(path_indices, unique_path_indices)
-        # Remove elements from unique_paths_used that have negative returns
-        unique_paths_used = jnp.where(returns > 0, unique_paths_used, 0)
-        unique_paths_used_count = jnp.count_nonzero(unique_paths_used, axis=-1)
-        positive_return_count = jnp.count_nonzero(jnp.where(returns > 0, returns, 0), axis=-1)
-        unique_paths_used_mean = (unique_paths_used_count / positive_return_count).reshape(-1).mean()
-        unique_paths_used_std = (unique_paths_used_count / positive_return_count).reshape(-1).std()
-        unique_paths_used_iqr_upper = np.percentile(unique_paths_used_count / positive_return_count, 75)
-        unique_paths_used_iqr_lower = np.percentile(unique_paths_used_count / positive_return_count, 25)
-        print(f"Fraction of successful actions that use unique paths mean: {unique_paths_used_mean:.3f}")
-        print(f"Fraction of successful actions that use unique paths std: {unique_paths_used_std:.3f}")
-        print(f"Fraction of successful actions that use unique paths IQR upper: {unique_paths_used_iqr_upper:.3f}")
-        print(f"Fraction of successful actions that use unique paths IQR lower: {unique_paths_used_iqr_lower:.3f}")
+            # Compare the available paths
+            df_path_links = pd.DataFrame(params.path_link_array.val).reset_index(drop=True)
+            # Set config.weight = "weight" to use the length of the path for ordering else no. of hops
+            config.weight = "weight" if not config.weight else None
+            env, params = define_env(config)
+            df_path_links_alt = pd.DataFrame(params.path_link_array.val).reset_index(drop=True)
+            # Find rows that are unique to each dataframe
+            # First, make a unique identifer for each row
+            df_path_id = df_path_links.apply(lambda x: hash(tuple(x)), axis=1).reset_index(drop=True)
+            df_path_id_alt = df_path_links_alt.apply(lambda x: hash(tuple(x)), axis=1).reset_index(drop=True)
+            # Then check uniqueness (unique to the path ordering compared to alternate ordering)
+            unique_paths = df_path_id[~df_path_id.isin(df_path_id_alt)]
+            print(f"Fraction of paths that are unique to ordering: {len(unique_paths) / len(df_path_id):.2f}")
+            # Then for each path index we have, see if it corresponds to a unique path
+            # Get indices of unique paths
+            unique_path_indices = jnp.array(unique_paths.index)
+            # Get the path indices of the requests
+            unique_paths_used = jnp.isin(path_indices, unique_path_indices)
+            # Remove elements from unique_paths_used that have negative returns
+            unique_paths_used = jnp.where(returns > 0, unique_paths_used, 0)
+            unique_paths_used_count = jnp.count_nonzero(unique_paths_used, axis=-1)
+            positive_return_count = jnp.count_nonzero(jnp.where(returns > 0, returns, 0), axis=-1)
+            unique_paths_used_mean = (unique_paths_used_count / positive_return_count).reshape(-1).mean()
+            unique_paths_used_std = (unique_paths_used_count / positive_return_count).reshape(-1).std()
+            unique_paths_used_iqr_upper = np.percentile(unique_paths_used_count / positive_return_count, 75)
+            unique_paths_used_iqr_lower = np.percentile(unique_paths_used_count / positive_return_count, 25)
+            print(f"Fraction of successful actions that use unique paths mean: {unique_paths_used_mean:.3f}")
+            print(f"Fraction of successful actions that use unique paths std: {unique_paths_used_std:.3f}")
+            print(f"Fraction of successful actions that use unique paths IQR upper: {unique_paths_used_iqr_upper:.3f}")
+            print(f"Fraction of successful actions that use unique paths IQR lower: {unique_paths_used_iqr_lower:.3f}")

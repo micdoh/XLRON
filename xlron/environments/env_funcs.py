@@ -45,12 +45,11 @@ def get_num_spectral_features(n_nodes: int) -> int:
     return jnp.minimum(jnp.maximum(3, jnp.floor(jnp.log2(n_nodes))), 15).astype(int)
 
 
-@partial(jax.jit, static_argnums=(1,))
-def get_spectral_features(graphs: jraph.GraphsTuple, num_features: int) -> jnp.ndarray:
+def get_spectral_features(laplacian: jnp.array, num_features: int) -> jnp.ndarray:
     """Compute spectral node features from symmetric normalized graph Laplacian.
 
     Args:
-        graphs: Input graph in jraph.GraphsTuple format
+        adj: Adjacency matrix of the graph
         num_features: Number of eigenvector features to extract
 
     Returns:
@@ -63,24 +62,21 @@ def get_spectral_features(graphs: jraph.GraphsTuple, num_features: int) -> jnp.n
         - Runtime is O(n^3) - use only for small/medium graphs
         - Eigenvector signs are arbitrary (may vary between runs)
     """
-    adj = jraph.utils.graphs_tuple_to_adjacency_matrix(graphs)
-    n_nodes = adj.shape[0]
-    deg = jnp.sum(adj, axis=1)
-    deg_sqrt_inv = jnp.where(deg > 0, 1.0 / jnp.sqrt(deg), 0.0)
-    laplacian = jnp.eye(n_nodes) - deg_sqrt_inv[:, None] * adj * deg_sqrt_inv[None, :]
-    eigenvalues, eigenvectors = jax.lax.eigh(laplacian)
+    n_nodes = laplacian.shape[0]
+    eigenvalues, eigenvectors = jnp.linalg.eigh(laplacian)
     # Skip trivial eigenvectors (zero eigenvalues for connected components)
     num_zero = jnp.sum(jnp.abs(eigenvalues) < 1e-5)
     valid_features = jnp.minimum(num_features, n_nodes - num_zero)
-    return eigenvectors[:, num_zero:num_zero + valid_features]
+    return eigenvectors[:, :15]#num_zero:num_zero + valid_features]
 
 
 @partial(jax.jit, static_argnums=(1,))
-def init_graph_tuple(state: EnvState, params: EnvParams):
+def init_graph_tuple(state: EnvState, params: EnvParams, adj: jnp.array) -> jraph.GraphsTuple:
     """Initialise graph tuple for use with Jraph GNNs.
     Args:
         state (EnvState): Environment state
         params (EnvParams): Environment parameters
+        adj (jnp.array): Adjacency matrix of the graph
     Returns:
         jraph.GraphsTuple: Graph tuple
     """
@@ -89,27 +85,16 @@ def init_graph_tuple(state: EnvState, params: EnvParams):
 
     if params.__class__.__name__ == "RSAGNModelEnvParams":
         # Mask and normalize optical parameters using link slots
-        link_mask = state.link_slot_array > 0  # [n_edges]
-
-        # Apply mask and normalize by max parameters
+        link_mask = state.link_slot_array < 0  # -1 on link_slot_array indicates occupied slot
+        # Apply mask and normalize by max parameters (converted to linear units)
+        max_snr = isrs_gn_model.from_db(params.max_snr)
         masked_snr = jnp.where(link_mask, state.link_snr_array, 0.0)
-        normalized_snr = masked_snr / params.max_snr
+        normalized_snr = masked_snr / max_snr
+        max_power = isrs_gn_model.from_dbm(params.max_power)
         masked_power = jnp.where(link_mask, state.channel_power_array, 0.0)
-        normalized_power = masked_power / params.max_power
-        edge_features = jnp.stack([normalized_snr, normalized_power], axis=-1)  # [n_edges, 2]
-
-        # Compute spectral node features (precomputed for fixed topology)
-        structural_graph = jraph.GraphsTuple(
-            nodes=jnp.zeros(params.num_nodes),
-            edges=jnp.zeros(len(senders)),
-            senders=senders,
-            receivers=receivers,
-            n_node=jnp.array([params.num_nodes]),
-            n_edge=jnp.array([len(senders)]),
-            globals=None
-        )
-        node_features = get_spectral_features(structural_graph, num_features=15)
-
+        normalized_power = masked_power / max_power
+        edge_features = jnp.stack([normalized_snr, normalized_power, state.link_slot_array], axis=-1)  # [n_edges, 2]
+        node_features = get_spectral_features(adj, num_features=15)
     else:
         edge_features = state.link_slot_array  # [n_edges] or [n_edges, ...]
         node_features = getattr(state, "node_capacity_array", jnp.zeros(params.num_nodes))
@@ -117,8 +102,9 @@ def init_graph_tuple(state: EnvState, params: EnvParams):
 
     # Handle undirected graphs (duplicate edges after normalization)
     if not params.directed_graph:
-        senders = jnp.concatenate([senders, receivers])
+        senders_ = jnp.concatenate([senders, receivers])
         receivers = jnp.concatenate([receivers, senders])
+        senders = senders_
         edge_features = jnp.repeat(edge_features, 2, axis=0)
 
     return jraph.GraphsTuple(
@@ -144,13 +130,15 @@ def update_graph_tuple(state: EnvState, params: EnvParams):
     """
     if params.__class__.__name__ == "RSAGNModelEnvParams":
         # Mask and normalize optical parameters using link slots
-        link_mask = state.link_slot_array > 0  # [n_edges]
-        # Apply mask and normalize by max parameters
+        link_mask = state.link_slot_array < 0
+        # Apply mask and normalize by max parameters (converted to linear units)
+        max_snr = isrs_gn_model.from_db(params.max_snr)
         masked_snr = jnp.where(link_mask, state.link_snr_array, 0.0)
-        normalized_snr = masked_snr / params.max_snr
+        normalized_snr = masked_snr / max_snr
+        max_power = isrs_gn_model.from_dbm(params.max_power)
         masked_power = jnp.where(link_mask, state.channel_power_array, 0.0)
-        normalized_power = masked_power / params.max_power
-        edge_features = jnp.stack([normalized_snr, normalized_power], axis=-1)  # [n_edges, 2]
+        normalized_power = masked_power / max_power
+        edge_features = jnp.stack([normalized_snr, normalized_power, state.link_slot_array], axis=-1)  # [n_edges, 2]
         node_features = state.graph.nodes
     else:
         edge_features = state.link_slot_array
@@ -2701,7 +2689,7 @@ def get_snr_link_array(state: EnvState, params: EnvParams) -> chex.Array:
         return snr
 
     link_snr_array = jax.vmap(get_link_snr, in_axes=(0, None, None))(jnp.arange(params.num_links), state, params)
-    link_snr_array = jnp.nan_to_num(link_snr_array, nan=1e5)
+    link_snr_array = jnp.nan_to_num(link_snr_array, nan=1e-5)
     return link_snr_array
 
 
@@ -2939,7 +2927,7 @@ def mask_slots_rsa_gn_model(state: RSAGNModelEnvState, params: RSAGNModelEnvPara
         # Add padding to slots at end
         # 0 means slot is free, 1 is occupied
         slots = jnp.concatenate((slots, jnp.ones(params.max_slots)))
-        launch_power = get_launch_power(state, i, state.launch_power_array[i], params)
+        launch_power = get_launch_power(state, i, state.launch_power_array, params)
 
         # This function checks through each available modulation format, checks the first and last available slots,
         # calculates the SNR, checks it meets the requirements, and returns the resulting mask
@@ -3098,25 +3086,25 @@ def get_launch_power(state: EnvState, path_action: chex.Array, power_action: che
     """
     k_path_index, _ = process_path_action(state, params, path_action)
     if params.launch_power_type == 1:  # Fixed
-        launch_power = state.launch_power_array[0]
+        return state.launch_power_array[0]
     elif params.launch_power_type == 2:  # Tabular (one row per path)
         nodes_sd, requested_datarate = read_rsa_request(state.request_array)
         source, dest = nodes_sd
         i = get_path_indices(source, dest, params.k_paths, params.num_nodes, directed=params.directed_graph).astype(
             jnp.int32)
-        launch_power = state.launch_power_array[i+k_path_index]
+        return state.launch_power_array[i+k_path_index]
     elif params.launch_power_type == 3:  # RL
-        launch_power = power_action
+        return power_action
     elif params.launch_power_type == 4:  # Scaled
         nodes_sd, requested_datarate = read_rsa_request(state.request_array)
         source, dest = nodes_sd
-        i = get_path_indices(source, dest, params.k_paths, params.num_nodes, directed=params.directed_graph).astype(
-            jnp.int32)
+        i = get_path_indices(
+            source, dest, params.k_paths, params.num_nodes, directed=params.directed_graph
+        ).astype(jnp.int32)
         # Get path length
         link_length_array = jnp.sum(params.link_length_array.val, axis=1)
         path_length = jnp.sum(link_length_array[i+k_path_index])
         maximum_path_length = jnp.max(jnp.dot(params.path_link_array.val, params.link_length_array.val))
-        launch_power = state.launch_power_array[0] * (path_length / maximum_path_length)
+        return state.launch_power_array[0] * (path_length / maximum_path_length)
     else:
         raise ValueError("Invalid launch power type. Check params.launch_power_type")
-    return isrs_gn_model.from_dbm(launch_power)

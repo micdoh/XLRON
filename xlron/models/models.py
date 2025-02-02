@@ -11,10 +11,8 @@ from typing import Sequence, Callable, Sequence
 from jraph._src.utils import segment_softmax, segment_sum
 import collections
 
-from orbax.checkpoint.experimental.emergency.multihost import process_index_from_device_id
-from pymongo.synchronous.topology import process_events_queue
-
 from xlron.environments.env_funcs import EnvState, EnvParams, get_path_slots, read_rsa_request, format_vone_slot_request
+from xlron.environments.isrs_gn_model import isrs_gn_model, to_dbm, from_dbm
 from xlron.environments.vone import make_vone_env
 from xlron.environments.rsa import make_rsa_env
 from xlron.models.gnn import GraphNetwork, GraphNetGAT, GAT
@@ -101,15 +99,13 @@ class ActorCriticMLP(nn.Module):
     def __call__(self, x):
         actor_mean = make_dense_layers(x, self.num_units, self.num_layers, self.activation)
         stacked_logits = []
-        for dim in self.action_dim:
-            actor_mean_dim = nn.Dense(
-                dim, kernel_init=orthogonal(0.01), bias_init=constant(0.0)
-            )(actor_mean)
-            logits = actor_mean_dim / self.temperature
-            stacked_logits.append(logits)
+        actor_mean_dim = nn.Dense(
+            self.action_dim, kernel_init=orthogonal(0.01), bias_init=constant(0.0)
+        )(actor_mean)
+        logits = actor_mean_dim / self.temperature
+        stacked_logits.append(logits)
 
         # If there are multiple action dimensions, concatenate the logits
-        logits = jnp.concatenate(stacked_logits, axis=1)
         action_dist = distrax.Categorical(logits=logits)
 
         critic = make_dense_layers(x, self.num_units, self.num_layers, self.activation, layer_norm=self.layer_norm)
@@ -117,7 +113,7 @@ class ActorCriticMLP(nn.Module):
             critic
         )
 
-        return [action_dist,], jnp.squeeze(critic, axis=-1)
+        return action_dist, jnp.squeeze(critic, axis=-1)
 
     def sample_action(self, seed,  dist, log_prob=False, deterministic=False):
         """Sample an action from the distribution"""
@@ -188,10 +184,6 @@ class LaunchPowerActorCriticMLP(nn.Module):
             alpha_out = nn.Dense(1, kernel_init=orthogonal(0.01), name="alpha")
             beta_out = nn.Dense(1, kernel_init=orthogonal(0.01), name="beta")
 
-        # Initialize critic network layers
-        critic_net = make_mlp("critic")
-        critic_out = nn.Dense(1, kernel_init=orthogonal(1.0), name="critic_output")
-
         def activate(x):
             if self.activation == "relu": return jax.nn.relu(x)
             if self.activation == "crelu": return crelu(x)
@@ -221,9 +213,6 @@ class LaunchPowerActorCriticMLP(nn.Module):
                     (num_path_features,)
                 )
                 features = jnp.concatenate([base, path])
-
-                critic_value = critic_out(forward(features, critic_net))
-
                 actor_hidden = forward(features, actor_net)
                 if discrete:
                     out = actor_out(actor_hidden) / temperature
@@ -236,15 +225,20 @@ class LaunchPowerActorCriticMLP(nn.Module):
                     )
                     out = (alpha, beta)
 
-                return carry, (out, jnp.squeeze(critic_value))
+                return carry, out
 
         # Scan over paths
-        _, (dist_params, values) = nn.scan(
+        _, dist_params = nn.scan(
             PathProcessor,
             variable_broadcast="params",
             split_rngs={"params": False},
             length=self.k_paths,
         )()(None, jnp.arange(self.k_paths))
+
+        # Initialize critic network layers
+        critic_net = make_mlp("critic")
+        critic_out = nn.Dense(1, kernel_init=orthogonal(1.0), name="critic_output")
+        value = jnp.squeeze(critic_out(forward(x, critic_net)), axis=-1)
 
         # Create appropriate distribution
         if self.discrete:
@@ -253,8 +247,7 @@ class LaunchPowerActorCriticMLP(nn.Module):
             dist = distrax.Beta(dist_params[0].reshape((self.k_paths,)), dist_params[1].reshape((self.k_paths,)))
         # N.B. that this is a single distribution object, but it is batched over K paths
 
-        return [dist,], values
-
+        return [None, dist], value
 
     def sample_action(self, seed, dist, log_prob=False, deterministic=False):
         """Sample an action and convert to power level"""
@@ -275,8 +268,9 @@ class LaunchPowerActorCriticMLP(nn.Module):
                 # Sample from Beta (clipping to avoid edge values with undefined gradient) and scale to power range
                 raw_action = jnp.clip(dist.sample(seed=seed), self.epsilon, 1.0 - self.epsilon)
             processed_action = self.min_power_dbm + raw_action * (self.max_power_dbm - self.min_power_dbm)
+        processed_action = from_dbm(processed_action)
         if log_prob:
-            return processed_action, dist.log_prob(raw_action)
+            return processed_action, dist.log_prob(jnp.squeeze(raw_action))
         return processed_action
 
     def get_action_probs(self, dist):
@@ -315,6 +309,11 @@ class GraphNet(nn.Module):
             embed_global_fn=nn.Dense(self.latent_size) if self.output_globals_size > 0 else None,
         )
         processed_graphs = embedder(graphs)
+        # Sum the edge embeddings of the processed graph
+        # TODO(GNN_LP) - consider using a more sophisticated aggregation function
+        processed_graphs = processed_graphs._replace(
+            edges=jnp.sum(processed_graphs.edges, axis=-2)
+        )
 
         # Now, we will apply a Graph Network once for each message-passing round.
         for _ in range(self.message_passing_steps):
@@ -410,7 +409,7 @@ class CriticGNN(nn.Module):
     gnn_latent: int = 128
     message_passing_steps: int = 1
     output_edges_size: int = 10
-    output_nodes_size: int = 1
+    output_nodes_size: int = 0
     output_globals_size: int = 1
     gnn_mlp_layers: int = 1
     use_attention: bool = True
@@ -434,7 +433,7 @@ class CriticGNN(nn.Module):
             mlp_layer_norm=self.mlp_layer_norm,
         )(state.graph)
         # TODO(GNN_LP) - alternatively, just use the globals to predict the value
-        return jnp.squeeze(processed_graph.globals, axis=-1)
+        #return jnp.squeeze(processed_graph.globals, axis=-1)
         # # Take first half processed_graph.edges as edge features
         # edge_features = processed_graph.edges if params.directed_graph else processed_graph.edges[:len(processed_graph.edges) // 2]
         # if self.normalise_by_link_length:
@@ -442,11 +441,12 @@ class CriticGNN(nn.Module):
         # # Index every other row of the edge features to get the link-slot array
         # edge_features_flat = jnp.reshape(edge_features, (-1,))
         # # pass aggregated features through MLP
-        # critic = make_dense_layers(edge_features_flat, self.num_units, self.num_layers, self.activation, layer_norm=self.mlp_layer_norm)
-        # critic = nn.Dense(1, kernel_init=orthogonal(1.0), bias_init=constant(0.0))(
-        #     critic
-        # )
-        # return jnp.squeeze(critic, axis=-1)
+        globals_flat = jnp.reshape(processed_graph.globals, (-1,))
+        critic = make_dense_layers(globals_flat, self.num_units, self.num_layers, self.activation, layer_norm=self.mlp_layer_norm)
+        critic = nn.Dense(1, kernel_init=orthogonal(1.0), bias_init=constant(0.0))(
+            critic
+        )
+        return jnp.squeeze(critic, axis=-1)
 
 
 class ActorGNN(nn.Module):
@@ -457,7 +457,7 @@ class ActorGNN(nn.Module):
     gnn_latent: int = 128
     message_passing_steps: int = 1
     output_edges_size: int = 10
-    output_nodes_size: int = 1
+    output_nodes_size: int = 0
     output_globals_size: int = 1
     gnn_mlp_layers: int = 1
     use_attention: bool = True
@@ -537,9 +537,9 @@ class ActorGNN(nn.Module):
 
         power_action_dist = None
         if params.__class__.__name__ == "RSAGNModelEnvParams":
-            power_logits = processed_graph.globals
+            power_logits = processed_graph.globals.reshape((-1,)) / self.temperature
             if self.discrete:
-                power_action_dist = distrax.Categorical(logits=power_logits / self.temperature)
+                power_action_dist = distrax.Categorical(logits=power_logits)
             else:
                 alpha = self.min_concentration + jax.nn.softplus(power_logits) * (
                         self.max_concentration - self.min_concentration
@@ -550,7 +550,7 @@ class ActorGNN(nn.Module):
                 power_action_dist = distrax.Beta(alpha, beta)
 
         # Return a distrax.Categorical distribution over actions (which can be masked later)
-        path_action_dist = distrax.Categorical(logits=jnp.reshape(path_action_logits, (-1,)))
+        path_action_dist = distrax.Categorical(logits=path_action_logits)
         return (path_action_dist, power_action_dist)
 
 
@@ -562,8 +562,8 @@ class ActorCriticGNN(nn.Module):
     gnn_latent: int = 128
     message_passing_steps: int = 1
     output_edges_size: int = 10
-    output_nodes_size: int = 1
-    output_globals_size: int = 0
+    output_nodes_size: int = 0
+    output_globals_size: int = 1
     gnn_mlp_layers: int = 1
     use_attention: bool = True
     normalise_by_link_length: bool = True  # Normalise the processed edge features by the link length
@@ -580,6 +580,19 @@ class ActorCriticGNN(nn.Module):
     min_concentration: float = 0.1
     max_concentration: float = 20.0
     epsilon: float = 1e-6
+    # Bools to determine which actions to output
+    output_path: bool = True
+    output_power: bool = True
+
+    @property
+    def num_power_levels(self):
+        """Calculate number of power levels dynamically"""
+        return int((self.max_power_dbm - self.min_power_dbm) / self.step_power_dbm) + 1
+
+    @property
+    def power_levels(self):
+        """Calculate power levels dynamically"""
+        return jnp.linspace(self.min_power_dbm, self.max_power_dbm, self.num_power_levels)
 
     @nn.compact
     def __call__(self, state: EnvState, params: EnvParams):
@@ -626,9 +639,8 @@ class ActorCriticGNN(nn.Module):
         critic_out = critic(state, params)
         return actor_out, critic_out
 
-    # TODO(GNN_LP) - Combine these sampling methods somehow (either here or elsewhere)
     def sample_action_path(self, seed, dist, log_prob=False, deterministic=False):
-        """Sample an action from the distribution"""
+        """Sample an action from the distribution."""
         action = jnp.argmax(dist.probs()) if deterministic else dist.sample(seed=seed)
         if log_prob:
             return action, dist.log_prob(action)
@@ -643,7 +655,7 @@ class ActorCriticGNN(nn.Module):
             else:
                 # Sample from distribution
                 raw_action = dist.sample(seed=seed)
-            processed_action = self.power_levels[raw_action].reshape((self.k_paths, 1))
+            processed_action = self.power_levels[raw_action]
         else:
             if deterministic:
                 # Use mean of Beta distribution for deterministic action
@@ -653,21 +665,31 @@ class ActorCriticGNN(nn.Module):
                 # Sample from Beta (clipping to avoid edge values with undefined gradient) and scale to power range
                 raw_action = jnp.clip(dist.sample(seed=seed), self.epsilon, 1.0 - self.epsilon)
             processed_action = self.min_power_dbm + raw_action * (self.max_power_dbm - self.min_power_dbm)
+        processed_action = from_dbm(processed_action)
         if log_prob:
             return processed_action, dist.log_prob(raw_action)
         return processed_action
 
     def sample_action_path_power(self, seed, dist, log_prob=False, deterministic=False):
-        """Sample an action from the distribution"""
-        path_action = jnp.argmax(dist[0].probs()) if deterministic else dist[0].sample(seed=seed)
-        power_action = None if len(dist) == 1 else self.sample_action_power(seed, dist[1], log_prob=log_prob, deterministic=deterministic)
+        """Sample an action from the distributions.
+        This assumes dist is a tuple of path and power distributions."""
+        path_action = self.sample_action_path(seed, dist[0], log_prob=log_prob, deterministic=deterministic)
+        power_action  = self.sample_action_power(seed, dist[1], log_prob=log_prob, deterministic=deterministic)
         if log_prob:
-            power_log_prob = 0.0
-            if len(dist) > 1:
-                power_action, power_log_prob = self.sample_action_power(seed, dist[1], log_prob=log_prob, deterministic=deterministic)
-            path_log_prob = dist[0].log_prob(path_action)
-            return path_action, power_action, path_log_prob+power_log_prob
+            return path_action[0], power_action[0], path_action[1]+power_action[1]
         return path_action, power_action
+
+    def sample_action(self, seed, dist, log_prob=False, deterministic=False):
+        """Sample an action from the distributions.
+        This assumes dist is a tuple of path and power distributions OR just the appropriate distribution."""
+        if self.output_path and self.output_power:
+            return self.sample_action_path_power(seed, dist, log_prob=log_prob, deterministic=deterministic)
+        elif self.output_path:
+            return self.sample_action_path(seed, dist, log_prob=log_prob, deterministic=deterministic)
+        elif self.output_power:
+            return self.sample_action_power(seed, dist, log_prob=log_prob, deterministic=deterministic)
+        else:
+            raise ValueError("No action type specified for sampling.")
 
 
 if __name__ == "__main__":

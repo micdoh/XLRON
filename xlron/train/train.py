@@ -40,9 +40,9 @@ def main(argv):
     import orbax.checkpoint
     from xlron.environments.env_funcs import create_run_name
     from xlron.environments.wrappers import TimeIt
-    from xlron.train.ppo import learner_data_setup, get_learner_fn
-    from xlron.heuristics.eval_heuristic import make_eval
-    from xlron.train.train_utils import save_model, log_metrics, setup_wandb, define_env
+    from xlron.train.ppo import get_learner_fn
+    from xlron.heuristics.eval_heuristic import get_eval_fn
+    from xlron.train.train_utils import save_model, log_metrics, setup_wandb, define_env, experiment_data_setup
     # The following flags can improve GPU performance for jaxlib>=0.4.18
     os.environ['XLA_FLAGS'] = (
         '--xla_gpu_enable_triton_softmax_fusion=true '
@@ -90,7 +90,7 @@ def main(argv):
     rng = jax.random.PRNGKey(FLAGS.SEED)
     rng = jax.random.split(rng, FLAGS.NUM_LEARNERS)
 
-    if FLAGS.LOAD_MODEL or FLAGS.EVAL_MODEL:
+    if FLAGS.RETRAIN_MODEL or FLAGS.EVAL_MODEL:
         orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
         model = orbax_checkpointer.restore(pathlib.Path(FLAGS.MODEL_PATH))
         FLAGS.__setattr__("model", model)
@@ -116,13 +116,11 @@ def main(argv):
               f"Total updates: {FLAGS.NUM_UPDATES * FLAGS.NUM_MINIBATCHES}\n"
               f"Batch size: {FLAGS.NUM_ENVS * FLAGS.ROLLOUT_LENGTH}\n"
               f"Minibatch size: {FLAGS.MINIBATCH_SIZE}\n")
-        if not (FLAGS.EVAL_HEURISTIC or FLAGS.EVAL_MODEL):
-            experiment_input, env, env_params = jax.vmap(learner_data_setup, axis_name='learner', in_axes=(None, 0))(FLAGS, rng)
-            learn = get_learner_fn(env, env_params, experiment_input[0], FLAGS)
-            run_experiment = jax.jit(jax.vmap(learn, axis_name='learner')).lower(experiment_input).compile()
-        else:
-            run_experiment = jax.jit(jax.vmap(make_eval(FLAGS))).lower(rng).compile()
-            experiment_input = rng
+
+        experiment_fn = get_learner_fn if not (FLAGS.EVAL_HEURISTIC or FLAGS.EVAL_MODEL) else get_eval_fn
+        experiment_input, env, env_params = jax.vmap(experiment_data_setup, axis_name='learner', in_axes=(None, 0))(FLAGS, rng)
+        experiment_fn = experiment_fn(env, env_params, experiment_input[0], FLAGS)
+        run_experiment = jax.jit(jax.vmap(experiment_fn, axis_name='learner')).lower(experiment_input).compile()
 
     # N.B. that increasing number of learner will increase the number of steps
     # (essentially training for total_timesteps separately per learner)

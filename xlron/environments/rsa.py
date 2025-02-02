@@ -10,6 +10,7 @@ import networkx as nx
 import numpy as np
 import jraph
 from gymnax.environments import environment, spaces
+
 from xlron.environments.env_funcs import (
     init_rsa_request_array, init_link_slot_array, init_path_link_array,
     convert_node_probs_to_traffic_matrix, init_link_slot_mask, init_link_slot_departure_array, init_traffic_matrix,
@@ -17,7 +18,7 @@ from xlron.environments.env_funcs import (
     mask_slots, make_graph, init_path_length_array, init_modulations_array, init_path_se_array, required_slots,
     init_values_bandwidth, calculate_path_stats, normalise_traffic_matrix, init_graph_tuple, init_link_length_array,
     init_link_capacity_array, init_path_capacity_array, init_path_index_array, mask_slots_rwalr,
-    implement_action_rwalr, check_action_rwalr, pad_array, undo_action_rwalr,
+    implement_action_rwalr, check_action_rwalr, pad_array, undo_action_rwalr, update_graph_tuple,
     finalise_action_rwalr, generate_request_rwalr, init_link_snr_array,
     init_channel_centre_bw_array, check_action_rsa_gn_model, read_rsa_request, implement_action_rsa_gn_model,
     undo_action_rsa_gn_model, finalise_action_rsa_gn_model, init_modulation_format_index_array,
@@ -27,6 +28,7 @@ from xlron.environments.env_funcs import (
 )
 from xlron.environments.dataclasses import *
 from xlron.environments.wrappers import *
+from xlron.environments.isrs_gn_model import from_dbm, to_dbm
 
 
 class RSAEnv(environment.Environment):
@@ -40,6 +42,7 @@ class RSAEnv(environment.Environment):
             params: RSAEnvParams,
             traffic_matrix: chex.Array = None,
             list_of_requests: chex.Array = None,
+            laplacian_matrix: chex.Array = None,
     ):
         """Initialise the environment state and set as initial state.
 
@@ -69,7 +72,8 @@ class RSAEnv(environment.Environment):
             accepted_bitrate=0.,
             total_bitrate=0.,
         )
-        self.initial_state = state.replace(graph=init_graph_tuple(state, params))
+        if not params.__class__.__name__ == "RSAGNModelEnvParams":
+            self.initial_state = state.replace(graph=init_graph_tuple(state, params, laplacian_matrix))
 
     @partial(jax.jit, static_argnums=(0, 4))
     def step(
@@ -207,6 +211,7 @@ class RSAEnv(environment.Environment):
         # TODO (AFTERSTATE) - write separate functions for deterministic transition (above) and stochastic transition (below)
         # Generate new request
         state = generate_request(key, state, params)
+        jax.debug.print("a_time {} h_time {} request {}", state.current_time, state.holding_time, state.request_array, ordered=True)
         state = state.replace(total_timesteps=state.total_timesteps + 1)
         # Terminate if max_timesteps or max_requests exceeded or, if consecutive loading,
         # then terminate if reward is failure but not before min number of timesteps before update
@@ -223,7 +228,7 @@ class RSAEnv(environment.Environment):
             state = state.replace(path_stats=path_stats)
         else:
             # Update graph tuple
-            state = state.replace(graph=init_graph_tuple(state, params))
+            state = update_graph_tuple(state, params)
         return self.get_obs(state, params), state, reward, done, info
 
     @partial(jax.jit, static_argnums=(0, 2,))
@@ -561,6 +566,7 @@ class RWALightpathReuseEnv(RSAEnv):
             params: RSAEnvParams,
             traffic_matrix: chex.Array = None,
             path_capacity_array: chex.Array = None,
+            laplacian_matrix: chex.Array = None,
     ):
         """Initialise the environment state and set as initial state.
 
@@ -594,7 +600,7 @@ class RWALightpathReuseEnv(RSAEnv):
             total_bitrate=0.,
             time_since_last_departure=0.,
         )
-        self.initial_state = state.replace(graph=init_graph_tuple(state, params))
+        self.initial_state = state.replace(graph=init_graph_tuple(state, params, laplacian_matrix))
 
     @partial(jax.jit, static_argnums=(0, 2,))
     def action_mask(self, state: RSAEnvState, params: RSAEnvParams) -> RSAEnvState:
@@ -620,6 +626,7 @@ class RSAGNModelEnv(RSAEnv):
             traffic_matrix: chex.Array = None,
             launch_power_array: chex.Array = None,
             list_of_requests: chex.Array = None,
+            laplacian_matrix: chex.Array = None,
     ):
         """Initialise the environment state and set as initial state.
 
@@ -632,7 +639,7 @@ class RSAGNModelEnv(RSAEnv):
         Returns:
             None
         """
-        super().__init__(key, params, traffic_matrix=traffic_matrix, list_of_requests=list_of_requests)
+        super().__init__(key, params, traffic_matrix=traffic_matrix, list_of_requests=list_of_requests, laplacian_matrix=laplacian_matrix)
         state = RSAGNModelEnvState(
             current_time=0,
             holding_time=0,
@@ -662,7 +669,7 @@ class RSAGNModelEnv(RSAEnv):
             #active_path_array_prev=init_active_path_array(params),
             launch_power_array=launch_power_array,
         )
-        self.initial_state = state.replace(graph=init_graph_tuple(state, params))
+        self.initial_state = state.replace(graph=init_graph_tuple(state, params, laplacian_matrix))
 
     @partial(jax.jit, static_argnums=(0, 2,))
     def action_mask(self, state: RSAEnvState, params: RSAEnvParams) -> RSAEnvState:
@@ -943,8 +950,10 @@ def make_rsa_env(config: dict, launch_power_array: Optional[chex.Array] = None):
     incremental_loading = config.get("incremental_loading", False)
     end_first_blocking = config.get("end_first_blocking", False)
     random_traffic = config.get("random_traffic", False)
-    max_requests = config.get("max_requests", 1e4)
-    max_timesteps = config.get("max_timesteps", 1e4)
+    continuous_operation = config.get("continuous_operation", False)
+    total_timesteps = config.get("TOTAL_TIMESTEPS", 1e4)
+    max_requests = total_timesteps if continuous_operation else config.get("max_requests", total_timesteps)
+    max_timesteps = total_timesteps if continuous_operation else config.get("max_requests", total_timesteps)
     link_resources = config.get("link_resources", 100)
     values_bw = config.get("values_bw", None)
     node_probabilities = config.get("node_probabilities", None)
@@ -955,7 +964,6 @@ def make_rsa_env(config: dict, launch_power_array: Optional[chex.Array] = None):
     max_bw = config.get("max_bw", 100)
     step_bw = config.get("step_bw", 1)
     env_type = config.get("env_type", "").lower()
-    continuous_operation = config.get("continuous_operation", False)
     custom_traffic_matrix_csv_filepath = config.get("custom_traffic_matrix_csv_filepath", None)
     traffic_requests_csv_filepath = config.get("traffic_requests_csv_filepath", None)
     multiple_topologies_directory = config.get("multiple_topologies_directory", None)
@@ -998,7 +1006,8 @@ def make_rsa_env(config: dict, launch_power_array: Optional[chex.Array] = None):
     max_snr = config.get("max_snr", 50.)
     max_power = config.get("max_power", 9)
     min_power = config.get("min_power", -5)
-    default_launch_power = config.get("launch_power", 0.5)
+    step_power = config.get("step_power", 1)
+    default_launch_power = float(from_dbm(config.get("launch_power", 0.5)))
     optimise_launch_power = config.get("optimise_launch_power", False)
     traffic_array = config.get("traffic_array", False)
 
@@ -1030,7 +1039,7 @@ def make_rsa_env(config: dict, launch_power_array: Optional[chex.Array] = None):
     # 3. RL to determine power for each channel.
     # 4. Fixed power scaled by path length.
     if env_type == "rsa_gn_model":
-        default_launch_power_array = jnp.full((k, 1), default_launch_power)
+        default_launch_power_array = jnp.array([default_launch_power,])
         if launch_power_type == "fixed":
             # Same power for all channels
             launch_power_array = default_launch_power_array if launch_power_array is None else launch_power_array
@@ -1075,10 +1084,10 @@ def make_rsa_env(config: dict, launch_power_array: Optional[chex.Array] = None):
         max_requests = len(list_of_requests)
     elif optimise_launch_power:
         deterministic_requests = True
-        list_of_requests = jnp.array(config.get("list_of_requests", []))
+        list_of_requests = jnp.array(config.get("list_of_requests", [0]))
     else:
         deterministic_requests = False
-        list_of_requests = jnp.array([])
+        list_of_requests = jnp.array([0])
 
     values_bw = init_values_bandwidth(min_bw, max_bw, step_bw, values_bw)
 
@@ -1134,6 +1143,9 @@ def make_rsa_env(config: dict, launch_power_array: Optional[chex.Array] = None):
     # Define edges for use with heuristics and GNNs
     edges = jnp.array(sorted(graph.edges))
 
+    laplacian_matrix = jnp.array(nx.directed_laplacian_matrix(graph)) if graph.is_directed() \
+        else jnp.array(nx.laplacian_matrix(graph).todense())
+
     max_timesteps = max_requests
 
     params_dict = dict(
@@ -1177,7 +1189,6 @@ def make_rsa_env(config: dict, launch_power_array: Optional[chex.Array] = None):
     elif env_type == "rsa_gn_model":
         env_params = RSAGNModelEnvParams
         params_dict.update(ref_lambda=ref_lambda, max_spans=max_spans, max_span_length=max_span_length,
-                           #launch_power_array=HashableArrayWrapper(launch_power_array) if not remove_array_wrappers else launch_power_array,
                            default_launch_power=default_launch_power,
                            nonlinear_coeff=nonlinear_coeff, raman_gain_slope=raman_gain_slope, attenuation=attenuation,
                            attenuation_bar=attenuation_bar, dispersion_coeff=dispersion_coeff,
@@ -1187,7 +1198,7 @@ def make_rsa_env(config: dict, launch_power_array: Optional[chex.Array] = None):
                            gap_start=gap_start, gap_width=gap_width, roadm_loss=roadm_loss, num_roadms=num_roadms,
                            num_spans=num_spans, launch_power_type=launch_power_type, snr_margin=snr_margin,
                            last_fit=config.get("last_fit", False), max_power=max_power, min_power=min_power,
-                           max_snr=max_snr)
+                           step_power=step_power, max_snr=max_snr)
         # TODO - In order to do masking based on maximum reach of mod. format (which avoids extra calculation)
         #  calculate maximum reach here and update modulations_array.
         #  Write a function that takes params_dict as input, does the launch power optimisation, returns the maximum reach
@@ -1227,14 +1238,16 @@ def make_rsa_env(config: dict, launch_power_array: Optional[chex.Array] = None):
         env = None
     else:
         if env_type == "deeprmsa":
-            env = DeepRMSAEnv(rng, params, traffic_matrix=traffic_matrix)
+            env = DeepRMSAEnv(rng, params, traffic_matrix=traffic_matrix, laplacian_matrix=laplacian_matrix)
         elif env_type == "rwa_lightpath_reuse":
             env = RWALightpathReuseEnv(
-                rng, params, traffic_matrix=traffic_matrix, path_capacity_array=path_capacity_array)
+                rng, params, traffic_matrix=traffic_matrix, path_capacity_array=path_capacity_array,
+                laplacian_matrix=laplacian_matrix)
         elif env_type == "rsa_gn_model":
             env = RSAGNModelEnv(rng, params, traffic_matrix=traffic_matrix, launch_power_array=launch_power_array,
-                                list_of_requests=list_of_requests)
+                                list_of_requests=list_of_requests, laplacian_matrix=laplacian_matrix)
         else:
-            env = RSAEnv(rng, params, traffic_matrix=traffic_matrix, list_of_requests=list_of_requests)
+            env = RSAEnv(rng, params, traffic_matrix=traffic_matrix, list_of_requests=list_of_requests,
+                         laplacian_matrix=laplacian_matrix)
 
     return env, params
