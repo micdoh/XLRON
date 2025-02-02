@@ -489,8 +489,6 @@ def get_warmup_fn(warmup_state, env, params, train_state, config) -> Callable[[T
                 # We want to overwrite the launch power with a default launch_power
                 path_action = ksp_lf(_state.env_state, _params) if _params.last_fit is True else ksp_ff(_state.env_state, _params)
                 action = jnp.concatenate([path_action.reshape((1,)), jnp.array([params.default_launch_power,])], axis=0)
-            if config.env_type.lower() == "rsa_gn_model":
-                jax.debug.print("Warmup action {}", action, ordered=True)
             elif config.env_type.lower() == "rsa_gn_model" and config.launch_power_type != "rl" and not config.EVAL_HEURISTIC:
                 raise ValueError("Check that EVAL_HEURISTIC is set to True if using a heuristic")
             # STEP ENV

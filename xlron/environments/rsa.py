@@ -211,7 +211,6 @@ class RSAEnv(environment.Environment):
         # TODO (AFTERSTATE) - write separate functions for deterministic transition (above) and stochastic transition (below)
         # Generate new request
         state = generate_request(key, state, params)
-        jax.debug.print("a_time {} h_time {} request {}", state.current_time, state.holding_time, state.request_array, ordered=True)
         state = state.replace(total_timesteps=state.total_timesteps + 1)
         # Terminate if max_timesteps or max_requests exceeded or, if consecutive loading,
         # then terminate if reward is failure but not before min number of timesteps before update
