@@ -2,10 +2,13 @@ import jax
 import jax.numpy as jnp
 from xlron.environments.env_funcs import *
 
+# TODO - define lower/highest GSNR heuristics. Will require returning an alternative mask
+#  e.g. of available SNR on path or of required slots
+
 
 @partial(jax.jit, static_argnums=(1,))
 def ksp_ff(state: EnvState, params: EnvParams) -> chex.Array:
-    """Get the first available slot from all k-shortest paths
+    """Get the first available slot from the shortest available path
     Method: Go through action mask and find the first available slot, starting from shortest path
 
     Args:
@@ -25,8 +28,29 @@ def ksp_ff(state: EnvState, params: EnvParams) -> chex.Array:
 
 
 @partial(jax.jit, static_argnums=(1,))
+def ksp_lf(state: EnvState, params: EnvParams) -> chex.Array:
+    """Get the last available slot on the shortest available path
+    Method: Go through action mask and find the last available slot, starting from shortest path
+
+    Args:
+        state (EnvState): Environment state
+        params (EnvParams): Environment parameters
+
+    Returns:
+        chex.Array: Action
+    """
+    last_slots = last_fit(state, params)
+    # Chosen path is the first one with an available slot
+    path_index = jnp.argmax(last_slots < params.link_resources)
+    slot_index = last_slots[path_index] % params.link_resources
+    # Convert indices to action
+    action = path_index * params.link_resources + slot_index
+    return action
+
+
+@partial(jax.jit, static_argnums=(1,))
 def ff_ksp(state: EnvState, params: EnvParams) -> chex.Array:
-    """Get the first available slot from the first k-shortest paths
+    """Get the first available slot from all paths
     Method: Go through action mask and find the first available slot on all paths
 
     Args:
@@ -40,6 +64,27 @@ def ff_ksp(state: EnvState, params: EnvParams) -> chex.Array:
     # Chosen path is the one with the lowest index of first available slot
     path_index = jnp.argmin(first_slots)
     slot_index = first_slots[path_index] % params.link_resources
+    # Convert indices to action
+    action = path_index * params.link_resources + slot_index
+    return action
+
+
+@partial(jax.jit, static_argnums=(1,))
+def lf_ksp(state: EnvState, params: EnvParams) -> chex.Array:
+    """Get the last available slot from all paths
+    Method: Go through action mask and find the last available slot on all paths
+
+    Args:
+        state (EnvState): Environment state
+        params (EnvParams): Environment parameters
+
+    Returns:
+        chex.Array: Action
+    """
+    last_slots = last_fit(state, params)
+    # Chosen path is the one with the highest index of last available slot
+    path_index = jnp.argmax(last_slots)
+    slot_index = last_slots[path_index] % params.link_resources
     # Convert indices to action
     action = path_index * params.link_resources + slot_index
     return action
@@ -337,8 +382,12 @@ def get_link_weights(state: EnvState, params: EnvParams):
 
 
 def get_action_mask(state: EnvState, params: EnvParams) -> chex.Array:
-    state = mask_slots_rwa_lightpath_reuse(state, params, state.request_array) \
-        if params.__class__.__name__ == "RWALightpathReuseEnvParams" else mask_slots(state, params, state.request_array)
+    if params.__class__.__name__ == "RWALightpathReuseEnvParams":
+        state = mask_slots_rwalr(state, params, state.request_array)
+    elif params.__class__.__name__ == "RSAGNModelEnvParams":
+        state = mask_slots_rsa_gn_model(state, params, state.request_array)
+    else:
+        state = mask_slots(state, params, state.request_array)
     mask = jnp.reshape(state.link_slot_mask, (params.k_paths, -1))
     return mask
 
@@ -407,6 +456,18 @@ def first_fit(state: EnvState, params: EnvParams) -> chex.Array:
     # Get index of first available slots for each path
     first_slots = jnp.argmax(mask, axis=1)
     return first_slots
+
+
+def last_fit(state: EnvState, params: EnvParams) -> chex.Array:
+    """Last-Fit Spectrum Allocation. Returns the last fit slot for each path."""
+    mask = get_action_mask(state, params)
+    # Add a column of ones to the mask to make sure that occupied paths have non-zero index in "last_slots"
+    mask = jnp.concatenate((jnp.full((mask.shape[0], 1), 1), mask), axis=1)
+    # Get index of last available slots for each path
+    last_slots = jnp.argmax(mask[:, ::-1], axis=1)
+    # Convert to index from the left
+    last_slots = params.link_resources - last_slots - 1
+    return last_slots
 
 
 @partial(jax.jit, static_argnums=(1, 2, 3))

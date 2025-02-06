@@ -1,6 +1,7 @@
 import chex
 import jraph
 from flax import struct
+from typing import NamedTuple, Callable
 
 
 @struct.dataclass
@@ -30,6 +31,23 @@ class RSATransition:
 
 
 @struct.dataclass
+class Transition:
+    done: chex.Array
+    action: chex.Array
+    reward: chex.Array
+    obs: chex.Array
+    info: chex.Array
+
+
+@struct.dataclass
+class EvalState:
+    apply_fn: Callable
+    sample_fn: Callable
+    params: chex.Array
+
+
+
+@struct.dataclass
 class EnvState:
     """Dataclass to hold environment state. State is mutable and arrays are traced on JIT compilation.
 
@@ -52,6 +70,7 @@ class EnvState:
     accepted_services: chex.Array
     accepted_bitrate: chex.Array
     total_bitrate: chex.Array
+    list_of_requests: chex.Array
 
 
 @struct.dataclass
@@ -84,9 +103,11 @@ class EnvParams:
     aggregate_slots: chex.Scalar = struct.field(pytree_node=False)
     guardband: chex.Scalar = struct.field(pytree_node=False)
     directed_graph: bool = struct.field(pytree_node=False)
+    maximise_throughput: bool = struct.field(pytree_node=False)
     reward_type: str = struct.field(pytree_node=False)
     values_bw: chex.Array = struct.field(pytree_node=False)
     truncate_holding_time: bool = struct.field(pytree_node=False)
+    traffic_array: bool = struct.field(pytree_node=False)
 
 
 @struct.dataclass
@@ -150,7 +171,6 @@ class RSAEnvParams(EnvParams):
         max_slots (chex.Scalar): Maximum number of slots
         path_se_array (chex.Array): Path spectral efficiency array
         deterministic_requests (bool): If True, use deterministic requests
-        list_of_requests (chex.Array): List of requests
         multiple_topologies (bool): If True, use multiple topologies
     """
     num_nodes: chex.Scalar = struct.field(pytree_node=False)
@@ -165,7 +185,6 @@ class RSAEnvParams(EnvParams):
     max_slots: chex.Scalar = struct.field(pytree_node=False)
     path_se_array: chex.Array = struct.field(pytree_node=False)
     deterministic_requests: bool = struct.field(pytree_node=False)
-    list_of_requests: chex.Array = struct.field(pytree_node=False)
     multiple_topologies: bool = struct.field(pytree_node=False)
     log_actions: bool = struct.field(pytree_node=False)
 
@@ -194,20 +213,76 @@ class RWALightpathReuseEnvState(RSAEnvState):
     """Dataclass to hold environment state for RWA with lightpath reuse.
 
     Args:
-        time_since_last_departure (chex.Array): Time since last departure event
         path_index_array (chex.Array): Contains indices of lightpaths in use on slots
         path_capacity_array (chex.Array): Contains remaining capacity of each lightpath
         link_capacity_array (chex.Array): Contains remaining capacity of lightpath on each link-slot
     """
-    time_since_last_departure: chex.Array # Time since last departure
     path_index_array: chex.Array  # Contains indices of lightpaths in use on slots
     path_capacity_array: chex.Array  # Contains remaining capacity of each lightpath
     link_capacity_array: chex.Array  # Contains remaining capacity of lightpath on each link-slot
+    time_since_last_departure: chex.Array  # Time since last departure
 
 
 @struct.dataclass
 class RWALightpathReuseEnvParams(RSAEnvParams):
     pass
+
+
+@struct.dataclass
+class RSAGNModelEnvState(RSAEnvState):
+    """Dataclass to hold environment state for RSA with GN model.
+
+    Args:
+        link_snr_array (chex.Array): Link SNR array
+    """
+    link_snr_array: chex.Array  # Available SNR on each link
+    channel_centre_bw_array: chex.Array  # Channel centre bandwidth for each active connection
+    path_index_array: chex.Array  # Contains indices of lightpaths in use on slots (used for lightpath SNR calculation)
+    channel_power_array: chex.Array  # Channel power for each active connection
+    modulation_format_index_array: chex.Array  # Modulation format index for each active connection
+    channel_centre_bw_array_prev: chex.Array  # Channel centre bandwidth for each active connection in previous timestep
+    path_index_array_prev: chex.Array  # Contains indices of lightpaths in use on slots in previous timestep
+    channel_power_array_prev: chex.Array  # Channel power for each active connection in previous timestep
+    modulation_format_index_array_prev: chex.Array  # Modulation format index for each active connection in previous timestep
+    #active_path_array: chex.Array  # Active path array (Nlink x Nchannel x Nlink)
+    #active_path_array_prev: chex.Array  # Active path array in previous timestep
+    launch_power_array: chex.Array  # Launch power array
+
+
+@struct.dataclass
+class RSAGNModelEnvParams(RSAEnvParams):
+    """Dataclass to hold environment state for RSA with GN model.
+
+    Args:
+        link_snr_array (chex.Array): Link SNR array
+    """
+    ref_lambda: chex.Scalar = struct.field(pytree_node=False)
+    max_spans: chex.Scalar = struct.field(pytree_node=False)
+    max_span_length: chex.Scalar = struct.field(pytree_node=False)
+    nonlinear_coeff: chex.Scalar = struct.field(pytree_node=False)
+    raman_gain_slope: chex.Scalar = struct.field(pytree_node=False)
+    attenuation: chex.Scalar = struct.field(pytree_node=False)
+    attenuation_bar: chex.Scalar = struct.field(pytree_node=False)
+    dispersion_coeff: chex.Scalar = struct.field(pytree_node=False)
+    dispersion_slope: chex.Scalar = struct.field(pytree_node=False)
+    noise_figure: chex.Scalar = struct.field(pytree_node=False)
+    coherent: bool = struct.field(pytree_node=False)
+    modulations_array: chex.Array = struct.field(pytree_node=False)
+    mod_format_correction: bool = struct.field(pytree_node=False)
+    interband_gap: chex.Scalar = struct.field(pytree_node=False)
+    gap_width: chex.Scalar = struct.field(pytree_node=False)
+    gap_start: chex.Scalar = struct.field(pytree_node=False)
+    num_roadms: chex.Scalar = struct.field(pytree_node=False)
+    roadm_loss: chex.Scalar = struct.field(pytree_node=False)
+    num_spans: chex.Scalar = struct.field(pytree_node=False)
+    launch_power_type: chex.Scalar = struct.field(pytree_node=False)
+    snr_margin: chex.Scalar = struct.field(pytree_node=False)
+    max_snr: chex.Scalar = struct.field(pytree_node=False)
+    max_power: chex.Scalar = struct.field(pytree_node=False)
+    min_power: chex.Scalar = struct.field(pytree_node=False)
+    step_power: chex.Scalar = struct.field(pytree_node=False)
+    last_fit: bool = struct.field(pytree_node=False)
+    default_launch_power: chex.Scalar = struct.field(pytree_node=False)
 
 
 @struct.dataclass

@@ -9,7 +9,11 @@ figures/
 jax/
 site/
 config/
-data/
-models/
 .coverage
 .run
+.venv
+.zed
+models/
+data_processing/misc
+data/
+.ipynb_checkpoints/
