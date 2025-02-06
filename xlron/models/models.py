@@ -433,7 +433,6 @@ class CriticGNN(nn.Module):
             mlp_layer_norm=self.mlp_layer_norm,
         )(state.graph)
         # TODO(GNN_LP) - alternatively, just use the globals to predict the value
-        #return jnp.squeeze(processed_graph.globals, axis=-1)
         # # Take first half processed_graph.edges as edge features
         # edge_features = processed_graph.edges if params.directed_graph else processed_graph.edges[:len(processed_graph.edges) // 2]
         # if self.normalise_by_link_length:
@@ -441,8 +440,9 @@ class CriticGNN(nn.Module):
         # # Index every other row of the edge features to get the link-slot array
         # edge_features_flat = jnp.reshape(edge_features, (-1,))
         # # pass aggregated features through MLP
-        globals_flat = jnp.reshape(processed_graph.globals, (-1,))
-        critic = make_dense_layers(globals_flat, self.num_units, self.num_layers, self.activation, layer_norm=self.mlp_layer_norm)
+        # globals_flat = jnp.reshape(processed_graph.globals, (-1,))
+        # critic = make_dense_layers(globals_flat, self.num_units, self.num_layers, self.activation, layer_norm=self.mlp_layer_norm)
+        critic = processed_graph.globals.reshape((-1,))
         critic = nn.Dense(1, kernel_init=orthogonal(1.0), bias_init=constant(0.0))(
             critic
         )
@@ -561,9 +561,12 @@ class ActorCriticGNN(nn.Module):
     num_units: int = 64
     gnn_latent: int = 128
     message_passing_steps: int = 1
-    output_edges_size: int = 10
-    output_nodes_size: int = 0
-    output_globals_size: int = 1
+    output_edges_size_critic: int = 10
+    output_nodes_size_critic: int = 0
+    output_globals_size_critic: int = 1
+    output_edges_size_actor: int = 10
+    output_nodes_size_actor: int = 0
+    output_globals_size_actor: int = 1
     gnn_mlp_layers: int = 1
     use_attention: bool = True
     normalise_by_link_length: bool = True  # Normalise the processed edge features by the link length
@@ -599,9 +602,9 @@ class ActorCriticGNN(nn.Module):
         actor = ActorGNN(
             gnn_latent=self.gnn_latent,
             message_passing_steps=self.message_passing_steps,
-            output_edges_size=self.output_edges_size,
-            output_nodes_size=self.output_nodes_size,
-            output_globals_size=self.output_globals_size,
+            output_edges_size=self.output_edges_size_actor,
+            output_nodes_size=self.output_nodes_size_actor,
+            output_globals_size=self.output_globals_size_actor,
             gnn_mlp_layers=self.gnn_mlp_layers,
             use_attention=self.use_attention,
             normalise_by_link_length=self.normalise_by_link_length,
@@ -622,9 +625,9 @@ class ActorCriticGNN(nn.Module):
             num_units=self.num_units,
             gnn_latent=self.gnn_latent,
             message_passing_steps=self.message_passing_steps,
-            output_edges_size=self.output_edges_size,
-            output_nodes_size=self.output_nodes_size,
-            output_globals_size=self.output_globals_size,
+            output_edges_size=self.output_edges_size_critic,
+            output_nodes_size=self.output_nodes_size_critic,
+            output_globals_size=self.output_globals_size_critic,
             gnn_mlp_layers=self.gnn_mlp_layers,
             use_attention=self.use_attention,
             normalise_by_link_length=self.normalise_by_link_length,

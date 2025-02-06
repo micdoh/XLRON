@@ -108,7 +108,7 @@ def rwa_lightpath_reuse_4node_test_setup():
 def rsa_gn_model_4_nsfnet_test_setup():
     key = jax.random.PRNGKey(0)
     settings_rwa_lr_nsfnet_4 = dict(
-        k=5, topology_name="nsfnet_deeprmsa_undirected", link_resources=4, max_requests=1000,
+        k=5, topology_name="nsfnet_deeprmsa_undirected", link_resources=4, max_requests=10,
         values_bw=[100], incremental_loading=True, env_type="rsa_gn_model",
         interband_gap=0, slot_size=25, mod_format_correction=False, launch_power=0.0
     )
@@ -1040,7 +1040,7 @@ class InitModulationsArrayTest(parameterized.TestCase):
 
     @chex.variants(without_jit=True)
     @parameterized.named_parameters(
-        ("case_base", "modulations.csv", jnp.array([[100000.0, 1.0, 12.6, -14.0],
+        ("case_base", "modulations_nsfnet.csv", jnp.array([[100000.0, 1.0, 12.6, -14.0],
                                                     [2000.0, 2.0, 12.6, -17.0],
                                                     [1000.0, 3.0, 18.6, -20.0],
                                                     [500.0, 4.0, 22.4, -23.0],
@@ -1066,7 +1066,7 @@ class InitPathSEArrayTest(parameterized.TestCase):
         graph = make_graph(topology_name)
         path_link_array = init_path_link_array(graph, k)
         path_length_array = init_path_length_array(path_link_array, graph)
-        modulations_array = init_modulations_array("modulations.csv")
+        modulations_array = init_modulations_array("modulations_nsfnet.csv")
         path_se_array = self.variant(init_path_se_array)(path_length_array, modulations_array)
         chex.assert_trees_all_close(path_se_array[:4], expected)
 
@@ -1648,11 +1648,14 @@ class RSAGNModelTest(parameterized.TestCase):
             action_dist = distrax.Categorical(logits=jnp.where(mask, mask, -1e8))
             #jax.debug.print("action dist {}", action_dist.logits, ordered=True)
             # sample distribution
-            action = action_dist.sample(seed=rng_sample)
-            path_index, slot_index = process_path_action(env_state, self.params, action)
+            path_action = action_dist.sample(seed=rng_sample)
+            path_index, slot_index = process_path_action(env_state, self.params, path_action)
             path = get_paths(self.params, read_rsa_request(env_state.request_array)[0])[path_index]
+            jax.debug.print("---i--- {}", i, ordered=True)
             jax.debug.print("path {}", path, ordered=True)
             jax.debug.print("slot {}", slot_index, ordered=True)
+            power_action = jnp.array([0])
+            action = jnp.concatenate([path_action.reshape((1,)), power_action.reshape((1,))], axis=0)
             # step env
             obsv, env_state, reward, done, info = self.variant(self.env.step, static_argnums=(3))(
                 rng_step, env_state, action, self.params

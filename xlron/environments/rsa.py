@@ -361,7 +361,7 @@ class RSAEnv(environment.Environment):
         elif params.reward_type == "bitrate":
             reward = state.request_array[1] * -1.0 / jnp.max(params.values_bw.val)
         else:
-            reward = -1.0 * read_rsa_request(state.request_array)[1] / jnp.max(params.values_bw) if params.maximise_throughput else jnp.array(-1.0)
+            reward = -1.0 * read_rsa_request(state.request_array)[1] / jnp.max(params.values_bw.val) if params.maximise_throughput else jnp.array(-1.0)
         return reward
 
     def get_reward_success(
@@ -384,16 +384,26 @@ class RSAEnv(environment.Environment):
             reward = state.request_array[1] * 1.0 / jnp.max(params.values_bw.val)
             if params.__class__.__name__ == "RSAGNModelEnvParams":
                 # Need to get the SNR of the path
+                nodes_sd, requested_datarate = read_rsa_request(state.request_array)
                 path_action, power_action = action
-                path_index, slot_index = process_path_action(state, params, path_action)
-                path = params.path_link_array[path_index]
-                path_snr = get_snr_for_path(path, state.link_snr_array, params)[slot_index.astype(jnp.int32)]
-                # set to 0 if negative and divide by large SNR (50. dB) to scale below 1
-                # N.B. negative SNR in dB would be a fail anyway since min. required is 10dB
-                path_snr_norm = jnp.where(path_snr < 0, 0, path_snr) / 50.
-                reward = reward * path_snr_norm
+                k_index, slot_index = process_path_action(state, params, path_action)
+
+                # TODO - give reward based on mod format index
+                mod_format_index = get_path_slots(
+                    state.modulation_format_index_array, params, nodes_sd, k_index, agg_func='max'
+                )[slot_index]
+                reward = reward * mod_format_index
+
+                # path_start_index = get_path_indices(nodes_sd[0], nodes_sd[1], params.k_paths, params.num_nodes,
+                #                                     directed=params.directed_graph).astype(jnp.int32)
+                # path = params.path_link_array[path_start_index+k_index]
+                # path_snr = get_snr_for_path(path, state.link_snr_array, params)[slot_index.astype(jnp.int32)]
+                # # set to 0 if negative and divide by large SNR (e.g. 50. dB) to scale below 1
+                # # N.B. negative SNR in dB would be a fail anyway since min. required is 10dB
+                # path_snr_norm = jnp.where(path_snr < 0, 0, path_snr) / params.max_snr
+                # reward = reward + 0.1*path_snr_norm
         else:
-            reward = read_rsa_request(state.request_array)[1] / jnp.max(params.values_bw) if params.maximise_throughput else jnp.array(1.0)
+            reward = read_rsa_request(state.request_array)[1] / jnp.max(params.values_bw.val) if params.maximise_throughput else jnp.array(1.0)
         return reward
 
     @property

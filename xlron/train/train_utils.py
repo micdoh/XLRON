@@ -23,7 +23,7 @@ from xlron.environments.vone import make_vone_env
 from xlron.environments.rsa import make_rsa_env
 from xlron.models.models import ActorCriticGNN, ActorCriticMLP, LaunchPowerActorCriticMLP
 from xlron.environments.dataclasses import EnvState, EvalState
-from xlron.environments.env_funcs import init_link_length_array, make_graph, process_path_action, get_launch_power
+from xlron.environments.env_funcs import init_link_length_array, make_graph, process_path_action, get_launch_power, get_paths
 from xlron.heuristics.heuristics import ksp_ff, ff_ksp, kmc_ff, kmf_ff, ksp_mu, mu_ksp, kca_ff, kme_ff, ksp_bf, bf_ksp, ksp_lf
 
 
@@ -221,9 +221,9 @@ def init_network(config, env, env_state, env_params):
     elif config.env_type.lower() in ["rsa", "rmsa", "rwa", "deeprmsa", "rwa_lightpath_reuse", "rsa_gn_model"]:
         if config.USE_GNN:
             if config.env_type.lower() == "rsa_gn_model" and env_params.launch_power_type == 3:
-                output_globals_size = int((env_params.max_power - env_params.min_power) / env_params.step_power) + 1 if config.discrete_launch_power else 1
+                output_globals_size_actor = int((env_params.max_power - env_params.min_power) / env_params.step_power) + 1 if config.discrete_launch_power else 1
             else:
-                output_globals_size = config.output_globals_size
+                output_globals_size_actor = config.output_globals_size
             network = ActorCriticGNN(
                 activation=config.ACTIVATION,
                 num_layers=config.NUM_LAYERS,
@@ -231,9 +231,12 @@ def init_network(config, env, env_state, env_params):
                 gnn_latent=config.gnn_latent,
                 message_passing_steps=config.message_passing_steps,
                 # output_edges_size must equal number of slot actions
-                output_edges_size=math.ceil(env_params.link_resources / env_params.aggregate_slots),
-                output_nodes_size=config.output_nodes_size,
-                output_globals_size=output_globals_size,
+                output_edges_size_actor=math.ceil(env_params.link_resources / env_params.aggregate_slots),
+                output_nodes_size_actor=config.output_nodes_size_actor,
+                output_globals_size_actor=output_globals_size_actor,
+                output_edges_size_critic=config.output_edges_size_critic,
+                output_nodes_size_critic=config.output_nodes_size_critic,
+                output_globals_size_critic=config.output_globals_size_critic,
                 gnn_mlp_layers=config.gnn_mlp_layers,
                 normalise_by_link_length=config.normalize_by_link_length,
                 mlp_layer_norm=config.LAYER_NORM,
@@ -398,6 +401,8 @@ def select_action(select_action_state, env, env_params, train_state, config):
                 path_action, log_prob = train_state.sample_fn(action_key, pi_masked, log_prob=True, deterministic=config.deterministic)
         else:
             # TODO(GNN_LP) - modify this so its possible to have routing from GNN and LP from another source (maybe)
+            # TODO(GNN_LP) - do a foriloop to mark each of the selected path links, get a power action (and log prob) for each,
+            #  then select a path action and then select the power action corresponding to that path action
             power_action, log_prob = train_state.sample_fn(action_key, pi[1], log_prob=True, deterministic=config.deterministic)
             env_state = env_state.env_state.replace(launch_power_array=power_action)
             path_action = ksp_lf(env_state, env_params) if env_params.last_fit is True else ksp_ff(env_state, env_params)
@@ -625,6 +630,7 @@ def log_metrics(config, out, experiment_name, total_time, merge_func):
         return _end_mean, _end_std, _end_iqr_upper, _end_iqr_lower
 
     processed_data = {}
+    print("Processing output metrics")
     for key in [
         "returns",
         "lengths",
@@ -658,6 +664,7 @@ def log_metrics(config, out, experiment_name, total_time, merge_func):
     )
 
     if config.PLOTTING:
+        print("Plotting metrics")
         if config.incremental_loading:
             plot_metric = processed_data["accepted_services"]["mean"]
             plot_metric_upper = processed_data["accepted_services"]["iqr_upper"]
@@ -695,6 +702,7 @@ def log_metrics(config, out, experiment_name, total_time, merge_func):
         plt.show()
 
     if config.DATA_OUTPUT_FILE:
+        print("Saving metrics to file")
         # Save episode end metrics to file
         episode_end_df = pd.DataFrame({
             f"{metric}_{stat}": processed_data[metric][stat] for metric in all_metrics for stat in [
@@ -710,6 +718,23 @@ def log_metrics(config, out, experiment_name, total_time, merge_func):
             pickle.dump(merged_out, f)
 
     if config.WANDB:
+        print("Logging metrics to wandb")
+
+        # Log episode end metrics
+        if not config.continuous_operation:
+            print(f"Logging episode end metrics for {len(episode_ends)} episodes")
+            for i in range(len(episode_ends)):
+                log_dict = {
+                    f"{metric}_{stat}": processed_data[metric][stat][i] for metric in all_metrics for stat in [
+                        "episode_end_mean",
+                        "episode_end_std",
+                        "episode_end_iqr_upper",
+                        "episode_end_iqr_lower"
+                    ]
+                }
+                log_dict["episode_count"] = i
+                wandb.log(log_dict)
+
         # Log the data to wandb
         # Define the downsample factor to speed up upload to wandb
         # Then reshape the array and compute the mean
@@ -723,21 +748,8 @@ def log_metrics(config, out, experiment_name, total_time, merge_func):
             processed_data[key]["iqr_lower"] = downsample_mean(processed_data[key]["iqr_lower"])
         processed_data["training_time"] = downsample_mean(processed_data["training_time"])
 
-        # Log episode end metrics
-        if not config.continuous_operation:
-            for i in range(len(episode_ends)):
-                log_dict = {
-                    f"episode_end_{metric}_{agg}": processed_data[metric][agg][i] for metric in all_metrics for agg in [
-                        "mean",
-                        "std",
-                        "iqr_upper",
-                        "iqr_lower"
-                    ]
-                }
-                log_dict["episode_count"] = i
-                wandb.log(log_dict)
-
         # Log per step metrics
+        print("Logging per step metrics")
         for i in range(len(processed_data["returns"]["mean"])):
             log_dict = {
                 f"{metric}_{agg}": processed_data[metric][agg][i] for metric in all_metrics for agg in [
@@ -769,6 +781,7 @@ def log_metrics(config, out, experiment_name, total_time, merge_func):
         print(f"Mean launch power: {merged_out['launch_power'].mean():.5f} ± {merged_out['launch_power'].std():.5f}")
 
     if config.log_actions:
+
         env, params = define_env(config)
         request_source = merged_out["source"]
         request_dest = merged_out["dest"]
@@ -776,6 +789,19 @@ def log_metrics(config, out, experiment_name, total_time, merge_func):
         path_indices = merged_out["path_index"]
         slot_indices = merged_out["slot_index"]
         returns = merged_out["returns"]
+        arrival_time = merged_out["arrival_time"]
+        departure_time = merged_out["departure_time"]
+
+        # Reshape to combine episodes into a single trajectory. Only keep the first environment's output.
+        request_source = request_source.reshape((request_source.shape[0], -1))[0]
+        request_dest = request_dest.reshape((request_dest.shape[0], -1))[0]
+        request_data_rate = request_data_rate.reshape((request_data_rate.shape[0], -1))[0]
+        path_indices = path_indices.reshape((path_indices.shape[0], -1))[0]
+        slot_indices = slot_indices.reshape((slot_indices.shape[0], -1))[0]
+        arrival_time = arrival_time.reshape((arrival_time.shape[0], -1))[0]
+        departure_time = departure_time.reshape((departure_time.shape[0], -1))[0]
+        returns = returns.reshape((returns.shape[0], -1))[0]
+
         # Get the link length array
         topology_name = config.topology_name
         graph = make_graph(topology_name, topology_directory=config.topology_directory)
@@ -784,6 +810,45 @@ def log_metrics(config, out, experiment_name, total_time, merge_func):
         paths = jnp.take(params.path_link_array.val, path_indices, axis=0)
         path_lengths = jax.vmap(lambda x: jnp.dot(x, link_length_array), in_axes=(0))(paths)
         num_hops = jnp.sum(paths, axis=-1)
+
+        # TODO(TRAJ_VIZ): Use the paths array (below) for your visualisation.
+        #  Each row of the paths array represents the links utilised by the paths as a binary array (1,0,1,1,1,0,0,...)
+        #  1 means the link is used by the path, 0 means it is not.
+        paths_list = []
+        spectral_efficiency_list = []
+        required_slots_list = []
+
+        for path_index, slot_index, source, dest, data_rate in zip(path_indices, slot_indices, request_source, request_dest, request_data_rate):
+            source, dest = source.reshape(1), dest.reshape(1)
+            path_links = get_paths(params, jnp.concatenate([source, dest]))[path_index]
+            # Make path links into a string
+            path_str = "".join([str(x.astype(jnp.int32)) for x in path_links])
+            paths_list.append(path_str)
+            path_spectral_efficiency = params.path_se_array.val[path_index]
+            required_slots = int(jnp.ceil(data_rate / (path_spectral_efficiency*params.slot_size)))
+            required_slots_list.append(required_slots)
+            spectral_efficiency_list.append(path_spectral_efficiency)
+
+        if config.TRAJ_DATA_OUTPUT_FILE:
+            print(f"Saving trajectory metrics to {config.TRAJ_DATA_OUTPUT_FILE}")
+            # Save episode end metrics to file
+            df = pd.DataFrame({
+                "request_source": request_source,
+                "request_dest": request_dest,
+                "request_data_rate": request_data_rate,
+                "arrival_time": arrival_time,
+                "departure_time": departure_time,
+                "path_indices": path_indices,
+                "slot_indices": slot_indices,
+                "returns": returns,
+                "path_links": paths_list,
+                "path_spectral_efficiency": spectral_efficiency_list,
+                "required_slots": required_slots_list,
+                "utilization": processed_data["utilisation"]["mean"],
+                "bitrate_blocking_probability": processed_data["bitrate_blocking_probability"]["mean"],
+                "service_blocking_probability": processed_data["service_blocking_probability"]["mean"],
+            })
+            df.to_csv(config.TRAJ_DATA_OUTPUT_FILE)
 
         if config.log_path_lengths:
             path_lengths_mean = path_lengths.mean()
