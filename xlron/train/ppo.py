@@ -1,4 +1,5 @@
 import jax
+import optax
 from absl import flags
 from flax.training.train_state import TrainState
 from gymnax.environments import environment
@@ -146,8 +147,8 @@ def get_learner_fn(
                         entropy = pi_masked.entropy().mean()
 
                     elif config.env_type.lower() == "rsa_gn_model" and config.launch_power_type == "rl":
-                        path_actions = traj_batch.action[:, 0]
-                        power_actions = traj_batch.action[:, 1]
+                        path_actions = traj_batch.action[..., 0]
+                        power_actions = traj_batch.action[..., 1]
                         path_dist, power_dist = pi
                         path_log_prob = path_entropy = 0.0
                         if config.GNN_OUTPUT_RSA:
@@ -155,20 +156,22 @@ def get_learner_fn(
                             path_log_prob = pi_masked.log_prob(path_actions)
                             path_entropy = pi_masked.entropy().mean()
                         power_actions = jnp.astype(
-                            (to_dbm(power_actions) - env_params.min_power) /
-                            (env_params.max_power - env_params.min_power),
-                        jnp.int32)
+                            (to_dbm(power_actions) - env_params.min_power) / env_params.step_power,
+                            jnp.int32
+                        )
                         power_log_prob = power_dist.log_prob(power_actions)
                         power_entropy = power_dist.entropy().mean()
                         log_prob = path_log_prob + power_log_prob
                         entropy = path_entropy + power_entropy
                         if config.DEBUG:
+                            jax.debug.print("targets {}", targets, ordered=config.ORDERED)
                             jax.debug.print("path_actions {}", path_actions, ordered=config.ORDERED)
                             jax.debug.print("power_actions {}", power_actions, ordered=config.ORDERED)
                             jax.debug.print("path_log_prob {}", path_log_prob, ordered=config.ORDERED)
                             jax.debug.print("power_log_prob {}", power_log_prob, ordered=config.ORDERED)
                             jax.debug.print("path_entropy {}", path_entropy, ordered=config.ORDERED)
                             jax.debug.print("power_entropy {}", power_entropy, ordered=config.ORDERED)
+                            jax.debug.print("power logits {}", power_dist._logits, ordered=config.ORDERED)
                             jax.debug.print("log_prob {}", log_prob, ordered=config.ORDERED)
                             jax.debug.print("entropy {}", entropy, ordered=config.ORDERED)
 
@@ -226,6 +229,9 @@ def get_learner_fn(
                     train_state.params, traj_batch, advantages, targets
                 )
                 train_state = train_state.apply_gradients(grads=grads)
+                if config.DEBUG:
+                    grad_norm = optax.global_norm(grads)
+                    jax.debug.print("gradient_norm {}", grad_norm)
                 return train_state, total_loss
 
             train_state, traj_batch, advantages, targets, rng_step, rng_epoch = update_state

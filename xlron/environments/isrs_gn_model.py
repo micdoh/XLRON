@@ -41,8 +41,8 @@ def isrs_gn_model(
         mod_format_correction: bool = 0,
 ):
     """
-    This function implements the ISRS GN model in closed-form from [1]. It's an approximation with rectangular
-    Raman slope and valid for C+L bands, and has no support for modulation correction
+    This function implements the ISRS GN model in closed-form from [1].
+    It's an approximation with rectangular Raman slope and valid for C+L bands
 
     Mostly copied from:
     https://github.com/dsemrau/ISRSGNmodel/blob/master/Functions/Python/ISRSGNmodel.py
@@ -414,7 +414,7 @@ def get_snr(
     noise_power = p_ase + p_ase_roadm + p_nli
     noise_power = jnp.where(noise_power > 0, noise_power, EPS)
     ch_power_W_i = jnp.squeeze(ch_power_w_i)
-    snr = jnp.where(ch_power_W_i > 0, ch_power_W_i / noise_power, 1e5)
+    snr = jnp.where(ch_power_W_i > 0, ch_power_W_i / noise_power, -1e5)
     # jax.debug.print("p_ASE {}", p_ASE)
     # jax.debug.print("p_NLI {}", p_NLI)
     # jax.debug.print("p_ASE_ROADM {}", p_ASE_ROADM)
