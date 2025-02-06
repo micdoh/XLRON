@@ -76,9 +76,25 @@ class LogWrapper(GymnaxWrapper):
         info["accepted_bitrate"] = state.accepted_bitrate
         info["total_bitrate"] = state.total_bitrate
         info["utilisation"] = state.utilisation
+        if params.__class__.__name__ == "RSAGNModelEnvParams":
+            path_action, power_action = action
+            nodes_sd, dr_request = read_rsa_request(state.env_state.request_array)
+            source, dest = nodes_sd
+            i = get_path_indices(source, dest, params.k_paths, params.num_nodes, directed=params.directed_graph).astype(
+                jnp.int32)
+            path_index, slot_index = process_path_action(state.env_state, params, path_action)
+            info["launch_power"] = power_action
+            info["path_index"] = i + path_index
+            info["slot_index"] = slot_index
+            info["source"] = source
+            info["dest"] = dest
+            info["data_rate"] = dr_request[0]
         # Log path length if required, to calculate average path length and number of hops
         if params.log_actions:
-            nodes_sd, bw_request = read_rsa_request(state.env_state.request_array)
+            if params.__class__.__name__ == "RSAGNModelEnvParams":
+                action, power_action = action
+                info["launch_power"] = power_action
+            nodes_sd, dr_request = read_rsa_request(state.env_state.request_array)
             source, dest = nodes_sd
             i = get_path_indices(source, dest, params.k_paths, params.num_nodes, directed=params.directed_graph).astype(
                 jnp.int32)
@@ -87,7 +103,7 @@ class LogWrapper(GymnaxWrapper):
             info["slot_index"] = slot_index
             info["source"] = source
             info["dest"] = dest
-            info["data_rate"] = bw_request[0]
+            info["data_rate"] = dr_request[0]
             info["arrival_time"] = env_state.current_time[0]
             info["departure_time"] = env_state.current_time[0] + env_state.holding_time[0]
         info["done"] = done
