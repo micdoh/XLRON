@@ -68,6 +68,7 @@ flags.DEFINE_integer("EMULATED_DEVICES", None, "Number of devices to emulate")
 flags.DEFINE_boolean("log_actions", False, "Log actions taken and other details")
 flags.DEFINE_boolean("log_path_lengths", False, "Log path length statistics")
 flags.DEFINE_boolean("PROFILE", False, "Profile programme with perfetto")
+flags.DEFINE_boolean("LOG_LOSS_INFO", False, "Log loss metrics")
 # Environment parameters
 flags.DEFINE_string("env_type", "rmsa", "Environment type")
 flags.DEFINE_float("load", 250, "Load")

@@ -222,7 +222,7 @@ def get_learner_fn(
                         jax.debug.print("entropy {}", entropy, ordered=config.ORDERED)
                         jax.debug.print("total_loss {}", total_loss, ordered=config.ORDERED)
 
-                    return total_loss, (value_loss, loss_actor, entropy)
+                    return total_loss, (log_prob.mean(), ratio.mean(), gae.mean(), value_loss, loss_actor, entropy)
 
                 grad_fn = jax.value_and_grad(_loss_fn, has_aux=True)
                 total_loss, grads = grad_fn(
@@ -269,6 +269,15 @@ def get_learner_fn(
         rng_step = update_state[4]
         rng_epoch = update_state[5]
         runner_state = (train_state, env_state, last_obs, rng_step, rng_epoch)
+        loss_info = {
+            "loss/total_loss": loss_info[0].reshape(-1),
+            "loss/log_prob": loss_info[1][0].reshape(-1),
+            "loss/ratio": loss_info[1][1].reshape(-1),
+            "loss/gae": loss_info[1][2].reshape(-1),
+            "loss/value_loss": loss_info[1][3].reshape(-1),
+            "loss/loss_actor": loss_info[1][4].reshape(-1),
+            "loss/entropy": loss_info[1][5].reshape(-1),
+        }
 
         if config.DEBUG:
             jax.debug.print("metric {}", metric, ordered=config.ORDERED)

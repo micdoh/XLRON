@@ -26,6 +26,26 @@ from xlron.environments.dataclasses import EnvState, EvalState
 from xlron.environments.env_funcs import init_link_length_array, make_graph, process_path_action, get_launch_power, get_paths
 from xlron.heuristics.heuristics import ksp_ff, ff_ksp, kmc_ff, kmf_ff, ksp_mu, mu_ksp, kca_ff, kme_ff, ksp_bf, bf_ksp, ksp_lf
 
+metrics = [
+    "returns",
+    "lengths",
+    "cum_returns",
+    "accepted_services",
+    "accepted_bitrate",
+    "total_bitrate",
+    "utilisation",
+    "service_blocking_probability",
+    "bitrate_blocking_probability",
+]
+loss_metrics = [
+    "loss/total_loss",
+    "loss/loss_actor",
+    "loss/value_loss",
+    "loss/entropy",
+    "loss/gae",
+    "loss/ratio",
+    "loss/log_prob",
+]
 
 class TrainState(struct.PyTreeNode):
     """Simple train state for the common case with a single Optax optimizer.
@@ -555,17 +575,7 @@ def setup_wandb(config, project_name, experiment_name):
     run.name = experiment_name
     wandb.define_metric('episode_count')
     wandb.define_metric("env_step")
-    for metric in [
-        "returns",
-        "lengths",
-        "cum_returns",
-        "accepted_services",
-        "accepted_bitrate",
-        "total_bitrate",
-        "utilisation",
-        "service_blocking_probability",
-        "bitrate_blocking_probability"
-    ]:
+    for metric in metrics:
         for agg in [
             "mean",
             "std",
@@ -574,6 +584,8 @@ def setup_wandb(config, project_name, experiment_name):
         ]:
             wandb.define_metric(f"{metric}_{agg}", step_metric="env_step")
             wandb.define_metric(f"episode_end_{metric}_{agg}", step_metric="episode_count")
+    for metric in loss_metrics:
+        wandb.define_metric(f"{metric}", step_metric="update_epoch")
     wandb.define_metric("training_time", step_metric="env_step")
 
 
@@ -581,6 +593,8 @@ def log_metrics(config, out, experiment_name, total_time, merge_func):
     """Log metrics to wandb and/or save episode end metrics to CSV."""
 
     merged_out = {k: jax.tree.map(merge_func, v) for k, v in out["metrics"].items()}
+    if not config.EVAL_HEURISTIC or not config.EVAL_MODEL:
+        merged_out_loss = {k: jax.tree.map(lambda x: x.reshape((-1,)), v) for k, v in out.get("loss_info", {}).items()}
 
     # Calculate blocking probabilities
     merged_out["service_blocking_probability"] = 1 - (
@@ -631,24 +645,12 @@ def log_metrics(config, out, experiment_name, total_time, merge_func):
 
     processed_data = {}
     print("Processing output metrics")
-    for key in [
-        "returns",
-        "lengths",
-        "cum_returns",
-        "accepted_services",
-        "accepted_bitrate",
-        "total_bitrate",
-        "utilisation",
-        "service_blocking_probability",
-        "bitrate_blocking_probability",
-    ]:
+    for metric in metrics:
         episode_end_mean, episode_end_std, episode_end_iqr_upper, episode_end_iqr_lower = (
-            get_episode_end_mean_std_iqr(merged_out, key)
+            get_episode_end_mean_std_iqr(merged_out, metric)
         )
-        mean, std, iqr_upper, iqr_lower = get_mean_std_iqr(merged_out, key) if not config.end_first_blocking else (
-            episode_end_mean, episode_end_std, episode_end_iqr_upper, episode_end_iqr_lower
-        )
-        processed_data[key] = {
+        mean, std, iqr_upper, iqr_lower = get_mean_std_iqr(merged_out, metric)
+        processed_data[metric] = {
             "mean": mean,
             "std": std,
             "iqr_upper": iqr_upper,
@@ -735,6 +737,15 @@ def log_metrics(config, out, experiment_name, total_time, merge_func):
                 log_dict["episode_count"] = i
                 wandb.log(log_dict)
 
+        if config.LOG_LOSS_INFO:
+            print("Logging loss info")
+            for i in range(len(merged_out_loss["loss/total_loss"])):
+                log_dict = {
+                    f"{metric}": merged_out_loss[metric][i] for metric in loss_metrics
+                }
+                log_dict["update_epoch"] = i
+                wandb.log(log_dict)
+
         # Log the data to wandb
         # Define the downsample factor to speed up upload to wandb
         # Then reshape the array and compute the mean
@@ -793,6 +804,7 @@ def log_metrics(config, out, experiment_name, total_time, merge_func):
         departure_time = merged_out["departure_time"]
 
         # Reshape to combine episodes into a single trajectory. Only keep the first environment's output.
+        # TODO - keep all the actions from every episode
         request_source = request_source.reshape((request_source.shape[0], -1))[0]
         request_dest = request_dest.reshape((request_dest.shape[0], -1))[0]
         request_data_rate = request_data_rate.reshape((request_data_rate.shape[0], -1))[0]
@@ -811,16 +823,13 @@ def log_metrics(config, out, experiment_name, total_time, merge_func):
         path_lengths = jax.vmap(lambda x: jnp.dot(x, link_length_array), in_axes=(0))(paths)
         num_hops = jnp.sum(paths, axis=-1)
 
-        # TODO(TRAJ_VIZ): Use the paths array (below) for your visualisation.
-        #  Each row of the paths array represents the links utilised by the paths as a binary array (1,0,1,1,1,0,0,...)
-        #  1 means the link is used by the path, 0 means it is not.
         paths_list = []
         spectral_efficiency_list = []
         required_slots_list = []
 
         for path_index, slot_index, source, dest, data_rate in zip(path_indices, slot_indices, request_source, request_dest, request_data_rate):
             source, dest = source.reshape(1), dest.reshape(1)
-            path_links = get_paths(params, jnp.concatenate([source, dest]))[path_index]
+            path_links = get_paths(params, jnp.concatenate([source, dest]))[path_index % params.k_paths]
             # Make path links into a string
             path_str = "".join([str(x.astype(jnp.int32)) for x in path_links])
             paths_list.append(path_str)
@@ -832,7 +841,7 @@ def log_metrics(config, out, experiment_name, total_time, merge_func):
         if config.TRAJ_DATA_OUTPUT_FILE:
             print(f"Saving trajectory metrics to {config.TRAJ_DATA_OUTPUT_FILE}")
             # Save episode end metrics to file
-            df = pd.DataFrame({
+            log_dict = {
                 "request_source": request_source,
                 "request_dest": request_dest,
                 "request_data_rate": request_data_rate,
@@ -847,7 +856,13 @@ def log_metrics(config, out, experiment_name, total_time, merge_func):
                 "utilization": processed_data["utilisation"]["mean"],
                 "bitrate_blocking_probability": processed_data["bitrate_blocking_probability"]["mean"],
                 "service_blocking_probability": processed_data["service_blocking_probability"]["mean"],
-            })
+                "path_length": path_lengths,
+                "num_hops": num_hops,
+            }
+            if config.env_type.lower() == "rsa_gn_model":
+                log_dict["launch_power"] = merged_out["launch_power"].reshape((merged_out["launch_power"].shape[0], -1))[0]
+                log_dict["path_snr"] = merged_out["path_snr"].reshape((merged_out["path_snr"].shape[0], -1))[0]
+            df = pd.DataFrame(log_dict)
             df.to_csv(config.TRAJ_DATA_OUTPUT_FILE)
 
         if config.log_path_lengths:
