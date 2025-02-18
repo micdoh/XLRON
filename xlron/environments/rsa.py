@@ -23,8 +23,7 @@ from xlron.environments.env_funcs import (
     init_channel_centre_bw_array, check_action_rsa_gn_model, read_rsa_request, implement_action_rsa_gn_model,
     undo_action_rsa_gn_model, finalise_action_rsa_gn_model, init_modulation_format_index_array,
     init_channel_power_array, mask_slots_rsa_gn_model, init_link_length_array_gn_model, get_snr_for_path,
-    get_lightpath_snr,
-    generate_source_dest_pairs, init_list_of_requests
+    get_lightpath_snr, init_mod_format_mask, generate_source_dest_pairs, init_list_of_requests
 )
 from xlron.environments.dataclasses import *
 from xlron.environments.wrappers import *
@@ -378,33 +377,34 @@ class RSAEnv(environment.Environment):
         Returns:
             reward: Reward for success
         """
-        if params.reward_type == "service":
-            reward = jnp.array(1.0)
-        elif params.reward_type == "bitrate":
+        reward = jnp.array(1.0)
+        if params.reward_type != "service":
+            nodes_sd, requested_datarate = read_rsa_request(state.request_array)
+            path_action, power_action = action
+            k_index, slot_index = process_path_action(state, params, path_action)
             reward = state.request_array[1] * 1.0 / jnp.max(params.values_bw.val)
-            if params.__class__.__name__ == "RSAGNModelEnvParams":
-                # Need to get the SNR of the path
-                nodes_sd, requested_datarate = read_rsa_request(state.request_array)
-                path_action, power_action = action
-                k_index, slot_index = process_path_action(state, params, path_action)
-
-                # TODO - give reward based on mod format index
+            if params.reward_type == "bitrate":
+                return reward
+            elif params.reward_type == "snr":
+                assert params.__class__.__name__ == "RSAGNModelEnvParams"
+                path_start_index = get_path_indices(nodes_sd[0], nodes_sd[1], params.k_paths, params.num_nodes,
+                                                    directed=params.directed_graph).astype(jnp.int32)
+                path = params.path_link_array[path_start_index + k_index]
+                path_snr = get_snr_for_path(path, state.link_snr_array, params)[slot_index.astype(jnp.int32)]
+                # set to 0 if negative and divide by large SNR (e.g. 50. dB) to scale below 1
+                # N.B. negative SNR in dB would be a fail anyway since min. required is 10dB
+                path_snr_norm = jnp.where(path_snr < 0, 0, path_snr) / params.max_snr
+                return reward + path_snr_norm
+            elif params.reward_type == "mod_format":
+                assert params.__class__.__name__ == "RSAGNModelEnvParams"
                 mod_format_index = get_path_slots(
                     state.modulation_format_index_array, params, nodes_sd, k_index, agg_func='max'
-                )[slot_index]
-                reward = reward * mod_format_index
-
-                # path_start_index = get_path_indices(nodes_sd[0], nodes_sd[1], params.k_paths, params.num_nodes,
-                #                                     directed=params.directed_graph).astype(jnp.int32)
-                # path = params.path_link_array[path_start_index+k_index]
-                # path_snr = get_snr_for_path(path, state.link_snr_array, params)[slot_index.astype(jnp.int32)]
-                # # set to 0 if negative and divide by large SNR (e.g. 50. dB) to scale below 1
-                # # N.B. negative SNR in dB would be a fail anyway since min. required is 10dB
-                # path_snr_norm = jnp.where(path_snr < 0, 0, path_snr) / params.max_snr
-                # reward = reward + 0.1*path_snr_norm
+                )[slot_index.astype(jnp.int32)]
+                return reward + 0.05*(1+mod_format_index)
+            else:
+                return reward
         else:
-            reward = read_rsa_request(state.request_array)[1] / jnp.max(params.values_bw.val) if params.maximise_throughput else jnp.array(1.0)
-        return reward
+            return reward
 
     @property
     def name(self) -> str:
@@ -677,6 +677,7 @@ class RSAGNModelEnv(RSAEnv):
             #active_path_array=init_active_path_array(params),
             #active_path_array_prev=init_active_path_array(params),
             launch_power_array=launch_power_array,
+            mod_format_mask=init_mod_format_mask(params),
         )
         self.initial_state = state.replace(graph=init_graph_tuple(state, params, laplacian_matrix))
 
@@ -977,6 +978,7 @@ def make_rsa_env(config: dict, launch_power_array: Optional[chex.Array] = None):
     traffic_requests_csv_filepath = config.get("traffic_requests_csv_filepath", None)
     multiple_topologies_directory = config.get("multiple_topologies_directory", None)
     aggregate_slots = config.get("aggregate_slots", 1)
+    disable_node_features = config.get("disable_node_features", False)
     disjoint_paths = config.get("disjoint_paths", False)
     log_actions = config.get("log_actions", False)
     guardband = config.get("guardband", 1)
@@ -1048,7 +1050,8 @@ def make_rsa_env(config: dict, launch_power_array: Optional[chex.Array] = None):
     # 3. RL to determine power for each channel.
     # 4. Fixed power scaled by path length.
     if env_type == "rsa_gn_model":
-        default_launch_power_array = jnp.array([default_launch_power,])
+        #default_launch_power_array = jnp.array([default_launch_power,])
+        default_launch_power_array = jnp.full((k, ), default_launch_power)
         if launch_power_type == "fixed":
             # Same power for all channels
             launch_power_array = default_launch_power_array if launch_power_array is None else launch_power_array
@@ -1189,6 +1192,7 @@ def make_rsa_env(config: dict, launch_power_array: Optional[chex.Array] = None):
         truncate_holding_time=truncate_holding_time,
         log_actions=log_actions,
         traffic_array=traffic_array,
+        disable_node_features=disable_node_features,
     )
 
     if env_type == "deeprmsa":

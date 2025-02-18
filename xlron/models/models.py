@@ -66,7 +66,7 @@ class MLP(nn.Module):
     feature_sizes: Sequence[int]
     dropout_rate: float = 0
     deterministic: bool = True
-    activation: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu
+    activation: Callable[[jnp.ndarray], jnp.ndarray] = nn.tanh
     layer_norm: bool = False
 
     @nn.compact
@@ -416,6 +416,8 @@ class CriticGNN(nn.Module):
     normalise_by_link_length: bool = True  # Normalise the processed edge features by the link length
     gnn_layer_norm: bool = True
     mlp_layer_norm: bool = False
+    # Use globals for predicting value
+    use_globals_value = False
 
     @nn.compact
     def __call__(self, state: EnvState, params: EnvParams):
@@ -432,17 +434,17 @@ class CriticGNN(nn.Module):
             gnn_layer_norm=self.gnn_layer_norm,
             mlp_layer_norm=self.mlp_layer_norm,
         )(state.graph)
-        # TODO(GNN_LP) - alternatively, just use the globals to predict the value
-        # # Take first half processed_graph.edges as edge features
-        # edge_features = processed_graph.edges if params.directed_graph else processed_graph.edges[:len(processed_graph.edges) // 2]
-        # if self.normalise_by_link_length:
-        #     edge_features = edge_features * (params.link_length_array.val/jnp.sum(params.link_length_array.val))
-        # # Index every other row of the edge features to get the link-slot array
-        # edge_features_flat = jnp.reshape(edge_features, (-1,))
-        # # pass aggregated features through MLP
-        # globals_flat = jnp.reshape(processed_graph.globals, (-1,))
-        # critic = make_dense_layers(globals_flat, self.num_units, self.num_layers, self.activation, layer_norm=self.mlp_layer_norm)
-        critic = processed_graph.globals.reshape((-1,))
+        if self.use_globals_value:
+            critic = processed_graph.globals.reshape((-1,))
+        else:
+            # Take first half processed_graph.edges as edge features
+            edge_features = processed_graph.edges if params.directed_graph else processed_graph.edges[:len(processed_graph.edges) // 2]
+            if self.normalise_by_link_length:
+                edge_features = edge_features * (params.link_length_array.val/jnp.sum(params.link_length_array.val))
+            # Index every other row of the edge features to get the link-slot array
+            edge_features_flat = jnp.reshape(edge_features, (-1,))
+            # pass aggregated features through MLP
+            critic = make_dense_layers(edge_features_flat, self.num_units, self.num_layers, self.activation, layer_norm=self.mlp_layer_norm)
         critic = nn.Dense(1, kernel_init=orthogonal(1.0), bias_init=constant(0.0))(
             critic
         )
@@ -454,11 +456,16 @@ class ActorGNN(nn.Module):
     Actor network for PPO algorithm. Takes the current state and returns a distrax.Categorical distribution
     over actions.
     """
+    activation: str = "tanh"
+    num_layers: int = 2
+    num_units: int = 64
     gnn_latent: int = 128
+    dropout_rate: float = 0
+    deterministic: bool = False
     message_passing_steps: int = 1
     output_edges_size: int = 10
     output_nodes_size: int = 0
-    output_globals_size: int = 1
+    output_globals_size: int = 0
     gnn_mlp_layers: int = 1
     use_attention: bool = True
     normalise_by_link_length: bool = True  # Normalise the processed edge features by the link length
@@ -536,8 +543,28 @@ class ActorGNN(nn.Module):
         path_action_logits = jnp.reshape(path_action_logits, (-1,)) / self.temperature
 
         power_action_dist = None
+        mlp_features = [self.num_units] * self.num_layers
+        output_size = self.num_power_levels if self.discrete else 2
+        path_mlp = MLP(
+            mlp_features + [output_size],
+            dropout_rate=self.dropout_rate,
+            deterministic=self.deterministic,
+            layer_norm=self.mlp_layer_norm,
+        )
         if params.__class__.__name__ == "RSAGNModelEnvParams":
-            power_logits = processed_graph.globals.reshape((-1,)) / self.temperature
+            if self.output_globals_size > 0:
+                power_logits = processed_graph.globals.reshape((-1,)) / self.temperature
+            else:
+                init_feature_array = jnp.zeros((params.k_paths, edge_features.shape[1]))
+                # Define a body func to retrieve path slots and update action array
+                def get_power_action_dist(i, feature_array):
+                    # Get the processed graph edge features corresponding to the i-th path
+                    path_features = get_path_slots(edge_features, params, nodes_sd, i, agg_func="sum").reshape((1, -1))
+                    # Update the array with the path features
+                    action_array = jax.lax.dynamic_update_slice(feature_array, path_features,(i, 0))
+                    return action_array
+                path_feature_batch = jax.lax.fori_loop(0, params.k_paths, get_power_action_dist, init_feature_array)
+                power_logits = path_mlp(path_feature_batch)
             if self.discrete:
                 power_action_dist = distrax.Categorical(logits=power_logits)
             else:
@@ -600,6 +627,8 @@ class ActorCriticGNN(nn.Module):
     @nn.compact
     def __call__(self, state: EnvState, params: EnvParams):
         actor = ActorGNN(
+            num_layers=self.num_layers,
+            num_units=self.num_units,
             gnn_latent=self.gnn_latent,
             message_passing_steps=self.message_passing_steps,
             output_edges_size=self.output_edges_size_actor,

@@ -382,12 +382,7 @@ def get_link_weights(state: EnvState, params: EnvParams):
 
 
 def get_action_mask(state: EnvState, params: EnvParams) -> chex.Array:
-    if params.__class__.__name__ == "RWALightpathReuseEnvParams":
-        state = mask_slots_rwalr(state, params, state.request_array)
-    elif params.__class__.__name__ == "RSAGNModelEnvParams":
-        state = mask_slots_rsa_gn_model(state, params, state.request_array)
-    else:
-        state = mask_slots(state, params, state.request_array)
+    """N.B. The mask must already be present in the state!"""
     mask = jnp.reshape(state.link_slot_mask, (params.k_paths, -1))
     return mask
 
