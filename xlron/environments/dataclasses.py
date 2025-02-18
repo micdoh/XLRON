@@ -187,6 +187,7 @@ class RSAEnvParams(EnvParams):
     deterministic_requests: bool = struct.field(pytree_node=False)
     multiple_topologies: bool = struct.field(pytree_node=False)
     log_actions: bool = struct.field(pytree_node=False)
+    disable_node_features: bool = struct.field(pytree_node=False)
 
 
 @struct.dataclass
@@ -247,6 +248,7 @@ class RSAGNModelEnvState(RSAEnvState):
     #active_path_array: chex.Array  # Active path array (Nlink x Nchannel x Nlink)
     #active_path_array_prev: chex.Array  # Active path array in previous timestep
     launch_power_array: chex.Array  # Launch power array
+    mod_format_mask: chex.Array  # Modulation format mask
 
 
 @struct.dataclass

@@ -36,7 +36,7 @@ def get_eval_fn(
             select_action_fn = lambda x: select_action_eval(x, env, env_params, eval_state, config)
             select_action_fn = jax.vmap(select_action_fn)
             select_action_state = (action_key, env_state, last_obs)
-            action, _, _ = select_action_fn(select_action_state)
+            env_state, action, _, _ = select_action_fn(select_action_state)
 
             # STEP ENV
             step_key = jax.random.split(step_key, config.NUM_ENVS)
@@ -51,7 +51,13 @@ def get_eval_fn(
             runner_state = (eval_state, env_state, obsv, rng_step, rng_epoch)
 
             if config.DEBUG:
+                jax.debug.print("request {}", env_state.env_state.request_array, ordered=config.ORDERED)
                 jax.debug.print("link_slot_array {}", env_state.env_state.link_slot_array, ordered=config.ORDERED)
+                if env_params.__class__.__name__ == "RSAGNModelEnvParams":
+                    jax.debug.print("link_snr_array {}", env_state.env_state.link_snr_array, ordered=config.ORDERED)
+                    jax.debug.print("channel_power_array {}", env_state.env_state.channel_power_array, ordered=config.ORDERED)
+                    jax.debug.print("modulation_format_index_array {}", env_state.env_state.modulation_format_index_array, ordered=config.ORDERED)
+                    jax.debug.print("channel_centre_bw_array {}", env_state.env_state.channel_centre_bw_array, ordered=config.ORDERED)
                 jax.debug.print("link_slot_mask {}", env_state.env_state.link_slot_mask, ordered=config.ORDERED)
                 jax.debug.print("action {}", action, ordered=config.ORDERED)
                 jax.debug.print("reward {}", reward, ordered=config.ORDERED)
@@ -75,67 +81,3 @@ def get_eval_fn(
         return {"runner_state": runner_state, "metrics": metric}
 
     return eval_fn
-
-
-def experiment_data_setup(config: flags.FlagValues, rng: chex.PRNGKey) -> Tuple:
-
-    # INIT ENV
-    env, env_params = define_env(config)
-    rng, rng_step, rng_epoch, warmup_key, reset_key, network_key = jax.random.split(rng, 6)
-    reset_key = jax.random.split(reset_key, config.NUM_ENVS)
-    obsv, env_state = jax.vmap(env.reset, in_axes=(0, None))(reset_key, env_params)
-    obsv = (env_state.env_state, env_params) if config.USE_GNN else tuple([obsv])
-
-    # TRAINING MODE
-    if not config.EVAL_HEURISTIC and not config.EVAL_MODEL:
-
-        # INIT NETWORK
-        network, init_x = init_network(config, env, env_state, env_params)
-        init_x = (jax.tree.map(lambda x: x[0], init_x[0]), init_x[1]) if config.USE_GNN else init_x
-
-        if config.RETRAIN_MODEL:
-            network_params = config.model["model"]["params"]
-            print('Retraining model')
-        else:
-            network_params = network.init(network_key, *init_x)
-
-        # INIT LEARNING RATE SCHEDULE AND OPTIMIZER
-        lr_schedule = make_lr_schedule(config)
-        tx = optax.chain(
-            optax.clip_by_global_norm(config.MAX_GRAD_NORM),
-            optax.adam(learning_rate=lr_schedule, eps=config.ADAM_EPS, b1=config.ADAM_BETA1, b2=config.ADAM_BETA2),
-        )
-
-        runner_state = TrainState.create(
-            apply_fn=network.apply,
-            sample_fn=network.sample_action,
-            params=network_params,
-            tx=tx,
-        )
-
-    # EVALUATION MODE
-    else:
-        # LOAD MODEL
-        if config.EVAL_HEURISTIC:
-            network_params = apply = sample = None
-
-        elif config.EVAL_MODEL:
-            network, last_obs = init_network(config, env, env_state, env_params)
-            network_params = config.model["model"]["params"]
-            apply = network.apply
-            sample = network.sample_action
-            print('Evaluating model')
-
-        runner_state = EvalState(apply_fn=apply, sample_fn=sample, params=network_params)
-
-    # Recreate DeepRMSA warmup period
-    warmup_key = jax.random.split(warmup_key, config.NUM_ENVS)
-    warmup_state = (warmup_key, env_state, obsv)
-    warmup_fn = get_warmup_fn(warmup_state, env, env_params, runner_state, config)
-    warmup_fn = jax.vmap(warmup_fn)
-    env_state, obsv = warmup_fn(warmup_state)
-
-    # Initialise eval state
-    init_runner_state = (runner_state, env_state, obsv, rng_step, rng_epoch)
-
-    return init_runner_state, env, env_params

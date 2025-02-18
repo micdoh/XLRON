@@ -240,10 +240,10 @@ def init_network(config, env, env_state, env_params):
         init_x = tuple([jnp.zeros(env.observation_space(env_params).n)])
     elif config.env_type.lower() in ["rsa", "rmsa", "rwa", "deeprmsa", "rwa_lightpath_reuse", "rsa_gn_model"]:
         if config.USE_GNN:
-            if config.env_type.lower() == "rsa_gn_model" and env_params.launch_power_type == 3:
+            if config.env_type.lower() == "rsa_gn_model" and config.output_globals_size_actor > 0:
                 output_globals_size_actor = int((env_params.max_power - env_params.min_power) / env_params.step_power) + 1 if config.discrete_launch_power else 1
             else:
-                output_globals_size_actor = config.output_globals_size
+                output_globals_size_actor = config.output_globals_size_actor
             network = ActorCriticGNN(
                 activation=config.ACTIVATION,
                 num_layers=config.NUM_LAYERS,
@@ -371,6 +371,7 @@ def select_action(select_action_state, env, env_params, train_state, config):
         train_state: TrainState
         config: Configuration
     Returns:
+        env_state: Environment state
         action: Action
         log_prob: Log probability of action
         value: Value of state
@@ -378,7 +379,8 @@ def select_action(select_action_state, env, env_params, train_state, config):
     action_key, env_state, last_obs = select_action_state
     last_obs = (env_state.env_state, env_params) if config.USE_GNN else last_obs
     pi, value = train_state.apply_fn(train_state.params, *last_obs)
-    #rng, action_key = jax.random.split(rng)
+    # Action masking
+    env_state = env_state.replace(env_state=env.action_mask(env_state.env_state, env_params))
 
     # Always do action masking with VONE
     if config.env_type.lower() == "vone":
@@ -394,8 +396,7 @@ def select_action(select_action_state, env, env_params, train_state, config):
 
         # Update destination mask now source has been selected
         env_state = env_state.replace(env_state=vmap_mask_dest_node(env_state.env_state, env_params, action_s))
-        pi_dest = distrax.Categorical(
-            logits=jnp.where(env_state.env_state.node_mask_d, pi[0]._logits, -1e8))
+        pi_dest = distrax.Categorical(logits=jnp.where(env_state.env_state.node_mask_d, pi[0]._logits, -1e8))
 
         action_p = jnp.full(action_s.shape, 0)
         action_d = pi_dest.sample(seed=action_key) if not config.deterministic else pi_dest.mode()
@@ -412,35 +413,54 @@ def select_action(select_action_state, env, env_params, train_state, config):
         log_prob = log_prob_dest + log_prob_path + log_prob_source
 
     elif config.env_type.lower() == "rsa_gn_model" and config.launch_power_type == "rl":
-        if config.GNN_OUTPUT_RSA:
-            env_state = env_state.replace(env_state=env.action_mask(env_state.env_state, env_params))
-            pi_masked = distrax.Categorical(logits=jnp.where(env_state.env_state.link_slot_mask, pi[0]._logits, -1e8))
-            if config.GNN_OUTPUT_LP:
+        pi_masked = distrax.Categorical(logits=jnp.where(env_state.env_state.link_slot_mask, pi[0]._logits, -1e8))
+        if config.GNN_OUTPUT_RSA and not config.GNN_OUTPUT_LP:
+            path_action, log_prob = train_state.sample_fn(action_key, pi_masked, log_prob=True, deterministic=config.deterministic)
+            power_action = jnp.array([env_params.default_launch_power])
+        else:
+            if config.GNN_OUTPUT_RSA and config.GNN_OUTPUT_LP:
                 path_action, power_action, log_prob = train_state.sample_fn(action_key, (pi_masked, pi[1]), log_prob=True, deterministic=config.deterministic)
             else:
-                path_action, log_prob = train_state.sample_fn(action_key, pi_masked, log_prob=True, deterministic=config.deterministic)
-        else:
-            # TODO(GNN_LP) - modify this so its possible to have routing from GNN and LP from another source (maybe)
-            # TODO(GNN_LP) - do a foriloop to mark each of the selected path links, get a power action (and log prob) for each,
-            #  then select a path action and then select the power action corresponding to that path action
-            power_action, log_prob = train_state.sample_fn(action_key, pi[1], log_prob=True, deterministic=config.deterministic)
-            env_state = env_state.env_state.replace(launch_power_array=power_action)
-            path_action = ksp_lf(env_state, env_params) if env_params.last_fit is True else ksp_ff(env_state, env_params)
-            if not config.GNN_OUTPUT_LP:
-                path_index, _ = process_path_action(env_state, env_params, path_action)
-                power_action, log_prob = power_action[path_index], log_prob[path_index]
+                power_action, log_prob = train_state.sample_fn(action_key, pi[1], log_prob=True, deterministic=config.deterministic)
+        inner_state = env_state.env_state.replace(launch_power_array=power_action)
+        env_state = env_state.replace(env_state=inner_state)
+        if not config.GNN_OUTPUT_RSA:
+            path_action = ksp_lf(env_state.env_state, env_params) if env_params.last_fit is True else ksp_ff(env_state.env_state, env_params)
+        if config.output_globals_size_actor == 0:
+            path_index, _ = process_path_action(env_state.env_state, env_params, path_action)
+            power_action, log_prob = power_action[path_index], log_prob[path_index]
         action = jnp.concatenate([path_action.reshape((1,)), power_action.reshape((1,))], axis=0)
+        # if config.GNN_OUTPUT_RSA:
+        #     if config.GNN_OUTPUT_LP:
+        #         path_action, power_action, log_prob = train_state.sample_fn(action_key, (pi_masked, pi[1]), log_prob=True, deterministic=config.deterministic)
+        #     else:
+        #         path_action, log_prob = train_state.sample_fn(action_key, pi_masked, log_prob=True, deterministic=config.deterministic)
+        #         power_action = jnp.array([env_params.default_launch_power])
+        # else:
+        #     # TODO(GNN_LP) - modify this so its possible to have routing from GNN and LP from another source (maybe)
+        #     # TODO(GNN_LP) - do a foriloop to mark each of the selected path links, get a power action (and log prob) for each,
+        #     #  then select a path action and then select the power action corresponding to that path action
+        #     power_action, log_prob = train_state.sample_fn(action_key, pi[1], log_prob=True, deterministic=config.deterministic)
+        #
+        # if config.GNN_OUTPUT_RSA and config.GNN_OUTPUT_LP:
+        # inner_state = env_state.env_state.replace(launch_power_array=power_action)
+        # env_state = env_state.replace(env_state=inner_state)
+        #
+        # path_action = ksp_lf(env_state.env_state, env_params) if env_params.last_fit is True else ksp_ff(env_state.env_state, env_params)
+        #
+        # if config.output_globals_size_actor == 0:
+        #     path_index, _ = process_path_action(env_state.env_state, env_params, path_action)
+        #     power_action, log_prob = power_action[path_index], log_prob[path_index]
+        #
+        # action = jnp.concatenate([path_action.reshape((1,)), power_action.reshape((1,))], axis=0)
 
-    elif config.ACTION_MASKING:
+    else:
         env_state = env_state.replace(env_state=env.action_mask(env_state.env_state, env_params))
         pi_masked = distrax.Categorical(logits=jnp.where(env_state.env_state.link_slot_mask, pi[0]._logits, -1e8))
         action = pi_masked.sample(seed=action_key) if not config.deterministic else pi_masked.mode()
         log_prob = pi_masked.log_prob(action)
 
-    else:
-        action = pi.sample(seed=action_key) if not config.deterministic else pi.mode()
-        log_prob = pi.log_prob(action)
-    return action, log_prob, value
+    return env_state, action, log_prob, value
 
 
 def select_action_eval(select_action_state, env, env_params, eval_state, config):
@@ -448,6 +468,10 @@ def select_action_eval(select_action_state, env, env_params, eval_state, config)
     rng, env_state, last_obs = select_action_state
 
     if config.EVAL_HEURISTIC:
+
+        # Action masking
+        env_state = env_state.replace(env_state=env.action_mask(env_state.env_state, env_params))
+
         if config.env_type.lower() == "vone":
             raise NotImplementedError(f"VONE heuristics not yet implemented")
 
@@ -485,14 +509,16 @@ def select_action_eval(select_action_state, env, env_params, eval_state, config)
             else:
                 raise ValueError(f"Invalid path heuristic {config.path_heuristic}")
             if env_params.__class__.__name__ == "RSAGNModelEnvParams":
+                if config.launch_power_type == "rl":
+                    raise ValueError("launch_power_type cannot be 'rl' when --EVAL_HEURISTIC flag is True")
                 launch_power = get_launch_power(env_state.env_state, action, action, env_params)
                 action = jnp.concatenate([action.reshape((1,)), launch_power.reshape((1,))], axis=0)
 
         else:
             raise ValueError(f"Invalid environment type {config.env_type}")
     else:
-        action, _, _ = select_action(select_action_state, env, env_params, eval_state, config)
-    return action, None, None
+        env_state, action, _, _ = select_action(select_action_state, env, env_params, eval_state, config)
+    return env_state, action, None, None
 
 
 def get_warmup_fn(warmup_state, env, params, train_state, config) -> Callable[[Tuple], Tuple]:
@@ -507,7 +533,7 @@ def get_warmup_fn(warmup_state, env, params, train_state, config) -> Callable[[T
             _rng, action_key, step_key = jax.random.split(_rng, 3)
             select_action_state = (_rng, _state, _last_obs)
             action_fn = select_action if not config.EVAL_HEURISTIC else select_action_eval
-            action, log_prob, value = action_fn(select_action_state, env, _params, _train_state, config)
+            _state, action, log_prob, value = action_fn(select_action_state, env, _params, _train_state, config)
             if config.env_type.lower() == "rsa_gn_model" and config.launch_power_type == "rl":
                 # If the action is launch power, the action is this shape:
                 # jnp.concatenate([path_action.reshape((1,)), power_action.reshape((1,))], axis=0)
