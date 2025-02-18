@@ -209,7 +209,7 @@ def init_network(config, env, env_state, env_params):
                                  num_units=config.NUM_UNITS,
                                  layer_norm=config.LAYER_NORM, )
         init_x = tuple([jnp.zeros(env.observation_space(env_params).n)])
-    elif config.env_type.lower() in ["rsa", "rmsa", "rwa", "deeprmsa", "rwa_lightpath_reuse"]:
+    elif config.env_type.lower() in ["rsa", "rmsa", "rwa", "deeprmsa", "rwa_lightpath_reuse", "multibandrsa"]:
         if config.USE_GNN:
             network = ActorCriticGNN(
                 activation=config.ACTIVATION,
