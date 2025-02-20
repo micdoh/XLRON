@@ -311,9 +311,18 @@ class GraphNet(nn.Module):
         processed_graphs = embedder(graphs)
         # Sum the edge embeddings of the processed graph
         # TODO(GNN_LP) - consider using a more sophisticated aggregation function
-        processed_graphs = processed_graphs._replace(
-            edges=jnp.sum(processed_graphs.edges, axis=-2)
-        )
+        if processed_graphs.edges.ndim >= 3:
+            # If the edge embeddings are multi-dimensional, sum over the first dimension
+            processed_graphs = processed_graphs._replace(
+                edges=jnp.sum(processed_graphs.edges, axis=0)
+            )
+            # processed_graphs = processed_graphs._replace(
+            #     # Transform each dim of power, snr, etc. separately, then sum
+            #     edges=jnp.sum(
+            #         MLP([self.latent_size] * 2, deterministic=self.deterministic)(processed_graphs.edges),
+            #         axis=0
+            #     )
+            # )
 
         # Now, we will apply a Graph Network once for each message-passing round.
         for _ in range(self.message_passing_steps):
@@ -365,7 +374,7 @@ class GraphNet(nn.Module):
                     return attention * edges
 
                 graph_net = GraphNetGAT(
-                    update_node_fn=update_node_fn if self.output_nodes_size > 0 else None,
+                    update_node_fn=update_node_fn,
                     update_edge_fn=update_edge_fn,  # Update the edges with MLP prior to attention
                     update_global_fn=update_global_fn if self.output_globals_size > 0 else None,
                     attention_logit_fn=_attention_logit_fn,
@@ -373,7 +382,7 @@ class GraphNet(nn.Module):
                 )
             else:
                 graph_net = GraphNetwork(
-                    update_node_fn=update_node_fn if self.output_nodes_size > 0 else None,
+                    update_node_fn=update_node_fn,
                     update_edge_fn=update_edge_fn,
                     update_global_fn=update_global_fn if self.output_globals_size > 0 else None,
                 )
