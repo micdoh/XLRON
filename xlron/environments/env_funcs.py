@@ -98,7 +98,7 @@ def init_graph_tuple(state: EnvState, params: EnvParams, adj: jnp.array) -> jrap
         normalized_power = jnp.round(state.channel_power_array / max_power, 3)
         max_snr = isrs_gn_model.from_db(params.max_snr)
         normalized_snr = jnp.round(state.link_snr_array / max_snr, 3)
-        edge_features = jnp.stack([normalized_snr, normalized_power], axis=-1)
+        edge_features = jnp.stack([normalized_snr, normalized_power], axis=0)
         node_features = jnp.concatenate([spectral_features, source_dest_features], axis=-1)
     elif params.__class__.__name__ == "VONEEnvParams":
         edge_features = state.link_slot_array  # [n_edges] or [n_edges, ...]

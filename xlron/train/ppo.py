@@ -143,7 +143,7 @@ def get_learner_fn(
                         entropy = pi_source.entropy().mean() + pi_path.entropy().mean() + pi_dest.entropy().mean()
 
                     elif config.ACTION_MASKING:
-                        pi_masked = distrax.Categorical(logits=jnp.where(traj_batch.action_mask, pi._logits, -1e8))
+                        pi_masked = distrax.Categorical(logits=jnp.where(traj_batch.action_mask, pi[0]._logits, -1e8))
                         log_prob = pi_masked.log_prob(traj_batch.action)
                         entropy = pi_masked.entropy().mean()
 
