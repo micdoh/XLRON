@@ -313,16 +313,17 @@ class GraphNet(nn.Module):
         # TODO(GNN_LP) - consider using a more sophisticated aggregation function
         if processed_graphs.edges.ndim >= 3:
             # If the edge embeddings are multi-dimensional, sum over the first dimension
-            processed_graphs = processed_graphs._replace(
-                edges=jnp.sum(processed_graphs.edges, axis=0)
-            )
             # processed_graphs = processed_graphs._replace(
-            #     # Transform each dim of power, snr, etc. separately, then sum
-            #     edges=jnp.sum(
-            #         MLP([self.latent_size] * 2, deterministic=self.deterministic)(processed_graphs.edges),
-            #         axis=0
-            #     )
+            #     edges=jnp.sum(processed_graphs.edges, axis=0)
             # )
+            processed_graphs = processed_graphs._replace(
+                # Transform each dim of power, snr, etc. separately, then sum.
+                # Transformation gives a chance to learn how to scale them before summing.
+                edges=jnp.sum(
+                    MLP([self.latent_size], deterministic=self.deterministic)(processed_graphs.edges),
+                    axis=0
+                )
+            )
 
         # Now, we will apply a Graph Network once for each message-passing round.
         for _ in range(self.message_passing_steps):
