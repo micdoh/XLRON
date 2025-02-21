@@ -310,7 +310,6 @@ class GraphNet(nn.Module):
         )
         processed_graphs = embedder(graphs)
         # Sum the edge embeddings of the processed graph
-        # TODO(GNN_LP) - consider using a more sophisticated aggregation function
         if processed_graphs.edges.ndim >= 3:
             # If the edge embeddings are multi-dimensional, sum over the first dimension
             # processed_graphs = processed_graphs._replace(
@@ -328,9 +327,6 @@ class GraphNet(nn.Module):
         # Now, we will apply a Graph Network once for each message-passing round.
         for _ in range(self.message_passing_steps):
             mlp_feature_sizes = [self.latent_size] * self.num_mlp_layers
-
-            # TODO - Allow RNN/SSM to be used as update functions
-            # https://github.com/luchris429/popjaxrl/blob/main/algorithms/ppo_gru.py
             if self.use_edge_model:
                 update_edge_fn = jraph.concatenated_args(
                     MLP(
