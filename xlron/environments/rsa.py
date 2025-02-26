@@ -10,6 +10,7 @@ import networkx as nx
 import numpy as np
 import jraph
 from gymnax.environments import environment, spaces
+from networkx import laplacian_matrix
 
 from xlron.environments.env_funcs import (
     init_rsa_request_array, init_link_slot_array, init_path_link_array,
@@ -25,7 +26,7 @@ from xlron.environments.env_funcs import (
     undo_action_rmsa_gn_model, finalise_action_rmsa_gn_model, init_modulation_format_index_array,
     init_channel_power_array, mask_slots_rmsa_gn_model, init_link_length_array_gn_model, get_snr_for_path,
     get_lightpath_snr, init_mod_format_mask, generate_source_dest_pairs, init_list_of_requests,
-    init_active_lightpaths_array, init_active_lightpaths_array_departure
+    init_active_lightpaths_array, init_active_lightpaths_array_departure, set_c_l_band_gap
 )
 from xlron.environments.dataclasses import *
 from xlron.environments.wrappers import *
@@ -801,7 +802,7 @@ class RMSAGNModelEnv(RSAEnv):
             holding_time=0,
             total_timesteps=0,
             total_requests=-1,
-            link_slot_array=init_link_slot_array(params),
+            link_slot_array=set_c_l_band_gap(init_link_slot_array(params), params, -1.),
             link_slot_departure_array=init_link_slot_departure_array(params),
             request_array=init_rsa_request_array(),
             link_slot_mask=init_link_slot_mask(params, agg=params.aggregate_slots),
@@ -1030,6 +1031,37 @@ class RMSAGNModelEnv(RSAEnv):
         )
 
 
+class MultiBandRSAEnv(RSAEnv):
+
+    def __init__(
+            self,
+            key: chex.PRNGKey,
+            params: RSAEnvParams,
+            traffic_matrix: chex.Array = None,
+            list_of_requests: chex.Array = None,
+            laplacian_matrix: chex.Array = None,
+    ):
+        super().__init__(key, params, traffic_matrix=traffic_matrix, list_of_requests=list_of_requests, laplacian_matrix=laplacian_matrix)
+        state = MultiBandRSAEnvState(
+            current_time=0,
+            holding_time=0,
+            total_timesteps=0,
+            total_requests=-1,
+            link_slot_array=set_c_l_band_gap(init_link_slot_array(params), params, -1.),
+            link_slot_departure_array=init_link_slot_departure_array(params),
+            request_array=init_rsa_request_array(),
+            link_slot_mask=init_link_slot_mask(params, agg=params.aggregate_slots),
+            traffic_matrix=traffic_matrix if traffic_matrix is not None else init_traffic_matrix(key, params),
+            graph=None,
+            full_link_slot_mask=init_link_slot_mask(params),
+            accepted_services=0,
+            accepted_bitrate=0.,
+            total_bitrate=0.,
+            list_of_requests=list_of_requests,
+        )
+        self.initial_state = state.replace(graph=init_graph_tuple(state, params, laplacian_matrix))
+
+
 def make_rsa_env(config: dict, launch_power_array: Optional[chex.Array] = None):
     """Create RSA environment. This function is the entry point to setting up any RSA-type environment.
     This function takes a dictionary of the commandline flag parameters and configures the
@@ -1083,6 +1115,9 @@ def make_rsa_env(config: dict, launch_power_array: Optional[chex.Array] = None):
     lambda0 = config.get("lambda0", 1550) * 1e-9
     B = slot_size * link_resources  # Total modulated bandwidth
 
+    if aggregate_slots > 1 and config.get("EVAL_HEURISTIC", False):
+        raise ValueError("--aggregate_slots and --EVAL_HEURISTIC not compatible.")
+
     # GN model parameters
     max_span_length = config.get("max_span_length", 100e3)
     ref_lambda = config.get("ref_lambda", 1577.5e-9)  # centre of C+L bands (1530-1625nm)
@@ -1094,9 +1129,10 @@ def make_rsa_env(config: dict, launch_power_array: Optional[chex.Array] = None):
     dispersion_slope = config.get("dispersion_slope", 0.067 * 1e-12 / 1e-9 / 1e3 / 1e-9)
     coherent = config.get("coherent", False)
     noise_figure = config.get("noise_figure", 4)
-    interband_gap = config.get("interband_gap", 100)
-    gap_width = int(math.ceil(interband_gap / slot_size))
-    gap_start = config.get("gap_start", link_resources//2)
+    interband_gap_width = config.get("interband_gap_width", 100)
+    gap_width_slots = int(math.ceil(interband_gap_width / slot_size))
+    interband_gap_start = config.get("interband_gap_start", 0)
+    gap_start_slots = int(math.ceil(interband_gap_start / slot_size))
     mod_format_correction = config.get("mod_format_correction", True)
     num_roadms = config.get("num_roadms", 1)
     roadm_loss = config.get("roadm_loss", 18)
@@ -1289,18 +1325,19 @@ def make_rsa_env(config: dict, launch_power_array: Optional[chex.Array] = None):
         env_params = DeepRMSAEnvParams
     elif env_type == "rwa_lightpath_reuse":
         env_params = RWALightpathReuseEnvParams
+    elif env_type == "multibandrsa":
+        env_params = MultiBandRSAEnvParams
+        params_dict.update(gap_start=gap_start_slots, gap_width=gap_width_slots)
     elif "gn_model" in env_type:
         env_params = RSAGNModelEnvParams
         params_dict.update(
             ref_lambda=ref_lambda, max_spans=max_spans, max_span_length=max_span_length,
             default_launch_power=default_launch_power,
             nonlinear_coeff=nonlinear_coeff, raman_gain_slope=raman_gain_slope, attenuation=attenuation,
-            attenuation_bar=attenuation_bar, dispersion_coeff=dispersion_coeff,
-            dispersion_slope=dispersion_slope, coherent=coherent,
-            noise_figure=noise_figure, interband_gap=interband_gap,
-            gap_start=gap_start, gap_width=gap_width, roadm_loss=roadm_loss, num_roadms=num_roadms,
-            num_spans=num_spans, launch_power_type=launch_power_type, snr_margin=snr_margin,
-            last_fit=config.get("last_fit", False), max_power=max_power, min_power=min_power,
+            attenuation_bar=attenuation_bar, dispersion_coeff=dispersion_coeff, noise_figure=noise_figure,
+            dispersion_slope=dispersion_slope, coherent=coherent, gap_start=gap_start_slots, gap_width=gap_width_slots,
+            roadm_loss=roadm_loss, num_roadms=num_roadms, num_spans=num_spans, launch_power_type=launch_power_type,
+            snr_margin=snr_margin, last_fit=config.get("last_fit", False), max_power=max_power, min_power=min_power,
             step_power=step_power, max_snr=max_snr, mod_format_correction=mod_format_correction,
         )
         if env_type == "rmsa_gn_model":
@@ -1355,6 +1392,9 @@ def make_rsa_env(config: dict, launch_power_array: Optional[chex.Array] = None):
         elif env_type == "rmsa_gn_model":
             env = RMSAGNModelEnv(rng, params, traffic_matrix=traffic_matrix, launch_power_array=launch_power_array,
                                 list_of_requests=list_of_requests, laplacian_matrix=laplacian_matrix)
+        elif env_type == "multibandrsa":
+            env = MultiBandRSAEnv(rng, params, traffic_matrix=traffic_matrix, list_of_requests=list_of_requests,
+                                  laplacian_matrix=laplacian_matrix)
         else:
             env = RSAEnv(rng, params, traffic_matrix=traffic_matrix, list_of_requests=list_of_requests,
                          laplacian_matrix=laplacian_matrix)
