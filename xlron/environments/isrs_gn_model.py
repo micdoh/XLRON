@@ -324,6 +324,7 @@ def get_snr(
     """
     span_length = jnp.sum(length) / num_spans
     p_ase = get_ase_power(noise_figure, attenuation_i, span_length, ref_lambda, ch_centre_i, ch_bandwidth_i) * num_spans
+    # TODO - make sure that each path has transmitter ROADM, traversed ROADMs, and receiver ROADM (currently missing receiver or transmitter)
     p_ase_roadm = num_roadms * get_ase_power(noise_figure, roadm_loss, span_length, ref_lambda, ch_centre_i, ch_bandwidth_i, gain=10**(roadm_loss/10))
     p_nli, eta_nli = isrs_gn_model(
         num_channels=num_channels,
