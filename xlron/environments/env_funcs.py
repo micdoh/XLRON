@@ -2492,8 +2492,10 @@ def pad_array(array, fill_value):
     return result
 
 
-def init_link_length_array_gn_model(graph: nx.Graph, span_length: int,  max_spans: int) -> chex.Array:
-    """Initialise link length array.
+def init_link_length_array_gn_model(graph: nx.Graph, max_span_length: int,  max_spans: int) -> chex.Array:
+    """Initialise link length array for environements that use GN model of physical layer.
+    We assume each link has spans of equal length.
+
     Args:
         graph (nx.Graph): NetworkX graph
     Returns:
@@ -2510,16 +2512,9 @@ def init_link_length_array_gn_model(graph: nx.Graph, span_length: int,  max_span
             link_lengths.append(graph.edges[edge]["weight"])
     span_length_array = []
     for length in link_lengths:
-        num_spans = math.ceil(length / span_length)
+        num_spans = math.ceil(length / max_span_length)
         avg_span_length = length / num_spans
         span_lengths = [avg_span_length] * num_spans
-        # # get remainder
-        # remainder = length % span_length
-        # end_span_length = (span_length + remainder) / 2 if remainder > 0 else span_length
-        # span_lengths = [span_length] * int(num_spans-2)
-        # span_lengths.append(end_span_length)
-        # span_lengths.insert(0, end_span_length)
-        # pad with zeros to max_spans
         span_lengths.extend([0] * (max_spans - num_spans))
         span_length_array.append(span_lengths)
     return jnp.array(span_length_array)
@@ -2716,6 +2711,9 @@ def update_active_lightpaths_array_departure(state: RSAGNModelEnvState, time: fl
 def get_snr_for_path(path, link_snr_array, params):
     nsr_slots = jnp.where(path.reshape((params.num_links, 1)) == 1, 1/link_snr_array, jnp.zeros(params.link_resources))
     nsr_path_slots = jnp.sum(nsr_slots, axis=0)
+    # TODO - Add noise from one more ROADM per path
+    #  p_ase_roadm = num_roadms * get_ase_power(noise_figure, roadm_loss, span_length, ref_lambda, ch_centre_i, ch_bandwidth_i, gain=10**(roadm_loss/10))
+    #  snr = jnp.where(ch_power_W_i > 0, ch_power_W_i / noise_power, -1e5)
     return jnp.nan_to_num(isrs_gn_model.to_db(1 / nsr_path_slots), nan=-50, neginf=-50, posinf=50)  # Link SNR array must be in linear units so that 1/inf = 0
 
 
@@ -3102,6 +3100,8 @@ def finalise_action_rmsa_gn_model(state: RSAGNModelEnvState, params: Optional[En
 #  - Create mask where path id is active by doing get_path_links on path_index_array with mean aggregation, then where on path index
 #  - Sum the lightpath SNR across slots
 #  - Multiply by factor <1 to get the actual throughput from PCS modulation
+#  Optional: consider a minimum SNR beneath which no throughput is possible (mask to zero) (let's say 7dB for 28% FEC threshold)
+#  Optional: make FEC threshold a parameter and calculate the throughput / SNR requirements accordingly. This may be complex for PCS.
 def calculate_throughput_from_active_lightpaths():
     pass
 
