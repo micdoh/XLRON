@@ -158,8 +158,8 @@ flags.DEFINE_float("num_roadms", 1, "Consider ROADM loss in SNR calculation (1 R
 flags.DEFINE_float("roadm_loss", 18, "ROADM losses [dB]")
 flags.DEFINE_boolean("coherent", False, "Add NLI contribution coherently per span")
 flags.DEFINE_boolean("mod_format_correction", False, "Apply non-Gaussian modulation format correction")
-flags.DEFINE_float("interband_gap", 0, "Gap between C+L bands [GHz]")
-flags.DEFINE_integer("gap_start", 70, "Start index of gap between C+L bands [slots]")
+flags.DEFINE_float("interband_gap_width", 0, "Gap between C+L bands [GHz]")
+flags.DEFINE_integer("interband_gap_start", 70, "Start index of gap between C+L bands [GHz]")
 flags.DEFINE_float("snr_margin", 0.5, "Margin required for estimated SNR for mod. format selection [dB]")
 flags.DEFINE_float("max_snr", 30, "Maximum SNR that a link can take (just used for normalization purposes)")
 flags.DEFINE_float("max_power", 0.5, "Maximum launch power [dBm]")
@@ -177,15 +177,9 @@ flags.DEFINE_boolean('traffic_array', False, 'Use traffic array')
 flags.DEFINE_list("list_of_requests", None, "Traffic request list")
 # Flags for finding cut-sets only
 flags.DEFINE_integer("CUTSET_BATCH_SIZE", 1, "Batch size for cut-set generation")
-flags.DEFINE_integer("CUTSET_ITERATIONS", 1, re"Number of iterations per parallel process")
+flags.DEFINE_integer("CUTSET_ITERATIONS", 1, "Number of iterations per parallel process")
 flags.DEFINE_boolean("CUTSET_EXHAUSTIVE", False, "Use exhaustive search method to find cut-sets (else shortest paths method)")
 flags.DEFINE_integer("CUTSET_TOP_K", 50, "Number of top congested cutsets to return")
 # Flags for capacity estimation with Baroni method
 flags.DEFINE_boolean("deterministic_requests", False, "Use deterministic requests")
 flags.DEFINE_boolean("sort_requests", True, "Sort requests in descending order of required resources")
-# Multi-band parameters
-flags.DEFINE_integer("bandgap_start", 200, "Start index of bandgap [GHz]")
-flags.DEFINE_integer("bandgap", 50, "Bandgap width [GHz]")
-# TODO(MULTIBAND) - Add additional parameters that we'll need to define the multiband environment.
-#  We still need to think about this... but we might want to define the total bandwidth,
-#  the frequencies at which the bands end, the frequency gap between bands,
