@@ -9,7 +9,7 @@ from xlron.environments.env_funcs import *
 from xlron.environments.vone import *
 from xlron.environments.rsa import *
 from xlron.heuristics.heuristics import *
-from xlron.environments.env_test import *
+from xlron.environments.rsa_test import *
 
 class KspffTest(parameterized.TestCase):
 
@@ -2932,6 +2932,189 @@ class KcaFfTest(parameterized.TestCase):
         )
         jax.debug.print("path_index_array after {}", self.state.path_index_array, ordered=True)
         jax.debug.print("link_capacity_array after {}", self.state.link_capacity_array, ordered=True)
+        chex.assert_trees_all_close(action, expected)
+
+
+class KsplfTest(parameterized.TestCase):
+
+    def setUp(self):
+        super().setUp()
+        self.key, self.env, self.obs, self.state, self.params = rsa_4node_test_setup()
+
+    @chex.all_variants()
+    @parameterized.named_parameters(
+        ("case_empty", jnp.array([0, 0, 1]),
+         jnp.array([[0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                    [0, 0, 0, 0], ]),
+         jnp.array(3)),
+        ("case_full", jnp.array([0, 0, 1]),
+         jnp.array([[1, 1, 1, 1],
+                    [1, 1, 1, 1],
+                    [1, 1, 1, 1],
+                    [1, 1, 1, 1], ]),
+         jnp.array(3)),
+        ("case_start_edge", jnp.array([0, 0, 1]),
+         jnp.array([[0, 1, 1, 1],
+                    [0, 1, 1, 1],
+                    [0, 1, 1, 1],
+                    [0, 1, 1, 1], ]),
+         jnp.array(0)),
+        ("case_end_edge", jnp.array([0, 0, 1]),
+         jnp.array([[1, 1, 1, 0],
+                    [1, 1, 1, 0],
+                    [1, 1, 1, 0],
+                    [1, 1, 1, 0], ]),
+         jnp.array(3)),
+        ("case_ksp", jnp.array([0, 0, 1]),
+         jnp.array([[1, 1, 1, 0],
+                    [0, 0, 0, 1],
+                    [0, 0, 0, 1],
+                    [0, 0, 0, 1], ]),
+         jnp.array(3)),
+        ("case_lf", jnp.array([0, 0, 1]),
+         jnp.array([[1, 0, 0, 1],
+                    [0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                    [0, 0, 0, 0], ]),
+         jnp.array(2)),
+    )
+    def test_ksp_lf(self, request_array, link_slot_array, expected):
+        self.state = self.state.replace(request_array=request_array, link_slot_array=link_slot_array)
+        action = self.variant(ksp_lf, static_argnums=(1,))(self.state, self.params)
+        chex.assert_trees_all_close(action, expected)
+
+    @chex.all_variants()
+    @parameterized.named_parameters(
+    ("case_empty", jnp.array([0, 0, 1]),
+     jnp.array([[0, 0, 0, 0],
+                [0, 0, 0, 0],
+                [0, 0, 0, 0],
+                [0, 0, 0, 0],
+                [0, 0, 0, 0],
+                [0, 0, 0, 0],
+                [0, 0, 0, 0],
+                [0, 0, 0, 0],
+                [0, 0, 0, 0],
+                [0, 0, 0, 0],
+                [0, 0, 0, 0],
+                [0, 0, 0, 0],
+                [0, 0, 0, 0],
+                [0, 0, 0, 0],
+                [0, 0, 0, 0],
+                [0, 0, 0, 0],
+                [0, 0, 0, 0],
+                [0, 0, 0, 0],
+                [0, 0, 0, 0],
+                [0, 0, 0, 0],
+                [0, 0, 0, 0],
+                [0, 0, 0, 0],
+                ]),
+     jnp.array(3)),
+    ("case_full", jnp.array([0, 0, 1]),
+     jnp.array([[1, 1, 1, 1],
+                [1, 1, 1, 1],
+                [1, 1, 1, 1],
+                [1, 1, 1, 1],
+                [1, 1, 1, 1],
+                [1, 1, 1, 1],
+                [1, 1, 1, 1],
+                [1, 1, 1, 1],
+                [1, 1, 1, 1],
+                [1, 1, 1, 1],
+                [1, 1, 1, 1],
+                [1, 1, 1, 1],
+                [1, 1, 1, 1],
+                [1, 1, 1, 1],
+                [1, 1, 1, 1],
+                [1, 1, 1, 1],
+                [1, 1, 1, 1],
+                [1, 1, 1, 1],
+                [1, 1, 1, 1],
+                [1, 1, 1, 1],
+                [1, 1, 1, 1],
+                [1, 1, 1, 1], ]),
+     jnp.array(3)),
+    ("case_start_edge", jnp.array([0, 0, 1]),
+     jnp.array([[0, 1, 1, 1,],
+                [0, 1, 1, 1,],
+                [0, 1, 1, 1,],
+                [0, 1, 1, 1,],
+                [0, 1, 1, 1,],
+                [0, 1, 1, 1,],
+                [0, 1, 1, 1,],
+                [0, 1, 1, 1,],
+                [0, 1, 1, 1,],
+                [0, 1, 1, 1,],
+                [0, 1, 1, 1,],
+                [0, 1, 1, 1,],
+                [0, 1, 1, 1,],
+                [0, 1, 1, 1,],
+                [0, 1, 1, 1,],
+                [0, 1, 1, 1,],
+                [0, 1, 1, 1,],
+                [0, 1, 1, 1,],
+                [0, 1, 1, 1,],
+                [0, 1, 1, 1,],
+                [0, 1, 1, 1,],
+                [0, 1, 1, 1,]]),
+     jnp.array(0)),
+    ("case_end_edge", jnp.array([0, 0, 1]),
+     jnp.array([[1, 1, 1, 0],
+                [1, 1, 1, 0],
+                [1, 1, 1, 0],
+                [1, 1, 1, 0],
+                [1, 1, 1, 0],
+                [1, 1, 1, 0],
+                [1, 1, 1, 0],
+                [1, 1, 1, 0],
+                [1, 1, 1, 0],
+                [1, 1, 1, 0],
+                [1, 1, 1, 0],
+                [1, 1, 1, 0],
+                [1, 1, 1, 0],
+                [1, 1, 1, 0],
+                [1, 1, 1, 0],
+                [1, 1, 1, 0],
+                [1, 1, 1, 0],
+                [1, 1, 1, 0],
+                [1, 1, 1, 0],
+                [1, 1, 1, 0],
+                [1, 1, 1, 0],
+                [1, 1, 1, 0],
+                ]),
+     jnp.array(3)),
+    ("case_ff", jnp.array([0, 0, 1]),
+     jnp.array([[1, 1, 1, 0],
+                [0, 0, 0, 1],
+                [0, 0, 0, 1],
+                [0, 0, 0, 1],
+                [0, 0, 0, 1],
+                [0, 0, 0, 1],
+                [0, 0, 0, 1],
+                [0, 0, 0, 1],
+                [0, 0, 0, 1],
+                [0, 0, 0, 1],
+                [0, 0, 0, 1],
+                [0, 0, 0, 1],
+                [0, 0, 0, 1],
+                [0, 0, 0, 1],
+                [0, 0, 0, 1],
+                [0, 0, 0, 1],
+                [0, 0, 0, 1],
+                [0, 0, 0, 1],
+                [0, 0, 0, 1],
+                [0, 0, 0, 1],
+                [0, 0, 0, 1],
+                [0, 0, 0, 1],
+                ]),
+     jnp.array(3)),
+    )
+    def test_ksp_lf_nsfnet(self, request_array, link_slot_array, expected):
+        self.key, self.env, self.obs, self.state, self.params = rsa_nsfnet_4_test_setup()
+        self.state = self.state.replace(request_array=request_array, link_slot_array=link_slot_array)
+        action = self.variant(ksp_lf, static_argnums=(1,))(self.state, self.params)
         chex.assert_trees_all_close(action, expected)
 
 
