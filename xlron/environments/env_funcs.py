@@ -104,7 +104,8 @@ def init_path_link_array(
         directed: bool = False,
         modulations_array: chex.Array = None,
         rwa_lr: bool = False,
-        scale_factor: float = 1.0
+        scale_factor: float = 1.0,
+        path_snr: bool = False,
 ) -> chex.Array:
     """Initialise path-link array.
     Each path is defined by a link utilisation array (one row in the path-link array).
@@ -118,6 +119,8 @@ def init_path_link_array(
         directed (bool, optional): Whether graph is directed. Defaults to False.
         modulations_array (chex.Array, optional): Array of maximum spectral efficiency for modulation format on path. Defaults to None.
         rwa_lr (bool, optional): Whether the environment is RWA with lightpath reuse (affects path ordering).
+        path_snr (bool, optional): If GN model is used, include extra row of zeroes for unutilised paths
+        to ensure correct SNR calculation for empty paths (path index -1).
 
     Returns:
         chex.Array: Path-link array (N(N-1)*k x E) where N is number of nodes, E is number of edges, k is number of shortest paths
@@ -141,22 +144,20 @@ def init_path_link_array(
         return k_paths
 
     paths = []
-    reverse_paths = []  # used for directed graphs (i.e. dual fibre links)
     edges = sorted(graph.edges)
 
     # Get the k-shortest paths for each node pair
     k_path_collections = []
+    get_paths = get_k_disjoint_shortest_paths if disjoint else get_k_shortest_paths
     for node_pair in combinations(graph.nodes, 2):
 
-        if disjoint:
-            k_paths = get_k_disjoint_shortest_paths(
-                graph, node_pair[0], node_pair[1], k, weight=weight
-            )
-        else:
-            k_paths = get_k_shortest_paths(
-                graph, node_pair[0], node_pair[1], k, weight=weight
-            )
+        k_paths = get_paths(graph, node_pair[0], node_pair[1], k, weight=weight)
         k_path_collections.append(k_paths)
+
+    if directed:  # Get paths in reverse direction
+        for node_pair in combinations(graph.nodes, 2):
+            k_paths_rev = get_paths(graph, node_pair[1], node_pair[0], k, weight=weight)
+            k_path_collections.append(k_paths_rev)
 
     # Sort the paths for each node pair
     for k_paths in k_path_collections:
@@ -186,49 +187,41 @@ def init_path_link_array(
         else:
             path_weighting = path_lengths
 
+        # if less then k unique paths, add empty paths
+        empty_path = [0] * len(graph.edges)
+        k_paths = k_paths + [empty_path] * (k - len(k_paths))
+        path_weighting = path_weighting + [1e6] * (k - len(path_weighting))
+        path_lengths = path_lengths + [1e6] * (k - len(path_lengths))
+
         # Sort by number of links then by length (or just by length if weight is specified)
         unsorted_paths = zip(k_paths, path_weighting, path_lengths)
         k_paths_sorted = [(source, dest, weighting, path) for path, weighting, _ in sorted(unsorted_paths, key=lambda x: (x[1], 1/x[2]) if weight is None else x[2])]
 
         # Keep only first k paths
         k_paths_sorted = k_paths_sorted[:k]
-        k_paths_sorted_rev = [(dest, source, weighting, path[::-1]) for (source, dest, weighting, path) in k_paths_sorted]
 
-        # Change selected paths for COST239 to match benchmark
-        for i, (source, dest, weighting, path) in enumerate(k_paths_sorted):
-            if source == 5 and dest == 11 and i == 4 and len(edges) == 52 and len(graph.nodes) == 11:
-                path = [5, 4, 9, 11]
-            k_paths_sorted[i] = (source, dest, weighting, path)
-            #print(source, dest, i, weighting, path)
-        for i, (source, dest, weighting, path) in enumerate(k_paths_sorted_rev):
-            if source == 11 and dest == 5 and i == 4 and len(edges) == 52 and len(graph.nodes) == 11:
-                path = [11, 10, 9, 4, 5]
-            k_paths_sorted_rev[i] = (source, dest, weighting, path)
-            #print(source, dest, i, weighting, path)
-
+        prev_link_usage = empty_path
         for k_path in k_paths_sorted:
             k_path = k_path[-1]
             link_usage = [0]*len(graph.edges)  # Initialise empty path
-            for i in range(len(k_path)-1):
-                s, d = k_path[i], k_path[i+1]
-                for edge_index, edge in enumerate(edges):
-                    if edge[0] == s and edge[1] == d:# or edge[0] == d and edge[1] == s:
-                        link_usage[edge_index] = 1
-            path = link_usage
-            paths.append(path)
-
-        if directed:
-            for k_path in k_paths_sorted_rev:
-                k_path = k_path[-1]
-                link_usage = [0] * len(graph.edges)  # Initialise empty path
-                for i in range(len(k_path) - 1):
+            if sum(k_path) == 0:
+                link_usage = prev_link_usage
+            else:
+                for i in range(len(k_path)-1):
                     s, d = k_path[i], k_path[i + 1]
                     for edge_index, edge in enumerate(edges):
-                        if edge[0] == s and edge[1] == d:# or edge[0] == d and edge[1] == s:
+                        condition = (edge[0] == s and edge[1] == d) if directed else \
+                            ((edge[0] == s and edge[1] == d) or (edge[0] == d and edge[1] == s))
+                        if condition:
                             link_usage[edge_index] = 1
-                reverse_paths.append(link_usage)
+            path = link_usage
+            prev_link_usage = link_usage
+            paths.append(path)
 
-    paths = paths + reverse_paths
+    # If using GN model, add extra row of zeroes for empty paths for SNR calculation
+    if path_snr:
+        empty_path = [0] * len(graph.edges)
+        paths.append(empty_path)
 
     return jnp.array(paths, dtype=jnp.float32)
 
