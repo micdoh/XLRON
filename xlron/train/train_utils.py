@@ -222,7 +222,7 @@ def define_env(config: absl.flags.FlagValues):
     config_dict = {k: v.value for k, v in config.__flags.items()}
     if config.env_type.lower() == "vone":
         env, env_params = make_vone_env(config_dict)
-    elif config.env_type.lower() in ["rsa", "rmsa", "rwa", "deeprmsa", "rwa_lightpath_reuse", "rsa_gn_model"]:
+    elif config.env_type.lower() in ["rsa", "rmsa", "rwa", "deeprmsa", "rwa_lightpath_reuse", "rsa_gn_model", "rmsa_gn_model"]:
         env, env_params = make_rsa_env(config_dict)
     else:
         raise ValueError(f"Invalid environment type {config.env_type}")
@@ -238,9 +238,9 @@ def init_network(config, env, env_state, env_params):
                                  num_units=config.NUM_UNITS,
                                  layer_norm=config.LAYER_NORM, )
         init_x = tuple([jnp.zeros(env.observation_space(env_params).n)])
-    elif config.env_type.lower() in ["rsa", "rmsa", "rwa", "deeprmsa", "rwa_lightpath_reuse", "rsa_gn_model"]:
+    elif config.env_type.lower() in ["rsa", "rmsa", "rwa", "deeprmsa", "rwa_lightpath_reuse", "rsa_gn_model", "rmsa_gn_model"]:
         if config.USE_GNN:
-            if config.env_type.lower() == "rsa_gn_model" and config.output_globals_size_actor > 0:
+            if "gn_model" in config.env_type.lower() and config.output_globals_size_actor > 0:
                 output_globals_size_actor = int((env_params.max_power - env_params.min_power) / env_params.step_power) + 1 if config.discrete_launch_power else 1
             else:
                 output_globals_size_actor = config.output_globals_size_actor
@@ -270,7 +270,7 @@ def init_network(config, env, env_state, env_params):
                 output_power = config.GNN_OUTPUT_LP,
             )
             init_x = (env_state.env_state, env_params)
-        elif config.env_type.lower() == "rsa_gn_model" and env_params.launch_power_type == 3:
+        elif "gn_model" in config.env_type.lower() and env_params.launch_power_type == 3:
             network = LaunchPowerActorCriticMLP(
                 action_dim=env.action_space(env_params).n,
                 activation=config.ACTIVATION,
@@ -412,7 +412,7 @@ def select_action(select_action_state, env, env_params, train_state, config):
         log_prob_dest = pi_dest.log_prob(action_d)
         log_prob = log_prob_dest + log_prob_path + log_prob_source
 
-    elif config.env_type.lower() == "rsa_gn_model" and config.launch_power_type == "rl":
+    elif "gn_model" in config.env_type.lower() and config.launch_power_type == "rl":
         pi_masked = distrax.Categorical(logits=jnp.where(env_state.env_state.link_slot_mask, pi[0]._logits, -1e8))
         if config.GNN_OUTPUT_RSA and not config.GNN_OUTPUT_LP:
             path_action, log_prob = train_state.sample_fn(action_key, pi_masked, log_prob=True, deterministic=config.deterministic)
@@ -475,7 +475,7 @@ def select_action_eval(select_action_state, env, env_params, eval_state, config)
         if config.env_type.lower() == "vone":
             raise NotImplementedError(f"VONE heuristics not yet implemented")
 
-        elif config.env_type.lower() in ["rsa", "rwa", "rmsa", "deeprmsa", "rwa_lightpath_reuse", "rsa_gn_model"]:
+        elif config.env_type.lower() in ["rsa", "rwa", "rmsa", "deeprmsa", "rwa_lightpath_reuse", "rsa_gn_model", "rmsa_gn_model"]:
             if config.path_heuristic.lower() == "ksp_ff":
                 action = ksp_ff(env_state.env_state, env_params)
             elif config.path_heuristic.lower() == "ff_ksp":
@@ -508,7 +508,7 @@ def select_action_eval(select_action_state, env, env_params, eval_state, config)
                 action = ksp_lf(env_state.env_state, env_params)
             else:
                 raise ValueError(f"Invalid path heuristic {config.path_heuristic}")
-            if env_params.__class__.__name__ == "RSAGNModelEnvParams":
+            if env_params.__class__.__name__ in ["RSAGNModelEnvParams", "RMSAGNModelEnvParams"]:
                 if config.launch_power_type == "rl":
                     raise ValueError("launch_power_type cannot be 'rl' when --EVAL_HEURISTIC flag is True")
                 launch_power = get_launch_power(env_state.env_state, action, action, env_params)
@@ -534,13 +534,13 @@ def get_warmup_fn(warmup_state, env, params, train_state, config) -> Callable[[T
             select_action_state = (_rng, _state, _last_obs)
             action_fn = select_action if not config.EVAL_HEURISTIC else select_action_eval
             _state, action, log_prob, value = action_fn(select_action_state, env, _params, _train_state, config)
-            if config.env_type.lower() == "rsa_gn_model" and config.launch_power_type == "rl":
+            if "gn_model" in config.env_type.lower() and config.launch_power_type == "rl":
                 # If the action is launch power, the action is this shape:
                 # jnp.concatenate([path_action.reshape((1,)), power_action.reshape((1,))], axis=0)
                 # We want to overwrite the launch power with a default launch_power
                 path_action = ksp_lf(_state.env_state, _params) if _params.last_fit is True else ksp_ff(_state.env_state, _params)
                 action = jnp.concatenate([path_action.reshape((1,)), jnp.array([params.default_launch_power,])], axis=0)
-            elif config.env_type.lower() == "rsa_gn_model" and config.launch_power_type != "rl" and not config.EVAL_HEURISTIC:
+            elif "gn_model" in config.env_type.lower() and config.launch_power_type != "rl" and not config.EVAL_HEURISTIC:
                 raise ValueError("Check that EVAL_HEURISTIC is set to True if using a heuristic")
             # STEP ENV
             obsv, _state, reward, done, info = env.step(
@@ -631,8 +631,8 @@ def log_metrics(config, out, experiment_name, total_time, merge_func):
     )
 
     if config.continuous_operation:
-        # For continuous operation, define max_timesteps as the episode end
-        episode_ends = np.arange(0, (config.TOTAL_TIMESTEPS // config.NUM_LEARNERS // config.NUM_ENVS) + 1, config.max_timesteps)[1:].astype(int) - 1
+        # For continuous operation, define max_requests as the episode end
+        episode_ends = np.arange(0, (config.TOTAL_TIMESTEPS // config.NUM_LEARNERS // config.NUM_ENVS) + 1, config.max_requests)[1:].astype(int) - 1
     else:
         if not config.end_first_blocking:
             episode_ends = np.where(merged_out["done"].mean(0).reshape(-1) == 1)[0] - 1
@@ -814,7 +814,7 @@ def log_metrics(config, out, experiment_name, total_time, merge_func):
             print(f"{metric} std: {processed_data[metric]['episode_end_std'].mean():.5f}")
             print(f"{metric} IQR lower: {processed_data[metric]['episode_end_iqr_lower'].mean():.5f}")
             print(f"{metric} IQR upper: {processed_data[metric]['episode_end_iqr_upper'].mean():.5f}")
-    if config.env_type.lower() == "rsa_gn_model":
+    if "gn_model" in config.env_type.lower():
         print(f"Mean launch power: {merged_out['launch_power'].mean():.5f} ± {merged_out['launch_power'].std():.5f}")
 
     if config.log_actions:
@@ -885,7 +885,7 @@ def log_metrics(config, out, experiment_name, total_time, merge_func):
                 "path_length": path_lengths,
                 "num_hops": num_hops,
             }
-            if config.env_type.lower() == "rsa_gn_model":
+            if "gn_model" in config.env_type.lower():
                 log_dict["launch_power"] = merged_out["launch_power"].reshape((merged_out["launch_power"].shape[0], -1))[0]
                 log_dict["path_snr"] = merged_out["path_snr"].reshape((merged_out["path_snr"].shape[0], -1))[0]
             df = pd.DataFrame(log_dict)
