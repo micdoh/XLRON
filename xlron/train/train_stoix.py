@@ -151,7 +151,7 @@ def main(argv):
     utilisation_std = get_std(merged_out, "utilisation")
     done = get_mean(merged_out, "done")
 
-    episode_ends = np.where(done == 1)[0] if not FLAGS.continuous_operation else np.arange(0, len(done), FLAGS.max_timesteps)[1:].astype(int)
+    episode_ends = np.where(done == 1)[0] if not FLAGS.continuous_operation else np.arange(0, len(done), FLAGS.max_requests)[1:].astype(int)
     # shift end indices by -1
     episode_ends = episode_ends - 1
     # get values of accepted services and bitrate at episode ends

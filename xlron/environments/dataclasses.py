@@ -79,7 +79,6 @@ class EnvParams:
 
     Args:
         max_requests (chex.Scalar): Maximum number of requests in an episode
-        max_timesteps (chex.Scalar): Maximum number of timesteps in an episode (which may not equal max_requests for VONE)
         incremental_loading (chex.Scalar): Incremental increase in traffic load (non-expiring requests)
         end_first_blocking (chex.Scalar): End episode on first blocking event
         continuous_operation (chex.Scalar): If True, do not reset the environment at the end of an episode
@@ -92,7 +91,6 @@ class EnvParams:
         directed_graph (bool): Whether graph is directed (one fibre per link per transmission direction)
     """
     max_requests: chex.Scalar = struct.field(pytree_node=False)
-    max_timesteps: chex.Scalar = struct.field(pytree_node=False)
     incremental_loading: chex.Scalar = struct.field(pytree_node=False)
     end_first_blocking: chex.Scalar = struct.field(pytree_node=False)
     continuous_operation: chex.Scalar = struct.field(pytree_node=False)
@@ -230,33 +228,8 @@ class RWALightpathReuseEnvParams(RSAEnvParams):
 
 
 @struct.dataclass
-class RSAGNModelEnvState(RSAEnvState):
-    """Dataclass to hold environment state for RSA with GN model.
-
-    Args:
-        link_snr_array (chex.Array): Link SNR array
-    """
-    link_snr_array: chex.Array  # Available SNR on each link
-    channel_centre_bw_array: chex.Array  # Channel centre bandwidth for each active connection
-    path_index_array: chex.Array  # Contains indices of lightpaths in use on slots (used for lightpath SNR calculation)
-    channel_power_array: chex.Array  # Channel power for each active connection
-    modulation_format_index_array: chex.Array  # Modulation format index for each active connection
-    channel_centre_bw_array_prev: chex.Array  # Channel centre bandwidth for each active connection in previous timestep
-    path_index_array_prev: chex.Array  # Contains indices of lightpaths in use on slots in previous timestep
-    channel_power_array_prev: chex.Array  # Channel power for each active connection in previous timestep
-    modulation_format_index_array_prev: chex.Array  # Modulation format index for each active connection in previous timestep
-    #active_path_array: chex.Array  # Active path array (Nlink x Nchannel x Nlink)
-    #active_path_array_prev: chex.Array  # Active path array in previous timestep
-    launch_power_array: chex.Array  # Launch power array
-    mod_format_mask: chex.Array  # Modulation format mask
-
-
-@struct.dataclass
-class RSAGNModelEnvParams(RSAEnvParams):
-    """Dataclass to hold environment state for RSA with GN model.
-
-    Args:
-        link_snr_array (chex.Array): Link SNR array
+class GNModelEnvParams(RSAEnvParams):
+    """Dataclass to hold environment state for GN model environments.
     """
     ref_lambda: chex.Scalar = struct.field(pytree_node=False)
     max_spans: chex.Scalar = struct.field(pytree_node=False)
@@ -269,8 +242,6 @@ class RSAGNModelEnvParams(RSAEnvParams):
     dispersion_slope: chex.Scalar = struct.field(pytree_node=False)
     noise_figure: chex.Scalar = struct.field(pytree_node=False)
     coherent: bool = struct.field(pytree_node=False)
-    modulations_array: chex.Array = struct.field(pytree_node=False)
-    mod_format_correction: bool = struct.field(pytree_node=False)
     interband_gap: chex.Scalar = struct.field(pytree_node=False)
     gap_width: chex.Scalar = struct.field(pytree_node=False)
     gap_start: chex.Scalar = struct.field(pytree_node=False)
@@ -285,6 +256,59 @@ class RSAGNModelEnvParams(RSAEnvParams):
     step_power: chex.Scalar = struct.field(pytree_node=False)
     last_fit: bool = struct.field(pytree_node=False)
     default_launch_power: chex.Scalar = struct.field(pytree_node=False)
+    mod_format_correction: bool = struct.field(pytree_node=False)
+
+
+@struct.dataclass
+class GNModelEnvState(RSAEnvState):
+    """Dataclass to hold environment state for RSA with GN model.
+    """
+    link_snr_array: chex.Array  # Available SNR on each link
+    channel_centre_bw_array: chex.Array  # Channel centre bandwidth for each active connection
+    path_index_array: chex.Array  # Contains indices of lightpaths in use on slots (used for lightpath SNR calculation)
+    channel_power_array: chex.Array  # Channel power for each active connection
+    channel_centre_bw_array_prev: chex.Array  # Channel centre bandwidth for each active connection in previous timestep
+    path_index_array_prev: chex.Array  # Contains indices of lightpaths in use on slots in previous timestep
+    channel_power_array_prev: chex.Array  # Channel power for each active connection in previous timestep
+    launch_power_array: chex.Array  # Launch power array
+
+
+@struct.dataclass
+class RSAGNModelEnvParams(GNModelEnvParams):
+    """Dataclass to hold environment params for RSA with GN model.
+    """
+    pass
+
+
+@struct.dataclass
+class RSAGNModelEnvState(GNModelEnvState):
+    """Dataclass to hold environment state for RSA with GN model.
+    """
+    active_lightpaths_array: chex.Array  # Active lightpath array. 1 x M array. Each value is a lightpath index. Used to calculate total throughput.
+    active_lightpaths_array_departure: chex.Array  # Active lightpath array departure time.
+    current_throughput: chex.Array  # Current throughput
+
+
+@struct.dataclass
+class RMSAGNModelEnvParams(GNModelEnvParams):
+    """Dataclass to hold environment params for RMSA with GN model.
+
+    Args:
+        link_snr_array (chex.Array): Link SNR array
+    """
+    modulations_array: chex.Array = struct.field(pytree_node=False)
+
+
+@struct.dataclass
+class RMSAGNModelEnvState(GNModelEnvState):
+    """Dataclass to hold environment state for RMSA with GN model.
+
+    Args:
+        link_snr_array (chex.Array): Link SNR array
+    """
+    modulation_format_index_array: chex.Array  # Modulation format index for each active connection
+    modulation_format_index_array_prev: chex.Array  # Modulation format index for each active connection in previous timestep
+    mod_format_mask: chex.Array  # Modulation format mask
 
 
 @struct.dataclass

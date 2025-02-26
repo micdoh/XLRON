@@ -24,7 +24,6 @@ run_experiment() {
         $weight \
         --topology_name=$topology \
         --max_requests=1e3 \
-        --max_timesteps=1e3 \
         --continuous_operation \
         --ENV_WARMUP_STEPS=3000 \
         --TOTAL_TIMESTEPS 100000 \

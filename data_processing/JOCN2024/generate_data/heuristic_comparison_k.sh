@@ -43,7 +43,6 @@ for HEUR in "${HEURISTICS[@]}"; do
                     --topology_name=$TOPOLOGY \
                     --link_resources=100 \
                     --max_requests=1e3 \
-                    --max_timesteps=1e3 \
                     --mean_service_holding_time=10 \
                     --continuous_operation \
                     --ENV_WARMUP_STEPS=0 \

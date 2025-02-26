@@ -65,7 +65,7 @@ def get_eval_fn(
             return runner_state, transition
 
         runner_state, traj_episode = jax.lax.scan(
-            _env_step, runner_state, None, config.max_timesteps
+            _env_step, runner_state, None, config.max_requests
         )
 
         metric = traj_episode.info
@@ -74,7 +74,7 @@ def get_eval_fn(
 
     def eval_fn(runner_state):
 
-        NUM_EPISODES = config.TOTAL_TIMESTEPS // config.max_timesteps // config.NUM_ENVS
+        NUM_EPISODES = config.TOTAL_TIMESTEPS // config.max_requests // config.NUM_ENVS
         runner_state, metric = jax.lax.scan(
             _env_episode, runner_state, None, NUM_EPISODES
         )
