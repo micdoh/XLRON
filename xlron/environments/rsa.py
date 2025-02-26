@@ -1083,6 +1083,9 @@ def make_rsa_env(config: dict, launch_power_array: Optional[chex.Array] = None):
     lambda0 = config.get("lambda0", 1550) * 1e-9
     B = slot_size * link_resources  # Total modulated bandwidth
 
+    if config.get("aggregate_slots", 1) > 1 and config.get("EVAL_HEURISTIC", False):
+        raise ValueError("Cannot aggregate slots and evaluate heuristic")
+
     # GN model parameters
     max_span_length = config.get("max_span_length", 100e3)
     ref_lambda = config.get("ref_lambda", 1577.5e-9)  # centre of C+L bands (1530-1625nm)
@@ -1094,9 +1097,10 @@ def make_rsa_env(config: dict, launch_power_array: Optional[chex.Array] = None):
     dispersion_slope = config.get("dispersion_slope", 0.067 * 1e-12 / 1e-9 / 1e3 / 1e-9)
     coherent = config.get("coherent", False)
     noise_figure = config.get("noise_figure", 4)
-    interband_gap = config.get("interband_gap", 100)
-    gap_width = int(math.ceil(interband_gap / slot_size))
-    gap_start = config.get("gap_start", link_resources//2)
+    interband_gap_width = config.get("interband_gap_width", 100)
+    gap_width_slots = int(math.ceil(interband_gap_width / slot_size))
+    interband_gap_start = config.get("interband_gap_start", 0)
+    gap_start_slots = int(math.ceil(interband_gap_start / slot_size))
     mod_format_correction = config.get("mod_format_correction", True)
     num_roadms = config.get("num_roadms", 1)
     roadm_loss = config.get("roadm_loss", 18)
@@ -1295,12 +1299,10 @@ def make_rsa_env(config: dict, launch_power_array: Optional[chex.Array] = None):
             ref_lambda=ref_lambda, max_spans=max_spans, max_span_length=max_span_length,
             default_launch_power=default_launch_power,
             nonlinear_coeff=nonlinear_coeff, raman_gain_slope=raman_gain_slope, attenuation=attenuation,
-            attenuation_bar=attenuation_bar, dispersion_coeff=dispersion_coeff,
-            dispersion_slope=dispersion_slope, coherent=coherent,
-            noise_figure=noise_figure, interband_gap=interband_gap,
-            gap_start=gap_start, gap_width=gap_width, roadm_loss=roadm_loss, num_roadms=num_roadms,
-            num_spans=num_spans, launch_power_type=launch_power_type, snr_margin=snr_margin,
-            last_fit=config.get("last_fit", False), max_power=max_power, min_power=min_power,
+            attenuation_bar=attenuation_bar, dispersion_coeff=dispersion_coeff, noise_figure=noise_figure,
+            dispersion_slope=dispersion_slope, coherent=coherent, gap_start=gap_start_slots, gap_width=gap_width_slots,
+            roadm_loss=roadm_loss, num_roadms=num_roadms, num_spans=num_spans, launch_power_type=launch_power_type,
+            snr_margin=snr_margin, last_fit=config.get("last_fit", False), max_power=max_power, min_power=min_power,
             step_power=step_power, max_snr=max_snr, mod_format_correction=mod_format_correction,
         )
         if env_type == "rmsa_gn_model":

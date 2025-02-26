@@ -242,7 +242,6 @@ class GNModelEnvParams(RSAEnvParams):
     dispersion_slope: chex.Scalar = struct.field(pytree_node=False)
     noise_figure: chex.Scalar = struct.field(pytree_node=False)
     coherent: bool = struct.field(pytree_node=False)
-    interband_gap: chex.Scalar = struct.field(pytree_node=False)
     gap_width: chex.Scalar = struct.field(pytree_node=False)
     gap_start: chex.Scalar = struct.field(pytree_node=False)
     num_roadms: chex.Scalar = struct.field(pytree_node=False)
