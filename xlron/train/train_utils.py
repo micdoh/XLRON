@@ -26,6 +26,26 @@ from xlron.environments.dataclasses import EnvState, EvalState
 from xlron.environments.env_funcs import init_link_length_array, make_graph, process_path_action, get_launch_power, get_paths
 from xlron.heuristics.heuristics import ksp_ff, ff_ksp, kmc_ff, kmf_ff, ksp_mu, mu_ksp, kca_ff, kme_ff, ksp_bf, bf_ksp, ksp_lf
 
+metrics = [
+    "returns",
+    "lengths",
+    "cum_returns",
+    "accepted_services",
+    "accepted_bitrate",
+    "total_bitrate",
+    "utilisation",
+    "service_blocking_probability",
+    "bitrate_blocking_probability",
+]
+loss_metrics = [
+    "loss/total_loss",
+    "loss/loss_actor",
+    "loss/value_loss",
+    "loss/entropy",
+    "loss/gae",
+    "loss/ratio",
+    "loss/log_prob",
+]
 
 class TrainState(struct.PyTreeNode):
     """Simple train state for the common case with a single Optax optimizer.
@@ -202,7 +222,9 @@ def define_env(config: absl.flags.FlagValues):
     config_dict = {k: v.value for k, v in config.__flags.items()}
     if config.env_type.lower() == "vone":
         env, env_params = make_vone_env(config_dict)
-    elif config.env_type.lower() in ["rsa", "rmsa", "rwa", "deeprmsa", "rwa_lightpath_reuse", "rsa_gn_model"]:
+    elif config.env_type.lower() in [
+        "rsa", "rmsa", "rwa", "deeprmsa", "rwa_lightpath_reuse", "rsa_gn_model", "rmsa_gn_model", "multibandrsa"
+    ]:
         env, env_params = make_rsa_env(config_dict)
     else:
         raise ValueError(f"Invalid environment type {config.env_type}")
@@ -218,12 +240,12 @@ def init_network(config, env, env_state, env_params):
                                  num_units=config.NUM_UNITS,
                                  layer_norm=config.LAYER_NORM, )
         init_x = tuple([jnp.zeros(env.observation_space(env_params).n)])
-    elif config.env_type.lower() in ["rsa", "rmsa", "rwa", "deeprmsa", "rwa_lightpath_reuse", "rsa_gn_model"]:
+    elif config.env_type.lower() in ["rsa", "rmsa", "rwa", "deeprmsa", "rwa_lightpath_reuse", "rsa_gn_model", "rmsa_gn_model", "multibandrsa"]:
         if config.USE_GNN:
-            if config.env_type.lower() == "rsa_gn_model" and env_params.launch_power_type == 3:
+            if "gn_model" in config.env_type.lower() and config.output_globals_size_actor > 0:
                 output_globals_size_actor = int((env_params.max_power - env_params.min_power) / env_params.step_power) + 1 if config.discrete_launch_power else 1
             else:
-                output_globals_size_actor = config.output_globals_size
+                output_globals_size_actor = config.output_globals_size_actor
             network = ActorCriticGNN(
                 activation=config.ACTIVATION,
                 num_layers=config.NUM_LAYERS,
@@ -250,7 +272,7 @@ def init_network(config, env, env_state, env_params):
                 output_power = config.GNN_OUTPUT_LP,
             )
             init_x = (env_state.env_state, env_params)
-        elif config.env_type.lower() == "rsa_gn_model" and env_params.launch_power_type == 3:
+        elif "gn_model" in config.env_type.lower() and env_params.launch_power_type == 3:
             network = LaunchPowerActorCriticMLP(
                 action_dim=env.action_space(env_params).n,
                 activation=config.ACTIVATION,
@@ -351,6 +373,7 @@ def select_action(select_action_state, env, env_params, train_state, config):
         train_state: TrainState
         config: Configuration
     Returns:
+        env_state: Environment state
         action: Action
         log_prob: Log probability of action
         value: Value of state
@@ -358,7 +381,8 @@ def select_action(select_action_state, env, env_params, train_state, config):
     action_key, env_state, last_obs = select_action_state
     last_obs = (env_state.env_state, env_params) if config.USE_GNN else last_obs
     pi, value = train_state.apply_fn(train_state.params, *last_obs)
-    #rng, action_key = jax.random.split(rng)
+    # Action masking
+    env_state = env_state.replace(env_state=env.action_mask(env_state.env_state, env_params))
 
     # Always do action masking with VONE
     if config.env_type.lower() == "vone":
@@ -374,8 +398,7 @@ def select_action(select_action_state, env, env_params, train_state, config):
 
         # Update destination mask now source has been selected
         env_state = env_state.replace(env_state=vmap_mask_dest_node(env_state.env_state, env_params, action_s))
-        pi_dest = distrax.Categorical(
-            logits=jnp.where(env_state.env_state.node_mask_d, pi[0]._logits, -1e8))
+        pi_dest = distrax.Categorical(logits=jnp.where(env_state.env_state.node_mask_d, pi[0]._logits, -1e8))
 
         action_p = jnp.full(action_s.shape, 0)
         action_d = pi_dest.sample(seed=action_key) if not config.deterministic else pi_dest.mode()
@@ -391,36 +414,55 @@ def select_action(select_action_state, env, env_params, train_state, config):
         log_prob_dest = pi_dest.log_prob(action_d)
         log_prob = log_prob_dest + log_prob_path + log_prob_source
 
-    elif config.env_type.lower() == "rsa_gn_model" and config.launch_power_type == "rl":
-        if config.GNN_OUTPUT_RSA:
-            env_state = env_state.replace(env_state=env.action_mask(env_state.env_state, env_params))
-            pi_masked = distrax.Categorical(logits=jnp.where(env_state.env_state.link_slot_mask, pi[0]._logits, -1e8))
-            if config.GNN_OUTPUT_LP:
+    elif "gn_model" in config.env_type.lower() and config.launch_power_type == "rl":
+        pi_masked = distrax.Categorical(logits=jnp.where(env_state.env_state.link_slot_mask, pi[0]._logits, -1e8))
+        if config.GNN_OUTPUT_RSA and not config.GNN_OUTPUT_LP:
+            path_action, log_prob = train_state.sample_fn(action_key, pi_masked, log_prob=True, deterministic=config.deterministic)
+            power_action = jnp.array([env_params.default_launch_power])
+        else:
+            if config.GNN_OUTPUT_RSA and config.GNN_OUTPUT_LP:
                 path_action, power_action, log_prob = train_state.sample_fn(action_key, (pi_masked, pi[1]), log_prob=True, deterministic=config.deterministic)
             else:
-                path_action, log_prob = train_state.sample_fn(action_key, pi_masked, log_prob=True, deterministic=config.deterministic)
-        else:
-            # TODO(GNN_LP) - modify this so its possible to have routing from GNN and LP from another source (maybe)
-            # TODO(GNN_LP) - do a foriloop to mark each of the selected path links, get a power action (and log prob) for each,
-            #  then select a path action and then select the power action corresponding to that path action
-            power_action, log_prob = train_state.sample_fn(action_key, pi[1], log_prob=True, deterministic=config.deterministic)
-            env_state = env_state.env_state.replace(launch_power_array=power_action)
-            path_action = ksp_lf(env_state, env_params) if env_params.last_fit is True else ksp_ff(env_state, env_params)
-            if not config.GNN_OUTPUT_LP:
-                path_index, _ = process_path_action(env_state, env_params, path_action)
-                power_action, log_prob = power_action[path_index], log_prob[path_index]
+                power_action, log_prob = train_state.sample_fn(action_key, pi[1], log_prob=True, deterministic=config.deterministic)
+        inner_state = env_state.env_state.replace(launch_power_array=power_action)
+        env_state = env_state.replace(env_state=inner_state)
+        if not config.GNN_OUTPUT_RSA:
+            path_action = ksp_lf(env_state.env_state, env_params) if env_params.last_fit is True else ksp_ff(env_state.env_state, env_params)
+        if config.output_globals_size_actor == 0:
+            path_index, _ = process_path_action(env_state.env_state, env_params, path_action)
+            power_action, log_prob = power_action[path_index], log_prob[path_index]
         action = jnp.concatenate([path_action.reshape((1,)), power_action.reshape((1,))], axis=0)
+        # if config.GNN_OUTPUT_RSA:
+        #     if config.GNN_OUTPUT_LP:
+        #         path_action, power_action, log_prob = train_state.sample_fn(action_key, (pi_masked, pi[1]), log_prob=True, deterministic=config.deterministic)
+        #     else:
+        #         path_action, log_prob = train_state.sample_fn(action_key, pi_masked, log_prob=True, deterministic=config.deterministic)
+        #         power_action = jnp.array([env_params.default_launch_power])
+        # else:
+        #     # TODO(GNN_LP) - modify this so its possible to have routing from GNN and LP from another source (maybe)
+        #     # TODO(GNN_LP) - do a foriloop to mark each of the selected path links, get a power action (and log prob) for each,
+        #     #  then select a path action and then select the power action corresponding to that path action
+        #     power_action, log_prob = train_state.sample_fn(action_key, pi[1], log_prob=True, deterministic=config.deterministic)
+        #
+        # if config.GNN_OUTPUT_RSA and config.GNN_OUTPUT_LP:
+        # inner_state = env_state.env_state.replace(launch_power_array=power_action)
+        # env_state = env_state.replace(env_state=inner_state)
+        #
+        # path_action = ksp_lf(env_state.env_state, env_params) if env_params.last_fit is True else ksp_ff(env_state.env_state, env_params)
+        #
+        # if config.output_globals_size_actor == 0:
+        #     path_index, _ = process_path_action(env_state.env_state, env_params, path_action)
+        #     power_action, log_prob = power_action[path_index], log_prob[path_index]
+        #
+        # action = jnp.concatenate([path_action.reshape((1,)), power_action.reshape((1,))], axis=0)
 
-    elif config.ACTION_MASKING:
+    else:
         env_state = env_state.replace(env_state=env.action_mask(env_state.env_state, env_params))
         pi_masked = distrax.Categorical(logits=jnp.where(env_state.env_state.link_slot_mask, pi[0]._logits, -1e8))
         action = pi_masked.sample(seed=action_key) if not config.deterministic else pi_masked.mode()
         log_prob = pi_masked.log_prob(action)
 
-    else:
-        action = pi.sample(seed=action_key) if not config.deterministic else pi.mode()
-        log_prob = pi.log_prob(action)
-    return action, log_prob, value
+    return env_state, action, log_prob, value
 
 
 def select_action_eval(select_action_state, env, env_params, eval_state, config):
@@ -428,10 +470,14 @@ def select_action_eval(select_action_state, env, env_params, eval_state, config)
     rng, env_state, last_obs = select_action_state
 
     if config.EVAL_HEURISTIC:
+
+        # Action masking
+        env_state = env_state.replace(env_state=env.action_mask(env_state.env_state, env_params))
+
         if config.env_type.lower() == "vone":
             raise NotImplementedError(f"VONE heuristics not yet implemented")
 
-        elif config.env_type.lower() in ["rsa", "rwa", "rmsa", "deeprmsa", "rwa_lightpath_reuse", "rsa_gn_model"]:
+        elif config.env_type.lower() in ["rsa", "rwa", "rmsa", "deeprmsa", "rwa_lightpath_reuse", "rsa_gn_model", "rmsa_gn_model", "multibandrsa"]:
             if config.path_heuristic.lower() == "ksp_ff":
                 action = ksp_ff(env_state.env_state, env_params)
             elif config.path_heuristic.lower() == "ff_ksp":
@@ -464,15 +510,17 @@ def select_action_eval(select_action_state, env, env_params, eval_state, config)
                 action = ksp_lf(env_state.env_state, env_params)
             else:
                 raise ValueError(f"Invalid path heuristic {config.path_heuristic}")
-            if env_params.__class__.__name__ == "RSAGNModelEnvParams":
+            if env_params.__class__.__name__ in ["RSAGNModelEnvParams", "RMSAGNModelEnvParams"]:
+                if config.launch_power_type == "rl":
+                    raise ValueError("launch_power_type cannot be 'rl' when --EVAL_HEURISTIC flag is True")
                 launch_power = get_launch_power(env_state.env_state, action, action, env_params)
                 action = jnp.concatenate([action.reshape((1,)), launch_power.reshape((1,))], axis=0)
 
         else:
             raise ValueError(f"Invalid environment type {config.env_type}")
     else:
-        action, _, _ = select_action(select_action_state, env, env_params, eval_state, config)
-    return action, None, None
+        env_state, action, _, _ = select_action(select_action_state, env, env_params, eval_state, config)
+    return env_state, action, None, None
 
 
 def get_warmup_fn(warmup_state, env, params, train_state, config) -> Callable[[Tuple], Tuple]:
@@ -487,14 +535,14 @@ def get_warmup_fn(warmup_state, env, params, train_state, config) -> Callable[[T
             _rng, action_key, step_key = jax.random.split(_rng, 3)
             select_action_state = (_rng, _state, _last_obs)
             action_fn = select_action if not config.EVAL_HEURISTIC else select_action_eval
-            action, log_prob, value = action_fn(select_action_state, env, _params, _train_state, config)
-            if config.env_type.lower() == "rsa_gn_model" and config.launch_power_type == "rl":
+            _state, action, log_prob, value = action_fn(select_action_state, env, _params, _train_state, config)
+            if "gn_model" in config.env_type.lower() and config.launch_power_type == "rl":
                 # If the action is launch power, the action is this shape:
                 # jnp.concatenate([path_action.reshape((1,)), power_action.reshape((1,))], axis=0)
                 # We want to overwrite the launch power with a default launch_power
                 path_action = ksp_lf(_state.env_state, _params) if _params.last_fit is True else ksp_ff(_state.env_state, _params)
                 action = jnp.concatenate([path_action.reshape((1,)), jnp.array([params.default_launch_power,])], axis=0)
-            elif config.env_type.lower() == "rsa_gn_model" and config.launch_power_type != "rl" and not config.EVAL_HEURISTIC:
+            elif "gn_model" in config.env_type.lower() and config.launch_power_type != "rl" and not config.EVAL_HEURISTIC:
                 raise ValueError("Check that EVAL_HEURISTIC is set to True if using a heuristic")
             # STEP ENV
             obsv, _state, reward, done, info = env.step(
@@ -555,17 +603,7 @@ def setup_wandb(config, project_name, experiment_name):
     run.name = experiment_name
     wandb.define_metric('episode_count')
     wandb.define_metric("env_step")
-    for metric in [
-        "returns",
-        "lengths",
-        "cum_returns",
-        "accepted_services",
-        "accepted_bitrate",
-        "total_bitrate",
-        "utilisation",
-        "service_blocking_probability",
-        "bitrate_blocking_probability"
-    ]:
+    for metric in metrics:
         for agg in [
             "mean",
             "std",
@@ -574,6 +612,8 @@ def setup_wandb(config, project_name, experiment_name):
         ]:
             wandb.define_metric(f"{metric}_{agg}", step_metric="env_step")
             wandb.define_metric(f"episode_end_{metric}_{agg}", step_metric="episode_count")
+    for metric in loss_metrics:
+        wandb.define_metric(f"{metric}", step_metric="update_epoch")
     wandb.define_metric("training_time", step_metric="env_step")
 
 
@@ -581,6 +621,8 @@ def log_metrics(config, out, experiment_name, total_time, merge_func):
     """Log metrics to wandb and/or save episode end metrics to CSV."""
 
     merged_out = {k: jax.tree.map(merge_func, v) for k, v in out["metrics"].items()}
+    if not config.EVAL_HEURISTIC or not config.EVAL_MODEL:
+        merged_out_loss = {k: jax.tree.map(lambda x: x.reshape((-1,)), v) for k, v in out.get("loss_info", {}).items()}
 
     # Calculate blocking probabilities
     merged_out["service_blocking_probability"] = 1 - (
@@ -591,8 +633,8 @@ def log_metrics(config, out, experiment_name, total_time, merge_func):
     )
 
     if config.continuous_operation:
-        # For continuous operation, define max_timesteps as the episode end
-        episode_ends = np.arange(0, (config.TOTAL_TIMESTEPS // config.NUM_LEARNERS // config.NUM_ENVS) + 1, config.max_timesteps)[1:].astype(int) - 1
+        # For continuous operation, define max_requests as the episode end
+        episode_ends = np.arange(0, (config.TOTAL_TIMESTEPS // config.NUM_LEARNERS // config.NUM_ENVS) + 1, config.max_requests)[1:].astype(int) - 1
     else:
         if not config.end_first_blocking:
             episode_ends = np.where(merged_out["done"].mean(0).reshape(-1) == 1)[0] - 1
@@ -631,24 +673,12 @@ def log_metrics(config, out, experiment_name, total_time, merge_func):
 
     processed_data = {}
     print("Processing output metrics")
-    for key in [
-        "returns",
-        "lengths",
-        "cum_returns",
-        "accepted_services",
-        "accepted_bitrate",
-        "total_bitrate",
-        "utilisation",
-        "service_blocking_probability",
-        "bitrate_blocking_probability",
-    ]:
+    for metric in metrics:
         episode_end_mean, episode_end_std, episode_end_iqr_upper, episode_end_iqr_lower = (
-            get_episode_end_mean_std_iqr(merged_out, key)
+            get_episode_end_mean_std_iqr(merged_out, metric)
         )
-        mean, std, iqr_upper, iqr_lower = get_mean_std_iqr(merged_out, key) if not config.end_first_blocking else (
-            episode_end_mean, episode_end_std, episode_end_iqr_upper, episode_end_iqr_lower
-        )
-        processed_data[key] = {
+        mean, std, iqr_upper, iqr_lower = get_mean_std_iqr(merged_out, metric)
+        processed_data[metric] = {
             "mean": mean,
             "std": std,
             "iqr_upper": iqr_upper,
@@ -735,6 +765,15 @@ def log_metrics(config, out, experiment_name, total_time, merge_func):
                 log_dict["episode_count"] = i
                 wandb.log(log_dict)
 
+        if config.LOG_LOSS_INFO:
+            print("Logging loss info")
+            for i in range(len(merged_out_loss["loss/total_loss"])):
+                log_dict = {
+                    f"{metric}": merged_out_loss[metric][i] for metric in loss_metrics
+                }
+                log_dict["update_epoch"] = i
+                wandb.log(log_dict)
+
         # Log the data to wandb
         # Define the downsample factor to speed up upload to wandb
         # Then reshape the array and compute the mean
@@ -777,7 +816,7 @@ def log_metrics(config, out, experiment_name, total_time, merge_func):
             print(f"{metric} std: {processed_data[metric]['episode_end_std'].mean():.5f}")
             print(f"{metric} IQR lower: {processed_data[metric]['episode_end_iqr_lower'].mean():.5f}")
             print(f"{metric} IQR upper: {processed_data[metric]['episode_end_iqr_upper'].mean():.5f}")
-    if config.env_type.lower() == "rsa_gn_model":
+    if "gn_model" in config.env_type.lower():
         print(f"Mean launch power: {merged_out['launch_power'].mean():.5f} ± {merged_out['launch_power'].std():.5f}")
 
     if config.log_actions:
@@ -793,6 +832,7 @@ def log_metrics(config, out, experiment_name, total_time, merge_func):
         departure_time = merged_out["departure_time"]
 
         # Reshape to combine episodes into a single trajectory. Only keep the first environment's output.
+        # TODO - keep all the actions from every episode
         request_source = request_source.reshape((request_source.shape[0], -1))[0]
         request_dest = request_dest.reshape((request_dest.shape[0], -1))[0]
         request_data_rate = request_data_rate.reshape((request_data_rate.shape[0], -1))[0]
@@ -811,16 +851,13 @@ def log_metrics(config, out, experiment_name, total_time, merge_func):
         path_lengths = jax.vmap(lambda x: jnp.dot(x, link_length_array), in_axes=(0))(paths)
         num_hops = jnp.sum(paths, axis=-1)
 
-        # TODO(TRAJ_VIZ): Use the paths array (below) for your visualisation.
-        #  Each row of the paths array represents the links utilised by the paths as a binary array (1,0,1,1,1,0,0,...)
-        #  1 means the link is used by the path, 0 means it is not.
         paths_list = []
         spectral_efficiency_list = []
         required_slots_list = []
 
         for path_index, slot_index, source, dest, data_rate in zip(path_indices, slot_indices, request_source, request_dest, request_data_rate):
             source, dest = source.reshape(1), dest.reshape(1)
-            path_links = get_paths(params, jnp.concatenate([source, dest]))[path_index]
+            path_links = get_paths(params, jnp.concatenate([source, dest]))[path_index % params.k_paths]
             # Make path links into a string
             path_str = "".join([str(x.astype(jnp.int32)) for x in path_links])
             paths_list.append(path_str)
@@ -832,7 +869,7 @@ def log_metrics(config, out, experiment_name, total_time, merge_func):
         if config.TRAJ_DATA_OUTPUT_FILE:
             print(f"Saving trajectory metrics to {config.TRAJ_DATA_OUTPUT_FILE}")
             # Save episode end metrics to file
-            df = pd.DataFrame({
+            log_dict = {
                 "request_source": request_source,
                 "request_dest": request_dest,
                 "request_data_rate": request_data_rate,
@@ -847,7 +884,13 @@ def log_metrics(config, out, experiment_name, total_time, merge_func):
                 "utilization": processed_data["utilisation"]["mean"],
                 "bitrate_blocking_probability": processed_data["bitrate_blocking_probability"]["mean"],
                 "service_blocking_probability": processed_data["service_blocking_probability"]["mean"],
-            })
+                "path_length": path_lengths,
+                "num_hops": num_hops,
+            }
+            if "gn_model" in config.env_type.lower():
+                log_dict["launch_power"] = merged_out["launch_power"].reshape((merged_out["launch_power"].shape[0], -1))[0]
+                log_dict["path_snr"] = merged_out["path_snr"].reshape((merged_out["path_snr"].shape[0], -1))[0]
+            df = pd.DataFrame(log_dict)
             df.to_csv(config.TRAJ_DATA_OUTPUT_FILE)
 
         if config.log_path_lengths:

@@ -1,5 +1,6 @@
 import jax
 import optax
+import jax.numpy as jnp
 from absl import flags
 from flax.training.train_state import TrainState
 from gymnax.environments import environment
@@ -32,7 +33,7 @@ def get_learner_fn(
             select_action_fn = lambda x: select_action(x, env, env_params, train_state, config)
             select_action_fn = jax.vmap(select_action_fn)
             select_action_state = (action_key, env_state, last_obs)
-            action, log_prob, value = select_action_fn(select_action_state)
+            env_state, action, log_prob, value = select_action_fn(select_action_state)
 
             # STEP ENV
             step_key = jax.random.split(step_key, config.NUM_ENVS)
@@ -142,7 +143,7 @@ def get_learner_fn(
                         entropy = pi_source.entropy().mean() + pi_path.entropy().mean() + pi_dest.entropy().mean()
 
                     elif config.ACTION_MASKING:
-                        pi_masked = distrax.Categorical(logits=jnp.where(traj_batch.action_mask, pi._logits, -1e8))
+                        pi_masked = distrax.Categorical(logits=jnp.where(traj_batch.action_mask, pi[0]._logits, -1e8))
                         log_prob = pi_masked.log_prob(traj_batch.action)
                         entropy = pi_masked.entropy().mean()
 
@@ -155,12 +156,24 @@ def get_learner_fn(
                             pi_masked = distrax.Categorical(logits=jnp.where(traj_batch.action_mask, path_dist._logits, -1e8))
                             path_log_prob = pi_masked.log_prob(path_actions)
                             path_entropy = pi_masked.entropy().mean()
+
+
+                        path_indices = jax.vmap(process_path_action, in_axes=(0, None, 0))(traj_batch.obs[0], env_params, path_actions)[0]
+                        # Re-scale action from [min_power, max_power] to [0, 1]
                         power_actions = jnp.astype(
                             (to_dbm(power_actions) - env_params.min_power) / env_params.step_power,
                             jnp.int32
                         )
+                        # Repeat the power action along the last axis K-paths time
+                        power_actions = jnp.tile(power_actions[..., None], (1, env_params.k_paths))
                         power_log_prob = power_dist.log_prob(power_actions)
+                        # Slice log prob to just take the path index
+                        power_log_prob = jax.vmap(lambda x, i: jax.lax.dynamic_slice(x, (i,), (1,)))(power_log_prob, path_indices)
                         power_entropy = power_dist.entropy().mean()
+
+
+                        #power_log_prob = power_dist.log_prob(power_actions)
+                        #power_entropy = power_dist.entropy().mean()
                         log_prob = path_log_prob + power_log_prob
                         entropy = path_entropy + power_entropy
                         if config.DEBUG:
@@ -222,7 +235,7 @@ def get_learner_fn(
                         jax.debug.print("entropy {}", entropy, ordered=config.ORDERED)
                         jax.debug.print("total_loss {}", total_loss, ordered=config.ORDERED)
 
-                    return total_loss, (value_loss, loss_actor, entropy)
+                    return total_loss, (log_prob.mean(), ratio.mean(), gae.mean(), value_loss, loss_actor, entropy)
 
                 grad_fn = jax.value_and_grad(_loss_fn, has_aux=True)
                 total_loss, grads = grad_fn(
@@ -269,6 +282,15 @@ def get_learner_fn(
         rng_step = update_state[4]
         rng_epoch = update_state[5]
         runner_state = (train_state, env_state, last_obs, rng_step, rng_epoch)
+        loss_info = {
+            "loss/total_loss": loss_info[0].reshape(-1),
+            "loss/log_prob": loss_info[1][0].reshape(-1),
+            "loss/ratio": loss_info[1][1].reshape(-1),
+            "loss/gae": loss_info[1][2].reshape(-1),
+            "loss/value_loss": loss_info[1][3].reshape(-1),
+            "loss/loss_actor": loss_info[1][4].reshape(-1),
+            "loss/entropy": loss_info[1][5].reshape(-1),
+        }
 
         if config.DEBUG:
             jax.debug.print("metric {}", metric, ordered=config.ORDERED)

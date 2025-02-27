@@ -148,7 +148,6 @@ def main(argv):
     # Define environment
     FLAGS.__setattr__("deterministic_requests", False)
     FLAGS.__setattr__("max_requests", FLAGS.TOTAL_TIMESTEPS)
-    FLAGS.__setattr__("max_timesteps", FLAGS.TOTAL_TIMESTEPS)
     jax.config.update("jax_default_device", jax.devices()[int(FLAGS.VISIBLE_DEVICES)])
     print(f"Using device {jax.devices()[int(FLAGS.VISIBLE_DEVICES)]}")
     jax.numpy.set_printoptions(threshold=sys.maxsize)  # Don't truncate printed arrays

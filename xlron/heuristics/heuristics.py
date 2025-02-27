@@ -27,6 +27,19 @@ def ksp_ff(state: EnvState, params: EnvParams) -> chex.Array:
     return action
 
 
+def ksp_ff_multiband(state: EnvState, params: EnvParams) -> chex.Array:
+    """Get the first available slot from all k-shortest paths in multiband scenario
+    Method: Go through action mask and find the first available slot, starting from shortest path
+
+    Args:
+        state (MultiBandRSAEnvState): Environment state specific to multiband operations
+        params (MultiBandRSAEnvParams): Environment parameters including multiband details
+    Returns:
+        chex.Array: Action
+    """
+    pass
+
+
 @partial(jax.jit, static_argnums=(1,))
 def ksp_lf(state: EnvState, params: EnvParams) -> chex.Array:
     """Get the last available slot on the shortest available path
@@ -382,12 +395,7 @@ def get_link_weights(state: EnvState, params: EnvParams):
 
 
 def get_action_mask(state: EnvState, params: EnvParams) -> chex.Array:
-    if params.__class__.__name__ == "RWALightpathReuseEnvParams":
-        state = mask_slots_rwalr(state, params, state.request_array)
-    elif params.__class__.__name__ == "RSAGNModelEnvParams":
-        state = mask_slots_rsa_gn_model(state, params, state.request_array)
-    else:
-        state = mask_slots(state, params, state.request_array)
+    """N.B. The mask must already be present in the state!"""
     mask = jnp.reshape(state.link_slot_mask, (params.k_paths, -1))
     return mask
 

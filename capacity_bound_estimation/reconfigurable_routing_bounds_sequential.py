@@ -110,7 +110,6 @@ def step_env(rng, env, env_state, env_params):
 def main(argv):
 
     FLAGS.__setattr__("max_requests", FLAGS.TOTAL_TIMESTEPS)
-    FLAGS.__setattr__("max_timesteps", FLAGS.TOTAL_TIMESTEPS)
     print(f"Using device {jax.devices()[int(FLAGS.VISIBLE_DEVICES)]}")
     jax.numpy.set_printoptions(threshold=sys.maxsize)  # Don't truncate printed arrays
     jax.numpy.set_printoptions(linewidth=220)
