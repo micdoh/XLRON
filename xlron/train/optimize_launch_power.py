@@ -128,9 +128,8 @@ def main(argv):
     list_of_requests += [request.reverse() for request in list_of_requests]
     FLAGS.__setattr__("list_of_requests", list_of_requests)
     print("Length of list of requests: ", len(FLAGS.list_of_requests))
-    # Set max_requests, max_timesteps, EVAL_STEPS
+    # Set max_requests, EVAL_STEPS
     FLAGS.__setattr__("max_requests", len(FLAGS.list_of_requests))
-    FLAGS.__setattr__("max_timesteps", len(FLAGS.list_of_requests))
 
     rng = rng[0]
     with TimeIt("INITIALIZATION"):

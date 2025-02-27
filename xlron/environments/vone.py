@@ -137,7 +137,7 @@ class VONEEnv(environment.Environment):
             lambda x: x[1],
             (key, state, params)
         )
-        # Terminate if max_timesteps or max_requests exceeded or, if consecutive loading,
+        # Terminate if max_requests exceeded or, if consecutive loading,
         # then terminate if reward is failure but not before min number of timesteps before update
         if params.continuous_operation:
             done = jnp.array(False)
@@ -197,10 +197,7 @@ class VONEEnv(environment.Environment):
 
     def is_terminal(self, state: EnvState, params: EnvParams) -> chex.Array:
         """Check whether state transition is terminal."""
-        return jnp.logical_or(
-            jnp.array(state.total_requests >= params.max_requests),
-            jnp.array(state.total_timesteps >= params.max_timesteps)
-        )
+        return jnp.array(state.total_requests >= params.max_requests)
 
     def discount(self, state: EnvState, params: EnvParams) -> chex.Array:
         """Return a discount of zero if the episode has terminated."""
@@ -282,7 +279,6 @@ def make_vone_env(config):
     incremental_loading = config.get("incremental_loading", False)
     end_first_blocking = config.get("end_first_blocking", False)
     max_requests = config.get("max_requests", 1e4)
-    max_timesteps = config.get("max_timesteps", 1e4)
     link_resources = config.get("link_resources", 100)
     node_resources = config.get("node_resources", 30)
     min_node_resources = config.get("min_node_resources", 1)
@@ -337,7 +333,6 @@ def make_vone_env(config):
 
     params = VONEEnvParams(
         max_requests=max_requests,
-        max_timesteps=max_timesteps,
         mean_service_holding_time=mean_service_holding_time,
         k_paths=k,
         node_resources=node_resources,
