@@ -17,10 +17,8 @@ import math
 import pickle
 import matplotlib.pyplot as plt
 
-from xlron.environments.isrs_gn_model import isrs_gn_model, from_dbm, to_dbm
-from xlron.environments.wrappers import LogWrapper
-from xlron.environments.vone import make_vone_env
-from xlron.environments.rsa import make_rsa_env
+from xlron.environments.gn_model import *
+from xlron.environments.make_env import make
 from xlron.models.models import ActorCriticGNN, ActorCriticMLP, LaunchPowerActorCriticMLP
 from xlron.environments.dataclasses import EnvState, EvalState
 from xlron.environments.env_funcs import init_link_length_array, make_graph, process_path_action, get_launch_power, get_paths
@@ -218,18 +216,6 @@ def save_model(train_state: TrainState, run_name, flags: absl.flags.FlagValues):
         wandb.save(str((model_path / "*").absolute()), base_path=str(model_path.parent))
 
 
-def define_env(config: absl.flags.FlagValues):
-    config_dict = {k: v.value for k, v in config.__flags.items()}
-    if config.env_type.lower() == "vone":
-        env, env_params = make_vone_env(config_dict)
-    elif config.env_type.lower() in ["rsa", "rmsa", "rwa", "deeprmsa", "rwa_lightpath_reuse", "rsa_gn_model", "rmsa_gn_model"]:
-        env, env_params = make_rsa_env(config_dict)
-    else:
-        raise ValueError(f"Invalid environment type {config.env_type}")
-    env = LogWrapper(env)
-    return env, env_params
-
-
 def init_network(config, env, env_state, env_params):
     if config.env_type.lower() == "vone":
         network = ActorCriticMLP(env.action_space(env_params).n,
@@ -299,7 +285,7 @@ def init_network(config, env, env_state, env_params):
 
 def experiment_data_setup(config: absl.flags.FlagValues, rng: chex.PRNGKey) -> Tuple:
     # INIT ENV
-    env, env_params = define_env(config)
+    env, env_params = make(config)
     rng, rng_step, rng_epoch, warmup_key, reset_key, network_key = jax.random.split(rng, 6)
     reset_key = jax.random.split(reset_key, config.NUM_ENVS)
     obsv, env_state = jax.vmap(env.reset, in_axes=(0, None))(reset_key, env_params)
@@ -819,7 +805,7 @@ def log_metrics(config, out, experiment_name, total_time, merge_func):
 
     if config.log_actions:
 
-        env, params = define_env(config)
+        env, params = make(config)
         request_source = merged_out["source"]
         request_dest = merged_out["dest"]
         request_data_rate = merged_out["data_rate"]
@@ -928,7 +914,7 @@ def log_metrics(config, out, experiment_name, total_time, merge_func):
             df_path_links = pd.DataFrame(params.path_link_array.val).reset_index(drop=True)
             # Set config.weight = "weight" to use the length of the path for ordering else no. of hops
             config.weight = "weight" if not config.weight else None
-            env, params = define_env(config)
+            env, params = make(config)
             df_path_links_alt = pd.DataFrame(params.path_link_array.val).reset_index(drop=True)
             # Find rows that are unique to each dataframe
             # First, make a unique identifer for each row

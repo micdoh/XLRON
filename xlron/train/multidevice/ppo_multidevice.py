@@ -13,7 +13,7 @@ from flax.training.train_state import TrainState
 from xlron.environments.env_funcs import *
 from xlron.environments.wrappers import LogWrapper
 from xlron.environments.vone import make_vone_env
-from xlron.environments.rsa import make_rsa_env
+from xlron.environments.rsa import make
 from xlron.models.models import ActorCriticGNN, ActorCriticMLP
 from xlron.environments.dataclasses import EnvState, EnvParams, VONETransition, RSATransition
 from xlron.train.train_utils import *

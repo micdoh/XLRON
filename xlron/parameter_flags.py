@@ -91,7 +91,7 @@ flags.DEFINE_integer("guardband", 1, "Guard band in slots")
 flags.DEFINE_integer("symbol_rate", 100, "Symbol rate in Gbaud (only used in RWA with lightpath reuse")
 flags.DEFINE_float("scale_factor", 1.0, "Scale factor for link capacity (only used in RWA with lightpath reuse)")
 flags.DEFINE_string("weight", None, "Edge attribute name for ordering k-shortest paths")
-flags.DEFINE_string("modulations_csv_filepath", "./modulations/modulations_deeprmsa.csv", "Modulation format definitions for RSA environment")
+flags.DEFINE_string("modulations_csv_filepath", "./xlron/data/modulations/modulations_deeprmsa.csv", "Modulation format definitions for RSA environment")
 flags.DEFINE_string("traffic_requests_csv_filepath", None, "Path to traffic request CSV file")
 flags.DEFINE_string("topology_directory", None, "Directory containing JSON definitions of network topologies")
 flags.DEFINE_string("multiple_topologies_directory", None,

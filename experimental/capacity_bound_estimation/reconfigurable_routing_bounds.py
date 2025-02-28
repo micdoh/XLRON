@@ -9,11 +9,10 @@ import chex
 import jax
 import xlron.train.parameter_flags
 from xlron.environments.dataclasses import *
-from xlron.environments import isrs_gn_model
+from xlron.environments.gn_model import isrs_gn_model
 from xlron.environments.env_funcs import generate_request_rsa, get_paths_se, required_slots, get_paths
 from xlron.environments.wrappers import TimeIt
 from xlron.train.train_utils import define_env
-from xlron.heuristics.eval_heuristic import EvalState, get_warmup_fn, select_action_eval, Transition
 from xlron.heuristics.heuristics import ksp_ff
 
 FLAGS = flags.FLAGS

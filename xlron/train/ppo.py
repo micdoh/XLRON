@@ -7,7 +7,7 @@ from gymnax.environments import environment
 from tensorflow_probability.substrates.jax.distributions.student_t import entropy
 
 from xlron.environments.env_funcs import process_path_action
-from xlron.environments.isrs_gn_model import from_dbm, to_dbm
+from xlron.environments.gn_model.isrs_gn_model import to_dbm
 from xlron.environments.dataclasses import EnvState, EnvParams, VONETransition, RSATransition
 from xlron.train.train_utils import *
 

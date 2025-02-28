@@ -9,7 +9,7 @@ from xlron.environments.env_funcs import *
 from xlron.environments.vone import *
 from xlron.environments.rsa import *
 from xlron.heuristics.heuristics import *
-from xlron.environments.rsa_test import *
+from xlron.environments.rsa.rsa_test import *
 
 class KspffTest(parameterized.TestCase):
 
