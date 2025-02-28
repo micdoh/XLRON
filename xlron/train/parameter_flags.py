@@ -163,7 +163,7 @@ flags.DEFINE_boolean('traffic_array', False, 'Use traffic array')
 flags.DEFINE_list("list_of_requests", None, "Traffic request list")
 # Flags for finding cut-sets only
 flags.DEFINE_integer("CUTSET_BATCH_SIZE", 1, "Batch size for cut-set generation")
-flags.DEFINE_integer("CUTSET_ITERATIONS", 1, re"Number of iterations per parallel process")
+flags.DEFINE_integer("CUTSET_ITERATIONS", 1, "Number of iterations per parallel process")
 flags.DEFINE_boolean("CUTSET_EXHAUSTIVE", False, "Use exhaustive search method to find cut-sets (else shortest paths method)")
 flags.DEFINE_integer("CUTSET_TOP_K", 50, "Number of top congested cutsets to return")
 # Flags for capacity estimation with Baroni method
