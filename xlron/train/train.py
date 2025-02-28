@@ -6,7 +6,7 @@ import pathlib
 import math
 import matplotlib.pyplot as plt
 from absl import app, flags
-import xlron.train.parameter_flags
+import xlron.parameter_flags
 import numpy as np
 import pandas as pd
 
@@ -42,7 +42,7 @@ def main(argv):
     from xlron.environments.wrappers import TimeIt
     from xlron.train.ppo import get_learner_fn
     from xlron.heuristics.eval_heuristic import get_eval_fn
-    from xlron.train.train_utils import save_model, log_metrics, setup_wandb, define_env, experiment_data_setup
+    from xlron.train.train_utils import save_model, log_metrics, setup_wandb, experiment_data_setup
     # The following flags can improve GPU performance for jaxlib>=0.4.18
     os.environ['XLA_FLAGS'] = (
         '--xla_gpu_enable_triton_softmax_fusion=true '
@@ -86,6 +86,8 @@ def main(argv):
     if not FLAGS.NO_PRINT_FLAGS:
         for name in FLAGS:
             print(name, FLAGS[name].value)
+
+    # TODO - define a train function that can be executed e.g. in a Jupyter notebook (not just commandline)
 
     rng = jax.random.PRNGKey(FLAGS.SEED)
     rng = jax.random.split(rng, FLAGS.NUM_LEARNERS)

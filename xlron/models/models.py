@@ -11,10 +11,9 @@ from typing import Sequence, Callable, Sequence
 from jraph._src.utils import segment_softmax, segment_sum
 import collections
 
-from xlron.environments.env_funcs import EnvState, EnvParams, get_path_slots, read_rsa_request, format_vone_slot_request
-from xlron.environments.isrs_gn_model import isrs_gn_model, to_dbm, from_dbm
-from xlron.environments.vone import make_vone_env
-from xlron.environments.rsa import make_rsa_env
+from xlron.environments.env_funcs import EnvState, EnvParams, get_path_slots, read_rsa_request
+from xlron.environments.gn_model.isrs_gn_model import isrs_gn_model, to_dbm, from_dbm
+from xlron.environments.make_env import make
 from xlron.models.gnn import GraphNetwork, GraphNetGAT, GAT
 
 

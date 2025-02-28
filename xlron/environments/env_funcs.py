@@ -24,7 +24,7 @@ from jax._src.typing import Array, ArrayLike, DTypeLike
 from typing import Generic, TypeVar
 from collections import defaultdict
 from xlron.environments.dataclasses import *
-from xlron.environments import isrs_gn_model
+from xlron.environments.gn_model import isrs_gn_model
 
 
 Shape = Sequence[int]
@@ -347,7 +347,7 @@ def init_modulations_array(modulations_filepath: str = None):
         First two columns are maximum path length and spectral efficiency.
     """
     f = pathlib.Path(modulations_filepath) if modulations_filepath else (
-            pathlib.Path(__file__).parents[2].absolute() / "examples" / "modulations.csv")
+            pathlib.Path(__file__).parents[1].absolute() / "data" / "modulations" / "modulations.csv")
     modulations = np.genfromtxt(f, delimiter=',')
     # Drop empty first row (headers) and column (name)
     modulations = modulations[1:, 1:]
@@ -578,7 +578,7 @@ def normalise_traffic_matrix(traffic_matrix):
     return traffic_matrix
 
 
-@partial(jax.jit, static_argnums=(2,3))
+@partial(jax.jit, static_argnums=(2, 3))
 def required_slots(bitrate: float, se: int, channel_width: float, guardband: int = 1) -> int:
     """Calculate required slots for a given bitrate and spectral efficiency.
 
@@ -1701,7 +1701,7 @@ def make_graph(topology_name: str = "conus", topology_directory: str = None):
         graph: graph
     """
     topology_path = pathlib.Path(topology_directory) if topology_directory else (
-            pathlib.Path(__file__).parents[2].absolute() / "topologies")
+            pathlib.Path(__file__).parents[1].absolute() / "data" / "topologies")
     # Create topology
     if topology_name == "4node":
         # 4 node ring
@@ -3284,6 +3284,69 @@ def get_launch_power(state: EnvState, path_action: chex.Array, power_action: che
         return state.launch_power_array[0] * (path_length / maximum_path_length)
     else:
         raise ValueError("Invalid launch power type. Check params.launch_power_type")
+
+
+@partial(jax.jit, static_argnums=(1,))
+def get_paths_obs_gn_model(state: RSAGNModelEnvState, params: RSAGNModelEnvParams) -> chex.Array:
+    # TODO - make this just show the stats from just one path at a time
+    """Get observation space for launch power optimization (with numerical stability)."""
+    request_array = state.request_array.reshape((-1,))
+    path_stats = calculate_path_stats(state, params, request_array)
+    # Remove first 3 items of path stats for each path
+    path_stats = path_stats[:, 3:]
+    link_length_array = jnp.sum(params.link_length_array.val, axis=1)
+    lightpath_snr_array = get_lightpath_snr(state, params)
+    nodes_sd, requested_datarate = read_rsa_request(request_array)
+    source, dest = nodes_sd
+
+    def calculate_gn_path_stats(k_path_index, init_val):
+        # Get path index
+        path_index = get_path_indices(source, dest, params.k_paths, params.num_nodes,
+                                      directed=params.directed_graph).astype(
+            jnp.int32) + k_path_index
+        path = params.path_link_array[path_index]
+        path_length = jnp.dot(path, link_length_array)
+        max_path_length = jnp.max(jnp.dot(params.path_link_array.val, link_length_array))
+        path_length_norm = path_length / max_path_length
+        path_length_hops_norm = jnp.sum(path) / jnp.max(jnp.sum(params.path_link_array.val, axis=1))
+        # Connections on path
+        num_connections = jnp.where(path == 1, jnp.where(state.channel_power_array > 0, 1, 0).sum(axis=1), 0).sum()
+        num_connections_norm = num_connections / params.link_resources
+        # Mean power of connections on path
+        # make path with row length equal to link_resource (+1 to avoid zero division)
+        mean_power_norm = (jnp.where(path == 1, state.channel_power_array.sum(axis=1), 0).sum() /
+                           (jnp.where(num_connections > 0., num_connections, 1.) * params.max_power))
+        # Mean SNR of connections on the path links
+        max_snr = 50.  # Nominal value for max GSNR in dB
+        mean_snr_norm = (jnp.where(path == 1, lightpath_snr_array.sum(axis=1), 0).sum() /
+                         (jnp.where(num_connections > 0., num_connections, 1.) * max_snr))
+        return jax.lax.dynamic_update_slice(
+            init_val,
+            jnp.array([[
+                path_length,
+                path_length_hops_norm,
+                num_connections_norm,
+                mean_power_norm,
+                mean_snr_norm
+            ]]),
+            (k_path_index, 0),
+        )
+
+    gn_path_stats = jnp.zeros((params.k_paths, 5))
+    gn_path_stats = jax.lax.fori_loop(
+        0, params.k_paths, calculate_gn_path_stats, gn_path_stats
+    )
+    all_stats = jnp.concatenate([path_stats, gn_path_stats], axis=1)
+    return jnp.concatenate(
+        (
+            jnp.array([source]),
+            requested_datarate / 100.,
+            jnp.array([dest]),
+            jnp.reshape(state.holding_time, (-1,)),
+            jnp.reshape(all_stats, (-1,)),
+        ),
+        axis=0,
+    )
 
 
     # TODO - instead of recalculating SNR for each slot, interpolate between SNR values

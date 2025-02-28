@@ -12,7 +12,7 @@ import sys
 from numpy.lib.utils import source
 
 from xlron.environments.env_funcs import make_graph
-from xlron.environments.rsa import make_rsa_env
+from xlron.environments.make_env import make
 import xlron.train.parameter_flags
 from xlron.train.train_utils import define_env
 from xlron.environments.wrappers import TimeIt, HashableArrayWrapper
