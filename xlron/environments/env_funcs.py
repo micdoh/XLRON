@@ -499,7 +499,7 @@ def init_node_capacity_array(params: EnvParams):
 
 @partial(jax.jit, static_argnums=(0,))
 def init_link_slot_array(params: EnvParams):
-    """Initialize empty (all zeroes) link-slot array.
+    """Initialize empty (all zeroes) link-slot array. 0 means slot is free, -1 means occupied.
     Args:
         params (EnvParams): Environment parameters
     Returns:
