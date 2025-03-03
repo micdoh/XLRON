@@ -40,7 +40,7 @@ flags.DEFINE_integer("NUM_UNITS", 64, "Number of hidden units in actor and criti
 flags.DEFINE_float("TEMPERATURE", 1.0, "Temperature for softmax action selection "
                                        "(high temperature, more exploration) or (low temperature, more exploitation)")
 # Additional training parameters
-flags.DEFINE_string("VISIBLE_DEVICES", "0", "Comma-separated indices of (desired) visible GPUs e.g. 1,2,3")
+flags.DEFINE_string("VISIBLE_DEVICES", None, "Comma-separated indices of (desired) visible GPUs e.g. 1,2,3")
 flags.DEFINE_boolean("PREALLOCATE_MEM", True, "Preallocate GPU memory")
 flags.DEFINE_string("PREALLOCATE_MEM_FRACTION", "0.95", "Fraction of GPU memory to preallocate")
 flags.DEFINE_boolean("PRINT_MEMORY_USE", False, "Print memory usage")

@@ -311,6 +311,21 @@ class RMSAGNModelEnvState(GNModelEnvState):
 
 
 @struct.dataclass
+class RSAMultibandEnvState(RSAEnvState):
+    """Dataclass to hold environment state for MultiBandRSA (RBSA).
+    """
+    pass
+
+
+@struct.dataclass
+class RSAMultibandEnvParams(RSAEnvParams):
+    """Dataclass to hold environment parameters for MultiBandRSA (RBSA).
+    """
+    gap_start: chex.Scalar = struct.field(pytree_node=False)
+    gap_width: chex.Scalar = struct.field(pytree_node=False)
+
+
+@struct.dataclass
 class VONEEnvState(RSAEnvState):
     """Dataclass to hold environment state for VONE.
 

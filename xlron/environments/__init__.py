@@ -1,5 +1,5 @@
 from .dataclasses import EnvParams, EnvState
-from .rsa.rsa import RSAEnv, RSAEnvState, RSAEnvParams
+from .rsa.rsa import RSAEnv, RSAEnvState, RSAEnvParams, RSAMultibandEnv, RSAMultibandEnvState, RSAMultibandEnvParams
 from .deeprmsa.deeprmsa import DeepRMSAEnv, DeepRMSAEnvState, DeepRMSAEnvParams
 from .rwa_lightpath_reuse.rwa_lightpath_reuse import RWALightpathReuseEnv, RWALightpathReuseEnvState, RWALightpathReuseEnvParams
 from .gn_model.rsa_gn_model import RSAGNModelEnv, RSAGNModelEnvState, RSAGNModelEnvParams
@@ -24,6 +24,9 @@ __all__ = [
     "RWALightpathReuseEnv",
     "RWALightpathReuseEnvState",
     "RWALightpathReuseEnvParams",
+    "RSAMultibandEnv",
+    "RSAMultibandEnvState",
+    "RSAMultibandEnvParams",
     "VONEEnv",
     "VONEEnvState",
     "VONEEnvParams",

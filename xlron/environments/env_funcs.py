@@ -4,6 +4,7 @@ from typing import Sequence, Union, Optional, Tuple
 from gymnax.environments import environment
 from gymnax.wrappers.purerl import GymnaxWrapper
 from absl import flags
+import box
 import math
 import pathlib
 import itertools
@@ -70,8 +71,8 @@ def get_spectral_features(laplacian: jnp.array, num_features: int) -> jnp.ndarra
     return eigenvectors[:, :num_features]#num_zero:num_zero + valid_features]
 
 
-@partial(jax.jit, static_argnums=(1,))
-def init_graph_tuple(state: EnvState, params: EnvParams, adj: jnp.array) -> jraph.GraphsTuple:
+@partial(jax.jit, static_argnums=(1, 3))
+def init_graph_tuple(state: EnvState, params: EnvParams, adj: jnp.array, exclude_source_dest: bool=False) -> jraph.GraphsTuple:
     """Initialise graph tuple for use with Jraph GNNs.
     Args:
         state (EnvState): Environment state
@@ -83,13 +84,17 @@ def init_graph_tuple(state: EnvState, params: EnvParams, adj: jnp.array) -> jrap
     senders = params.edges.val.T[0]
     receivers = params.edges.val.T[1]
 
-    # Get source and dest from request array
-    source_dest, _ = read_rsa_request(state.request_array)
-    source, dest = source_dest[0], source_dest[2]
-    # One-hot encode source and destination (2 additional features)
-    source_dest_features = jnp.zeros((params.num_nodes, 2))
-    source_dest_features = source_dest_features.at[source.astype(jnp.int32), 0].set(1)
-    source_dest_features = source_dest_features.at[dest.astype(jnp.int32), 1].set(-1)
+    if exclude_source_dest:
+        source_dest_features = jnp.zeros((params.num_nodes, 2))
+    else:
+        # Get source and dest from request array
+        source_dest, _ = read_rsa_request(state.request_array)
+        source, dest = source_dest[0], source_dest[2]
+        # One-hot encode source and destination (2 additional features)
+        source_dest_features = jnp.zeros((params.num_nodes, 2))
+        source_dest_features = source_dest_features.at[source.astype(jnp.int32), 0].set(1)
+        source_dest_features = source_dest_features.at[dest.astype(jnp.int32), 1].set(-1)
+
     spectral_features = get_spectral_features(adj, num_features=3)
 
     if params.__class__.__name__ in ["RSAGNModelEnvParams", "RMSAGNModelEnvParams"]:
@@ -2049,7 +2054,7 @@ def count_until_previous_one(array: chex.Array, position: int) -> int:
 
 def find_block_starts(path_slots: chex.Array) -> chex.Array:
     # Add a [1] at the beginning to find transitions from 1 to 0
-    path_slots_extended = jnp.concatenate((jnp.array([1]), path_slots), axis=0)
+    path_slots_extended = jnp.concatenate((jnp.array([1]), jnp.abs(path_slots)), axis=0)
     transitions = jnp.diff(path_slots_extended)  # Find transitions (1 to 0)
     block_starts = jnp.where(transitions == -1, 1, 0)  # transitions=-1 at block starts, 0 elsewhere
     return block_starts
@@ -2057,7 +2062,7 @@ def find_block_starts(path_slots: chex.Array) -> chex.Array:
 
 def find_block_ends(path_slots: chex.Array) -> chex.Array:
     # Add a [1] at the end to find transitions from 0 to 1
-    path_slots_extended = jnp.concatenate((path_slots, jnp.array([1])), axis=0)
+    path_slots_extended = jnp.concatenate((jnp.abs(path_slots), jnp.array([1])), axis=0)
     transitions = jnp.diff(path_slots_extended)  # Find transitions (1 to 0)
     block_ends = jnp.where(transitions == 1, 1, 0)  # transitions=1 at block ends, 0 elsewhere
     return block_ends
@@ -2145,9 +2150,8 @@ def calculate_path_stats(state: EnvState, params: EnvParams, request: chex.Array
     return stats
 
 
-def create_run_name(config: flags.FlagValues) -> str:
+def create_run_name(config: Union[box.Box, dict]) -> str:
     """Create name for run based on config flags"""
-    config = {k: v.value for k, v in config.__flags.items()}
     env_type = config["env_type"]
     topology = config["topology_name"]
     slots = config["link_resources"]

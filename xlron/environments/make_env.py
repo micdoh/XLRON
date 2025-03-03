@@ -1,4 +1,5 @@
 import absl
+from box import Box
 from xlron.environments.env_funcs import (
     init_path_link_array,
     convert_node_probs_to_traffic_matrix, make_graph, init_path_length_array, init_modulations_array,
@@ -13,12 +14,15 @@ from xlron.environments.gn_model.isrs_gn_model import from_dbm
 
 
 def process_config(config: Optional[Union[dict, absl.flags.FlagValues]], **kwargs) -> dict:
+    """Allow configuration to be a dict, absl.flags.FlagValues, or kwargs.
+    Return a Box that can be indexed like a dict or accessed like an object."""
     config = config or {}
     # Allow config to be a dict or absl.flags.FlagValues
     if isinstance(config, absl.flags.FlagValues):
         config = {k: v.value for k, v in config.__flags.items()}
     # if kwargs are passed, then include them in config
     config.update(kwargs)
+    config = Box(config)  # Convert for easier access with dot or dict notation
     return config
 
 
@@ -53,6 +57,7 @@ def make(config: Optional[Union[dict, absl.flags.FlagValues]], **kwargs) -> Tupl
         "rwa_lightpath_reuse",
         "rsa_gn_model",
         "rmsa_gn_model",
+        "rsa_multiband",
         "vone",
     ]:
         raise ValueError(f"Invalid environment type {env_type}")
@@ -233,6 +238,8 @@ def make(config: Optional[Union[dict, absl.flags.FlagValues]], **kwargs) -> Tupl
         # that the bandwidth request is still considered when updating link_capacity_array
         guardband = 0
         slot_size = int(max(values_bw))
+    elif env_type == "vone" and slot_size == 1:
+        consider_modulation_format = False
     else:
         consider_modulation_format = True
 
@@ -320,12 +327,15 @@ def make(config: Optional[Union[dict, absl.flags.FlagValues]], **kwargs) -> Tupl
         env_params = VONEEnvParams
         params_dict.update(
             node_resources=node_resources, min_node_resources=min_node_resources,
-            max_node_resources=max_node_resources, virtual_topologies=virtual_topologies, max_edges=max_edges
+            max_node_resources=max_node_resources, max_edges=max_edges
         )
     elif env_type == "deeprmsa":
         env_params = DeepRMSAEnvParams
     elif env_type == "rwa_lightpath_reuse":
         env_params = RWALightpathReuseEnvParams
+    elif env_type == "rsa_multiband":
+        env_params = RSAMultibandEnvParams
+        params_dict.update(gap_start=gap_start_slots, gap_width=gap_width_slots)
     elif "gn_model" in env_type:
         env_params = RSAGNModelEnvParams
         params_dict.update(
@@ -380,7 +390,8 @@ def make(config: Optional[Union[dict, absl.flags.FlagValues]], **kwargs) -> Tupl
         env = None
     else:
         if env_type == "vone":
-            env = VONEEnv(rng, params)
+            env = VONEEnv(rng, params, virtual_topologies=virtual_topologies, traffic_matrix=traffic_matrix,
+                          list_of_requests=list_of_requests, laplacian_matrix=laplacian_matrix)
         elif env_type == "deeprmsa":
             env = DeepRMSAEnv(rng, params, traffic_matrix=traffic_matrix, laplacian_matrix=laplacian_matrix)
         elif env_type == "rwa_lightpath_reuse":
@@ -393,6 +404,9 @@ def make(config: Optional[Union[dict, absl.flags.FlagValues]], **kwargs) -> Tupl
         elif env_type == "rmsa_gn_model":
             env = RMSAGNModelEnv(rng, params, traffic_matrix=traffic_matrix, launch_power_array=launch_power_array,
                                  list_of_requests=list_of_requests, laplacian_matrix=laplacian_matrix)
+        elif env_type == "rsa_multiband":
+            env = RSAMultibandEnv(rng, params, traffic_matrix=traffic_matrix, list_of_requests=list_of_requests,
+                                  laplacian_matrix=laplacian_matrix)
         else:
             env = RSAEnv(rng, params, traffic_matrix=traffic_matrix, list_of_requests=list_of_requests,
                          laplacian_matrix=laplacian_matrix)

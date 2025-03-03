@@ -1,13 +1,12 @@
 from gymnax.environments import environment, spaces
 from xlron.environments.env_funcs import (
     init_rsa_request_array, init_link_slot_array,
-    init_link_slot_mask, init_link_slot_departure_array, init_traffic_matrix,
-    implement_action_rsa, check_action_rsa, undo_action_rsa, finalise_action_rsa, generate_request_rsa,
-    mask_slots, calculate_path_stats, init_graph_tuple,
-    implement_action_rwalr, check_action_rwalr, undo_action_rwalr, update_graph_tuple,
-    finalise_action_rwalr, generate_request_rwalr, check_action_rmsa_gn_model, implement_action_rmsa_gn_model,
-    implement_action_rsa_gn_model, undo_action_rsa_gn_model, finalise_action_rsa_gn_model,
-    undo_action_rmsa_gn_model, finalise_action_rmsa_gn_model
+    init_link_slot_mask, init_link_slot_departure_array, init_traffic_matrix, update_graph_tuple, implement_action_rsa,
+    check_action_rsa, undo_action_rsa, finalise_action_rsa, generate_request_rsa, mask_slots, calculate_path_stats,
+    init_graph_tuple, implement_action_rwalr, check_action_rwalr, undo_action_rwalr, finalise_action_rwalr,
+    generate_request_rwalr, check_action_rmsa_gn_model, implement_action_rmsa_gn_model, implement_action_rsa_gn_model,
+    undo_action_rsa_gn_model, finalise_action_rsa_gn_model, undo_action_rmsa_gn_model, finalise_action_rmsa_gn_model,
+    set_c_l_band_gap
 )
 from xlron.environments.dataclasses import *
 from xlron.environments.wrappers import *
@@ -86,7 +85,7 @@ class RSAEnv(environment.Environment):
         )
         obs_re, state_re = self.reset_env(key_reset, params)
         # Auto-reset environment based on termination
-        state = jax.tree_map(
+        state = jax.tree.map(
             lambda x, y: jnp.where(done, x, y), state_re, state_st
         )
         obs = jax.lax.select(done, obs_re, obs_st)
@@ -420,3 +419,34 @@ class RSAEnv(environment.Environment):
                 "link_slot_departure_array": spaces.Discrete(params.num_links * params.link_resources),
             }
         )
+
+
+class RSAMultibandEnv(RSAEnv):
+
+    def __init__(
+            self,
+            key: chex.PRNGKey,
+            params: RSAEnvParams,
+            traffic_matrix: chex.Array = None,
+            list_of_requests: chex.Array = None,
+            laplacian_matrix: chex.Array = None,
+    ):
+        super().__init__(key, params, traffic_matrix=traffic_matrix, list_of_requests=list_of_requests, laplacian_matrix=laplacian_matrix)
+        state = RSAMultibandEnvState(
+            current_time=0,
+            holding_time=0,
+            total_timesteps=0,
+            total_requests=-1,
+            link_slot_array=set_c_l_band_gap(init_link_slot_array(params), params, -1.),
+            link_slot_departure_array=init_link_slot_departure_array(params),
+            request_array=init_rsa_request_array(),
+            link_slot_mask=init_link_slot_mask(params, agg=params.aggregate_slots),
+            traffic_matrix=traffic_matrix if traffic_matrix is not None else init_traffic_matrix(key, params),
+            graph=None,
+            full_link_slot_mask=init_link_slot_mask(params),
+            accepted_services=0,
+            accepted_bitrate=0.,
+            total_bitrate=0.,
+            list_of_requests=list_of_requests,
+        )
+        self.initial_state = state.replace(graph=init_graph_tuple(state, params, laplacian_matrix))
