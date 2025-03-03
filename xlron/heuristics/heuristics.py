@@ -27,6 +27,19 @@ def ksp_ff(state: EnvState, params: EnvParams) -> chex.Array:
     return action
 
 
+def ksp_ff_multiband(state: EnvState, params: EnvParams) -> chex.Array:
+    """Get the first available slot from all k-shortest paths in multiband scenario
+    Method: Go through action mask and find the first available slot, starting from shortest path
+
+    Args:
+        state (MultiBandRSAEnvState): Environment state specific to multiband operations
+        params (MultiBandRSAEnvParams): Environment parameters including multiband details
+    Returns:
+        chex.Array: Action
+    """
+    pass
+
+
 @partial(jax.jit, static_argnums=(1,))
 def ksp_lf(state: EnvState, params: EnvParams) -> chex.Array:
     """Get the last available slot on the shortest available path
