@@ -412,8 +412,6 @@ class CriticGNN(nn.Module):
     normalise_by_link_length: bool = True  # Normalise the processed edge features by the link length
     gnn_layer_norm: bool = True
     mlp_layer_norm: bool = False
-    # Use globals for predicting value
-    use_globals_value = False
 
     @nn.compact
     def __call__(self, state: EnvState, params: EnvParams):
@@ -430,7 +428,7 @@ class CriticGNN(nn.Module):
             gnn_layer_norm=self.gnn_layer_norm,
             mlp_layer_norm=self.mlp_layer_norm,
         )(state.graph)
-        if self.use_globals_value:
+        if self.output_globals_size > 0:
             critic = processed_graph.globals.reshape((-1,))
         else:
             # Take first half processed_graph.edges as edge features
