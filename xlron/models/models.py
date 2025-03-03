@@ -307,21 +307,12 @@ class GraphNet(nn.Module):
             embed_edge_fn=nn.Dense(self.latent_size),
             embed_global_fn=nn.Dense(self.latent_size) if self.output_globals_size > 0 else None,
         )
+        if graphs.edges.ndim >= 3:
+            # Dims are (edges, slots, features e.g. power, source/dest)
+            # Keep the leading dimension fixed and combine the remaining dimensions
+            edges = graphs.edges.reshape((graphs.edges.shape[0], -1))
+            graphs = graphs._replace(edges=edges)
         processed_graphs = embedder(graphs)
-        # Sum the edge embeddings of the processed graph
-        if processed_graphs.edges.ndim >= 3:
-            # If the edge embeddings are multi-dimensional, sum over the first dimension
-            # processed_graphs = processed_graphs._replace(
-            #     edges=jnp.sum(processed_graphs.edges, axis=0)
-            # )
-            processed_graphs = processed_graphs._replace(
-                # Transform each dim of power, snr, etc. separately, then sum.
-                # Transformation gives a chance to learn how to scale them before summing.
-                edges=jnp.sum(
-                    MLP([self.latent_size], deterministic=self.deterministic)(processed_graphs.edges),
-                    axis=0
-                )
-            )
 
         # Now, we will apply a Graph Network once for each message-passing round.
         for _ in range(self.message_passing_steps):

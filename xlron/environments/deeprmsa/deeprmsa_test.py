@@ -12,7 +12,7 @@ from xlron.environments.rsa.rsa import *
 from xlron.environments.wrappers import *
 from xlron.environments.dataclasses import *
 from xlron.environments.make_env import make
-from xlron.environments.rsa.rsa_test import rsa_nsfnet_16_mod_test_setup
+from xlron.environments.env_funcs_test import *
 
 
 class CalculatePathStatsTest(parameterized.TestCase):
@@ -93,5 +93,6 @@ class CalculatePathStatsTest(parameterized.TestCase):
 
 
 if __name__ == '__main__':
+    os.environ['XLA_FLAGS'] = "--xla_force_host_platform_device_count=4"
     jax.config.update('jax_numpy_rank_promotion', 'raise')
     absltest.main()

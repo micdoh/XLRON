@@ -53,6 +53,8 @@ penzai = "^0.1.2"
 jaxopt = "^0.8.3"
 griffe = "^1.5.1"
 mkdocstrings-python = "^1.12.2"
+box = "^0.1.5"
+python-box = "^7.3.2"
 
 [tool.poetry.extras]
 cuda = ["nvidia-cuda-runtime-cu11", "torch", "torchvision"]

@@ -244,5 +244,6 @@ class RWALightpathReuseTest(parameterized.TestCase):
         chex.assert_trees_all_close(remaining_capacity, expected)
 
 if __name__ == '__main__':
+    os.environ['XLA_FLAGS'] = "--xla_force_host_platform_device_count=4"
     jax.config.update('jax_numpy_rank_promotion', 'raise')
     absltest.main()
