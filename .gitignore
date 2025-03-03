@@ -15,5 +15,5 @@ config/
 .zed
 models/
 data_processing/misc
-data/
+experiment_data/
 .ipynb_checkpoints/

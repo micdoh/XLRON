@@ -11,10 +11,9 @@ from typing import Sequence, Callable, Sequence
 from jraph._src.utils import segment_softmax, segment_sum
 import collections
 
-from xlron.environments.env_funcs import EnvState, EnvParams, get_path_slots, read_rsa_request, format_vone_slot_request
-from xlron.environments.isrs_gn_model import isrs_gn_model, to_dbm, from_dbm
-from xlron.environments.vone import make_vone_env
-from xlron.environments.rsa import make_rsa_env
+from xlron.environments.env_funcs import EnvState, EnvParams, get_path_slots, read_rsa_request
+from xlron.environments.gn_model.isrs_gn_model import isrs_gn_model, to_dbm, from_dbm
+from xlron.environments.make_env import make
 from xlron.models.gnn import GraphNetwork, GraphNetGAT, GAT
 
 
@@ -308,21 +307,12 @@ class GraphNet(nn.Module):
             embed_edge_fn=nn.Dense(self.latent_size),
             embed_global_fn=nn.Dense(self.latent_size) if self.output_globals_size > 0 else None,
         )
+        if graphs.edges.ndim >= 3:
+            # Dims are (edges, slots, features e.g. power, source/dest)
+            # Keep the leading dimension fixed and combine the remaining dimensions
+            edges = graphs.edges.reshape((graphs.edges.shape[0], -1))
+            graphs = graphs._replace(edges=edges)
         processed_graphs = embedder(graphs)
-        # Sum the edge embeddings of the processed graph
-        if processed_graphs.edges.ndim >= 3:
-            # If the edge embeddings are multi-dimensional, sum over the first dimension
-            # processed_graphs = processed_graphs._replace(
-            #     edges=jnp.sum(processed_graphs.edges, axis=0)
-            # )
-            processed_graphs = processed_graphs._replace(
-                # Transform each dim of power, snr, etc. separately, then sum.
-                # Transformation gives a chance to learn how to scale them before summing.
-                edges=jnp.sum(
-                    MLP([self.latent_size], deterministic=self.deterministic)(processed_graphs.edges),
-                    axis=0
-                )
-            )
 
         # Now, we will apply a Graph Network once for each message-passing round.
         for _ in range(self.message_passing_steps):
@@ -422,8 +412,6 @@ class CriticGNN(nn.Module):
     normalise_by_link_length: bool = True  # Normalise the processed edge features by the link length
     gnn_layer_norm: bool = True
     mlp_layer_norm: bool = False
-    # Use globals for predicting value
-    use_globals_value = False
 
     @nn.compact
     def __call__(self, state: EnvState, params: EnvParams):
@@ -440,7 +428,7 @@ class CriticGNN(nn.Module):
             gnn_layer_norm=self.gnn_layer_norm,
             mlp_layer_norm=self.mlp_layer_norm,
         )(state.graph)
-        if self.use_globals_value:
+        if self.output_globals_size > 0:
             critic = processed_graph.globals.reshape((-1,))
         else:
             # Take first half processed_graph.edges as edge features

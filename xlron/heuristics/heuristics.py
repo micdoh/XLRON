@@ -259,16 +259,20 @@ def kmf_ff(state: RSAEnvState, params: RSAEnvParams) -> chex.Array:
     first_slots = first_fit(state, params)
     link_slot_array = jnp.where(state.link_slot_array < 0, 1., state.link_slot_array)
     nodes_sd, requested_bw = read_rsa_request(state.request_array)
-    block_sizes = jax.vmap(find_block_sizes, in_axes=(0,))(link_slot_array)
+    blocks = jax.vmap(find_block_sizes, in_axes=(0,))(link_slot_array)
 
     def get_frags_on_path(i, result):
         initial_slot_index = first_slots[i] % params.link_resources
         path = get_paths(params, nodes_sd)[i]
         se = get_paths_se(params, nodes_sd)[i] if params.consider_modulation_format else 1
         num_slots = required_slots(requested_bw, se, params.slot_size, guardband=params.guardband)
-        updated_slots = vmap_set_path_links(state.link_slot_array, path, initial_slot_index, num_slots, 1)
+        # Mask on path links
+        block_sizes = jax.vmap(lambda x, y: jnp.where(x > 0, y, 0.), in_axes=(0, 0))(path, blocks)
+        updated_slots = vmap_set_path_links(state.link_slot_array, path, initial_slot_index, num_slots, -1)
         updated_block_sizes = jax.vmap(find_block_sizes, in_axes=(0,))(updated_slots)
-        difference = updated_block_sizes - block_sizes * (1 - updated_slots)
+        # Mask on path links
+        updated_block_sizes = jax.vmap(lambda x, y: jnp.where(x > 0, y, 0.), in_axes=(0, 0))(path, updated_block_sizes)
+        difference = updated_block_sizes - block_sizes
         new_frags = jnp.where(difference != 0, block_sizes + difference, 0.)
         # Slice new frags up to initial slot index (so as to only consider frags to the left)
         new_frags = jnp.where(jnp.arange(params.link_resources) < initial_slot_index, new_frags, 0.)
@@ -384,7 +388,7 @@ def get_link_weights(state: EnvState, params: EnvParams):
         link_occupancy = jnp.count_nonzero(state.link_slot_array, axis=1)
     else:
         initial_path_capacity = init_path_capacity_array(
-            params.link_length_array.val, params.path_link_array.val, symbol_rate=100, scale_factor=1.0
+            params.link_length_array.val, params.path_link_array.val, scale_factor=1.0
         )
         initial_path_capacity = jnp.squeeze(jax.vmap(lambda x: initial_path_capacity[x])(state.path_index_array))
         utilisation = jnp.where(initial_path_capacity - state.link_capacity_array < 0, 0,
@@ -499,7 +503,7 @@ def most_used(state: EnvState, params: EnvParams, unique_lightpaths, relative) -
     elif params.__class__.__name__ == "RWALightpathReuseEnvParams" and not unique_lightpaths:
         # Get initial path capacity
         initial_path_capacity = init_path_capacity_array(
-            params.link_length_array.val, params.path_link_array.val, symbol_rate=100, scale_factor=1.0
+            params.link_length_array.val, params.path_link_array.val, scale_factor=1.0
         )
         initial_path_capacity = jnp.squeeze(jax.vmap(lambda x: initial_path_capacity[x])(state.path_index_array))
         utilisation = jnp.where(initial_path_capacity - state.link_capacity_array < 0, 0,
