@@ -4,6 +4,7 @@ from typing import Sequence, Union, Optional, Tuple
 from gymnax.environments import environment
 from gymnax.wrappers.purerl import GymnaxWrapper
 from absl import flags
+import box
 import math
 import pathlib
 import itertools
@@ -24,7 +25,7 @@ from jax._src.typing import Array, ArrayLike, DTypeLike
 from typing import Generic, TypeVar
 from collections import defaultdict
 from xlron.environments.dataclasses import *
-from xlron.environments import isrs_gn_model
+from xlron.environments.gn_model import isrs_gn_model
 
 
 Shape = Sequence[int]
@@ -70,8 +71,8 @@ def get_spectral_features(laplacian: jnp.array, num_features: int) -> jnp.ndarra
     return eigenvectors[:, :num_features]#num_zero:num_zero + valid_features]
 
 
-@partial(jax.jit, static_argnums=(1,))
-def init_graph_tuple(state: EnvState, params: EnvParams, adj: jnp.array) -> jraph.GraphsTuple:
+@partial(jax.jit, static_argnums=(1, 3))
+def init_graph_tuple(state: EnvState, params: EnvParams, adj: jnp.array, exclude_source_dest: bool=False) -> jraph.GraphsTuple:
     """Initialise graph tuple for use with Jraph GNNs.
     Args:
         state (EnvState): Environment state
@@ -83,13 +84,17 @@ def init_graph_tuple(state: EnvState, params: EnvParams, adj: jnp.array) -> jrap
     senders = params.edges.val.T[0]
     receivers = params.edges.val.T[1]
 
-    # Get source and dest from request array
-    source_dest, _ = read_rsa_request(state.request_array)
-    source, dest = source_dest[0], source_dest[2]
-    # One-hot encode source and destination (2 additional features)
-    source_dest_features = jnp.zeros((params.num_nodes, 2))
-    source_dest_features = source_dest_features.at[source.astype(jnp.int32), 0].set(1)
-    source_dest_features = source_dest_features.at[dest.astype(jnp.int32), 1].set(-1)
+    if exclude_source_dest:
+        source_dest_features = jnp.zeros((params.num_nodes, 2))
+    else:
+        # Get source and dest from request array
+        source_dest, _ = read_rsa_request(state.request_array)
+        source, dest = source_dest[0], source_dest[2]
+        # One-hot encode source and destination (2 additional features)
+        source_dest_features = jnp.zeros((params.num_nodes, 2))
+        source_dest_features = source_dest_features.at[source.astype(jnp.int32), 0].set(1)
+        source_dest_features = source_dest_features.at[dest.astype(jnp.int32), 1].set(-1)
+
     spectral_features = get_spectral_features(adj, num_features=3)
 
     if params.__class__.__name__ in ["RSAGNModelEnvParams", "RMSAGNModelEnvParams"]:
@@ -347,7 +352,7 @@ def init_modulations_array(modulations_filepath: str = None):
         First two columns are maximum path length and spectral efficiency.
     """
     f = pathlib.Path(modulations_filepath) if modulations_filepath else (
-            pathlib.Path(__file__).parents[2].absolute() / "examples" / "modulations.csv")
+            pathlib.Path(__file__).parents[1].absolute() / "data" / "modulations" / "modulations.csv")
     modulations = np.genfromtxt(f, delimiter=',')
     # Drop empty first row (headers) and column (name)
     modulations = modulations[1:, 1:]
@@ -578,7 +583,7 @@ def normalise_traffic_matrix(traffic_matrix):
     return traffic_matrix
 
 
-@partial(jax.jit, static_argnums=(2,3))
+@partial(jax.jit, static_argnums=(2, 3))
 def required_slots(bitrate: float, se: int, channel_width: float, guardband: int = 1) -> int:
     """Calculate required slots for a given bitrate and spectral efficiency.
 
@@ -1701,7 +1706,7 @@ def make_graph(topology_name: str = "conus", topology_directory: str = None):
         graph: graph
     """
     topology_path = pathlib.Path(topology_directory) if topology_directory else (
-            pathlib.Path(__file__).parents[2].absolute() / "topologies")
+            pathlib.Path(__file__).parents[1].absolute() / "data" / "topologies")
     # Create topology
     if topology_name == "4node":
         # 4 node ring
@@ -2049,7 +2054,7 @@ def count_until_previous_one(array: chex.Array, position: int) -> int:
 
 def find_block_starts(path_slots: chex.Array) -> chex.Array:
     # Add a [1] at the beginning to find transitions from 1 to 0
-    path_slots_extended = jnp.concatenate((jnp.array([1]), path_slots), axis=0)
+    path_slots_extended = jnp.concatenate((jnp.array([1]), jnp.abs(path_slots)), axis=0)
     transitions = jnp.diff(path_slots_extended)  # Find transitions (1 to 0)
     block_starts = jnp.where(transitions == -1, 1, 0)  # transitions=-1 at block starts, 0 elsewhere
     return block_starts
@@ -2057,7 +2062,7 @@ def find_block_starts(path_slots: chex.Array) -> chex.Array:
 
 def find_block_ends(path_slots: chex.Array) -> chex.Array:
     # Add a [1] at the end to find transitions from 0 to 1
-    path_slots_extended = jnp.concatenate((path_slots, jnp.array([1])), axis=0)
+    path_slots_extended = jnp.concatenate((jnp.abs(path_slots), jnp.array([1])), axis=0)
     transitions = jnp.diff(path_slots_extended)  # Find transitions (1 to 0)
     block_ends = jnp.where(transitions == 1, 1, 0)  # transitions=1 at block ends, 0 elsewhere
     return block_ends
@@ -2145,9 +2150,8 @@ def calculate_path_stats(state: EnvState, params: EnvParams, request: chex.Array
     return stats
 
 
-def create_run_name(config: flags.FlagValues) -> str:
+def create_run_name(config: Union[box.Box, dict]) -> str:
     """Create name for run based on config flags"""
-    config = {k: v.value for k, v in config.__flags.items()}
     env_type = config["env_type"]
     topology = config["topology_name"]
     slots = config["link_resources"]
@@ -2492,8 +2496,10 @@ def pad_array(array, fill_value):
     return result
 
 
-def init_link_length_array_gn_model(graph: nx.Graph, span_length: int,  max_spans: int) -> chex.Array:
-    """Initialise link length array.
+def init_link_length_array_gn_model(graph: nx.Graph, max_span_length: int,  max_spans: int) -> chex.Array:
+    """Initialise link length array for environements that use GN model of physical layer.
+    We assume each link has spans of equal length.
+
     Args:
         graph (nx.Graph): NetworkX graph
     Returns:
@@ -2510,16 +2516,9 @@ def init_link_length_array_gn_model(graph: nx.Graph, span_length: int,  max_span
             link_lengths.append(graph.edges[edge]["weight"])
     span_length_array = []
     for length in link_lengths:
-        num_spans = math.ceil(length / span_length)
+        num_spans = math.ceil(length / max_span_length)
         avg_span_length = length / num_spans
         span_lengths = [avg_span_length] * num_spans
-        # # get remainder
-        # remainder = length % span_length
-        # end_span_length = (span_length + remainder) / 2 if remainder > 0 else span_length
-        # span_lengths = [span_length] * int(num_spans-2)
-        # span_lengths.append(end_span_length)
-        # span_lengths.insert(0, end_span_length)
-        # pad with zeros to max_spans
         span_lengths.extend([0] * (max_spans - num_spans))
         span_length_array.append(span_lengths)
     return jnp.array(span_length_array)
@@ -2716,6 +2715,9 @@ def update_active_lightpaths_array_departure(state: RSAGNModelEnvState, time: fl
 def get_snr_for_path(path, link_snr_array, params):
     nsr_slots = jnp.where(path.reshape((params.num_links, 1)) == 1, 1/link_snr_array, jnp.zeros(params.link_resources))
     nsr_path_slots = jnp.sum(nsr_slots, axis=0)
+    # TODO - Add noise from one more ROADM per path
+    #  p_ase_roadm = num_roadms * get_ase_power(noise_figure, roadm_loss, span_length, ref_lambda, ch_centre_i, ch_bandwidth_i, gain=10**(roadm_loss/10))
+    #  snr = jnp.where(ch_power_W_i > 0, ch_power_W_i / noise_power, -1e5)
     return jnp.nan_to_num(isrs_gn_model.to_db(1 / nsr_path_slots), nan=-50, neginf=-50, posinf=50)  # Link SNR array must be in linear units so that 1/inf = 0
 
 
@@ -3102,6 +3104,8 @@ def finalise_action_rmsa_gn_model(state: RSAGNModelEnvState, params: Optional[En
 #  - Create mask where path id is active by doing get_path_links on path_index_array with mean aggregation, then where on path index
 #  - Sum the lightpath SNR across slots
 #  - Multiply by factor <1 to get the actual throughput from PCS modulation
+#  Optional: consider a minimum SNR beneath which no throughput is possible (mask to zero) (let's say 7dB for 28% FEC threshold)
+#  Optional: make FEC threshold a parameter and calculate the throughput / SNR requirements accordingly. This may be complex for PCS.
 def calculate_throughput_from_active_lightpaths():
     pass
 
@@ -3284,6 +3288,69 @@ def get_launch_power(state: EnvState, path_action: chex.Array, power_action: che
         return state.launch_power_array[0] * (path_length / maximum_path_length)
     else:
         raise ValueError("Invalid launch power type. Check params.launch_power_type")
+
+
+@partial(jax.jit, static_argnums=(1,))
+def get_paths_obs_gn_model(state: RSAGNModelEnvState, params: RSAGNModelEnvParams) -> chex.Array:
+    # TODO - make this just show the stats from just one path at a time
+    """Get observation space for launch power optimization (with numerical stability)."""
+    request_array = state.request_array.reshape((-1,))
+    path_stats = calculate_path_stats(state, params, request_array)
+    # Remove first 3 items of path stats for each path
+    path_stats = path_stats[:, 3:]
+    link_length_array = jnp.sum(params.link_length_array.val, axis=1)
+    lightpath_snr_array = get_lightpath_snr(state, params)
+    nodes_sd, requested_datarate = read_rsa_request(request_array)
+    source, dest = nodes_sd
+
+    def calculate_gn_path_stats(k_path_index, init_val):
+        # Get path index
+        path_index = get_path_indices(source, dest, params.k_paths, params.num_nodes,
+                                      directed=params.directed_graph).astype(
+            jnp.int32) + k_path_index
+        path = params.path_link_array[path_index]
+        path_length = jnp.dot(path, link_length_array)
+        max_path_length = jnp.max(jnp.dot(params.path_link_array.val, link_length_array))
+        path_length_norm = path_length / max_path_length
+        path_length_hops_norm = jnp.sum(path) / jnp.max(jnp.sum(params.path_link_array.val, axis=1))
+        # Connections on path
+        num_connections = jnp.where(path == 1, jnp.where(state.channel_power_array > 0, 1, 0).sum(axis=1), 0).sum()
+        num_connections_norm = num_connections / params.link_resources
+        # Mean power of connections on path
+        # make path with row length equal to link_resource (+1 to avoid zero division)
+        mean_power_norm = (jnp.where(path == 1, state.channel_power_array.sum(axis=1), 0).sum() /
+                           (jnp.where(num_connections > 0., num_connections, 1.) * params.max_power))
+        # Mean SNR of connections on the path links
+        max_snr = 50.  # Nominal value for max GSNR in dB
+        mean_snr_norm = (jnp.where(path == 1, lightpath_snr_array.sum(axis=1), 0).sum() /
+                         (jnp.where(num_connections > 0., num_connections, 1.) * max_snr))
+        return jax.lax.dynamic_update_slice(
+            init_val,
+            jnp.array([[
+                path_length,
+                path_length_hops_norm,
+                num_connections_norm,
+                mean_power_norm,
+                mean_snr_norm
+            ]]),
+            (k_path_index, 0),
+        )
+
+    gn_path_stats = jnp.zeros((params.k_paths, 5))
+    gn_path_stats = jax.lax.fori_loop(
+        0, params.k_paths, calculate_gn_path_stats, gn_path_stats
+    )
+    all_stats = jnp.concatenate([path_stats, gn_path_stats], axis=1)
+    return jnp.concatenate(
+        (
+            jnp.array([source]),
+            requested_datarate / 100.,
+            jnp.array([dest]),
+            jnp.reshape(state.holding_time, (-1,)),
+            jnp.reshape(all_stats, (-1,)),
+        ),
+        axis=0,
+    )
 
 
     # TODO - instead of recalculating SNR for each slot, interpolate between SNR values

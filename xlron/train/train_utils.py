@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 from typing import Any, Callable, Union, Tuple
 import absl
+import box
 import optax
 from flax import core, struct
 from flax.linen.fp8_ops import OVERWRITE_WITH_GRADIENT
@@ -15,12 +16,11 @@ import wandb
 import distrax
 import math
 import pickle
+import subprocess
 import matplotlib.pyplot as plt
 
-from xlron.environments.isrs_gn_model import isrs_gn_model, from_dbm, to_dbm
-from xlron.environments.wrappers import LogWrapper
-from xlron.environments.vone import make_vone_env
-from xlron.environments.rsa import make_rsa_env
+from xlron.environments.gn_model import *
+from xlron.environments.make_env import make
 from xlron.models.models import ActorCriticGNN, ActorCriticMLP, LaunchPowerActorCriticMLP
 from xlron.environments.dataclasses import EnvState, EvalState
 from xlron.environments.env_funcs import init_link_length_array, make_graph, process_path_action, get_launch_power, get_paths
@@ -193,43 +193,28 @@ def moving_average(x, w):
     return np.convolve(x, np.ones(w), 'valid') / w
 
 
-def save_model(train_state: TrainState, run_name, flags: absl.flags.FlagValues):
-    save_data = {"model": train_state, "config": flags}
+def save_model(train_state: TrainState, run_name, config: Union[box.Box, absl.flags.FlagValues]):
+    config_dict = config.to_dict() if isinstance(config, box.Box) else config
+    save_data = {"model": train_state, "config": config_dict}
     orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
     save_args = orbax_utils.save_args_from_target(save_data)
     # Get path to current file
-    model_path = pathlib.Path(flags.MODEL_PATH) if flags.MODEL_PATH else pathlib.Path(__file__).resolve().parents[
+    model_path = pathlib.Path(config.MODEL_PATH) if config.MODEL_PATH else pathlib.Path(__file__).resolve().parents[
                                                                              2] / "models" / run_name
-    # Print model params
-    print(f"TRAIN_STATE.PARAMS:\n {train_state.params}")
     # If model_path dir already exists, append a number to the end
     i = 1
     model_path_og = model_path
     while model_path.exists():
         # Add index to end of model_path
-        model_path = pathlib.Path(str(model_path_og) + f"_{i}") if flags.MODEL_PATH else model_path_og.parent / (
+        model_path = pathlib.Path(str(model_path_og) + f"_{i}") if config.MODEL_PATH else model_path_og.parent / (
                 model_path_og.name + f"_{i}")
         i += 1
     print(f"Saving model to {model_path.absolute()}")
     orbax_checkpointer.save(model_path.absolute(), save_data, save_args=save_args)
     # Upload model to wandb
-    if flags.WANDB:
+    if config.WANDB:
         print((model_path / "*").absolute())
         wandb.save(str((model_path / "*").absolute()), base_path=str(model_path.parent))
-
-
-def define_env(config: absl.flags.FlagValues):
-    config_dict = {k: v.value for k, v in config.__flags.items()}
-    if config.env_type.lower() == "vone":
-        env, env_params = make_vone_env(config_dict)
-    elif config.env_type.lower() in [
-        "rsa", "rmsa", "rwa", "deeprmsa", "rwa_lightpath_reuse", "rsa_gn_model", "rmsa_gn_model", "multibandrsa"
-    ]:
-        env, env_params = make_rsa_env(config_dict)
-    else:
-        raise ValueError(f"Invalid environment type {config.env_type}")
-    env = LogWrapper(env)
-    return env, env_params
 
 
 def init_network(config, env, env_state, env_params):
@@ -240,7 +225,7 @@ def init_network(config, env, env_state, env_params):
                                  num_units=config.NUM_UNITS,
                                  layer_norm=config.LAYER_NORM, )
         init_x = tuple([jnp.zeros(env.observation_space(env_params).n)])
-    elif config.env_type.lower() in ["rsa", "rmsa", "rwa", "deeprmsa", "rwa_lightpath_reuse", "rsa_gn_model", "rmsa_gn_model", "multibandrsa"]:
+    elif config.env_type.lower() in ["rsa", "rmsa", "rwa", "deeprmsa", "rwa_lightpath_reuse", "rsa_gn_model", "rmsa_gn_model", "rsa_multiband"]:
         if config.USE_GNN:
             if "gn_model" in config.env_type.lower() and config.output_globals_size_actor > 0:
                 output_globals_size_actor = int((env_params.max_power - env_params.min_power) / env_params.step_power) + 1 if config.discrete_launch_power else 1
@@ -301,7 +286,7 @@ def init_network(config, env, env_state, env_params):
 
 def experiment_data_setup(config: absl.flags.FlagValues, rng: chex.PRNGKey) -> Tuple:
     # INIT ENV
-    env, env_params = define_env(config)
+    env, env_params = make(config)
     rng, rng_step, rng_epoch, warmup_key, reset_key, network_key = jax.random.split(rng, 6)
     reset_key = jax.random.split(reset_key, config.NUM_ENVS)
     obsv, env_state = jax.vmap(env.reset, in_axes=(0, None))(reset_key, env_params)
@@ -315,7 +300,8 @@ def experiment_data_setup(config: absl.flags.FlagValues, rng: chex.PRNGKey) -> T
         init_x = (jax.tree.map(lambda x: x[0], init_x[0]), init_x[1]) if config.USE_GNN else init_x
 
         if config.RETRAIN_MODEL:
-            network_params = config.model["model"]["params"]
+            config_dict = config.to_dict() if isinstance(config, box.Box) else config
+            network_params = config_dict["model"]["model"]["params"]
             print('Retraining model')
         else:
             network_params = network.init(network_key, *init_x)
@@ -330,7 +316,7 @@ def experiment_data_setup(config: absl.flags.FlagValues, rng: chex.PRNGKey) -> T
         runner_state = TrainState.create(
             apply_fn=network.apply,
             sample_fn=network.sample_action,
-            params=network_params,
+            params=network_params.to_dict() if isinstance(network_params, box.Box) else network_params,
             tx=tx,
         )
 
@@ -342,7 +328,7 @@ def experiment_data_setup(config: absl.flags.FlagValues, rng: chex.PRNGKey) -> T
 
         elif config.EVAL_MODEL:
             network, last_obs = init_network(config, env, env_state, env_params)
-            network_params = config.model["model"]["params"]
+            network_params = config.model.to_dict()["model"]["params"]
             apply = network.apply
             sample = network.sample_action
             print('Evaluating model')
@@ -477,7 +463,7 @@ def select_action_eval(select_action_state, env, env_params, eval_state, config)
         if config.env_type.lower() == "vone":
             raise NotImplementedError(f"VONE heuristics not yet implemented")
 
-        elif config.env_type.lower() in ["rsa", "rwa", "rmsa", "deeprmsa", "rwa_lightpath_reuse", "rsa_gn_model", "rmsa_gn_model", "multibandrsa"]:
+        elif config.env_type.lower() in ["rsa", "rwa", "rmsa", "deeprmsa", "rwa_lightpath_reuse", "rsa_gn_model", "rmsa_gn_model", "rsa_multiband"]:
             if config.path_heuristic.lower() == "ksp_ff":
                 action = ksp_ff(env_state.env_state, env_params)
             elif config.path_heuristic.lower() == "ff_ksp":
@@ -617,8 +603,33 @@ def setup_wandb(config, project_name, experiment_name):
     wandb.define_metric("training_time", step_metric="env_step")
 
 
-def log_metrics(config, out, experiment_name, total_time, merge_func):
-    """Log metrics to wandb and/or save episode end metrics to CSV."""
+def get_mean_std_iqr(x, y):
+    _mean = x[y].mean(axis=0).reshape(-1)
+    _std = x[y].std(axis=0).reshape(-1)
+    _iqr_upper = jnp.percentile(x[y], 75, axis=0).reshape(-1)
+    _iqr_lower = jnp.percentile(x[y], 25, axis=0).reshape(-1)
+    return np.array(_mean), np.array(_std), np.array(_iqr_upper), np.array(_iqr_lower)
+
+
+def get_episode_end_mean_std_iqr(x, y, episode_ends, config):
+    _end_mean = x[y].mean(0).reshape(-1)[episode_ends]
+    if not config.end_first_blocking:
+        _end_std = x[y].std(0).reshape(-1)[episode_ends]
+        _end_iqr_upper = jnp.percentile(x[y], 75, axis=0).reshape(-1)[episode_ends]
+        _end_iqr_lower = jnp.percentile(x[y], 25, axis=0).reshape(-1)[episode_ends]
+    else:
+        # For end_first_blocking, episode_ends are variable so calculate std and iqr for all episodes
+        # merge the final two dimension of x[y], keeping the rest the same
+        vals = x[y].reshape(-1)[episode_ends]
+        shape_out = vals.reshape(-1).shape
+        _end_std = jnp.full(shape_out, vals.std())
+        _end_iqr_upper = jnp.full(shape_out, np.percentile(vals, 75))
+        _end_iqr_lower = jnp.full(shape_out, np.percentile(vals, 25))
+    return _end_mean, _end_std, _end_iqr_upper, _end_iqr_lower
+
+
+def process_metrics(config, out, total_time, merge_func):
+    """Calculate statistics from training or evaluation run."""
 
     merged_out = {k: jax.tree.map(merge_func, v) for k, v in out["metrics"].items()}
     if not config.EVAL_HEURISTIC or not config.EVAL_MODEL:
@@ -646,36 +657,11 @@ def log_metrics(config, out, experiment_name, total_time, merge_func):
             if end is True:
                 print(end)
 
-    def get_mean_std_iqr(x, y):
-        _mean = x[y].mean(axis=0).reshape(-1)
-        _std = x[y].std(axis=0).reshape(-1)
-        _iqr_upper = jnp.percentile(x[y], 75, axis=0).reshape(-1)
-        _iqr_lower = jnp.percentile(x[y], 25, axis=0).reshape(-1)
-        return np.array(_mean), np.array(_std), np.array(_iqr_upper), np.array(_iqr_lower)
-
-    def get_episode_end_mean_std_iqr(x, y):
-        _end_mean = x[y].mean(0).reshape(-1)[episode_ends]
-        if not config.end_first_blocking:
-            _end_std = x[y].std(0).reshape(-1)[episode_ends]
-            _end_iqr_upper = jnp.percentile(x[y], 75, axis=0).reshape(-1)[episode_ends]
-            _end_iqr_lower = jnp.percentile(x[y], 25, axis=0).reshape(-1)[episode_ends]
-        else:
-            # For end_first_blocking, episode_ends are variable so calculate std and iqr for all episodes
-            # merge the final two dimension of x[y], keeping the rest the same
-            vals = x[y].reshape(-1)[episode_ends]
-            shape_out = vals.reshape(-1).shape
-            _end_std = jnp.full(shape_out, vals.std())
-            _end_iqr_upper = jnp.full(shape_out, np.percentile(vals, 75))
-            _end_iqr_lower = jnp.full(shape_out, np.percentile(vals, 25))
-            # _end_iqr_upper = jnp.full(x[y].reshape(-1)[episode_ends].shape, np.percentile(x[y].reshape(-1)[episode_ends], 75))
-            # _end_iqr_lower = jnp.full(x[y].reshape(-1)[episode_ends].shape, np.percentile(x[y].reshape(-1)[episode_ends], 25))
-        return _end_mean, _end_std, _end_iqr_upper, _end_iqr_lower
-
     processed_data = {}
     print("Processing output metrics")
     for metric in metrics:
         episode_end_mean, episode_end_std, episode_end_iqr_upper, episode_end_iqr_lower = (
-            get_episode_end_mean_std_iqr(merged_out, metric)
+            get_episode_end_mean_std_iqr(merged_out, metric, episode_ends, config)
         )
         mean, std, iqr_upper, iqr_lower = get_mean_std_iqr(merged_out, metric)
         processed_data[metric] = {
@@ -692,6 +678,15 @@ def log_metrics(config, out, experiment_name, total_time, merge_func):
     processed_data["training_time"] = (
             np.arange(len(processed_data["returns"]["mean"])) / len(processed_data["returns"]["mean"]) * total_time
     )
+    return merged_out, processed_data
+
+
+def log_metrics(config, out, experiment_name, total_time, merge_func):
+    """Log metrics to wandb and/or save episode end metrics to CSV."""
+
+    merged_out, processed_data = process_metrics(config, out, total_time, merge_func)
+
+    all_metrics = list(processed_data.keys())
 
     if config.PLOTTING:
         print("Plotting metrics")
@@ -821,7 +816,7 @@ def log_metrics(config, out, experiment_name, total_time, merge_func):
 
     if config.log_actions:
 
-        env, params = define_env(config)
+        env, params = make(config)
         request_source = merged_out["source"]
         request_dest = merged_out["dest"]
         request_data_rate = merged_out["data_rate"]
@@ -930,7 +925,7 @@ def log_metrics(config, out, experiment_name, total_time, merge_func):
             df_path_links = pd.DataFrame(params.path_link_array.val).reset_index(drop=True)
             # Set config.weight = "weight" to use the length of the path for ordering else no. of hops
             config.weight = "weight" if not config.weight else None
-            env, params = define_env(config)
+            env, params = make(config)
             df_path_links_alt = pd.DataFrame(params.path_link_array.val).reset_index(drop=True)
             # Find rows that are unique to each dataframe
             # First, make a unique identifer for each row
@@ -956,3 +951,5 @@ def log_metrics(config, out, experiment_name, total_time, merge_func):
             print(f"Fraction of successful actions that use unique paths std: {unique_paths_used_std:.3f}")
             print(f"Fraction of successful actions that use unique paths IQR upper: {unique_paths_used_iqr_upper:.3f}")
             print(f"Fraction of successful actions that use unique paths IQR lower: {unique_paths_used_iqr_lower:.3f}")
+
+    return merged_out, processed_data

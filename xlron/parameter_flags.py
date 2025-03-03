@@ -40,7 +40,7 @@ flags.DEFINE_integer("NUM_UNITS", 64, "Number of hidden units in actor and criti
 flags.DEFINE_float("TEMPERATURE", 1.0, "Temperature for softmax action selection "
                                        "(high temperature, more exploration) or (low temperature, more exploitation)")
 # Additional training parameters
-flags.DEFINE_string("VISIBLE_DEVICES", "0", "Comma-separated indices of (desired) visible GPUs e.g. 1,2,3")
+flags.DEFINE_string("VISIBLE_DEVICES", None, "Comma-separated indices of (desired) visible GPUs e.g. 1,2,3")
 flags.DEFINE_boolean("PREALLOCATE_MEM", True, "Preallocate GPU memory")
 flags.DEFINE_string("PREALLOCATE_MEM_FRACTION", "0.95", "Fraction of GPU memory to preallocate")
 flags.DEFINE_boolean("PRINT_MEMORY_USE", False, "Print memory usage")
@@ -91,7 +91,7 @@ flags.DEFINE_integer("guardband", 1, "Guard band in slots")
 flags.DEFINE_integer("symbol_rate", 100, "Symbol rate in Gbaud (only used in RWA with lightpath reuse")
 flags.DEFINE_float("scale_factor", 1.0, "Scale factor for link capacity (only used in RWA with lightpath reuse)")
 flags.DEFINE_string("weight", None, "Edge attribute name for ordering k-shortest paths")
-flags.DEFINE_string("modulations_csv_filepath", "./modulations/modulations_deeprmsa.csv", "Modulation format definitions for RSA environment")
+flags.DEFINE_string("modulations_csv_filepath", "./xlron/data/modulations/modulations_deeprmsa.csv", "Modulation format definitions for RSA environment")
 flags.DEFINE_string("traffic_requests_csv_filepath", None, "Path to traffic request CSV file")
 flags.DEFINE_string("topology_directory", None, "Directory containing JSON definitions of network topologies")
 flags.DEFINE_string("multiple_topologies_directory", None,
@@ -158,8 +158,8 @@ flags.DEFINE_float("num_roadms", 1, "Consider ROADM loss in SNR calculation (1 R
 flags.DEFINE_float("roadm_loss", 18, "ROADM losses [dB]")
 flags.DEFINE_boolean("coherent", False, "Add NLI contribution coherently per span")
 flags.DEFINE_boolean("mod_format_correction", False, "Apply non-Gaussian modulation format correction")
-flags.DEFINE_float("interband_gap_width", 0, "Gap between C+L bands [GHz]")
-flags.DEFINE_integer("interband_gap_start", 70, "Start index of gap between C+L bands [GHz]")
+flags.DEFINE_float("interband_gap_width", 400, "Gap between C+L bands [GHz]")
+flags.DEFINE_integer("interband_gap_start", 5500, "Start index of gap between C+L bands [GHz]")
 flags.DEFINE_float("snr_margin", 0.5, "Margin required for estimated SNR for mod. format selection [dB]")
 flags.DEFINE_float("max_snr", 30, "Maximum SNR that a link can take (just used for normalization purposes)")
 flags.DEFINE_float("max_power", 0.5, "Maximum launch power [dBm]")

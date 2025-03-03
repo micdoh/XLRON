@@ -36,6 +36,4 @@ ignore:
   - "pyproject.toml"
   - "poetry.lock"
   - "README.md"
-  - "xlron/environments/*_test.py"
-  - "xlron/train/"
-  - "xlron/eval/"
+  - "xlron/environments/vone/"

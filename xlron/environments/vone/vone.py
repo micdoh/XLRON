@@ -8,13 +8,11 @@ import jax.numpy as jnp
 import jraph
 from gymnax.environments import environment, spaces
 from xlron.environments.env_funcs import (
-    init_vone_request_array, init_link_slot_array, init_path_link_array,
-    init_values_bandwidth, init_link_slot_mask, init_link_slot_departure_array, implement_vone_action,
-    check_vone_action, undo_action_rsa, finalise_vone_action, generate_vone_request, mask_slots, make_graph,
+    init_vone_request_array, init_link_slot_array, init_link_slot_mask, init_link_slot_departure_array,
+    check_vone_action, undo_action_rsa, finalise_vone_action, generate_vone_request, mask_slots, init_traffic_matrix,
     init_node_capacity_array, init_node_mask, init_node_resource_array, init_node_departure_array, init_values_nodes,
     init_action_counter, init_action_history, update_action_history, decrease_last_element, undo_node_action,
-    init_virtual_topology_patterns, mask_nodes, init_path_length_array, init_path_se_array, init_modulations_array,
-    required_slots, init_graph_tuple, format_vone_slot_request, init_link_length_array
+    init_virtual_topology_patterns, mask_nodes, init_graph_tuple, format_vone_slot_request, implement_vone_action,
 )
 from xlron.environments.dataclasses import *
 from xlron.environments.wrappers import *
@@ -24,7 +22,13 @@ class VONEEnv(environment.Environment):
     """This environment simulates the Virtual Optical Network Embedding (VONE) problem.
 
     """
-    def __init__(self, params: VONEEnvParams, virtual_topologies=["3_ring"], values_bw: chex.Array = jnp.array([0])):
+    def __init__(self,
+                 key: chex.PRNGKey,
+                 params: VONEEnvParams,
+                 virtual_topologies=["3_ring"],
+                 traffic_matrix: chex.Array = None,
+                 list_of_requests: chex.Array = None,
+                 laplacian_matrix: chex.Array = None,):
         super().__init__()
         state = VONEEnvState(
             current_time=0,
@@ -44,13 +48,15 @@ class VONEEnv(environment.Environment):
             node_mask_d=init_node_mask(params),
             virtual_topology_patterns=init_virtual_topology_patterns(virtual_topologies),
             values_nodes=init_values_nodes(params.min_node_resources, params.max_node_resources),
-            values_bw=values_bw,
             graph=None,
             full_link_slot_mask=init_link_slot_mask(params),
             accepted_services=0,
             accepted_bitrate=0.,
+            total_bitrate=0.,
+            list_of_requests=list_of_requests,
+            traffic_matrix=traffic_matrix if traffic_matrix is not None else init_traffic_matrix(key, params),
         )
-        self.initial_state = state.replace(graph=init_graph_tuple(state, params))
+        self.initial_state = state.replace(graph=init_graph_tuple(state, params, laplacian_matrix, exclude_source_dest=True))
 
     @partial(jax.jit, static_argnums=(0, 4))
     def step(
@@ -61,9 +67,6 @@ class VONEEnv(environment.Environment):
         params: Optional[EnvParams] = None,
     ) -> Tuple[chex.Array, EnvState, float, bool, dict]:
         """Performs step transitions in the environment."""
-        # Use default env parameters if no others specified
-        if params is None:
-            params = self.default_params
         key, key_reset = jax.random.split(key)
         obs_st, state_st, reward, done, info = self.step_env(
             key, state, action, params
@@ -87,9 +90,6 @@ class VONEEnv(environment.Environment):
         self, key: chex.PRNGKey, params: Optional[EnvParams] = None
     ) -> Tuple[chex.Array, EnvState]:
         """Performs resetting of environment."""
-        # Use default env parameters if no others specified
-        if params is None:
-            params = self.default_params
         obs, state = self.reset_env(key, params)
         return obs, state
 
@@ -120,7 +120,7 @@ class VONEEnv(environment.Environment):
         check = check_vone_action(state, remaining_actions, total_requested_nodes)
         state, reward = jax.lax.cond(
             check,  # Fail if true
-            lambda x: (undo_action_rsa(undo_node_action(x)), self.get_reward_failure(x)),
+            lambda x: (undo_action_rsa(undo_node_action(x), params), self.get_reward_failure(x)),
             lambda x: jax.lax.cond(
                 jnp.any(remaining_actions <= 1),  # Final action
                 lambda xx: (finalise_vone_action(xx), self.get_reward_success(xx)),  # Finalise actions if complete
@@ -146,6 +146,7 @@ class VONEEnv(environment.Environment):
         else:
             done = self.is_terminal(state, params)
         # Update graph tuple
+        # TODO - get the update graph tuple working with VONE
         state = state.replace(graph=init_graph_tuple(state, params))
         info = {}
         return self.get_obs(state), state, reward, done, info
@@ -257,108 +258,3 @@ class VONEEnv(environment.Environment):
                 "link_slot_departure_array": spaces.Discrete(params.num_links * params.link_resources),
             }
         )
-
-    @property
-    def default_params(self) -> EnvParams:
-        """Default environment parameters."""
-        return make_vone_env()[1]
-
-
-def make_vone_env(config):
-    """Create VONE environment.
-    Args:
-        config: Configuration dictionary
-    Returns:
-        env: VONE environment
-        params: VONE environment parameters
-    """
-    graph = make_graph(config.get("topology_name", "conus"))
-    load = config.get("load", 100.0)
-    mean_service_holding_time = config.get("mean_service_holding_time", 10.0)
-    arrival_rate = load / mean_service_holding_time
-    incremental_loading = config.get("incremental_loading", False)
-    end_first_blocking = config.get("end_first_blocking", False)
-    max_requests = config.get("max_requests", 1e4)
-    link_resources = config.get("link_resources", 100)
-    node_resources = config.get("node_resources", 30)
-    min_node_resources = config.get("min_node_resources", 1)
-    max_node_resources = config.get("max_node_resources", 2)
-    k = config.get("k", 5)
-    min_bw = config.get("min_bw", 25)
-    max_bw = config.get("max_bw", 100)
-    step_bw = config.get("step_bw", 25)
-    virtual_topologies = config.get("virtual_topologies", ["3_ring"])
-    slot_size = config.get("slot_size", 12.5)
-    consider_modulation_format = config.get("consider_modulation_format", False)
-    values_bw = config.get("values_bw", None)
-    continuous_operation = config.get("continuous_operation", False)
-    aggregate_slots = config.get("aggregate_slots", 1)
-    disjoint_paths = config.get("disjoint_paths", False)
-    guardband = config.get("guardband", 1)
-    weight = config.get("weight", None)
-
-    if values_bw:
-        values_bw = [int(val) for val in values_bw]
-    num_nodes = len(graph.nodes)
-    num_links = len(graph.edges)
-    path_link_array = init_path_link_array(graph, k, disjoint=disjoint_paths, weight=weight)
-
-    # Automated calculation of max edges in virtual topologies
-    max_edges = 0
-    for topology in virtual_topologies:
-        num, shape = topology.split("_")
-        max_edges = max(max_edges, int(num) - (0 if shape == "ring" else 1))
-
-    values_bw = init_values_bandwidth(min_bw, max_bw, step_bw, values_bw)
-    max_bw = max(values_bw)
-
-    # Automated calculation of max slots requested
-    if consider_modulation_format:
-        link_length_array = init_link_length_array(graph)
-        path_length_array = init_path_length_array(path_link_array, graph)
-        modulations_array = init_modulations_array(config.get("modulations_csv_filepath", None))
-        path_se_array = init_path_se_array(path_length_array, modulations_array)
-        min_se = min(path_se_array)  # if consider_modulation_format
-        max_slots = required_slots(max_bw, min_se, slot_size, guardband=guardband)
-    else:
-        link_length_array = jnp.ones((1, num_links))
-        path_se_array = jnp.array([1])
-        max_slots = required_slots(max_bw, 1, slot_size,  guardband=guardband)
-
-    if incremental_loading:
-        mean_service_holding_time = load = 1e6
-
-    # Define edges for use with heuristics and GNNs
-    edges = jnp.array(sorted(graph.edges))
-
-    params = VONEEnvParams(
-        max_requests=max_requests,
-        mean_service_holding_time=mean_service_holding_time,
-        k_paths=k,
-        node_resources=node_resources,
-        link_resources=link_resources,
-        num_nodes=num_nodes,
-        num_links=num_links,
-        load=load,
-        arrival_rate=arrival_rate,
-        max_edges=max_edges,
-        min_node_resources=min_node_resources,
-        max_node_resources=max_node_resources,
-        path_link_array=HashableArrayWrapper(path_link_array),
-        incremental_loading=incremental_loading,
-        end_first_blocking=end_first_blocking,
-        edges=HashableArrayWrapper(edges),
-        path_se_array=HashableArrayWrapper(path_se_array),
-        max_slots=int(max_slots),
-        consider_modulation_format=consider_modulation_format,
-        slot_size=slot_size,
-        continuous_operation=continuous_operation,
-        link_length_array=HashableArrayWrapper(link_length_array),
-        aggregate_slots=aggregate_slots,
-        guardband=guardband,
-        directed_graph=graph.is_directed(),
-    )
-
-    env = VONEEnv(params, virtual_topologies=virtual_topologies, values_bw=values_bw)
-
-    return env, params
