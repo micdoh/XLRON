@@ -5,8 +5,6 @@ coverage:
   precision: 2
   round: down
   range: "30...70"
-
-coverage:
   status:
     project: # settings affecting project coverage
       default:
