@@ -36,4 +36,4 @@ ignore:
   - "pyproject.toml"
   - "poetry.lock"
   - "README.md"
-  - "xlron/environments/vone/"
+  - "xlron/environments/vone"
