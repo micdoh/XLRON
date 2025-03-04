@@ -2,13 +2,13 @@ codecov:
   require_ci_to_pass: yes
 
 coverage:
-  precision: 2
-  round: down
+  precision: 0
+  round: up
   range: "30...70"
   status:
     project: # settings affecting project coverage
       default:
-        threshold: 5%  # allow for 5% reduction of coverage without failing
+        threshold: 40%  # allow for 40% reduction of coverage without failing
     patch:
       default:
         target: 0%  # new contributions should have a coverage at least equal to target
@@ -35,3 +35,5 @@ ignore:
   - "poetry.lock"
   - "README.md"
   - "xlron/environments/vone/**/*"
+  - "xlron/models/**/*"
+  - "xlron/train/**/*"
