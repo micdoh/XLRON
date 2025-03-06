@@ -820,7 +820,7 @@ def log_metrics(config, out, experiment_name, total_time, merge_func):
 
         for path_index, slot_index, source, dest, data_rate in zip(path_indices, slot_indices, request_source, request_dest, request_data_rate):
             source, dest = source.reshape(1), dest.reshape(1)
-            path_links = get_paths(params, jnp.concatenate([source, dest]))[path_index]
+            path_links = get_paths(params, jnp.concatenate([source, dest]))[path_index % params.k_paths]
             # Make path links into a string
             path_str = "".join([str(x.astype(jnp.int32)) for x in path_links])
             paths_list.append(path_str)
