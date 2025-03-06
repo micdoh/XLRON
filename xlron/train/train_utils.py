@@ -634,6 +634,8 @@ def process_metrics(config, out, total_time, merge_func):
     merged_out = {k: jax.tree.map(merge_func, v) for k, v in out["metrics"].items()}
     if not config.EVAL_HEURISTIC or not config.EVAL_MODEL:
         merged_out_loss = {k: jax.tree.map(lambda x: x.reshape((-1,)), v) for k, v in out.get("loss_info", {}).items()}
+    else:
+        merged_out_loss = None
 
     # Calculate blocking probabilities
     merged_out["service_blocking_probability"] = 1 - (
@@ -674,31 +676,30 @@ def process_metrics(config, out, total_time, merge_func):
             "episode_end_iqr_upper": episode_end_iqr_upper,
             "episode_end_iqr_lower": episode_end_iqr_lower,
         }
-    all_metrics = list(processed_data.keys())
     processed_data["training_time"] = (
             np.arange(len(processed_data["returns"]["mean"])) / len(processed_data["returns"]["mean"]) * total_time
     )
-    return merged_out, processed_data
+    return merged_out, merged_out_loss, processed_data, episode_ends
 
 
 def log_metrics(config, out, experiment_name, total_time, merge_func):
     """Log metrics to wandb and/or save episode end metrics to CSV."""
 
-    merged_out, processed_data = process_metrics(config, out, total_time, merge_func)
+    merged_out, merged_out_loss, processed_data, episode_ends = process_metrics(config, out, total_time, merge_func)
 
     all_metrics = list(processed_data.keys())
 
     if config.PLOTTING:
         print("Plotting metrics")
         if config.incremental_loading:
-            plot_metric = processed_data["accepted_services"]["mean"]
-            plot_metric_upper = processed_data["accepted_services"]["iqr_upper"]
-            plot_metric_lower = processed_data["accepted_services"]["iqr_lower"]
+            plot_metric = processed_data["accepted_services"]["episode_end_mean"]
+            plot_metric_upper = processed_data["accepted_services"]["episode_end_iqr_upper"]
+            plot_metric_lower = processed_data["accepted_services"]["episode_end_iqr_lower"]
             plot_metric_name = "Accepted Services"
         elif config.end_first_blocking:
-            plot_metric = processed_data["lengths"]["mean"]
-            plot_metric_upper = processed_data["lengths"]["iqr_upper"]
-            plot_metric_lower = processed_data["lengths"]["iqr_lower"]
+            plot_metric = processed_data["lengths"]["episode_end_mean"]
+            plot_metric_upper = processed_data["lengths"]["episode_end_iqr_upper"]
+            plot_metric_lower = processed_data["lengths"]["episode_end_iqr_lower"]
             plot_metric_name = "Episode Length"
         elif config.reward_type == "service":
             plot_metric = processed_data["service_blocking_probability"]["mean"]
@@ -721,7 +722,7 @@ def log_metrics(config, out, experiment_name, total_time, merge_func):
             plot_metric_upper,
             alpha=0.2
         )
-        plt.xlabel("Environment Step" if not config.end_first_blocking else "Episode Count")
+        plt.xlabel("Environment Step" if not config.incremental_loading else "Episode Count")
         plt.ylabel(plot_metric_name)
         plt.title(experiment_name)
         plt.show()
