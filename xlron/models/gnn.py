@@ -91,6 +91,8 @@ def GraphNetwork(
     update_edge_fn: Optional[GNUpdateEdgeFn],
     update_node_fn: Optional[GNUpdateNodeFn],
     update_global_fn: Optional[GNUpdateGlobalFn] = None,
+        # TODO: allow RNN/SSM to be used in the aggregation function
+        #  https://github.com/luchris429/popjaxrl/blob/main/algorithms/ppo_gru.py
     aggregate_edges_for_nodes_fn: AggregateEdgesToNodesFn = utils.segment_sum,
     aggregate_nodes_for_globals_fn: AggregateNodesToGlobalsFn = utils.segment_sum,
     aggregate_edges_for_globals_fn: AggregateEdgesToGlobalsFn = utils.segment_sum,
