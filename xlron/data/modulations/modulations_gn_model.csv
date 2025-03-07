@@ -1,0 +1,4 @@
+name,maximum_length,spectral_efficiency,minimum_osnr,inband_xt,excess_kurtosis
+BPSK,100000,1,6.8,-14,-1
+QPSK,2500,2,9.8,-17,-1
+16QAM,625,4,16.5,-23,-0.68

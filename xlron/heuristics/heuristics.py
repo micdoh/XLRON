@@ -2,10 +2,13 @@ import jax
 import jax.numpy as jnp
 from xlron.environments.env_funcs import *
 
+# TODO - define lower/highest GSNR heuristics. Will require returning an alternative mask
+#  e.g. of available SNR on path or of required slots
+
 
 @partial(jax.jit, static_argnums=(1,))
 def ksp_ff(state: EnvState, params: EnvParams) -> chex.Array:
-    """Get the first available slot from all k-shortest paths
+    """Get the first available slot from the shortest available path
     Method: Go through action mask and find the first available slot, starting from shortest path
 
     Args:
@@ -24,9 +27,43 @@ def ksp_ff(state: EnvState, params: EnvParams) -> chex.Array:
     return action
 
 
+def ksp_ff_multiband(state: EnvState, params: EnvParams) -> chex.Array:
+    """Get the first available slot from all k-shortest paths in multiband scenario
+    Method: Go through action mask and find the first available slot, starting from shortest path
+
+    Args:
+        state (MultiBandRSAEnvState): Environment state specific to multiband operations
+        params (MultiBandRSAEnvParams): Environment parameters including multiband details
+    Returns:
+        chex.Array: Action
+    """
+    pass
+
+
+@partial(jax.jit, static_argnums=(1,))
+def ksp_lf(state: EnvState, params: EnvParams) -> chex.Array:
+    """Get the last available slot on the shortest available path
+    Method: Go through action mask and find the last available slot, starting from shortest path
+
+    Args:
+        state (EnvState): Environment state
+        params (EnvParams): Environment parameters
+
+    Returns:
+        chex.Array: Action
+    """
+    last_slots = last_fit(state, params)
+    # Chosen path is the first one with an available slot
+    path_index = jnp.argmax(last_slots < params.link_resources)
+    slot_index = last_slots[path_index] % params.link_resources
+    # Convert indices to action
+    action = path_index * params.link_resources + slot_index
+    return action
+
+
 @partial(jax.jit, static_argnums=(1,))
 def ff_ksp(state: EnvState, params: EnvParams) -> chex.Array:
-    """Get the first available slot from the first k-shortest paths
+    """Get the first available slot from all paths
     Method: Go through action mask and find the first available slot on all paths
 
     Args:
@@ -40,6 +77,27 @@ def ff_ksp(state: EnvState, params: EnvParams) -> chex.Array:
     # Chosen path is the one with the lowest index of first available slot
     path_index = jnp.argmin(first_slots)
     slot_index = first_slots[path_index] % params.link_resources
+    # Convert indices to action
+    action = path_index * params.link_resources + slot_index
+    return action
+
+
+@partial(jax.jit, static_argnums=(1,))
+def lf_ksp(state: EnvState, params: EnvParams) -> chex.Array:
+    """Get the last available slot from all paths
+    Method: Go through action mask and find the last available slot on all paths
+
+    Args:
+        state (EnvState): Environment state
+        params (EnvParams): Environment parameters
+
+    Returns:
+        chex.Array: Action
+    """
+    last_slots = last_fit(state, params)
+    # Chosen path is the one with the highest index of last available slot
+    path_index = jnp.argmax(last_slots)
+    slot_index = last_slots[path_index] % params.link_resources
     # Convert indices to action
     action = path_index * params.link_resources + slot_index
     return action
@@ -201,16 +259,20 @@ def kmf_ff(state: RSAEnvState, params: RSAEnvParams) -> chex.Array:
     first_slots = first_fit(state, params)
     link_slot_array = jnp.where(state.link_slot_array < 0, 1., state.link_slot_array)
     nodes_sd, requested_bw = read_rsa_request(state.request_array)
-    block_sizes = jax.vmap(find_block_sizes, in_axes=(0,))(link_slot_array)
+    blocks = jax.vmap(find_block_sizes, in_axes=(0,))(link_slot_array)
 
     def get_frags_on_path(i, result):
         initial_slot_index = first_slots[i] % params.link_resources
         path = get_paths(params, nodes_sd)[i]
         se = get_paths_se(params, nodes_sd)[i] if params.consider_modulation_format else 1
         num_slots = required_slots(requested_bw, se, params.slot_size, guardband=params.guardband)
-        updated_slots = vmap_set_path_links(state.link_slot_array, path, initial_slot_index, num_slots, 1)
+        # Mask on path links
+        block_sizes = jax.vmap(lambda x, y: jnp.where(x > 0, y, 0.), in_axes=(0, 0))(path, blocks)
+        updated_slots = vmap_set_path_links(state.link_slot_array, path, initial_slot_index, num_slots, -1)
         updated_block_sizes = jax.vmap(find_block_sizes, in_axes=(0,))(updated_slots)
-        difference = updated_block_sizes - block_sizes * (1 - updated_slots)
+        # Mask on path links
+        updated_block_sizes = jax.vmap(lambda x, y: jnp.where(x > 0, y, 0.), in_axes=(0, 0))(path, updated_block_sizes)
+        difference = updated_block_sizes - block_sizes
         new_frags = jnp.where(difference != 0, block_sizes + difference, 0.)
         # Slice new frags up to initial slot index (so as to only consider frags to the left)
         new_frags = jnp.where(jnp.arange(params.link_resources) < initial_slot_index, new_frags, 0.)
@@ -326,7 +388,7 @@ def get_link_weights(state: EnvState, params: EnvParams):
         link_occupancy = jnp.count_nonzero(state.link_slot_array, axis=1)
     else:
         initial_path_capacity = init_path_capacity_array(
-            params.link_length_array.val, params.path_link_array.val, symbol_rate=100, scale_factor=1.0
+            params.link_length_array.val, params.path_link_array.val, scale_factor=1.0
         )
         initial_path_capacity = jnp.squeeze(jax.vmap(lambda x: initial_path_capacity[x])(state.path_index_array))
         utilisation = jnp.where(initial_path_capacity - state.link_capacity_array < 0, 0,
@@ -337,8 +399,7 @@ def get_link_weights(state: EnvState, params: EnvParams):
 
 
 def get_action_mask(state: EnvState, params: EnvParams) -> chex.Array:
-    state = mask_slots_rwa_lightpath_reuse(state, params, state.request_array) \
-        if params.__class__.__name__ == "RWALightpathReuseEnvParams" else mask_slots(state, params, state.request_array)
+    """N.B. The mask must already be present in the state!"""
     mask = jnp.reshape(state.link_slot_mask, (params.k_paths, -1))
     return mask
 
@@ -409,6 +470,18 @@ def first_fit(state: EnvState, params: EnvParams) -> chex.Array:
     return first_slots
 
 
+def last_fit(state: EnvState, params: EnvParams) -> chex.Array:
+    """Last-Fit Spectrum Allocation. Returns the last fit slot for each path."""
+    mask = get_action_mask(state, params)
+    # Add a column of ones to the mask to make sure that occupied paths have non-zero index in "last_slots"
+    mask = jnp.concatenate((jnp.full((mask.shape[0], 1), 1), mask), axis=1)
+    # Get index of last available slots for each path
+    last_slots = jnp.argmax(mask[:, ::-1], axis=1)
+    # Convert to index from the left
+    last_slots = params.link_resources - last_slots - 1
+    return last_slots
+
+
 @partial(jax.jit, static_argnums=(1, 2, 3))
 def most_used(state: EnvState, params: EnvParams, unique_lightpaths, relative) -> chex.Array:
     """Get the amount of utilised bandwidth on each lightpath.
@@ -430,7 +503,7 @@ def most_used(state: EnvState, params: EnvParams, unique_lightpaths, relative) -
     elif params.__class__.__name__ == "RWALightpathReuseEnvParams" and not unique_lightpaths:
         # Get initial path capacity
         initial_path_capacity = init_path_capacity_array(
-            params.link_length_array.val, params.path_link_array.val, symbol_rate=100, scale_factor=1.0
+            params.link_length_array.val, params.path_link_array.val, scale_factor=1.0
         )
         initial_path_capacity = jnp.squeeze(jax.vmap(lambda x: initial_path_capacity[x])(state.path_index_array))
         utilisation = jnp.where(initial_path_capacity - state.link_capacity_array < 0, 0,
