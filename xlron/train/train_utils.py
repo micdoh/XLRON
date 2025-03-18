@@ -800,6 +800,7 @@ def log_metrics(config, out, experiment_name, total_time, merge_func):
 
     # Print the final metrics to console
     for metric in all_metrics:
+        if metric == "training_time": continue;
         if config.continuous_operation:
             print(f"{metric}: {processed_data[metric]['mean'][-1]:.5f} ± {processed_data[metric]['std'][-1]:.5f}")
             print(f"{metric} mean: {processed_data[metric]['mean'][-1]:.5f}")
