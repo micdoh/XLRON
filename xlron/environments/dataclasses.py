@@ -89,6 +89,8 @@ class EnvParams:
         aggregate_slots (chex.Scalar): Number of slots to aggregate into a single action (First-Fit with aggregation)
         guardband (chex.Scalar): Guard band in slots
         directed_graph (bool): Whether graph is directed (one fibre per link per transmission direction)
+        temperature (chex.Scalar): Temp. used for softmax differentiable approximation
+        window_size (chex.Scalar): Window size for weighted average of neighbouring cells in differentiable indexing
     """
     max_requests: chex.Scalar = struct.field(pytree_node=False)
     incremental_loading: chex.Scalar = struct.field(pytree_node=False)
@@ -106,6 +108,8 @@ class EnvParams:
     values_bw: chex.Array = struct.field(pytree_node=False)
     truncate_holding_time: bool = struct.field(pytree_node=False)
     traffic_array: bool = struct.field(pytree_node=False)
+    temperature: chex.Scalar = struct.field(pytree_node=False)
+    window_size: chex.Scalar = struct.field(pytree_node=False)
 
 
 @struct.dataclass

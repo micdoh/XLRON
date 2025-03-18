@@ -430,7 +430,7 @@ class DifferentiableIndexWindowedTest(parameterized.TestCase):
         ("case_edge_end", jnp.array([1.0, 2.0, 3.0, 4.0, 5.0]), jnp.array(4.8)),
     )
     def test_differentiable_index_windowed(self, array, index):
-        result = self.variant(differentiable_index_windowed)(array, index)
+        result = self.variant(differentiable_index)(array, index)
 
         # Compare with standard indexing for forward pass (integer)
         expected = array[index.astype(jnp.int32)]
@@ -438,7 +438,7 @@ class DifferentiableIndexWindowedTest(parameterized.TestCase):
 
         # Test gradient flow for index
         def wrapper(idx):
-            return jnp.sum(differentiable_index_windowed(array, idx))
+            return jnp.sum(differentiable_index(array, idx))
 
         grad_fn = jax.grad(wrapper)
         grad_result = grad_fn(index)
@@ -451,7 +451,7 @@ class DifferentiableIndexWindowedTest(parameterized.TestCase):
         chex.assert_trees_all_close(result, orig_result, atol=1e-5)
 
         # Test with large window size (should match original implementation)
-        large_window_result = differentiable_index_windowed(array, index, len(array), temperature=10)
+        large_window_result = differentiable_index(array, index, len(array), temperature=10)
         chex.assert_trees_all_close(large_window_result, orig_result, atol=1e-7)
 
 

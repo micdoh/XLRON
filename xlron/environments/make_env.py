@@ -76,7 +76,7 @@ def make(config: Optional[Union[dict, absl.flags.FlagValues]], **kwargs) -> Tupl
     values_bw = config.get("values_bw", None)
     node_probabilities = config.get("node_probabilities", None)
     if values_bw:
-        values_bw = [int(val) for val in values_bw]
+        values_bw = [float(val) for val in values_bw]
     slot_size = config.get("slot_size", 12.5)
     min_bw = config.get("min_bw", 25)
     max_bw = config.get("max_bw", 100)
@@ -144,6 +144,10 @@ def make(config: Optional[Union[dict, absl.flags.FlagValues]], **kwargs) -> Tupl
     optimise_launch_power = config.get("optimise_launch_power", False)
     traffic_array = config.get("traffic_array", False)
     launch_power_array = config.get("launch_power_array", None)
+
+    # Differentiable approximation params
+    temperature = config.get("temperature", 1.0)
+    window_size = config.get("window_size", 1)
 
     # optimize_launch_power.py parameters
     num_spans = config.get("num_spans", 10)
@@ -214,6 +218,8 @@ def make(config: Optional[Union[dict, absl.flags.FlagValues]], **kwargs) -> Tupl
         if traffic_requests_csv_filepath:
             list_of_requests = np.loadtxt(traffic_requests_csv_filepath, delimiter=",")[1:, :]
             list_of_requests = jnp.array(list_of_requests)
+        elif config.get("list_of_requests", None) is not None:
+            list_of_requests = jnp.array(config.get("list_of_requests", [0]), dtype=jnp.float32)
         else:
             list_of_requests = init_list_of_requests(int(max_requests))
         max_requests = len(list_of_requests)
@@ -230,7 +236,7 @@ def make(config: Optional[Union[dict, absl.flags.FlagValues]], **kwargs) -> Tupl
         consider_modulation_format = False
     elif env_type == "rwa":
         guardband = 0
-        values_bw = jnp.array([slot_size])
+        values_bw = jnp.array([slot_size], dtype=jnp.float32)
         consider_modulation_format = False
     elif env_type == "rwa_lightpath_reuse":
         consider_modulation_format = False
@@ -257,7 +263,7 @@ def make(config: Optional[Union[dict, absl.flags.FlagValues]], **kwargs) -> Tupl
         path_length_array = init_path_length_array(path_link_array, graph)
         path_se_array = init_path_se_array(path_length_array, modulations_array)
         min_se = min(path_se_array)  # if consider_modulation_format
-        max_slots = required_slots(max_bw, min_se, slot_size, guardband=guardband)
+        max_slots = required_slots(max_bw, min_se, slot_size, guardband=guardband, temperature=temperature)
         max_spans = int(jnp.ceil(max(link_length_array) / max_span_length)[0])
         if env_type == "rmsa_gn_model" or env_type == "rsa_gn_model":
             link_length_array = init_link_length_array_gn_model(graph, max_span_length, max_spans)
@@ -273,12 +279,12 @@ def make(config: Optional[Union[dict, absl.flags.FlagValues]], **kwargs) -> Tupl
         else:
             # If considering just RSA without physical layer considerations
             link_length_array = jnp.ones((num_links, 1))
-        max_slots = required_slots(max_bw, 1, slot_size, guardband=guardband)
+        max_slots = required_slots(max_bw, 1, slot_size, guardband=guardband, temperature=temperature)
 
     if env_type == "rsa_gn_model":
         consider_modulation_format = False
         path_se_array = jnp.array([1])
-        max_slots = required_slots(max_bw, 1, slot_size, guardband=guardband)
+        max_slots = required_slots(max_bw, 1, slot_size, guardband=guardband, temperature=temperature)
 
     if incremental_loading:
         mean_service_holding_time = load = 1e6
@@ -321,6 +327,8 @@ def make(config: Optional[Union[dict, absl.flags.FlagValues]], **kwargs) -> Tupl
         log_actions=log_actions,
         traffic_array=traffic_array,
         disable_node_features=disable_node_features,
+        temperature=temperature,
+        window_size=window_size,
     )
 
     if env_type == "vone":

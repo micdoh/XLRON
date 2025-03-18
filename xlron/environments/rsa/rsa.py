@@ -8,6 +8,7 @@ from xlron.environments.env_funcs import (
     undo_action_rsa_gn_model, finalise_action_rsa_gn_model, undo_action_rmsa_gn_model, finalise_action_rmsa_gn_model,
     set_c_l_band_gap
 )
+from xlron.environments.diff_utils import *
 from xlron.environments.dataclasses import *
 from xlron.environments.wrappers import *
 
@@ -150,7 +151,7 @@ class RSAEnv(environment.Environment):
         finalise = finalise_action_rsa
         generate_request = generate_request_rsa
         input_state = [state, action, params]
-        check_state = [state]
+        check_state = [state, params]
         undo_finalise_state = [state, params, action]
         if params.__class__.__name__ == "RWALightpathReuseEnvParams":
             implement_action = implement_action_rwalr
@@ -181,11 +182,13 @@ class RSAEnv(environment.Environment):
         # Check if action was valid, calculate reward
         check_state[0] = undo_finalise_state[0] = state = implement_action(*input_state)
         check = check_action(*check_state)
-        state, reward = jax.lax.cond(
+        state, reward = differentiable_cond(
             check,  # Fail if true
             lambda x: (undo(*x[:2]), self.get_reward_failure(*x)),
             lambda x: (finalise(*x[:2]), self.get_reward_success(*x)),  # Finalise actions if complete
-            undo_finalise_state
+            undo_finalise_state,
+            threshold=0.0,
+            temperature=params.temperature,
         )
         # TODO (DYNAMIC-RWALR) - calculate allocated bandwidth
         # TODO (DYNAMIC-RWALR) - generate new request if allocated DR equals requested DR, else update requested DR do not advance time do not replace source-dest
@@ -308,17 +311,35 @@ class RSAEnv(environment.Environment):
         """
         return jnp.array(state.total_requests >= params.max_requests)
 
-    def discount(self, state: RSAEnvState, params: RSAEnvParams) -> chex.Array:
-        """Return a discount of zero if the episode has terminated.
+    @staticmethod
+    def add_integer_bonus(action, scale=0.):
+        """
+        Adds a small reward bonus that peaks at integer values.
 
         Args:
-            state: Environment state
-            params: Environment parameters
+            action: The action(s) to evaluate
+            scale: How strongly to encourage integer values
 
         Returns:
-            discount: Binary discount factor
+            A small reward bonus that peaks at integer values
         """
-        return jax.lax.select(self.is_terminal(state, params), 0.0, 1.0)
+        return scale * jnp.cos(2 * jnp.pi * action)
+
+
+    @staticmethod
+    def penalise_non_integer_action(action, scale=0.1):
+        """
+        Penalises non-integer actions.
+
+        Args:
+            action: The action(s) to evaluate
+            scale: How strongly to penalise non-integer values
+
+        Returns:
+            A penalty for non-integer actions
+        """
+        return -scale * jnp.abs(action - differentiable_round_simple(action))
+
 
     def get_reward_failure(
             self,
@@ -326,20 +347,19 @@ class RSAEnv(environment.Environment):
             params: Optional[EnvParams] = None,
             action: Optional[chex.Array] = None,
     ) -> chex.Array:
-        """Return reward for current state.
-
-        Args:
-            state (optional): Environment state
-
-        Returns:
-            reward: Reward for failure
-        """
+        """Return reward for current state."""
+        # Calculate original reward
         if params.reward_type == "service":
             reward = jnp.array(-1.0)
         elif params.reward_type == "bitrate":
             reward = state.request_array[1] * -1.0 / jnp.max(params.values_bw.val)
         else:
-            reward = -1.0 * read_rsa_request(state.request_array)[1] / jnp.max(params.values_bw.val) if params.maximise_throughput else jnp.array(-1.0)
+            reward = -1.0 * read_rsa_request(state.request_array)[1] / jnp.max(
+                params.values_bw.val) if params.maximise_throughput else jnp.array(-1.0)
+
+        # Add integer bonus if action is provided
+        #reward = reward + self.add_integer_bonus(action)
+
         return reward
 
     def get_reward_success(
@@ -348,45 +368,46 @@ class RSAEnv(environment.Environment):
             params: Optional[EnvParams] = None,
             action: Optional[chex.Array] = None
     ) -> chex.Array:
-        """Return reward for current state.
-
-        Args:
-            state: (optional) Environment state
-
-        Returns:
-            reward: Reward for success
-        """
+        """Return reward for current state."""
         reward = jnp.array(1.0)
+
         if params.__class__.__name__ in ["RSAGNModelEnvParams", "RMSAGNModelEnvParams"]:
             path_action, _ = action
         else:
             path_action = action
+
         if params.reward_type != "service":
             nodes_sd, requested_datarate = read_rsa_request(state.request_array)
             k_index, slot_index = process_path_action(state, params, path_action)
             reward = state.request_array[1] * 1.0 / jnp.max(params.values_bw.val)
+
+            # Additional rewards based on reward_type...
             if params.reward_type == "bitrate":
-                return reward
+                pass  # No additional calculation needed
             elif params.reward_type == "snr":
+                # SNR calculation...
                 assert params.__class__.__name__ == "RSAGNModelEnvParams"
                 path_start_index = get_path_indices(nodes_sd[0], nodes_sd[1], params.k_paths, params.num_nodes,
                                                     directed=params.directed_graph).astype(jnp.int32)
                 path = params.path_link_array[path_start_index + k_index]
                 path_snr = get_snr_for_path(path, state.link_snr_array, params)[slot_index.astype(jnp.int32)]
-                # set to 0 if negative and divide by large SNR (e.g. 50. dB) to scale below 1
-                # N.B. negative SNR in dB would be a fail anyway since min. required is 10dB
                 path_snr_norm = jnp.where(path_snr < 0, 0, path_snr) / params.max_snr
-                return reward + path_snr_norm
+                reward = reward + path_snr_norm
             elif params.reward_type == "mod_format":
+                # Modulation format calculation...
                 assert params.__class__.__name__ == "RSAGNModelEnvParams"
                 mod_format_index = get_path_slots(
                     state.modulation_format_index_array, params, nodes_sd, k_index, agg_func='max'
                 )[slot_index.astype(jnp.int32)]
-                return reward + 0.05*(1+mod_format_index)
-            else:
-                return reward
+                reward = reward + 0.05 * (1 + mod_format_index)
+
+        # For tuple actions, apply to path_action which is the slot selection
+        if params.__class__.__name__ in ["RSAGNModelEnvParams", "RMSAGNModelEnvParams"]:
+            reward = reward + self.add_integer_bonus(path_action)
         else:
-            return reward
+            reward = reward + self.penalise_non_integer_action(action) #+ self.add_integer_bonus(action)
+
+        return reward
 
     @property
     def name(self) -> str:

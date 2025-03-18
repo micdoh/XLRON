@@ -281,6 +281,86 @@ class LaunchPowerActorCriticMLP(nn.Module):
             return dist.prob(x)
 
 
+class ActorCriticLSTM(nn.Module):
+    action_dim: Sequence[int]
+    hidden_dim: int = 256  # Hidden dimension between 128-512 as recommended
+    lstm_dim: int = 256  # LSTM dimension same as hidden for simplicity
+    activation: str = "relu"  # Using ReLU as recommended in the blog
+    temperature: float = 1.0
+
+    @nn.compact
+    def __call__(self, x, carry=None):
+        # Initial fully connected layer
+        x = nn.Dense(
+            self.hidden_dim,
+            kernel_init=orthogonal(np.sqrt(2)),
+            bias_init=constant(0.0)
+        )(x)
+
+        # ReLU activation
+        if self.activation == "relu":
+            x = nn.relu(x)
+        elif self.activation == "crelu":
+            x = crelu(x)
+        else:
+            x = nn.tanh(x)
+
+        # Initialize or use LSTM state
+        if carry is None:
+            # Initialize LSTM carry (hidden state and cell state)
+            carry = nn.OptimizedLSTMCell.initialize_carry(
+                jax.random.PRNGKey(0),
+                batch_dims=x.shape[:-1],
+                size=self.lstm_dim
+            )
+
+        # LSTM layer - this replaces the main hidden layer as suggested in the blog
+        lstm_cell = nn.OptimizedLSTMCell(
+            features=self.lstm_dim,
+            kernel_init=orthogonal(1.0),
+            recurrent_kernel_init=orthogonal(1.0),
+            bias_init=constant(0.0)
+        )
+        new_carry, x = lstm_cell(carry, x)
+
+        # Actor head - fully connected to action logits
+        actor_out = nn.Dense(
+            self.action_dim,
+            kernel_init=orthogonal(0.01),
+            bias_init=constant(0.0)
+        )(x)
+
+        # Temperature scaling for exploration control
+        logits = actor_out / self.temperature
+
+        # Create action distribution
+        action_dist = distrax.Categorical(logits=logits)
+
+        # Critic head - fully connected to value output
+        critic = nn.Dense(
+            1,
+            kernel_init=orthogonal(1.0),
+            bias_init=constant(0.0)
+        )(x)
+
+        return action_dist, jnp.squeeze(critic, axis=-1), new_carry
+
+    def sample_action(self, seed, dist, log_prob=False, deterministic=False):
+        """Sample an action from the distribution"""
+        action = jnp.argmax(dist.probs()) if deterministic else dist.sample(seed=seed)
+        if log_prob:
+            return action, dist.log_prob(action)
+        return action
+
+    # For use with recurrent policy in training loop
+    def initial_state(self, batch_size=1):
+        return nn.OptimizedLSTMCell.initialize_carry(
+            jax.random.PRNGKey(0),
+            batch_dims=(batch_size,),
+            size=self.lstm_dim
+        )
+
+
 class GraphNet(nn.Module):
     """A complete Graph Network model defined with Jraph."""
 

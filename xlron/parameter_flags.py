@@ -183,3 +183,5 @@ flags.DEFINE_integer("CUTSET_TOP_K", 50, "Number of top congested cutsets to ret
 # Flags for capacity estimation with Baroni method
 flags.DEFINE_boolean("deterministic_requests", False, "Use deterministic requests")
 flags.DEFINE_boolean("sort_requests", True, "Sort requests in descending order of required resources")
+# Flags for defining approximation parameters for differentiable functions
+flags.DEFINE_float("temperature", 1.0, "Temperature for differentiable function approximations (higher temp. = closer to original function)")
