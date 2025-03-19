@@ -94,7 +94,7 @@ def differentiable_compare(x, y, op_type='==', temperature=1.0):
         raise ValueError(f"Unknown operation type: {op_type}")
 
     # Apply straight-through gradient trick
-    return straight_through(hard_result, soft_result)
+    return straight_through(hard_result, x)
 
 
 def differentiable_argmax(x, temperature=1.0):
@@ -121,23 +121,6 @@ def differentiable_argmax(x, temperature=1.0):
     return straight_through(hard_argmax, soft_argmax)
 
 
-def masked_select(values, mask, replacement, threshold, temperature=1.0):
-    """
-    A differentiable version of selecting values based on a mask.
-    Equivalent to jnp.where(mask, values, replacement).
-
-    Args:
-        values: The values to select from
-        mask: Boolean or 0/1 mask indicating which values to keep
-        replacement: Value to use where mask is False
-        temperature: Controls the sharpness of the sigmoid approximation
-
-    Returns:
-        Masked values that are differentiable
-    """
-    return differentiable_where(mask, values, replacement, threshold, temperature)
-
-
 def differentiable_round_simple(x, temperature=1.0):
     """
     A simpler differentiable approximation of rounding.
@@ -149,7 +132,6 @@ def differentiable_round_simple(x, temperature=1.0):
     Returns:
         Tensor with rounded values in forward pass but differentiable gradients
     """
-    temperature = 0.4
     # Hard version: Standard round (non-differentiable)
     hard_round = jnp.round(x)
     # Soft version: Use sigmoid for each fractional part
@@ -157,9 +139,7 @@ def differentiable_round_simple(x, temperature=1.0):
     # For values < 0.5, we round down (output = floor(x))
     # For values >=.5, we round up (output = floor(x) + 1)
     # This sigmoid approaches 1.0 when fractional >= 0.5
-    sigmoid_result = jax.nn.sigmoid(temperature * (fractional - 0.5))
-    # Combine floor and ceiling with sigmoid weighting
-    soft_round = jnp.floor(x) + sigmoid_result
+    soft_round = jnp.floor(x) + jax.nn.sigmoid(temperature * (fractional - 0.5))
     # Apply straight-through gradient trick
     return straight_through(hard_round, x)
 
@@ -176,7 +156,6 @@ def differentiable_round(x, decimals=0, temperature=1.0):
     Returns:
         Tensor with rounded values in forward pass but differentiable gradients
     """
-    temperature = 0.4
     # Hard version: Standard round (non-differentiable)
     hard_round = jnp.round(x, decimals)
     # Scale to make decimal rounding equivalent to integer rounding
@@ -185,9 +164,8 @@ def differentiable_round(x, decimals=0, temperature=1.0):
     # Soft version: Use sigmoid for each fractional part
     fractional = x_scaled - jnp.floor(x_scaled)
     # This sigmoid approaches 1.0 when fractional >= 0.5
-    sigmoid_result = jax.nn.sigmoid(temperature * (fractional - 0.5))
     # Combine floor and ceiling with sigmoid weighting
-    soft_round = (jnp.floor(x_scaled) + sigmoid_result) / scale
+    soft_round = (jnp.floor(x_scaled) + jax.nn.sigmoid(temperature * (fractional - 0.5))) / scale
     # Apply straight-through gradient trick
     return straight_through(hard_round, x)
 
@@ -212,8 +190,7 @@ def differentiable_ceil(x, temperature=1.0):
     # When fractional is > 0, ceiling is floor + 1
     # We use a sigmoid that approaches 1 for any fractional > 0
     # Higher temperature makes this transition sharper
-    ceil_offset = jax.nn.sigmoid(temperature * fractional)
-    soft_ceil = jnp.floor(x) + ceil_offset
+    soft_ceil = jnp.floor(x) + jax.nn.sigmoid(temperature * fractional)
     # Apply straight-through gradient trick
     return straight_through(hard_ceil, x)
 
@@ -229,7 +206,6 @@ def differentiable_floor(x, temperature=1.0):
     Returns:
         Tensor with floor values in forward pass but differentiable gradients
     """
-    #temperature = 0.1
     # Hard version: Standard floor (non-differentiable)
     hard_floor = jnp.floor(x)
     # Soft version:
@@ -239,8 +215,7 @@ def differentiable_floor(x, temperature=1.0):
     # When fractional is > 0, floor is ceil - 1
     # We use a sigmoid that approaches 1 for any fractional > 0
     # Higher temperature makes this transition sharper
-    floor_offset = jax.nn.sigmoid(temperature * fractional)
-    soft_floor = jnp.ceil(x) - floor_offset
+    soft_floor = jnp.ceil(x) - jax.nn.sigmoid(temperature * fractional)
     # Apply straight-through gradient trick
     return straight_through(hard_floor, x)
 
@@ -269,62 +244,6 @@ def differentiable_one_hot_index_update(array, indices, values, temperature):
     soft_result = (1 - mask) * array + mask * values
     # Apply straight-through gradient trick
     return straight_through(hard_result, soft_result)
-
-
-def differentiable_index(array, index, temperature=1.0):
-    """
-    Differentiable indexing along the 0-axis (first dimension).
-    e.g. can replace array[index] with differentiable_index(array, index)
-
-    Args:
-        array: Input array/tensor to index into
-        index: Index to select (can be fractional)
-        temperature: Controls sharpness of selection (larger = sharper)
-
-    Returns:
-        The indexed value with gradient flow through the index
-    """
-    hard_result = array[index.astype(jnp.int32)]
-    # Ensure index is a float for gradient flow
-    index = jnp.asarray(index, dtype=jnp.float32)
-    # Get the length of the first dimension
-    length = array.shape[0]
-    # Create positions
-    positions = jnp.arange(length, dtype=jnp.float32)
-    # Create weights based on proximity to the target index
-    weights = jnp.exp(-((positions - index) ** 2) * temperature)
-    # Normalize weights to sum to 1
-    weights = weights / jnp.sum(weights)
-    # Reshape weights for broadcasting along the first dimension only
-    weights_shape = [length] + [1] * (array.ndim - 1)
-    weights = weights.reshape(weights_shape)
-    # Apply weights and sum along the first dimension
-    soft_result = jnp.sum(array * weights, axis=0)
-    # Apply straight-through gradient trick
-    return straight_through(hard_result, soft_result)
-
-
-def differentiable_window_mask(positions, index, half_window, temperature=1.0):
-    """
-    Create a differentiable mask for positions within a window of the index.
-    Args:
-        positions: Array of position indices
-        index: Target index (can be fractional)
-        half_window: Half-width of the window
-        temperature: Controls sharpness of the mask boundaries
-    Returns:
-        Soft mask with values close to 1 inside window, close to 0 outside
-    """
-    # Calculate distance from window boundaries
-    # Positive inside window, negative outside
-    dist_from_lower = positions - (index - half_window)
-    dist_from_upper = (index + half_window) - positions
-    # Apply sigmoid to create soft boundaries
-    # Values close to 1 inside window, close to 0 outside
-    lower_mask = jax.nn.sigmoid(temperature * dist_from_lower)
-    upper_mask = jax.nn.sigmoid(temperature * dist_from_upper)
-    # Combine masks (both need to be close to 1 to be in window)
-    return lower_mask * upper_mask
 
 
 def differentiable_index(array, index, temperature=1.0):
@@ -456,3 +375,43 @@ def differentiable_cond(condition, true_fn, false_fn, operand, threshold=0.0, te
 #         straight_through,
 #         hard_result, soft_result
 #     )
+
+
+# def masked_select(values, mask, replacement, threshold, temperature=1.0):
+#     """
+#     A differentiable version of selecting values based on a mask.
+#     Equivalent to jnp.where(mask, values, replacement).
+#
+#     Args:
+#         values: The values to select from
+#         mask: Boolean or 0/1 mask indicating which values to keep
+#         replacement: Value to use where mask is False
+#         temperature: Controls the sharpness of the sigmoid approximation
+#
+#     Returns:
+#         Masked values that are differentiable
+#     """
+#     return differentiable_where(mask, values, replacement, threshold, temperature)
+
+
+# def differentiable_window_mask(positions, index, half_window, temperature=1.0):
+#     """
+#     Create a differentiable mask for positions within a window of the index.
+#     Args:
+#         positions: Array of position indices
+#         index: Target index (can be fractional)
+#         half_window: Half-width of the window
+#         temperature: Controls sharpness of the mask boundaries
+#     Returns:
+#         Soft mask with values close to 1 inside window, close to 0 outside
+#     """
+#     # Calculate distance from window boundaries
+#     # Positive inside window, negative outside
+#     dist_from_lower = positions - (index - half_window)
+#     dist_from_upper = (index + half_window) - positions
+#     # Apply sigmoid to create soft boundaries
+#     # Values close to 1 inside window, close to 0 outside
+#     lower_mask = jax.nn.sigmoid(temperature * dist_from_lower)
+#     upper_mask = jax.nn.sigmoid(temperature * dist_from_upper)
+#     # Combine masks (both need to be close to 1 to be in window)
+#     return lower_mask * upper_mask

@@ -1375,14 +1375,13 @@ def differentiable_check_no_spectrum_reuse(link_slot_array, temperature=1.0):
         but allows gradient flow in the backward pass
     """
     # Hard result for forward pass (original behavior)
-    hard_result = jnp.any(link_slot_array < -1)
+    hard_result = check_no_spectrum_reuse(link_slot_array)
 
     # Soft result for gradient flow:
     # 1. Measure how much each element violates the condition (< -1)
     violations = jnp.maximum(0, -1 - link_slot_array)
 
     # 2. Sum all violations to get a continuous measure
-    total_violation = jnp.sum(violations)
     total_violation = jnp.max(violations)
 
     # 3. Apply sigmoid to map to 0-1 range with smooth transition
@@ -1391,7 +1390,7 @@ def differentiable_check_no_spectrum_reuse(link_slot_array, temperature=1.0):
     soft_result = jax.nn.sigmoid(temperature * total_violation)
 
     # Apply straight-through trick
-    return straight_through(hard_result, soft_result)
+    return straight_through(hard_result, total_violation)
 
 
 def check_topology(action_history, topology_pattern):
