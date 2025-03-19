@@ -28,9 +28,7 @@ plugins:
       default_handler: python
       handlers:
         python:
-          paths: [xlron]
-          setup_commands:
-            - import sys
+          paths: []
           options:
             show_source: true
             show_root_heading: false
@@ -46,5 +44,5 @@ nav:
     - About:
       - 'License and Support': 'license.md'
       - 'Change Log': 'changelog.md'
-extra_files:
-  - example_sweep_config.yml
+not_in_nav: |
+  /example_sweep_config.yml

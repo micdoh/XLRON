@@ -1,21 +1,13 @@
-import os
-import math
-import absl
-import chex
 import jax
-import jax.numpy as jnp
-import flax.linen as nn
 import optax
-import distrax
-from flax.linen.initializers import constant, orthogonal
-from typing import Sequence, NamedTuple, Any, Tuple, Callable
+import jax.numpy as jnp
+from absl import flags
 from flax.training.train_state import TrainState
 from gymnax.environments import environment
-from xlron.environments.env_funcs import *
-from xlron.environments.wrappers import LogWrapper
-from xlron.environments.vone import make_vone_env
-from xlron.environments.rsa import make_rsa_env
-from xlron.models.models import ActorCriticGNN, ActorCriticMLP
+from tensorflow_probability.substrates.jax.distributions.student_t import entropy
+
+from xlron.environments.env_funcs import process_path_action
+from xlron.environments.gn_model.isrs_gn_model import to_dbm
 from xlron.environments.dataclasses import EnvState, EnvParams, VONETransition, RSATransition
 from xlron.train.train_utils import *
 
@@ -24,21 +16,15 @@ def get_learner_fn(
     env: environment.Environment,
     env_params: EnvParams,
     train_state: TrainState,
-    config: absl.flags.FlagValues,
+    config: flags.FlagValues,
 ) -> Callable:
 
     # TRAIN LOOP
     def _update_step(runner_state, unused):
         # COLLECT TRAJECTORIES
 
-        runner_state, env_state, last_obs, rng = runner_state
-        rng, rng_epoch, rng_step = jax.random.split(rng, 3)
-
-        # Add rngs to runner_state tuple
-        runner_state = (runner_state, env_state, last_obs, rng, rng_epoch, rng_step)
-
         def _env_step(runner_state, unused):
-            train_state, env_state, last_obs, rng, rng_epoch, rng_step = runner_state
+            train_state, env_state, last_obs, rng_step, rng_epoch = runner_state
 
             rng_step, action_key, step_key = jax.random.split(rng_step, 3)
 
@@ -47,7 +33,7 @@ def get_learner_fn(
             select_action_fn = lambda x: select_action(x, env, env_params, train_state, config)
             select_action_fn = jax.vmap(select_action_fn)
             select_action_state = (action_key, env_state, last_obs)
-            action, log_prob, value = select_action_fn(select_action_state)
+            env_state, action, log_prob, value = select_action_fn(select_action_state)
 
             # STEP ENV
             step_key = jax.random.split(step_key, config.NUM_ENVS)
@@ -63,13 +49,18 @@ def get_learner_fn(
             ) if config.env_type.lower() == "vone" else RSATransition(
                 done, action, value, reward, log_prob, last_obs, info, env_state.env_state.link_slot_mask
             )
-            runner_state = (train_state, env_state, obsv, rng, rng_epoch, rng_step)
+            runner_state = (train_state, env_state, obsv, rng_step, rng_epoch)
 
             if config.DEBUG:
-                jax.debug.print("log_prob {}", log_prob, ordered=config.ORDERED)
+                path_action = action[0][0] if config.env_type.lower() == "rsa_gn_model" else action
+                path_index, slot_index = process_path_action(env_state.env_state, env_params, path_action)
+                path = env_params.path_link_array[path_index]
+                get_path_links = lambda x: jnp.dot(path, x)
+                jax.debug.print("state.request_array {}", env_state.env_state.request_array, ordered=config.ORDERED)
                 jax.debug.print("action {}", action, ordered=config.ORDERED)
+                jax.debug.print("log_prob {}", log_prob, ordered=config.ORDERED)
                 jax.debug.print("reward {}", reward, ordered=config.ORDERED)
-                #jax.debug.print("link_slot_array {}", env_state.env_state.link_slot_array, ordered=config.ORDERED)
+                jax.debug.print("link_slot_array {}", get_path_links(env_state.env_state.link_slot_array), ordered=config.ORDERED)
                 #jax.debug.print("link_slot_mask {}", env_state.env_state.link_slot_mask, ordered=config.ORDERED)
                 if config.env_type.lower() == "vone":
                     jax.debug.print("node_mask_s {}", env_state.env_state.node_mask_s, ordered=config.ORDERED)
@@ -78,6 +69,11 @@ def get_learner_fn(
                     jax.debug.print("action_counter {}", env_state.env_state.action_counter, ordered=config.ORDERED)
                     jax.debug.print("request_array {}", env_state.env_state.request_array, ordered=config.ORDERED)
                     jax.debug.print("node_capacity_array {}", env_state.env_state.node_capacity_array, ordered=config.ORDERED)
+                elif config.env_type.lower() == "rsa_gn_model":
+                    jax.debug.print("modulation_format_index_array {}", get_path_links(env_state.env_state.modulation_format_index_array), ordered=config.ORDERED)
+                    jax.debug.print("channel_centre_bw_array {}", get_path_links(env_state.env_state.channel_centre_bw_array), ordered=config.ORDERED)
+                    jax.debug.print("link_snr_array {}", get_path_links(env_state.env_state.link_snr_array), ordered=config.ORDERED)
+                    jax.debug.print("channel_power_array {}", get_path_links(env_state.env_state.channel_power_array), ordered=config.ORDERED)
             return runner_state, transition
 
         runner_state, traj_batch = jax.lax.scan(
@@ -87,7 +83,7 @@ def get_learner_fn(
             jax.debug.print("traj_batch.info {}", traj_batch.info, ordered=config.ORDERED)
 
         # CALCULATE ADVANTAGE
-        train_state, env_state, last_obs, rng, rng_epoch, rng_step = runner_state
+        train_state, env_state, last_obs, rng_step, rng_epoch = runner_state
         last_obs = (env_state.env_state, env_params) if config.USE_GNN else last_obs
         axes = (None, 0, None) if config.USE_GNN else (None, 0)
         _, last_val = jax.vmap(train_state.apply_fn, in_axes=axes)(train_state.params, *last_obs)
@@ -130,12 +126,13 @@ def get_learner_fn(
                     pi, value = jax.vmap(train_state.apply_fn, in_axes=axes)(params, *traj_batch.obs)
 
                     if config.env_type.lower() == "vone":
+                        # TODO - change this to use logits not separate pi
                         pi_source = distrax.Categorical(
-                            logits=jnp.where(traj_batch.action_mask_s, pi[0]._logits, -1e8))
+                            logits=jnp.where(traj_batch.action_mask_s, pi._logits, -1e8))
                         pi_path = distrax.Categorical(
-                            logits=jnp.where(traj_batch.action_mask_p, pi[1]._logits, -1e8))
+                            logits=jnp.where(traj_batch.action_mask_p, pi._logits, -1e8))
                         pi_dest = distrax.Categorical(
-                            logits=jnp.where(traj_batch.action_mask_d, pi[2]._logits, -1e8))
+                            logits=jnp.where(traj_batch.action_mask_d, pi._logits, -1e8))
                         action_s = traj_batch.action[:, 0]
                         action_p = traj_batch.action[:, 1]
                         action_d = traj_batch.action[:, 2]
@@ -150,9 +147,50 @@ def get_learner_fn(
                         log_prob = pi_masked.log_prob(traj_batch.action)
                         entropy = pi_masked.entropy().mean()
 
+                    elif config.env_type.lower() == "rsa_gn_model" and config.launch_power_type == "rl":
+                        path_actions = traj_batch.action[..., 0]
+                        power_actions = traj_batch.action[..., 1]
+                        path_dist, power_dist = pi
+                        path_log_prob = path_entropy = 0.0
+                        if config.GNN_OUTPUT_RSA:
+                            pi_masked = distrax.Categorical(logits=jnp.where(traj_batch.action_mask, path_dist._logits, -1e8))
+                            path_log_prob = pi_masked.log_prob(path_actions)
+                            path_entropy = pi_masked.entropy().mean()
+
+
+                        path_indices = jax.vmap(process_path_action, in_axes=(0, None, 0))(traj_batch.obs[0], env_params, path_actions)[0]
+                        # Re-scale action from [min_power, max_power] to [0, 1]
+                        power_actions = jnp.astype(
+                            (to_dbm(power_actions) - env_params.min_power) / env_params.step_power,
+                            jnp.int32
+                        )
+                        # Repeat the power action along the last axis K-paths time
+                        power_actions = jnp.tile(power_actions[..., None], (1, env_params.k_paths))
+                        power_log_prob = power_dist.log_prob(power_actions)
+                        # Slice log prob to just take the path index
+                        power_log_prob = jax.vmap(lambda x, i: jax.lax.dynamic_slice(x, (i,), (1,)))(power_log_prob, path_indices)
+                        power_entropy = power_dist.entropy().mean()
+
+
+                        #power_log_prob = power_dist.log_prob(power_actions)
+                        #power_entropy = power_dist.entropy().mean()
+                        log_prob = path_log_prob + power_log_prob
+                        entropy = path_entropy + power_entropy
+                        if config.DEBUG:
+                            jax.debug.print("targets {}", targets, ordered=config.ORDERED)
+                            jax.debug.print("path_actions {}", path_actions, ordered=config.ORDERED)
+                            jax.debug.print("power_actions {}", power_actions, ordered=config.ORDERED)
+                            jax.debug.print("path_log_prob {}", path_log_prob, ordered=config.ORDERED)
+                            jax.debug.print("power_log_prob {}", power_log_prob, ordered=config.ORDERED)
+                            jax.debug.print("path_entropy {}", path_entropy, ordered=config.ORDERED)
+                            jax.debug.print("power_entropy {}", power_entropy, ordered=config.ORDERED)
+                            jax.debug.print("power logits {}", power_dist._logits, ordered=config.ORDERED)
+                            jax.debug.print("log_prob {}", log_prob, ordered=config.ORDERED)
+                            jax.debug.print("entropy {}", entropy, ordered=config.ORDERED)
+
                     else:
-                        log_prob = pi[0].log_prob(traj_batch.action)
-                        entropy = pi[0].entropy().mean()
+                        log_prob = pi.log_prob(traj_batch.action)
+                        entropy = pi.entropy().mean()
 
                     # CALCULATE VALUE LOSS
                     value_pred_clipped = traj_batch.value + (
@@ -186,6 +224,7 @@ def get_learner_fn(
                     )
 
                     if config.DEBUG:
+                        jax.debug.print("log_prob {}", log_prob, ordered=config.ORDERED)
                         jax.debug.print("entropy {}", entropy, ordered=config.ORDERED)
                         jax.debug.print("ratio {}", ratio, ordered=config.ORDERED)
                         jax.debug.print("gae {}", gae, ordered=config.ORDERED)
@@ -196,16 +235,19 @@ def get_learner_fn(
                         jax.debug.print("entropy {}", entropy, ordered=config.ORDERED)
                         jax.debug.print("total_loss {}", total_loss, ordered=config.ORDERED)
 
-                    return total_loss, (value_loss, loss_actor, entropy)
+                    return total_loss, (log_prob.mean(), ratio.mean(), gae.mean(), value_loss, loss_actor, entropy)
 
                 grad_fn = jax.value_and_grad(_loss_fn, has_aux=True)
                 total_loss, grads = grad_fn(
                     train_state.params, traj_batch, advantages, targets
                 )
                 train_state = train_state.apply_gradients(grads=grads)
+                if config.DEBUG:
+                    grad_norm = optax.global_norm(grads)
+                    jax.debug.print("gradient_norm {}", grad_norm)
                 return train_state, total_loss
 
-            train_state, traj_batch, advantages, targets, rng, rng_epoch, rng_step = update_state
+            train_state, traj_batch, advantages, targets, rng_step, rng_epoch = update_state
             rng_epoch, perm_key = jax.random.split(rng_epoch, 2)
             batch_size = config.MINIBATCH_SIZE * config.NUM_MINIBATCHES
             assert (
@@ -228,17 +270,27 @@ def get_learner_fn(
             train_state, total_loss = jax.lax.scan(
                 _update_minbatch, train_state, minibatches
             )
-            runner_state = (train_state, traj_batch, advantages, targets, rng, rng_epoch, rng_step)
+            runner_state = (train_state, traj_batch, advantages, targets, rng_step, rng_epoch)
             return runner_state, total_loss
 
-        update_state = (train_state, traj_batch, advantages, targets, rng, rng_epoch, rng_step)
+        update_state = (train_state, traj_batch, advantages, targets, rng_step, rng_epoch)
         update_state, loss_info = jax.lax.scan(
             _update_epoch, update_state, None, config.UPDATE_EPOCHS
         )
         train_state = update_state[0]
         metric = traj_batch.info
-        rng = update_state[-3]
-        runner_state = (train_state, env_state, last_obs, rng)
+        rng_step = update_state[4]
+        rng_epoch = update_state[5]
+        runner_state = (train_state, env_state, last_obs, rng_step, rng_epoch)
+        loss_info = {
+            "loss/total_loss": loss_info[0].reshape(-1),
+            "loss/log_prob": loss_info[1][0].reshape(-1),
+            "loss/ratio": loss_info[1][1].reshape(-1),
+            "loss/gae": loss_info[1][2].reshape(-1),
+            "loss/value_loss": loss_info[1][3].reshape(-1),
+            "loss/loss_actor": loss_info[1][4].reshape(-1),
+            "loss/entropy": loss_info[1][5].reshape(-1),
+        }
 
         if config.DEBUG:
             jax.debug.print("metric {}", metric, ordered=config.ORDERED)
@@ -253,47 +305,3 @@ def get_learner_fn(
         return {"runner_state": train_state, "metrics": metric_info, "loss_info": loss_info}
 
     return learner_fn
-
-
-def learner_data_setup(config: absl.flags.FlagValues, rng: chex.PRNGKey) -> Tuple:
-
-    env, env_params = define_env(config)
-    rng, rng_epoch, rng_step, reset_key, network_key, warmup_key = jax.random.split(rng, 6)
-    reset_key = jax.random.split(reset_key, config.NUM_ENVS)
-    obsv, env_state = jax.vmap(env.reset, in_axes=(0, None))(reset_key, env_params)
-    obsv = (env_state.env_state, env_params) if config.USE_GNN else tuple([obsv])
-
-    # INIT NETWORK
-    network, init_x = init_network(config, env, env_state, env_params)
-    init_x = (jax.tree.map(lambda x: x[0], init_x[0]), init_x[1]) if config.USE_GNN else init_x
-
-    if config.LOAD_MODEL:
-        network_params = config.model["model"]["params"]
-        print('Retraining model')
-    else:
-        network_params = network.init(network_key, *init_x)
-
-    # INIT LEARNING RATE SCHEDULE
-    lr_schedule = make_lr_schedule(config)
-
-    tx = optax.chain(
-        optax.clip_by_global_norm(config.MAX_GRAD_NORM),
-        optax.adam(learning_rate=lr_schedule, eps=config.ADAM_EPS, b1=config.ADAM_BETA1, b2=config.ADAM_BETA2),
-    )
-    train_state = TrainState.create(
-        apply_fn=network.apply,
-        params=network_params,
-        tx=tx,
-    )
-
-    # Recreate DeepRMSA warmup period
-    warmup_key = jax.random.split(warmup_key, config.NUM_ENVS)
-    warmup_state = (warmup_key, env_state, obsv)
-    warmup_fn = get_warmup_fn(warmup_state, env, env_params, train_state, config)
-    warmup_fn = jax.vmap(warmup_fn)
-    env_state, obsv = warmup_fn(warmup_state)
-
-    # Initialise learner state.
-    init_train_state = (train_state, env_state, obsv, rng)
-
-    return init_train_state, env, env_params
