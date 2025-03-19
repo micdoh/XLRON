@@ -1364,33 +1364,38 @@ def check_no_spectrum_reuse(link_slot_array):
 
 def differentiable_check_no_spectrum_reuse(link_slot_array, temperature=1.0):
     """
-    Differentiable version of check_no_spectrum_reuse.
+    Differentiable version of check_no_spectrum_reuse with improved gradient properties.
 
     Args:
         link_slot_array: Link slot array (L x S) where L is number of links and S is number of slots
-        temperature: Controls the sharpness of the sigmoid transition
+        temperature: Controls the sharpness of the gradient response
 
     Returns:
         A value that behaves like the original boolean check in forward pass
-        but allows gradient flow in the backward pass
+        but has zero gradient when there are no violations and otherwise
+        has gradient pointing toward reducing violations
     """
     # Hard result for forward pass (original behavior)
-    hard_result = check_no_spectrum_reuse(link_slot_array)
+    hard_result = jnp.any(link_slot_array < -1)
 
-    # Soft result for gradient flow:
-    # 1. Measure how much each element violates the condition (< -1)
+    # Measure violations (how much each element exceeds the threshold of -1)
     violations = jnp.maximum(0, -1 - link_slot_array)
 
-    # 2. Sum all violations to get a continuous measure
+    # Sum all violations
     total_violation = jnp.max(violations)
 
-    # 3. Apply sigmoid to map to 0-1 range with smooth transition
-    # When total_violation = 0, this will be close to 0
-    # When total_violation > 0, this will approach 1
-    soft_result = jax.nn.sigmoid(temperature * total_violation)
+    # Scale violations by temperature
+    scaled_violation = temperature * total_violation
+
+    # Use a function with zero gradient at zero: x²/(1+x²)
+    # This function:
+    # - Equals 0 when there are no violations
+    # - Has gradient 0 when there are no violations
+    # - Grows monotonically toward 1 as violations increase
+    soft_result = (scaled_violation ** 2) / (1 + scaled_violation ** 2)
 
     # Apply straight-through trick
-    return straight_through(hard_result, total_violation)
+    return straight_through(hard_result, soft_result)
 
 
 def check_topology(action_history, topology_pattern):
