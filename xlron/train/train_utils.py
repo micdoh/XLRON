@@ -676,9 +676,6 @@ def process_metrics(config, out, total_time, merge_func):
             "episode_end_iqr_upper": episode_end_iqr_upper,
             "episode_end_iqr_lower": episode_end_iqr_lower,
         }
-    processed_data["training_time"] = (
-            np.arange(len(processed_data["returns"]["mean"])) / len(processed_data["returns"]["mean"]) * total_time
-    )
     return merged_out, merged_out_loss, processed_data, episode_ends
 
 
@@ -686,6 +683,9 @@ def log_metrics(config, out, experiment_name, total_time, merge_func):
     """Log metrics to wandb and/or save episode end metrics to CSV."""
 
     merged_out, merged_out_loss, processed_data, episode_ends = process_metrics(config, out, total_time, merge_func)
+    training_time = (
+            np.arange(len(processed_data["returns"]["mean"])) / len(processed_data["returns"]["mean"]) * total_time
+    )
 
     all_metrics = list(processed_data.keys())
 
@@ -781,7 +781,7 @@ def log_metrics(config, out, experiment_name, total_time, merge_func):
             processed_data[key]["std"] = downsample_mean(processed_data[key]["std"])
             processed_data[key]["iqr_upper"] = downsample_mean(processed_data[key]["iqr_upper"])
             processed_data[key]["iqr_lower"] = downsample_mean(processed_data[key]["iqr_lower"])
-        processed_data["training_time"] = downsample_mean(processed_data["training_time"])
+        training_time = downsample_mean(training_time)
 
         # Log per step metrics
         print("Logging per step metrics")
@@ -794,13 +794,12 @@ def log_metrics(config, out, experiment_name, total_time, merge_func):
                     "iqr_lower"
                 ]
             }
-            log_dict["training_time"] = processed_data["training_time"][i]
+            log_dict["training_time"] = training_time[i]
             log_dict["env_step"] = i
             wandb.log(log_dict)
 
     # Print the final metrics to console
     for metric in all_metrics:
-        if metric == "training_time": continue;
         if config.continuous_operation:
             print(f"{metric}: {processed_data[metric]['mean'][-1]:.5f} ± {processed_data[metric]['std'][-1]:.5f}")
             print(f"{metric} mean: {processed_data[metric]['mean'][-1]:.5f}")
