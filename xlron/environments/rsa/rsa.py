@@ -327,7 +327,7 @@ class RSAEnv(environment.Environment):
 
 
     @staticmethod
-    def penalise_non_integer_action(action, scale=0.5):
+    def penalise_non_integer_action(action, scale=0.):
         """
         Penalises non-integer actions.
 
