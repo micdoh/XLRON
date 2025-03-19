@@ -31,7 +31,7 @@ def make_config(list_of_requests, total_timesteps):
         "values_bw": [1],
         "slot_size": 1,
         "max_requests": total_timesteps,
-        "temperature": 0.2,
+        "temperature": 0.1,
         "deterministic_requests": True,
     }
 
@@ -93,31 +93,52 @@ def set_link_slot_array(state):
 def create_env_step(env):
     """Create a function for stepping through the environment."""
 
-    # def env_step(runner_state, action):
-    #     key, env_state, env_params = runner_state
-    #     obs, state, reward, done, info = env.step(key, env_state, action, env_params)
-    #     return (key, state, env_params), reward
-
     def env_step(runner_state, action):
         key, env_state, env_params = runner_state
-        floor_action = jnp.floor(action)
-        ceil_action = jnp.ceil(action)
-        # Get interpolation weight based on distance
-        weight = action - floor_action  # 0.0 at floor, 1.0 at ceil
-        # Evaluate both integer actions (without rounding in the state transition)
-        floor_obs, floor_state, floor_reward, floor_done, floor_info = env.step(key, env_state, floor_action, env_params)
-        ceil_obs, ceil_state, ceil_reward, ceil_done, ceil_info = env.step(key, env_state, ceil_action, env_params)
-        # Interpolate reward
-        reward =  (1 - weight) * floor_reward + weight * ceil_reward
-        obs, state, _, done, info = env.step(key, env_state, action, env_params)
+        obs, state, reward, done, info = env.step(key, env_state, action, env_params)
         return (key, state, env_params), reward
 
-    return env_step
+    # def env_step(runner_state, action):
+    #     key, env_state, env_params = runner_state
+    #     floor_action = jnp.floor(action)
+    #     ceil_action = jnp.ceil(action)
+    #     # Get interpolation weight based on distance
+    #     weight = action - floor_action  # 0.0 at floor, 1.0 at ceil
+    #     # Evaluate both integer actions (without rounding in the state transition)
+    #     floor_obs, floor_state, floor_reward, floor_done, floor_info = env.step(key, env_state, floor_action, env_params)
+    #     ceil_obs, ceil_state, ceil_reward, ceil_done, ceil_info = env.step(key, env_state, ceil_action, env_params)
+    #     # Interpolate reward
+    #     reward =  (1 - weight) * floor_reward + weight * ceil_reward
+    #     obs, state, _, done, info = env.step(key, env_state, action, env_params)
+    #     return (key, state, env_params), reward
+
+    # def env_step(runner_state, action):
+    #     key, env_state, env_params = runner_state
+    #
+    #     # Sample several nearby actions
+    #     neighbor_range = 2.5
+    #     actions = action - jnp.arange(-neighbor_range, neighbor_range, 0.5)
+    #
+    #     # Apply Gaussian weighting
+    #     sigma = 0.8  # Controls smoothness
+    #     weights = jnp.exp(-0.5 * ((actions - action) / sigma) ** 2)
+    #     weights = weights / jnp.sum(weights)
+    #
+    #     # Evaluate all actions and compute weighted average reward
+    #     rewards = jnp.array([env.step(key, env_state, a, env_params)[2] for a in actions])
+    #     reward = jnp.sum(weights * rewards)
+    #
+    #     # Use original action for state transition
+    #     obs, state, _, done, info = env.step(key, env_state, action, env_params)
+    #     return (key, state, env_params), reward
+
+    return jax.jit(env_step, static_argnums=(0,))
 
 
 def create_rollout_fn(env, env_step, key, env_params):
     """Create a function for rolling out a sequence of actions."""
 
+    @partial(jax.jit, static_argnums=(0,))
     def rollout(runner_state, actions):
         _, st = env.reset(key, env_params)
         st = set_link_slot_array(runner_state[1])
@@ -125,33 +146,19 @@ def create_rollout_fn(env, env_step, key, env_params):
         out, rew = jax.lax.scan(env_step, r_state, actions)
         return out, rew
 
-    return rollout
+    return jax.jit(rollout)
 
 
-def create_reward_fn(rollout_fn, key, env_state, env_params):
+def create_loss_fn(rollout_fn, key, env_state, env_params):
     """Create a function to compute the reward for a given action pair."""
 
-    def get_reward(action_pair):
+    def get_loss(action_pair):
         actions = jnp.array(action_pair, dtype=jnp.float32)
         runner_state = (key, env_state, env_params)
         _, rewards = rollout_fn(runner_state, actions)
         return jnp.sum(rewards)
 
-    return get_reward
-
-
-def create_loss_fn(rollout_fn, key, env_state, env_params, env):
-    """Create a loss function for action optimization."""
-
-    @jax.jit
-    def loss_fn(current_actions):
-        e_state = env.reset(key, env_params)[1]
-        e_state = set_link_slot_array(e_state)
-        r_state = (jax.random.PRNGKey(0), e_state, env_params)  # Fixed seed for deterministic gradients
-        _, rewards = rollout_fn(r_state, current_actions)
-        return -jnp.sum(rewards)  # Negative reward as loss
-
-    return loss_fn
+    return get_loss
 
 
 def optimize_actions(loss_fn, initial_actions, n_iterations=100, learning_rate=0.01):
@@ -175,7 +182,6 @@ def optimize_actions(loss_fn, initial_actions, n_iterations=100, learning_rate=0
     opt_state = optimizer.init(actions)
 
     # Define update step
-    @jax.jit
     def update_step(actions, opt_state):
         loss_value, grads = jax.value_and_grad(loss_fn)(actions)
         updates, new_opt_state = optimizer.update(grads, opt_state)
@@ -184,23 +190,29 @@ def optimize_actions(loss_fn, initial_actions, n_iterations=100, learning_rate=0
         # Optional: Project actions back to valid range if needed
         new_actions = jnp.clip(new_actions, 0, 11)
 
-        return new_actions, new_opt_state, loss_value, grads, updates
+        return None, (new_actions, new_opt_state, loss_value, grads, updates)
 
-    # Optimization loop
-    losses = []
+    # # Optimization loop
+    # print("Starting scan...")
+    # _, out = jax.lax.scan(
+    #     lambda _, i: update_step(actions, opt_state), None, jnp.arange(n_iterations)
+    # )
+    # actions, opt_state, loss_value, grads, updates = out
+
     for i in range(n_iterations):
-        actions, opt_state, loss_value, grads, updates = update_step(actions, opt_state)
-        losses.append(loss_value)
+        _, out = update_step(actions, opt_state)
+        actions, opt_state, loss_value, grads, updates = out
         if i % 1000 == 0:
+            print(i)
             print(f"Iteration {i}, Loss: {loss_value}")
             jax.debug.print("new actions: {}", jnp.round(actions, 3))
             jax.debug.print("grads: {}", jnp.round(grads, 5))
             jax.debug.print("updates: {}", jnp.round(updates, 4))
 
-    return actions, losses
+    return actions
 
 
-def generate_action_grid(action_min=0, action_max=12.0, action_step=0.1):
+def generate_action_grid(action_min=0, action_max=12.0, action_step=0.5):
     """Generate a grid of action pairs for visualization."""
     action_vals = jnp.arange(action_min, action_max, action_step)
     action_grid = jnp.meshgrid(action_vals, action_vals)
@@ -211,11 +223,22 @@ def generate_action_grid(action_min=0, action_max=12.0, action_step=0.1):
 
 def compute_reward_landscape(reward_fn, action_pairs):
     """Compute rewards and gradients for a grid of action pairs."""
-    v_reward_fn = jax.jit(jax.vmap(reward_fn))
-    v_grad_fn = jax.jit(jax.vmap(jax.grad(reward_fn)))
+    # v_reward_fn = jax.vmap(reward_fn)
+    # v_grad_fn = jax.vmap(jax.grad(reward_fn))
+    #
+    # rewards = v_reward_fn(action_pairs)
+    # gradients = v_grad_fn(action_pairs)
 
-    rewards = v_reward_fn(action_pairs)
-    gradients = v_grad_fn(action_pairs)
+    rewards = []
+    gradients = []
+    for i, pair in enumerate(action_pairs):
+        reward = reward_fn(pair)
+        gradient = jax.grad(reward_fn)(pair)
+        print(f"Pair: {pair}, Reward: {reward}, Gradient: {gradient}")
+        rewards.append(reward)
+        gradients.append(gradient)
+    rewards = jnp.array(rewards)
+    gradients = jnp.array(gradients)
 
     return rewards, gradients
 
@@ -360,12 +383,12 @@ def plot_gradient_landscape(action_vals, grad_x_np, grad_y_np, grad_mag_np, x_np
     plt.show()
 
 
-def compute_hessian_eigenvalues(reward_fn, action_pairs):
+def compute_hessian_eigenvalues(loss_fn, action_pairs):
     """
     Compute Hessian matrices and their eigenvalues for a set of action pairs.
 
     Args:
-        reward_fn: The reward function
+        loss_fn: The loss/reward function
         action_pairs: Array of action pairs to analyze
 
     Returns:
@@ -375,7 +398,7 @@ def compute_hessian_eigenvalues(reward_fn, action_pairs):
 
     for pair in action_pairs:
         try:
-            hessian_fn = jax.hessian(lambda x: reward_fn(x))
+            hessian_fn = jax.hessian(lambda x: loss_fn(x))
             hessian = hessian_fn(pair)
             eigenvalues = jnp.linalg.eigvals(hessian)
             eigenvalues_list.append(eigenvalues)
@@ -398,6 +421,7 @@ def main():
 
     # Initialize environment
     env, env_params, key, env_state = init_environment(config)
+    print(f"Environment initialized")
     env_state = set_link_slot_array(env_state)
 
     # Define environment stepping and rollout functions
@@ -405,17 +429,38 @@ def main():
     rollout_fn = create_rollout_fn(env, env_step, key, env_params)
 
     # Create reward and loss functions
-    reward_fn = create_reward_fn(rollout_fn, key, env_state, env_params)
-    loss_fn = create_loss_fn(rollout_fn, key, env_state, env_params, env)
+    loss_fn = create_loss_fn(rollout_fn, key, env_state, env_params)
+
+    # Generate action grid and compute reward landscape
+    action_vals, action_grid, action_pairs = generate_action_grid()
+
+    # compile loss_fn
+    print("Loss function compiling...")
+    dummy = loss_fn(action_pairs[0])
+    dummy = dummy + 1
+    print(f"Loss function compiled: {dummy}")
+
+    print(f"Computing reward landscape for {len(action_pairs)} action pairs...")
+    rewards, gradients = compute_reward_landscape(loss_fn, action_pairs)
+
+    # Plot reward landscape
+    print("Plotting reward landscape...")
+    rewards_np, grad_x_np, grad_y_np, grad_mag_np, x_np, y_np = plot_reward_landscape(
+        action_vals, action_grid, rewards, gradients
+    )
+
+    # Plot gradient landscape
+    plot_gradient_landscape(action_vals, grad_x_np, grad_y_np, grad_mag_np, x_np, y_np, smooth=True, sigma=1.0)
 
     # Initial setup for optimization
-    initial_actions = jnp.array([7.01, 7.1])
+    initial_actions = jnp.array([2.0, 4.0])
     initial_actions = jnp.tile(initial_actions, (1,))
     print(f"Initial actions: {initial_actions}")
 
     # Optimize actions
-    optimized_actions, loss_history = optimize_actions(
-        loss_fn, initial_actions, n_iterations=100000, learning_rate=0.0001
+    print("Starting action optimization...")
+    optimized_actions = optimize_actions(
+        loss_fn, initial_actions, n_iterations=10000, learning_rate=0.001
     )
 
     # Run with optimized actions
@@ -424,18 +469,6 @@ def main():
     print(f"Total reward with optimized actions: {jnp.sum(final_rewards)}")
     print(f"Final actions: {jnp.round(optimized_actions)}")
     print(f"Final rewards: {final_rewards}")
-
-    # Generate action grid and compute reward landscape
-    action_vals, action_grid, action_pairs = generate_action_grid()
-    rewards, gradients = compute_reward_landscape(reward_fn, action_pairs)
-
-    # Plot reward landscape
-    rewards_np, grad_x_np, grad_y_np, grad_mag_np, x_np, y_np = plot_reward_landscape(
-        action_vals, action_grid, rewards, gradients
-    )
-
-    # Plot gradient landscape
-    plot_gradient_landscape(action_vals, grad_x_np, grad_y_np, grad_mag_np, x_np, y_np, smooth=True, sigma=1.0)
 
     # Hessian analysis (optional)
     run_hessian_analysis = False
@@ -447,7 +480,7 @@ def main():
         sampled_pairs = jnp.stack([sampled_grid[0].flatten(), sampled_grid[1].flatten()], axis=1)
 
         print(f"Computing eigenvalues for {len(sampled_pairs)} points...")
-        eigenvalues_array = compute_hessian_eigenvalues(reward_fn, sampled_pairs)
+        eigenvalues_array = compute_hessian_eigenvalues(loss_fn, sampled_pairs)
 
         # Process and visualize eigenvalues - additional code would go here
 
