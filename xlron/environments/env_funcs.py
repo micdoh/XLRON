@@ -1381,7 +1381,8 @@ def differentiable_check_no_spectrum_reuse(link_slot_array, temperature=1.0):
     # Measure violations (how much each element exceeds the threshold of -1)
     violations = jnp.maximum(0, -1 - link_slot_array)
 
-    # Sum all violations
+    # Any violation is considered a violation (alternatively can sum to discourage more egregious violations)
+    # TODO - see if sum vs. max makes a difference in solution quality
     total_violation = jnp.max(violations)
 
     # Scale violations by temperature
