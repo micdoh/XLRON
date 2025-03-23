@@ -612,19 +612,21 @@ def get_mean_std_iqr(x, y):
 
 
 def get_episode_end_mean_std_iqr(x, y, episode_ends, config):
-    _end_mean = x[y].mean(0).reshape(-1)[episode_ends]
     if not config.end_first_blocking:
+        _end_mean = x[y].mean(0).reshape(-1)[episode_ends]
         _end_std = x[y].std(0).reshape(-1)[episode_ends]
         _end_iqr_upper = jnp.percentile(x[y], 75, axis=0).reshape(-1)[episode_ends]
         _end_iqr_lower = jnp.percentile(x[y], 25, axis=0).reshape(-1)[episode_ends]
     else:
-        # For end_first_blocking, episode_ends are variable so calculate std and iqr for all episodes
-        # merge the final two dimension of x[y], keeping the rest the same
-        vals = x[y].reshape(-1)[episode_ends]
-        shape_out = vals.reshape(-1).shape
-        _end_std = jnp.full(shape_out, vals.std())
-        _end_iqr_upper = jnp.full(shape_out, np.percentile(vals, 75))
-        _end_iqr_lower = jnp.full(shape_out, np.percentile(vals, 25))
+        # For end_first_blocking, we already have properly structured data and episode_ends
+        vals = x[y][episode_ends]  # This will use the mask to get values at episode ends
+
+        # Calculate statistics on these episode-end values
+        _end_mean = vals.mean(0) if vals.size > 0 else jnp.array([])
+        _end_std = vals.std(0) if vals.size > 0 else jnp.array([])
+        _end_iqr_upper = jnp.percentile(vals, 75, axis=0) if vals.size > 0 else jnp.array([])
+        _end_iqr_lower = jnp.percentile(vals, 25, axis=0) if vals.size > 0 else jnp.array([])
+
     return _end_mean, _end_std, _end_iqr_upper, _end_iqr_lower
 
 
@@ -645,19 +647,35 @@ def process_metrics(config, out, total_time, merge_func):
             merged_out["accepted_bitrate"] / jnp.where(merged_out["total_bitrate"] == 0, 1, merged_out["total_bitrate"])
     )
 
+    # Calculate episode ends
+    done_array = merged_out["done"]
     if config.continuous_operation:
         # For continuous operation, define max_requests as the episode end
-        episode_ends = np.arange(0, (config.TOTAL_TIMESTEPS // config.NUM_LEARNERS // config.NUM_ENVS) + 1, config.max_requests)[1:].astype(int) - 1
+        episode_ends = np.arange(0, (config.TOTAL_TIMESTEPS // config.NUM_LEARNERS // config.NUM_ENVS) + 1,
+                                 config.max_requests)[1:].astype(int) - 1
     else:
         if not config.end_first_blocking:
-            episode_ends = np.where(merged_out["done"].mean(0).reshape(-1) == 1)[0] - 1
+            episode_ends = np.where(done_array.mean(0).reshape(-1) == 1)[0] - 1
         else:
-            keep_dims = merged_out["done"].shape[:-2]
-            ends = merged_out["done"].reshape((*keep_dims, -1))
-            episode_ends = (np.where(ends == 1)[-1] - 1)
-        for end in episode_ends.reshape(-1):
-            if end is True:
-                print(end)
+            # Instead of flattening, create a boolean mask of where episodes end
+            # This preserves the structure across environments
+            episode_ends = np.zeros_like(done_array, dtype=bool)
+
+            # Iterate over the environment dimensions (all but the last one)
+            env_indices = np.ndindex(done_array.shape[:-1])
+            for env_idx in env_indices:
+                # Get the done mask for this environment
+                env_done = done_array[env_idx]
+
+                # Find indices where done=1
+                done_indices = np.where(env_done == 1)[0]
+
+                # Set the steps before done=1 as episode ends
+                for done_idx in done_indices:
+                    if done_idx > 0:  # Make sure we don't go negative
+                        episode_ends[(*env_idx, done_idx - 1)] = True
+
+            print(f"Created episode end mask with {np.sum(episode_ends)} episode endings")
 
     processed_data = {}
     print("Processing output metrics")
