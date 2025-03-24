@@ -80,8 +80,8 @@ def init_graph_tuple(state: EnvState, params: EnvParams, adj: jnp.array, exclude
     Returns:
         jraph.GraphsTuple: Graph tuple
     """
-    senders = params.edges.val.T[0]
-    receivers = params.edges.val.T[1]
+    senders = params.edges.val.T[0].astype(jnp.float32)
+    receivers = params.edges.val.T[1].astype(jnp.float32)
 
     if exclude_source_dest:
         source_dest_features = jnp.zeros((params.num_nodes, 2))
@@ -474,7 +474,7 @@ def init_values_bandwidth(min_value: int = 25, max_value: int = 100, step: int =
         return jnp.arange(min_value, max_value+1, step).astype(jnp.float32)
 
 
-@partial(jax.jit, static_argnums=(2, 3, 4))
+@partial(jax.jit, static_argnums=(0, 3, 4, 5))
 def get_path_indices(params: EnvParams, s: int, d: int, k: int, N: int, directed: bool = False) -> chex.Array:
     """Get path indices for a given source, destination and number of paths.
     If source > destination and the graph is directed (two fibres per link, one in each direction) then an offset is
@@ -865,6 +865,7 @@ def _poisson(key, lam, shape, dtype) -> Array:
     return jax.lax.div(jax.lax.neg(jax.lax.log1p(jax.lax.neg(u))), lam)
 
 
+# TODO - consider just making a differentiable version of this whole function
 @partial(jax.jit, static_argnums=(1,))
 def generate_arrival_holding_times(key, params):
     """
@@ -896,10 +897,11 @@ def generate_arrival_holding_times(key, params):
         key_holding = jax.random.split(key, 5)
         holding_times = jax.vmap(lambda x: jax.random.exponential(x, shape=(1,)) \
                                 * params.mean_service_holding_time)(key_holding)
-        holding_times = jnp.where(holding_times < 2*params.mean_service_holding_time, holding_times, 0)
+        holding_times = differentiable_where(holding_times < 2*params.mean_service_holding_time, holding_times, 0)
         # Get first non-zero value in holding_times
-        non_zero_index = jnp.nonzero(holding_times, size=1)[0][0]
-        holding_time = jax.lax.dynamic_slice(jnp.squeeze(holding_times), (non_zero_index,), (1,))
+        holding_time_indices = differentiable_where(holding_times > 0, jnp.arange(holding_times.shape[0]), 0)
+        non_zero_index = straight_through(jnp.argmax(holding_time_indices), holding_time_indices)
+        holding_time = differentiable_indexing(jnp.squeeze(holding_times), (non_zero_index,), (1,))
     else:
         holding_time = jax.random.exponential(key_holding, shape=(1,)) \
                        * params.mean_service_holding_time  # Multiply because it is mean (1/lambda)
@@ -933,8 +935,8 @@ def update_action_history(action_history: chex.Array, action_counter: chex.Array
 #         (link, initial_slot, num_slots, value)
 #     )
 
-
-def update_link(link, initial_slot, num_slots, value, temperature):
+@partial(jax.jit, static_argnums=(4,))
+def update_link(link, initial_slot, num_slots, value, temperature=1.0):
     slot_indices = jnp.arange(link.shape[0])
     cond1 = differentiable_compare(initial_slot, slot_indices, '<=', temperature)
     cond2 = differentiable_compare(slot_indices, initial_slot+num_slots, '<', temperature)
@@ -961,18 +963,19 @@ def update_link(link, initial_slot, num_slots, value, temperature):
 
 # TODO - run test to see if where or cond is better (apparently cond only executes one branch but where might optimise better)
 
+@partial(jax.jit, static_argnums=(5,))
 def update_path(link, link_in_path, initial_slot, num_slots, value, temperature):
     return differentiable_cond(
         differentiable_compare(link_in_path, 1.0, "==", temperature),
-        lambda x: update_link(*x),
-        lambda x: x[0],
-        (link, initial_slot, num_slots, value, temperature),
+        jax.tree_util.Partial(lambda x: update_link(*x, temperature=temperature)),
+        jax.tree_util.Partial(lambda x: x[0], ),
+        (link, initial_slot, num_slots, value),
         threshold=0.5,
         temperature=temperature,
     )
 
 
-@jax.jit
+@partial(jax.jit, static_argnums=(5,))
 def vmap_update_path_links(
         link_slot_array: chex.Array,
         path: chex.Array,
@@ -1511,7 +1514,14 @@ def process_path_action(state: EnvState, params: EnvParams, path_action: chex.Ar
     return path_index[0], initial_slot_index[0]
 
 
-def implement_path_action(state: EnvState, path: chex.Array, initial_slot_index: chex.Array, num_slots: chex.Array, params: EnvParams) -> EnvState:
+@partial(jax.jit, static_argnums=(4,))
+def implement_path_action(
+        state: EnvState,
+        path: chex.Array,
+        initial_slot_index: chex.Array,
+        num_slots: chex.Array,
+        params: EnvParams
+) -> EnvState:
     """Update link-slot and link-slot departure arrays.
     Times are set to negative until turned positive by finalisation (after checks).
 
@@ -1520,6 +1530,7 @@ def implement_path_action(state: EnvState, path: chex.Array, initial_slot_index:
         path (int): path to implement
         initial_slot_index (int): initial slot index
         num_slots (int): number of slots to implement
+        params (EnvParams): environment parameters
     """
     state = state.replace(
         link_slot_array=vmap_update_path_links(
@@ -1532,7 +1543,11 @@ def implement_path_action(state: EnvState, path: chex.Array, initial_slot_index:
     return state
 
 
-def path_action_only(topology_pattern: chex.Array, action_counter: chex.Array, remaining_actions: chex.Scalar):
+def path_action_only(
+        topology_pattern: chex.Array,
+        action_counter: chex.Array,
+        remaining_actions: chex.Scalar
+) -> bool:
     """This is to check if node has already been assigned, therefore just need to assign slots (n=0)
 
     Args:
@@ -1900,9 +1915,10 @@ def make_graph(topology_name: str = "conus", topology_directory: str = None):
 
 @partial(jax.jit, static_argnums=(1,))
 def get_request_mask(requested_slots, params):
+    requested_slots = requested_slots.astype(jnp.int32)
     request_mask = jax.lax.dynamic_update_slice(
-        jnp.zeros(params.max_slots * 2).astype(jnp.float32),
-        jnp.ones(params.max_slots).astype(jnp.float32),
+        jnp.zeros(params.max_slots * 2).astype(jnp.int32),
+        jnp.ones(params.max_slots).astype(jnp.int32),
         (params.max_slots - requested_slots,)
     )
     # Then cut in half and flip
@@ -2367,10 +2383,10 @@ def find_block_sizes(path_slots: chex.Array, starts_only: bool = True, reverse: 
     # Use masked_select for the final filtering
     if starts_only:
         # Simplified using our masked_select helper
-        block_sizes = masked_select(block_sizes, block_starts == 1, 0.0, )
+        block_sizes = differentiable_where(block_starts == 1, block_sizes, 0.0, )
     else:
         # Simplified using our masked_select helper
-        block_sizes = masked_select(block_sizes, path_slots == 0)
+        block_sizes = differentiable_where(path_slots == 0, block_sizes, 0.0)
 
     return block_sizes
 

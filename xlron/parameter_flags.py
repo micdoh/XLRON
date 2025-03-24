@@ -172,7 +172,7 @@ flags.DEFINE_boolean("GNN_OUTPUT_RSA", False, "Use GNN for RSA in RSA GN Model e
 # Flags for optimize_launch_power.py
 flags.DEFINE_boolean("optimise_launch_power", False, "Use deteministic requests from list_of_requests to optimise launch power")
 flags.DEFINE_integer('EVAL_STEPS', 100, 'Number of steps to run in each evaluation')
-flags.DEFINE_integer('OPTIMIZATION_ITERATIONS', 5, 'Number of optimization iterations')
+flags.DEFINE_integer('OPTIMIZATION_ITERATIONS', 1000, 'Number of optimization iterations')
 flags.DEFINE_boolean('traffic_array', False, 'Use traffic array')
 flags.DEFINE_list("list_of_requests", None, "Traffic request list")
 # Flags for finding cut-sets only

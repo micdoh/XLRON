@@ -184,8 +184,8 @@ class RSAEnv(environment.Environment):
         check = check_action(*check_state)
         state, reward = differentiable_cond(
             check,  # Fail if true
-            lambda x: (undo(*x[:2]), self.get_reward_failure(*x)),
-            lambda x: (finalise(*x[:2]), self.get_reward_success(*x)),  # Finalise actions if complete
+            jax.tree_util.Partial(lambda x: (undo(*x[:2]), self.get_reward_failure(*x))),
+            jax.tree_util.Partial(lambda x: (finalise(*x[:2]), self.get_reward_success(*x))),  # Finalise actions if complete
             undo_finalise_state,
             threshold=0.0,
             temperature=params.temperature,

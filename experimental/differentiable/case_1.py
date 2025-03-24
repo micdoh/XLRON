@@ -5,7 +5,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 from matplotlib import cm
-from scipy.ndimage import gaussian_filter
 from absl import flags
 from gymnax.wrappers import GymnaxToGymWrapper
 
@@ -224,7 +223,7 @@ def make_config(list_of_requests, total_timesteps):
         "values_bw": [1],
         "slot_size": 1,
         "max_requests": total_timesteps,
-        "temperature": 0.1,
+        "temperature": 1.0,
         "deterministic_requests": True,
     }
 
@@ -272,39 +271,41 @@ def create_env_step(env):
         obs, state, reward, done, info = env.step(key, env_state, action, env_params)
         return (key, state, env_params), reward
 
-    # def env_step(runner_state, action):
-    #     key, env_state, env_params = runner_state
-    #     floor_action = jnp.floor(action)
-    #     ceil_action = jnp.ceil(action)
-    #     # Get interpolation weight based on distance
-    #     weight = action - floor_action  # 0.0 at floor, 1.0 at ceil
-    #     # Evaluate both integer actions (without rounding in the state transition)
-    #     floor_obs, floor_state, floor_reward, floor_done, floor_info = env.step(key, env_state, floor_action, env_params)
-    #     ceil_obs, ceil_state, ceil_reward, ceil_done, ceil_info = env.step(key, env_state, ceil_action, env_params)
-    #     # Interpolate reward
-    #     reward =  (1 - weight) * floor_reward + weight * ceil_reward
-    #     obs, state, _, done, info = env.step(key, env_state, action, env_params)
-    #     return (key, state, env_params), reward
+    # This is unused
+    def env_step_interp(runner_state, action):
+        key, env_state, env_params = runner_state
+        floor_action = jnp.floor(action)
+        ceil_action = jnp.ceil(action)
+        # Get interpolation weight based on distance
+        weight = action - floor_action  # 0.0 at floor, 1.0 at ceil
+        # Evaluate both integer actions (without rounding in the state transition)
+        floor_obs, floor_state, floor_reward, floor_done, floor_info = env.step(key, env_state, floor_action, env_params)
+        ceil_obs, ceil_state, ceil_reward, ceil_done, ceil_info = env.step(key, env_state, ceil_action, env_params)
+        # Interpolate reward
+        reward =  (1 - weight) * floor_reward + weight * ceil_reward
+        obs, state, _, done, info = env.step(key, env_state, action, env_params)
+        return (key, state, env_params), reward
 
-    # def env_step(runner_state, action):
-    #     key, env_state, env_params = runner_state
-    #
-    #     # Sample several nearby actions
-    #     neighbor_range = 2.5
-    #     actions = action - jnp.arange(-neighbor_range, neighbor_range, 0.5)
-    #
-    #     # Apply Gaussian weighting
-    #     sigma = 0.8  # Controls smoothness
-    #     weights = jnp.exp(-0.5 * ((actions - action) / sigma) ** 2)
-    #     weights = weights / jnp.sum(weights)
-    #
-    #     # Evaluate all actions and compute weighted average reward
-    #     rewards = jnp.array([env.step(key, env_state, a, env_params)[2] for a in actions])
-    #     reward = jnp.sum(weights * rewards)
-    #
-    #     # Use original action for state transition
-    #     obs, state, _, done, info = env.step(key, env_state, action, env_params)
-    #     return (key, state, env_params), reward
+    # This is unused
+    def env_step_gaussian(runner_state, action):
+        key, env_state, env_params = runner_state
+
+        # Sample several nearby actions
+        neighbor_range = 2.5
+        actions = action - jnp.arange(-neighbor_range, neighbor_range, 0.5)
+
+        # Apply Gaussian weighting
+        sigma = 0.8  # Controls smoothness
+        weights = jnp.exp(-0.5 * ((actions - action) / sigma) ** 2)
+        weights = weights / jnp.sum(weights)
+
+        # Evaluate all actions and compute weighted average reward
+        rewards = jnp.array([env.step(key, env_state, a, env_params)[2] for a in actions])
+        reward = jnp.sum(weights * rewards)
+
+        # Use original action for state transition
+        obs, state, _, done, info = env.step(key, env_state, action, env_params)
+        return (key, state, env_params), reward
 
     return jax.jit(env_step, static_argnums=(0,))
 
@@ -465,11 +466,6 @@ def plot_reward_landscape(action_vals, action_grid, rewards, gradients):
 
     # 3D gradient landscape with properly horizontal arrows
     ax3 = fig.add_subplot(2, 2, 3, projection='3d')
-
-    # Apply smoothing
-    grad_mag_smooth = gaussian_filter(grad_mag_np, sigma=1.0)
-    grad_x_smooth = gaussian_filter(grad_x_np, sigma=1.0)
-    grad_y_smooth = gaussian_filter(grad_y_np, sigma=1.0)
 
     # Plot the surface
     surf3 = ax3.plot_surface(x_np, y_np, grad_mag_np, cmap=cm.viridis,
