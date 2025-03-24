@@ -26,7 +26,7 @@ pyyaml = "^6.0"
 seaborn = "^0.12.2"
 #jax = {extras = ["tpu"], version = "^0.4.11"}
 #jax = {extras = ["cuda11_pip"], version = "^0.4.11"}
-jax = { extras = ["cpu"], version = "^0.4.11" }
+jax = { extras = ["cpu"], version = "^0.5.3" }
 # Below jax version is built from source to support Apple Silicon GPU, but it's too buggy at present
 #jax-metal = "0.1.0"
 gymnax = "^0.0.6"
@@ -41,7 +41,7 @@ absl-py = "^1.4.0"
 dm-haiku = "^0.0.10"
 rlax = "^0.1.6"
 jraph = "^0.0.6.dev0"
-ml-dtypes = "^0.3.1"
+ml-dtypes = "^0.4.0"
 orbax = "^0.1.9"
 mkinit = "^1.1.0"
 perfetto = "^0.7.0"
