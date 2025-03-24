@@ -147,7 +147,6 @@ def make(config: Optional[Union[dict, absl.flags.FlagValues]], **kwargs) -> Tupl
 
     # Differentiable approximation params
     temperature = config.get("temperature", 1.0)
-    window_size = config.get("window_size", 1)
 
     # optimize_launch_power.py parameters
     num_spans = config.get("num_spans", 10)
@@ -219,16 +218,16 @@ def make(config: Optional[Union[dict, absl.flags.FlagValues]], **kwargs) -> Tupl
             list_of_requests = np.loadtxt(traffic_requests_csv_filepath, delimiter=",")[1:, :]
             list_of_requests = jnp.array(list_of_requests)
         elif config.get("list_of_requests", None) is not None:
-            list_of_requests = jnp.array(config.get("list_of_requests", [0]), dtype=jnp.float32)
+            list_of_requests = jnp.array(config.get("list_of_requests", [0.]), dtype=jnp.float32)
         else:
             list_of_requests = init_list_of_requests(int(max_requests))
         max_requests = len(list_of_requests)
     elif optimise_launch_power:
         deterministic_requests = True
-        list_of_requests = jnp.array(config.get("list_of_requests", [0]))
+        list_of_requests = jnp.array(config.get("list_of_requests", [0.]))
     else:
         deterministic_requests = False
-        list_of_requests = jnp.array([0])
+        list_of_requests = jnp.array([0.])
 
     values_bw = init_values_bandwidth(min_bw, max_bw, step_bw, values_bw)
 
@@ -328,7 +327,6 @@ def make(config: Optional[Union[dict, absl.flags.FlagValues]], **kwargs) -> Tupl
         traffic_array=traffic_array,
         disable_node_features=disable_node_features,
         temperature=temperature,
-        window_size=window_size,
     )
 
     if env_type == "vone":

@@ -48,7 +48,7 @@ def differentiable_where(condition, true_val, false_val, threshold, temperature=
     return straight_through(hard_result, soft_result)
 
 
-@partial(jax.jit, static_argnums=(2, 3))
+@partial(jax.jit, static_argnums=(2, 3,))
 def differentiable_compare(x, y, op_type='==', temperature=1.0):
     """
     A unified differentiable comparison function that supports multiple operators.
@@ -310,6 +310,7 @@ def differentiable_indexing(array, indices, temperature=1.0):
         return differentiable_index(array, indices, temperature)
 
 
+#@partial(jax.jit, static_argnums=(4, 5,))
 def differentiable_cond(condition, true_fn, false_fn, operand, threshold=0.0, temperature=1.0):
     """
     A differentiable version of jax.lax.cond that is fully jittable.

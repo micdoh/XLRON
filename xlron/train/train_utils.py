@@ -323,7 +323,7 @@ def experiment_data_setup(config: absl.flags.FlagValues, rng: chex.PRNGKey) -> T
     # EVALUATION MODE
     else:
         # LOAD MODEL
-        if config.EVAL_HEURISTIC:
+        if config.EVAL_HEURISTIC or config.ACTION_OPTIMIZATION:
             network_params = apply = sample = None
 
         elif config.EVAL_MODEL:

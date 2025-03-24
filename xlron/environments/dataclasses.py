@@ -109,7 +109,6 @@ class EnvParams:
     truncate_holding_time: bool = struct.field(pytree_node=False)
     traffic_array: bool = struct.field(pytree_node=False)
     temperature: chex.Scalar = struct.field(pytree_node=False)
-    window_size: chex.Scalar = struct.field(pytree_node=False)
 
 
 @struct.dataclass
