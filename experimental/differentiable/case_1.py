@@ -307,13 +307,13 @@ def create_env_step(env):
         obs, state, _, done, info = env.step(key, env_state, action, env_params)
         return (key, state, env_params), reward
 
-    return jax.jit(env_step, static_argnums=(0,))
+    return env_step
 
 
 def create_rollout_fn(env, env_step, key, env_params, reset_fn=None):
     """Create a function for rolling out a sequence of actions."""
 
-    @partial(jax.jit, static_argnums=(0,))
+    #@partial(jax.jit, static_argnums=(0,))
     def rollout(runner_state, actions):
         _, st = env.reset(key, env_params)
         st = reset_fn(runner_state[1])
@@ -333,7 +333,7 @@ def create_loss_fn(rollout_fn, key, env_state, env_params):
         _, rewards = rollout_fn(runner_state, actions)
         return jnp.sum(rewards)
 
-    return get_loss
+    return jax.jit(get_loss)
 
 
 def optimize_actions(loss_fn, initial_actions, n_iterations=100, learning_rate=0.01):
@@ -595,73 +595,76 @@ def main():
     """Main function to run the optimization and analysis."""
 
     # Define requests and configure environment
-    list_of_requests, reset_links = setup_case_fail_2()
+    for setup_case in [setup_case_2, setup_case_2_combo, setup_case_fail_2, setup_case_11, setup_case_fail_12]:
+        list_of_requests, reset_links = setup_case()
 
-    total_timesteps = len(list_of_requests)
-    print(f"Total timesteps: {total_timesteps}")
-    config = make_config(list_of_requests, total_timesteps)
+        total_timesteps = len(list_of_requests)
+        print(f"Total timesteps: {total_timesteps}")
+        config = make_config(list_of_requests, total_timesteps)
 
-    # Initialize environment
-    env, env_params, key, env_state = init_environment(config)
-    print(f"Environment initialized")
-    env_state = reset_links(env_state)
+        # Initialize environment
+        env, env_params, key, env_state = init_environment(config)
+        print(f"Environment initialized")
+        env_state = reset_links(env_state)
 
-    # Define environment stepping and rollout functions
-    env_step = create_env_step(env)
-    rollout_fn = create_rollout_fn(env, env_step, key, env_params, reset_links)
+        # Define environment stepping and rollout functions
+        env_step = create_env_step(env)
+        rollout_fn = create_rollout_fn(env, env_step, key, env_params, reset_links)
 
-    # Create reward and loss functions
-    loss_fn = create_loss_fn(rollout_fn, key, env_state, env_params)
+        # Create reward and loss functions
+        loss_fn = create_loss_fn(rollout_fn, key, env_state, env_params)
 
-    # Generate action grid and compute reward landscape
-    action_vals, action_grid, action_pairs = generate_action_grid()
+        # Generate action grid and compute reward landscape
+        action_vals, action_grid, action_pairs = generate_action_grid()
 
-    # Initial setup for optimization
-    initial_actions = jnp.zeros((total_timesteps,), dtype=jnp.float32)
-    print(f"Initial actions: {initial_actions}")
+        # Initial setup for optimization
+        initial_actions = jnp.zeros((total_timesteps,), dtype=jnp.float32)
+        print(f"Initial actions: {initial_actions}")
 
-    # compile loss_fn
-    print("Loss function compiling...")
-    dummy = loss_fn(initial_actions)
-    dummy = dummy + 1
-    print(f"Loss function compiled: {dummy}")
+        # compile loss_fn
+        print("Loss function compiling...")
+        dummy = loss_fn(initial_actions)
+        dummy = dummy + 1
+        print(f"Loss function compiled: {dummy}")
 
-    if len(list_of_requests) == 2:
+        if len(list_of_requests) == 2:
 
-        print(f"Computing reward landscape for {len(action_pairs)} action pairs...")
-        rewards, gradients = compute_reward_landscape(loss_fn, action_pairs)
+            print(f"Computing reward landscape for {len(action_pairs)} action pairs...")
+            rewards, gradients = compute_reward_landscape(loss_fn, action_pairs)
 
-        # Plot reward landscape
-        print("Plotting reward landscape...")
-        rewards_np, grad_x_np, grad_y_np, grad_mag_np, x_np, y_np = plot_reward_landscape(
-            action_vals, action_grid, rewards, gradients
-        )
+            # Plot reward landscape
+            print("Plotting reward landscape...")
+            rewards_np, grad_x_np, grad_y_np, grad_mag_np, x_np, y_np = plot_reward_landscape(
+                action_vals, action_grid, rewards, gradients
+            )
 
-    # Optimize actions
-    print("Starting action optimization...")
-    optimized_actions = optimize_actions(
-        loss_fn, initial_actions, n_iterations=10000, learning_rate=0.01
-    )
+        optimize = False
+        if optimize:
+            # Optimize actions
+            print("Starting action optimization...")
+            optimized_actions = optimize_actions(
+                loss_fn, initial_actions, n_iterations=10000, learning_rate=0.01
+            )
 
-    # Run with optimized actions
-    env_state = reset_links(env_state)
-    final_state, final_rewards = rollout_fn((key, env_state, env_params), jnp.round(optimized_actions))
-    print(f"Total reward with optimized actions: {jnp.sum(final_rewards)}")
-    print(f"Final actions: {jnp.round(optimized_actions)}")
-    print(f"Final rewards: {final_rewards}")
+            # Run with optimized actions
+            env_state = reset_links(env_state)
+            final_state, final_rewards = rollout_fn((key, env_state, env_params), jnp.round(optimized_actions))
+            print(f"Total reward with optimized actions: {jnp.sum(final_rewards)}")
+            print(f"Final actions: {jnp.round(optimized_actions)}")
+            print(f"Final rewards: {final_rewards}")
 
-    # Hessian analysis (optional)
-    run_hessian_analysis = False
-    if run_hessian_analysis:
-        # Sample points from the action space for eigenvalue analysis
-        sample_step = 10
-        sampled_actions = action_vals[::sample_step]
-        sampled_grid = jnp.meshgrid(sampled_actions, sampled_actions)
-        sampled_pairs = jnp.stack([sampled_grid[0].flatten(), sampled_grid[1].flatten()], axis=1)
+        # Hessian analysis (optional)
+        run_hessian_analysis = False
+        if run_hessian_analysis:
+            # Sample points from the action space for eigenvalue analysis
+            sample_step = 10
+            sampled_actions = action_vals[::sample_step]
+            sampled_grid = jnp.meshgrid(sampled_actions, sampled_actions)
+            sampled_pairs = jnp.stack([sampled_grid[0].flatten(), sampled_grid[1].flatten()], axis=1)
 
-        print(f"Computing eigenvalues for {len(sampled_pairs)} points...")
-        eigenvalues_array = compute_hessian_eigenvalues(loss_fn, sampled_pairs)
-        # Process and visualize eigenvalues - additional code would go here
+            print(f"Computing eigenvalues for {len(sampled_pairs)} points...")
+            eigenvalues_array = compute_hessian_eigenvalues(loss_fn, sampled_pairs)
+            # Process and visualize eigenvalues - additional code would go here
 
 
 if __name__ == "__main__":

@@ -270,6 +270,7 @@ def differentiable_index(array, index, temperature=1.0):
     distances = positions - index
     # Scaling factor should make temperature DECREASE the gradient magnitude
     weights_logits = -(distances ** 2) * temperature
+    weights_logits = -distances * temperature
     # Subtract max for numerical stability before exp
     weights_logits = weights_logits - jnp.max(weights_logits)
     weights = jnp.exp(weights_logits)
