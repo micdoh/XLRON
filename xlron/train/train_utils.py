@@ -617,15 +617,52 @@ def get_episode_end_mean_std_iqr(x, y, episode_ends, config):
         _end_std = x[y].std(0).reshape(-1)[episode_ends]
         _end_iqr_upper = jnp.percentile(x[y], 75, axis=0).reshape(-1)[episode_ends]
         _end_iqr_lower = jnp.percentile(x[y], 25, axis=0).reshape(-1)[episode_ends]
+    # If end_first_blocking is True, we need to do some reshaping in order to calculate statistics across envs,
+    # due to the episodes having non-uniform lengths
     else:
-        # For end_first_blocking, we already have properly structured data and episode_ends
-        vals = x[y][episode_ends]  # This will use the mask to get values at episode ends
+        # Initialize an empty list to collect values for each environment
+        all_episode_ends = []
+        # Loop through each environment
+        for env in range(x[y].shape[0]):
+            env_results = []
+            # Reshape to merge the rollout dimensions
+            results = x[y][env].reshape(-1)  # Get data for this environment
+            ends = episode_ends[env].reshape(-1)  # Get episode ends for this environment
 
-        # Calculate statistics on these episode-end values
-        _end_mean = vals.mean(0) if vals.size > 0 else jnp.array([])
-        _end_std = vals.std(0) if vals.size > 0 else jnp.array([])
-        _end_iqr_upper = jnp.percentile(vals, 75, axis=0) if vals.size > 0 else jnp.array([])
-        _end_iqr_lower = jnp.percentile(vals, 25, axis=0) if vals.size > 0 else jnp.array([])
+            # Collect values at episode ends
+            for i, end in enumerate(ends):
+                if end:
+                    env_results.append(results[i])
+
+            # If we found any episode ends, convert to array and add to list
+            all_episode_ends.append(jnp.stack(env_results))
+
+        # Combine results from all environments if we have any
+        if all_episode_ends:
+            # Find the length of the longest array
+            max_length = max(len(arr) for arr in all_episode_ends)
+            # Create a function to pad an array with NaNs
+            def pad_with_nans(arr, target_length):
+                padding = np.full(target_length - len(arr), np.nan)
+                return np.concatenate([arr, padding])
+            # Apply padding to all arrays
+            padded_arrays = [pad_with_nans(arr, max_length) for arr in all_episode_ends]
+
+            # Stack the padded arrays into a 2D array
+            combined_array = np.vstack(padded_arrays)
+
+            # Calculate statistics on these episode-end values
+            # Calculate mean of each column, ignoring NaN values
+            _end_mean = np.nanmean(combined_array, axis=0)
+            _end_std = np.nanstd(combined_array, axis=0)
+            _end_iqr_upper = jnp.nanpercentile(combined_array, 75, axis=0)
+            _end_iqr_lower = np.nanpercentile(combined_array, 25, axis=0)
+        else:
+            # Handle empty case
+            _end_mean = jnp.array([])
+            _end_std = jnp.array([])
+            _end_iqr_upper = jnp.array([])
+            _end_iqr_lower = jnp.array([])
 
     return _end_mean, _end_std, _end_iqr_upper, _end_iqr_lower
 
