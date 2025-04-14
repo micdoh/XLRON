@@ -356,7 +356,7 @@ class RSAEnv(environment.Environment):
         Returns:
             reward: Reward for success
         """
-        reward = jnp.array(1.0)
+        reward = jnp.array(0.0)
         if params.__class__.__name__ in ["RSAGNModelEnvParams", "RMSAGNModelEnvParams"]:
             path_action, _ = action
         else:
