@@ -69,6 +69,8 @@ flags.DEFINE_boolean("log_actions", False, "Log actions taken and other details"
 flags.DEFINE_boolean("log_path_lengths", False, "Log path length statistics")
 flags.DEFINE_boolean("PROFILE", False, "Profile programme with perfetto")
 flags.DEFINE_boolean("LOG_LOSS_INFO", False, "Log loss metrics")
+flags.DEFINE_boolean("REWARD_CENTERING", False, "Use reward centering")
+flags.DEFINE_float("INITIAL_AVERAGE_REWARD", 0.0, "Initial average reward estimate for reward centering")
 # Environment parameters
 flags.DEFINE_string("env_type", "rmsa", "Environment type")
 flags.DEFINE_float("load", 250, "Load")
