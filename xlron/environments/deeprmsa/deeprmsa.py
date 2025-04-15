@@ -1,4 +1,6 @@
 from gymnax.environments import spaces
+from networkx.linalg.laplacianmatrix import laplacian_matrix
+
 from xlron.environments.env_funcs import (
     init_rsa_request_array, init_link_slot_array, init_link_slot_departure_array, init_traffic_matrix,
     calculate_path_stats,
@@ -21,9 +23,14 @@ class DeepRMSAEnv(RSAEnv):
             self,
             key: chex.PRNGKey,
             params: RSAEnvParams,
-            traffic_matrix: chex.Array = None
+            traffic_matrix: chex.Array = None,
+            list_of_requests: chex.Array = None,
+            laplacian_matrix: chex.Array = None,
     ):
-        super().__init__(key, params, traffic_matrix=traffic_matrix)
+        super().__init__(key, params,
+                         traffic_matrix=traffic_matrix,
+                         list_of_requests=list_of_requests,
+                         laplacian_matrix=laplacian_matrix)
         self.initial_state = DeepRMSAEnvState(
             current_time=0,
             holding_time=0,
@@ -35,11 +42,13 @@ class DeepRMSAEnv(RSAEnv):
             link_slot_mask=jnp.ones(params.k_paths),
             full_link_slot_mask=jnp.ones(params.k_paths),
             traffic_matrix=traffic_matrix if traffic_matrix is not None else init_traffic_matrix(key, params),
+            list_of_requests=list_of_requests,
             path_stats=calculate_path_stats(self.initial_state, params, self.initial_state.request_array),
             graph=None,
             accepted_services=0,
             accepted_bitrate=0.,
             total_bitrate=0.,
+
         )
 
     def step_env(

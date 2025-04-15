@@ -2119,7 +2119,7 @@ def calculate_path_stats(state: EnvState, params: EnvParams, request: chex.Array
     """
     nodes_sd, requested_datarate = read_rsa_request(request)
     init_val = jnp.zeros((params.k_paths, 5))
-
+    # TODO - check if the normalisation is useful
     def body_fun(i, val):
         slots = get_path_slots(state.link_slot_array, params, nodes_sd, i)
         se = get_paths_se(params, nodes_sd)[i] if params.consider_modulation_format else jnp.array([1])
