@@ -96,23 +96,35 @@ def get_learner_fn(
                     transition.value,
                     transition.reward,
                 )
-                delta = reward + config.GAMMA * next_value * (1 - done) - value
+                centered_reward = reward - train_state.avg_reward if config.REWARD_CENTERING else reward
+                delta = centered_reward + config.GAMMA * next_value * (1 - done) - value
                 gae = (
                     delta
                     + config.GAMMA * config.GAE_LAMBDA * (1 - done) * gae
                 )
-                return (gae, value), gae
+                return (gae, value), (gae, delta)
 
-            _, advantages = jax.lax.scan(
+            _, (advantages, deltas) = jax.lax.scan(
                 _get_advantages,
                 (jnp.zeros_like(last_val), last_val),
                 traj_batch,
                 reverse=True,
                 unroll=True,
             )
-            return advantages, advantages + traj_batch.value
+            return advantages, advantages + traj_batch.value, deltas
 
-        advantages, targets = _calculate_gae(traj_batch, last_val)
+        advantages, targets, deltas = _calculate_gae(traj_batch, last_val)
+
+        if config.REWARD_CENTERING:
+            train_state = train_state.update_step_size()
+            # Extract the one-step TD errors (deltas) from your GAE calculation
+            updated_avg_reward = train_state.avg_reward + train_state.reward_stepsize * jnp.mean(deltas)
+            # This makes the estimate robust to initialization
+            adjustment = train_state.avg_reward - updated_avg_reward
+            targets = targets + adjustment
+            jax.debug.print("updated_avg_reward {}, reward_stepsize {}, mean adv {}, mean deltas {}",
+                            updated_avg_reward, train_state.reward_stepsize, jnp.mean(advantages), jnp.mean(deltas), ordered=config.ORDERED)
+            train_state = train_state.replace(avg_reward=updated_avg_reward)
 
         # UPDATE NETWORK
         def _update_epoch(update_state, unused):

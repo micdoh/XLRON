@@ -72,6 +72,10 @@ class TrainState(struct.PyTreeNode):
     params: core.FrozenDict[str, Any] = struct.field(pytree_node=True)
     tx: optax.GradientTransformation = struct.field(pytree_node=False)
     opt_state: optax.OptState = struct.field(pytree_node=True)
+    avg_reward: jax.Array = struct.field(pytree_node=True, default=0.0)
+    reward_stepsize: jax.Array = struct.field(pytree_node=True, default=0.01)
+    reward_stepsize_init: jax.Array = struct.field(pytree_node=True, default=0.01)
+    reward_stepsize_offset: jax.Array = struct.field(pytree_node=True, default=1.0)
 
     def apply_gradients(self, *, grads, **kwargs):
         """Updates ``step``, ``params``, ``opt_state`` and ``**kwargs`` in return value.
@@ -132,6 +136,15 @@ class TrainState(struct.PyTreeNode):
             tx=tx,
             opt_state=opt_state,
             **kwargs,
+        )
+
+    def update_step_size(self):
+        """Updates the step size used for reward centering."""
+        reward_stepsize_offset = self.reward_stepsize_offset + self.reward_stepsize_init * (1 - self.reward_stepsize_offset)
+        reward_stepsize = self.reward_stepsize_init / reward_stepsize_offset
+        return self.replace(
+            reward_stepsize=reward_stepsize,
+            reward_stepsize_offset=reward_stepsize_offset,
         )
 
 
@@ -318,6 +331,7 @@ def experiment_data_setup(config: absl.flags.FlagValues, rng: chex.PRNGKey) -> T
             sample_fn=network.sample_action,
             params=network_params.to_dict() if isinstance(network_params, box.Box) else network_params,
             tx=tx,
+            avg_reward=jnp.array(config.INITIAL_AVERAGE_REWARD, dtype=jnp.float32),
         )
 
     # EVALUATION MODE
@@ -501,9 +515,11 @@ def select_action_eval(select_action_state, env, env_params, eval_state, config)
                     raise ValueError("launch_power_type cannot be 'rl' when --EVAL_HEURISTIC flag is True")
                 launch_power = get_launch_power(env_state.env_state, action, action, env_params)
                 action = jnp.concatenate([action.reshape((1,)), launch_power.reshape((1,))], axis=0)
-
         else:
             raise ValueError(f"Invalid environment type {config.env_type}")
+        # For DeepRMSA env, the action can only be the path index (first-fit for spectrum always)
+        if config.env_type.lower() == "deeprmsa":
+            action = process_path_action(env_state.env_state, env_params, action)[0]
     else:
         env_state, action, _, _ = select_action(select_action_state, env, env_params, eval_state, config)
     return env_state, action, None, None
