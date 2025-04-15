@@ -122,8 +122,6 @@ def get_learner_fn(
             # This makes the estimate robust to initialization
             adjustment = train_state.avg_reward - updated_avg_reward
             targets = targets + adjustment
-            jax.debug.print("updated_avg_reward {}, reward_stepsize {}, mean adv {}, mean deltas {}",
-                            updated_avg_reward, train_state.reward_stepsize, jnp.mean(advantages), jnp.mean(deltas), ordered=config.ORDERED)
             train_state = train_state.replace(avg_reward=updated_avg_reward)
 
         # UPDATE NETWORK
