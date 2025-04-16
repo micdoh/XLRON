@@ -2124,15 +2124,15 @@ def calculate_path_stats(state: EnvState, params: EnvParams, request: chex.Array
         slots = get_path_slots(state.link_slot_array, params, nodes_sd, i)
         se = get_paths_se(params, nodes_sd)[i] if params.consider_modulation_format else jnp.array([1])
         req_slots = jnp.squeeze(required_slots(requested_datarate, se, params.slot_size, guardband=params.guardband))
-        req_slots_norm = req_slots#*params.slot_size / jnp.max(params.values_bw.val)
-        free_slots_norm = jnp.sum(jnp.where(slots == 0, 1, 0)) #/ params.link_resources
+        req_slots_norm = req_slots * params.slot_size / jnp.max(params.values_bw.val)
+        free_slots_norm = jnp.sum(jnp.where(slots == 0, 1, 0)) / params.link_resources
         block_sizes = find_block_sizes(slots)
         first_block_index = jnp.argmax(block_sizes >= req_slots)
-        first_block_index_norm = first_block_index #/ params.link_resources
+        first_block_index_norm = first_block_index / params.link_resources
         first_block_size_norm = jnp.squeeze(
             jax.lax.dynamic_slice(block_sizes, (first_block_index,), (1,))
         ) / req_slots
-        avg_block_size_norm = jnp.sum(block_sizes) / jnp.max(jnp.array([jnp.sum(find_block_starts(slots)), 1])) #/ req_slots
+        avg_block_size_norm = jnp.sum(block_sizes) / jnp.max(jnp.array([jnp.sum(find_block_starts(slots)), 1])) / req_slots
         val = jax.lax.dynamic_update_slice(
             val,
             jnp.array([[first_block_size_norm, first_block_index_norm, req_slots_norm, avg_block_size_norm, free_slots_norm]]),
