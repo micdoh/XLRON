@@ -74,8 +74,8 @@ class DeepRMSAEnv(RSAEnv):
             info: Additional information
         """
         # TODO - alter this if allowing J>1
-        slot_index = jnp.squeeze(jax.lax.dynamic_slice(state.path_stats, (action, 1), (1, 1)))
-        action = jnp.array(action * params.link_resources + slot_index).astype(jnp.int32)
+        slot_index = jnp.squeeze(jax.lax.dynamic_slice(state.path_stats, (action, 1), (1, 1))) #* params.link_resources
+        action = jnp.round((action + slot_index) * params.link_resources).astype(jnp.int32)
         return super().step_env(key, state, action, params)
 
     @partial(jax.jit, static_argnums=(0, 2,))
