@@ -84,11 +84,14 @@ def init_graph_tuple(state: EnvState, params: EnvParams, adj: jnp.array, exclude
     senders = params.edges.val.T[0]
     receivers = params.edges.val.T[1]
 
+    # Get source and dest from request array
+    source_dest, datarate = read_rsa_request(state.request_array)
+    # Global feature is normalised data rate of current request
+    globals = jnp.array([datarate / jnp.max(params.values_bw.val)])
+
     if exclude_source_dest:
         source_dest_features = jnp.zeros((params.num_nodes, 2))
     else:
-        # Get source and dest from request array
-        source_dest, _ = read_rsa_request(state.request_array)
         source, dest = source_dest[0], source_dest[2]
         # One-hot encode source and destination (2 additional features)
         source_dest_features = jnp.zeros((params.num_nodes, 2))
@@ -131,7 +134,7 @@ def init_graph_tuple(state: EnvState, params: EnvParams, adj: jnp.array, exclude
         receivers=receivers,
         n_node=jnp.reshape(params.num_nodes, (1,)),
         n_edge=jnp.reshape(len(senders), (1,)),
-        globals=jnp.reshape(state.request_array, (1, -1)),
+        globals=globals,
     )
 
 
@@ -146,10 +149,10 @@ def update_graph_tuple(state: EnvState, params: EnvParams):
         state (EnvState): Environment state with updated graph tuple
     """
     # Get source and dest from request array
-    source_dest, _ = read_rsa_request(state.request_array)
+    source_dest, datarate = read_rsa_request(state.request_array)
     source, dest = source_dest[0], source_dest[2]
-    # Current request as global feature
-    globals = jnp.reshape(state.request_array, (1, -1))
+    # Global feature is normalised data rate of current request
+    globals = jnp.array([datarate / jnp.max(params.values_bw.val)])
     # One-hot encode source and destination
     source_dest_features = jnp.zeros((params.num_nodes, 2))
     source_dest_features = source_dest_features.at[source.astype(jnp.int32), 0].set(1)
