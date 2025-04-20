@@ -303,9 +303,9 @@ class GraphNet(nn.Module):
         # Template code from here: https://github.com/google/flax/blob/main/examples/ogbg_molpcba/models.py
         # We will first linearly project the original features as 'embeddings'.
         embedder = jraph.GraphMapFeatures(
-            embed_node_fn=nn.Dense(self.latent_size) if self.output_nodes_size > 0 else None,
+            embed_node_fn=nn.Dense(self.latent_size),
             embed_edge_fn=nn.Dense(self.latent_size),
-            embed_global_fn=nn.Dense(self.latent_size) if self.output_globals_size > 0 else None,
+            embed_global_fn=nn.Dense(self.latent_size),
         )
         if graphs.edges.ndim >= 3:
             # Dims are (edges, slots, features e.g. power, source/dest)
@@ -363,7 +363,7 @@ class GraphNet(nn.Module):
                 graph_net = GraphNetGAT(
                     update_node_fn=update_node_fn,
                     update_edge_fn=update_edge_fn,  # Update the edges with MLP prior to attention
-                    update_global_fn=update_global_fn if self.output_globals_size > 0 else None,
+                    update_global_fn=update_global_fn,
                     attention_logit_fn=_attention_logit_fn,
                     attention_reduce_fn=_attention_reduce_fn,
                 )
@@ -371,7 +371,7 @@ class GraphNet(nn.Module):
                 graph_net = GraphNetwork(
                     update_node_fn=update_node_fn,
                     update_edge_fn=update_edge_fn,
-                    update_global_fn=update_global_fn if self.output_globals_size > 0 else None,
+                    update_global_fn=update_global_fn,
                 )
 
             if self.skip_connections:
