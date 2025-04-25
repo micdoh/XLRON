@@ -100,6 +100,13 @@ def init_graph_tuple(state: EnvState, params: EnvParams, adj: jnp.array, exclude
 
     spectral_features = get_spectral_features(adj, num_features=3)
 
+    # For dynamic traffic, edge_features are normalised remaining holding time instead of link_slot_array
+    holding_time_edge_features = jnp.where(
+        state.link_slot_departure_array != 0,
+        (state.link_slot_departure_array - state.current_time) / params.mean_service_holding_time,
+        0
+    )
+
     if params.__class__.__name__ in ["RSAGNModelEnvParams", "RMSAGNModelEnvParams"]:
         # Normalize by max parameters (converted to linear units)
         max_power = isrs_gn_model.from_dbm(params.max_power)
@@ -109,12 +116,13 @@ def init_graph_tuple(state: EnvState, params: EnvParams, adj: jnp.array, exclude
         edge_features = jnp.stack([normalized_snr, normalized_power], axis=-1)
         node_features = jnp.concatenate([spectral_features, source_dest_features], axis=-1)
     elif params.__class__.__name__ == "VONEEnvParams":
-        edge_features = state.link_slot_array  # [n_edges] or [n_edges, ...]
+        edge_features = state.link_slot_array if params.mean_service_holding_time > 1e5 else holding_time_edge_features
         node_features = getattr(state, "node_capacity_array", jnp.zeros(params.num_nodes))
         node_features = node_features.reshape(-1, 1)
         node_features = jnp.concatenate([node_features, spectral_features, source_dest_features], axis=-1)
     else:
-        edge_features = state.link_slot_array  # [n_edges] or [n_edges, ...]
+        edge_features = state.link_slot_array if params.mean_service_holding_time > 1e5 else holding_time_edge_features
+        # [n_edges] or [n_edges, ...]
         node_features = jnp.concatenate([spectral_features, source_dest_features], axis=-1)
 
     if params.disable_node_features:
@@ -158,6 +166,11 @@ def update_graph_tuple(state: EnvState, params: EnvParams):
     source_dest_features = source_dest_features.at[source.astype(jnp.int32), 0].set(1)
     source_dest_features = source_dest_features.at[dest.astype(jnp.int32), 1].set(-1)
     spectral_features = state.graph.nodes[..., :3]
+    holding_time_edge_features = jnp.where(
+        state.link_slot_departure_array != 0,
+        (state.link_slot_departure_array - state.current_time) / params.mean_service_holding_time,
+        0
+    )
 
     if params.__class__.__name__ in ["RSAGNModelEnvParams", "RMSAGNModelEnvParams"]:
         # Normalize by max parameters (converted to linear units)
@@ -168,12 +181,12 @@ def update_graph_tuple(state: EnvState, params: EnvParams):
         edge_features = jnp.stack([normalized_snr, normalized_power], axis=-1)
         node_features = jnp.concatenate([spectral_features, source_dest_features], axis=-1)
     elif params.__class__.__name__ == "VONEEnvParams":
-        edge_features = state.link_slot_array
+        edge_features = state.link_slot_array if params.mean_service_holding_time > 1e5 else holding_time_edge_features
         node_features = getattr(state, "node_capacity_array", jnp.zeros(params.num_nodes))
         node_features = node_features.reshape(-1, 1)
         node_features = jnp.concatenate([node_features, spectral_features, source_dest_features], axis=-1)
     else:
-        edge_features = state.link_slot_array
+        edge_features = state.link_slot_array if params.mean_service_holding_time > 1e5 else holding_time_edge_features
         node_features = jnp.concatenate([spectral_features, source_dest_features], axis=-1)
 
     if params.disable_node_features:
