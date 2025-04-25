@@ -212,8 +212,8 @@ def save_model(train_state: TrainState, run_name, config: Union[box.Box, absl.fl
     orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
     save_args = orbax_utils.save_args_from_target(save_data)
     # Get path to current file
-    model_path = pathlib.Path(config.MODEL_PATH) if config.MODEL_PATH else pathlib.Path(__file__).resolve().parents[
-                                                                             2] / "models" / run_name
+    model_path = pathlib.Path(config.MODEL_PATH) if config.MODEL_PATH is not None else (
+            pathlib.Path(__file__).resolve().parents[2] / "models" / run_name)
     # If model_path dir already exists, append a number to the end
     i = 1
     model_path_og = model_path

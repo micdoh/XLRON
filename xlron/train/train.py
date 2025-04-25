@@ -197,9 +197,8 @@ def main(argv):
     # Save model params
     if config.SAVE_MODEL:
         # Merge seed_device and seed dimensions
-        print(out["runner_state"])
         train_state = jax.tree.map(lambda x: x[0], out["runner_state"][0])
-        save_model(train_state, run_name, None)  # TODO - make flags compatible
+        save_model(train_state, run_name, config)  # TODO - make flags compatible
 
     # END OF TRAINING
 
