@@ -350,7 +350,7 @@ class GraphNet(nn.Module):
                 def _attention_logit_fn(edges, sender_attr, receiver_attr, global_edge_attributes):
                     """Calculate attention logits using edges, nodes and global attributes."""
                     x = jnp.concatenate((edges, sender_attr, receiver_attr, global_edge_attributes), axis=1)
-                    return MLP(mlp_feature_sizes, dropout_rate=self.dropout_rate,
+                    return MLP(mlp_feature_sizes + [1], dropout_rate=self.dropout_rate,
                                deterministic=self.deterministic)(x)
 
                 def _attention_reduce_fn(
