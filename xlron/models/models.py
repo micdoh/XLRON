@@ -284,12 +284,23 @@ class LaunchPowerActorCriticMLP(nn.Module):
 class GraphNet(nn.Module):
     """A complete Graph Network model defined with Jraph."""
 
-    latent_size: int
-    num_mlp_layers: int
     message_passing_steps: int
-    output_globals_size: int = 0
-    output_edges_size: int = 0
-    output_nodes_size: int = 0
+    mlp_layers: int = None
+    mlp_latent: int = None
+    edge_embedding_size: int = 128
+    edge_mlp_layers: int = 3
+    edge_mlp_latent: int = 128
+    edge_output_size: int = 0
+    global_embedding_size: int = 8
+    global_mlp_layers: int = 0
+    global_mlp_latent: int = 0
+    global_output_size: int = 0
+    node_embedding_size: int = 16
+    node_mlp_layers: int = 2
+    node_mlp_latent: int = 128
+    node_output_size: int = 0
+    attn_mlp_layers: int = 2
+    attn_mlp_latent: int = 128
     dropout_rate: float = 0
     skip_connections: bool = True
     use_edge_model: bool = True
@@ -302,10 +313,24 @@ class GraphNet(nn.Module):
     def __call__(self, graphs: jraph.GraphsTuple) -> jraph.GraphsTuple:
         # Template code from here: https://github.com/google/flax/blob/main/examples/ogbg_molpcba/models.py
         # We will first linearly project the original features as 'embeddings'.
+        if self.mlp_latent is not None:
+            global_mlp_dims = edge_mlp_dims = node_mlp_dims = attn_mlp_dims = [self.mlp_latent] * self.mlp_layers
+        else:
+            global_mlp_dims = [self.global_mlp_latent] * self.global_mlp_layers
+            edge_mlp_dims = [self.edge_mlp_latent] * self.edge_mlp_layers
+            node_mlp_dims = [self.node_mlp_latent] * self.node_mlp_layers
+            attn_mlp_dims = [self.attn_mlp_latent] * self.attn_mlp_layers
+        if self.skip_connections:
+            # If using skip connections, we need to add the input dimensions to the output dimensions,
+            # so that the output of the MLP is the same size as the input for summing output/input
+            edge_mlp_dims = edge_mlp_dims + [self.edge_embedding_size]
+            node_mlp_dims = node_mlp_dims + [self.node_embedding_size]
+            global_mlp_dims = global_mlp_dims + [self.global_embedding_size]
+
         embedder = jraph.GraphMapFeatures(
-            embed_node_fn=nn.Dense(self.latent_size),
-            embed_edge_fn=nn.Dense(self.latent_size),
-            embed_global_fn=nn.Dense(self.latent_size),
+            embed_edge_fn=nn.Dense(self.edge_embedding_size),
+            embed_node_fn=nn.Dense(self.node_embedding_size),
+            embed_global_fn=nn.Dense(self.global_embedding_size),
         )
         if graphs.edges.ndim >= 3:
             # Dims are (edges, slots, features e.g. power, source/dest)
@@ -316,11 +341,10 @@ class GraphNet(nn.Module):
 
         # Now, we will apply a Graph Network once for each message-passing round.
         for _ in range(self.message_passing_steps):
-            mlp_feature_sizes = [self.latent_size] * self.num_mlp_layers
             if self.use_edge_model:
                 update_edge_fn = jraph.concatenated_args(
                     MLP(
-                        mlp_feature_sizes,
+                        edge_mlp_dims,
                         dropout_rate=self.dropout_rate,
                         deterministic=self.deterministic,
                         layer_norm=self.mlp_layer_norm,
@@ -331,26 +355,29 @@ class GraphNet(nn.Module):
 
             update_node_fn = jraph.concatenated_args(
                 MLP(
-                    mlp_feature_sizes,
+                    node_mlp_dims,
                     dropout_rate=self.dropout_rate,
                     deterministic=self.deterministic,
                     layer_norm=self.mlp_layer_norm,
                 )
             )
-            update_global_fn = jraph.concatenated_args(
-                MLP(
-                    mlp_feature_sizes,
-                    dropout_rate=self.dropout_rate,
-                    deterministic=self.deterministic,
-                    layer_norm=self.mlp_layer_norm,
+            if self.global_output_size > 0:
+                update_global_fn = jraph.concatenated_args(
+                    MLP(
+                        global_mlp_dims,
+                        dropout_rate=self.dropout_rate,
+                        deterministic=self.deterministic,
+                        layer_norm=self.mlp_layer_norm,
+                    )
                 )
-            )
+            else:
+                update_global_fn = None
 
             if self.use_attention:
                 def _attention_logit_fn(edges, sender_attr, receiver_attr, global_edge_attributes):
                     """Calculate attention logits using edges, nodes and global attributes."""
                     x = jnp.concatenate((edges, sender_attr, receiver_attr, global_edge_attributes), axis=1)
-                    return MLP(mlp_feature_sizes + [1], dropout_rate=self.dropout_rate,
+                    return MLP(attn_mlp_dims + [1], dropout_rate=self.dropout_rate,
                                deterministic=self.deterministic)(x)
 
                 def _attention_reduce_fn(
@@ -389,9 +416,9 @@ class GraphNet(nn.Module):
                 )
 
         decoder = jraph.GraphMapFeatures(
-            embed_global_fn=nn.Dense(self.output_globals_size) if self.output_globals_size > 0 else None,
-            embed_node_fn=nn.Dense(self.output_nodes_size) if self.output_nodes_size > 0 else None,
-            embed_edge_fn=nn.Dense(self.output_edges_size),
+            embed_global_fn=nn.Dense(self.global_output_size) if self.global_output_size > 0 else None,
+            embed_node_fn=nn.Dense(self.node_output_size) if self.node_output_size > 0 else None,
+            embed_edge_fn=nn.Dense(self.edge_output_size),
         )
         processed_graphs = decoder(processed_graphs)
 
@@ -402,12 +429,23 @@ class CriticGNN(nn.Module):
     activation: str = "tanh"
     num_layers: int = 2
     num_units: int = 64
-    gnn_latent: int = 128
     message_passing_steps: int = 1
-    output_edges_size: int = 10
-    output_nodes_size: int = 0
-    output_globals_size: int = 1
-    gnn_mlp_layers: int = 1
+    mlp_layers: int = None
+    mlp_latent: int = None
+    edge_embedding_size: int = 128
+    edge_mlp_layers: int = 3
+    edge_mlp_latent: int = 128
+    edge_output_size: int = 0
+    global_embedding_size: int = 8
+    global_mlp_layers: int = 0
+    global_mlp_latent: int = 0
+    global_output_size: int = 0
+    node_embedding_size: int = 16
+    node_mlp_layers: int = 2
+    node_mlp_latent: int = 128
+    node_output_size: int = 0
+    attn_mlp_layers: int = 2
+    attn_mlp_latent: int = 128
     use_attention: bool = True
     normalise_by_link_length: bool = True  # Normalise the processed edge features by the link length
     gnn_layer_norm: bool = True
@@ -418,12 +456,23 @@ class CriticGNN(nn.Module):
         # Remove globals from graph s.t. state value does not depend on the current request
         state = state.replace(graph=state.graph._replace(globals=jnp.zeros((1, 1))))
         processed_graph = GraphNet(
-            latent_size=self.gnn_latent,
             message_passing_steps=self.message_passing_steps,
-            output_edges_size=self.output_edges_size,
-            output_nodes_size=self.output_nodes_size,
-            output_globals_size=self.output_globals_size,
-            num_mlp_layers=self.gnn_mlp_layers,
+            mlp_layers=self.mlp_layers,
+            mlp_latent=self.mlp_latent,
+            edge_embedding_size=self.edge_embedding_size,
+            edge_mlp_layers=self.edge_mlp_layers,
+            edge_mlp_latent=self.edge_mlp_latent,
+            edge_output_size=self.edge_output_size,
+            global_embedding_size=self.global_embedding_size,
+            global_mlp_layers=self.global_mlp_layers,
+            global_mlp_latent=self.global_mlp_latent,
+            global_output_size=self.global_output_size,
+            node_embedding_size=self.node_embedding_size,
+            node_mlp_layers=self.node_mlp_layers,
+            node_mlp_latent=self.node_mlp_latent,
+            node_output_size=self.node_output_size,
+            attn_mlp_layers=self.attn_mlp_layers,
+            attn_mlp_latent=self.attn_mlp_latent,
             use_attention=self.use_attention,
             gnn_layer_norm=self.gnn_layer_norm,
             mlp_layer_norm=self.mlp_layer_norm,
@@ -453,14 +502,25 @@ class ActorGNN(nn.Module):
     activation: str = "tanh"
     num_layers: int = 2
     num_units: int = 64
-    gnn_latent: int = 128
+    mlp_layers: int = None
+    mlp_latent: int = None
+    edge_embedding_size: int = 128
+    edge_mlp_layers: int = 3
+    edge_mlp_latent: int = 128
+    edge_output_size: int = 0
+    global_embedding_size: int = 8
+    global_mlp_layers: int = 0
+    global_mlp_latent: int = 0
+    global_output_size: int = 0
+    node_embedding_size: int = 16
+    node_mlp_layers: int = 2
+    node_mlp_latent: int = 128
+    node_output_size: int = 0
+    attn_mlp_layers: int = 2
+    attn_mlp_latent: int = 128
     dropout_rate: float = 0
     deterministic: bool = False
     message_passing_steps: int = 1
-    output_edges_size: int = 10
-    output_nodes_size: int = 0
-    output_globals_size: int = 0
-    gnn_mlp_layers: int = 1
     use_attention: bool = True
     normalise_by_link_length: bool = True  # Normalise the processed edge features by the link length
     gnn_layer_norm: bool = True
@@ -505,12 +565,23 @@ class ActorGNN(nn.Module):
         :return: distrax.Categorical distribution over actions
         """
         processed_graph = GraphNet(
-            latent_size=self.gnn_latent,
             message_passing_steps=self.message_passing_steps,
-            output_edges_size=self.output_edges_size,
-            output_nodes_size=self.output_nodes_size,
-            output_globals_size=self.output_globals_size,
-            num_mlp_layers=self.gnn_mlp_layers,
+            mlp_layers=self.mlp_layers,
+            mlp_latent=self.mlp_latent,
+            edge_embedding_size=self.edge_embedding_size,
+            edge_mlp_layers=self.edge_mlp_layers,
+            edge_mlp_latent=self.edge_mlp_latent,
+            edge_output_size=self.edge_output_size,
+            global_embedding_size=self.global_embedding_size,
+            global_mlp_layers=self.global_mlp_layers,
+            global_mlp_latent=self.global_mlp_latent,
+            global_output_size=self.global_output_size,
+            node_embedding_size=self.node_embedding_size,
+            node_mlp_layers=self.node_mlp_layers,
+            node_mlp_latent=self.node_mlp_latent,
+            node_output_size=self.node_output_size,
+            attn_mlp_layers=self.attn_mlp_layers,
+            attn_mlp_latent=self.attn_mlp_latent,
             use_attention=self.use_attention,
             gnn_layer_norm=self.gnn_layer_norm,
             mlp_layer_norm=self.mlp_layer_norm,
@@ -523,14 +594,14 @@ class ActorGNN(nn.Module):
             edge_features = edge_features * (params.link_length_array.val/jnp.sum(params.link_length_array.val))
         # Get the current request and initialise array of action distributions per path
         nodes_sd, requested_bw = read_rsa_request(state.request_array)
-        init_action_array = jnp.zeros(params.k_paths * self.output_edges_size)
+        init_action_array = jnp.zeros(params.k_paths * self.edge_output_size)
 
         # Define a body func to retrieve path slots and update action array
         def get_path_action_dist(i, action_array):
             # Get the processed graph edge features corresponding to the i-th path
             path_features = get_path_slots(edge_features, params, nodes_sd, i, agg_func="sum")
             # Update the action array with the path features
-            action_array = jax.lax.dynamic_update_slice(action_array, path_features, (i * self.output_edges_size,))
+            action_array = jax.lax.dynamic_update_slice(action_array, path_features, (i * self.edge_output_size,))
             return action_array
 
         path_action_logits = jax.lax.fori_loop(0, params.k_paths, get_path_action_dist, init_action_array)
@@ -546,7 +617,7 @@ class ActorGNN(nn.Module):
             layer_norm=self.mlp_layer_norm,
         )
         if params.__class__.__name__ == "RSAGNModelEnvParams":
-            if self.output_globals_size > 0:
+            if self.global_output_size > 0:
                 power_logits = processed_graph.globals.reshape((-1,)) / self.temperature
             else:
                 init_feature_array = jnp.zeros((params.k_paths, edge_features.shape[1]))
@@ -580,14 +651,26 @@ class ActorCriticGNN(nn.Module):
     activation: str = "tanh"
     num_layers: int = 2
     num_units: int = 64
-    gnn_latent: int = 128
     message_passing_steps: int = 1
-    output_edges_size_critic: int = 10
-    output_nodes_size_critic: int = 0
-    output_globals_size_critic: int = 1
-    output_edges_size_actor: int = 10
-    output_nodes_size_actor: int = 0
-    output_globals_size_actor: int = 1
+    mlp_layers: int = None
+    mlp_latent: int = None
+    edge_embedding_size: int = 128
+    edge_mlp_layers: int = 3
+    edge_mlp_latent: int = 128
+    edge_output_size_actor: int = 0
+    edge_output_size_critic: int = 0
+    global_embedding_size: int = 8
+    global_mlp_layers: int = 0
+    global_mlp_latent: int = 0
+    global_output_size_actor: int = 0
+    global_output_size_critic: int = 0
+    node_embedding_size: int = 16
+    node_mlp_layers: int = 2
+    node_mlp_latent: int = 128
+    node_output_size_actor: int = 0
+    node_output_size_critic: int = 0
+    attn_mlp_layers: int = 2
+    attn_mlp_latent: int = 128
     gnn_mlp_layers: int = 1
     use_attention: bool = True
     normalise_by_link_length: bool = True  # Normalise the processed edge features by the link length
@@ -623,12 +706,23 @@ class ActorCriticGNN(nn.Module):
         actor = ActorGNN(
             num_layers=self.num_layers,
             num_units=self.num_units,
-            gnn_latent=self.gnn_latent,
             message_passing_steps=self.message_passing_steps,
-            output_edges_size=self.output_edges_size_actor,
-            output_nodes_size=self.output_nodes_size_actor,
-            output_globals_size=self.output_globals_size_actor,
-            gnn_mlp_layers=self.gnn_mlp_layers,
+            mlp_layers=self.mlp_layers,
+            mlp_latent=self.mlp_latent,
+            edge_embedding_size=self.edge_embedding_size,
+            edge_mlp_layers=self.edge_mlp_layers,
+            edge_mlp_latent=self.edge_mlp_latent,
+            edge_output_size=self.edge_output_size_actor,
+            global_embedding_size=self.global_embedding_size,
+            global_mlp_layers=self.global_mlp_layers,
+            global_mlp_latent=self.global_mlp_latent,
+            global_output_size=self.global_output_size_actor,
+            node_embedding_size=self.node_embedding_size,
+            node_mlp_layers=self.node_mlp_layers,
+            node_mlp_latent=self.node_mlp_latent,
+            node_output_size=self.node_output_size_actor,
+            attn_mlp_layers=self.attn_mlp_layers,
+            attn_mlp_latent=self.attn_mlp_latent,
             use_attention=self.use_attention,
             normalise_by_link_length=self.normalise_by_link_length,
             gnn_layer_norm=self.gnn_layer_norm,
@@ -646,12 +740,23 @@ class ActorCriticGNN(nn.Module):
             activation=self.activation,
             num_layers=self.num_layers,
             num_units=self.num_units,
-            gnn_latent=self.gnn_latent,
             message_passing_steps=self.message_passing_steps,
-            output_edges_size=self.output_edges_size_critic,
-            output_nodes_size=self.output_nodes_size_critic,
-            output_globals_size=self.output_globals_size_critic,
-            gnn_mlp_layers=self.gnn_mlp_layers,
+            mlp_layers=self.mlp_layers,
+            mlp_latent=self.mlp_latent,
+            edge_embedding_size=self.edge_embedding_size,
+            edge_mlp_layers=self.edge_mlp_layers,
+            edge_mlp_latent=self.edge_mlp_latent,
+            edge_output_size=self.edge_output_size_critic,
+            global_embedding_size=self.global_embedding_size,
+            global_mlp_layers=self.global_mlp_layers,
+            global_mlp_latent=self.global_mlp_latent,
+            global_output_size=self.global_output_size_critic,
+            node_embedding_size=self.node_embedding_size,
+            node_mlp_layers=self.node_mlp_layers,
+            node_mlp_latent=self.node_mlp_latent,
+            node_output_size=self.node_output_size_critic,
+            attn_mlp_layers=self.attn_mlp_layers,
+            attn_mlp_latent=self.attn_mlp_latent,
             use_attention=self.use_attention,
             normalise_by_link_length=self.normalise_by_link_length,
             gnn_layer_norm=self.gnn_layer_norm,
