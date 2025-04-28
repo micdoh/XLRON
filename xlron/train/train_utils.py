@@ -236,30 +236,43 @@ def init_network(config, env, env_state, env_params):
                                  activation=config.ACTIVATION,
                                  num_layers=config.NUM_LAYERS,
                                  num_units=config.NUM_UNITS,
-                                 layer_norm=config.LAYER_NORM, )
+                                 layer_norm=config.mlp_layer_norm, )
         init_x = tuple([jnp.zeros(env.observation_space(env_params).n)])
     elif config.env_type.lower() in ["rsa", "rmsa", "rwa", "deeprmsa", "rwa_lightpath_reuse", "rsa_gn_model", "rmsa_gn_model", "rsa_multiband"]:
         if config.USE_GNN:
             if "gn_model" in config.env_type.lower() and config.output_globals_size_actor > 0:
-                output_globals_size_actor = int((env_params.max_power - env_params.min_power) / env_params.step_power) + 1 if config.discrete_launch_power else 1
+                global_output_size_actor = int((env_params.max_power - env_params.min_power) / env_params.step_power) + 1 if config.discrete_launch_power else 1
             else:
-                output_globals_size_actor = config.output_globals_size_actor
+                global_output_size_actor = config.global_output_size_actor
             network = ActorCriticGNN(
                 activation=config.ACTIVATION,
                 num_layers=config.NUM_LAYERS,
                 num_units=config.NUM_UNITS,
-                gnn_latent=config.gnn_latent,
                 message_passing_steps=config.message_passing_steps,
                 # output_edges_size must equal number of slot actions
-                output_edges_size_actor=math.ceil(env_params.link_resources / env_params.aggregate_slots),
-                output_nodes_size_actor=config.output_nodes_size_actor,
-                output_globals_size_actor=output_globals_size_actor,
-                output_edges_size_critic=config.output_edges_size_critic,
-                output_nodes_size_critic=config.output_nodes_size_critic,
-                output_globals_size_critic=config.output_globals_size_critic,
-                gnn_mlp_layers=config.gnn_mlp_layers,
+                mlp_layers=config.mlp_layers,
+                mlp_latent=config.mlp_latent,
+                edge_embedding_size=config.edge_embedding_size,
+                edge_mlp_layers=config.edge_mlp_layers,
+                edge_mlp_latent=config.edge_mlp_latent,
+                edge_output_size_actor=math.ceil(env_params.link_resources / env_params.aggregate_slots),
+                edge_output_size_critic=config.edge_output_size_critic,
+                global_embedding_size=config.global_embedding_size,
+                global_mlp_layers=config.global_mlp_layers,
+                global_mlp_latent=config.global_mlp_latent,
+                global_output_size_actor=global_output_size_actor,
+                global_output_size_critic=config.global_output_size_critic,
+                node_embedding_size=config.node_embedding_size,
+                node_mlp_layers=config.node_mlp_layers,
+                node_mlp_latent=config.node_mlp_latent,
+                node_output_size_actor=config.node_output_size_actor,
+                node_output_size_critic=config.node_output_size_critic,
+                attn_mlp_layers=config.attn_mlp_layers,
+                attn_mlp_latent=config.attn_mlp_latent,
+                use_attention=config.attn_mlp_layers > 0,
+                gnn_layer_norm=config.gnn_layer_norm,
+                mlp_layer_norm=config.mlp_layer_norm,
                 normalise_by_link_length=config.normalize_by_link_length,
-                mlp_layer_norm=config.LAYER_NORM,
                 vmap=False,
                 discrete=config.discrete_launch_power,
                 min_power_dbm=config.min_power,
@@ -276,7 +289,7 @@ def init_network(config, env, env_state, env_params):
                 activation=config.ACTIVATION,
                 num_layers=config.NUM_LAYERS,
                 num_units=config.NUM_UNITS,
-                layer_norm=config.LAYER_NORM,
+                layer_norm=config.mlp_layer_norm,
                 discrete=config.discrete_launch_power,
                 min_power_dbm=config.min_power,
                 max_power_dbm=config.max_power,
@@ -289,7 +302,7 @@ def init_network(config, env, env_state, env_params):
                                      activation=config.ACTIVATION,
                                      num_layers=config.NUM_LAYERS,
                                      num_units=config.NUM_UNITS,
-                                     layer_norm=config.LAYER_NORM, )
+                                     layer_norm=config.mlp_layer_norm, )
 
             init_x = tuple([jnp.zeros(env.observation_space(env_params).n)])
     else:
