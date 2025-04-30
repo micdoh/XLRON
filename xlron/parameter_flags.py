@@ -18,7 +18,9 @@ flags.DEFINE_integer("NUM_MINIBATCHES", 1, "Number of minibatches per update")
 
 flags.DEFINE_float("LR", 5e-4, "Learning rate")
 flags.DEFINE_float("GAMMA", 0.999, "Discount factor")
-flags.DEFINE_float("GAE_LAMBDA", 0.95, "GAE lambda parameter")
+flags.DEFINE_float("GAE_LAMBDA", None, "GAE lambda parameter")
+flags.DEFINE_float("INITIAL_LAMBDA", 0.9, "Initial lambda parameter for GAE")
+flags.DEFINE_float("FINAL_LAMBDA", 0.98, "Final lambda parameter for GAE")
 flags.DEFINE_float("CLIP_EPS", 0.2, "PPO clipping parameter")
 flags.DEFINE_float("ENT_COEF", 0.0, "Entropy coefficient")
 flags.DEFINE_float("VF_COEF", 0.5, "Value function coefficient")
@@ -29,6 +31,9 @@ flags.DEFINE_float("MAX_GRAD_NORM", 0.5, "Maximum gradient norm")
 flags.DEFINE_string("ACTIVATION", "tanh", "Activation function")
 flags.DEFINE_string("LR_SCHEDULE", "warmup_cosine", "Learning rate schedule")
 flags.DEFINE_integer("SCHEDULE_MULTIPLIER", 1, "Increase the learning rate schedule horizon "
+                                               "by this factor (to keep schedule for longer final training runs "
+                                               "consistent with that from tuning runs)")
+flags.DEFINE_integer("LAMBDA_SCHEDULE_MULTIPLIER", 1, "Increase the GAE-lambda schedule horizon "
                                                "by this factor (to keep schedule for longer final training runs "
                                                "consistent with that from tuning runs)")
 flags.DEFINE_float("WARMUP_PEAK_MULTIPLIER", 1, "Increase the learning rate warmup peak compared to init")

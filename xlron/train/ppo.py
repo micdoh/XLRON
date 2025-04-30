@@ -89,6 +89,14 @@ def get_learner_fn(
         _, last_val = jax.vmap(train_state.apply_fn, in_axes=axes)(train_state.params, *last_obs)
 
         def _calculate_gae(traj_batch, last_val):
+            if config.GAE_LAMBDA is None:
+                # Multiply by 3 so that more time spent in high lambda at end of training
+                frac = 3 * train_state.update_step / (config.NUM_UPDATES * config.LAMBDA_SCHEDULE_MULTIPLIER)
+                sech_frac = 1 - 1/jnp.cosh(frac)
+                lambda_delta = config.FINAL_LAMBDA - config.INITIAL_LAMBDA
+                current_lambda = config.INITIAL_LAMBDA + (sech_frac * lambda_delta)
+            else:
+                current_lambda = config.GAE_LAMBDA
             def _get_advantages(gae_and_next_value, transition):
                 gae, next_value = gae_and_next_value
                 done, value, reward = (
@@ -100,7 +108,7 @@ def get_learner_fn(
                 delta = centered_reward + config.GAMMA * next_value * (1 - done) - value
                 gae = (
                     delta
-                    + config.GAMMA * config.GAE_LAMBDA * (1 - done) * gae
+                    + config.GAMMA * current_lambda * (1 - done) * gae
                 )
                 return (gae, value), (gae, delta)
 
