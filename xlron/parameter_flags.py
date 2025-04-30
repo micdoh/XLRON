@@ -109,6 +109,7 @@ flags.DEFINE_boolean("include_isrs", False, "Include ISRS in the GN model or jus
 flags.DEFINE_string("reward_type", "service", "Reward type")
 flags.DEFINE_boolean("truncate_holding_time", False, "Truncate holding time to less than 2*mean_service_holding_time")
 flags.DEFINE_integer("ENV_WARMUP_STEPS", 0, "Number of warmup steps before training or eval")
+flags.DEFINE_boolean("pack_path_bits", True, "Pack path bits to save memory, then unpack when path row is selected")
 # RSA-specific environment parameters
 flags.DEFINE_boolean("random_traffic", False, "Random traffic matrix for RSA on each reset (else uniform or custom)")
 flags.DEFINE_string("custom_traffic_matrix_csv_filepath", None, "Path to custom traffic matrix CSV file")
