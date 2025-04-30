@@ -144,6 +144,7 @@ def make(config: Optional[Union[dict, absl.flags.FlagValues]], **kwargs) -> Tupl
     optimise_launch_power = config.get("optimise_launch_power", False)
     traffic_array = config.get("traffic_array", False)
     launch_power_array = config.get("launch_power_array", None)
+    pack_path_bits = config.get("pack_path_bits", False)
 
     # optimize_launch_power.py parameters
     num_spans = config.get("num_spans", 10)
@@ -286,6 +287,9 @@ def make(config: Optional[Union[dict, absl.flags.FlagValues]], **kwargs) -> Tupl
     # Define edges for use with heuristics and GNNs
     edges = jnp.array(sorted(graph.edges))
 
+    if pack_path_bits:
+        path_link_array = jnp.packbits(path_link_array, axis=1)
+
     laplacian_matrix = jnp.array(nx.directed_laplacian_matrix(graph)) if graph.is_directed() \
         else jnp.array(nx.laplacian_matrix(graph).todense())
 
@@ -321,6 +325,7 @@ def make(config: Optional[Union[dict, absl.flags.FlagValues]], **kwargs) -> Tupl
         log_actions=log_actions,
         traffic_array=traffic_array,
         disable_node_features=disable_node_features,
+        pack_path_bits=pack_path_bits,
     )
 
     if env_type == "vone":

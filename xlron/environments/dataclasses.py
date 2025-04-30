@@ -106,6 +106,7 @@ class EnvParams:
     values_bw: chex.Array = struct.field(pytree_node=False)
     truncate_holding_time: bool = struct.field(pytree_node=False)
     traffic_array: bool = struct.field(pytree_node=False)
+    pack_path_bits: bool = struct.field(pytree_node=False)
 
 
 @struct.dataclass

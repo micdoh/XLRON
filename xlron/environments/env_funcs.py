@@ -769,7 +769,10 @@ def get_path_index_array(params, nodes):
 def get_paths(params, nodes):
     """Get k paths between source and destination"""
     index_array = get_path_index_array(params, nodes)
-    return jnp.take(params.path_link_array.val, index_array, axis=0)
+    paths = jnp.take(params.path_link_array.val, index_array, axis=0)
+    if params.pack_path_bits:  # Unpack the bit-packed paths
+        paths = jnp.unpackbits(paths, axis=1)[:, :params.num_links]
+    return paths
 
 
 @partial(jax.jit, static_argnums=(0,))
@@ -2729,6 +2732,8 @@ def update_active_lightpaths_array_departure(state: RSAGNModelEnvState, time: fl
 
 
 def get_snr_for_path(path, link_snr_array, params):
+    if params.pack_path_bits:
+        path = jnp.unpackbits(path)[:params.num_links]
     nsr_slots = jnp.where(path.reshape((params.num_links, 1)) == 1, 1/link_snr_array, jnp.zeros(params.link_resources))
     nsr_path_slots = jnp.sum(nsr_slots, axis=0)
     # TODO - Add noise from one more ROADM per path
@@ -3298,9 +3303,11 @@ def get_launch_power(state: EnvState, path_action: chex.Array, power_action: che
             source, dest, params.k_paths, params.num_nodes, directed=params.directed_graph
         ).astype(jnp.int32)
         # Get path length
-        link_length_array = jnp.sum(params.link_length_array.val, axis=1)
-        path_length = jnp.sum(link_length_array[i+k_path_index])
-        maximum_path_length = jnp.max(jnp.dot(params.path_link_array.val, params.link_length_array.val))
+        link_length_array = jnp.sum(params.link_length_array.val, axis=1, promote_integers=False)
+        path_length = jnp.sum(link_length_array[i+k_path_index], promote_integers=False)
+        path_link_array = jnp.unpackbits(params.path_link_array.val)[:, params.num_links] if params.pack_path_bits \
+            else params.path_link_array.val
+        maximum_path_length = jnp.max(jnp.dot(path_link_array, params.link_length_array.val))
         return state.launch_power_array[0] * (path_length / maximum_path_length)
     else:
         raise ValueError("Invalid launch power type. Check params.launch_power_type")
@@ -3324,11 +3331,15 @@ def get_paths_obs_gn_model(state: RSAGNModelEnvState, params: RSAGNModelEnvParam
         path_index = get_path_indices(source, dest, params.k_paths, params.num_nodes,
                                       directed=params.directed_graph).astype(
             jnp.int32) + k_path_index
-        path = params.path_link_array[path_index]
+        path = params.path_link_array.val[path_index] if not params.pack_path_bits else \
+            jnp.unpackbits(params.path_link_array.val[path_index])[:params.num_links]
         path_length = jnp.dot(path, link_length_array)
-        max_path_length = jnp.max(jnp.dot(params.path_link_array.val, link_length_array))
+        max_path_length = jnp.max(jnp.dot(params.path_link_array.val, link_length_array)) if not params.pack_path_bits else \
+            jnp.max(jnp.dot(jnp.unpackbits(params.path_link_array.val), link_length_array))
         path_length_norm = path_length / max_path_length
-        path_length_hops_norm = jnp.sum(path) / jnp.max(jnp.sum(params.path_link_array.val, axis=1))
+        max_path_length_hops = jnp.max(jnp.sum(params.path_link_array.val, axis=1, promote_integers=False)) if not params.pack_path_bits else \
+            jnp.max(jnp.sum(jnp.unpackbits(params.path_link_array.val, axis=1), axis=1, promote_integers=False))
+        path_length_hops_norm = jnp.sum(path, promote_integers=False) / max_path_length_hops
         # Connections on path
         num_connections = jnp.where(path == 1, jnp.where(state.channel_power_array > 0, 1, 0).sum(axis=1), 0).sum()
         num_connections_norm = num_connections / params.link_resources
