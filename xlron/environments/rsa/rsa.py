@@ -37,8 +37,9 @@ class RSAEnv(environment.Environment):
         """
         super().__init__()
         state = RSAEnvState(
-            current_time=0,
-            holding_time=0,
+            current_time=0.,
+            holding_time=0.,
+            arrival_time=0.,
             total_timesteps=0,
             total_requests=-1,
             link_slot_array=init_link_slot_array(params),

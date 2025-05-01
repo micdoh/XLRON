@@ -145,6 +145,7 @@ def make(config: Optional[Union[dict, absl.flags.FlagValues]], **kwargs) -> Tupl
     traffic_array = config.get("traffic_array", False)
     launch_power_array = config.get("launch_power_array", None)
     pack_path_bits = config.get("pack_path_bits", False)
+    relative_arrival_times = config.get("relative_arrival_times", False)
 
     # optimize_launch_power.py parameters
     num_spans = config.get("num_spans", 10)
@@ -327,6 +328,7 @@ def make(config: Optional[Union[dict, absl.flags.FlagValues]], **kwargs) -> Tupl
         traffic_array=traffic_array,
         disable_node_features=disable_node_features,
         pack_path_bits=pack_path_bits,
+        relative_arrival_times=relative_arrival_times,
     )
 
     if env_type == "vone":

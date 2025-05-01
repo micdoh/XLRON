@@ -63,6 +63,7 @@ class EnvState:
         """
     current_time: chex.Scalar
     holding_time: chex.Scalar
+    arrival_time: chex.Scalar
     total_timesteps: chex.Scalar
     total_requests: chex.Scalar
     graph: jraph.GraphsTuple
@@ -107,6 +108,7 @@ class EnvParams:
     truncate_holding_time: bool = struct.field(pytree_node=False)
     traffic_array: bool = struct.field(pytree_node=False)
     pack_path_bits: bool = struct.field(pytree_node=False)
+    relative_arrival_times: bool = struct.field(pytree_node=False)
 
 
 @struct.dataclass

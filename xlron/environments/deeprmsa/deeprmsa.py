@@ -33,6 +33,7 @@ class DeepRMSAEnv(RSAEnv):
                          laplacian_matrix=laplacian_matrix)
         self.initial_state = DeepRMSAEnvState(
             current_time=0,
+            arrival_time=0,
             holding_time=0,
             total_timesteps=0,
             total_requests=-1,
