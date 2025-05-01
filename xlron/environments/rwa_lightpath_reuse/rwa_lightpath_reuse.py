@@ -41,6 +41,7 @@ class RWALightpathReuseEnv(RSAEnv):
         super().__init__(key, params, traffic_matrix=traffic_matrix, list_of_requests=list_of_requests, laplacian_matrix=laplacian_matrix)
         state = RWALightpathReuseEnvState(
             current_time=0,
+            arrival_time=0,
             holding_time=0,
             total_timesteps=0,
             total_requests=-1,
