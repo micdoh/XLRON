@@ -287,7 +287,8 @@ def make(config: Optional[Union[dict, absl.flags.FlagValues]], **kwargs) -> Tupl
     # Define edges for use with heuristics and GNNs
     edges = jnp.array(sorted(graph.edges))
 
-    if pack_path_bits:
+    if pack_path_bits:  # This saves memory by packing the path link array into a bit array
+        path_link_array = path_link_array.astype(jnp.int32)
         path_link_array = jnp.packbits(path_link_array, axis=1)
 
     laplacian_matrix = jnp.array(nx.directed_laplacian_matrix(graph)) if graph.is_directed() \
