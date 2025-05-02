@@ -24,6 +24,11 @@ FLOAT_DTYPE_MAP = {
     "32": jnp.float32
 }
 
+TIME_FLOAT_DTYPE_MAP = {
+    "16": jnp.float16,
+    "32": jnp.float32
+}
+
 
 # Define a function to get the current dtype bits
 def _get_dtype_bits():
@@ -40,6 +45,7 @@ def _get_dtype_bits():
 # Initialize the global variables
 INT_DTYPE = INT_DTYPE_MAP[_get_dtype_bits()]
 FLOAT_DTYPE = FLOAT_DTYPE_MAP[_get_dtype_bits()]
+TIME_DTYPE = TIME_FLOAT_DTYPE_MAP[_get_dtype_bits()]
 
 # Print a message when the module is imported
 print(f"dtype_config: Using int dtype: {INT_DTYPE} and float dtype: {FLOAT_DTYPE}")

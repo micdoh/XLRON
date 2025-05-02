@@ -26,7 +26,7 @@ from typing import Generic, TypeVar
 from collections import defaultdict
 from xlron.environments.dataclasses import *
 from xlron.environments.gn_model import isrs_gn_model
-from xlron.environments.dtype_config import FLOAT_DTYPE, INT_DTYPE
+from xlron.environments.dtype_config import FLOAT_DTYPE, INT_DTYPE, TIME_DTYPE
 
 
 Shape = Sequence[int]
@@ -570,7 +570,7 @@ def init_node_departure_array(params: EnvParams):
 
 @partial(jax.jit, static_argnums=(0,))
 def init_link_slot_departure_array(params: EnvParams):
-    return jnp.zeros((params.num_links, params.link_resources), dtype=FLOAT_DTYPE)
+    return jnp.zeros((params.num_links, params.link_resources), dtype=TIME_DTYPE)
 
 
 @partial(jax.jit, static_argnums=(0,))
@@ -687,7 +687,7 @@ def generate_request_rsa(key: chex.PRNGKey, state: EnvState, params: EnvParams) 
         nodes = jnp.stack(nodes, dtype=INT_DTYPE)
         source, dest = nodes if params.directed_graph else jnp.sort(nodes)
         arrival_time, holding_time = generate_arrival_holding_times(key_times, params)
-        current_time = state.current_time + arrival_time if not params.relative_arrival_times else jnp.array([0.], dtype=FLOAT_DTYPE)
+        current_time = state.current_time + arrival_time if not params.relative_arrival_times else jnp.array([0.], dtype=TIME_DTYPE)
     state = state.replace(
         holding_time=holding_time,
         current_time=current_time,
@@ -732,7 +732,7 @@ def generate_request_rwalr(key: chex.PRNGKey, state: EnvState, params: EnvParams
         nodes = jnp.stack(nodes, dtype=INT_DTYPE)
         source, dest = nodes if params.directed_graph else jnp.sort(nodes)
         arrival_time, holding_time = generate_arrival_holding_times(key_times, params)
-        current_time = state.current_time + arrival_time if not params.relative_arrival_times else jnp.array([0.], dtype=FLOAT_DTYPE)
+        current_time = state.current_time + arrival_time if not params.relative_arrival_times else jnp.array([0.], dtype=TIME_DTYPE)
     state = state.replace(
         holding_time=holding_time,
         current_time=current_time,
@@ -844,7 +844,7 @@ def generate_arrival_holding_times(key, params):
         holding_time: Holding time
     """
     key_arrival, key_holding = jax.random.split(key, 2)
-    arrival_time = jax.random.exponential(key_arrival, shape=(1,), dtype=FLOAT_DTYPE) \
+    arrival_time = jax.random.exponential(key_arrival, shape=(1,), dtype=TIME_DTYPE) \
                    / params.arrival_rate  # Divide because it is rate (lambda)
     if params.truncate_holding_time:
         # For DeepRMSA, need to generate holding times that are less than 2*mean_service_holding_time
@@ -856,7 +856,7 @@ def generate_arrival_holding_times(key, params):
         non_zero_index = jnp.nonzero(holding_times, size=1)[0][0]
         holding_time = jax.lax.dynamic_slice(jnp.squeeze(holding_times), (non_zero_index,), (1,))
     else:
-        holding_time = jax.random.exponential(key_holding, shape=(1,), dtype=FLOAT_DTYPE) \
+        holding_time = jax.random.exponential(key_holding, shape=(1,), dtype=TIME_DTYPE) \
                        * params.mean_service_holding_time  # Multiply because it is mean (1/lambda)
     return arrival_time, holding_time
 
@@ -876,7 +876,7 @@ def update_action_history(action_history: chex.Array, action_counter: chex.Array
 
 
 def update_link(link, initial_slot, num_slots, value):
-    slot_indices = jnp.arange(link.shape[0], dtype=FLOAT_DTYPE)
+    slot_indices = jnp.arange(link.shape[0], dtype=INT_DTYPE)
     return jnp.where((initial_slot <= slot_indices) & (slot_indices < initial_slot+num_slots), link-value, link)
 
 
