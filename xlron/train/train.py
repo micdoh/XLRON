@@ -221,6 +221,7 @@ if __name__ == "__main__":
     selected_gpu = restrict_visible_gpus(gpu_indices=FLAGS.VISIBLE_DEVICES, auto_select=auto_select)
     print(f"Selected GPU: {selected_gpu}")
     # JAM imports come after GPU selection (to avoid initializing a process on every GPU)
+    from xlron.environments import dtype_config
     import jax
     import jax.numpy as jnp
     import orbax.checkpoint

@@ -15,6 +15,7 @@ from xlron.environments.env_funcs import EnvState, EnvParams, get_path_slots, re
 from xlron.environments.gn_model.isrs_gn_model import isrs_gn_model, to_dbm, from_dbm
 from xlron.environments.make_env import make
 from xlron.models.gnn import GraphNetwork, GraphNetGAT, GAT
+from xlron.environments.dtype_config import FLOAT_DTYPE, INT_DTYPE
 
 
 # Immutable class for storing nested node/edge features containing an embedding and a recurrent state.
@@ -46,15 +47,21 @@ def make_dense_layers(x, num_units, num_layers, activation, layer_norm=False):
     else:
         activation = nn.tanh
     layer = nn.Dense(
-        num_units, kernel_init=orthogonal(np.sqrt(2)), bias_init=constant(0.0)
+        num_units,
+        kernel_init=orthogonal(np.sqrt(2)),
+        bias_init=constant(0.0),
+        dtype=FLOAT_DTYPE
     )(x)
-    layer = nn.LayerNorm()(layer) if layer_norm else layer
+    layer = nn.LayerNorm(dtype=FLOAT_DTYPE)(layer) if layer_norm else layer
     layer = activation(layer)
     for _ in range(num_layers - 1):
         layer = nn.Dense(
-            num_units, kernel_init=orthogonal(np.sqrt(2)), bias_init=constant(0.0)
+            num_units,
+            kernel_init=orthogonal(np.sqrt(2)),
+            bias_init=constant(0.0),
+            dtype=FLOAT_DTYPE
         )(layer)
-        layer = nn.LayerNorm()(layer) if layer_norm else layer
+        layer = nn.LayerNorm(dtype=FLOAT_DTYPE)(layer) if layer_norm else layer
         layer = activation(layer)
     return layer
 
@@ -72,13 +79,13 @@ class MLP(nn.Module):
     def __call__(self, inputs):
         x = inputs
         for size in self.feature_sizes:
-            x = nn.Dense(features=size)(x)
+            x = nn.Dense(features=size, dtype=FLOAT_DTYPE)(x)
             x = self.activation(x)
             x = nn.Dropout(rate=self.dropout_rate, deterministic=self.deterministic)(
                 x
             )
             if self.layer_norm:
-                x = nn.LayerNorm()(x)
+                x = nn.LayerNorm(dtype=FLOAT_DTYPE)(x)
         return x
 
 
@@ -99,7 +106,10 @@ class ActorCriticMLP(nn.Module):
         actor_mean = make_dense_layers(x, self.num_units, self.num_layers, self.activation)
         stacked_logits = []
         actor_mean_dim = nn.Dense(
-            self.action_dim, kernel_init=orthogonal(0.01), bias_init=constant(0.0)
+            self.action_dim,
+            kernel_init=orthogonal(0.01),
+            bias_init=constant(0.0),
+            dtype=FLOAT_DTYPE
         )(actor_mean)
         logits = actor_mean_dim / self.temperature
         stacked_logits.append(logits)
@@ -108,7 +118,12 @@ class ActorCriticMLP(nn.Module):
         action_dist = distrax.Categorical(logits=logits)
 
         critic = make_dense_layers(x, self.num_units, self.num_layers, self.activation, layer_norm=self.layer_norm)
-        critic = nn.Dense(1, kernel_init=orthogonal(1.0), bias_init=constant(0.0))(
+        critic = nn.Dense(
+            1,
+            kernel_init=orthogonal(1.0),
+            bias_init=constant(0.0),
+            dtype=FLOAT_DTYPE
+        )(
             critic
         )
 
@@ -154,7 +169,7 @@ class LaunchPowerActorCriticMLP(nn.Module):
     @property
     def power_levels(self):
         """Calculate power levels dynamically"""
-        return jnp.linspace(self.min_power_dbm, self.max_power_dbm, self.num_power_levels)
+        return jnp.linspace(self.min_power_dbm, self.max_power_dbm, self.num_power_levels, dtype=FLOAT_DTYPE)
 
     @nn.compact
     def __call__(self, x):
@@ -165,10 +180,11 @@ class LaunchPowerActorCriticMLP(nn.Module):
                 layers.append(nn.Dense(
                     self.num_units,
                     kernel_init=orthogonal(np.sqrt(2)),
-                    name=f"{prefix}_dense_{i}"
+                    name=f"{prefix}_dense_{i}",
+                    dtype=FLOAT_DTYPE
                 ))
                 if self.layer_norm:
-                    layers.append(nn.LayerNorm(name=f"{prefix}_norm_{i}"))
+                    layers.append(nn.LayerNorm(name=f"{prefix}_norm_{i}", dtype=FLOAT_DTYPE))
             return layers
 
         # Initialize actor network layers
@@ -177,11 +193,12 @@ class LaunchPowerActorCriticMLP(nn.Module):
             actor_out = nn.Dense(
                 self.num_power_levels,
                 kernel_init=orthogonal(0.01),
-                name="actor_output"
+                name="actor_output",
+                dtype=FLOAT_DTYPE
             )
         else:
-            alpha_out = nn.Dense(1, kernel_init=orthogonal(0.01), name="alpha")
-            beta_out = nn.Dense(1, kernel_init=orthogonal(0.01), name="beta")
+            alpha_out = nn.Dense(1, kernel_init=orthogonal(0.01), name="alpha", dtype=FLOAT_DTYPE)
+            beta_out = nn.Dense(1, kernel_init=orthogonal(0.01), name="beta", dtype=FLOAT_DTYPE)
 
         def activate(x):
             if self.activation == "relu": return jax.nn.relu(x)
@@ -232,11 +249,11 @@ class LaunchPowerActorCriticMLP(nn.Module):
             variable_broadcast="params",
             split_rngs={"params": False},
             length=self.k_paths,
-        )()(None, jnp.arange(self.k_paths))
+        )()(None, jnp.arange(self.k_paths, dtype=INT_DTYPE))
 
         # Initialize critic network layers
         critic_net = make_mlp("critic")
-        critic_out = nn.Dense(1, kernel_init=orthogonal(1.0), name="critic_output")
+        critic_out = nn.Dense(1, kernel_init=orthogonal(1.0), name="critic_output", dtype=FLOAT_DTYPE)
         value = jnp.squeeze(critic_out(forward(x, critic_net)), axis=-1)
 
         # Create appropriate distribution
@@ -410,15 +427,15 @@ class GraphNet(nn.Module):
 
             if self.gnn_layer_norm:
                 processed_graphs = processed_graphs._replace(
-                    nodes=nn.LayerNorm()(processed_graphs.nodes),
-                    edges=nn.LayerNorm()(processed_graphs.edges),
-                    globals=nn.LayerNorm()(processed_graphs.globals) if processed_graphs.globals is not None else None,
+                    nodes=nn.LayerNorm(dtype=FLOAT_DTYPE)(processed_graphs.nodes),
+                    edges=nn.LayerNorm(dtype=FLOAT_DTYPE)(processed_graphs.edges),
+                    globals=nn.LayerNorm(dtype=FLOAT_DTYPE)(processed_graphs.globals) if processed_graphs.globals is not None else None,
                 )
 
         decoder = jraph.GraphMapFeatures(
-            embed_global_fn=nn.Dense(self.global_output_size) if self.global_output_size > 0 else None,
-            embed_node_fn=nn.Dense(self.node_output_size) if self.node_output_size > 0 else None,
-            embed_edge_fn=nn.Dense(self.edge_output_size),
+            embed_global_fn=nn.Dense(self.global_output_size, dtype=FLOAT_DTYPE) if self.global_output_size > 0 else None,
+            embed_node_fn=nn.Dense(self.node_output_size, dtype=FLOAT_DTYPE) if self.node_output_size > 0 else None,
+            embed_edge_fn=nn.Dense(self.edge_output_size, dtype=FLOAT_DTYPE),
         )
         processed_graphs = decoder(processed_graphs)
 
@@ -454,7 +471,7 @@ class CriticGNN(nn.Module):
     @nn.compact
     def __call__(self, state: EnvState, params: EnvParams):
         # Remove globals from graph s.t. state value does not depend on the current request
-        state = state.replace(graph=state.graph._replace(globals=jnp.zeros((1, 1))))
+        state = state.replace(graph=state.graph._replace(globals=jnp.zeros((1, 1), dtype=FLOAT_DTYPE)))
         processed_graph = GraphNet(
             message_passing_steps=self.message_passing_steps,
             mlp_layers=self.mlp_layers,
@@ -477,18 +494,18 @@ class CriticGNN(nn.Module):
             gnn_layer_norm=self.gnn_layer_norm,
             mlp_layer_norm=self.mlp_layer_norm,
         )(state.graph)
-        if self.output_globals_size > 0:
+        if self.global_output_size > 0:
             critic = processed_graph.globals.reshape((-1,))
         else:
             # Take first half processed_graph.edges as edge features
             edge_features = processed_graph.edges if params.directed_graph else processed_graph.edges[:len(processed_graph.edges) // 2]
             if self.normalise_by_link_length:
-                edge_features = edge_features * (params.link_length_array.val/jnp.sum(params.link_length_array.val))
+                edge_features = edge_features * (params.link_length_array.val/jnp.sum(params.link_length_array.val, promote_integers=False))
             # Index every other row of the edge features to get the link-slot array
             edge_features_flat = jnp.reshape(edge_features, (-1,))
             # pass aggregated features through MLP
             critic = make_dense_layers(edge_features_flat, self.num_units, self.num_layers, self.activation, layer_norm=self.mlp_layer_norm)
-        critic = nn.Dense(1, kernel_init=orthogonal(1.0), bias_init=constant(0.0))(
+        critic = nn.Dense(1, kernel_init=orthogonal(1.0), bias_init=constant(0.0), dtype=FLOAT_DTYPE)(
             critic
         )
         return jnp.squeeze(critic, axis=-1)
@@ -544,7 +561,7 @@ class ActorGNN(nn.Module):
     @property
     def power_levels(self):
         """Calculate power levels dynamically"""
-        return jnp.linspace(self.min_power_dbm, self.max_power_dbm, self.num_power_levels)
+        return jnp.linspace(self.min_power_dbm, self.max_power_dbm, self.num_power_levels, dtype=FLOAT_DTYPE)
 
     @nn.compact
     def __call__(self, state: EnvState, params: EnvParams):
@@ -591,10 +608,10 @@ class ActorGNN(nn.Module):
         edge_features = processed_graph.edges if params.directed_graph else processed_graph.edges[:len(processed_graph.edges) // 2]
         # Normalise features by normalised link length from state.link_length_array
         if self.normalise_by_link_length:
-            edge_features = edge_features * (params.link_length_array.val/jnp.sum(params.link_length_array.val))
+            edge_features = edge_features * (params.link_length_array.val/jnp.sum(params.link_length_array.val, promote_integers=False))
         # Get the current request and initialise array of action distributions per path
         nodes_sd, requested_bw = read_rsa_request(state.request_array)
-        init_action_array = jnp.zeros(params.k_paths * self.edge_output_size)
+        init_action_array = jnp.zeros(params.k_paths * self.edge_output_size, dtype=FLOAT_DTYPE)
 
         # Define a body func to retrieve path slots and update action array
         def get_path_action_dist(i, action_array):
@@ -620,7 +637,7 @@ class ActorGNN(nn.Module):
             if self.global_output_size > 0:
                 power_logits = processed_graph.globals.reshape((-1,)) / self.temperature
             else:
-                init_feature_array = jnp.zeros((params.k_paths, edge_features.shape[1]))
+                init_feature_array = jnp.zeros((params.k_paths, edge_features.shape[1]), dtype=FLOAT_DTYPE)
                 # Define a body func to retrieve path slots and update action array
                 def get_power_action_dist(i, feature_array):
                     # Get the processed graph edge features corresponding to the i-th path
@@ -657,8 +674,8 @@ class ActorCriticGNN(nn.Module):
     edge_embedding_size: int = 128
     edge_mlp_layers: int = 3
     edge_mlp_latent: int = 128
-    edge_output_size_actor: int = 0
-    edge_output_size_critic: int = 0
+    edge_output_size_actor: int = 1
+    edge_output_size_critic: int = 1
     global_embedding_size: int = 8
     global_mlp_layers: int = 0
     global_mlp_latent: int = 0
@@ -690,6 +707,8 @@ class ActorCriticGNN(nn.Module):
     # Bools to determine which actions to output
     output_path: bool = True
     output_power: bool = True
+    assert edge_output_size_actor > 0
+    assert edge_output_size_critic + global_output_size_critic > 0
 
     @property
     def num_power_levels(self):
@@ -699,7 +718,7 @@ class ActorCriticGNN(nn.Module):
     @property
     def power_levels(self):
         """Calculate power levels dynamically"""
-        return jnp.linspace(self.min_power_dbm, self.max_power_dbm, self.num_power_levels)
+        return jnp.linspace(self.min_power_dbm, self.max_power_dbm, self.num_power_levels, dtype=FLOAT_DTYPE)
 
     @nn.compact
     def __call__(self, state: EnvState, params: EnvParams):
@@ -772,7 +791,7 @@ class ActorCriticGNN(nn.Module):
 
     def sample_action_path(self, seed, dist, log_prob=False, deterministic=False):
         """Sample an action from the distribution."""
-        action = jnp.argmax(dist.probs()) if deterministic else dist.sample(seed=seed)
+        action = jnp.argmax(dist.probs()).astype(INT_DTYPE) if deterministic else dist.sample(seed=seed)
         if log_prob:
             return action, dist.log_prob(action)
         return action

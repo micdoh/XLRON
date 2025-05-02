@@ -10,6 +10,10 @@ from xlron.environments.env_funcs import (
 )
 from xlron.environments.dataclasses import *
 from xlron.environments.wrappers import *
+from xlron.environments.dtype_config import INT_DTYPE, FLOAT_DTYPE
+
+one = jnp.array(1, dtype=FLOAT_DTYPE)
+zero = jnp.array(0, dtype=FLOAT_DTYPE)
 
 
 class RSAEnv(environment.Environment):
@@ -335,12 +339,13 @@ class RSAEnv(environment.Environment):
         Returns:
             reward: Reward for failure
         """
+        reward = jnp.array(-1.0, dtype=FLOAT_DTYPE)
         if params.reward_type == "service":
-            reward = jnp.array(-1.0)
+            pass
         elif params.reward_type == "bitrate":
-            reward = state.request_array[1] * -1.0 / jnp.max(params.values_bw.val)
+            reward = state.request_array[1] * reward / jnp.max(params.values_bw.val)
         else:
-            reward = -1.0 * read_rsa_request(state.request_array)[1] / jnp.max(params.values_bw.val) if params.maximise_throughput else jnp.array(-1.0)
+            reward = reward * read_rsa_request(state.request_array)[1] / jnp.max(params.values_bw.val) if params.maximise_throughput else reward
         return reward
 
     def get_reward_success(
@@ -357,7 +362,7 @@ class RSAEnv(environment.Environment):
         Returns:
             reward: Reward for success
         """
-        reward = jnp.array(0.0)
+        reward = jnp.array(0.0, dtype=FLOAT_DTYPE)
         if params.__class__.__name__ in ["RSAGNModelEnvParams", "RMSAGNModelEnvParams"]:
             path_action, _ = action
         else:
@@ -365,25 +370,25 @@ class RSAEnv(environment.Environment):
         if params.reward_type != "service":
             nodes_sd, requested_datarate = read_rsa_request(state.request_array)
             k_index, slot_index = process_path_action(state, params, path_action)
-            reward = state.request_array[1] * 1.0 / jnp.max(params.values_bw.val)
+            reward = state.request_array[1] * reward / jnp.max(params.values_bw.val)
             if params.reward_type == "bitrate":
                 return reward
             elif params.reward_type == "snr":
                 assert params.__class__.__name__ == "RSAGNModelEnvParams"
                 path_start_index = get_path_indices(nodes_sd[0], nodes_sd[1], params.k_paths, params.num_nodes,
-                                                    directed=params.directed_graph).astype(jnp.int32)
+                                                    directed=params.directed_graph).astype(INT_DTYPE)
                 path = params.path_link_array[path_start_index + k_index]
-                path_snr = get_snr_for_path(path, state.link_snr_array, params)[slot_index.astype(jnp.int32)]
+                path_snr = get_snr_for_path(path, state.link_snr_array, params)[slot_index.astype(INT_DTYPE)]
                 # set to 0 if negative and divide by large SNR (e.g. 50. dB) to scale below 1
                 # N.B. negative SNR in dB would be a fail anyway since min. required is 10dB
-                path_snr_norm = jnp.where(path_snr < 0, 0, path_snr) / params.max_snr
+                path_snr_norm = jnp.where(path_snr < zero, zero, path_snr) / params.max_snr
                 return reward + path_snr_norm
             elif params.reward_type == "mod_format":
                 assert params.__class__.__name__ == "RSAGNModelEnvParams"
                 mod_format_index = get_path_slots(
                     state.modulation_format_index_array, params, nodes_sd, k_index, agg_func='max'
-                )[slot_index.astype(jnp.int32)]
-                return reward + 0.05*(1+mod_format_index)
+                )[slot_index.astype(INT_DTYPE)]
+                return reward + 0.05 * (one + mod_format_index)
             else:
                 return reward
         else:
@@ -436,6 +441,7 @@ class RSAMultibandEnv(RSAEnv):
         state = RSAMultibandEnvState(
             current_time=0,
             holding_time=0,
+            arrival_time=0,
             total_timesteps=0,
             total_requests=-1,
             link_slot_array=set_c_l_band_gap(init_link_slot_array(params), params, -1.),
