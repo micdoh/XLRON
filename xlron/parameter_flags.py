@@ -75,6 +75,7 @@ flags.DEFINE_boolean("PROFILE", False, "Profile programme with perfetto")
 flags.DEFINE_boolean("LOG_LOSS_INFO", False, "Log loss metrics")
 flags.DEFINE_boolean("REWARD_CENTERING", False, "Use reward centering")
 flags.DEFINE_float("INITIAL_AVERAGE_REWARD", 0.0, "Initial average reward estimate for reward centering")
+flags.DEFINE_enum("DEFAULT_DTYPE_BITS", "16", ["16", "32"], "Integer dtype to use throughout the program")
 # Environment parameters
 flags.DEFINE_string("env_type", "rmsa", "Environment type")
 flags.DEFINE_float("load", 250, "Load")

@@ -11,6 +11,7 @@ from xlron.environments.dataclasses import *
 from xlron.environments.wrappers import *
 from xlron.environments import *
 from xlron.environments.gn_model.isrs_gn_model import from_dbm
+from xlron.environments.dtype_config import INT_DTYPE, FLOAT_DTYPE
 
 
 def process_config(config: Optional[Union[dict, absl.flags.FlagValues]], **kwargs) -> dict:
@@ -156,6 +157,12 @@ def make(config: Optional[Union[dict, absl.flags.FlagValues]], **kwargs) -> Tupl
     traffic_intensity = config.get("traffic_intensity", 0)
     mean_service_holding_time = config.get("mean_service_holding_time", 10)
 
+    if mean_service_holding_time / load < 0.02 and isinstance(FLOAT_DTYPE, jnp.bfloat16):
+        raise ValueError(
+            f"Raio of mean service holding time ({mean_service_holding_time}) to load ({load}) is too small for bfloat16. "
+            f"Consider using float32 or increasing the mean service holding time."
+        )
+
     # Set traffic intensity / load
     if traffic_intensity:
         arrival_rate = traffic_intensity / mean_service_holding_time
@@ -176,14 +183,14 @@ def make(config: Optional[Union[dict, absl.flags.FlagValues]], **kwargs) -> Tupl
     # 4. Fixed power scaled by path length.
     if env_type in ["rmsa_gn_model", "rsa_gn_model"]:
         # default_launch_power_array = jnp.array([default_launch_power,])
-        default_launch_power_array = jnp.full((k,), default_launch_power)
+        default_launch_power_array = jnp.full((k,), default_launch_power, dtype=FLOAT_DTYPE)
         if launch_power_type == "fixed":
             # Same power for all channels
             launch_power_array = default_launch_power_array if launch_power_array is None else launch_power_array
             launch_power_type = 1
         elif launch_power_type == "tabular":
             # The power of a channel is determined by the path it takes
-            launch_power_array = jnp.zeros(path_link_array.shape[0]) \
+            launch_power_array = jnp.zeros(path_link_array.shape[0], dtype=FLOAT_DTYPE) \
                 if launch_power_array is None else launch_power_array
             launch_power_type = 2
         elif launch_power_type == "rl":
@@ -251,7 +258,7 @@ def make(config: Optional[Union[dict, absl.flags.FlagValues]], **kwargs) -> Tupl
 
     # Automated calculation of max slots requested
     if consider_modulation_format:
-        modulations_array = init_modulations_array(config.get("modulations_csv_filepath", None))
+        modulations_array = init_modulations_array(config.get("modulations_csv_filepath", None)).astype(FLOAT_DTYPE)
         if weight is None:  # If paths aren't to be sorted by length alone
             path_link_array = init_path_link_array(graph, k, disjoint=disjoint_paths, directed=graph.is_directed(),
                                                    weight=weight, modulations_array=modulations_array,
@@ -274,12 +281,12 @@ def make(config: Optional[Union[dict, absl.flags.FlagValues]], **kwargs) -> Tupl
             max_requests = int(scale_factor * max_requests)
         else:
             # If considering just RSA without physical layer considerations
-            link_length_array = jnp.ones((num_links, 1))
+            link_length_array = jnp.ones((num_links, 1)).astype(jnp.int16)
         max_slots = required_slots(max_bw, 1, slot_size, guardband=guardband)
 
     if env_type == "rsa_gn_model":
         consider_modulation_format = False
-        path_se_array = jnp.array([1])
+        path_se_array = jnp.array([1]).astype(jnp.int16)
         max_slots = required_slots(max_bw, 1, slot_size, guardband=guardband)
 
     if incremental_loading:
