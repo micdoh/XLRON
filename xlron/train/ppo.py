@@ -91,7 +91,7 @@ def get_learner_fn(
         def _calculate_gae(traj_batch, last_val):
             if config.GAE_LAMBDA is None:
                 # Multiply by 3 so that more time spent in high lambda at end of training
-                frac = 3 * train_state.update_step / (config.NUM_UPDATES * config.LAMBDA_SCHEDULE_MULTIPLIER)
+                frac = 3 * train_state.step / (config.NUM_UPDATES * config.LAMBDA_SCHEDULE_MULTIPLIER)
                 sech_frac = 1 - 1/jnp.cosh(frac)
                 lambda_delta = config.FINAL_LAMBDA - config.INITIAL_LAMBDA
                 current_lambda = config.INITIAL_LAMBDA + (sech_frac * lambda_delta)

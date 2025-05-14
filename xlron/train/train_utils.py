@@ -25,7 +25,8 @@ from xlron.models.models import ActorCriticGNN, ActorCriticMLP, LaunchPowerActor
 from xlron.environments.dataclasses import EnvState, EvalState
 from xlron.environments.env_funcs import init_link_length_array, make_graph, process_path_action, get_launch_power, get_paths
 from xlron.heuristics.heuristics import ksp_ff, ff_ksp, kmc_ff, kmf_ff, ksp_mu, mu_ksp, kca_ff, kme_ff, ksp_bf, bf_ksp, ksp_lf
-from xlron.environments.dtype_config import FLOAT_DTYPE, INT_DTYPE
+from xlron.environments.dtype_config import COMPUTE_DTYPE, PARAMS_DTYPE, LARGE_INT_DTYPE, LARGE_FLOAT_DTYPE, \
+    SMALL_INT_DTYPE, SMALL_FLOAT_DTYPE, MED_INT_DTYPE
 
 metrics = [
     "returns",
@@ -238,7 +239,7 @@ def init_network(config, env, env_state, env_params):
                                  num_layers=config.NUM_LAYERS,
                                  num_units=config.NUM_UNITS,
                                  layer_norm=config.mlp_layer_norm, )
-        init_x = tuple([jnp.zeros(env.observation_space(env_params).n, dtype=FLOAT_DTYPE)])
+        init_x = tuple([jnp.zeros(env.observation_space(env_params).n, dtype=PARAMS_DTYPE)])
     elif config.env_type.lower() in ["rsa", "rmsa", "rwa", "deeprmsa", "rwa_lightpath_reuse", "rsa_gn_model", "rmsa_gn_model", "rsa_multiband"]:
         if config.USE_GNN:
             if "gn_model" in config.env_type.lower() and config.output_globals_size_actor > 0:
@@ -297,7 +298,7 @@ def init_network(config, env, env_state, env_params):
                 step_power_dbm=config.step_power,
                 k_paths=env_params.k_paths,
             )
-            init_x = tuple([jnp.zeros(env.observation_space(env_params).n, dtype=FLOAT_DTYPE)])
+            init_x = tuple([jnp.zeros(env.observation_space(env_params).n, dtype=PARAMS_DTYPE)])
         else:
             network = ActorCriticMLP(env.action_space(env_params).n,
                                      activation=config.ACTIVATION,
@@ -305,7 +306,7 @@ def init_network(config, env, env_state, env_params):
                                      num_units=config.NUM_UNITS,
                                      layer_norm=config.mlp_layer_norm, )
 
-            init_x = tuple([jnp.zeros(env.observation_space(env_params).n, dtype=FLOAT_DTYPE)])
+            init_x = tuple([jnp.zeros(env.observation_space(env_params).n, dtype=PARAMS_DTYPE)])
     else:
         raise ValueError(f"Invalid environment type {config.env_type}")
     return network, init_x
@@ -337,7 +338,7 @@ def experiment_data_setup(config: absl.flags.FlagValues, rng: chex.PRNGKey) -> T
         lr_schedule = make_lr_schedule(config)
         tx = optax.chain(
             optax.clip_by_global_norm(config.MAX_GRAD_NORM),
-            optax.adam(learning_rate=lr_schedule, eps=config.ADAM_EPS, b1=config.ADAM_BETA1, b2=config.ADAM_BETA2, mu_dtype=FLOAT_DTYPE),
+            optax.adam(learning_rate=lr_schedule, eps=config.ADAM_EPS, b1=config.ADAM_BETA1, b2=config.ADAM_BETA2, mu_dtype=COMPUTE_DTYPE),
         )
 
         runner_state = TrainState.create(
@@ -345,7 +346,7 @@ def experiment_data_setup(config: absl.flags.FlagValues, rng: chex.PRNGKey) -> T
             sample_fn=network.sample_action,
             params=network_params.to_dict() if isinstance(network_params, box.Box) else network_params,
             tx=tx,
-            avg_reward=jnp.array(config.INITIAL_AVERAGE_REWARD, dtype=FLOAT_DTYPE),
+            avg_reward=jnp.array(config.INITIAL_AVERAGE_REWARD, dtype=SMALL_FLOAT_DTYPE),
         )
 
     # EVALUATION MODE
@@ -940,7 +941,7 @@ def log_metrics(config, out, experiment_name, total_time, merge_func):
             source, dest = source.reshape(1), dest.reshape(1)
             path_links = get_paths(params, jnp.concatenate([source, dest]))[path_index % params.k_paths]
             # Make path links into a string
-            path_str = "".join([str(x.astype(INT_DTYPE)) for x in path_links])
+            path_str = "".join([str(x.astype(LARGE_INT_DTYPE)) for x in path_links])
             paths_list.append(path_str)
             path_spectral_efficiency = params.path_se_array.val[path_index]
             required_slots = int(jnp.ceil(data_rate / (path_spectral_efficiency*params.slot_size)))

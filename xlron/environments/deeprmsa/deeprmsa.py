@@ -1,7 +1,8 @@
 from gymnax.environments import spaces
 from networkx.linalg.laplacianmatrix import laplacian_matrix
 
-from xlron.environments.dtype_config import INT_DTYPE, FLOAT_DTYPE
+from xlron.environments.dtype_config import COMPUTE_DTYPE, PARAMS_DTYPE, LARGE_INT_DTYPE, LARGE_FLOAT_DTYPE, \
+    SMALL_INT_DTYPE, SMALL_FLOAT_DTYPE, MED_INT_DTYPE
 from xlron.environments.env_funcs import (
     init_rsa_request_array, init_link_slot_array, init_link_slot_departure_array, init_traffic_matrix,
     calculate_path_stats,
@@ -10,8 +11,8 @@ from xlron.environments.dataclasses import *
 from xlron.environments.wrappers import *
 from xlron.environments import RSAEnv, RSAEnvParams, RSAEnvState
 
-one = jnp.array(1, dtype=FLOAT_DTYPE)
-zero = jnp.array(0, dtype=FLOAT_DTYPE)
+one = jnp.array(1, dtype=SMALL_FLOAT_DTYPE)
+zero = jnp.array(0, dtype=SMALL_FLOAT_DTYPE)
 
 
 class DeepRMSAEnv(RSAEnv):
@@ -43,8 +44,8 @@ class DeepRMSAEnv(RSAEnv):
             link_slot_array=init_link_slot_array(params),
             link_slot_departure_array=init_link_slot_departure_array(params),
             request_array=init_rsa_request_array(),
-            link_slot_mask=jnp.ones(params.k_paths, dtype=FLOAT_DTYPE),
-            full_link_slot_mask=jnp.ones(params.k_paths, dtype=FLOAT_DTYPE),
+            link_slot_mask=jnp.ones(params.k_paths, dtype=LARGE_FLOAT_DTYPE),
+            full_link_slot_mask=jnp.ones(params.k_paths, dtype=LARGE_FLOAT_DTYPE),
             traffic_matrix=traffic_matrix if traffic_matrix is not None else init_traffic_matrix(key, params),
             list_of_requests=list_of_requests,
             path_stats=calculate_path_stats(self.initial_state, params, self.initial_state.request_array),
@@ -113,13 +114,13 @@ class DeepRMSAEnv(RSAEnv):
         """Applies observation function to state."""
         request = state.request_array
         s, d = request[0], request[2]
-        s = jax.nn.one_hot(s, params.num_nodes, dtype=FLOAT_DTYPE)
-        d = jax.nn.one_hot(d, params.num_nodes, dtype=FLOAT_DTYPE)
+        s = jax.nn.one_hot(s, params.num_nodes, dtype=LARGE_FLOAT_DTYPE)
+        d = jax.nn.one_hot(d, params.num_nodes, dtype=LARGE_FLOAT_DTYPE)
         return jnp.concatenate(
             (
                 jnp.reshape(s, (-1,)),
                 jnp.reshape(d, (-1,)),
-                jnp.reshape(state.holding_time, (-1,)).astype(FLOAT_DTYPE),
+                jnp.reshape(state.holding_time, (-1,)).astype(LARGE_FLOAT_DTYPE),
                 jnp.reshape(state.path_stats, (-1,)),
             ),
             axis=0,
