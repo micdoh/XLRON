@@ -10,10 +10,11 @@ from xlron.environments.env_funcs import (
 )
 from xlron.environments.dataclasses import *
 from xlron.environments.wrappers import *
-from xlron.environments.dtype_config import INT_DTYPE, FLOAT_DTYPE
+from xlron.environments.dtype_config import COMPUTE_DTYPE, PARAMS_DTYPE, LARGE_INT_DTYPE, LARGE_FLOAT_DTYPE, \
+    SMALL_INT_DTYPE, SMALL_FLOAT_DTYPE, MED_INT_DTYPE
 
-one = jnp.array(1, dtype=FLOAT_DTYPE)
-zero = jnp.array(0, dtype=FLOAT_DTYPE)
+one = jnp.array(1, dtype=SMALL_FLOAT_DTYPE)
+zero = jnp.array(0, dtype=SMALL_FLOAT_DTYPE)
 
 
 class RSAEnv(environment.Environment):
@@ -339,7 +340,7 @@ class RSAEnv(environment.Environment):
         Returns:
             reward: Reward for failure
         """
-        reward = jnp.array(-1.0, dtype=FLOAT_DTYPE)
+        reward = -one
         if params.reward_type == "service":
             pass
         elif params.reward_type == "bitrate":
@@ -362,7 +363,7 @@ class RSAEnv(environment.Environment):
         Returns:
             reward: Reward for success
         """
-        reward = jnp.array(0.0, dtype=FLOAT_DTYPE)
+        reward = zero
         if params.__class__.__name__ in ["RSAGNModelEnvParams", "RMSAGNModelEnvParams"]:
             path_action, _ = action
         else:
@@ -376,9 +377,9 @@ class RSAEnv(environment.Environment):
             elif params.reward_type == "snr":
                 assert params.__class__.__name__ == "RSAGNModelEnvParams"
                 path_start_index = get_path_indices(nodes_sd[0], nodes_sd[1], params.k_paths, params.num_nodes,
-                                                    directed=params.directed_graph).astype(INT_DTYPE)
+                                                    directed=params.directed_graph).astype(LARGE_INT_DTYPE)
                 path = params.path_link_array[path_start_index + k_index]
-                path_snr = get_snr_for_path(path, state.link_snr_array, params)[slot_index.astype(INT_DTYPE)]
+                path_snr = get_snr_for_path(path, state.link_snr_array, params)[slot_index.astype(MED_INT_DTYPE)]
                 # set to 0 if negative and divide by large SNR (e.g. 50. dB) to scale below 1
                 # N.B. negative SNR in dB would be a fail anyway since min. required is 10dB
                 path_snr_norm = jnp.where(path_snr < zero, zero, path_snr) / params.max_snr
@@ -387,7 +388,7 @@ class RSAEnv(environment.Environment):
                 assert params.__class__.__name__ == "RSAGNModelEnvParams"
                 mod_format_index = get_path_slots(
                     state.modulation_format_index_array, params, nodes_sd, k_index, agg_func='max'
-                )[slot_index.astype(INT_DTYPE)]
+                )[slot_index.astype(MED_INT_DTYPE)]
                 return reward + 0.05 * (one + mod_format_index)
             else:
                 return reward
