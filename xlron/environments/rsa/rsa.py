@@ -6,15 +6,15 @@ from xlron.environments.env_funcs import (
     init_graph_tuple, implement_action_rwalr, check_action_rwalr, undo_action_rwalr, finalise_action_rwalr,
     generate_request_rwalr, check_action_rmsa_gn_model, implement_action_rmsa_gn_model, implement_action_rsa_gn_model,
     undo_action_rsa_gn_model, finalise_action_rsa_gn_model, undo_action_rmsa_gn_model, finalise_action_rmsa_gn_model,
-    set_c_l_band_gap
+    set_band_gaps
 )
 from xlron.environments.dataclasses import *
 from xlron.environments.wrappers import *
 from xlron.environments.dtype_config import COMPUTE_DTYPE, PARAMS_DTYPE, LARGE_INT_DTYPE, LARGE_FLOAT_DTYPE, \
     SMALL_INT_DTYPE, SMALL_FLOAT_DTYPE, MED_INT_DTYPE
 
-one = jnp.array(1, dtype=SMALL_FLOAT_DTYPE)
-zero = jnp.array(0, dtype=SMALL_FLOAT_DTYPE)
+one = jnp.array(1, dtype=LARGE_FLOAT_DTYPE)
+zero = jnp.array(0, dtype=LARGE_FLOAT_DTYPE)
 
 
 class RSAEnv(environment.Environment):
@@ -445,7 +445,7 @@ class RSAMultibandEnv(RSAEnv):
             arrival_time=0,
             total_timesteps=0,
             total_requests=-1,
-            link_slot_array=set_c_l_band_gap(init_link_slot_array(params), params, -1.),
+            link_slot_array=set_band_gaps(init_link_slot_array(params), params, -1.),
             link_slot_departure_array=init_link_slot_departure_array(params),
             request_array=init_rsa_request_array(),
             link_slot_mask=init_link_slot_mask(params, agg=params.aggregate_slots),

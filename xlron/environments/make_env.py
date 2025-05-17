@@ -120,7 +120,9 @@ def make(config: Optional[Union[dict, absl.flags.FlagValues]], **kwargs) -> Tupl
 
     # GN model parameters
     max_span_length = config.get("max_span_length", 100e3)
-    ref_lambda = config.get("ref_lambda", 1577.5e-9)  # centre of C+L bands (1530-1625nm)
+    ref_lambda = config.get("ref_lambda", 1564e-9)  # centre of C+L bands (1530-1625nm) or
+    # 1564nm for centre of 15THz of L,C,partial-S (1503-1625nm)
+    # 1447.5nm for centre of C-band (1530-1565nm)
     nonlinear_coeff = config.get("nonlinear_coeff", 1.2 / 1e3)
     raman_gain_slope = config.get("raman_gain_slope", 0.028 / 1e3 / 1e12)
     attenuation = config.get("attenuation", 0.2 / 4.343 / 1e3)
@@ -129,10 +131,10 @@ def make(config: Optional[Union[dict, absl.flags.FlagValues]], **kwargs) -> Tupl
     dispersion_slope = config.get("dispersion_slope", 0.067 * 1e-12 / 1e-9 / 1e3 / 1e-9)
     coherent = config.get("coherent", False)
     noise_figure = config.get("noise_figure", 4)
-    interband_gap_width = config.get("interband_gap_width", 100)
-    gap_width_slots = int(math.ceil(interband_gap_width / slot_size))
-    interband_gap_start = config.get("interband_gap_start", 0)
-    gap_start_slots = int(math.ceil(interband_gap_start / slot_size))
+    interband_gap_width = [275, 275] if config.get("interband_gap_width", None) is None else []
+    gap_width_slots = [int(math.ceil(width / slot_size)) for width in interband_gap_width]
+    interband_gap_start = [4425, 8500] if config.get("interband_gap_start", None) is None else []
+    gap_start_slots = [int(math.ceil(start / slot_size)) for start in interband_gap_start]
     mod_format_correction = config.get("mod_format_correction", True)
     num_roadms = config.get("num_roadms", 1)
     roadm_loss = config.get("roadm_loss", 18)
@@ -339,6 +341,9 @@ def make(config: Optional[Union[dict, absl.flags.FlagValues]], **kwargs) -> Tupl
         relative_arrival_times=relative_arrival_times,
     )
 
+    gap_starts = HashableArrayWrapper(jnp.array(gap_start_slots)) if not remove_array_wrappers else jnp.array(gap_start_slots)
+    gap_widths = HashableArrayWrapper(jnp.array(gap_width_slots)) if not remove_array_wrappers else jnp.array(gap_start_slots)
+
     if env_type == "vone":
         env_params = VONEEnvParams
         params_dict.update(
@@ -351,7 +356,7 @@ def make(config: Optional[Union[dict, absl.flags.FlagValues]], **kwargs) -> Tupl
         env_params = RWALightpathReuseEnvParams
     elif env_type == "rsa_multiband":
         env_params = RSAMultibandEnvParams
-        params_dict.update(gap_start=gap_start_slots, gap_width=gap_width_slots)
+        params_dict.update(gap_starts=gap_starts, gap_widths=gap_widths)
     elif "gn_model" in env_type:
         env_params = RSAGNModelEnvParams
         params_dict.update(
@@ -359,10 +364,11 @@ def make(config: Optional[Union[dict, absl.flags.FlagValues]], **kwargs) -> Tupl
             default_launch_power=default_launch_power,
             nonlinear_coeff=nonlinear_coeff, raman_gain_slope=raman_gain_slope, attenuation=attenuation,
             attenuation_bar=attenuation_bar, dispersion_coeff=dispersion_coeff, noise_figure=noise_figure,
-            dispersion_slope=dispersion_slope, coherent=coherent, gap_start=gap_start_slots, gap_width=gap_width_slots,
+            dispersion_slope=dispersion_slope, coherent=coherent, gap_starts=gap_starts, gap_widths=gap_widths,
             roadm_loss=roadm_loss, num_roadms=num_roadms, num_spans=num_spans, launch_power_type=launch_power_type,
             snr_margin=snr_margin, last_fit=config.get("last_fit", False), max_power=max_power, min_power=min_power,
             step_power=step_power, max_snr=max_snr, mod_format_correction=mod_format_correction,
+            monitor_active_lightpaths=config.get("monitor_active_lightpaths", False),
         )
         if env_type == "rmsa_gn_model":
             env_params = RMSAGNModelEnvParams

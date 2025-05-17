@@ -260,8 +260,6 @@ class GNModelEnvParams(RSAEnvParams):
     dispersion_slope: chex.Scalar = struct.field(pytree_node=False)
     noise_figure: chex.Scalar = struct.field(pytree_node=False)
     coherent: bool = struct.field(pytree_node=False)
-    gap_width: chex.Scalar = struct.field(pytree_node=False)
-    gap_start: chex.Scalar = struct.field(pytree_node=False)
     num_roadms: chex.Scalar = struct.field(pytree_node=False)
     roadm_loss: chex.Scalar = struct.field(pytree_node=False)
     num_spans: chex.Scalar = struct.field(pytree_node=False)
@@ -274,6 +272,9 @@ class GNModelEnvParams(RSAEnvParams):
     last_fit: bool = struct.field(pytree_node=False)
     default_launch_power: chex.Scalar = struct.field(pytree_node=False)
     mod_format_correction: bool = struct.field(pytree_node=False)
+    monitor_active_lightpaths: bool = struct.field(pytree_node=False)  # Monitor active lightpaths for throughput calculation
+    gap_starts: chex.Array = struct.field(pytree_node=False)
+    gap_widths: chex.Array = struct.field(pytree_node=False)
 
 
 @struct.dataclass
@@ -339,8 +340,8 @@ class RSAMultibandEnvState(RSAEnvState):
 class RSAMultibandEnvParams(RSAEnvParams):
     """Dataclass to hold environment parameters for MultiBandRSA (RBSA).
     """
-    gap_start: chex.Scalar = struct.field(pytree_node=False)
-    gap_width: chex.Scalar = struct.field(pytree_node=False)
+    gap_starts: chex.Array = struct.field(pytree_node=False)
+    gap_widths: chex.Array = struct.field(pytree_node=False)
 
 
 @struct.dataclass

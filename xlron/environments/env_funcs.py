@@ -91,7 +91,7 @@ def init_graph_tuple(state: EnvState, params: EnvParams, adj: jnp.array, exclude
     globals = jnp.array([datarate / jnp.max(params.values_bw.val)], dtype=LARGE_FLOAT_DTYPE)
 
     if exclude_source_dest:
-        source_dest_features = jnp.zeros((params.num_nodes, 2))
+        source_dest_features = jnp.zeros((params.num_nodes, 2), dtype=LARGE_FLOAT_DTYPE)
     else:
         source, dest = source_dest[0], source_dest[2]
         # One-hot encode source and destination (2 additional features)
@@ -486,8 +486,8 @@ def get_path_indices(s: int, d: int, k: int, N: int, directed: bool = False) -> 
         jnp.array: Start index on path-link array for candidate paths
     """
     node_indices = jnp.arange(N, dtype=LARGE_INT_DTYPE)
-    indices_to_s = jnp.where(node_indices < s, node_indices, zero)
-    indices_to_d = jnp.where(node_indices < d, node_indices, zero)
+    indices_to_s = jnp.where(node_indices < s, node_indices, jnp.array(0, dtype=LARGE_INT_DTYPE))
+    indices_to_d = jnp.where(node_indices < d, node_indices, jnp.array(0, dtype=LARGE_INT_DTYPE))
     # If two fibres per link, add offset to index to get fibre in other direction if source > destination
     directed_offset = directed * (s > d) * N * (N - 1) * k / 2
     # The following equation is based on the combinations formula
@@ -755,7 +755,7 @@ def generate_request_rwalr(key: chex.PRNGKey, state: EnvState, params: EnvParams
 def get_path_index_array(params, nodes):
     """Indices of paths between source and destination from path array"""
     # get source and destination nodes in order (for accurate indexing of path-link array)
-    source, dest = nodes
+    source, dest = nodes.astype(LARGE_INT_DTYPE)
     i = get_path_indices(source, dest, params.k_paths, params.num_nodes, directed=params.directed_graph)
     index_array = jax.lax.dynamic_slice(jnp.arange(0, params.path_link_array.shape[0], dtype=LARGE_INT_DTYPE), (i,), (params.k_paths,))
     return index_array
@@ -1085,16 +1085,17 @@ def remove_expired_services_rsa_gn_model(state: EnvState, params: Optional[EnvPa
         channel_centre_bw_array_prev=jnp.where(mask_remove == one, zero, state.channel_centre_bw_array_prev),
         channel_power_array_prev=jnp.where(mask_remove == one, zero, state.channel_power_array_prev),
     )
-    # The active_lightpaths_array is set to -1 when the lightpath is not active
-    # The active_lightpaths_array_departure is set to 0 when the lightpath is not active
-    # (active_lightpaths_array is used to calculate the total throughput)
-    mask_remove = jnp.where(
-        (zero <= state.active_lightpaths_array_departure) & (state.active_lightpaths_array_departure <= jnp.squeeze(current_time)),
-        one, zero)
-    state = state.replace(
-        active_lightpaths_array=jnp.where(mask_remove == one, -one, state.active_lightpaths_array),
-        active_lightpaths_array_departure=jnp.where(mask_remove == one, zero, state.active_lightpaths_array_departure),
-    )
+    if params.monitor_active_lightpaths:
+        # The active_lightpaths_array is set to -1 when the lightpath is not active
+        # The active_lightpaths_array_departure is set to 0 when the lightpath is not active
+        # (active_lightpaths_array is used to calculate the total throughput)
+        mask_remove = jnp.where(
+            (zero <= state.active_lightpaths_array_departure) & (state.active_lightpaths_array_departure <= jnp.squeeze(current_time)),
+            one, zero)
+        state = state.replace(
+            active_lightpaths_array=jnp.where(mask_remove == one, -one, state.active_lightpaths_array),
+            active_lightpaths_array_departure=jnp.where(mask_remove == one, zero, state.active_lightpaths_array_departure),
+        )
     return state
 
 
@@ -2097,23 +2098,23 @@ def get_path_slots(link_slot_array: chex.Array, params: EnvParams, nodes_sd: che
 def count_until_next_one(array: chex.Array, position: int) -> int:
     # Add 1s to end so that end block is counted and slice shape can be fixed
     shape = array.shape[0]
-    array = jnp.concatenate([array, jnp.ones(array.shape[0], dtype=SMALL_INT_DTYPE)])
+    array = jnp.concatenate([array, jnp.ones(array.shape[0], dtype=MED_INT_DTYPE)])
     # Find the indices of 1 in the array
     one_indices = jax.lax.dynamic_slice(array, (position,), (shape,))
     # Find the next 1 after the given position
-    next_one_idx = jnp.argmax(one_indices)
+    next_one_idx = jnp.argmax(one_indices).astype(MED_INT_DTYPE)
     return next_one_idx + 1
 
 
 def count_until_previous_one(array: chex.Array, position: int) -> int:
     # Add 1s to start so that end block is counted and slice shape can be fixed
     shape = array.shape[0]
-    array = jnp.concatenate([jnp.ones(array.shape[0], dtype=SMALL_INT_DTYPE), array])
+    array = jnp.concatenate([jnp.ones(array.shape[0], dtype=MED_INT_DTYPE), array])
     # Find the indices of 1 in the array
     one_indices = jax.lax.dynamic_slice(array, (-shape-position,), (shape,))
     # Find the next 1 after the given position
     one_indices = jnp.flip(one_indices)
-    next_one_idx = jnp.argmax(one_indices)
+    next_one_idx = jnp.argmax(one_indices).astype(MED_INT_DTYPE)
     return next_one_idx + 1
 
 
@@ -2121,7 +2122,7 @@ def find_block_starts(path_slots: chex.Array) -> chex.Array:
     # Add a [1] at the beginning to find transitions from 1 to 0
     path_slots_extended = jnp.concatenate((jnp.array([1], dtype=LARGE_FLOAT_DTYPE), jnp.abs(path_slots)), axis=0)
     transitions = jnp.diff(path_slots_extended)  # Find transitions (1 to 0)
-    block_starts = jnp.where(transitions == -1, 1, 0)  # transitions=-1 at block starts, 0 elsewhere
+    block_starts = jnp.where(transitions == -1, jnp.array(1, dtype=MED_INT_DTYPE), jnp.array(0, dtype=MED_INT_DTYPE))  # transitions=-1 at block starts, 0 elsewhere
     return block_starts
 
 
@@ -2129,7 +2130,7 @@ def find_block_ends(path_slots: chex.Array) -> chex.Array:
     # Add a [1] at the end to find transitions from 0 to 1
     path_slots_extended = jnp.concatenate((jnp.abs(path_slots), jnp.array([1], dtype=LARGE_FLOAT_DTYPE)), axis=0)
     transitions = jnp.diff(path_slots_extended)  # Find transitions (1 to 0)
-    block_ends = jnp.where(transitions == 1, 1, 0)  # transitions=1 at block ends, 0 elsewhere
+    block_ends = jnp.where(transitions == 1, jnp.array(1, dtype=MED_INT_DTYPE), jnp.array(0, dtype=MED_INT_DTYPE))  # transitions=1 at block ends, 0 elsewhere
     return block_ends
 
 
@@ -2158,9 +2159,9 @@ def find_block_sizes(path_slots: chex.Array, starts_only: bool = True, reverse: 
         (block_starts, block_ends),
     )[0 if not reverse else 1]
     if starts_only:
-        block_sizes = jnp.where(block_starts == 1, block_sizes, 0)
+        block_sizes = jnp.where(block_starts == one, block_sizes, zero)
     else:
-        block_sizes = jnp.where(path_slots == 0, block_sizes, 0)
+        block_sizes = jnp.where(path_slots == zero, block_sizes, zero)
     return block_sizes
 
 
@@ -2186,21 +2187,31 @@ def calculate_path_stats(state: EnvState, params: EnvParams, request: chex.Array
     init_val = jnp.zeros((params.k_paths, 5), dtype=LARGE_FLOAT_DTYPE)
     # TODO - check if the normalisation is useful
     def body_fun(i, val):
+        link_resources = jnp.array(params.link_resources, dtype=LARGE_FLOAT_DTYPE)
+        slot_size = jnp.array(params.slot_size, dtype=LARGE_FLOAT_DTYPE)
         slots = get_path_slots(state.link_slot_array, params, nodes_sd, i)
         se = get_paths_se(params, nodes_sd)[i] if params.consider_modulation_format else jnp.array([1], dtype=SMALL_INT_DTYPE)
         req_slots = jnp.squeeze(required_slots(requested_datarate, se, params.slot_size, guardband=params.guardband))
-        req_slots_norm = req_slots * params.slot_size / jnp.max(params.values_bw.val)
-        free_slots_norm = jnp.sum(jnp.where(slots == 0, 1, 0), promote_integers=False) / params.link_resources
+        req_slots_norm = req_slots * slot_size / jnp.max(params.values_bw.val)
+        free_slots_norm = jnp.sum(jnp.where(slots == zero, one, zero), promote_integers=False) / link_resources
         block_sizes = find_block_sizes(slots)
         first_block_index = jnp.argmax(block_sizes >= req_slots)
-        first_block_index_norm = first_block_index / params.link_resources
+        first_block_index_norm = first_block_index.astype(LARGE_FLOAT_DTYPE) / link_resources
         first_block_size_norm = jnp.squeeze(
             jax.lax.dynamic_slice(block_sizes, (first_block_index,), (1,))
-        ) / req_slots
-        avg_block_size_norm = jnp.sum(block_sizes) / jnp.max(jnp.array([jnp.sum(find_block_starts(slots)), 1])) / req_slots
+        ) / req_slots.astype(LARGE_FLOAT_DTYPE)
+        avg_block_size_norm = (jnp.sum(block_sizes) /
+                               jnp.max(jnp.array([jnp.sum(find_block_starts(slots), promote_integers=False), 1])) /
+                               req_slots)
         val = jax.lax.dynamic_update_slice(
             val,
-            jnp.array([[first_block_size_norm, first_block_index_norm, req_slots_norm, avg_block_size_norm, free_slots_norm]]),
+            jnp.array([[
+                first_block_size_norm,
+                first_block_index_norm,
+                req_slots_norm,
+                avg_block_size_norm.astype(LARGE_FLOAT_DTYPE),
+                free_slots_norm
+            ]]),
             (i, 0)
         )  # N.B. that all values are normalised
         return val
@@ -2963,18 +2974,26 @@ def get_best_modulation_format_simple(
 
 
 @partial(jax.jit, static_argnums=(1, 2))
-def set_c_l_band_gap(link_slot_array: chex.Array, params: RSAGNModelEnvParams, val: int) -> chex.Array:
-    """Set C+L band gap in link slot array
+def set_band_gaps(link_slot_array: chex.Array, params: RSAGNModelEnvParams, val: int) -> chex.Array:
+    """Set band gaps in link slot array
     Args:
         link_slot_array (chex.Array): Link slot array
         params (RSAGNModelEnvParams): Environment parameters
         val (int): Value to set
     Returns:
-        chex.Array: Link slot array with C+L band gap
+        chex.Array: Link slot array with band gaps
     """
-    # Set C+L band gap
-    gap = jnp.full((params.num_links, params.gap_width), val)
-    link_slot_array = jax.lax.dynamic_update_slice(link_slot_array, gap, (0, params.gap_start))
+    # Create array that is size of link_slot array with values of column index
+    mask = jnp.arange(params.link_resources)
+    mask = jnp.tile(mask, (params.num_links, 1))
+    def set_band_gap(i, arr):
+        gap_start = params.gap_starts.val[i]
+        gap_end = gap_start + params.gap_widths.val[i]
+        condition = jnp.logical_and(arr >= gap_start, arr < gap_end)
+        arr = jnp.where(condition, -one, arr)
+        return arr
+    mask = jax.lax.fori_loop(0, params.gap_widths.val.shape[0], set_band_gap, mask)
+    link_slot_array = jnp.where(mask == -one, val, link_slot_array)
     return link_slot_array
 
 
@@ -3032,9 +3051,12 @@ def implement_action_rsa_gn_model(
         path_index_array=vmap_set_path_links(state.path_index_array, path, initial_slot_index, num_slots, lightpath_index),
         channel_power_array=vmap_set_path_links(state.channel_power_array, path, initial_slot_index, num_slots, launch_power),
         channel_centre_bw_array=vmap_set_path_links(state.channel_centre_bw_array, path, initial_slot_index, num_slots, params.slot_size),
+    )
+    if params.monitor_active_lightpaths:
+        state = state.replace(
         active_lightpaths_array=update_active_lightpaths_array(state, lightpath_index),
         active_lightpaths_array_departure=update_active_lightpaths_array_departure(state, -state.current_time-state.holding_time),
-    )
+        )
     # Update link_snr_array
     state = state.replace(link_snr_array=get_snr_link_array(state, params))
     return state
@@ -3102,21 +3124,21 @@ def undo_action_rsa_gn_model(state: RSAGNModelEnvState, params: RSAGNModelEnvPar
     """
     state = undo_action_rsa(state, params)  # Undo link_slot_array and link_slot_departure_array
     state = state.replace(
-        link_slot_array=set_c_l_band_gap(state.link_slot_array, params, -one),  # Set C+L band gap
+        link_slot_array=set_band_gaps(state.link_slot_array, params, -one),  # Set C+L band gap
         channel_centre_bw_array=state.channel_centre_bw_array_prev,
         path_index_array=state.path_index_array_prev,
         channel_power_array=state.channel_power_array_prev,
     )
-    # If departure array is negative or link_slot_array < -1, then undo the action
-    mask = jnp.where(state.active_lightpaths_array_departure < zero, one,  zero)
-    mask = jnp.where(state.link_slot_array < -one, one, mask)
-    state = state.replace(
-        active_lightpaths_array=jnp.where(mask == one, -one, state.active_lightpaths_array),
-        active_lightpaths_array_departure=jnp.where(
-            mask == one,
-            state.active_lightpaths_array_departure + state.current_time + state.holding_time,
-            state.active_lightpaths_array_departure),
-    )
+    if params.monitor_active_lightpaths:
+        # If departure array is negative, then undo the action
+        mask = jnp.where(state.active_lightpaths_array_departure < zero, one,  zero)
+        state = state.replace(
+            active_lightpaths_array=jnp.where(mask == one, -one, state.active_lightpaths_array),
+            active_lightpaths_array_departure=jnp.where(
+                mask == one,
+                state.active_lightpaths_array_departure + state.current_time + state.holding_time,
+                state.active_lightpaths_array_departure),
+        )
     return state
 
 
@@ -3132,7 +3154,7 @@ def undo_action_rmsa_gn_model(state: RSAGNModelEnvState, params: RSAGNModelEnvPa
     """
     state = undo_action_rsa(state, params)  # Undo link_slot_array and link_slot_departure_array
     state = state.replace(
-        link_slot_array=set_c_l_band_gap(state.link_slot_array, params, -one),  # Set C+L band gap
+        link_slot_array=set_band_gaps(state.link_slot_array, params, -one),  # Set C+L band gap
         channel_centre_bw_array=state.channel_centre_bw_array_prev,
         path_index_array=state.path_index_array_prev,
         channel_power_array=state.channel_power_array_prev,
@@ -3144,19 +3166,22 @@ def undo_action_rmsa_gn_model(state: RSAGNModelEnvState, params: RSAGNModelEnvPa
 def finalise_action_rsa_gn_model(state: RSAGNModelEnvState, params: Optional[EnvParams]) -> EnvState:
     state = finalise_action_rsa(state, params)
     state = state.replace(
-        link_slot_array=set_c_l_band_gap(state.link_slot_array, params, -one),  # Set C+L band gap
+        link_slot_array=set_band_gaps(state.link_slot_array, params, -one),  # Set C+L band gap
         channel_centre_bw_array_prev=state.channel_centre_bw_array,
         path_index_array_prev=state.path_index_array,
         channel_power_array_prev=state.channel_power_array,
-        active_lightpaths_array_departure=make_positive(state.active_lightpaths_array_departure),
     )
+    if params.monitor_active_lightpaths:
+        state = state.replace(
+            active_lightpaths_array_departure=make_positive(state.active_lightpaths_array_departure),
+        )
     return state
 
 
 def finalise_action_rmsa_gn_model(state: RSAGNModelEnvState, params: Optional[EnvParams]) -> EnvState:
     state = finalise_action_rsa(state, params)
     state = state.replace(
-        link_slot_array=set_c_l_band_gap(state.link_slot_array, params, -one),  # Set C+L band gap
+        link_slot_array=set_band_gaps(state.link_slot_array, params, -one),  # Set C+L band gap
         channel_centre_bw_array_prev=state.channel_centre_bw_array,
         path_index_array_prev=state.path_index_array,
         channel_power_array_prev=state.channel_power_array,
@@ -3175,8 +3200,9 @@ def finalise_action_rmsa_gn_model(state: RSAGNModelEnvState, params: Optional[En
 #  - Multiply by factor <1 to get the actual throughput from PCS modulation
 #  Optional: consider a minimum SNR beneath which no throughput is possible (mask to zero) (let's say 7dB for 28% FEC threshold)
 #  Optional: make FEC threshold a parameter and calculate the throughput / SNR requirements accordingly. This may be complex for PCS.
-def calculate_throughput_from_active_lightpaths():
-    pass
+def calculate_throughput_from_active_lightpaths(state: RSAGNModelEnvState, params: RSAGNModelEnvParams) -> chex.Array:
+    lightpath_snr_array = get_lightpath_snr(state, params)
+    # Define function that
 
 
 @partial(jax.jit, static_argnums=(2,))
@@ -3237,7 +3263,7 @@ def mask_slots_rmsa_gn_model(state: RSAGNModelEnvState, params: RSAGNModelEnvPar
             def check_slots_available(j, val):
                 # Multiply through by request mask to check if slots available
                 slot_sum = jnp.sum(request_mask * jax.lax.dynamic_slice(val, (j,), (params.max_slots,)), promote_integers=False) <= 0
-                slot_sum = slot_sum.reshape((1,)).astype(MED_INT_DTYPE)
+                slot_sum = slot_sum.reshape((1,)).astype(LARGE_FLOAT_DTYPE)
                 return jax.lax.dynamic_update_slice(val, slot_sum, (j,))
 
             # Mask out slots that are not valid
@@ -3375,26 +3401,25 @@ def get_paths_obs_gn_model(state: RSAGNModelEnvState, params: RSAGNModelEnvParam
         # Get path index
         path_index = get_path_indices(source, dest, params.k_paths, params.num_nodes,
                                       directed=params.directed_graph) + k_path_index
-        path = params.path_link_array.val[path_index] if not params.pack_path_bits else \
-            jnp.unpackbits(params.path_link_array.val[path_index])[:params.num_links]
+        path_link_array = jnp.unpackbits(params.path_link_array.val, axis=1)[:, :params.num_links] if params.pack_path_bits \
+            else params.path_link_array.val
+        path = path_link_array[path_index]
         path_length = jnp.dot(path, link_length_array)
-        max_path_length = jnp.max(jnp.dot(params.path_link_array.val, link_length_array)) if not params.pack_path_bits else \
-            jnp.max(jnp.dot(jnp.unpackbits(params.path_link_array.val), link_length_array))
+        max_path_length = jnp.max(jnp.dot(path_link_array, link_length_array))
         path_length_norm = path_length / max_path_length
-        max_path_length_hops = jnp.max(jnp.sum(params.path_link_array.val, axis=1, promote_integers=False)) if not params.pack_path_bits else \
-            jnp.max(jnp.sum(jnp.unpackbits(params.path_link_array.val, axis=1), axis=1, promote_integers=False))
-        path_length_hops_norm = jnp.sum(path, promote_integers=False) / max_path_length_hops
+        max_path_length_hops = jnp.max(jnp.sum(path_link_array, axis=1, promote_integers=False))
+        path_length_hops_norm = jnp.sum(path, promote_integers=False).astype(LARGE_FLOAT_DTYPE) / max_path_length_hops
         # Connections on path
-        num_connections = jnp.where(path == 1, jnp.where(state.channel_power_array > 0, 1, 0).sum(axis=1), 0).sum()
-        num_connections_norm = num_connections / params.link_resources
+        num_connections = jnp.where(path == 1, jnp.where(state.channel_power_array > 0, one, zero).sum(axis=1), zero).sum()
+        num_connections_norm = num_connections / jnp.array(params.link_resources, dtype=LARGE_FLOAT_DTYPE)
         # Mean power of connections on path
         # make path with row length equal to link_resource (+1 to avoid zero division)
-        mean_power_norm = (jnp.where(path == 1, state.channel_power_array.sum(axis=1), 0).sum() /
-                           (jnp.where(num_connections > 0., num_connections, 1.) * params.max_power))
+        mean_power_norm = (jnp.where(path == one, state.channel_power_array.sum(axis=1), zero).sum() /
+                           (jnp.where(num_connections > zero, num_connections, one) * params.max_power))
         # Mean SNR of connections on the path links
-        max_snr = 50.  # Nominal value for max GSNR in dB
-        mean_snr_norm = (jnp.where(path == 1, lightpath_snr_array.sum(axis=1), 0).sum() /
-                         (jnp.where(num_connections > 0., num_connections, 1.) * max_snr))
+        max_snr = jnp.array(50, dtype=LARGE_FLOAT_DTYPE)  # Nominal value for max GSNR in dB
+        mean_snr_norm = (jnp.where(path == one, lightpath_snr_array.sum(axis=1), zero).sum(promote_integers=False) /
+                         (jnp.where(num_connections > zero, num_connections, one) * max_snr))
         return jax.lax.dynamic_update_slice(
             init_val,
             jnp.array([[
