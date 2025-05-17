@@ -835,7 +835,7 @@ def log_metrics(config, out, experiment_name, total_time, merge_func):
         # Log episode end metrics
         if not config.continuous_operation:
             print(f"Logging episode end metrics for {len(episode_ends)} episodes")
-            for i in range(len(episode_ends)):
+            for i in range(len(processed_data["returns"]["episode_end_mean"])):
                 log_dict = {
                     f"{metric}_{stat}": processed_data[metric][stat][i] for metric in all_metrics for stat in [
                         "episode_end_mean",
