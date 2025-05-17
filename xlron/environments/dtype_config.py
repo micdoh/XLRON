@@ -197,9 +197,9 @@ def initialize_dtypes(device_type: Optional[str] = None, force_precision: Option
     for var_name in config.keys():
         flag_value = get_flag_value_or_none(var_name)
         if flag_value is not None:
-            if var_name.endswith("_FLOAT"):
+            if "FLOAT" in var_name:
                 config[var_name] = FLOAT_DTYPE_MAP[flag_value]
-            elif var_name.endswith("_INT"):
+            elif "INT" in var_name:
                 config[var_name] = INT_DTYPE_MAP[flag_value]
 
     # Set the global variables

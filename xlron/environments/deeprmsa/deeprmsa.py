@@ -11,8 +11,8 @@ from xlron.environments.dataclasses import *
 from xlron.environments.wrappers import *
 from xlron.environments import RSAEnv, RSAEnvParams, RSAEnvState
 
-one = jnp.array(1, dtype=SMALL_FLOAT_DTYPE)
-zero = jnp.array(0, dtype=SMALL_FLOAT_DTYPE)
+one = jnp.array(1, dtype=LARGE_FLOAT_DTYPE)
+zero = jnp.array(0, dtype=LARGE_FLOAT_DTYPE)
 
 
 class DeepRMSAEnv(RSAEnv):
