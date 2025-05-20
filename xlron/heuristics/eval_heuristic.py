@@ -32,17 +32,11 @@ def get_eval_fn(
             rng_step, action_key, step_key = jax.random.split(rng_step, 3)
 
             # SELECT ACTION
-            action_key = jax.random.split(action_key, config.NUM_ENVS)
-            select_action_fn = lambda x: select_action_eval(x, env, env_params, eval_state, config)
-            select_action_fn = jax.vmap(select_action_fn)
             select_action_state = (action_key, env_state, last_obs)
-            env_state, action, _, _ = select_action_fn(select_action_state)
+            env_state, action, _, _ = select_action_eval(select_action_state, env, env_params, eval_state, config)
 
             # STEP ENV
-            step_key = jax.random.split(step_key, config.NUM_ENVS)
-            step_fn = lambda x, y, z: env.step(x, y, z, env_params)
-            step_fn = jax.vmap(step_fn)
-            obsv, env_state, reward, done, info = step_fn(step_key, env_state, action)
+            obsv, env_state, reward, done, info = env.step(step_key, env_state, action, env_params)
 
             obsv = (env_state.env_state, env_params) if config.USE_GNN else tuple([obsv])
             transition = Transition(
@@ -64,8 +58,11 @@ def get_eval_fn(
 
             return runner_state, transition
 
+        # VECTORISE ENV STEP
+        _env_step_vmap = jax.vmap(_env_step, in_axes=((None, 0, 0, None, None), None), out_axes=((None, 0, 0, None, None), 0)) if config.NUM_ENVS > 1 else _env_step
+
         runner_state, traj_episode = jax.lax.scan(
-            _env_step, runner_state, None, config.max_requests
+            _env_step_vmap, runner_state, None, config.max_requests
         )
 
         metric = traj_episode.info

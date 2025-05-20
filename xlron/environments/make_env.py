@@ -369,6 +369,7 @@ def make(config: Optional[Union[dict, absl.flags.FlagValues]], **kwargs) -> Tupl
             snr_margin=snr_margin, last_fit=config.get("last_fit", False), max_power=max_power, min_power=min_power,
             step_power=step_power, max_snr=max_snr, mod_format_correction=mod_format_correction,
             monitor_active_lightpaths=config.get("monitor_active_lightpaths", False),
+            min_snr=config.get("min_snr", 7.0), fec_threshold=config.get("fec_threshold", 0.28),
         )
         if env_type == "rmsa_gn_model":
             env_params = RMSAGNModelEnvParams

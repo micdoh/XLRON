@@ -145,9 +145,6 @@ def main(argv):
         for name in config:
             print(name, config[name])
 
-    rng = jax.random.PRNGKey(config.SEED)
-    rng = jax.random.split(rng, config.NUM_LEARNERS)
-
     if (config.RETRAIN_MODEL or config.EVAL_MODEL) and not config.model:
         orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
         model = orbax_checkpointer.restore(pathlib.Path(config.MODEL_PATH))
@@ -175,10 +172,18 @@ def main(argv):
               f"Batch size: {config.NUM_ENVS * config.ROLLOUT_LENGTH}\n"
               f"Minibatch size: {config.MINIBATCH_SIZE}\n")
 
-        experiment_fn = get_learner_fn if not (config.EVAL_HEURISTIC or config.EVAL_MODEL) else get_eval_fn
-        experiment_input, env, env_params = jax.vmap(experiment_data_setup, axis_name='learner', in_axes=(None, 0))(config, rng)
-        experiment_fn = experiment_fn(env, env_params, experiment_input[0], config)
-        run_experiment = jax.jit(jax.vmap(experiment_fn, axis_name='learner')).lower(experiment_input).compile()
+        rng = jax.random.PRNGKey(config.SEED)
+        if config.NUM_LEARNERS > 1:
+            rng = jax.random.split(rng, config.NUM_LEARNERS)
+            experiment_fn = get_learner_fn if not (config.EVAL_HEURISTIC or config.EVAL_MODEL) else get_eval_fn
+            experiment_input, env, env_params = jax.vmap(experiment_data_setup, axis_name='learner', in_axes=(None, 0))(config, rng)
+            experiment_fn = experiment_fn(env, env_params, experiment_input[0], config)
+            run_experiment = jax.jit(jax.vmap(experiment_fn, axis_name='learner')).lower(experiment_input).compile()
+        else:
+            experiment_fn = get_learner_fn if not (config.EVAL_HEURISTIC or config.EVAL_MODEL) else get_eval_fn
+            experiment_input, env, env_params = experiment_data_setup(config, rng)
+            experiment_fn = experiment_fn(env, env_params, experiment_input, config)
+            run_experiment = jax.jit(experiment_fn).lower(experiment_input).compile()
 
     # N.B. that increasing number of learner will increase the number of steps
     # (essentially training for total_timesteps separately per learner)
@@ -205,6 +210,13 @@ def main(argv):
     def merge_func(x):
         # Original dims: (learner, num_updates, rollout_length, num_envs)
         # Compute the new shape
+        # If X has only 2 or 3 dims then add more leading dims until it has 4
+        if x.ndim == 2:
+            x = x[None, :, :, None]
+        elif x.ndim == 3 and config.NUM_LEARNERS == 1:
+            x = x[None, :, :, :]
+        elif x.ndim == 3 and config.NUM_ENVS > 1:
+            x = x[:, :, :, None]
         learner, num_updates, rollout_length, num_envs = x.shape
         new_shape = (learner * num_envs, num_updates, rollout_length)
         # Perform a single transpose operation
