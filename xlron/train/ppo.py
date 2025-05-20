@@ -29,18 +29,13 @@ def get_learner_fn(
             rng_step, action_key, step_key = jax.random.split(rng_step, 3)
 
             # SELECT ACTION
-            action_key = jax.random.split(action_key, config.NUM_ENVS)
-            select_action_fn = lambda x: select_action(x, env, env_params, train_state, config)
-            select_action_fn = jax.vmap(select_action_fn)
             select_action_state = (action_key, env_state, last_obs)
-            env_state, action, log_prob, value = select_action_fn(select_action_state)
+            env_state, action, log_prob, value = select_action(select_action_state, env, env_params, train_state, config)
 
             # STEP ENV
-            step_key = jax.random.split(step_key, config.NUM_ENVS)
-            step_fn = lambda x, y, z: env.step(x, y, z, env_params)
-            step_fn = jax.vmap(step_fn)
-            obsv, env_state, reward, done, info = step_fn(step_key, env_state, action)
+            obsv, env_state, reward, done, info = env.step(step_key, env_state, action, env_params)
 
+            # PROCESS OBS AND TRANSITION
             obsv = (env_state.env_state, env_params) if config.USE_GNN else tuple([obsv])
             transition = VONETransition(
                 done, action, value, reward, log_prob, last_obs, info, env_state.env_state.node_mask_s,
@@ -76,8 +71,13 @@ def get_learner_fn(
                     jax.debug.print("channel_power_array {}", get_path_links(env_state.env_state.channel_power_array), ordered=config.ORDERED)
             return runner_state, transition
 
+        # VECTORISE ENV STEP
+        _env_step_vmap = jax.vmap(
+            _env_step, in_axes=((None, 0, 0, None, None), None), out_axes = ((None, 0, 0, None, None), 0)
+        ) if config.NUM_ENVS > 1 else _env_step
+
         runner_state, traj_batch = jax.lax.scan(
-            _env_step, runner_state, None, config.ROLLOUT_LENGTH
+            _env_step_vmap, runner_state, None, config.ROLLOUT_LENGTH
         )
         if config.DEBUG:
             jax.debug.print("traj_batch.info {}", traj_batch.info, ordered=config.ORDERED)
@@ -86,7 +86,8 @@ def get_learner_fn(
         train_state, env_state, last_obs, rng_step, rng_epoch = runner_state
         last_obs = (env_state.env_state, env_params) if config.USE_GNN else last_obs
         axes = (None, 0, None) if config.USE_GNN else (None, 0)
-        _, last_val = jax.vmap(train_state.apply_fn, in_axes=axes)(train_state.params, *last_obs)
+        _, last_val = jax.vmap(train_state.apply_fn, in_axes=axes)(train_state.params, *last_obs) if (
+                config.NUM_ENVS > 1) else train_state.apply_fn(train_state.params, *last_obs)
 
         def _calculate_gae(traj_batch, last_val):
             if config.GAE_LAMBDA is None:

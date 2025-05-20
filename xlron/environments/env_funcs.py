@@ -28,7 +28,7 @@ from xlron.environments.dataclasses import *
 from xlron.environments.gn_model import isrs_gn_model
 from xlron.environments.dtype_config import COMPUTE_DTYPE, PARAMS_DTYPE, LARGE_INT_DTYPE, LARGE_FLOAT_DTYPE, \
     SMALL_INT_DTYPE, SMALL_FLOAT_DTYPE, MED_INT_DTYPE
-
+from xlron.environments.gn_model.isrs_gn_model import from_db
 
 Shape = Sequence[int]
 T = TypeVar('T')      # Declare type variable
@@ -2090,8 +2090,11 @@ def get_path_slots(link_slot_array: chex.Array, params: EnvParams, nodes_sd: che
         # TODO - consider using an RNN (or S5) to aggregate edge features
         # Use this (or alternative) for aggregating edge features from GNN
         slots = jnp.sum(slots, axis=0, promote_integers=False)
+    elif agg_func == "mean":
+        # Use this for getting mean value in slot index along path
+        slots = jnp.mean(slots, axis=0)
     else:
-        raise ValueError("agg_func must be 'max' or 'sum'")
+        raise ValueError("agg_func must be 'max' or 'sum' or 'mean'")
     return slots
 
 
@@ -2649,7 +2652,7 @@ def init_active_path_array(params: EnvParams):
     Returns:
         jnp.array: Active path array
     """
-    return jnp.full((params.num_links, params.link_resources, params.num_links), 0.)
+    return jnp.full((params.num_links, params.link_resources, params.num_links), -1)
 
 
 @partial(jax.jit, static_argnums=(1, 2))
@@ -2745,7 +2748,7 @@ def init_active_lightpaths_array(params: RSAGNModelEnvParams):
     """
     total_slots = params.num_links * params.link_resources  # total slots on networks
     min_slots = jnp.max(params.values_bw.val) / params.slot_size  # minimum number of slots required for lightpath
-    return jnp.full((min(int(params.max_requests), int(total_slots / min_slots)),), -1)
+    return jnp.full((int(total_slots / min_slots), 3), -1, dtype=LARGE_INT_DTYPE)
 
 
 def init_active_lightpaths_array_departure(params: RSAGNModelEnvParams):
@@ -2760,10 +2763,10 @@ def init_active_lightpaths_array_departure(params: RSAGNModelEnvParams):
     """
     total_slots = params.num_links * params.link_resources  # total slots on networks
     min_slots = jnp.max(params.values_bw.val) / params.slot_size  # minimum number of slots required for lightpath
-    return jnp.full((min(int(params.max_requests), int(total_slots / min_slots)),), 0.)
+    return jnp.full((int(total_slots / min_slots), 3), 0., dtype=LARGE_FLOAT_DTYPE)
 
 
-def update_active_lightpaths_array(state: RSAGNModelEnvState, path_index: int) -> chex.Array:
+def update_active_lightpaths_array(state: RSAGNModelEnvState, path_index: int, initial_slot_index: int, num_slots: int) -> chex.Array:
     """Update active lightpaths array with new path index.
     Find the first index of the array with value -1 and replace with path index.
     Args:
@@ -2772,8 +2775,8 @@ def update_active_lightpaths_array(state: RSAGNModelEnvState, path_index: int) -
     Returns:
         jnp.array: Updated active lightpaths array
     """
-    first_empty_index = jnp.argmin(state.active_lightpaths_array)
-    return jax.lax.dynamic_update_slice(state.active_lightpaths_array, jnp.array([path_index]), (first_empty_index,))
+    first_empty_index = jnp.argmin(state.active_lightpaths_array[:, 0])  # Just look at the first column
+    return jax.lax.dynamic_update_slice(state.active_lightpaths_array, jnp.array([[path_index, initial_slot_index, num_slots[0]]]), (first_empty_index, 0))
 
 
 def update_active_lightpaths_array_departure(state: RSAGNModelEnvState, time: float) -> chex.Array:
@@ -2785,8 +2788,8 @@ def update_active_lightpaths_array_departure(state: RSAGNModelEnvState, time: fl
     Returns:
         jnp.array: Updated active lightpaths array
     """
-    first_empty_index = jnp.argmin(state.active_lightpaths_array)
-    return jax.lax.dynamic_update_slice(state.active_lightpaths_array_departure, time, (first_empty_index,))
+    first_empty_index = jnp.argmin(state.active_lightpaths_array[:, 0])  # Just look at the first column
+    return jax.lax.dynamic_update_slice(state.active_lightpaths_array_departure, jnp.stack((time, time, time)), (first_empty_index, 0))
 
 
 def get_snr_for_path(path, link_snr_array, params):
@@ -3054,9 +3057,11 @@ def implement_action_rsa_gn_model(
     )
     if params.monitor_active_lightpaths:
         state = state.replace(
-        active_lightpaths_array=update_active_lightpaths_array(state, lightpath_index),
-        active_lightpaths_array_departure=update_active_lightpaths_array_departure(state, -state.current_time-state.holding_time),
+            active_lightpaths_array=update_active_lightpaths_array(state, lightpath_index, initial_slot_index, num_slots),
+            active_lightpaths_array_departure=update_active_lightpaths_array_departure(state, -state.current_time-state.holding_time),
         )
+        # No need to check SNR until end of episode
+        return state
     # Update link_snr_array
     state = state.replace(link_snr_array=get_snr_link_array(state, params))
     return state
@@ -3189,20 +3194,57 @@ def finalise_action_rmsa_gn_model(state: RSAGNModelEnvState, params: Optional[En
     )
     return state
 
+# TODO URGENT - Redefine active_lightpaths_array to have additional dimensions to hold the
+#  initial slot index and num_slots of the lightpath.
 
 # TODO - define throughput calculation on the basis of active_lightpaths_array:
 #  procedure will be:
+#  - get_lightpath_snr() to get SNR of each lightpath (which is shown on every link-slot of the lightpath)
 #  - Iterate through active lightpaths array
-#  - Get count of how many times path is used (mask active lightpaths array and sum). This avoids double-counting.
-#  - get_lightpath_snr() to get SNR of path_slots
 #  - Create mask where path id is active by doing get_path_links on path_index_array with mean aggregation, then where on path index
 #  - Sum the lightpath SNR across slots
 #  - Multiply by factor <1 to get the actual throughput from PCS modulation
 #  Optional: consider a minimum SNR beneath which no throughput is possible (mask to zero) (let's say 7dB for 28% FEC threshold)
 #  Optional: make FEC threshold a parameter and calculate the throughput / SNR requirements accordingly. This may be complex for PCS.
 def calculate_throughput_from_active_lightpaths(state: RSAGNModelEnvState, params: RSAGNModelEnvParams) -> chex.Array:
-    lightpath_snr_array = get_lightpath_snr(state, params)
-    # Define function that
+
+    # Update the SNR
+    state = state.replace(link_snr_array=get_snr_link_array(state, params))
+    slot_indices = jnp.arange(params.link_resources)
+
+    def get_throughput_iter(i, throughput):
+        # Get path index from active lightpaths array
+        path_index, initial_slot_index, num_slots = state.active_lightpaths_array[i]
+        path_packed = params.path_link_array.val[path_index]
+        path_snr = get_snr_for_path(path_packed, state.link_snr_array, params)
+        path = jnp.unpackbits(path_packed)[:params.num_links] if params.pack_path_bits else path_packed
+        path = path.reshape((params.num_links, 1))
+        # jax.debug.print("{}, path_index {}, num_links {}", i, path_index, jnp.sum(path), ordered=True)
+        # Get slots on path that use this path index
+        path_indices_on_slots = jnp.where(path, state.path_index_array, jnp.full(state.path_index_array.shape, -1))
+        path_indices_on_slots = jnp.max(path_indices_on_slots, axis=0)
+        mask = jnp.where(path_indices_on_slots == path_index, 1, 0)
+        # Update mask to be 1 for slots used by this lightpath
+        condition = jnp.logical_and(slot_indices >= initial_slot_index, slot_indices < initial_slot_index + num_slots)
+        mask = jnp.where(condition, mask, 0)
+        # Mask SNR below minimum required
+        path_snr = jnp.where(path_snr < params.min_snr, -50, path_snr)
+        # Get SNR for this lightpath (need to convert to linear units for throughput calc)
+        snr = from_db(path_snr) * mask
+        # jax.debug.print("snr {}", jnp.sum(snr), ordered=True)
+        # Calculate throughput from Shannon-Hartley, with 2 for polarisation, symbol rate = bandwidth, 28% FEC
+        datarate_per_channel = jnp.log2(1 + snr) * params.slot_size * 2 * (1 - params.fec_threshold)
+        throughput += jnp.sum(datarate_per_channel)
+        # jax.debug.print("datarate {} throughput {}", jnp.sum(datarate_per_channel), throughput, ordered=True)
+        return throughput
+
+    total_throughput = jax.lax.fori_loop(
+        0,
+        state.active_lightpaths_array.shape[0],
+        get_throughput_iter,
+        jnp.zeros((1,), dtype=LARGE_FLOAT_DTYPE)
+    )
+    return total_throughput[0]
 
 
 @partial(jax.jit, static_argnums=(2,))

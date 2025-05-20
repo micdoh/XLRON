@@ -295,7 +295,8 @@ class GNModelEnvState(RSAEnvState):
 class RSAGNModelEnvParams(GNModelEnvParams):
     """Dataclass to hold environment params for RSA with GN model.
     """
-    pass
+    min_snr: chex.Scalar = struct.field(pytree_node=False)
+    fec_threshold: chex.Scalar = struct.field(pytree_node=False)
 
 
 @struct.dataclass
@@ -304,7 +305,7 @@ class RSAGNModelEnvState(GNModelEnvState):
     """
     active_lightpaths_array: chex.Array  # Active lightpath array. 1 x M array. Each value is a lightpath index. Used to calculate total throughput.
     active_lightpaths_array_departure: chex.Array  # Active lightpath array departure time.
-    current_throughput: chex.Array  # Current throughput
+    throughput: chex.Array  # Current betwork throughput
 
 
 @struct.dataclass

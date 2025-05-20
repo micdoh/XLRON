@@ -89,15 +89,25 @@ class RSAEnv(environment.Environment):
         obs_st, state_st, reward, done, info = self.step_env(
             key, state, action, params
         )
-        obs_re, state_re = self.reset_env(key_reset, params)
-        # Auto-reset environment based on termination
-        state = jax.tree.map(
-            lambda x, y: jnp.where(done, x, y), state_re, state_st
+        def reset_fn(args):
+            key_reset, state_st, params, state = args
+            jax.debug.print("lazy reset, done {}", done, ordered=True)
+            obs_re, state_re = self.reset(key_reset, params, state)
+            return obs_re, state_re
+
+        def continue_fn(args):
+            _, state_st, _, _ = args
+            return obs_st, state_st
+
+        obs, new_state = jax.lax.cond(
+            done,
+            reset_fn,
+            continue_fn,
+            (key_reset, state_st, params, state)
         )
-        obs = jax.lax.select(done, obs_re, obs_st)
         return (
             jax.lax.stop_gradient(obs),
-            jax.lax.stop_gradient(state),
+            jax.lax.stop_gradient(new_state),
             reward,
             done,
             info
@@ -105,7 +115,7 @@ class RSAEnv(environment.Environment):
 
     @partial(jax.jit, static_argnums=(0, 2,))
     def reset(
-        self, key: chex.PRNGKey, params: Optional[RSAEnvParams] = None
+        self, key: chex.PRNGKey, params: Optional[RSAEnvParams] = None, state: Optional[RSAEnvState] = None
     ) -> Tuple[chex.Array, RSAEnvState]:
         """Performs resetting of environment.
 
@@ -117,7 +127,7 @@ class RSAEnv(environment.Environment):
             obs: Observation
             state: Reset environment state
         """
-        obs, state = self.reset_env(key, params)
+        obs, state = self.reset_env(key, params, state)
         return obs, state
 
     def step_env(
@@ -219,7 +229,7 @@ class RSAEnv(environment.Environment):
 
     @partial(jax.jit, static_argnums=(0, 2,))
     def reset_env(
-        self, key: chex.PRNGKey, params: RSAEnvParams
+        self, key: chex.PRNGKey, params: RSAEnvParams, state: Optional[RSAEnvState] = None
     ) -> Tuple[chex.Array, RSAEnvState]:
         """Environment-specific reset.
         Generates new random traffic matrix if random_traffic is True, otherwise uses the provided traffic matrix.

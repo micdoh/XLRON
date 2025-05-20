@@ -28,6 +28,7 @@ from xlron.heuristics.heuristics import ksp_ff, ff_ksp, kmc_ff, kmf_ff, ksp_mu, 
 from xlron.environments.dtype_config import COMPUTE_DTYPE, PARAMS_DTYPE, LARGE_INT_DTYPE, LARGE_FLOAT_DTYPE, \
     SMALL_INT_DTYPE, SMALL_FLOAT_DTYPE, MED_INT_DTYPE
 
+# TODO - Add all possible metrics here (they will all be registered in wandb) then just add a try except when adding them to processed data
 metrics = [
     "returns",
     "lengths",
@@ -38,6 +39,20 @@ metrics = [
     "utilisation",
     "service_blocking_probability",
     "bitrate_blocking_probability",
+    "throughput",  # Only for RSA GN Model
+    "request_source",
+    "request_dest",
+    "request_data_rate",
+    "arrival_time",
+    "departure_time",
+    "path_indices",
+    "slot_indices",
+    "returns",
+    "path_links",
+    "path_spectral_efficiency",
+    "required_slots",
+    "path_length",
+    "num_hops",
 ]
 loss_metrics = [
     "loss/total_loss",
@@ -316,8 +331,8 @@ def experiment_data_setup(config: absl.flags.FlagValues, rng: chex.PRNGKey) -> T
     # INIT ENV
     env, env_params = make(config)
     rng, rng_step, rng_epoch, warmup_key, reset_key, network_key = jax.random.split(rng, 6)
-    reset_key = jax.random.split(reset_key, config.NUM_ENVS)
-    obsv, env_state = jax.vmap(env.reset, in_axes=(0, None))(reset_key, env_params)
+    reset_key = jax.random.split(reset_key, config.NUM_ENVS) if config.NUM_ENVS > 1 else reset_key
+    obsv, env_state = jax.vmap(env.reset, in_axes=(0, None))(reset_key, env_params) if config.NUM_ENVS > 1 else env.reset(reset_key, env_params)
     obsv = (env_state.env_state, env_params) if config.USE_GNN else tuple([obsv])
 
     # TRAINING MODE
@@ -365,10 +380,10 @@ def experiment_data_setup(config: absl.flags.FlagValues, rng: chex.PRNGKey) -> T
         runner_state = EvalState(apply_fn=apply, sample_fn=sample, params=network_params)
 
     # Recreate DeepRMSA warmup period
-    warmup_key = jax.random.split(warmup_key, config.NUM_ENVS)
+    warmup_key = jax.random.split(warmup_key, config.NUM_ENVS) if config.NUM_ENVS > 1 else warmup_key
     warmup_state = (warmup_key, env_state, obsv)
     warmup_fn = get_warmup_fn(warmup_state, env, env_params, runner_state, config)
-    warmup_fn = jax.vmap(warmup_fn)
+    warmup_fn = jax.vmap(warmup_fn) if config.NUM_ENVS > 1 else warmup_fn
     env_state, obsv = warmup_fn(warmup_state)
 
     # Initialise eval state
@@ -659,14 +674,14 @@ def get_episode_end_mean_std_iqr(x, y, episode_ends, config):
             # Reshape to merge the rollout dimensions
             results = x[y][env].reshape(-1)  # Get data for this environment
             ends = episode_ends[env].reshape(-1)  # Get episode ends for this environment
-
             # Collect values at episode ends
             for i, end in enumerate(ends):
                 if end:
                     env_results.append(results[i])
 
             # If we found any episode ends, convert to array and add to list
-            all_episode_ends.append(jnp.stack(env_results))
+            env_results = jnp.stack(env_results) if env_results else jnp.array([])
+            all_episode_ends.append(env_results)
 
         # Combine results from all environments if we have any
         if all_episode_ends:
@@ -727,11 +742,11 @@ def process_metrics(config, out, total_time, merge_func):
         else:
             # Instead of flattening, create a boolean mask of where episodes end
             # This preserves the structure across environments
+            done_array = done_array.reshape(done_array.shape[0], -1)
             episode_ends = np.zeros_like(done_array, dtype=bool)
 
             # Iterate over the environment dimensions (all but the last one)
-            env_indices = np.ndindex(done_array.shape[:-1])
-            for env_idx in env_indices:
+            for env_idx in range(episode_ends.shape[0]):
                 # Get the done mask for this environment
                 env_done = done_array[env_idx]
 
@@ -741,27 +756,34 @@ def process_metrics(config, out, total_time, merge_func):
                 # Set the steps before done=1 as episode ends
                 for done_idx in done_indices:
                     if done_idx > 0:  # Make sure we don't go negative
-                        episode_ends[(*env_idx, done_idx - 1)] = True
+                        episode_ends[env_idx, done_idx - 1] = True
+
+            # Reshape episode_ends to match the original shape
+            episode_ends = episode_ends.reshape(merged_out["done"].shape)
 
             print(f"Created episode end mask with {np.sum(episode_ends)} episode endings")
 
     processed_data = {}
     print("Processing output metrics")
     for metric in metrics:
-        episode_end_mean, episode_end_std, episode_end_iqr_upper, episode_end_iqr_lower = (
-            get_episode_end_mean_std_iqr(merged_out, metric, episode_ends, config)
-        )
-        mean, std, iqr_upper, iqr_lower = get_mean_std_iqr(merged_out, metric)
-        processed_data[metric] = {
-            "mean": mean,
-            "std": std,
-            "iqr_upper": iqr_upper,
-            "iqr_lower": iqr_lower,
-            "episode_end_mean": episode_end_mean,
-            "episode_end_std": episode_end_std,
-            "episode_end_iqr_upper": episode_end_iqr_upper,
-            "episode_end_iqr_lower": episode_end_iqr_lower,
-        }
+        try:
+            episode_end_mean, episode_end_std, episode_end_iqr_upper, episode_end_iqr_lower = (
+                get_episode_end_mean_std_iqr(merged_out, metric, episode_ends, config)
+            )
+            mean, std, iqr_upper, iqr_lower = get_mean_std_iqr(merged_out, metric)
+            processed_data[metric] = {
+                "mean": mean,
+                "std": std,
+                "iqr_upper": iqr_upper,
+                "iqr_lower": iqr_lower,
+                "episode_end_mean": episode_end_mean,
+                "episode_end_std": episode_end_std,
+                "episode_end_iqr_upper": episode_end_iqr_upper,
+                "episode_end_iqr_lower": episode_end_iqr_lower,
+            }
+        except KeyError:
+            print(f"KeyError for metric {metric}, skipping")
+            continue
     return merged_out, merged_out_loss, processed_data, episode_ends
 
 

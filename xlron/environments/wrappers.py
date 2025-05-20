@@ -41,10 +41,20 @@ class LogWrapper(GymnaxWrapper):
 
     @partial(jax.jit, static_argnums=(0,))
     def reset(
-        self, key: chex.PRNGKey, params: Optional[environment.EnvParams] = None
+        self, key: chex.PRNGKey, params: Optional[environment.EnvParams] = None, state: Optional[environment.EnvState] = None
     ) -> Tuple[chex.Array, environment.EnvState]:
-        obs, env_state = self._env.reset(key, params)
-        state = LogEnvState(env_state, 0, 0, 0, 0, 0, 0, 0, False)
+        obs, env_state = self._env.reset(key, params, state)
+        state = LogEnvState(
+            env_state=env_state,
+            lengths=0,
+            returns=0,
+            cum_returns=0,
+            accepted_services=0,
+            accepted_bitrate=0,
+            total_bitrate=0,
+            utilisation=0,
+            done=False,
+        )
         return obs, state
 
     @partial(jax.jit, static_argnums=(0,))
@@ -76,37 +86,45 @@ class LogWrapper(GymnaxWrapper):
         info["accepted_bitrate"] = state.accepted_bitrate
         info["total_bitrate"] = state.total_bitrate
         info["utilisation"] = state.utilisation
-        if params.__class__.__name__ == "RSAGNModelEnvParams":
-            action, power_action = action
-            nodes_sd, dr_request = read_rsa_request(state.env_state.request_array)
-            source, dest = nodes_sd
-            i = get_path_indices(source, dest, params.k_paths, params.num_nodes, directed=params.directed_graph).astype(
-                jnp.int32)
-            path_index, slot_index = process_path_action(state.env_state, params, action)
-            info["launch_power"] = power_action
-            info["path_index"] = i + path_index
-            info["slot_index"] = slot_index
-            info["source"] = source
-            info["dest"] = dest
-            info["data_rate"] = dr_request[0]
-            if params.log_actions:
-                path = params.path_link_array.val[path_index.astype(jnp.int32)]
-                info["path_snr"] = get_snr_for_path(path, env_state.link_snr_array, params)[slot_index.astype(jnp.int32)]
-        # Log path length if required, to calculate average path length and number of hops
-        if params.log_actions:
-            nodes_sd, dr_request = read_rsa_request(state.env_state.request_array)
-            source, dest = nodes_sd
-            i = get_path_indices(source, dest, params.k_paths, params.num_nodes, directed=params.directed_graph).astype(
-                jnp.int32)
-            path_index, slot_index = process_path_action(state.env_state, params, action)
-            info["path_index"] = i + path_index
-            info["slot_index"] = slot_index
-            info["source"] = source
-            info["dest"] = dest
-            info["data_rate"] = dr_request[0]
-            info["arrival_time"] = env_state.current_time[0]
-            info["departure_time"] = env_state.current_time[0] + env_state.holding_time[0]
         info["done"] = done
+        # First check if we're dealing with RSAGNModelEnvParams
+        is_rsa_params = params.__class__.__name__ == "RSAGNModelEnvParams"
+
+        # For RSA params, unpack the action
+        if is_rsa_params:
+            action, power_action = action
+            info["launch_power"] = power_action
+
+        # Now, if we need to log actions OR we have RSA params, compute the common fields
+        if is_rsa_params or params.log_actions:
+            # Compute common fields
+            nodes_sd, dr_request = read_rsa_request(state.env_state.request_array)
+            source, dest = nodes_sd
+            i = get_path_indices(source, dest, params.k_paths, params.num_nodes, directed=params.directed_graph).astype(
+                jnp.int32)
+            path_index, slot_index = process_path_action(state.env_state, params, action)
+
+            # Set common info
+            info["path_index"] = i + path_index
+            info["slot_index"] = slot_index
+            info["source"] = source
+            info["dest"] = dest
+            info["data_rate"] = dr_request[0]
+
+            # RSA-specific throughput info
+            if is_rsa_params:
+                info["throughput"] = env_state.throughput #* done  # Only != 0 at end of episode
+
+            # Logging-specific info
+            if params.log_actions:
+                # RSA-specific logging
+                if is_rsa_params:
+                    path = params.path_link_array.val[path_index.astype(jnp.int32)]
+                    info["path_snr"] = get_snr_for_path(path, env_state.link_snr_array, params)[
+                        slot_index.astype(jnp.int32)]
+                # Common logging fields
+                info["arrival_time"] = env_state.current_time[0]
+                info["departure_time"] = env_state.current_time[0] + env_state.holding_time[0]
         return obs, state, reward, done, info
 
     def _tree_flatten(self):
