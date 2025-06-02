@@ -160,7 +160,6 @@ def isrs_gn_model(
         _eta_xpm = carry[1] + _xpm(ch_pow_i, ch_pow_k, phi_ik, T_k, ch_bw_i, ch_bw_k, a_k, a_bar_k, gamma)
 
         # Asymptotic correction for non-Gaussian modulation format
-        # TODO - should this use length or L_mean?
         _eta_xpm_corr_asymp = carry[2] + _xpm_corr_asymp(ch_pow_i, ch_pow_k, phi_ik, phi, T_k, ch_bw_k, a_k, a_bar_k, gamma, df, Phi_k, tx2_i, l_span)
 
         return (_eta_spm, _eta_xpm, _eta_xpm_corr_asymp), (_eta_spm, _eta_xpm, _eta_xpm_corr_asymp)
@@ -263,6 +262,7 @@ def _xpm_corr_asymp(p_i, p_k, phi_ik, phi, T_k, B_k, a, a_bar, gamma, df, Phi, T
 
 
 def get_ase_power(noise_figure, attenuation_i, length, ref_lambda, ch_centre_i, ch_bandwidth, gain=None):
+    # TODO - modify the gain to counteract the ISRS
     if gain is None:
         a = jnp.mean(attenuation_i)
         gain = 10 ** (a * length / 10)
@@ -324,7 +324,6 @@ def get_snr(
     """
     span_length = jnp.sum(length) / num_spans
     p_ase = get_ase_power(noise_figure, attenuation_i, span_length, ref_lambda, ch_centre_i, ch_bandwidth_i) * num_spans
-    # TODO - make sure that each path has transmitter ROADM, traversed ROADMs, and receiver ROADM (currently missing receiver or transmitter)
     p_ase_roadm = num_roadms * get_ase_power(noise_figure, roadm_loss, span_length, ref_lambda, ch_centre_i, ch_bandwidth_i, gain=10**(roadm_loss/10))
     p_nli, eta_nli = isrs_gn_model(
         num_channels=num_channels,

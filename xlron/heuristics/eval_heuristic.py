@@ -27,9 +27,9 @@ def get_eval_fn(
     def _env_episode(runner_state, unused):
 
         def _env_step(runner_state, unused):
-            eval_state, env_state, last_obs, rng_step, rng_epoch = runner_state
+            eval_state, env_state, last_obs, step_key, rng_epoch = runner_state
 
-            rng_step, action_key, step_key = jax.random.split(rng_step, 3)
+            action_key, next_step_key = jax.random.split(step_key)
 
             # SELECT ACTION
             select_action_state = (action_key, env_state, last_obs)
@@ -42,7 +42,7 @@ def get_eval_fn(
             transition = Transition(
                 done, action, reward, last_obs, info
             )
-            runner_state = (eval_state, env_state, obsv, rng_step, rng_epoch)
+            runner_state = (eval_state, env_state, obsv, next_step_key, rng_epoch)
 
             if config.DEBUG:
                 jax.debug.print("request {}", env_state.env_state.request_array, ordered=config.ORDERED)
@@ -59,11 +59,20 @@ def get_eval_fn(
             return runner_state, transition
 
         # VECTORISE ENV STEP
-        _env_step_vmap = jax.vmap(_env_step, in_axes=((None, 0, 0, None, None), None), out_axes=((None, 0, 0, None, None), 0)) if config.NUM_ENVS > 1 else _env_step
+        _env_step_vmap = jax.vmap(
+            _env_step,
+            in_axes=((None, 0, 0, 0, None), None),
+            out_axes=((None, 0, 0, 0, None), 0)
+        ) if config.NUM_ENVS > 1 else _env_step
 
+        rng_step = runner_state[3]
+        rng_step, *step_keys = jax.random.split(rng_step, config.NUM_ENVS + 1)
+        step_keys = jnp.array(step_keys) if config.NUM_ENVS > 1 else step_keys[0]
+        runner_state = runner_state[:3] + (step_keys,) + runner_state[4:]
         runner_state, traj_episode = jax.lax.scan(
             _env_step_vmap, runner_state, None, config.max_requests
         )
+        runner_state = runner_state[:3] + (rng_step,) + runner_state[4:]
 
         metric = traj_episode.info
 
