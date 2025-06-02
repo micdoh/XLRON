@@ -112,8 +112,6 @@ flags.DEFINE_string("multiple_topologies_directory", None,
                     "Directory containing JSON definitions of network topologies that will be alternated per episode")
 flags.DEFINE_float("traffic_intensity", 0, "Traffic intensity (arrival rate * mean holding time)")
 flags.DEFINE_boolean("maximise_throughout", False, "Maximise throughput instead of minimising blocking probability")
-flags.DEFINE_boolean("use_gn_model", False, "Use GN model for link SNR estimation")
-flags.DEFINE_boolean("include_isrs", False, "Include ISRS in the GN model or just ASE noise")
 flags.DEFINE_string("reward_type", "service", "Reward type")
 flags.DEFINE_boolean("truncate_holding_time", False, "Truncate holding time to less than 2*mean_service_holding_time")
 flags.DEFINE_integer("ENV_WARMUP_STEPS", 0, "Number of warmup steps before training or eval")
