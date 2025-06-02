@@ -24,9 +24,9 @@ def get_learner_fn(
         # COLLECT TRAJECTORIES
 
         def _env_step(runner_state, unused):
-            train_state, env_state, last_obs, rng_step, rng_epoch = runner_state
+            train_state, env_state, last_obs, step_key, rng_epoch = runner_state
 
-            rng_step, action_key, step_key = jax.random.split(rng_step, 3)
+            action_key, next_step_key = jax.random.split(step_key)
 
             # SELECT ACTION
             select_action_state = (action_key, env_state, last_obs)
@@ -44,7 +44,7 @@ def get_learner_fn(
             ) if config.env_type.lower() == "vone" else RSATransition(
                 done, action, value, reward, log_prob, last_obs, info, env_state.env_state.link_slot_mask
             )
-            runner_state = (train_state, env_state, obsv, rng_step, rng_epoch)
+            runner_state = (train_state, env_state, obsv, next_step_key, rng_epoch)
 
             if config.DEBUG:
                 path_action = action[0][0] if config.env_type.lower() == "rsa_gn_model" else action
@@ -73,9 +73,13 @@ def get_learner_fn(
 
         # VECTORISE ENV STEP
         _env_step_vmap = jax.vmap(
-            _env_step, in_axes=((None, 0, 0, None, None), None), out_axes = ((None, 0, 0, None, None), 0)
+            _env_step, in_axes=((None, 0, 0, 0, None), None), out_axes=((None, 0, 0, 0, None), 0)
         ) if config.NUM_ENVS > 1 else _env_step
 
+        rng_step = runner_state[3]
+        rng_step, *step_keys = jax.random.split(rng_step, config.NUM_ENVS + 1)
+        step_keys = jnp.array(step_keys) if config.NUM_ENVS > 1 else step_keys[0]
+        runner_state = runner_state[:3] + (step_keys,) + runner_state[4:]
         runner_state, traj_batch = jax.lax.scan(
             _env_step_vmap, runner_state, None, config.ROLLOUT_LENGTH
         )
@@ -83,7 +87,7 @@ def get_learner_fn(
             jax.debug.print("traj_batch.info {}", traj_batch.info, ordered=config.ORDERED)
 
         # CALCULATE ADVANTAGE
-        train_state, env_state, last_obs, rng_step, rng_epoch = runner_state
+        train_state, env_state, last_obs, _, rng_epoch = runner_state
         last_obs = (env_state.env_state, env_params) if config.USE_GNN else last_obs
         axes = (None, 0, None) if config.USE_GNN else (None, 0)
         _, last_val = jax.vmap(train_state.apply_fn, in_axes=axes)(train_state.params, *last_obs) if (

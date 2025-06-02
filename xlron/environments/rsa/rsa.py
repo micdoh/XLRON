@@ -91,7 +91,6 @@ class RSAEnv(environment.Environment):
         )
         def reset_fn(args):
             key_reset, state_st, params, state = args
-            jax.debug.print("lazy reset, done {}", done, ordered=True)
             obs_re, state_re = self.reset(key_reset, params, state)
             return obs_re, state_re
 

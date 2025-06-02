@@ -40,6 +40,8 @@ metrics = [
     "service_blocking_probability",
     "bitrate_blocking_probability",
     "throughput",  # Only for RSA GN Model
+    "launch_power",
+    "path_snr",
     "request_source",
     "request_dest",
     "request_data_rate",
@@ -361,7 +363,7 @@ def experiment_data_setup(config: absl.flags.FlagValues, rng: chex.PRNGKey) -> T
             sample_fn=network.sample_action,
             params=network_params.to_dict() if isinstance(network_params, box.Box) else network_params,
             tx=tx,
-            avg_reward=jnp.array(config.INITIAL_AVERAGE_REWARD, dtype=SMALL_FLOAT_DTYPE),
+            avg_reward=jnp.array(config.INITIAL_AVERAGE_REWARD, dtype=LARGE_FLOAT_DTYPE),
         )
 
     # EVALUATION MODE
@@ -643,7 +645,10 @@ def setup_wandb(config, project_name, experiment_name):
             "iqr_lower"
         ]:
             wandb.define_metric(f"{metric}_{agg}", step_metric="env_step")
-            wandb.define_metric(f"episode_end_{metric}_{agg}", step_metric="episode_count")
+            wandb.define_metric(f"{metric}_episode_end_{agg}", step_metric="episode_count", summary="last")
+            wandb.define_metric(f"{metric}_episode_end_{agg}", step_metric="episode_count", summary="mean")
+            wandb.define_metric(f"{metric}_episode_end_{agg}", step_metric="episode_count", summary="min")
+            wandb.define_metric(f"{metric}_episode_end_{agg}", step_metric="episode_count", summary="max")
     for metric in loss_metrics:
         wandb.define_metric(f"{metric}", step_metric="update_epoch")
     wandb.define_metric("training_time", step_metric="env_step")
@@ -766,9 +771,14 @@ def process_metrics(config, out, total_time, merge_func):
     processed_data = {}
     print("Processing output metrics")
     for metric in metrics:
+        if metric == "throughput":
+            # Shift values down one index position
+            ends = np.concatenate([[False], episode_ends.flatten()[:-1]]).reshape(episode_ends.shape)
+        else:
+            ends = episode_ends
         try:
             episode_end_mean, episode_end_std, episode_end_iqr_upper, episode_end_iqr_lower = (
-                get_episode_end_mean_std_iqr(merged_out, metric, episode_ends, config)
+                get_episode_end_mean_std_iqr(merged_out, metric, ends, config)
             )
             mean, std, iqr_upper, iqr_lower = get_mean_std_iqr(merged_out, metric)
             processed_data[metric] = {
@@ -856,7 +866,7 @@ def log_metrics(config, out, experiment_name, total_time, merge_func):
 
         # Log episode end metrics
         if not config.continuous_operation:
-            print(f"Logging episode end metrics for {len(episode_ends)} episodes")
+            print(f"Logging episode end metrics for {np.sum(episode_ends)} episodes")
             for i in range(len(processed_data["returns"]["episode_end_mean"])):
                 log_dict = {
                     f"{metric}_{stat}": processed_data[metric][stat][i] for metric in all_metrics for stat in [
@@ -906,6 +916,7 @@ def log_metrics(config, out, experiment_name, total_time, merge_func):
             log_dict["env_step"] = i
             wandb.log(log_dict)
 
+
     # Print the final metrics to console
     for metric in all_metrics:
         if config.continuous_operation:
@@ -920,8 +931,6 @@ def log_metrics(config, out, experiment_name, total_time, merge_func):
             print(f"{metric} std: {processed_data[metric]['episode_end_std'].mean():.5f}")
             print(f"{metric} IQR lower: {processed_data[metric]['episode_end_iqr_lower'].mean():.5f}")
             print(f"{metric} IQR upper: {processed_data[metric]['episode_end_iqr_upper'].mean():.5f}")
-    if "gn_model" in config.env_type.lower():
-        print(f"Mean launch power: {merged_out['launch_power'].mean():.5f} ± {merged_out['launch_power'].std():.5f}")
 
     if config.log_actions:
 
@@ -992,8 +1001,8 @@ def log_metrics(config, out, experiment_name, total_time, merge_func):
                 "num_hops": num_hops,
             }
             if "gn_model" in config.env_type.lower():
-                log_dict["launch_power"] = merged_out["launch_power"].reshape((merged_out["launch_power"].shape[0], -1))[0]
-                log_dict["path_snr"] = merged_out["path_snr"].reshape((merged_out["path_snr"].shape[0], -1))[0]
+                log_dict["launch_power"] = processed_data["launch_power"]["mean"]
+                log_dict["path_snr"] = processed_data["path_snr"]["mean"]
             df = pd.DataFrame(log_dict)
             df.to_csv(config.TRAJ_DATA_OUTPUT_FILE)
 

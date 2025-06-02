@@ -64,7 +64,7 @@ class RSAGNModelEnv(RSAEnv):
             launch_power_array=launch_power_array,
             active_lightpaths_array=init_active_lightpaths_array(params),
             active_lightpaths_array_departure=init_active_lightpaths_array_departure(params),
-            throughput=0.,
+            throughput=jnp.array(0., dtype=init_link_snr_array(params).dtype),
         )
         self.initial_state = state.replace(graph=init_graph_tuple(state, params, laplacian_matrix))
 
@@ -76,7 +76,8 @@ class RSAGNModelEnv(RSAEnv):
         """Reset the environment and log the total throughput at episode end.
         """
         throughput_condition = params.monitor_active_lightpaths and state is not None
-        throughput = calculate_throughput_from_active_lightpaths(state, params) if throughput_condition else jnp.array(0., dtype=LARGE_FLOAT_DTYPE)
+        throughput = calculate_throughput_from_active_lightpaths(state, params) if (
+            throughput_condition) else jnp.array(0.)
         obs, state = super().reset(key, params, state)
         state = state.replace(throughput=throughput)
         jax.debug.print("resetting env, throughput: {}", throughput, ordered=True)
