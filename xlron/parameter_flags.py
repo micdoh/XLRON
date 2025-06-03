@@ -197,6 +197,7 @@ flags.DEFINE_boolean("last_fit", False, "Use KSP-FF for path_action, else KSP-LF
 flags.DEFINE_boolean("GNN_OUTPUT_LP", False, "Use GNN for launch power optimization in RSA GN Model environment")
 flags.DEFINE_boolean("GNN_OUTPUT_RSA", False, "Use GNN for RSA in RSA GN Model environment")
 flags.DEFINE_boolean("monitor_active_lightpaths", False, "Monitor active lightpaths for use in throughput calculation")
+flags.DEFINE_string("noise_data_filepath", None, "Path to transceiver and amplifier noise data file for GN model")
 # Flags for optimize_launch_power.py
 flags.DEFINE_boolean("optimise_launch_power", False, "Use deteministic requests from list_of_requests to optimise launch power")
 flags.DEFINE_integer('EVAL_STEPS', 100, 'Number of steps to run in each evaluation')

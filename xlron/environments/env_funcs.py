@@ -15,6 +15,7 @@ import jax
 import timeit
 import json
 import numpy as np
+from scipy.constants import pi, h, c
 import jraph
 import jaxopt
 from flax import struct
@@ -2655,6 +2656,58 @@ def init_active_path_array(params: EnvParams):
     return jnp.full((params.num_links, params.link_resources, params.num_links), -1, dtype=MED_INT_DTYPE)
 
 
+def init_transceiver_amplifier_noise_arrays(
+        link_resources: int,
+        ref_lambda: float,
+        slot_size: float,
+        noise_data_filepath: str = None
+) -> Tuple[chex.Array, chex.Array]:
+    """Initialise transceiver and amplifier noise arrays.
+    Args:
+        link_resources (int): Number of link resources
+        ref_lambda (float): Reference wavelength
+        slot_size (float): Slot size
+        noise_data_filepath (str, optional): Path to CSV file containing modulation formats. Defaults to None.
+    Returns:
+        Tuple[chex.Array, chex.Array]: Transceiver noise array, Amplifier noise array
+    """
+    f = pathlib.Path(noise_data_filepath) if noise_data_filepath else (
+            pathlib.Path(__file__).parents[1].absolute() / "data" / "gn_model" / "transceiver_amplifier_data.csv")
+    noise_data = np.genfromtxt(f, delimiter=',')
+    # Drop empty first row (headers) and column (name)
+    noise_data = noise_data[1:, 1:]
+    # Columns are: wavelength_min_nm,wavelength_max_nm,frequency_min_ghz,frequency_max_ghz,NF_ASE_dB,SNR_TRX_dB
+    frequency_min_ghz = noise_data[:, 2]
+    frequency_max_ghz = noise_data[:, 3]
+    amplifier_noise_db = noise_data[:, 4]  # NF_ASE_dB
+    transceiver_snr_db = noise_data[:, 5]  # SNR_TRX_dB
+
+    # Define slot centres in GHz relative to central wavelength
+    slot_centres = (jnp.arange(link_resources) - (link_resources - 1) / 2) * slot_size
+
+    # Transform relative slot centres to absolute frequencies in GHz
+    ref_frequency_ghz = c / (ref_lambda * 1e-9) / 1e9
+    slot_frequencies_ghz = ref_frequency_ghz + slot_centres
+
+    # Initialize output arrays
+    transceiver_snr_array = jnp.zeros(link_resources)
+    amplifier_noise_figure_array = jnp.zeros(link_resources)
+
+    # For each slot, find which band it belongs to
+    for i, freq in enumerate(slot_frequencies_ghz):
+        # Find the band this frequency falls into
+        for j in range(len(frequency_min_ghz)):
+            if frequency_min_ghz[j] <= freq <= frequency_max_ghz[j]:
+                transceiver_snr_array = transceiver_snr_array.at[i].set(transceiver_snr_db[j])
+                amplifier_noise_figure_array = amplifier_noise_figure_array.at[i].set(amplifier_noise_db[j])
+                break
+        else:
+            # If frequency is outside all bands, could raise error or use default
+            raise ValueError(f"Frequency {freq} GHz is outside the defined bands")
+
+    return transceiver_snr_array, amplifier_noise_figure_array
+
+
 @partial(jax.jit, static_argnums=(1, 2))
 def get_required_snr_se_kurtosis_from_mod_format(mod_format_index, col_index, params):
     return params.modulations_array[mod_format_index][col_index]  # column 1 is spectral efficiency 2 is required SNR
@@ -2694,8 +2747,8 @@ def get_centre_frequency(initial_slot_index: int, num_slots: int, params: RSAGNM
     Returns:
         chex.Array: Centre frequency for new lightpath
     """
-    slot_centres = (jnp.arange(params.link_resources) - (params.link_resources + 1) / 2) * params.slot_size
-    return slot_centres[initial_slot_index] + (params.slot_size * (num_slots + 1)) / 2
+    slot_centres = (jnp.arange(params.link_resources) - (params.link_resources - 1) / 2) * params.slot_size
+    return slot_centres[initial_slot_index] + ((params.slot_size * (num_slots - 1)) / 2)
 
 
 @partial(jax.jit, static_argnums=(2,))
@@ -3053,6 +3106,7 @@ def implement_action_rsa_gn_model(
     state = state.replace(
         path_index_array=vmap_set_path_links(state.path_index_array, path, initial_slot_index, num_slots-params.guardband, lightpath_index),
         channel_power_array=vmap_set_path_links(state.channel_power_array, path, initial_slot_index, num_slots-params.guardband, launch_power),
+        # TODO - update this to use separate arrays to track channel centres and bandwidths and update with bandwidth (that may or may not equal slot size)
         channel_centre_bw_array=vmap_set_path_links(state.channel_centre_bw_array, path, initial_slot_index, num_slots-params.guardband, params.slot_size),
     )
     if params.monitor_active_lightpaths:
