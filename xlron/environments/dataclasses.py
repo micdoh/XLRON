@@ -258,7 +258,8 @@ class GNModelEnvParams(RSAEnvParams):
     attenuation_bar: chex.Scalar = struct.field(pytree_node=False)
     dispersion_coeff: chex.Scalar = struct.field(pytree_node=False)
     dispersion_slope: chex.Scalar = struct.field(pytree_node=False)
-    noise_figure: chex.Scalar = struct.field(pytree_node=False)
+    transceiver_snr: chex.Array = struct.field(pytree_node=False)
+    amplifier_noise_figure: chex.Array = struct.field(pytree_node=False)
     coherent: bool = struct.field(pytree_node=False)
     num_roadms: chex.Scalar = struct.field(pytree_node=False)
     roadm_loss: chex.Scalar = struct.field(pytree_node=False)
@@ -275,6 +276,7 @@ class GNModelEnvParams(RSAEnvParams):
     monitor_active_lightpaths: bool = struct.field(pytree_node=False)  # Monitor active lightpaths for throughput calculation
     gap_starts: chex.Array = struct.field(pytree_node=False)
     gap_widths: chex.Array = struct.field(pytree_node=False)
+
 
 
 @struct.dataclass

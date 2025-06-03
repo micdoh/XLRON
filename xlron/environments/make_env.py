@@ -5,7 +5,7 @@ from xlron.environments.env_funcs import (
     convert_node_probs_to_traffic_matrix, make_graph, init_path_length_array, init_modulations_array,
     init_path_se_array, required_slots, init_values_bandwidth, normalise_traffic_matrix, init_link_length_array,
     init_path_capacity_array, pad_array, init_link_length_array_gn_model, generate_source_dest_pairs,
-    init_list_of_requests,
+    init_list_of_requests, init_transceiver_amplifier_noise_arrays,
 )
 from xlron.environments.dataclasses import *
 from xlron.environments.wrappers import *
@@ -123,6 +123,8 @@ def make(config: Optional[Union[dict, absl.flags.FlagValues]], **kwargs) -> Tupl
     ref_lambda = config.get("ref_lambda", 1564e-9)  # centre of C+L bands (1530-1625nm) or
     # 1564nm for centre of 15THz of L,C,partial-S (1503-1625nm)
     # 1447.5nm for centre of C-band (1530-1565nm)
+    # Partial S-band is 1503-1530nm = 195.94 - 199.46THz = 3.52THz
+    # C-band is 1530-1565nm = 191.56 - 195.94THz = 4.24THz
     nonlinear_coeff = config.get("nonlinear_coeff", 1.2 / 1e3)
     raman_gain_slope = config.get("raman_gain_slope", 0.028 / 1e3 / 1e12)
     attenuation = config.get("attenuation", 0.2 / 4.343 / 1e3)
@@ -131,9 +133,9 @@ def make(config: Optional[Union[dict, absl.flags.FlagValues]], **kwargs) -> Tupl
     dispersion_slope = config.get("dispersion_slope", 0.067 * 1e-12 / 1e-9 / 1e3 / 1e-9)
     coherent = config.get("coherent", False)
     noise_figure = config.get("noise_figure", 4)
-    interband_gap_width = [275, 275] if config.get("interband_gap_width", None) is None else []
+    interband_gap_width = [200, 200] if config.get("interband_gap_width", None) is None else []
     gap_width_slots = [int(math.ceil(width / slot_size)) for width in interband_gap_width]
-    interband_gap_start = [4425, 8500] if config.get("interband_gap_start", None) is None else []
+    interband_gap_start = [4425, 8425] if config.get("interband_gap_start", None) is None else []
     gap_start_slots = [int(math.ceil(start / slot_size)) for start in interband_gap_start]
     mod_format_correction = config.get("mod_format_correction", True)
     num_roadms = config.get("num_roadms", 1)
@@ -359,17 +361,24 @@ def make(config: Optional[Union[dict, absl.flags.FlagValues]], **kwargs) -> Tupl
         params_dict.update(gap_starts=gap_starts, gap_widths=gap_widths)
     elif "gn_model" in env_type:
         env_params = RSAGNModelEnvParams
+        transceiver_snr, amplifier_noise_figure = init_transceiver_amplifier_noise_arrays(
+            link_resources, ref_lambda, slot_size, config.get("noise_data_filepath", None),
+        )
+        transceiver_snr, amplifier_noise_figure = HashableArrayWrapper(transceiver_snr), \
+            HashableArrayWrapper(amplifier_noise_figure) if not remove_array_wrappers else (
+            transceiver_snr, amplifier_noise_figure)
         params_dict.update(
             ref_lambda=ref_lambda, max_spans=max_spans, max_span_length=max_span_length,
             default_launch_power=default_launch_power,
             nonlinear_coeff=nonlinear_coeff, raman_gain_slope=raman_gain_slope, attenuation=attenuation,
-            attenuation_bar=attenuation_bar, dispersion_coeff=dispersion_coeff, noise_figure=noise_figure,
+            attenuation_bar=attenuation_bar, dispersion_coeff=dispersion_coeff,
             dispersion_slope=dispersion_slope, coherent=coherent, gap_starts=gap_starts, gap_widths=gap_widths,
             roadm_loss=roadm_loss, num_roadms=num_roadms, num_spans=num_spans, launch_power_type=launch_power_type,
             snr_margin=snr_margin, last_fit=config.get("last_fit", False), max_power=max_power, min_power=min_power,
             step_power=step_power, max_snr=max_snr, mod_format_correction=mod_format_correction,
             monitor_active_lightpaths=config.get("monitor_active_lightpaths", False),
             min_snr=config.get("min_snr", 7.0), fec_threshold=config.get("fec_threshold", 0.28),
+            transceiver_snr=transceiver_snr, amplifier_noise_figure=amplifier_noise_figure,
         )
         if env_type == "rmsa_gn_model":
             env_params = RMSAGNModelEnvParams

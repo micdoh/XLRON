@@ -16,6 +16,9 @@ from typing import Optional, Union
 
 FLAGS = flags.FLAGS
 
+# Create a global mutable container to collect data
+collected_states = []
+
 
 def restrict_visible_gpus(gpu_indices=None, auto_select=False):
     """

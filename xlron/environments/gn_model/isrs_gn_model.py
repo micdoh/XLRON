@@ -279,7 +279,6 @@ def get_snr(
         attenuation_bar_i: chex.Array = 0.2 / 4.343 / 1e3 * jnp.ones((420, 1)),
         nonlinear_coeff: chex.Array = 1.2 / 1e3 * jnp.ones(1),
         coherent: bool = True,
-        noise_figure: float = 4,
         mod_format_correction: bool = False,
         raman_gain_slope_i: chex.Array = 0.028 / 1e3 / 1e12 * jnp.ones(1),
         dispersion_coeff: chex.Array = 17 * 1e-12 / 1e-9 / 1e3 * jnp.ones(1),
@@ -292,6 +291,8 @@ def get_snr(
         ch_centre_i: chex.Array = ((jnp.arange(420) - (420 - 1) / 2) * 25e-9).reshape((420, 1)),
         ch_bandwidth_i: chex.Array = 25e9 * jnp.ones((420, 1)),
         excess_kurtosis_i: chex.Array = jnp.zeros((420, 1)),
+        amplifier_noise_figure: chex.Array = jnp.zeros((420, 1)),
+        transceiver_snr: chex.Array = jnp.zeros((420, 1)),
 ):
     """
     Compute the signal-to-noise ratio (SNR) of a WDM system.
@@ -323,8 +324,8 @@ def get_snr(
         snr: signal-to-noise ratio (linear units)
     """
     span_length = jnp.sum(length) / num_spans
-    p_ase = get_ase_power(noise_figure, attenuation_i, span_length, ref_lambda, ch_centre_i, ch_bandwidth_i) * num_spans
-    p_ase_roadm = num_roadms * get_ase_power(noise_figure, roadm_loss, span_length, ref_lambda, ch_centre_i, ch_bandwidth_i, gain=10**(roadm_loss/10))
+    p_ase = get_ase_power(amplifier_noise_figure, attenuation_i, span_length, ref_lambda, ch_centre_i, ch_bandwidth_i) * num_spans
+    p_ase_roadm = num_roadms * get_ase_power(amplifier_noise_figure, roadm_loss, span_length, ref_lambda, ch_centre_i, ch_bandwidth_i, gain=10**(roadm_loss/10))
     p_nli, eta_nli = isrs_gn_model(
         num_channels=num_channels,
         num_spans=num_spans,
@@ -344,7 +345,8 @@ def get_snr(
         mod_format_correction=mod_format_correction,
         excess_kurtosis_i=excess_kurtosis_i,
     )
-    noise_power = p_ase + p_ase_roadm + p_nli
+    transceiver_noise = ch_power_w_i * from_db(transceiver_snr)
+    noise_power = p_ase + p_ase_roadm + p_nli + transceiver_noise
     noise_power = jnp.where(noise_power > 0, noise_power, EPS)
     ch_power_W_i = jnp.squeeze(ch_power_w_i)
     snr = jnp.where(ch_power_W_i > 0, ch_power_W_i / noise_power, -1e5)
