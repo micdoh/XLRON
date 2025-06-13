@@ -2686,7 +2686,7 @@ def init_transceiver_amplifier_noise_arrays(
     slot_centres = (jnp.arange(link_resources) - (link_resources - 1) / 2) * slot_size
 
     # Transform relative slot centres to absolute frequencies in GHz
-    ref_frequency_ghz = c / (ref_lambda * 1e-9) / 1e9
+    ref_frequency_ghz = c / ref_lambda / 1e9
     slot_frequencies_ghz = ref_frequency_ghz + slot_centres
 
     # Initialize output arrays
@@ -2850,9 +2850,6 @@ def get_snr_for_path(path, link_snr_array, params):
         path = jnp.unpackbits(path)[:params.num_links]
     nsr_slots = jnp.where(path.reshape((params.num_links, 1)) == 1, 1/link_snr_array, jnp.zeros(params.link_resources))
     nsr_path_slots = jnp.sum(nsr_slots, axis=0, promote_integers=False)
-    # TODO - Add noise from one more ROADM per path
-    #  p_ase_roadm = num_roadms * get_ase_power(noise_figure, roadm_loss, span_length, ref_lambda, ch_centre_i, ch_bandwidth_i, gain=10**(roadm_loss/10))
-    #  snr = jnp.where(ch_power_W_i > 0, ch_power_W_i / noise_power, -1e5)
     return jnp.nan_to_num(isrs_gn_model.to_db(1 / nsr_path_slots), nan=-50, neginf=-50, posinf=50)  # Link SNR array must be in linear units so that 1/inf = 0
 
 
@@ -2930,21 +2927,23 @@ def get_snr_link_array(state: EnvState, params: EnvParams) -> chex.Array:
             max_spans=params.max_spans,
             ref_lambda=params.ref_lambda,
             length=link_lengths,
-            attenuation_i=jnp.array([params.attenuation]),
-            attenuation_bar_i=jnp.array([params.attenuation_bar]),
-            nonlinear_coeff=jnp.array([params.nonlinear_coeff]),
-            raman_gain_slope_i=jnp.array([params.raman_gain_slope]),
-            dispersion_coeff=jnp.array([params.dispersion_coeff]),
-            dispersion_slope=jnp.array([params.dispersion_slope]),
+            attenuation_i=jnp.array(params.attenuation),
+            attenuation_bar_i=jnp.array(params.attenuation_bar),
+            nonlinear_coeff=jnp.array(params.nonlinear_coeff),
+            raman_gain_slope_i=jnp.array(params.raman_gain_slope),
+            dispersion_coeff=jnp.array(params.dispersion_coeff),
+            dispersion_slope=jnp.array(params.dispersion_slope),
             coherent=params.coherent,
             num_roadms=params.num_roadms,
             roadm_loss=params.roadm_loss,
-            noise_figure=params.noise_figure,  # TODO (GN MODEL) - support separate noise figures for C and L bands (4 and 6 dB)
+            amplifier_noise_figure=params.amplifier_noise_figure.val,
+            transceiver_snr=params.transceiver_snr.val,
             mod_format_correction=params.mod_format_correction,
-            ch_power_w_i=ch_power_link.reshape((params.link_resources, 1)),
-            ch_centre_i=ch_centres_link.reshape((params.link_resources, 1))*1e9,
-            ch_bandwidth_i=bw_link.reshape((params.link_resources, 1))*1e9,
-            excess_kurtosis_i=kurtosis_link.reshape((params.link_resources, 1)),
+            ch_power_w_i=ch_power_link,
+            ch_centre_i=ch_centres_link*1e9,
+            ch_bandwidth_i=bw_link*1e9,
+            excess_kurtosis_i=kurtosis_link,
+            uniform_spans=params.uniform_spans,
         )
         snr = isrs_gn_model.get_snr(**P)[0]
 

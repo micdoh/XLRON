@@ -120,7 +120,7 @@ def make(config: Optional[Union[dict, absl.flags.FlagValues]], **kwargs) -> Tupl
 
     # GN model parameters
     max_span_length = config.get("max_span_length", 100e3)
-    ref_lambda = config.get("ref_lambda", 1564e-9)  # centre of C+L bands (1530-1625nm) or
+    ref_lambda = config.get("ref_lambda", 1564e-9)  # 1577.5nm centre of C+L bands (1530-1625nm) or
     # 1564nm for centre of 15THz of L,C,partial-S (1503-1625nm)
     # 1447.5nm for centre of C-band (1530-1565nm)
     # Partial S-band is 1503-1530nm = 195.94 - 199.46THz = 3.52THz
@@ -133,6 +133,7 @@ def make(config: Optional[Union[dict, absl.flags.FlagValues]], **kwargs) -> Tupl
     dispersion_slope = config.get("dispersion_slope", 0.067 * 1e-12 / 1e-9 / 1e3 / 1e-9)
     coherent = config.get("coherent", False)
     noise_figure = config.get("noise_figure", 4)
+    uniform_spans = config.get("uniform_spans", True)
     interband_gap_width = [200, 200] if config.get("interband_gap_width", None) is None else []
     gap_width_slots = [int(math.ceil(width / slot_size)) for width in interband_gap_width]
     interband_gap_start = [4425, 8425] if config.get("interband_gap_start", None) is None else []
@@ -378,7 +379,7 @@ def make(config: Optional[Union[dict, absl.flags.FlagValues]], **kwargs) -> Tupl
             step_power=step_power, max_snr=max_snr, mod_format_correction=mod_format_correction,
             monitor_active_lightpaths=config.get("monitor_active_lightpaths", False),
             min_snr=config.get("min_snr", 7.0), fec_threshold=config.get("fec_threshold", 0.28),
-            transceiver_snr=transceiver_snr, amplifier_noise_figure=amplifier_noise_figure,
+            transceiver_snr=transceiver_snr, amplifier_noise_figure=amplifier_noise_figure, uniform_spans=uniform_spans,
         )
         if env_type == "rmsa_gn_model":
             env_params = RMSAGNModelEnvParams
