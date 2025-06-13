@@ -276,7 +276,7 @@ class GNModelEnvParams(RSAEnvParams):
     monitor_active_lightpaths: bool = struct.field(pytree_node=False)  # Monitor active lightpaths for throughput calculation
     gap_starts: chex.Array = struct.field(pytree_node=False)
     gap_widths: chex.Array = struct.field(pytree_node=False)
-
+    uniform_spans: bool = struct.field(pytree_node=False)
 
 
 @struct.dataclass
@@ -307,7 +307,7 @@ class RSAGNModelEnvState(GNModelEnvState):
     """
     active_lightpaths_array: chex.Array  # Active lightpath array. 1 x M array. Each value is a lightpath index. Used to calculate total throughput.
     active_lightpaths_array_departure: chex.Array  # Active lightpath array departure time.
-    throughput: chex.Array  # Current betwork throughput
+    throughput: chex.Array  # Current network throughput
 
 
 @struct.dataclass
