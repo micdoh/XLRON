@@ -62,12 +62,14 @@ metrics = [
 ]
 loss_metrics = [
     "loss/total_loss",
-    "loss/loss_actor",
+    "loss/actor_loss",
     "loss/value_loss",
     "loss/entropy",
     "loss/gae",
     "loss/ratio",
     "loss/log_prob",
+    "loss/entropy_loss_scaled",
+    "loss/value_loss_scaled",
 ]
 
 class TrainState(struct.PyTreeNode):
