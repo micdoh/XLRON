@@ -27,7 +27,7 @@ from typing import Generic, TypeVar
 from collections import defaultdict
 from xlron.environments.dataclasses import *
 from xlron.environments.gn_model import isrs_gn_model
-from xlron.environments.dtype_config import COMPUTE_DTYPE, PARAMS_DTYPE, LARGE_INT_DTYPE, LARGE_FLOAT_DTYPE, \
+from xlron.dtype_config import COMPUTE_DTYPE, PARAMS_DTYPE, LARGE_INT_DTYPE, LARGE_FLOAT_DTYPE, \
     SMALL_INT_DTYPE, SMALL_FLOAT_DTYPE, MED_INT_DTYPE
 from xlron.environments.gn_model.isrs_gn_model import from_db
 
@@ -1793,7 +1793,7 @@ def make_graph(topology_name: str = "conus", topology_directory: str = None):
         nx.set_edge_attributes(graph, {(0, 1): 4, (1, 2): 3, (2, 3): 2, (3, 4): 1, (4, 5): 2, (5, 6): 3, (6, 0): 4}, "weight")
     else:
         with open(topology_path / f"{topology_name}.json") as f:
-            graph = nx.node_link_graph(json.load(f))
+            graph = nx.node_link_graph(json.load(f), edges="links")
     return graph
 
 
@@ -2334,7 +2334,7 @@ def init_path_capacity_array(
         L_s=L_s,
         lambda0=lambda0,
     )
-    return path_capacity_array.astype(MED_INT_DTYPE)
+    return path_capacity_array.astype(LARGE_FLOAT_DTYPE)
 
 
 @partial(jax.jit, static_argnums=(0,))

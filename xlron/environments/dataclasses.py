@@ -271,6 +271,7 @@ class GNModelEnvParams(RSAEnvParams):
     min_power: chex.Scalar = struct.field(pytree_node=False)
     step_power: chex.Scalar = struct.field(pytree_node=False)
     last_fit: bool = struct.field(pytree_node=False)
+    max_power_per_fibre: chex.Scalar = struct.field(pytree_node=False)
     default_launch_power: chex.Scalar = struct.field(pytree_node=False)
     mod_format_correction: bool = struct.field(pytree_node=False)
     monitor_active_lightpaths: bool = struct.field(pytree_node=False)  # Monitor active lightpaths for throughput calculation

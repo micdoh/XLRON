@@ -1,5 +1,7 @@
 import absl
 from box import Box
+from typing import Union, Optional, Any
+from absl.flags import FlagValues
 from xlron.environments.env_funcs import (
     init_path_link_array,
     convert_node_probs_to_traffic_matrix, make_graph, init_path_length_array, init_modulations_array,
@@ -11,20 +13,33 @@ from xlron.environments.dataclasses import *
 from xlron.environments.wrappers import *
 from xlron.environments import *
 from xlron.environments.gn_model.isrs_gn_model import from_dbm
-from xlron.environments.dtype_config import COMPUTE_DTYPE, PARAMS_DTYPE, LARGE_INT_DTYPE, LARGE_FLOAT_DTYPE, \
+from xlron.dtype_config import COMPUTE_DTYPE, PARAMS_DTYPE, LARGE_INT_DTYPE, LARGE_FLOAT_DTYPE, \
     SMALL_INT_DTYPE, SMALL_FLOAT_DTYPE, MED_INT_DTYPE
 
 
-def process_config(config: Optional[Union[dict, absl.flags.FlagValues]], **kwargs) -> dict:
+def process_config(config: Optional[Union[dict, FlagValues]], **kwargs: Any) -> Box:
     """Allow configuration to be a dict, absl.flags.FlagValues, or kwargs.
-    Return a Box that can be indexed like a dict or accessed like an object."""
+    Return a Box that can be indexed like a dict or accessed like an object.
+    Additionally, set up incremental logging of metrics."""
     config = config or {}
     # Allow config to be a dict or absl.flags.FlagValues
-    if isinstance(config, absl.flags.FlagValues):
+    if isinstance(config, FlagValues):
         config = {k: v.value for k, v in config.__flags.items()}
     # if kwargs are passed, then include them in config
     config.update(kwargs)
-    config = Box(config)  # Convert for easier access with dot or dict notation
+    config = Box(config)
+    config.TOTAL_TIMESTEPS = int(config.TOTAL_TIMESTEPS)
+    # For incremental logging, we need to set the number of increments
+    config.STEPS_PER_INCREMENT = min(config.TOTAL_TIMESTEPS, config.STEPS_PER_INCREMENT)
+    n_increments = config.TOTAL_TIMESTEPS // config.STEPS_PER_INCREMENT
+    config.NUM_INCREMENTS = n_increments
+    config.TOTAL_TIMESTEPS = n_increments * config.STEPS_PER_INCREMENT
+    # Set derived config values
+    config.MINIBATCH_SIZE = config.ROLLOUT_LENGTH * config.NUM_ENVS // config.NUM_MINIBATCHES
+    config.NUM_UPDATES = config.STEPS_PER_INCREMENT // config.ROLLOUT_LENGTH // config.NUM_ENVS
+    # Update these values to show true number of steps completed
+    config.STEPS_PER_INCREMENT = config.ROLLOUT_LENGTH * config.NUM_ENVS * config.NUM_UPDATES
+    config.TOTAL_TIMESTEPS = n_increments * config.STEPS_PER_INCREMENT
     return config
 
 
@@ -78,7 +93,7 @@ def make(config: Optional[Union[dict, absl.flags.FlagValues]], **kwargs) -> Tupl
     values_bw = config.get("values_bw", None)
     node_probabilities = config.get("node_probabilities", None)
     if values_bw:
-        values_bw = [int(val) for val in values_bw]
+        values_bw = [int(float(val)) for val in values_bw]
     slot_size = config.get("slot_size", 12.5)
     min_bw = config.get("min_bw", 25)
     max_bw = config.get("max_bw", 100)
@@ -147,7 +162,8 @@ def make(config: Optional[Union[dict, absl.flags.FlagValues]], **kwargs) -> Tupl
     max_power = config.get("max_power", 9)
     min_power = config.get("min_power", -5)
     step_power = config.get("step_power", 1)
-    default_launch_power = float(from_dbm(config.get("launch_power", 0.5)))
+    max_power_per_fibre = config.get("max_power_per_fibre", 21.0)
+    default_launch_power = float(from_dbm(max_power_per_fibre)) / link_resources
     optimise_launch_power = config.get("optimise_launch_power", False)
     traffic_array = config.get("traffic_array", False)
     launch_power_array = config.get("launch_power_array", None)
@@ -370,7 +386,7 @@ def make(config: Optional[Union[dict, absl.flags.FlagValues]], **kwargs) -> Tupl
             transceiver_snr, amplifier_noise_figure)
         params_dict.update(
             ref_lambda=ref_lambda, max_spans=max_spans, max_span_length=max_span_length,
-            default_launch_power=default_launch_power,
+            default_launch_power=default_launch_power, max_power_per_fibre=max_power_per_fibre,
             nonlinear_coeff=nonlinear_coeff, raman_gain_slope=raman_gain_slope, attenuation=attenuation,
             attenuation_bar=attenuation_bar, dispersion_coeff=dispersion_coeff,
             dispersion_slope=dispersion_slope, coherent=coherent, gap_starts=gap_starts, gap_widths=gap_widths,

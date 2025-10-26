@@ -15,7 +15,7 @@ from xlron.environments.env_funcs import EnvState, EnvParams, get_path_slots, re
 from xlron.environments.gn_model.isrs_gn_model import isrs_gn_model, to_dbm, from_dbm
 from xlron.environments.make_env import make
 from xlron.models.gnn import GraphNetwork, GraphNetGAT, GAT
-from xlron.environments.dtype_config import COMPUTE_DTYPE, PARAMS_DTYPE, LARGE_INT_DTYPE, LARGE_FLOAT_DTYPE, \
+from xlron.dtype_config import COMPUTE_DTYPE, PARAMS_DTYPE, LARGE_INT_DTYPE, LARGE_FLOAT_DTYPE, \
     SMALL_INT_DTYPE, SMALL_FLOAT_DTYPE, MED_INT_DTYPE
 
 # Immutable class for storing nested node/edge features containing an embedding and a recurrent state.
@@ -625,7 +625,7 @@ class ActorGNN(nn.Module):
             edge_features = edge_features * (params.link_length_array.val/jnp.sum(params.link_length_array.val, promote_integers=False))
         # Get the current request and initialise array of action distributions per path
         nodes_sd, requested_bw = read_rsa_request(state.request_array)
-        init_action_array = jnp.zeros(params.k_paths * self.edge_output_size, dtype=SMALL_INT_DTYPE)
+        init_action_array = jnp.zeros(params.k_paths * self.edge_output_size, dtype=SMALL_FLOAT_DTYPE)
 
         # Define a body func to retrieve path slots and update action array
         def get_path_action_dist(i, action_array):

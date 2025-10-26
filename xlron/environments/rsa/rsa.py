@@ -10,7 +10,7 @@ from xlron.environments.env_funcs import (
 )
 from xlron.environments.dataclasses import *
 from xlron.environments.wrappers import *
-from xlron.environments.dtype_config import COMPUTE_DTYPE, PARAMS_DTYPE, LARGE_INT_DTYPE, LARGE_FLOAT_DTYPE, \
+from xlron.dtype_config import COMPUTE_DTYPE, PARAMS_DTYPE, LARGE_INT_DTYPE, LARGE_FLOAT_DTYPE, \
     SMALL_INT_DTYPE, SMALL_FLOAT_DTYPE, MED_INT_DTYPE
 
 one = jnp.array(1, dtype=LARGE_FLOAT_DTYPE)

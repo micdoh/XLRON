@@ -1,7 +1,7 @@
 import jax.numpy as jnp
 from gymnax.environments import spaces
 
-from xlron.environments.dtype_config import LARGE_FLOAT_DTYPE
+from xlron.dtype_config import LARGE_FLOAT_DTYPE
 from xlron.environments.env_funcs import (
     init_rsa_request_array, init_link_slot_array, init_link_slot_mask, init_link_slot_departure_array, init_traffic_matrix,
     init_graph_tuple, init_path_index_array, init_link_snr_array,

@@ -13,6 +13,8 @@ flags.DEFINE_integer("NUM_UPDATES", 1, "Number of rollouts per environment (calc
                                        "but included here so that it can be passed to the model)")
 flags.DEFINE_integer("MINIBATCH_SIZE", 1, "Minibatch size")
 flags.DEFINE_float("TOTAL_TIMESTEPS", 1e6, "Total number of timesteps")
+flags.DEFINE_integer("STEPS_PER_INCREMENT", 100000, "Number of steps per logging increment")
+flags.DEFINE_integer("NUM_INCREMENTS", 1, "Number of increments to log")
 flags.DEFINE_integer("UPDATE_EPOCHS", 10, "Number of epochs per update")
 flags.DEFINE_integer("NUM_MINIBATCHES", 1, "Number of minibatches per update")
 
@@ -36,9 +38,9 @@ flags.DEFINE_integer("SCHEDULE_MULTIPLIER", 1, "Increase the learning rate sched
 flags.DEFINE_integer("LAMBDA_SCHEDULE_MULTIPLIER", 1, "Increase the GAE-lambda schedule horizon "
                                                "by this factor (to keep schedule for longer final training runs "
                                                "consistent with that from tuning runs)")
-flags.DEFINE_float("WARMUP_PEAK_MULTIPLIER", 1, "Increase the learning rate warmup peak compared to init")
+flags.DEFINE_float("WARMUP_MULTIPLIER", 1, "Increase the learning rate warmup peak compared to init")
 flags.DEFINE_float("WARMUP_STEPS_FRACTION", 0.2, "Fraction of total timesteps to use for warmup")
-flags.DEFINE_float("WARMUP_END_FRACTION", 0.1, "Fraction of init LR that is final LR")
+flags.DEFINE_float("LR_END_FRACTION", 0.1, "Fraction of init LR that is final LR")
 flags.DEFINE_integer("NUM_LAYERS", 2, "Number of layers in actor and critic networks")
 flags.DEFINE_integer("NUM_UNITS", 64, "Number of hidden units in actor and critic networks")
 flags.DEFINE_float("TEMPERATURE", 1.0, "Temperature for softmax action selection "
@@ -73,8 +75,33 @@ flags.DEFINE_boolean("log_actions", False, "Log actions taken and other details"
 flags.DEFINE_boolean("log_path_lengths", False, "Log path length statistics")
 flags.DEFINE_boolean("PROFILE", False, "Profile programme with perfetto")
 flags.DEFINE_boolean("LOG_LOSS_INFO", False, "Log loss metrics")
+flags.DEFINE_boolean("DEBUG_LOSS", False, "Debug loss calculation")
 flags.DEFINE_boolean("REWARD_CENTERING", False, "Use reward centering")
 flags.DEFINE_float("INITIAL_AVERAGE_REWARD", 0.0, "Initial average reward estimate for reward centering")
+
+# Prioritized Experience Replay flags
+flags.DEFINE_float("PRIO_ALPHA", 0.0, "Priority exponent for prioritized experience replay "
+                                      "(0.0 = uniform sampling, 1.0 = fully prioritized)")
+flags.DEFINE_float("PRIO_BETA0", 1.0, "Initial importance sampling correction exponent "
+                                       "(annealed to 1.0 over training, set to 1.0 to disable)")
+
+# VTrace / Puffer Advantage flags
+flags.DEFINE_float("RHO_CLIP", -1.0, "Clip importance ratio for TD error in VTrace-style advantage calculation "
+                                      "(set <= 0 for standard GAE without clipping)")
+flags.DEFINE_float("C_CLIP", -1.0, "Clip importance ratio for GAE accumulation in VTrace-style advantage calculation "
+                                    "(set <= 0 for standard GAE without clipping)")
+flags.DEFINE_boolean("USE_RNN", False, "Use RNN-based policy (affects prioritization: trajectory-level vs sample-level)")
+
+# Entropy scheduling flags
+flags.DEFINE_string("ENT_SCHEDULE", "constant", "Enable entropy coefficient scheduling")
+flags.DEFINE_float(
+    "ENT_END_FRACTION",
+    0.1,
+    "Fraction of initial entropy coefficient that is final entropy coefficient",
+)
+
+# Reward scaling flag
+flags.DEFINE_float("REWARD_SCALE", 1.0, "Reward scaling factor (multiply all rewards by this value)")
 # Flags for mixed precision
 flags.DEFINE_string('COMPUTE_DTYPE', None, 'Compute precision dtype (float32, bfloat16)')
 flags.DEFINE_string('PARAMS_DTYPE', None, 'Parameter storage dtype (float32, bfloat16)')
@@ -171,7 +198,7 @@ flags.DEFINE_string("step_traffic", "0.1", "Step size for traffic values between
 flags.DEFINE_boolean("deterministic", False, "Deterministic evaluation (use mode of action distribution)")
 # GN model parameters
 flags.DEFINE_float("ref_lambda", 1564e-9, "Reference wavelength [m]")
-flags.DEFINE_float("launch_power", 0.5, "Launch power [dBm]")
+flags.DEFINE_float("max_power_per_fibre", 21.0, "Max launch power per fibre [dBm]")
 flags.DEFINE_string("launch_power_type", "fixed", "Can be fixed (same power per transceiver), "
                                                   "tabular (power depends on path), or rl (power selected by agent).")
 flags.DEFINE_float("nonlinear_coefficient", 1.2e-3, "Nonlinear coefficient [1/W^2]")
