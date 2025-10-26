@@ -12,7 +12,7 @@ import xlron.parameter_flags
 import numpy as np
 import pandas as pd
 from box import Box
-from typing import Optional, Union
+from typing import Optional, Union, Dict, Any
 
 FLAGS = flags.FLAGS
 
@@ -93,6 +93,23 @@ def restrict_visible_gpus(gpu_indices=None, auto_select=False):
 def main(argv):
 
     config = process_config(FLAGS)
+    
+    def merge_func(x):
+        # Original dims: (learner, num_updates, rollout_length, num_envs)
+        # Compute the new shape
+        # If X has only 2 or 3 dims then add more leading dims until it has 4
+        if x.ndim == 2:
+            x = x[None, :, :, None]
+        elif x.ndim == 3 and config.NUM_LEARNERS == 1:
+            x = x[None, :, :, :]
+        elif x.ndim == 3 and config.NUM_ENVS > 1:
+            x = x[:, :, :, None]
+        learner, num_updates, rollout_length, num_envs = x.shape
+        new_shape = (learner * num_envs, num_updates, rollout_length)
+        # Perform a single transpose operation
+        x = jnp.transpose(x, (0, 3, 1, 2))
+        # Reshape to merge learner and num_envs dimensions
+        return x.reshape(new_shape)
 
     # Check device count
     print(f"Available devices: {jax.devices()}")
@@ -152,28 +169,27 @@ def main(argv):
         orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
         model = orbax_checkpointer.restore(pathlib.Path(config.MODEL_PATH))
         config.model = model
-
-    NUM_UPDATES = (
-            config.TOTAL_TIMESTEPS // config.ROLLOUT_LENGTH // config.NUM_ENVS
+        
+    print(
+        f"Independent learners: {config.NUM_LEARNERS}\n"
+        f"Environments per learner: {config.NUM_ENVS}\n"
+        f"Number of devices: {num_devices}\n"
+        f"Learners per device: {config.NUM_LEARNERS // num_devices}\n"
+        f"Timesteps per learner: {config.TOTAL_TIMESTEPS}\n"
+        f"Timesteps per environment: {config.TOTAL_TIMESTEPS // config.NUM_ENVS}\n"
+        f"Total timesteps: {config.TOTAL_TIMESTEPS * config.NUM_LEARNERS}\n"
+        f"Total updates: {config.NUM_INCREMENTS * config.NUM_UPDATES * config.NUM_MINIBATCHES}\n"
+        f"Batch size: {config.NUM_ENVS * config.ROLLOUT_LENGTH}\n"
+        f"Minibatch size: {config.MINIBATCH_SIZE}\n"
     )
-    MINIBATCH_SIZE = (
-            config.ROLLOUT_LENGTH * config.NUM_ENVS // config.NUM_MINIBATCHES
-    )
-    config.NUM_UPDATES = NUM_UPDATES
-    config.MINIBATCH_SIZE = MINIBATCH_SIZE
 
-    with TimeIt(tag='COMPILATION'):
-        print(f"\n---BEGINNING COMPILATION---\n"
-              f"Independent learners: {config.NUM_LEARNERS}\n"
-              f"Environments per learner: {config.NUM_ENVS}\n"
-              f"Number of devices: {num_devices}\n"
-              f"Learners per device: {config.NUM_LEARNERS // num_devices}\n"
-              f"Timesteps per learner: {config.TOTAL_TIMESTEPS}\n"
-              f"Timesteps per environment: {config.TOTAL_TIMESTEPS // config.NUM_ENVS}\n"
-              f"Total timesteps: {config.TOTAL_TIMESTEPS * config.NUM_LEARNERS}\n"
-              f"Total updates: {config.NUM_UPDATES * config.NUM_MINIBATCHES}\n"
-              f"Batch size: {config.NUM_ENVS * config.ROLLOUT_LENGTH}\n"
-              f"Minibatch size: {config.MINIBATCH_SIZE}\n")
+    with TimeIt(tag="COMPILATION"):
+        print(
+            f"\n---BEGINNING COMPILATION---\n"
+            f"Total timesteps per increment: {config.STEPS_PER_INCREMENT * config.NUM_LEARNERS}\n"
+            f"Timesteps per environment per increment: {config.STEPS_PER_INCREMENT // config.NUM_ENVS}\n"
+            f"Total updates per increment: {config.NUM_UPDATES * config.NUM_MINIBATCHES}\n"
+        )
 
         rng = jax.random.PRNGKey(config.SEED)
         if config.NUM_LEARNERS > 1:
@@ -187,48 +203,59 @@ def main(argv):
             experiment_input, env, env_params = experiment_data_setup(config, rng)
             experiment_fn = experiment_fn(env, env_params, experiment_input, config)
             run_experiment = jax.jit(experiment_fn).lower(experiment_input).compile()
-
-    # N.B. that increasing number of learner will increase the number of steps
-    # (essentially training for total_timesteps separately per learner)
-
+    
+    
+    # START TRAINING
     start_time = time.time()
-    with TimeIt(tag='EXECUTION', frames=config.TOTAL_TIMESTEPS * config.NUM_LEARNERS):
-        out = run_experiment(experiment_input)
-        out["metrics"]["returns"].block_until_ready()  # Wait for all devices to finish
-    total_time = time.time() - start_time
+    log_time = 0.0
+    logs: list[Dict[str, Any]] = []
+    episode_count = update_count = step_count = 0
+    processed_data_all: Dict[str, Dict[str, jax.Array]] = {}
+    print(f"Running {config.NUM_INCREMENTS} increments of training")
+    for i in range(config.NUM_INCREMENTS):
+        print(f"\n---INCREMENT {i + 1}/{config.NUM_INCREMENTS}---")
+        # Run the increment
+        with TimeIt(tag="EXECUTION", frames=config.STEPS_PER_INCREMENT * config.NUM_LEARNERS):
+            out = run_experiment(experiment_input)
+            out["metrics"]["returns"].block_until_ready()  # Wait for all devices to finish
+        run_time = time.time() - start_time - log_time
+        # Save model params
+        if config.SAVE_MODEL:
+            # Merge seed_device and seed dimensions
+            train_state = jax.tree.map(lambda x: x[0], out["runner_state"][0])
+            save_model(train_state, run_name, config)  # TODO - make flags compatible
 
-    # Output leaf nodes have dimensions:
-    # (learner, num_updates, rollout_length, num_envs)
-    # For eval, output leaf nodes have dimensions:
-    # (learner, num_updates, rollout_length, num_envs)
-
-    # Save model params
-    if config.SAVE_MODEL:
-        # Merge seed_device and seed dimensions
-        train_state = jax.tree.map(lambda x: x[0], out["runner_state"][0])
-        save_model(train_state, run_name, config)  # TODO - make flags compatible
+        with TimeIt(tag="LOGGING METRICS"):
+            merged_out, processed_data = log_metrics(
+                config,
+                out,
+                run_time,
+                merge_func,
+                episode_count=episode_count,
+                update_count=update_count,
+                step_count=step_count,
+            )
+        # Extend every item in processed data with new data
+        episode_count += len(processed_data["returns"]["episode_end_mean"])
+        step_count += config.STEPS_PER_INCREMENT // config.NUM_ENVS
+        update_count += config.NUM_UPDATES * config.NUM_MINIBATCHES
+        # Concatenate arrays for each key
+        processed_data_all = (
+            processed_data
+            if i == 0
+            else jax.tree.map(lambda x, y: jnp.concatenate([x, y]), processed_data_all, processed_data)
+        )
+        log_time = log_time + time.time() - start_time - run_time
+        # Update the experiment input for the next increment
+        experiment_input = out["runner_state"]  # TrainState, EnvState, Obs, key, key
 
     # END OF TRAINING
 
-    def merge_func(x):
-        # Original dims: (learner, num_updates, rollout_length, num_envs)
-        # Compute the new shape
-        # If X has only 2 or 3 dims then add more leading dims until it has 4
-        if x.ndim == 2:
-            x = x[None, :, :, None]
-        elif x.ndim == 3 and config.NUM_LEARNERS == 1:
-            x = x[None, :, :, :]
-        elif x.ndim == 3 and config.NUM_ENVS > 1:
-            x = x[:, :, :, None]
-        learner, num_updates, rollout_length, num_envs = x.shape
-        new_shape = (learner * num_envs, num_updates, rollout_length)
-        # Perform a single transpose operation
-        x = jnp.transpose(x, (0, 3, 1, 2))
-        # Reshape to merge learner and num_envs dimensions
-        return x.reshape(new_shape)
-
-    log_metrics(config, out, experiment_name, total_time, merge_func)
-
+    print_metrics(processed_data_all, config)
+    if config.PLOTTING:
+        plot_metrics(experiment_name, processed_data_all, config)
+    if config.log_actions:
+        log_actions(processed_data_all, config)
 
 if __name__ == "__main__":
     FLAGS(sys.argv)
@@ -236,7 +263,7 @@ if __name__ == "__main__":
     selected_gpu = restrict_visible_gpus(gpu_indices=FLAGS.VISIBLE_DEVICES, auto_select=auto_select)
     print(f"Selected GPU: {selected_gpu}")
     # JAM imports come after GPU selection (to avoid initializing a process on every GPU)
-    from xlron.environments import dtype_config
+    from xlron import dtype_config
     import jax
     import jax.numpy as jnp
     import orbax.checkpoint
@@ -246,5 +273,5 @@ if __name__ == "__main__":
     from xlron.environments.wrappers import TimeIt
     from xlron.train.ppo import get_learner_fn
     from xlron.heuristics.eval_heuristic import get_eval_fn
-    from xlron.train.train_utils import save_model, log_metrics, setup_wandb, experiment_data_setup
+    from xlron.train.train_utils import save_model, print_metrics, plot_metrics, log_metrics, log_actions, setup_wandb, experiment_data_setup
     app.run(main)

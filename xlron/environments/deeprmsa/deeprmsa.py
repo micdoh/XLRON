@@ -1,7 +1,7 @@
 from gymnax.environments import spaces
 from networkx.linalg.laplacianmatrix import laplacian_matrix
 
-from xlron.environments.dtype_config import COMPUTE_DTYPE, PARAMS_DTYPE, LARGE_INT_DTYPE, LARGE_FLOAT_DTYPE, \
+from xlron.dtype_config import COMPUTE_DTYPE, PARAMS_DTYPE, LARGE_INT_DTYPE, LARGE_FLOAT_DTYPE, \
     SMALL_INT_DTYPE, SMALL_FLOAT_DTYPE, MED_INT_DTYPE
 from xlron.environments.env_funcs import (
     init_rsa_request_array, init_link_slot_array, init_link_slot_departure_array, init_traffic_matrix,
