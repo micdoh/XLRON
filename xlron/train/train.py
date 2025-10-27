@@ -208,7 +208,6 @@ def main(argv):
     # START TRAINING
     start_time = time.time()
     log_time = 0.0
-    logs: list[Dict[str, Any]] = []
     episode_count = update_count = step_count = 0
     processed_data_all: Dict[str, Dict[str, jax.Array]] = {}
     print(f"Running {config.NUM_INCREMENTS} increments of training")
@@ -267,7 +266,6 @@ if __name__ == "__main__":
     import jax
     import jax.numpy as jnp
     import orbax.checkpoint
-    from jax.lib import xla_bridge
     from xlron.environments.make_env import process_config
     from xlron.environments.env_funcs import create_run_name
     from xlron.environments.wrappers import TimeIt
