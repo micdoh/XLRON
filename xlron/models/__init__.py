@@ -1,11 +1,60 @@
-__DYNAMIC__ = False
-if __DYNAMIC__:
-    from mkinit import dynamic_mkinit
-    exec(dynamic_mkinit.dynamic_init(__name__))
-else:
-    # <AUTOGEN_INIT>
-    from mkinit import dynamic_mkinit
-    from mkinit import static_mkinit
-    from mkinit.dynamic_mkinit import (dynamic_init,)
-    from mkinit.static_mkinit import (autogen_init,)
-    # </AUTOGEN_INIT>
+"""Neural network models for reinforcement learning agents."""
+
+# Main actor-critic models
+from xlron.models.models import (
+    # MLP-based models
+    ActorCriticMLP,
+    LaunchPowerActorCriticMLP,
+    MLP,
+    # GNN-based models
+    ActorCriticGNN,
+    ActorGNN,
+    CriticGNN,
+    GraphNet,
+    # Helper functions
+    make_dense_layers,
+    crelu,
+    add_graphs_tuples,
+)
+
+# Graph neural network layers
+from xlron.models.gnn import (
+    # Core GNN functions
+    GraphNetwork,
+    GraphNetGAT,
+    GAT,
+    GraphConvolution,
+    GraphMapFeatures,
+    # Other GNN architectures
+    InteractionNetwork,
+    RelationNetwork,
+    DeepSets,
+    # Helper functions
+    add_self_edges_fn,
+)
+
+__all__ = [
+    # MLP models
+    "ActorCriticMLP",
+    "LaunchPowerActorCriticMLP",
+    "MLP",
+    # GNN models
+    "ActorCriticGNN",
+    "ActorGNN",
+    "CriticGNN",
+    "GraphNet",
+    # Model helpers
+    "make_dense_layers",
+    "crelu",
+    "add_graphs_tuples",
+    # GNN layers
+    "GraphNetwork",
+    "GraphNetGAT",
+    "GAT",
+    "GraphConvolution",
+    "GraphMapFeatures",
+    "InteractionNetwork",
+    "RelationNetwork",
+    "DeepSets",
+    "add_self_edges_fn",
+]
