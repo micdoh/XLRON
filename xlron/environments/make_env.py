@@ -28,18 +28,19 @@ def process_config(config: Optional[Union[dict, FlagValues]], **kwargs: Any) -> 
     # if kwargs are passed, then include them in config
     config.update(kwargs)
     config = Box(config)
-    config.TOTAL_TIMESTEPS = int(config.TOTAL_TIMESTEPS)
-    # For incremental logging, we need to set the number of increments
-    config.STEPS_PER_INCREMENT = min(config.TOTAL_TIMESTEPS, config.STEPS_PER_INCREMENT)
-    n_increments = config.TOTAL_TIMESTEPS // config.STEPS_PER_INCREMENT
-    config.NUM_INCREMENTS = n_increments
-    config.TOTAL_TIMESTEPS = n_increments * config.STEPS_PER_INCREMENT
-    # Set derived config values
-    config.MINIBATCH_SIZE = config.ROLLOUT_LENGTH * config.NUM_ENVS // config.NUM_MINIBATCHES
-    config.NUM_UPDATES = config.STEPS_PER_INCREMENT // config.ROLLOUT_LENGTH // config.NUM_ENVS
-    # Update these values to show true number of steps completed
-    config.STEPS_PER_INCREMENT = config.ROLLOUT_LENGTH * config.NUM_ENVS * config.NUM_UPDATES
-    config.TOTAL_TIMESTEPS = n_increments * config.STEPS_PER_INCREMENT
+    if config.get('TOTAL_TIMESTEPS', False):
+        config.TOTAL_TIMESTEPS = int(config.TOTAL_TIMESTEPS)
+        # For incremental logging, we need to set the number of increments
+        config.STEPS_PER_INCREMENT = min(config.TOTAL_TIMESTEPS, config.STEPS_PER_INCREMENT)
+        n_increments = config.TOTAL_TIMESTEPS // config.STEPS_PER_INCREMENT
+        config.NUM_INCREMENTS = n_increments
+        config.TOTAL_TIMESTEPS = n_increments * config.STEPS_PER_INCREMENT
+        # Set derived config values
+        config.MINIBATCH_SIZE = config.ROLLOUT_LENGTH * config.NUM_ENVS // config.NUM_MINIBATCHES
+        config.NUM_UPDATES = config.STEPS_PER_INCREMENT // config.ROLLOUT_LENGTH // config.NUM_ENVS
+        # Update these values to show true number of steps completed
+        config.STEPS_PER_INCREMENT = config.ROLLOUT_LENGTH * config.NUM_ENVS * config.NUM_UPDATES
+        config.TOTAL_TIMESTEPS = n_increments * config.STEPS_PER_INCREMENT
     return config
 
 
