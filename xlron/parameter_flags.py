@@ -9,7 +9,7 @@ flags.DEFINE_integer("NUM_LEARNERS", 1, "Number of independent learners i.e. how
 flags.DEFINE_integer("NUM_DEVICES", 1, "Number of devices")
 flags.DEFINE_integer("NUM_ENVS", 1, "Number of environments per device")
 flags.DEFINE_integer("ROLLOUT_LENGTH", 150, "Number of steps per rollout per environment")
-flags.DEFINE_integer("NUM_UPDATES", 1, "Number of rollouts per environment (calculated in train.py "
+flags.DEFINE_integer("NUM_UPDATES", 1, "Number of parameter updates (not including multiple epochs) (calculated in train.py "
                                        "but included here so that it can be passed to the model)")
 flags.DEFINE_integer("MINIBATCH_SIZE", 1, "Minibatch size")
 flags.DEFINE_float("TOTAL_TIMESTEPS", 1e6, "Total number of timesteps")
@@ -143,7 +143,7 @@ flags.DEFINE_string("reward_type", "service", "Reward type")
 flags.DEFINE_boolean("truncate_holding_time", False, "Truncate holding time to less than 2*mean_service_holding_time")
 flags.DEFINE_integer("ENV_WARMUP_STEPS", 0, "Number of warmup steps before training or eval")
 flags.DEFINE_boolean("pack_path_bits", True, "Pack path bits to save memory, then unpack when path row is selected")
-flags.DEFINE_boolean("relative_arrival_times", True, "Don't track the absolute current time, just the relative time since the last request")
+flags.DEFINE_boolean("relative_arrival_times", False, "Don't track the absolute current time, just the relative time since the last request")
 # RSA-specific environment parameters
 flags.DEFINE_boolean("random_traffic", False, "Random traffic matrix for RSA on each reset (else uniform or custom)")
 flags.DEFINE_string("custom_traffic_matrix_csv_filepath", None, "Path to custom traffic matrix CSV file")

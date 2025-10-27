@@ -115,7 +115,6 @@ def main(argv):
     print(f"Available devices: {jax.devices()}")
     print(f"Local devices: {jax.local_devices()}")
     num_devices = len(jax.devices())
-    assert (num_devices == 1), "Please specify one device using VISIBLE_DEVICES flag or run train_multidevice.py"
     config.NUM_DEVICES = num_devices
 
     # Set flags for debugging
@@ -237,7 +236,7 @@ def main(argv):
         # Extend every item in processed data with new data
         episode_count += len(processed_data["returns"]["episode_end_mean"])
         step_count += config.STEPS_PER_INCREMENT // config.NUM_ENVS
-        update_count += config.NUM_UPDATES * config.NUM_MINIBATCHES
+        update_count += config.NUM_UPDATES * config.NUM_MINIBATCHES * config.UPDATE_EPOCHS
         # Concatenate arrays for each key
         processed_data_all = (
             processed_data
@@ -254,7 +253,7 @@ def main(argv):
     if config.PLOTTING:
         plot_metrics(experiment_name, processed_data_all, config)
     if config.log_actions:
-        log_actions(processed_data_all, config)
+        log_actions(merged_out, processed_data, config)
 
 if __name__ == "__main__":
     FLAGS(sys.argv)

@@ -349,7 +349,9 @@ def experiment_data_setup(config: absl.flags.FlagValues, rng: chex.PRNGKey) -> T
 
         # INIT NETWORK
         network, init_x = init_network(config, env, env_state, env_params)
-        init_x = (jax.tree.map(lambda x: x[0], init_x[0]), init_x[1]) if config.USE_GNN else init_x
+        def index_fn(x):
+            return x[0] if config.NUM_ENVS > 1 else x
+        init_x = (jax.tree.map(index_fn, init_x[0]), init_x[1]) if config.USE_GNN else init_x
 
         if config.RETRAIN_MODEL:
             config_dict = config.to_dict() if isinstance(config, box.Box) else config
