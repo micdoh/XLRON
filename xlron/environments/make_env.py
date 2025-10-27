@@ -270,6 +270,7 @@ def make(config: Optional[Union[dict, absl.flags.FlagValues]], **kwargs) -> Tupl
         # that the bandwidth request is still considered when updating link_capacity_array
         guardband = 0
         slot_size = int(max(values_bw))
+        B = slot_size * link_resources
     elif env_type == "vone" and slot_size == 1:
         consider_modulation_format = False
     else:
@@ -304,7 +305,7 @@ def make(config: Optional[Union[dict, absl.flags.FlagValues]], **kwargs) -> Tupl
             max_requests = int(scale_factor * max_requests)
         else:
             # If considering just RSA without physical layer considerations
-            link_length_array = jnp.ones((num_links, 1)).astype(jnp.int16)
+            link_length_array = jnp.ones((num_links, 1)).astype(MED_INT_DTYPE)
         max_slots = required_slots(max_bw, 1, slot_size, guardband=guardband)
 
     if env_type == "rsa_gn_model":

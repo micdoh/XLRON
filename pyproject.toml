@@ -17,6 +17,7 @@ dependencies = [
     "ipykernel>=7.0.1",
     "jax>=0.8.0",
     "jaxopt>=0.8.5",
+    "jaxtyping>=0.3.3",
     "joblib>=1.5.2",
     "jraph>=0.0.6.dev0",
     "jupyter>=1.1.1",
