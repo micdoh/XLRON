@@ -1311,7 +1311,8 @@ def check_no_spectrum_reuse(link_slot_array):
     Returns:
         bool: True if check failed, False if check passed
     """
-    return jnp.any(link_slot_array < -1)
+    check = jnp.any(link_slot_array < -1)
+    return check
 
 
 def check_topology(action_history, topology_pattern):
