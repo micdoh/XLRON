@@ -13,7 +13,6 @@ config/
 .run
 .venv
 .zed
-models/
 data_processing/misc
 experiment_data/
 .ipynb_checkpoints/
