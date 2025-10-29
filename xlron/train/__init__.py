@@ -48,11 +48,6 @@ from xlron.train.train_utils import (
     loss_metrics,
 )
 
-# Main training script utilities
-from xlron.train.train import (
-    identify_default_device,
-)
-
 __all__ = [
     # PPO
     "get_learner_fn",
@@ -93,6 +88,4 @@ __all__ = [
     "setup_wandb",
     "metrics",
     "loss_metrics",
-    # GPU management
-    "identify_default_device",
 ]
