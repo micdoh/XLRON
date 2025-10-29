@@ -80,7 +80,7 @@ def get_eval_fn(
 
     def eval_fn(runner_state):
 
-        NUM_EPISODES = config.TOTAL_TIMESTEPS // config.max_requests // config.NUM_ENVS
+        NUM_EPISODES = config.STEPS_PER_INCREMENT // config.max_requests // config.NUM_ENVS
         runner_state, metric = jax.lax.scan(
             _env_episode, runner_state, None, NUM_EPISODES
         )

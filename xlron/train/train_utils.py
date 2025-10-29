@@ -807,7 +807,6 @@ def process_metrics(config, out, total_time, merge_func):
                 "episode_end_iqr_lower": episode_end_iqr_lower,
             }
         except KeyError:
-            print(f"KeyError for metric {metric}, skipping")
             continue
     return merged_out, merged_out_loss, processed_data, episode_ends
     

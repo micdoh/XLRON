@@ -223,16 +223,15 @@ def main(argv):
             train_state = jax.tree.map(lambda x: x[0], out["runner_state"][0])
             save_model(train_state, run_name, config)  # TODO - make flags compatible
 
-        with TimeIt(tag="LOGGING METRICS"):
-            merged_out, processed_data = log_metrics(
-                config,
-                out,
-                run_time,
-                merge_func,
-                episode_count=episode_count,
-                update_count=update_count,
-                step_count=step_count,
-            )
+        merged_out, processed_data = log_metrics(
+            config,
+            out,
+            run_time,
+            merge_func,
+            episode_count=episode_count,
+            update_count=update_count,
+            step_count=step_count,
+        )
         # Extend every item in processed data with new data
         episode_count += len(processed_data["returns"]["episode_end_mean"])
         step_count += config.STEPS_PER_INCREMENT // config.NUM_ENVS
