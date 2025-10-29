@@ -70,7 +70,7 @@ def get_eval_fn(
         step_keys = jnp.array(step_keys) if config.NUM_ENVS > 1 else step_keys[0]
         runner_state = runner_state[:3] + (step_keys,) + runner_state[4:]
         runner_state, traj_episode = jax.lax.scan(
-            _env_step_vmap, runner_state, None, config.max_requests
+            _env_step_vmap, runner_state, None, config.max_requests * config.scale_factor
         )
         runner_state = runner_state[:3] + (rng_step,) + runner_state[4:]
 
