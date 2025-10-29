@@ -1,18 +1,11 @@
-import chex
-import orbax.checkpoint
-import pathlib
-import optax
-from flax.training import orbax_utils
-from typing import NamedTuple, Callable, Dict
+import jax
+import jax.numpy as jnp
+from typing import Callable
 from absl import flags
-from flax import struct
 from flax.training.train_state import TrainState
 from gymnax.environments import environment
-from xlron.environments.env_funcs import *
-from xlron.train.train_utils import *
-from xlron.environments.vone import *
-from xlron.environments.rsa import *
-from xlron.heuristics.heuristics import *
+from xlron.train.train_utils import select_action_eval
+from xlron.environments.dataclasses import EnvParams, Transition
 
 
 def get_eval_fn(
