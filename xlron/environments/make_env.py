@@ -118,7 +118,6 @@ def make(config: Optional[Union[dict, absl.flags.FlagValues]], **kwargs) -> Tupl
     gamma = config.get("gamma", 1.2) * 1e-3
     span_length = config.get("span_length", 100) * 1e3
     lambda0 = config.get("lambda0", 1550) * 1e-9
-    B = slot_size * link_resources  # Total modulated bandwidth
 
     if config.get("aggregate_slots", 1) > 1 and config.get("EVAL_HEURISTIC", False):
         raise ValueError("Cannot aggregate slots and evaluate heuristic")
@@ -270,7 +269,7 @@ def make(config: Optional[Union[dict, absl.flags.FlagValues]], **kwargs) -> Tupl
         # that the bandwidth request is still considered when updating link_capacity_array
         guardband = 0
         slot_size = int(max(values_bw))
-        B = slot_size * link_resources
+        total_bandwidth = slot_size * link_resources * 1e9
     elif env_type == "vone" and slot_size == 1:
         consider_modulation_format = False
     else:
@@ -300,7 +299,7 @@ def make(config: Optional[Union[dict, absl.flags.FlagValues]], **kwargs) -> Tupl
             path_capacity_array = init_path_capacity_array(
                 link_length_array, path_link_array, min_request=min(values_bw), R_s=100e9, scale_factor=scale_factor,
                 alpha=alpha, NF=amplifier_noise_figure, beta_2=beta_2, gamma=gamma, L_s=span_length, lambda0=lambda0,
-                B=B*1e9,
+                B=total_bandwidth,
             )
             max_requests = int(scale_factor * max_requests)
         else:
@@ -310,7 +309,7 @@ def make(config: Optional[Union[dict, absl.flags.FlagValues]], **kwargs) -> Tupl
 
     if env_type == "rsa_gn_model":
         consider_modulation_format = False
-        path_se_array = jnp.array([1]).astype(jnp.int16)
+        path_se_array = jnp.array([1]).astype(MED_INT_DTYPE)
         max_slots = required_slots(max_bw, 1, slot_size, guardband=guardband)
 
     if incremental_loading:
@@ -320,7 +319,7 @@ def make(config: Optional[Union[dict, absl.flags.FlagValues]], **kwargs) -> Tupl
     edges = jnp.array(sorted(graph.edges))
 
     if pack_path_bits:  # This saves memory by packing the path link array into a bit array
-        path_link_array = path_link_array.astype(jnp.int32)
+        path_link_array = path_link_array.astype(LARGE_FLOAT_DTYPE)
         path_link_array = jnp.packbits(path_link_array, axis=1)
 
     laplacian_matrix = jnp.array(nx.directed_laplacian_matrix(graph)) if graph.is_directed() \

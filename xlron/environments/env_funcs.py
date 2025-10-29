@@ -8,6 +8,8 @@ import box
 import math
 import pathlib
 import itertools
+from jax._src.random import IntegerArray
+from jax._src.state.indexing import IntIndexer
 import networkx as nx
 import jax.numpy as jnp
 import chex
@@ -144,7 +146,7 @@ def init_graph_tuple(state: EnvState, params: EnvParams, adj: jnp.array, exclude
     )
 
 
-def update_graph_tuple(state: EnvState, params: EnvParams):
+def update_graph_tuple(state: EnvState, params: EnvParams) -> EnvState:
     """Update graph tuple for use with Jraph GNNs.
     Edge and node features are updated from link_slot_array and node_capacity_array respectively.
     Global features are updated as request_array.
@@ -209,9 +211,9 @@ def init_path_link_array(
         graph: nx.Graph,
         k: int,
         disjoint: bool = False,
-        weight: str = "weight",
+        weight: str = "",
         directed: bool = False,
-        modulations_array: chex.Array = None,
+        modulations_array: None | chex.Array = None,
         rwa_lr: bool = False,
         scale_factor: float = 1.0,
         path_snr: bool = False,
@@ -279,7 +281,7 @@ def init_path_link_array(
         path_num_links = [len(path) - 1 for path in k_paths]
 
         # Get maximum spectral efficiency for modulation format on path
-        if modulations_array is not None and rwa_lr is not True:
+        if modulations_array is not None and not rwa_lr:
             se_of_path = []
             modulations_array = modulations_array[::-1]
             for length in path_lengths:
@@ -289,10 +291,10 @@ def init_path_link_array(
                         break
             # Sorting by the num_links/se instead of just path length is observed to improve performance
             path_weighting = [num_links/se for se, num_links in zip(se_of_path, path_num_links)]
-        elif rwa_lr:
+        elif rwa_lr and weight == "capacity":
             path_capacity = [float(calculate_path_capacity(path_length, scale_factor=scale_factor)) for path_length in path_lengths]
-            path_weighting = [num_links/path_capacity for num_links, path_capacity in zip(path_num_links, path_capacity)]
-        elif weight is None:
+            path_weighting = [num_links/jnp.max(path_capacity, 1e-6) for num_links, path_capacity in zip(path_num_links, path_capacity)]
+        elif weight == "":
             path_weighting = path_num_links
         else:
             path_weighting = path_lengths
@@ -2262,27 +2264,34 @@ def init_path_index_array(params):
 
 def calculate_path_capacity(
         path_length,
-        min_request=100,  # Minimum data rate request size
-        scale_factor=1.0,  # Scale factor for link capacity
-        alpha=0.2e-3, # Fibre attenuation coefficient
-        NF=4.5,  # Amplifier noise figure
-        B=10e12,  # Total modulated bandwidth
-        R_s=100e9,  # Symbol rate
-        beta_2=-21.7e-27,  # Dispersion parameter
-        gamma=1.2e-3,  # Nonlinear coefficient
-        L_s=100e3,  # Span length
-        lambda0=1550e-9,  # Wavelength
+        min_request=100,
+        scale_factor=1.0,
+        alpha=0.2e-3,  # dB/m
+        NF=4.5,
+        B=10e12,
+        R_s=100e9,
+        beta_2=-21.7e-27,
+        gamma=1.2e-3,
+        L_s=100e3,
+        lambda0=1550e-9,
 ):
-    """From Nevin JOCN paper 2022: https://discovery.ucl.ac.uk/id/eprint/10175456/1/RL_JOCN_accepted.pdf"""
-    alpha_lin = alpha / 4.343  # Linear attenuation coefficient
-    N_spans = jnp.floor(path_length * 1e3 / L_s)  # Number of fibre spans on path
-    L_eff = (1 - jnp.exp(-alpha_lin * L_s)) / alpha_lin  # Effective length of span in m
-    sigma_2_ase = (jnp.exp(alpha_lin * L_s) - 1) * 10**(NF/10) * 6.626e-34 * 2.998e8 * R_s / lambda0  # ASE noise power
-    span_NSR = jnp.cbrt(2 * sigma_2_ase**2 * alpha_lin * gamma**2 * L_eff**2 *
-                        jnp.log(jnp.pi**2 * jnp.abs(beta_2) * B**2 / alpha_lin) / (jnp.pi * jnp.abs(beta_2) * R_s**2))  # Noise-to-signal ratio per span
-    path_NSR = jnp.where(N_spans < 1, 1, N_spans) * span_NSR  # Noise-to-signal ratio per path
-    path_capacity = 2 * R_s/1e9 * jnp.log2(1 + 1/path_NSR)  # Capacity of path in Gbps
-    # Round link capacity down to nearest increment of minimum request size and apply scale factor
+    # Convert alpha from dB/m to Nepers/m
+    alpha_np = alpha * jnp.log(10) / 10  # or: alpha / 4.343
+    
+    N_spans = jnp.floor(path_length * 1e3 / L_s)
+    L_eff = (1 - jnp.exp(-alpha_np * L_s)) / alpha_np
+    
+    sigma_2_ase = (jnp.exp(alpha_np * L_s) - 1) * 10**(NF/10) * \
+                  6.626e-34 * 2.998e8 * R_s / lambda0
+    
+    span_NSR = jnp.cbrt(2 * sigma_2_ase**2 * alpha_np * gamma**2 * L_eff**2 *
+                        jnp.log(jnp.pi**2 * jnp.abs(beta_2) * B**2 / alpha_np) / 
+                        (jnp.pi * jnp.abs(beta_2) * R_s**2))
+    
+    span_NSR = 1/405
+    
+    path_NSR = jnp.where(N_spans < 1, 1, N_spans) * span_NSR
+    path_capacity = 2 * R_s/1e9 * jnp.log2(1 + 1/path_NSR)
     path_capacity = jnp.floor(path_capacity * scale_factor / min_request) * min_request
     return path_capacity
 
