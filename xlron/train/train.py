@@ -32,11 +32,11 @@ def restrict_visible_gpus(gpu_indices=None, auto_select=False):
                      (overrides gpu_indices if both are provided)
 
     Returns:
-        selected_gpu: The index of the selected GPU (for later reference)
+        selected_gpu: The index of the selected GPU (for later reference), or None if using CPU/TPU
     """
     if os.environ.get('COLAB_TPU_ADDR', False):
         print("Running on TPU")
-        return
+        return None
 
     def get_gpu_memory_info():
         """Get memory information for NVIDIA GPUs using nvidia-smi."""
@@ -52,29 +52,41 @@ def restrict_visible_gpus(gpu_indices=None, auto_select=False):
                 gpu_info.append((int(idx.strip()), int(free_mem.strip())))
 
             return gpu_info
-        except:
+        except Exception as e:
             # If nvidia-smi fails, return an empty list and run on CPU
+            print(f"Warning: Could not query GPU info: {e}")
             return []
 
-    # Auto-select GPU with most free memory if requested
+    # Get GPU memory information
     gpu_memory_info = get_gpu_memory_info()
+
     if not gpu_memory_info:
-        print("Defaulting to CPU")
-        return
+        print("No GPUs detected, defaulting to CPU")
+        os.environ["CUDA_VISIBLE_DEVICES"] = ""
+        return None
+
+    # Auto-select GPU with most free memory if requested
     if auto_select:
-        if gpu_memory_info:
-            # Find GPU with most free memory
-            selected_gpu, free_mem = max(gpu_memory_info, key=lambda x: x[1])
-            gpu_indices = [selected_gpu]
-            print(f"Auto-selected GPU {selected_gpu} with {free_mem} MB free memory")
-        else:
-            # Default to GPU 0 if we can't get memory info
-            gpu_indices = [0]
-            print("Could not get GPU memory info, defaulting to GPU 0")
+        # Find GPU with most free memory
+        selected_gpu, free_mem = max(gpu_memory_info, key=lambda x: x[1])
+        gpu_indices = [selected_gpu]
+        print(f"Auto-selected GPU {selected_gpu} with {free_mem} MB free memory")
+
+        # Display all GPU memory info for context
+        print("All GPUs:")
+        for idx, free_mem in gpu_memory_info:
+            print(f"  GPU {idx}: {free_mem} MB free")
 
     # Default to first GPU if nothing specified
     if gpu_indices is None:
         gpu_indices = [0]
+        print("No GPU specified, defaulting to GPU 0")
+
+    # Validate GPU indices
+    available_gpus = {idx for idx, _ in gpu_memory_info}
+    for idx in gpu_indices:
+        if idx not in available_gpus:
+            print(f"Warning: GPU {idx} not found in available GPUs: {sorted(available_gpus)}")
 
     # Create comma-separated string of GPU indices
     visible_gpus = ','.join(str(idx) for idx in gpu_indices)
@@ -256,10 +268,14 @@ def main(argv):
 
 if __name__ == "__main__":
     FLAGS(sys.argv)
+    # If user specifies VISIBLE_DEVICES, use those; otherwise auto-select
     auto_select = False if FLAGS.VISIBLE_DEVICES else True
     selected_gpu = restrict_visible_gpus(gpu_indices=FLAGS.VISIBLE_DEVICES, auto_select=auto_select)
-    print(f"Selected GPU: {selected_gpu}")
-    # JAM imports come after GPU selection (to avoid initializing a process on every GPU)
+    if selected_gpu is not None:
+        print(f"Selected GPU: {selected_gpu}")
+    else:
+        print("Running on CPU or TPU")
+    # JAX imports come after GPU selection (to avoid initializing a process on every GPU)
     from xlron import dtype_config
     import jax
     import jax.numpy as jnp
