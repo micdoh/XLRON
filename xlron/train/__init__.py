@@ -50,7 +50,7 @@ from xlron.train.train_utils import (
 
 # Main training script utilities
 from xlron.train.train import (
-    restrict_visible_gpus,
+    identify_default_device,
 )
 
 __all__ = [
@@ -94,5 +94,5 @@ __all__ = [
     "metrics",
     "loss_metrics",
     # GPU management
-    "restrict_visible_gpus",
+    "identify_default_device",
 ]
