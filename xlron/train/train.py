@@ -1,3 +1,5 @@
+from jax._src.interpreters.pxla import Chunked
+from matplotlib.typing import ColorType
 import wandb
 import sys
 import os
@@ -8,11 +10,12 @@ import math
 import matplotlib.pyplot as plt
 import absl
 from absl import app, flags
+from wandb.sdk import Config
 import xlron.parameter_flags
 import numpy as np
 import pandas as pd
 from box import Box
-from typing import Optional, Union, Dict, Any
+from typing import Optional, Union, Dict, Any, List
 import jax
 import jax.numpy as jnp
 import orbax.checkpoint
@@ -32,7 +35,7 @@ FLAGS = flags.FLAGS
 collected_states = []
 
 
-def identify_default_device(gpu_index=None, auto_select=False):
+def identify_default_device(gpu_index: List[int] = None, auto_select: bool = False) -> List[jax.Device]:
     """
     Identifies and sets the default JAX device, preferring the GPU with most free memory.
 
@@ -115,6 +118,17 @@ def identify_default_device(gpu_index=None, auto_select=False):
 def main(argv):
 
     config = process_config(FLAGS)
+    # Identify and set the default JAX device
+    # If user specifies VISIBLE_DEVICES, use the first one; otherwise auto-select
+    if config.VISIBLE_DEVICES:
+        # Parse comma-separated GPU indices
+        gpu_indices = [int(x) for x in config.VISIBLE_DEVICES.split(',')]
+        default_device = identify_default_device(gpu_index=gpu_indices[0], auto_select=False)
+    else:
+        # Auto-select GPU with most free memory
+        default_device = identify_default_device(auto_select=True)
+
+    print(f"Default device set to: {default_device}")
     
     def merge_func(x):
         # Original dims: (learner, num_updates, rollout_length, num_envs)
@@ -276,18 +290,7 @@ def main(argv):
     if config.log_actions:
         log_actions(merged_out, processed_data, config)
 
+
 if __name__ == "__main__":
     FLAGS(sys.argv)
-
-    # Identify and set the default JAX device
-    # If user specifies VISIBLE_DEVICES, use the first one; otherwise auto-select
-    if FLAGS.VISIBLE_DEVICES:
-        # Parse comma-separated GPU indices
-        gpu_indices = [int(x) for x in FLAGS.VISIBLE_DEVICES.split(',')]
-        default_device = identify_default_device(gpu_index=gpu_indices[0], auto_select=False)
-    else:
-        # Auto-select GPU with most free memory
-        default_device = identify_default_device(auto_select=True)
-
-    print(f"Default device set to: {default_device}")
     app.run(main)

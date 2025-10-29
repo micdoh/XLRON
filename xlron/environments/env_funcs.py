@@ -292,8 +292,8 @@ def init_path_link_array(
             # Sorting by the num_links/se instead of just path length is observed to improve performance
             path_weighting = [num_links/se for se, num_links in zip(se_of_path, path_num_links)]
         elif rwa_lr and weight == "capacity":
-            path_capacity = [float(calculate_path_capacity(path_length, scale_factor=scale_factor)) for path_length in path_lengths]
-            path_weighting = [num_links/jnp.max(path_capacity, 1e-6) for num_links, path_capacity in zip(path_num_links, path_capacity)]
+            path_capacity = [float(calculate_path_capacity(path_length, scale_factor=scale_factor))+1e-6 for path_length in path_lengths]
+            path_weighting = [num_links/path_capacity for num_links, path_capacity in zip(path_num_links, path_capacity)]
         elif weight == "":
             path_weighting = path_num_links
         else:
