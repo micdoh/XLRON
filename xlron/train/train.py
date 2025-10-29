@@ -267,10 +267,27 @@ def main(argv):
         log_actions(merged_out, processed_data, config)
 
 if __name__ == "__main__":
+    # GPU selection MUST happen before any JAX imports (including transitive imports)
+    # Parse only the VISIBLE_DEVICES flag first
+    import sys
+    visible_devices_arg = None
+    for i, arg in enumerate(sys.argv):
+        if arg.startswith('--VISIBLE_DEVICES='):
+            visible_devices_arg = arg.split('=', 1)[1].split(',')
+            visible_devices_arg = [int(x) for x in visible_devices_arg]
+            break
+        elif arg == '--VISIBLE_DEVICES' and i + 1 < len(sys.argv):
+            visible_devices_arg = sys.argv[i + 1].split(',')
+            visible_devices_arg = [int(x) for x in visible_devices_arg]
+            break
+
+    # Auto-select if no visible devices specified
+    auto_select = visible_devices_arg is None
+    selected_gpu = restrict_visible_gpus(gpu_indices=visible_devices_arg, auto_select=auto_select)
+
+    # Now parse all flags
     FLAGS(sys.argv)
-    # If user specifies VISIBLE_DEVICES, use those; otherwise auto-select
-    auto_select = False if FLAGS.VISIBLE_DEVICES else True
-    selected_gpu = restrict_visible_gpus(gpu_indices=FLAGS.VISIBLE_DEVICES, auto_select=auto_select)
+
     if selected_gpu is not None:
         print(f"Selected GPU: {selected_gpu}")
     else:
