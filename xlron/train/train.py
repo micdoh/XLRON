@@ -14,29 +14,42 @@ import pandas as pd
 from box import Box
 from typing import Optional, Union, Dict, Any
 
+# JAX and related imports
+from xlron import dtype_config
+import jax
+import jax.numpy as jnp
+import orbax.checkpoint
+from xlron.environments.make_env import process_config
+from xlron.environments.env_funcs import create_run_name
+from xlron.environments.wrappers import TimeIt
+from xlron.train.ppo import get_learner_fn
+from xlron.heuristics.eval_heuristic import get_eval_fn
+from xlron.train.train_utils import save_model, print_metrics, plot_metrics, log_metrics, log_actions, setup_wandb, experiment_data_setup
+
 FLAGS = flags.FLAGS
 
 # Create a global mutable container to collect data
 collected_states = []
 
 
-def restrict_visible_gpus(gpu_indices=None, auto_select=False):
+def identify_default_device(gpu_index=None, auto_select=False):
     """
-    Restricts JAX to only initialize and use specific GPUs.
-    To avoid initializing a JAX process on every available device, must be called BEFORE importing JAX.
-    Automated GPU selection is based on free memory.
+    Identifies and sets the default JAX device, preferring the GPU with most free memory.
 
     Args:
-        gpu_indices: List of GPU indices to make visible (e.g. [0,3] for first and fourth GPUs)
+        gpu_index: Specific GPU index to use (0-indexed). If None and auto_select=False, uses GPU 0
         auto_select: If True, automatically select the GPU with most free memory
-                     (overrides gpu_indices if both are provided)
+                     (overrides gpu_index if both are provided)
 
     Returns:
-        selected_gpu: The index of the selected GPU (for later reference), or None if using CPU/TPU
+        jax_device: The selected JAX device object
     """
+    # Check if running on TPU
     if os.environ.get('COLAB_TPU_ADDR', False):
         print("Running on TPU")
-        return None
+        device = jax.devices()[0]
+        jax.config.update('jax_default_device', device)
+        return device
 
     def get_gpu_memory_info():
         """Get memory information for NVIDIA GPUs using nvidia-smi."""
@@ -53,53 +66,50 @@ def restrict_visible_gpus(gpu_indices=None, auto_select=False):
 
             return gpu_info
         except Exception as e:
-            # If nvidia-smi fails, return an empty list and run on CPU
             print(f"Warning: Could not query GPU info: {e}")
             return []
+
+    # Get available JAX devices
+    jax_devices = jax.devices()
+
+    # If no GPUs available, use default device (likely CPU)
+    if not any(d.platform == 'gpu' for d in jax_devices):
+        print("No GPUs detected, using default device (CPU)")
+        device = jax_devices[0]
+        jax.config.update('jax_default_device', device)
+        return device
 
     # Get GPU memory information
     gpu_memory_info = get_gpu_memory_info()
 
-    if not gpu_memory_info:
-        print("No GPUs detected, defaulting to CPU")
-        os.environ["CUDA_VISIBLE_DEVICES"] = ""
-        return None
-
-    # Auto-select GPU with most free memory if requested
-    if auto_select:
-        # Find GPU with most free memory
-        selected_gpu, free_mem = max(gpu_memory_info, key=lambda x: x[1])
-        gpu_indices = [selected_gpu]
-        print(f"Auto-selected GPU {selected_gpu} with {free_mem} MB free memory")
+    # Auto-select GPU with most free memory
+    if auto_select and gpu_memory_info:
+        selected_gpu_idx, free_mem = max(gpu_memory_info, key=lambda x: x[1])
+        print(f"Auto-selected GPU {selected_gpu_idx} with {free_mem} MB free memory")
 
         # Display all GPU memory info for context
         print("All GPUs:")
-        for idx, free_mem in gpu_memory_info:
-            print(f"  GPU {idx}: {free_mem} MB free")
+        for idx, mem in gpu_memory_info:
+            print(f"  GPU {idx}: {mem} MB free")
 
-    # Default to first GPU if nothing specified
-    if gpu_indices is None:
-        gpu_indices = [0]
+        gpu_index = selected_gpu_idx
+
+    # Default to GPU 0 if nothing specified
+    if gpu_index is None:
+        gpu_index = 0
         print("No GPU specified, defaulting to GPU 0")
 
-    # Validate GPU indices
-    available_gpus = {idx for idx, _ in gpu_memory_info}
-    for idx in gpu_indices:
-        if idx not in available_gpus:
-            print(f"Warning: GPU {idx} not found in available GPUs: {sorted(available_gpus)}")
-
-    # Create comma-separated string of GPU indices
-    visible_gpus = ','.join(str(idx) for idx in gpu_indices)
-
-    # Set environment variables to restrict visible GPUs
-    # This must happen BEFORE importing JAX
-    os.environ["CUDA_VISIBLE_DEVICES"] = visible_gpus
-
-    # Prevent excess memory allocation
-    os.environ["XLA_PYTHON_CLIENT_ALLOCATOR"] = "platform"
-
-    print(f"Restricted visible GPUs to: {visible_gpus}")
-    return gpu_indices[0]  # Return the first (or only) selected GPU index
+    # Find the corresponding JAX device
+    try:
+        device = [d for d in jax_devices if d.platform == 'gpu'][gpu_index]
+        print(f"Setting default device to: {device}")
+        jax.config.update('jax_default_device', device)
+        return device
+    except IndexError:
+        print(f"Warning: GPU {gpu_index} not found, using first available GPU")
+        device = [d for d in jax_devices if d.platform == 'gpu'][0]
+        jax.config.update('jax_default_device', device)
+        return device
 
 
 def main(argv):
@@ -268,22 +278,16 @@ def main(argv):
 
 if __name__ == "__main__":
     FLAGS(sys.argv)
-    # If user specifies VISIBLE_DEVICES, use those; otherwise auto-select
-    auto_select = False if FLAGS.VISIBLE_DEVICES else True
-    selected_gpu = restrict_visible_gpus(gpu_indices=FLAGS.VISIBLE_DEVICES, auto_select=auto_select)
-    if selected_gpu is not None:
-        print(f"Selected GPU: {selected_gpu}")
+
+    # Identify and set the default JAX device
+    # If user specifies VISIBLE_DEVICES, use the first one; otherwise auto-select
+    if FLAGS.VISIBLE_DEVICES:
+        # Parse comma-separated GPU indices
+        gpu_indices = [int(x) for x in FLAGS.VISIBLE_DEVICES.split(',')]
+        default_device = identify_default_device(gpu_index=gpu_indices[0], auto_select=False)
     else:
-        print("Running on CPU or TPU")
-    # JAX imports come after GPU selection (to avoid initializing a process on every GPU)
-    from xlron import dtype_config
-    import jax
-    import jax.numpy as jnp
-    import orbax.checkpoint
-    from xlron.environments.make_env import process_config
-    from xlron.environments.env_funcs import create_run_name
-    from xlron.environments.wrappers import TimeIt
-    from xlron.train.ppo import get_learner_fn
-    from xlron.heuristics.eval_heuristic import get_eval_fn
-    from xlron.train.train_utils import save_model, print_metrics, plot_metrics, log_metrics, log_actions, setup_wandb, experiment_data_setup
+        # Auto-select GPU with most free memory
+        default_device = identify_default_device(auto_select=True)
+
+    print(f"Default device set to: {default_device}")
     app.run(main)
