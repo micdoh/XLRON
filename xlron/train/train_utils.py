@@ -757,10 +757,10 @@ def process_metrics(config, out, total_time, merge_func):
     """Calculate statistics from training or evaluation run."""
 
     merged_out = {k: jax.tree.map(merge_func, v) for k, v in out["metrics"].items()}
-    if not config.EVAL_HEURISTIC or not config.EVAL_MODEL:
-        merged_out_loss = {k: jax.tree.map(lambda x: x.reshape((-1,)), v) for k, v in out.get("loss_info", {}).items()}
-    else:
+    if config.EVAL_HEURISTIC or config.EVAL_MODEL:
         merged_out_loss = None
+    else:
+        merged_out_loss = {k: jax.tree.map(lambda x: x.reshape((-1,)), v) for k, v in out.get("loss_info", {}).items()}
 
     # Calculate blocking probabilities
     merged_out["service_blocking_probability"] = 1 - (
