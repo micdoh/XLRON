@@ -150,7 +150,7 @@ flags.DEFINE_string("custom_traffic_matrix_csv_filepath", None, "Path to custom 
 flags.DEFINE_float("alpha", 0.2, "Fibre attenuation coefficient, alpha [dB/km]")
 flags.DEFINE_float("amplifier_noise_figure", 4.5, "Amplifier noise figure [dB]")
 flags.DEFINE_float("beta_2", -21.7, "Dispersion parameter [ps^2/km]")
-flags.DEFINE_float("gamma", 1.2e-3, "Nonlinear coefficient")
+flags.DEFINE_float("gamma", 1.2, "Nonlinear coefficient")
 flags.DEFINE_float("span_length", 100, "Span length [km]")
 flags.DEFINE_float("lambda0", 1550, "Wavelength [nm]")
 # VONE-specific environment parameters

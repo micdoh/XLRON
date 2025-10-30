@@ -226,7 +226,7 @@ def init_path_link_array(
         graph (nx.Graph): NetworkX graph
         k (int): Number of paths
         disjoint (bool, optional): Whether to use edge-disjoint paths. Defaults to False.
-        weight (str, optional): Sort paths by edge attribute. Defaults to "weight".
+        weight (str, optional): Sort paths by edge attribute. Defaults to "".
         directed (bool, optional): Whether graph is directed. Defaults to False.
         modulations_array (chex.Array, optional): Array of maximum spectral efficiency for modulation format on path. Defaults to None.
         rwa_lr (bool, optional): Whether the environment is RWA with lightpath reuse (affects path ordering).
@@ -309,7 +309,7 @@ def init_path_link_array(
 
         # Sort by number of links then by length (or just by length if weight is specified)
         unsorted_paths = zip(k_paths, path_weighting, path_lengths)
-        k_paths_sorted = [(source, dest, weighting, path) for path, weighting, _ in sorted(unsorted_paths, key=lambda x: (x[1], 1/x[2]) if weight is None else x[2])]
+        k_paths_sorted = [(source, dest, weighting, path) for path, weighting, _ in sorted(unsorted_paths, key=lambda x: (x[1], 1/x[2]) if weight == "" else x[2])]
 
         # Keep only first k paths
         k_paths_sorted = k_paths_sorted[:k]
@@ -2287,8 +2287,6 @@ def calculate_path_capacity(
     span_NSR = jnp.cbrt(2 * sigma_2_ase**2 * alpha_np * gamma**2 * L_eff**2 *
                         jnp.log(jnp.pi**2 * jnp.abs(beta_2) * B**2 / alpha_np) / 
                         (jnp.pi * jnp.abs(beta_2) * R_s**2))
-    
-    span_NSR = 1/405
     
     path_NSR = jnp.where(N_spans < 1, 1, N_spans) * span_NSR
     path_capacity = 2 * R_s/1e9 * jnp.log2(1 + 1/path_NSR)
