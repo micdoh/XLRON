@@ -755,12 +755,19 @@ def get_episode_end_mean_std_iqr(
 
 def process_metrics(config, out, total_time, merge_func):
     """Calculate statistics from training or evaluation run."""
-
     merged_out = {k: jax.tree.map(merge_func, v) for k, v in out["metrics"].items()}
     if config.EVAL_HEURISTIC or config.EVAL_MODEL:
         merged_out_loss = None
     else:
-        merged_out_loss = {k: jax.tree.map(lambda x: x.reshape((-1,)), v) for k, v in out.get("loss_info", {}).items()}
+        # Average over minibatches and epochs to get one value per update
+        num_learners_or_1 = config.NUM_LEARNERS if config.NUM_LEARNERS > 1 else 1
+        merged_out_loss = {
+            k: jax.tree.map(
+                lambda x: x.reshape((num_learners_or_1, config.NUM_UPDATES, -1)).mean(axis=-1).reshape((-1,)),
+                v
+            )
+            for k, v in out.get("loss_info", {}).items()
+        }
 
     # Calculate blocking probabilities
     merged_out["service_blocking_probability"] = 1 - (
@@ -1067,7 +1074,8 @@ def log_metrics(
                         ]
                     }
                     log_dict["episode_count"] = i + episode_count
-                    wandb.log(log_dict)
+                    commit = False if i != len(processed_data["returns"]["episode_end_mean"]) - 1 else True
+                    wandb.log(log_dict, commit=commit)
                     
             else:
                 # Log metrics from every step
@@ -1081,7 +1089,7 @@ def log_metrics(
     
                 chop = len(processed_data["returns"]["mean"]) % config.DOWNSAMPLE_FACTOR
     
-                def downsample_mean(x: ArrayLike) -> Array:
+                def downsample_mean(x: Array) -> Array:
                     x = jnp.asarray(x)
                     return x[chop:].reshape(-1, config.DOWNSAMPLE_FACTOR).mean(axis=1)
     
@@ -1102,13 +1110,15 @@ def log_metrics(
                     }
                     log_dict["training_time"] = training_time[i]
                     log_dict["env_step"] = i + step_count
-                    wandb.log(log_dict)
+                    commit = False if i != len(processed_data["returns"]["mean"]) - 1 else True
+                    wandb.log(log_dict, commit=commit)
     
             if config.LOG_LOSS_INFO and merged_out_loss is not None:
                 print("Logging loss info")
                 for i in range(len(merged_out_loss["loss/total_loss"])):
                     log_dict = {f"{metric}": merged_out_loss[metric][i] for metric in loss_metrics}
                     log_dict["update_epoch"] = i + update_count
-                    wandb.log(log_dict)
+                    commit = False if i != len(merged_out_loss["loss/total_loss"]) - 1 else True
+                    wandb.log(log_dict, commit=commit)
 
     return merged_out, processed_data
