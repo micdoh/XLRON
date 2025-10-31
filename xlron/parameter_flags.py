@@ -15,7 +15,7 @@ flags.DEFINE_integer("MINIBATCH_SIZE", 1, "Minibatch size")
 flags.DEFINE_float("TOTAL_TIMESTEPS", 1e6, "Total number of timesteps")
 flags.DEFINE_integer("STEPS_PER_INCREMENT", 100000, "Number of steps per logging increment")
 flags.DEFINE_integer("NUM_INCREMENTS", 1, "Number of increments to log")
-flags.DEFINE_integer("UPDATE_EPOCHS", 10, "Number of epochs per update")
+flags.DEFINE_integer("UPDATE_EPOCHS", 1, "Number of epochs per update")
 flags.DEFINE_integer("NUM_MINIBATCHES", 1, "Number of minibatches per update")
 
 flags.DEFINE_float("LR", 5e-4, "Learning rate")

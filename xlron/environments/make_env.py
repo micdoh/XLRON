@@ -28,6 +28,7 @@ def process_config(config: Optional[Union[dict, FlagValues]], **kwargs: Any) -> 
     # if kwargs are passed, then include them in config
     config.update(kwargs)
     config = Box(config)
+    # This if statement is just to ensure compatibility with some tests that don't define all config options
     if config.get('TOTAL_TIMESTEPS', False):
         config.TOTAL_TIMESTEPS = int(config.TOTAL_TIMESTEPS)
         # For incremental logging, we need to set the number of increments
