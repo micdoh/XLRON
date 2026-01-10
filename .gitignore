@@ -16,3 +16,4 @@ config/
 data_processing/misc
 experiment_data/
 .ipynb_checkpoints/
+saved_models/

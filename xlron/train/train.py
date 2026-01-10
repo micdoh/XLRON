@@ -289,7 +289,9 @@ def main(argv):
         plot_metrics(experiment_name, processed_data_all, config)
     if config.log_actions:
         log_actions(merged_out, processed_data, config)
-
+        
+    if config.WANDB:
+        wandb.finish()
 
 if __name__ == "__main__":
     FLAGS(sys.argv)
