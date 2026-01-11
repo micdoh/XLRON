@@ -1,41 +1,53 @@
-from jax._src.interpreters.pxla import Chunked
-from matplotlib.typing import ColorType
-import wandb
-import sys
-import os
-import subprocess
-import time
-import pathlib
 import math
-import matplotlib.pyplot as plt
+import os
+import pathlib
+import subprocess
+import sys
+import time
+from typing import Any, Dict, List, Optional, Union
+
 import absl
-from absl import app, flags
-from wandb.sdk import Config
-import xlron.parameter_flags
-import numpy as np
-import pandas as pd
-from box import Box
-from typing import Optional, Union, Dict, Any, List
 import jax
 import jax.numpy as jnp
+import matplotlib.pyplot as plt
+import numpy as np
 import orbax.checkpoint
+import pandas as pd
+from absl import app, flags
+from box import Box
+from jax._src.interpreters.pxla import Chunked
+from matplotlib.typing import ColorType
+from wandb.sdk import Config
 
-from xlron import dtype_config
-from xlron.environments.make_env import process_config
-from xlron.environments.env_funcs import create_run_name
-from xlron.environments.wrappers import TimeIt
-from xlron.train.ppo import get_learner_fn
-from xlron.heuristics.eval_heuristic import get_eval_fn
-from xlron.train.train_utils import save_model, print_metrics, plot_metrics, log_metrics, log_actions, setup_wandb, experiment_data_setup
+import wandb
 
+import xlron.parameter_flags
 
 FLAGS = flags.FLAGS
+
+from xlron.environments.env_funcs import create_run_name
+from xlron.environments.make_env import process_config
+from xlron.environments.wrappers import TimeIt
+from xlron.heuristics.eval_heuristic import get_eval_fn
+from xlron.train.ppo import get_learner_fn
+from xlron.train.train_utils import (
+    experiment_data_setup,
+    log_actions,
+    log_metrics,
+    plot_metrics,
+    print_metrics,
+    save_model,
+    setup_wandb,
+)
+from xlron import dtype_config
 
 # Create a global mutable container to collect data
 collected_states = []
 
 
-def identify_default_device(gpu_index: List[int] = None, auto_select: bool = False) -> List[jax.Device]:
+def identify_default_device(
+    gpu_index: List[int] = None, auto_select: bool = False
+) -> List[jax.Device]:
     """
     Identifies and sets the default JAX device, preferring the GPU with most free memory.
 
@@ -48,23 +60,27 @@ def identify_default_device(gpu_index: List[int] = None, auto_select: bool = Fal
         jax_device: The selected JAX device object
     """
     # Check if running on TPU
-    if os.environ.get('COLAB_TPU_ADDR', False):
+    if os.environ.get("COLAB_TPU_ADDR", False):
         print("Running on TPU")
         device = jax.devices()[0]
-        jax.config.update('jax_default_device', device)
+        jax.config.update("jax_default_device", device)
         return device
 
     def get_gpu_memory_info():
         """Get memory information for NVIDIA GPUs using nvidia-smi."""
         try:
             result = subprocess.check_output(
-                ['nvidia-smi', '--query-gpu=index,memory.free', '--format=csv,nounits,noheader'],
-                encoding='utf-8'
+                [
+                    "nvidia-smi",
+                    "--query-gpu=index,memory.free",
+                    "--format=csv,nounits,noheader",
+                ],
+                encoding="utf-8",
             )
 
             gpu_info = []
-            for line in result.strip().split('\n'):
-                idx, free_mem = line.split(',')
+            for line in result.strip().split("\n"):
+                idx, free_mem = line.split(",")
                 gpu_info.append((int(idx.strip()), int(free_mem.strip())))
 
             return gpu_info
@@ -76,10 +92,10 @@ def identify_default_device(gpu_index: List[int] = None, auto_select: bool = Fal
     jax_devices = jax.devices()
 
     # If no GPUs available, use default device (likely CPU)
-    if not any(d.platform == 'gpu' for d in jax_devices):
+    if not any(d.platform == "gpu" for d in jax_devices):
         print("No GPUs detected, using default device (CPU)")
         device = jax_devices[0]
-        jax.config.update('jax_default_device', device)
+        jax.config.update("jax_default_device", device)
         return device
 
     # Get GPU memory information
@@ -104,32 +120,39 @@ def identify_default_device(gpu_index: List[int] = None, auto_select: bool = Fal
 
     # Find the corresponding JAX device
     try:
-        device = [d for d in jax_devices if d.platform == 'gpu'][gpu_index]
+        device = [d for d in jax_devices if d.platform == "gpu"][gpu_index]
         print(f"Setting default device to: {device}")
-        jax.config.update('jax_default_device', device)
+        jax.config.update("jax_default_device", device)
         return device
     except IndexError:
         print(f"Warning: GPU {gpu_index} not found, using first available GPU")
-        device = [d for d in jax_devices if d.platform == 'gpu'][0]
-        jax.config.update('jax_default_device', device)
+        device = [d for d in jax_devices if d.platform == "gpu"][0]
+        jax.config.update("jax_default_device", device)
         return device
 
 
-def main(argv):
-
-    config = process_config(FLAGS)
+def train(argv: list[str], config: Dict[str, Any] = {}) -> list[Dict[str, Any]]:
+    flags = FLAGS if not config else config
+    config = process_config(flags)
+    config.log_wrapper = True  # Always use log wrapper for training
+    # Initialize dtypes based on flags
+    dtype_config.initialize_dtypes(FLAGS)
+    
+    
     # Identify and set the default JAX device
     # If user specifies VISIBLE_DEVICES, use the first one; otherwise auto-select
     if config.VISIBLE_DEVICES:
         # Parse comma-separated GPU indices
-        gpu_indices = [int(x) for x in config.VISIBLE_DEVICES.split(',')]
-        default_device = identify_default_device(gpu_index=gpu_indices[0], auto_select=False)
+        gpu_indices = [int(x) for x in config.VISIBLE_DEVICES.split(",")]
+        default_device = identify_default_device(
+            gpu_index=gpu_indices[0], auto_select=False
+        )
     else:
         # Auto-select GPU with most free memory
         default_device = identify_default_device(auto_select=True)
 
     print(f"Default device set to: {default_device}")
-    
+
     def merge_func(x):
         # Original dims: (learner, num_updates, rollout_length, num_envs)
         # Compute the new shape
@@ -158,12 +181,12 @@ def main(argv):
     jax.config.update("jax_disable_jit", config.DISABLE_JIT)
     jax.config.update("jax_enable_x64", config.ENABLE_X64)
     # The following flags can improve GPU performance for jaxlib>=0.4.18
-    os.environ['XLA_FLAGS'] = (
-        '--xla_gpu_enable_triton_softmax_fusion=true '
-        '--xla_gpu_triton_gemm_any=True '
-        '--xla_gpu_enable_async_collectives=true '
-        '--xla_gpu_enable_latency_hiding_scheduler=true '
-        '--xla_gpu_enable_highest_priority_async_stream=true '
+    os.environ["XLA_FLAGS"] = (
+        "--xla_gpu_enable_triton_softmax_fusion=true "
+        "--xla_gpu_triton_gemm_any=True "
+        "--xla_gpu_enable_async_collectives=true "
+        "--xla_gpu_enable_latency_hiding_scheduler=true "
+        "--xla_gpu_enable_highest_priority_async_stream=true "
     )
     # Option to print memory usage for debugging OOM errors
     if config.PRINT_MEMORY_USE:
@@ -173,10 +196,14 @@ def main(argv):
     if config.PREALLOCATE_MEM:
         os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "true"
         os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = config.PREALLOCATE_MEM_FRACTION
-        print(f"XLA_PYTHON_CLIENT_MEM_FRACTION={os.environ['XLA_PYTHON_CLIENT_MEM_FRACTION']}")
+        print(
+            f"XLA_PYTHON_CLIENT_MEM_FRACTION={os.environ['XLA_PYTHON_CLIENT_MEM_FRACTION']}"
+        )
     else:
         os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
-    print(f"XLA_PYTHON_CLIENT_PREALLOCATE={os.environ['XLA_PYTHON_CLIENT_PREALLOCATE']}")
+    print(
+        f"XLA_PYTHON_CLIENT_PREALLOCATE={os.environ['XLA_PYTHON_CLIENT_PREALLOCATE']}"
+    )
 
     # Setup the project name, experiment name for wandb and plots
     run_name = create_run_name(config)
@@ -189,10 +216,12 @@ def main(argv):
 
     # Print every flag and its name
     if config.DEBUG:
-        print('non-flag arguments:', argv)
+        print("non-flag arguments:", argv)
         jax.config.update("jax_debug_nans", True)
     if config.NO_TRUNCATE:
-        jax.numpy.set_printoptions(threshold=sys.maxsize)  # Don't truncate printed arrays
+        jax.numpy.set_printoptions(
+            threshold=sys.maxsize
+        )  # Don't truncate printed arrays
         # increase line length for numpy print options
         jax.numpy.set_printoptions(linewidth=220)
 
@@ -204,7 +233,7 @@ def main(argv):
         orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
         model = orbax_checkpointer.restore(pathlib.Path(config.MODEL_PATH))
         config.model = model
-        
+
     print(
         f"Independent learners: {config.NUM_LEARNERS}\n"
         f"Environments per learner: {config.NUM_ENVS}\n"
@@ -229,17 +258,30 @@ def main(argv):
         rng = jax.random.PRNGKey(config.SEED)
         if config.NUM_LEARNERS > 1:
             rng = jax.random.split(rng, config.NUM_LEARNERS)
-            experiment_fn = get_learner_fn if not (config.EVAL_HEURISTIC or config.EVAL_MODEL) else get_eval_fn
-            experiment_input, env, env_params = jax.vmap(experiment_data_setup, axis_name='learner', in_axes=(None, 0))(config, rng)
+            experiment_fn = (
+                get_learner_fn
+                if not (config.EVAL_HEURISTIC or config.EVAL_MODEL)
+                else get_eval_fn
+            )
+            experiment_input, env, env_params = jax.vmap(
+                experiment_data_setup, axis_name="learner", in_axes=(None, 0)
+            )(config, rng)
             experiment_fn = experiment_fn(env, env_params, experiment_input[0], config)
-            run_experiment = jax.jit(jax.vmap(experiment_fn, axis_name='learner')).lower(experiment_input).compile()
+            run_experiment = (
+                jax.jit(jax.vmap(experiment_fn, axis_name="learner"))
+                .lower(experiment_input)
+                .compile()
+            )
         else:
-            experiment_fn = get_learner_fn if not (config.EVAL_HEURISTIC or config.EVAL_MODEL) else get_eval_fn
+            experiment_fn = (
+                get_learner_fn
+                if not (config.EVAL_HEURISTIC or config.EVAL_MODEL)
+                else get_eval_fn
+            )
             experiment_input, env, env_params = experiment_data_setup(config, rng)
             experiment_fn = experiment_fn(env, env_params, experiment_input, config)
             run_experiment = jax.jit(experiment_fn).lower(experiment_input).compile()
-    
-    
+
     # START TRAINING
     start_time = time.time()
     log_time = 0.0
@@ -249,9 +291,13 @@ def main(argv):
     for i in range(config.NUM_INCREMENTS):
         print(f"\n---INCREMENT {i + 1}/{config.NUM_INCREMENTS}---")
         # Run the increment
-        with TimeIt(tag="EXECUTION", frames=config.STEPS_PER_INCREMENT * config.NUM_LEARNERS):
+        with TimeIt(
+            tag="EXECUTION", frames=config.STEPS_PER_INCREMENT * config.NUM_LEARNERS
+        ):
             out = run_experiment(experiment_input)
-            out["metrics"]["returns"].block_until_ready()  # Wait for all devices to finish
+            out["metrics"][
+                "returns"
+            ].block_until_ready()  # Wait for all devices to finish
         run_time = time.time() - start_time - log_time
         # Save model params
         if config.SAVE_MODEL:
@@ -276,7 +322,9 @@ def main(argv):
         processed_data_all = (
             processed_data
             if i == 0
-            else jax.tree.map(lambda x, y: jnp.concatenate([x, y]), processed_data_all, processed_data)
+            else jax.tree.map(
+                lambda x, y: jnp.concatenate([x, y]), processed_data_all, processed_data
+            )
         )
         log_time = log_time + time.time() - start_time - run_time
         # Update the experiment input for the next increment
@@ -289,10 +337,11 @@ def main(argv):
         plot_metrics(experiment_name, processed_data_all, config)
     if config.log_actions:
         log_actions(merged_out, processed_data, config)
-        
+
     if config.WANDB:
         wandb.finish()
 
+
 if __name__ == "__main__":
     FLAGS(sys.argv)
-    app.run(main)
+    app.run(train)

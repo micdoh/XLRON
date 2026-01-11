@@ -1,7 +1,8 @@
+from typing import Callable, NamedTuple
+
 import chex
 import jraph
 from flax import struct
-from typing import NamedTuple, Callable
 
 
 @struct.dataclass
@@ -46,7 +47,6 @@ class EvalState:
     params: chex.Array
 
 
-
 @struct.dataclass
 class EnvState:
     """Dataclass to hold environment state. State is mutable and arrays are traced on JIT compilation.
@@ -60,12 +60,13 @@ class EnvState:
         full_link_slot_mask (chex.Array): Action mask for link slot action (including if slot actions are aggregated)
         accepted_services (chex.Array): Number of accepted services
         accepted_bitrate (chex.Array): Accepted bitrate
-        """
-    current_time: chex.Scalar
-    holding_time: chex.Scalar
-    arrival_time: chex.Scalar
-    total_timesteps: chex.Scalar
-    total_requests: chex.Scalar
+    """
+
+    current_time: chex.Array
+    holding_time: chex.Array
+    arrival_time: chex.Array
+    total_timesteps: chex.Array
+    total_requests: chex.Array
     graph: jraph.GraphsTuple
     full_link_slot_mask: chex.Array
     accepted_services: chex.Array
@@ -93,6 +94,7 @@ class EnvParams:
         temperature (chex.Scalar): Temp. used for softmax differentiable approximation
         window_size (chex.Scalar): Window size for weighted average of neighbouring cells in differentiable indexing
     """
+
     max_requests: chex.Scalar = struct.field(pytree_node=False)
     incremental_loading: chex.Scalar = struct.field(pytree_node=False)
     end_first_blocking: chex.Scalar = struct.field(pytree_node=False)
@@ -112,6 +114,7 @@ class EnvParams:
     pack_path_bits: bool = struct.field(pytree_node=False)
     relative_arrival_times: bool = struct.field(pytree_node=False)
     temperature: chex.Scalar = struct.field(pytree_node=False)
+    differentiable: bool = struct.field(pytree_node=False)
 
 
 @struct.dataclass
@@ -129,6 +132,7 @@ class LogEnvState:
         accepted_bitrate (chex.Scalar): Accepted bitrate
         done (chex.Scalar): Done
     """
+
     env_state: EnvState
     lengths: float
     returns: float
@@ -151,6 +155,7 @@ class RSAEnvState(EnvState):
         link_slot_mask (chex.Array): Link slot mask
         traffic_matrix (chex.Array): Traffic matrix
     """
+
     link_slot_array: chex.Array
     request_array: chex.Array
     link_slot_departure_array: chex.Array
@@ -177,6 +182,7 @@ class RSAEnvParams(EnvParams):
         deterministic_requests (bool): If True, use deterministic requests
         multiple_topologies (bool): If True, use multiple topologies
     """
+
     num_nodes: chex.Scalar = struct.field(pytree_node=False)
     num_links: chex.Scalar = struct.field(pytree_node=False)
     link_resources: chex.Scalar = struct.field(pytree_node=False)
@@ -205,6 +211,7 @@ class DeepRMSAEnvState(RSAEnvState):
         3. Size of 1st free spectrum block
         4. Avg. free block size
     """
+
     path_stats: chex.Array
 
 
@@ -222,9 +229,12 @@ class RWALightpathReuseEnvState(RSAEnvState):
         path_capacity_array (chex.Array): Contains remaining capacity of each lightpath
         link_capacity_array (chex.Array): Contains remaining capacity of lightpath on each link-slot
     """
+
     path_index_array: chex.Array  # Contains indices of lightpaths in use on slots
     path_capacity_array: chex.Array  # Contains remaining capacity of each lightpath
-    link_capacity_array: chex.Array  # Contains remaining capacity of lightpath on each link-slot
+    link_capacity_array: (
+        chex.Array
+    )  # Contains remaining capacity of lightpath on each link-slot
     time_since_last_departure: chex.Array  # Time since last departure
 
 
@@ -235,23 +245,23 @@ class RWALightpathReuseEnvParams(RSAEnvParams):
 
 @struct.dataclass
 class MultiBandRSAEnvState(RSAEnvState):
-    """Dataclass to hold environment state for MultiBandRSA (RBSA).
-    """
+    """Dataclass to hold environment state for MultiBandRSA (RBSA)."""
+
     pass
 
 
 @struct.dataclass
 class MultiBandRSAEnvParams(RSAEnvParams):
-    """Dataclass to hold environment parameters for MultiBandRSA (RBSA).
-    """
+    """Dataclass to hold environment parameters for MultiBandRSA (RBSA)."""
+
     gap_start: chex.Scalar = struct.field(pytree_node=False)
     gap_width: chex.Scalar = struct.field(pytree_node=False)
 
 
 @struct.dataclass
 class GNModelEnvParams(RSAEnvParams):
-    """Dataclass to hold environment state for GN model environments.
-    """
+    """Dataclass to hold environment state for GN model environments."""
+
     ref_lambda: chex.Scalar = struct.field(pytree_node=False)
     max_spans: chex.Scalar = struct.field(pytree_node=False)
     max_span_length: chex.Scalar = struct.field(pytree_node=False)
@@ -277,7 +287,9 @@ class GNModelEnvParams(RSAEnvParams):
     max_power_per_fibre: chex.Scalar = struct.field(pytree_node=False)
     default_launch_power: chex.Scalar = struct.field(pytree_node=False)
     mod_format_correction: bool = struct.field(pytree_node=False)
-    monitor_active_lightpaths: bool = struct.field(pytree_node=False)  # Monitor active lightpaths for throughput calculation
+    monitor_active_lightpaths: bool = struct.field(
+        pytree_node=False
+    )  # Monitor active lightpaths for throughput calculation
     gap_starts: chex.Array = struct.field(pytree_node=False)
     gap_widths: chex.Array = struct.field(pytree_node=False)
     uniform_spans: bool = struct.field(pytree_node=False)
@@ -285,32 +297,42 @@ class GNModelEnvParams(RSAEnvParams):
 
 @struct.dataclass
 class GNModelEnvState(RSAEnvState):
-    """Dataclass to hold environment state for RSA with GN model.
-    """
+    """Dataclass to hold environment state for RSA with GN model."""
+
     link_snr_array: chex.Array  # Available SNR on each link
-    channel_centre_bw_array: chex.Array  # Channel centre bandwidth for each active connection
+    channel_centre_bw_array: (
+        chex.Array
+    )  # Channel centre bandwidth for each active connection
     path_index_array: chex.Array  # Contains indices of lightpaths in use on slots (used for lightpath SNR calculation)
     channel_power_array: chex.Array  # Channel power for each active connection
-    channel_centre_bw_array_prev: chex.Array  # Channel centre bandwidth for each active connection in previous timestep
-    path_index_array_prev: chex.Array  # Contains indices of lightpaths in use on slots in previous timestep
-    channel_power_array_prev: chex.Array  # Channel power for each active connection in previous timestep
+    channel_centre_bw_array_prev: (
+        chex.Array
+    )  # Channel centre bandwidth for each active connection in previous timestep
+    path_index_array_prev: (
+        chex.Array
+    )  # Contains indices of lightpaths in use on slots in previous timestep
+    channel_power_array_prev: (
+        chex.Array
+    )  # Channel power for each active connection in previous timestep
     launch_power_array: chex.Array  # Launch power array
 
 
 @struct.dataclass
 class RSAGNModelEnvParams(GNModelEnvParams):
-    """Dataclass to hold environment params for RSA with GN model.
-    """
+    """Dataclass to hold environment params for RSA with GN model."""
+
     min_snr: chex.Scalar = struct.field(pytree_node=False)
     fec_threshold: chex.Scalar = struct.field(pytree_node=False)
 
 
 @struct.dataclass
 class RSAGNModelEnvState(GNModelEnvState):
-    """Dataclass to hold environment state for RSA with GN model.
-    """
+    """Dataclass to hold environment state for RSA with GN model."""
+
     active_lightpaths_array: chex.Array  # Active lightpath array. 1 x M array. Each value is a lightpath index. Used to calculate total throughput.
-    active_lightpaths_array_departure: chex.Array  # Active lightpath array departure time.
+    active_lightpaths_array_departure: (
+        chex.Array
+    )  # Active lightpath array departure time.
     throughput: chex.Array  # Current network throughput
 
 
@@ -321,6 +343,7 @@ class RMSAGNModelEnvParams(GNModelEnvParams):
     Args:
         link_snr_array (chex.Array): Link SNR array
     """
+
     modulations_array: chex.Array = struct.field(pytree_node=False)
 
 
@@ -331,22 +354,27 @@ class RMSAGNModelEnvState(GNModelEnvState):
     Args:
         link_snr_array (chex.Array): Link SNR array
     """
-    modulation_format_index_array: chex.Array  # Modulation format index for each active connection
-    modulation_format_index_array_prev: chex.Array  # Modulation format index for each active connection in previous timestep
+
+    modulation_format_index_array: (
+        chex.Array
+    )  # Modulation format index for each active connection
+    modulation_format_index_array_prev: (
+        chex.Array
+    )  # Modulation format index for each active connection in previous timestep
     mod_format_mask: chex.Array  # Modulation format mask
 
 
 @struct.dataclass
 class RSAMultibandEnvState(RSAEnvState):
-    """Dataclass to hold environment state for MultiBandRSA (RBSA).
-    """
+    """Dataclass to hold environment state for MultiBandRSA (RBSA)."""
+
     pass
 
 
 @struct.dataclass
 class RSAMultibandEnvParams(RSAEnvParams):
-    """Dataclass to hold environment parameters for MultiBandRSA (RBSA).
-    """
+    """Dataclass to hold environment parameters for MultiBandRSA (RBSA)."""
+
     gap_starts: chex.Array = struct.field(pytree_node=False)
     gap_widths: chex.Array = struct.field(pytree_node=False)
 
@@ -366,6 +394,7 @@ class VONEEnvState(RSAEnvState):
         virtual_topology_patterns (chex.Array): Virtual topology patterns
         values_nodes (chex.Array): Values for nodes
     """
+
     node_capacity_array: chex.Array
     node_resource_array: chex.Array
     node_departure_array: chex.Array
@@ -387,6 +416,7 @@ class VONEEnvParams(RSAEnvParams):
         min_node_resources (chex.Scalar): Minimum number of node resources
         max_node_resources (chex.Scalar): Maximum number of node resources
     """
+
     node_resources: chex.Scalar = struct.field(pytree_node=False)
     max_edges: chex.Scalar = struct.field(pytree_node=False)
     min_node_resources: chex.Scalar = struct.field(pytree_node=False)

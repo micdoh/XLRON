@@ -1,7 +1,10 @@
+from functools import partial
+
+import chex
 import jax
 import jax.numpy as jnp
-import chex
-from functools import partial
+
+from xlron import dtype_config
 
 # TODO - for each of these functions. investigate what is the optimal value of temperature.
 #  N.B. 1.0 seems to be good from initial investigations of indexing but some funcs might differ
@@ -23,7 +26,9 @@ def straight_through(hard_output, soft_output):
     return soft_output + jax.lax.stop_gradient(hard_output - soft_output)
 
 
-def differentiable_where(condition, true_val, false_val, threshold, temperature=1.0):
+def differentiable_where(
+    condition, true_val, false_val, threshold, temperature=1.0, differentiable=True
+):
     """
     A differentiable version of jnp.where.
 
@@ -31,13 +36,20 @@ def differentiable_where(condition, true_val, false_val, threshold, temperature=
         condition: The condition to check (typically a boolean or 0/1 array)
         true_val: Value to use where condition is True
         false_val: Value to use where condition is False
+        threshold: Threshold for condition comparison
         temperature: Controls the sharpness of the sigmoid approximation
+        differentiable: If False, return hard result directly without gradient approximation
 
     Returns:
         Result that behaves like jnp.where in forward pass but is differentiable
     """
     # Hard version for forward pass
     hard_result = jnp.where(condition, true_val, false_val)
+
+    # If not differentiable mode, return hard result directly
+    if not differentiable:
+        return hard_result
+
     # Soft version for backward pass
     # Convert boolean condition to 0/1 if needed
     condition_float = jnp.asarray(condition, dtype=jnp.float32)
@@ -48,8 +60,11 @@ def differentiable_where(condition, true_val, false_val, threshold, temperature=
     return straight_through(hard_result, soft_result)
 
 
-@partial(jax.jit, static_argnums=(2, 3,))
-def differentiable_compare(x, y, op_type='==', temperature=1.0):
+@partial(
+    jax.jit,
+    static_argnames=("op_type", "differentiable"),
+)
+def differentiable_compare(x, y, op_type="==", temperature=1.0, differentiable=True):
     """
     A unified differentiable comparison function that supports multiple operators.
 
@@ -59,57 +74,63 @@ def differentiable_compare(x, y, op_type='==', temperature=1.0):
         op_type: String specifying the comparison operation:
                 '==', '!=', '>=', '<=', '>', '<', '!='
         temperature: Controls the sharpness of the sigmoid approximation
+        differentiable: If False, return hard result directly without gradient approximation
 
     Returns:
         Result that behaves like the specified comparison in forward pass
         but is differentiable in backward pass
     """
     # Define hard results (for forward pass)
-    if op_type == '==':
-        hard_result = (x == y)
-        #soft_result = jax.nn.sigmoid(temperature * (1.0 - jnp.abs(x - y)))
-        #soft_result = jax.nn.sigmoid(-temperature * jnp.abs(x - y))
+    if op_type == "==":
+        hard_result = x == y
         soft_result = jnp.exp(-temperature * (x - y) ** 2)
-    elif op_type == '>=':
-        hard_result = (x >= y)
+    elif op_type == ">=":
+        hard_result = x >= y
         soft_result = jax.nn.sigmoid(temperature * (x - y))
-    elif op_type == '<=':
-        hard_result = (x <= y)
+    elif op_type == "<=":
+        hard_result = x <= y
         soft_result = jax.nn.sigmoid(temperature * (y - x))
-    elif op_type == '>':
-        hard_result = (x > y)
+    elif op_type == ">":
+        hard_result = x > y
         # Slightly sharper version for strict inequality
         soft_result = jax.nn.sigmoid(temperature * (x - y - 1e-5))
-    elif op_type == '<':
-        hard_result = (x < y)
+    elif op_type == "<":
+        hard_result = x < y
         # Slightly sharper version for strict inequality
         soft_result = jax.nn.sigmoid(temperature * (y - x - 1e-5))
-    elif op_type == '!=':
-        hard_result = (x != y)
+    elif op_type == "!=":
+        hard_result = x != y
         # Invert the equality result
-        #soft_result = 1.0 - jax.nn.sigmoid(temperature * (1.0 - jnp.abs(x - y)))
-        #soft_result = 1.0 - jax.nn.sigmoid(-temperature * jnp.abs(x - y))
         soft_result = 1.0 - jnp.exp(-temperature * (x - y) ** 2)
     else:
         raise ValueError(f"Unknown operation type: {op_type}")
+
+    # If not differentiable mode, return hard result directly
+    if not differentiable:
+        return hard_result
 
     # Apply straight-through gradient trick
     return straight_through(hard_result, x)
 
 
-def differentiable_argmax(x, temperature=1.0):
+def differentiable_argmax(x, temperature=1.0, differentiable=True):
     """
     A differentiable version of jnp.argmax.
 
     Args:
         x: Input tensor to find argmax
         temperature: Controls the sharpness of the softmax approximation
+        differentiable: If False, return hard result directly without gradient approximation
 
     Returns:
         Result that behaves like argmax in forward pass but is differentiable
     """
     # Hard version: Standard argmax (non-differentiable)
     hard_argmax = jnp.argmax(x)
+
+    # If not differentiable mode, return hard result directly
+    if not differentiable:
+        return hard_argmax
 
     # Soft version: Weighted expectation using softmax
     logits = x * temperature  # Scale for sharper distribution
@@ -121,19 +142,25 @@ def differentiable_argmax(x, temperature=1.0):
     return straight_through(hard_argmax, soft_argmax)
 
 
-def differentiable_round_simple(x, temperature=1.0):
+def differentiable_round_simple(x, temperature=1.0, differentiable=True):
     """
     A simpler differentiable approximation of rounding.
 
     Args:
         x: Input tensor to round
         temperature: Controls the steepness of the sigmoid at rounding boundaries
+        differentiable: If False, return hard result directly without gradient approximation
 
     Returns:
         Tensor with rounded values in forward pass but differentiable gradients
     """
     # Hard version: Standard round (non-differentiable)
     hard_round = jnp.round(x)
+
+    # If not differentiable mode, return hard result directly
+    if not differentiable:
+        return hard_round
+
     # Soft version: Use sigmoid for each fractional part
     fractional = x - jnp.floor(x)
     # For values < 0.5, we round down (output = floor(x))
@@ -144,7 +171,7 @@ def differentiable_round_simple(x, temperature=1.0):
     return straight_through(hard_round, x)
 
 
-def differentiable_round(x, decimals=0, temperature=1.0):
+def differentiable_round(x, decimals=0, temperature=1.0, differentiable=True):
     """
     A differentiable approximation of rounding to specified decimals.
 
@@ -152,37 +179,51 @@ def differentiable_round(x, decimals=0, temperature=1.0):
         x: Input tensor to round
         decimals: Number of decimal places to round to
         temperature: Controls the steepness of the sigmoid at rounding boundaries
+        differentiable: If False, return hard result directly without gradient approximation
 
     Returns:
         Tensor with rounded values in forward pass but differentiable gradients
     """
     # Hard version: Standard round (non-differentiable)
     hard_round = jnp.round(x, decimals)
+
+    # If not differentiable mode, return hard result directly
+    if not differentiable:
+        return hard_round
+
     # Scale to make decimal rounding equivalent to integer rounding
-    scale = 10.0 ** decimals
+    scale = 10.0**decimals
     x_scaled = x * scale
     # Soft version: Use sigmoid for each fractional part
     fractional = x_scaled - jnp.floor(x_scaled)
     # This sigmoid approaches 1.0 when fractional >= 0.5
     # Combine floor and ceiling with sigmoid weighting
-    soft_round = (jnp.floor(x_scaled) + jax.nn.sigmoid(temperature * (fractional - 0.5))) / scale
+    soft_round = (
+        jnp.floor(x_scaled) + jax.nn.sigmoid(temperature * (fractional - 0.5))
+    ) / scale
     # Apply straight-through gradient trick
     return straight_through(hard_round, x)
 
 
-def differentiable_ceil(x, temperature=1.0):
+def differentiable_ceil(x, temperature=1.0, differentiable=True):
     """
     A differentiable approximation of ceiling function.
 
     Args:
         x: Input tensor
         temperature: Controls the steepness of the sigmoid at integer boundaries
+        differentiable: If False, return hard result directly without gradient approximation
 
     Returns:
         Tensor with ceiling values in forward pass but differentiable gradients
     """
     # Hard version: Standard ceiling (non-differentiable)
     hard_ceil = jnp.ceil(x)
+
+    # If not differentiable mode, return hard result directly
+    if not differentiable:
+        return hard_ceil
+
     # Soft version:
     # The fractional part determines how close we are to the next integer
     fractional = x - jnp.floor(x)
@@ -195,19 +236,25 @@ def differentiable_ceil(x, temperature=1.0):
     return straight_through(hard_ceil, x)
 
 
-def differentiable_floor(x, temperature=1.0):
+def differentiable_floor(x, temperature=1.0, differentiable=True):
     """
     A differentiable approximation of floor function.
 
     Args:
         x: Input tensor
         temperature: Controls the steepness of the sigmoid at integer boundaries
+        differentiable: If False, return hard result directly without gradient approximation
 
     Returns:
         Tensor with floor values in forward pass but differentiable gradients
     """
     # Hard version: Standard floor (non-differentiable)
     hard_floor = jnp.floor(x)
+
+    # If not differentiable mode, return hard result directly
+    if not differentiable:
+        return hard_floor
+
     # Soft version:
     # The fractional part determines how close we are to the previous integer
     fractional = jnp.ceil(x) - x
@@ -221,7 +268,9 @@ def differentiable_floor(x, temperature=1.0):
 
 
 # TODO - this is broken
-def differentiable_one_hot_index_update(array, indices, values, temperature):
+def differentiable_one_hot_index_update(
+    array, indices, values, temperature, differentiable=True
+):
     """
     A differentiable version of array.at[indices].set(values).
 
@@ -229,24 +278,31 @@ def differentiable_one_hot_index_update(array, indices, values, temperature):
         array: Base array to update
         indices: Indices where to set values
         values: Values to set at indices
+        temperature: Controls the sharpness of the approximation (unused currently)
+        differentiable: If False, return hard result directly without gradient approximation
 
     Returns:
         Updated array that maintains gradient flow
     """
     # Hard version: Standard index update (non-differentiable for indices)
-    hard_result = array.at[indices].set(values)
+    hard_result = array.at[indices.astype(dtype_config.INDEX_DTYPE)].set(values)
+
+    # If not differentiable mode, return hard result directly
+    if not differentiable:
+        return hard_result
+
     # Create a soft version using a mask
     # This isn't strictly necessary for most cases since typically
     # the values and indices are fixed, but it helps if indices depend on learned parameters
     mask = jnp.zeros_like(array)
-    mask = mask.at[indices].set(1.0)
+    mask = mask.at[indices.astype(dtype_config.INDEX_DTYPE)].set(1.0)
     # For each position, either keep original value or use new value based on mask
     soft_result = (1 - mask) * array + mask * values
     # Apply straight-through gradient trick
     return straight_through(hard_result, soft_result)
 
 
-def differentiable_index(array, index, temperature=1.0):
+def differentiable_index(array, index, temperature=1.0, differentiable=True):
     """
     Differentiable indexing along the 0-axis (first dimension) with windowed weight calculation.
     Only calculates weights for indices within a window around the target index.
@@ -255,12 +311,18 @@ def differentiable_index(array, index, temperature=1.0):
         array: Input array/tensor to index into
         index: Index to select (can be fractional)
         temperature: Controls sharpness of selection (larger = sharper)
+        differentiable: If False, return hard result directly without gradient approximation
 
     Returns:
         The indexed value with gradient flow through the index
     """
     # Get hard result for forward pass
-    hard_result = array[jnp.asarray(index).astype(jnp.int32)]
+    hard_result = array[jnp.asarray(index).astype(dtype_config.INDEX_DTYPE)]
+
+    # If not differentiable mode, return hard result directly
+    if not differentiable:
+        return hard_result
+
     # Ensure index is a float for gradient flow
     index = jnp.asarray(index, dtype=jnp.float32)
     # Get the length of the first dimension
@@ -269,7 +331,7 @@ def differentiable_index(array, index, temperature=1.0):
     # Use squared distance but scale it properly with temperature
     distances = positions - index
     # Scaling factor should make temperature DECREASE the gradient magnitude
-    weights_logits = -(distances ** 2) * temperature
+    weights_logits = -(distances**2) * temperature
     weights_logits = -distances * temperature
     # Subtract max for numerical stability before exp
     weights_logits = weights_logits - jnp.max(weights_logits)
@@ -285,7 +347,7 @@ def differentiable_index(array, index, temperature=1.0):
     return straight_through(hard_result, soft_result)
 
 
-def differentiable_indexing(array, indices, temperature=1.0):
+def differentiable_indexing(array, indices, temperature=1.0, differentiable=True):
     """
     Unified differentiable indexing function that supports:
     1. Single indices: array[index]
@@ -296,23 +358,32 @@ def differentiable_indexing(array, indices, temperature=1.0):
         indices: Either a single index, a tuple of (start, size) for slicing,
                  or an array of indices
         temperature: Controls sharpness of selection (larger = sharper)
+        differentiable: If False, return hard result directly without gradient approximation
 
     Returns:
         Indexed values with gradient flow through indices
     """
-    if hasattr(indices, 'shape') and indices.shape:
+    if hasattr(indices, "shape") and indices.shape:
         # Multiple arbitrary indices as list/tuple or JAX array with multiple indices
         # Multiple arbitrary indices
-        return jax.vmap(lambda idx: differentiable_index(
-            array, idx, temperature
-        ))(indices)
+        return jax.vmap(
+            lambda idx: differentiable_index(array, idx, temperature, differentiable)
+        )(indices)
     else:
         # Single index
-        return differentiable_index(array, indices, temperature)
+        return differentiable_index(array, indices, temperature, differentiable)
 
 
-#@partial(jax.jit, static_argnums=(4, 5,))
-def differentiable_cond(condition, true_fn, false_fn, operand, threshold=0.0, temperature=1.0):
+# @partial(jax.jit, static_argnums=(4, 5, 6))
+def differentiable_cond(
+    condition,
+    true_fn,
+    false_fn,
+    operand,
+    threshold=0.0,
+    temperature=1.0,
+    differentiable=True,
+):
     """
     A differentiable version of jax.lax.cond that is fully jittable.
 
@@ -323,12 +394,17 @@ def differentiable_cond(condition, true_fn, false_fn, operand, threshold=0.0, te
         operand: Operand to pass to both functions
         threshold: Condition threshold value
         temperature: Controls the sharpness of the sigmoid approximation
+        differentiable: If False, return hard result directly without gradient approximation
 
     Returns:
         Result that behaves like jax.lax.cond in forward pass but is differentiable
     """
     # Hard result for forward pass
     hard_result = jax.lax.cond(condition, true_fn, false_fn, operand)
+
+    # If not differentiable mode, return hard result directly
+    if not differentiable:
+        return hard_result
 
     # Get results from both branches using JAX control flow
     true_result = true_fn(operand)
@@ -339,15 +415,11 @@ def differentiable_cond(condition, true_fn, false_fn, operand, threshold=0.0, te
     # Interpolate between results for gradient computation
     # Use tree_map to handle nested structures
     soft_result = jax.tree.map(
-        lambda t, f: soft_weight * t + (1 - soft_weight) * f,
-        true_result, false_result
+        lambda t, f: soft_weight * t + (1 - soft_weight) * f, true_result, false_result
     )
 
     # Apply straight-through trick with jax.lax.stop_gradient
-    return jax.tree.map(
-        straight_through,
-        hard_result, soft_result
-    )
+    return jax.tree.map(straight_through, hard_result, soft_result)
 
 
 # def differentiable_cond(condition, true_fn, false_fn, operand, threshold=0.0, temperature=1.0):
