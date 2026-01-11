@@ -1,9 +1,13 @@
+import jax.numpy as jnp
 from gymnax.environments import spaces
+
+from xlron.dtype_config import LARGE_FLOAT_DTYPE
 from xlron.environments.env_funcs import (
     init_rsa_request_array, init_link_slot_array, init_link_slot_mask, init_link_slot_departure_array, init_traffic_matrix,
     init_graph_tuple, init_path_index_array, init_link_snr_array,
     init_channel_centre_bw_array, init_channel_power_array,
-    init_active_lightpaths_array, init_active_lightpaths_array_departure, get_paths_obs_gn_model
+    init_active_lightpaths_array, init_active_lightpaths_array_departure, get_paths_obs_gn_model,
+    calculate_throughput_from_active_lightpaths,
 )
 from xlron.environments.dataclasses import *
 from xlron.environments.wrappers import *
@@ -35,6 +39,7 @@ class RSAGNModelEnv(RSAEnv):
         super().__init__(key, params, traffic_matrix=traffic_matrix, list_of_requests=list_of_requests, laplacian_matrix=laplacian_matrix)
         state = RSAGNModelEnvState(
             current_time=0,
+            arrival_time=0,
             holding_time=0,
             total_timesteps=0,
             total_requests=-1,
@@ -59,12 +64,30 @@ class RSAGNModelEnv(RSAEnv):
             launch_power_array=launch_power_array,
             active_lightpaths_array=init_active_lightpaths_array(params),
             active_lightpaths_array_departure=init_active_lightpaths_array_departure(params),
-            current_throughput=0.,
+            throughput=jnp.array(0., dtype=init_link_snr_array(params).dtype),
         )
         self.initial_state = state.replace(graph=init_graph_tuple(state, params, laplacian_matrix))
 
+
+    @partial(jax.jit, static_argnums=(0, 2,))
+    def reset(
+        self, key: chex.PRNGKey, params: Optional[RSAEnvParams] = None, state: Optional[RSAEnvState] = None
+    ) -> Tuple[chex.Array, RSAEnvState]:
+        """Reset the environment and log the total throughput at episode end.
+        """
+        throughput_condition = params.monitor_active_lightpaths and state is not None
+        throughput = calculate_throughput_from_active_lightpaths(state, params) if (
+            throughput_condition) else jnp.array(0.)
+        obs, state = super().reset(key, params, state)
+        state = state.replace(throughput=throughput)
+        jax.debug.print("resetting env, throughput: {}", throughput, ordered=True)
+        return obs, state
+
     @partial(jax.jit, static_argnums=(0, 2,))
     def get_obs(self, state: RSAGNModelEnvState, params: RSAGNModelEnvParams) -> chex.Array:
+        # Monitoring active lightpaths is used to track total throughput at end of episode
+        if params.monitor_active_lightpaths:
+           return jnp.array(0)
         return get_paths_obs_gn_model(state, params)
 
     @staticmethod

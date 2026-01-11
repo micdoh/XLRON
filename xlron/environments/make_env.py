@@ -1,28 +1,47 @@
 import absl
 from box import Box
+from typing import Union, Optional, Any
+from absl.flags import FlagValues
 from xlron.environments.env_funcs import (
     init_path_link_array,
     convert_node_probs_to_traffic_matrix, make_graph, init_path_length_array, init_modulations_array,
     init_path_se_array, required_slots, init_values_bandwidth, normalise_traffic_matrix, init_link_length_array,
     init_path_capacity_array, pad_array, init_link_length_array_gn_model, generate_source_dest_pairs,
-    init_list_of_requests,
+    init_list_of_requests, init_transceiver_amplifier_noise_arrays,
 )
 from xlron.environments.dataclasses import *
 from xlron.environments.wrappers import *
 from xlron.environments import *
 from xlron.environments.gn_model.isrs_gn_model import from_dbm
+from xlron.dtype_config import COMPUTE_DTYPE, PARAMS_DTYPE, LARGE_INT_DTYPE, LARGE_FLOAT_DTYPE, \
+    SMALL_INT_DTYPE, SMALL_FLOAT_DTYPE, MED_INT_DTYPE
 
 
-def process_config(config: Optional[Union[dict, absl.flags.FlagValues]], **kwargs) -> dict:
+def process_config(config: Optional[Union[dict, FlagValues]], **kwargs: Any) -> Box:
     """Allow configuration to be a dict, absl.flags.FlagValues, or kwargs.
-    Return a Box that can be indexed like a dict or accessed like an object."""
+    Return a Box that can be indexed like a dict or accessed like an object.
+    Additionally, set up incremental logging of metrics."""
     config = config or {}
     # Allow config to be a dict or absl.flags.FlagValues
-    if isinstance(config, absl.flags.FlagValues):
+    if isinstance(config, FlagValues):
         config = {k: v.value for k, v in config.__flags.items()}
     # if kwargs are passed, then include them in config
     config.update(kwargs)
-    config = Box(config)  # Convert for easier access with dot or dict notation
+    config = Box(config)
+    # This if statement is just to ensure compatibility with some tests that don't define all config options
+    if config.get('TOTAL_TIMESTEPS', False):
+        config.TOTAL_TIMESTEPS = int(config.TOTAL_TIMESTEPS)
+        # For incremental logging, we need to set the number of increments
+        config.STEPS_PER_INCREMENT = min(config.TOTAL_TIMESTEPS, config.STEPS_PER_INCREMENT)
+        n_increments = config.TOTAL_TIMESTEPS // config.STEPS_PER_INCREMENT
+        config.NUM_INCREMENTS = n_increments
+        config.TOTAL_TIMESTEPS = n_increments * config.STEPS_PER_INCREMENT
+        # Set derived config values
+        config.MINIBATCH_SIZE = config.ROLLOUT_LENGTH * config.NUM_ENVS // config.NUM_MINIBATCHES
+        config.NUM_UPDATES = config.STEPS_PER_INCREMENT // config.ROLLOUT_LENGTH // config.NUM_ENVS
+        # Update these values to show true number of steps completed
+        config.STEPS_PER_INCREMENT = config.ROLLOUT_LENGTH * config.NUM_ENVS * config.NUM_UPDATES
+        config.TOTAL_TIMESTEPS = n_increments * config.STEPS_PER_INCREMENT
     return config
 
 
@@ -76,7 +95,7 @@ def make(config: Optional[Union[dict, absl.flags.FlagValues]], **kwargs) -> Tupl
     values_bw = config.get("values_bw", None)
     node_probabilities = config.get("node_probabilities", None)
     if values_bw:
-        values_bw = [float(val) for val in values_bw]
+        values_bw = [int(val) for val in values_bw]
     slot_size = config.get("slot_size", 12.5)
     min_bw = config.get("min_bw", 25)
     max_bw = config.get("max_bw", 100)
@@ -100,7 +119,6 @@ def make(config: Optional[Union[dict, absl.flags.FlagValues]], **kwargs) -> Tupl
     gamma = config.get("gamma", 1.2) * 1e-3
     span_length = config.get("span_length", 100) * 1e3
     lambda0 = config.get("lambda0", 1550) * 1e-9
-    B = slot_size * link_resources  # Total modulated bandwidth
 
     if config.get("aggregate_slots", 1) > 1 and config.get("EVAL_HEURISTIC", False):
         raise ValueError("Cannot aggregate slots and evaluate heuristic")
@@ -118,7 +136,11 @@ def make(config: Optional[Union[dict, absl.flags.FlagValues]], **kwargs) -> Tupl
 
     # GN model parameters
     max_span_length = config.get("max_span_length", 100e3)
-    ref_lambda = config.get("ref_lambda", 1577.5e-9)  # centre of C+L bands (1530-1625nm)
+    ref_lambda = config.get("ref_lambda", 1564e-9)  # 1577.5nm centre of C+L bands (1530-1625nm) or
+    # 1564nm for centre of 15THz of L,C,partial-S (1503-1625nm)
+    # 1447.5nm for centre of C-band (1530-1565nm)
+    # Partial S-band is 1503-1530nm = 195.94 - 199.46THz = 3.52THz
+    # C-band is 1530-1565nm = 191.56 - 195.94THz = 4.24THz
     nonlinear_coeff = config.get("nonlinear_coeff", 1.2 / 1e3)
     raman_gain_slope = config.get("raman_gain_slope", 0.028 / 1e3 / 1e12)
     attenuation = config.get("attenuation", 0.2 / 4.343 / 1e3)
@@ -127,10 +149,11 @@ def make(config: Optional[Union[dict, absl.flags.FlagValues]], **kwargs) -> Tupl
     dispersion_slope = config.get("dispersion_slope", 0.067 * 1e-12 / 1e-9 / 1e3 / 1e-9)
     coherent = config.get("coherent", False)
     noise_figure = config.get("noise_figure", 4)
-    interband_gap_width = config.get("interband_gap_width", 100)
-    gap_width_slots = int(math.ceil(interband_gap_width / slot_size))
-    interband_gap_start = config.get("interband_gap_start", 0)
-    gap_start_slots = int(math.ceil(interband_gap_start / slot_size))
+    uniform_spans = config.get("uniform_spans", True)
+    interband_gap_width = [200, 200] if config.get("interband_gap_width", None) is None else []
+    gap_width_slots = [int(math.ceil(width / slot_size)) for width in interband_gap_width]
+    interband_gap_start = [4425, 8425] if config.get("interband_gap_start", None) is None else []
+    gap_start_slots = [int(math.ceil(start / slot_size)) for start in interband_gap_start]
     mod_format_correction = config.get("mod_format_correction", True)
     num_roadms = config.get("num_roadms", 1)
     roadm_loss = config.get("roadm_loss", 18)
@@ -140,10 +163,13 @@ def make(config: Optional[Union[dict, absl.flags.FlagValues]], **kwargs) -> Tupl
     max_power = config.get("max_power", 9)
     min_power = config.get("min_power", -5)
     step_power = config.get("step_power", 1)
-    default_launch_power = float(from_dbm(config.get("launch_power", 0.5)))
+    max_power_per_fibre = config.get("max_power_per_fibre", 21.0)
+    default_launch_power = float(from_dbm(max_power_per_fibre)) / link_resources
     optimise_launch_power = config.get("optimise_launch_power", False)
     traffic_array = config.get("traffic_array", False)
     launch_power_array = config.get("launch_power_array", None)
+    pack_path_bits = config.get("pack_path_bits", False)
+    relative_arrival_times = config.get("relative_arrival_times", False)
 
     # Differentiable approximation params
     temperature = config.get("temperature", 1.0)
@@ -156,6 +182,12 @@ def make(config: Optional[Union[dict, absl.flags.FlagValues]], **kwargs) -> Tupl
     graph = make_graph(topology_name, topology_directory=config.get("topology_directory", None))
     traffic_intensity = config.get("traffic_intensity", 0)
     mean_service_holding_time = config.get("mean_service_holding_time", 10)
+
+    if mean_service_holding_time / load < 0.02 and isinstance(LARGE_FLOAT_DTYPE, jnp.bfloat16):
+        raise ValueError(
+            f"Raio of mean service holding time ({mean_service_holding_time}) to load ({load}) is too small for bfloat16. "
+            f"Consider using float32 or increasing the mean service holding time."
+        )
 
     # Set traffic intensity / load
     if traffic_intensity:
@@ -177,14 +209,14 @@ def make(config: Optional[Union[dict, absl.flags.FlagValues]], **kwargs) -> Tupl
     # 4. Fixed power scaled by path length.
     if env_type in ["rmsa_gn_model", "rsa_gn_model"]:
         # default_launch_power_array = jnp.array([default_launch_power,])
-        default_launch_power_array = jnp.full((k,), default_launch_power)
+        default_launch_power_array = jnp.full((k,), default_launch_power, dtype=LARGE_FLOAT_DTYPE)
         if launch_power_type == "fixed":
             # Same power for all channels
             launch_power_array = default_launch_power_array if launch_power_array is None else launch_power_array
             launch_power_type = 1
         elif launch_power_type == "tabular":
             # The power of a channel is determined by the path it takes
-            launch_power_array = jnp.zeros(path_link_array.shape[0]) \
+            launch_power_array = jnp.zeros(path_link_array.shape[0], dtype=LARGE_FLOAT_DTYPE) \
                 if launch_power_array is None else launch_power_array
             launch_power_type = 2
         elif launch_power_type == "rl":
@@ -243,6 +275,7 @@ def make(config: Optional[Union[dict, absl.flags.FlagValues]], **kwargs) -> Tupl
         # that the bandwidth request is still considered when updating link_capacity_array
         guardband = 0
         slot_size = int(max(values_bw))
+        total_bandwidth = slot_size * link_resources * 1e9
     elif env_type == "vone" and slot_size == 1:
         consider_modulation_format = False
     else:
@@ -254,7 +287,7 @@ def make(config: Optional[Union[dict, absl.flags.FlagValues]], **kwargs) -> Tupl
 
     # Automated calculation of max slots requested
     if consider_modulation_format:
-        modulations_array = init_modulations_array(config.get("modulations_csv_filepath", None))
+        modulations_array = init_modulations_array(config.get("modulations_csv_filepath", None)).astype(LARGE_FLOAT_DTYPE)
         if weight is None:  # If paths aren't to be sorted by length alone
             path_link_array = init_path_link_array(graph, k, disjoint=disjoint_paths, directed=graph.is_directed(),
                                                    weight=weight, modulations_array=modulations_array,
@@ -272,17 +305,17 @@ def make(config: Optional[Union[dict, absl.flags.FlagValues]], **kwargs) -> Tupl
             path_capacity_array = init_path_capacity_array(
                 link_length_array, path_link_array, min_request=min(values_bw), R_s=100e9, scale_factor=scale_factor,
                 alpha=alpha, NF=amplifier_noise_figure, beta_2=beta_2, gamma=gamma, L_s=span_length, lambda0=lambda0,
-                B=B*1e9,
+                B=total_bandwidth,
             )
             max_requests = int(scale_factor * max_requests)
         else:
             # If considering just RSA without physical layer considerations
-            link_length_array = jnp.ones((num_links, 1))
+            link_length_array = jnp.ones((num_links, 1)).astype(MED_INT_DTYPE)
         max_slots = required_slots(max_bw, 1, slot_size, guardband=guardband, temperature=temperature)
 
     if env_type == "rsa_gn_model":
         consider_modulation_format = False
-        path_se_array = jnp.array([1])
+        path_se_array = jnp.array([1]).astype(MED_INT_DTYPE)
         max_slots = required_slots(max_bw, 1, slot_size, guardband=guardband, temperature=temperature)
 
     if incremental_loading:
@@ -290,6 +323,10 @@ def make(config: Optional[Union[dict, absl.flags.FlagValues]], **kwargs) -> Tupl
 
     # Define edges for use with heuristics and GNNs
     edges = jnp.array(sorted(graph.edges))
+
+    if pack_path_bits:  # This saves memory by packing the path link array into a bit array
+        path_link_array = path_link_array.astype(LARGE_FLOAT_DTYPE)
+        path_link_array = jnp.packbits(path_link_array, axis=1)
 
     laplacian_matrix = jnp.array(nx.directed_laplacian_matrix(graph)) if graph.is_directed() \
         else jnp.array(nx.laplacian_matrix(graph).todense())
@@ -326,8 +363,13 @@ def make(config: Optional[Union[dict, absl.flags.FlagValues]], **kwargs) -> Tupl
         log_actions=log_actions,
         traffic_array=traffic_array,
         disable_node_features=disable_node_features,
+        pack_path_bits=pack_path_bits,
+        relative_arrival_times=relative_arrival_times,
         temperature=temperature,
     )
+
+    gap_starts = HashableArrayWrapper(jnp.array(gap_start_slots)) if not remove_array_wrappers else jnp.array(gap_start_slots)
+    gap_widths = HashableArrayWrapper(jnp.array(gap_width_slots)) if not remove_array_wrappers else jnp.array(gap_start_slots)
 
     if env_type == "vone":
         env_params = VONEEnvParams
@@ -341,18 +383,27 @@ def make(config: Optional[Union[dict, absl.flags.FlagValues]], **kwargs) -> Tupl
         env_params = RWALightpathReuseEnvParams
     elif env_type == "rsa_multiband":
         env_params = RSAMultibandEnvParams
-        params_dict.update(gap_start=gap_start_slots, gap_width=gap_width_slots)
+        params_dict.update(gap_starts=gap_starts, gap_widths=gap_widths)
     elif "gn_model" in env_type:
         env_params = RSAGNModelEnvParams
+        transceiver_snr, amplifier_noise_figure = init_transceiver_amplifier_noise_arrays(
+            link_resources, ref_lambda, slot_size, config.get("noise_data_filepath", None),
+        )
+        transceiver_snr, amplifier_noise_figure = HashableArrayWrapper(transceiver_snr), \
+            HashableArrayWrapper(amplifier_noise_figure) if not remove_array_wrappers else (
+            transceiver_snr, amplifier_noise_figure)
         params_dict.update(
             ref_lambda=ref_lambda, max_spans=max_spans, max_span_length=max_span_length,
-            default_launch_power=default_launch_power,
+            default_launch_power=default_launch_power, max_power_per_fibre=max_power_per_fibre,
             nonlinear_coeff=nonlinear_coeff, raman_gain_slope=raman_gain_slope, attenuation=attenuation,
-            attenuation_bar=attenuation_bar, dispersion_coeff=dispersion_coeff, noise_figure=noise_figure,
-            dispersion_slope=dispersion_slope, coherent=coherent, gap_start=gap_start_slots, gap_width=gap_width_slots,
+            attenuation_bar=attenuation_bar, dispersion_coeff=dispersion_coeff,
+            dispersion_slope=dispersion_slope, coherent=coherent, gap_starts=gap_starts, gap_widths=gap_widths,
             roadm_loss=roadm_loss, num_roadms=num_roadms, num_spans=num_spans, launch_power_type=launch_power_type,
             snr_margin=snr_margin, last_fit=config.get("last_fit", False), max_power=max_power, min_power=min_power,
             step_power=step_power, max_snr=max_snr, mod_format_correction=mod_format_correction,
+            monitor_active_lightpaths=config.get("monitor_active_lightpaths", False),
+            min_snr=config.get("min_snr", 7.0), fec_threshold=config.get("fec_threshold", 0.28),
+            transceiver_snr=transceiver_snr, amplifier_noise_figure=amplifier_noise_figure, uniform_spans=uniform_spans,
         )
         if env_type == "rmsa_gn_model":
             env_params = RMSAGNModelEnvParams

@@ -1,12 +1,14 @@
 import chex
+import os
 import jax
 import jax.numpy as jnp
 import numpy as np
 import pandas as pd
-from typing import Any, Callable, Union, Tuple
+from typing import Any, Callable, Union, Tuple, Dict
 import absl
 import box
 import optax
+from box import Box
 from flax import core, struct
 from flax.linen.fp8_ops import OVERWRITE_WITH_GRADIENT
 from flax.training import orbax_utils
@@ -18,14 +20,19 @@ import math
 import pickle
 import subprocess
 import matplotlib.pyplot as plt
+from jax import Array
 
 from xlron.environments.gn_model import *
 from xlron.environments.make_env import make
 from xlron.models.models import ActorCriticGNN, ActorCriticMLP, LaunchPowerActorCriticMLP
 from xlron.environments.dataclasses import EnvState, EvalState
+from xlron.environments.wrappers import TimeIt
 from xlron.environments.env_funcs import init_link_length_array, make_graph, process_path_action, get_launch_power, get_paths
 from xlron.heuristics.heuristics import ksp_ff, ff_ksp, kmc_ff, kmf_ff, ksp_mu, mu_ksp, kca_ff, kme_ff, ksp_bf, bf_ksp, ksp_lf
+from xlron.dtype_config import COMPUTE_DTYPE, PARAMS_DTYPE, LARGE_INT_DTYPE, LARGE_FLOAT_DTYPE, \
+    SMALL_INT_DTYPE, SMALL_FLOAT_DTYPE, MED_INT_DTYPE
 
+# TODO - Add all possible metrics here (they will all be registered in wandb) then just add a try except when adding them to processed data
 metrics = [
     "returns",
     "lengths",
@@ -36,15 +43,33 @@ metrics = [
     "utilisation",
     "service_blocking_probability",
     "bitrate_blocking_probability",
+    "throughput",  # Only for RSA GN Model
+    "launch_power",
+    "path_snr",
+    "request_source",
+    "request_dest",
+    "request_data_rate",
+    "arrival_time",
+    "departure_time",
+    "path_indices",
+    "slot_indices",
+    "returns",
+    "path_links",
+    "path_spectral_efficiency",
+    "required_slots",
+    "path_length",
+    "num_hops",
 ]
 loss_metrics = [
     "loss/total_loss",
-    "loss/loss_actor",
+    "loss/actor_loss",
     "loss/value_loss",
     "loss/entropy",
     "loss/gae",
     "loss/ratio",
     "loss/log_prob",
+    "loss/entropy_loss_scaled",
+    "loss/value_loss_scaled",
 ]
 
 class TrainState(struct.PyTreeNode):
@@ -72,6 +97,11 @@ class TrainState(struct.PyTreeNode):
     params: core.FrozenDict[str, Any] = struct.field(pytree_node=True)
     tx: optax.GradientTransformation = struct.field(pytree_node=False)
     opt_state: optax.OptState = struct.field(pytree_node=True)
+    ent_schedule: Callable = struct.field(pytree_node=False)
+    avg_reward: jax.Array = struct.field(pytree_node=True, default=0.0)
+    reward_stepsize: jax.Array = struct.field(pytree_node=True, default=0.01)
+    reward_stepsize_init: jax.Array = struct.field(pytree_node=True, default=0.01)
+    reward_stepsize_offset: jax.Array = struct.field(pytree_node=True, default=1.0)
 
     def apply_gradients(self, *, grads, **kwargs):
         """Updates ``step``, ``params``, ``opt_state`` and ``**kwargs`` in return value.
@@ -132,6 +162,15 @@ class TrainState(struct.PyTreeNode):
             tx=tx,
             opt_state=opt_state,
             **kwargs,
+        )
+
+    def update_step_size(self):
+        """Updates the step size used for reward centering."""
+        reward_stepsize_offset = self.reward_stepsize_offset + self.reward_stepsize_init * (1 - self.reward_stepsize_offset)
+        reward_stepsize = self.reward_stepsize_init / reward_stepsize_offset
+        return self.replace(
+            reward_stepsize=reward_stepsize,
+            reward_stepsize_offset=reward_stepsize_offset,
         )
 
 
@@ -199,8 +238,8 @@ def save_model(train_state: TrainState, run_name, config: Union[box.Box, absl.fl
     orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
     save_args = orbax_utils.save_args_from_target(save_data)
     # Get path to current file
-    model_path = pathlib.Path(config.MODEL_PATH) if config.MODEL_PATH else pathlib.Path(__file__).resolve().parents[
-                                                                             2] / "models" / run_name
+    model_path = pathlib.Path(config.MODEL_PATH) if config.MODEL_PATH is not None else (
+            pathlib.Path(__file__).resolve().parents[2] / "models" / run_name)
     # If model_path dir already exists, append a number to the end
     i = 1
     model_path_og = model_path
@@ -223,30 +262,43 @@ def init_network(config, env, env_state, env_params):
                                  activation=config.ACTIVATION,
                                  num_layers=config.NUM_LAYERS,
                                  num_units=config.NUM_UNITS,
-                                 layer_norm=config.LAYER_NORM, )
-        init_x = tuple([jnp.zeros(env.observation_space(env_params).n)])
+                                 layer_norm=config.mlp_layer_norm, )
+        init_x = tuple([jnp.zeros(env.observation_space(env_params).n, dtype=PARAMS_DTYPE)])
     elif config.env_type.lower() in ["rsa", "rmsa", "rwa", "deeprmsa", "rwa_lightpath_reuse", "rsa_gn_model", "rmsa_gn_model", "rsa_multiband"]:
         if config.USE_GNN:
             if "gn_model" in config.env_type.lower() and config.output_globals_size_actor > 0:
-                output_globals_size_actor = int((env_params.max_power - env_params.min_power) / env_params.step_power) + 1 if config.discrete_launch_power else 1
+                global_output_size_actor = int((env_params.max_power - env_params.min_power) / env_params.step_power) + 1 if config.discrete_launch_power else 1
             else:
-                output_globals_size_actor = config.output_globals_size_actor
+                global_output_size_actor = config.global_output_size_actor
             network = ActorCriticGNN(
                 activation=config.ACTIVATION,
                 num_layers=config.NUM_LAYERS,
                 num_units=config.NUM_UNITS,
-                gnn_latent=config.gnn_latent,
                 message_passing_steps=config.message_passing_steps,
                 # output_edges_size must equal number of slot actions
-                output_edges_size_actor=math.ceil(env_params.link_resources / env_params.aggregate_slots),
-                output_nodes_size_actor=config.output_nodes_size_actor,
-                output_globals_size_actor=output_globals_size_actor,
-                output_edges_size_critic=config.output_edges_size_critic,
-                output_nodes_size_critic=config.output_nodes_size_critic,
-                output_globals_size_critic=config.output_globals_size_critic,
-                gnn_mlp_layers=config.gnn_mlp_layers,
+                mlp_layers=config.mlp_layers,
+                mlp_latent=config.mlp_latent,
+                edge_embedding_size=config.edge_embedding_size,
+                edge_mlp_layers=config.edge_mlp_layers,
+                edge_mlp_latent=config.edge_mlp_latent,
+                edge_output_size_actor=math.ceil(env_params.link_resources / env_params.aggregate_slots),
+                edge_output_size_critic=config.edge_output_size_critic,
+                global_embedding_size=config.global_embedding_size,
+                global_mlp_layers=config.global_mlp_layers,
+                global_mlp_latent=config.global_mlp_latent,
+                global_output_size_actor=global_output_size_actor,
+                global_output_size_critic=config.global_output_size_critic,
+                node_embedding_size=config.node_embedding_size,
+                node_mlp_layers=config.node_mlp_layers,
+                node_mlp_latent=config.node_mlp_latent,
+                node_output_size_actor=config.node_output_size_actor,
+                node_output_size_critic=config.node_output_size_critic,
+                attn_mlp_layers=config.attn_mlp_layers,
+                attn_mlp_latent=config.attn_mlp_latent,
+                use_attention=config.attn_mlp_layers > 0,
+                gnn_layer_norm=config.gnn_layer_norm,
+                mlp_layer_norm=config.mlp_layer_norm,
                 normalise_by_link_length=config.normalize_by_link_length,
-                mlp_layer_norm=config.LAYER_NORM,
                 vmap=False,
                 discrete=config.discrete_launch_power,
                 min_power_dbm=config.min_power,
@@ -263,22 +315,22 @@ def init_network(config, env, env_state, env_params):
                 activation=config.ACTIVATION,
                 num_layers=config.NUM_LAYERS,
                 num_units=config.NUM_UNITS,
-                layer_norm=config.LAYER_NORM,
+                layer_norm=config.mlp_layer_norm,
                 discrete=config.discrete_launch_power,
                 min_power_dbm=config.min_power,
                 max_power_dbm=config.max_power,
                 step_power_dbm=config.step_power,
                 k_paths=env_params.k_paths,
             )
-            init_x = tuple([jnp.zeros(env.observation_space(env_params).n)])
+            init_x = tuple([jnp.zeros(env.observation_space(env_params).n, dtype=PARAMS_DTYPE)])
         else:
             network = ActorCriticMLP(env.action_space(env_params).n,
                                      activation=config.ACTIVATION,
                                      num_layers=config.NUM_LAYERS,
                                      num_units=config.NUM_UNITS,
-                                     layer_norm=config.LAYER_NORM, )
+                                     layer_norm=config.mlp_layer_norm, )
 
-            init_x = tuple([jnp.zeros(env.observation_space(env_params).n)])
+            init_x = tuple([jnp.zeros(env.observation_space(env_params).n, dtype=PARAMS_DTYPE)])
     else:
         raise ValueError(f"Invalid environment type {config.env_type}")
     return network, init_x
@@ -288,8 +340,8 @@ def experiment_data_setup(config: absl.flags.FlagValues, rng: chex.PRNGKey) -> T
     # INIT ENV
     env, env_params = make(config)
     rng, rng_step, rng_epoch, warmup_key, reset_key, network_key = jax.random.split(rng, 6)
-    reset_key = jax.random.split(reset_key, config.NUM_ENVS)
-    obsv, env_state = jax.vmap(env.reset, in_axes=(0, None))(reset_key, env_params)
+    reset_key = jax.random.split(reset_key, config.NUM_ENVS) if config.NUM_ENVS > 1 else reset_key
+    obsv, env_state = jax.vmap(env.reset, in_axes=(0, None))(reset_key, env_params) if config.NUM_ENVS > 1 else env.reset(reset_key, env_params)
     obsv = (env_state.env_state, env_params) if config.USE_GNN else tuple([obsv])
 
     # TRAINING MODE
@@ -297,7 +349,9 @@ def experiment_data_setup(config: absl.flags.FlagValues, rng: chex.PRNGKey) -> T
 
         # INIT NETWORK
         network, init_x = init_network(config, env, env_state, env_params)
-        init_x = (jax.tree.map(lambda x: x[0], init_x[0]), init_x[1]) if config.USE_GNN else init_x
+        def index_fn(x):
+            return x[0] if config.NUM_ENVS > 1 else x
+        init_x = (jax.tree.map(index_fn, init_x[0]), init_x[1]) if config.USE_GNN else init_x
 
         if config.RETRAIN_MODEL:
             config_dict = config.to_dict() if isinstance(config, box.Box) else config
@@ -308,9 +362,10 @@ def experiment_data_setup(config: absl.flags.FlagValues, rng: chex.PRNGKey) -> T
 
         # INIT LEARNING RATE SCHEDULE AND OPTIMIZER
         lr_schedule = make_lr_schedule(config)
+        ent_schedule = make_ent_schedule(config)
         tx = optax.chain(
             optax.clip_by_global_norm(config.MAX_GRAD_NORM),
-            optax.adam(learning_rate=lr_schedule, eps=config.ADAM_EPS, b1=config.ADAM_BETA1, b2=config.ADAM_BETA2),
+            optax.adam(learning_rate=lr_schedule, eps=config.ADAM_EPS, b1=config.ADAM_BETA1, b2=config.ADAM_BETA2, mu_dtype=COMPUTE_DTYPE),
         )
 
         runner_state = TrainState.create(
@@ -318,6 +373,8 @@ def experiment_data_setup(config: absl.flags.FlagValues, rng: chex.PRNGKey) -> T
             sample_fn=network.sample_action,
             params=network_params.to_dict() if isinstance(network_params, box.Box) else network_params,
             tx=tx,
+            ent_schedule=ent_schedule,
+            avg_reward=jnp.array(config.INITIAL_AVERAGE_REWARD, dtype=LARGE_FLOAT_DTYPE),
         )
 
     # EVALUATION MODE
@@ -336,10 +393,10 @@ def experiment_data_setup(config: absl.flags.FlagValues, rng: chex.PRNGKey) -> T
         runner_state = EvalState(apply_fn=apply, sample_fn=sample, params=network_params)
 
     # Recreate DeepRMSA warmup period
-    warmup_key = jax.random.split(warmup_key, config.NUM_ENVS)
+    warmup_key = jax.random.split(warmup_key, config.NUM_ENVS) if config.NUM_ENVS > 1 else warmup_key
     warmup_state = (warmup_key, env_state, obsv)
     warmup_fn = get_warmup_fn(warmup_state, env, env_params, runner_state, config)
-    warmup_fn = jax.vmap(warmup_fn)
+    warmup_fn = jax.vmap(warmup_fn) if config.NUM_ENVS > 1 else warmup_fn
     env_state, obsv = warmup_fn(warmup_state)
 
     # Initialise eval state
@@ -501,9 +558,11 @@ def select_action_eval(select_action_state, env, env_params, eval_state, config)
                     raise ValueError("launch_power_type cannot be 'rl' when --EVAL_HEURISTIC flag is True")
                 launch_power = get_launch_power(env_state.env_state, action, action, env_params)
                 action = jnp.concatenate([action.reshape((1,)), launch_power.reshape((1,))], axis=0)
-
         else:
             raise ValueError(f"Invalid environment type {config.env_type}")
+        # For DeepRMSA env, the action can only be the path index (first-fit for spectrum always)
+        if config.env_type.lower() == "deeprmsa":
+            action = process_path_action(env_state.env_state, env_params, action)[0]
     else:
         env_state, action, _, _ = select_action(select_action_state, env, env_params, eval_state, config)
     return env_state, action, None, None
@@ -545,31 +604,82 @@ def get_warmup_fn(warmup_state, env, params, train_state, config) -> Callable[[T
     return warmup_fn
 
 
-def make_lr_schedule(config):
-    def linear_schedule(count):
-        frac = (1.0 - (count // (config.NUM_MINIBATCHES * config.UPDATE_EPOCHS)) /
-                (config.NUM_UPDATES * config.SCHEDULE_MULTIPLIER))
-        return config.LR * frac
+def make_lr_schedule(config: Box) -> optax.Schedule:
+    """Create a learning rate schedule based on the configuration."""
 
-    def lr_schedule(count):
-        total_steps = config.NUM_UPDATES * config.UPDATE_EPOCHS * config.NUM_MINIBATCHES * config.SCHEDULE_MULTIPLIER
+    LR = config.LR
+    LR_END_FRACTION = config.LR_END_FRACTION
+    NUM_MINIBATCHES = config.NUM_MINIBATCHES
+    NUM_UPDATES = config.NUM_UPDATES * config.NUM_INCREMENTS
+    UPDATE_EPOCHS = config.UPDATE_EPOCHS
+    SCHEDULE_MULTIPLIER = config.SCHEDULE_MULTIPLIER
+    WARMUP_MULTIPLIER = config.WARMUP_MULTIPLIER
+    WARMUP_STEPS_FRACTION = config.WARMUP_STEPS_FRACTION
+    end_value = LR * LR_END_FRACTION
+
+    def lr_schedule(count: chex.Numeric) -> chex.Numeric:
+        total_steps = NUM_UPDATES * UPDATE_EPOCHS * NUM_MINIBATCHES * SCHEDULE_MULTIPLIER
         if config.LR_SCHEDULE == "warmup_cosine":
             schedule = optax.warmup_cosine_decay_schedule(
-                init_value=config.LR,
-                peak_value=config.LR * config.WARMUP_PEAK_MULTIPLIER,
-                warmup_steps=int(total_steps * config.WARMUP_STEPS_FRACTION),
+                init_value=LR,
+                peak_value=LR * WARMUP_MULTIPLIER,
+                warmup_steps=total_steps * WARMUP_STEPS_FRACTION,
                 decay_steps=total_steps,
-                end_value=config.LR * config.WARMUP_END_FRACTION)
+                end_value=end_value,
+            )
+        elif config.LR_SCHEDULE == "cosine":
+            schedule = optax.cosine_decay_schedule(
+                init_value=LR,
+                decay_steps=total_steps,
+                alpha=end_value,
+            )
         elif config.LR_SCHEDULE == "linear":
-            schedule = linear_schedule
+            schedule = optax.linear_schedule(
+                init_value=LR,
+                end_value=end_value,
+                transition_steps=total_steps,
+            )
         elif config.LR_SCHEDULE == "constant":
-            def schedule(x):
-                return config.LR
+            schedule = optax.constant_schedule(LR)
         else:
             raise ValueError(f"Invalid LR schedule {config.LR_SCHEDULE}")
         return schedule(count)
 
     return lr_schedule
+
+
+def make_ent_schedule(config: Box) -> optax.Schedule:
+    """Create an entropy coefficient schedule based on the configuration."""
+
+    ENT_COEF = config.ENT_COEF
+    ENT_END_FRACTION = config.ENT_END_FRACTION
+    NUM_MINIBATCHES = config.NUM_MINIBATCHES
+    NUM_UPDATES = config.NUM_UPDATES * config.NUM_INCREMENTS
+    UPDATE_EPOCHS = config.UPDATE_EPOCHS
+    SCHEDULE_MULTIPLIER = config.SCHEDULE_MULTIPLIER
+    end_value = ENT_COEF * ENT_END_FRACTION
+
+    def ent_schedule(count: chex.Numeric) -> chex.Numeric:
+        total_steps = NUM_UPDATES * UPDATE_EPOCHS * NUM_MINIBATCHES * SCHEDULE_MULTIPLIER
+        if config.ENT_SCHEDULE == "cosine":
+            schedule = optax.cosine_decay_schedule(
+                init_value=ENT_COEF,
+                decay_steps=total_steps,
+                alpha=end_value,
+            )
+        elif config.ENT_SCHEDULE == "linear":
+            schedule = optax.linear_schedule(
+                init_value=ENT_COEF,
+                end_value=end_value,
+                transition_steps=total_steps,
+            )
+        elif config.ENT_SCHEDULE == "constant":
+            schedule = optax.constant_schedule(ENT_COEF)
+        else:
+            raise ValueError(f"Invalid entropy schedule {config.ENT_SCHEDULE}")
+        return schedule(count)
+
+    return ent_schedule
 
 
 def reshape_keys(keys, size1, size2):
@@ -597,7 +707,10 @@ def setup_wandb(config, project_name, experiment_name):
             "iqr_lower"
         ]:
             wandb.define_metric(f"{metric}_{agg}", step_metric="env_step")
-            wandb.define_metric(f"episode_end_{metric}_{agg}", step_metric="episode_count")
+            wandb.define_metric(f"{metric}_episode_end_{agg}", step_metric="episode_count", summary="last")
+            wandb.define_metric(f"{metric}_episode_end_{agg}", step_metric="episode_count", summary="mean")
+            wandb.define_metric(f"{metric}_episode_end_{agg}", step_metric="episode_count", summary="min")
+            wandb.define_metric(f"{metric}_episode_end_{agg}", step_metric="episode_count", summary="max")
     for metric in loss_metrics:
         wandb.define_metric(f"{metric}", step_metric="update_epoch")
     wandb.define_metric("training_time", step_metric="env_step")
@@ -611,33 +724,50 @@ def get_mean_std_iqr(x, y):
     return np.array(_mean), np.array(_std), np.array(_iqr_upper), np.array(_iqr_lower)
 
 
-def get_episode_end_mean_std_iqr(x, y, episode_ends, config):
-    if not config.end_first_blocking:
-        _end_mean = x[y].mean(0).reshape(-1)[episode_ends]
-        _end_std = x[y].std(0).reshape(-1)[episode_ends]
-        _end_iqr_upper = jnp.percentile(x[y], 75, axis=0).reshape(-1)[episode_ends]
-        _end_iqr_lower = jnp.percentile(x[y], 25, axis=0).reshape(-1)[episode_ends]
-    else:
-        # For end_first_blocking, we already have properly structured data and episode_ends
-        vals = x[y][episode_ends]  # This will use the mask to get values at episode ends
-
-        # Calculate statistics on these episode-end values
-        _end_mean = vals.mean(0) if vals.size > 0 else jnp.array([])
-        _end_std = vals.std(0) if vals.size > 0 else jnp.array([])
-        _end_iqr_upper = jnp.percentile(vals, 75, axis=0) if vals.size > 0 else jnp.array([])
-        _end_iqr_lower = jnp.percentile(vals, 25, axis=0) if vals.size > 0 else jnp.array([])
+def get_episode_end_mean_std_iqr(
+    data: Array, episode_ends: Array, num_envs: int
+) -> Tuple[Array, Array, Array, Array]:
+    # Reshape to combine rollout and step dimensions
+    data = data.reshape(num_envs, -1)
+    episode_ends = episode_ends.reshape(num_envs, -1)
+    # Count True values per environment
+    counts = jnp.sum(episode_ends, axis=1)
+    max_length = jnp.max(counts)
+    diffs = max_length - counts
+    # Maximum difference in episode ends between envs
+    max_diff = jnp.max(diffs)
+    # Append nans equal to max diffs
+    data = jnp.hstack((data, jnp.full((num_envs, max_diff), jnp.nan)))
+    # Append trues equal to diffs
+    trues = jnp.tile(jnp.arange(max_diff), (num_envs, 1)) < diffs[:, None]
+    episode_ends = jnp.hstack((episode_ends, trues))
+    episode_ends = episode_ends.reshape(data.shape)
+    episode_end_values = data[episode_ends]
+    episode_end_values = episode_end_values.reshape((num_envs, -1))
+    # Calculate statistics efficiently using JAX's nanops
+    _end_mean = jnp.nanmean(episode_end_values, axis=0, dtype=jnp.float32)
+    _end_std = jnp.nanstd(episode_end_values, axis=0, dtype=jnp.float32)
+    _end_iqr_upper = jnp.nanpercentile(episode_end_values, 75, axis=0).astype(jnp.float32)
+    _end_iqr_lower = jnp.nanpercentile(episode_end_values, 25, axis=0).astype(jnp.float32)
 
     return _end_mean, _end_std, _end_iqr_upper, _end_iqr_lower
 
 
 def process_metrics(config, out, total_time, merge_func):
     """Calculate statistics from training or evaluation run."""
-
     merged_out = {k: jax.tree.map(merge_func, v) for k, v in out["metrics"].items()}
-    if not config.EVAL_HEURISTIC or not config.EVAL_MODEL:
-        merged_out_loss = {k: jax.tree.map(lambda x: x.reshape((-1,)), v) for k, v in out.get("loss_info", {}).items()}
-    else:
+    if config.EVAL_HEURISTIC or config.EVAL_MODEL:
         merged_out_loss = None
+    else:
+        # Average over minibatches and epochs to get one value per update
+        num_learners_or_1 = config.NUM_LEARNERS if config.NUM_LEARNERS > 1 else 1
+        merged_out_loss = {
+            k: jax.tree.map(
+                lambda x: x.reshape((num_learners_or_1, config.NUM_UPDATES, -1)).mean(axis=-1).reshape((-1,)),
+                v
+            )
+            for k, v in out.get("loss_info", {}).items()
+        }
 
     # Calculate blocking probabilities
     merged_out["service_blocking_probability"] = 1 - (
@@ -648,328 +778,347 @@ def process_metrics(config, out, total_time, merge_func):
     )
 
     # Calculate episode ends
-    done_array = merged_out["done"]
-    if config.continuous_operation:
-        # For continuous operation, define max_requests as the episode end
-        episode_ends = np.arange(0, (config.TOTAL_TIMESTEPS // config.NUM_LEARNERS // config.NUM_ENVS) + 1,
-                                 config.max_requests)[1:].astype(int) - 1
-    else:
-        if not config.end_first_blocking:
-            episode_ends = np.where(done_array.mean(0).reshape(-1) == 1)[0] - 1
-        else:
-            # Instead of flattening, create a boolean mask of where episodes end
-            # This preserves the structure across environments
-            episode_ends = np.zeros_like(done_array, dtype=bool)
+    episode_ends = merged_out["done"]
+    # Instead of flattening, create a boolean mask of where episodes end
+    # This preserves the structure across environments
+    episode_ends = episode_ends.reshape(episode_ends.shape[0], -1)
 
-            # Iterate over the environment dimensions (all but the last one)
-            env_indices = np.ndindex(done_array.shape[:-1])
-            for env_idx in env_indices:
-                # Get the done mask for this environment
-                env_done = done_array[env_idx]
+    episode_ends = jnp.hstack((episode_ends[:, 1:], jnp.full((episode_ends.shape[0], 1), False)))
 
-                # Find indices where done=1
-                done_indices = np.where(env_done == 1)[0]
+    # Reshape episode_ends to match the original shape
+    episode_ends = episode_ends.reshape(merged_out["done"].shape)
 
-                # Set the steps before done=1 as episode ends
-                for done_idx in done_indices:
-                    if done_idx > 0:  # Make sure we don't go negative
-                        episode_ends[(*env_idx, done_idx - 1)] = True
-
-            print(f"Created episode end mask with {np.sum(episode_ends)} episode endings")
+    print(f"Created episode end mask with {np.sum(episode_ends)} episode endings")
 
     processed_data = {}
     print("Processing output metrics")
     for metric in metrics:
-        episode_end_mean, episode_end_std, episode_end_iqr_upper, episode_end_iqr_lower = (
-            get_episode_end_mean_std_iqr(merged_out, metric, episode_ends, config)
-        )
-        mean, std, iqr_upper, iqr_lower = get_mean_std_iqr(merged_out, metric)
-        processed_data[metric] = {
-            "mean": mean,
-            "std": std,
-            "iqr_upper": iqr_upper,
-            "iqr_lower": iqr_lower,
-            "episode_end_mean": episode_end_mean,
-            "episode_end_std": episode_end_std,
-            "episode_end_iqr_upper": episode_end_iqr_upper,
-            "episode_end_iqr_lower": episode_end_iqr_lower,
-        }
-    processed_data["training_time"] = (
-            np.arange(len(processed_data["returns"]["mean"])) / len(processed_data["returns"]["mean"]) * total_time
-    )
-    return merged_out, merged_out_loss, processed_data, episode_ends
-
-
-def log_metrics(config, out, experiment_name, total_time, merge_func):
-    """Log metrics to wandb and/or save episode end metrics to CSV."""
-
-    merged_out, merged_out_loss, processed_data, episode_ends = process_metrics(config, out, total_time, merge_func)
-
-    all_metrics = list(processed_data.keys())
-
-    if config.PLOTTING:
-        print("Plotting metrics")
-        if config.incremental_loading:
-            plot_metric = processed_data["accepted_services"]["episode_end_mean"]
-            plot_metric_upper = processed_data["accepted_services"]["episode_end_iqr_upper"]
-            plot_metric_lower = processed_data["accepted_services"]["episode_end_iqr_lower"]
-            plot_metric_name = "Accepted Services"
-        elif config.end_first_blocking:
-            plot_metric = processed_data["lengths"]["episode_end_mean"]
-            plot_metric_upper = processed_data["lengths"]["episode_end_iqr_upper"]
-            plot_metric_lower = processed_data["lengths"]["episode_end_iqr_lower"]
-            plot_metric_name = "Episode Length"
-        elif config.reward_type == "service":
-            plot_metric = processed_data["service_blocking_probability"]["mean"]
-            plot_metric_upper = processed_data["service_blocking_probability"]["iqr_upper"]
-            plot_metric_lower = processed_data["service_blocking_probability"]["iqr_lower"]
-            plot_metric_name = "Service Blocking Probability"
+        if metric == "throughput":
+            # Shift values down one index position
+            ends = np.concatenate([[False], episode_ends.flatten()[:-1]]).reshape(episode_ends.shape)
         else:
-            plot_metric = processed_data["bitrate_blocking_probability"]["mean"]
-            plot_metric_upper = processed_data["bitrate_blocking_probability"]["iqr_upper"]
-            plot_metric_lower = processed_data["bitrate_blocking_probability"]["iqr_lower"]
-            plot_metric_name = "Bitrate Blocking Probability"
-
-        plot_metric = moving_average(plot_metric, min(100, int(len(plot_metric) / 2)))
-        plot_metric_upper = moving_average(plot_metric_upper, min(100, int(len(plot_metric_upper) / 2)))
-        plot_metric_lower = moving_average(plot_metric_lower, min(100, int(len(plot_metric_lower) / 2)))
-        plt.plot(plot_metric)
-        plt.fill_between(
-            range(len(plot_metric)),
-            plot_metric_lower,
-            plot_metric_upper,
-            alpha=0.2
-        )
-        plt.xlabel("Environment Step" if not config.incremental_loading else "Episode Count")
-        plt.ylabel(plot_metric_name)
-        plt.title(experiment_name)
-        plt.show()
-
-    if config.DATA_OUTPUT_FILE:
-        print("Saving metrics to file")
-        # Save episode end metrics to file
-        episode_end_df = pd.DataFrame({
-            f"{metric}_{stat}": processed_data[metric][stat] for metric in all_metrics for stat in [
-                "episode_end_mean",
-                "episode_end_std",
-                "episode_end_iqr_upper",
-                "episode_end_iqr_lower",
-            ]
-        })
-        episode_end_df.to_csv(config.DATA_OUTPUT_FILE)
-        # Pickle merged_out for further analysis
-        with open(config.DATA_OUTPUT_FILE.replace(".csv", ".pkl"), "wb") as f:
-            pickle.dump(merged_out, f)
-
-    if config.WANDB:
-        print("Logging metrics to wandb")
-
-        # Log episode end metrics
-        if not config.continuous_operation:
-            print(f"Logging episode end metrics for {len(episode_ends)} episodes")
-            for i in range(len(episode_ends)):
-                log_dict = {
-                    f"{metric}_{stat}": processed_data[metric][stat][i] for metric in all_metrics for stat in [
-                        "episode_end_mean",
-                        "episode_end_std",
-                        "episode_end_iqr_upper",
-                        "episode_end_iqr_lower"
-                    ]
-                }
-                log_dict["episode_count"] = i
-                wandb.log(log_dict)
-
-        if config.LOG_LOSS_INFO:
-            print("Logging loss info")
-            for i in range(len(merged_out_loss["loss/total_loss"])):
-                log_dict = {
-                    f"{metric}": merged_out_loss[metric][i] for metric in loss_metrics
-                }
-                log_dict["update_epoch"] = i
-                wandb.log(log_dict)
-
-        # Log the data to wandb
-        # Define the downsample factor to speed up upload to wandb
-        # Then reshape the array and compute the mean
-        chop = len(processed_data["returns"]["mean"]) % config.DOWNSAMPLE_FACTOR
-        def downsample_mean(x):
-            return x[chop:].reshape(-1, config.DOWNSAMPLE_FACTOR).mean(axis=1)
-        for key in all_metrics:
-            processed_data[key]["mean"] = downsample_mean(processed_data[key]["mean"])
-            processed_data[key]["std"] = downsample_mean(processed_data[key]["std"])
-            processed_data[key]["iqr_upper"] = downsample_mean(processed_data[key]["iqr_upper"])
-            processed_data[key]["iqr_lower"] = downsample_mean(processed_data[key]["iqr_lower"])
-        processed_data["training_time"] = downsample_mean(processed_data["training_time"])
-
-        # Log per step metrics
-        print("Logging per step metrics")
-        for i in range(len(processed_data["returns"]["mean"])):
-            log_dict = {
-                f"{metric}_{agg}": processed_data[metric][agg][i] for metric in all_metrics for agg in [
-                    "mean",
-                    "std",
-                    "iqr_upper",
-                    "iqr_lower"
-                ]
+            ends = episode_ends
+        try:
+            episode_end_mean, episode_end_std, episode_end_iqr_upper, episode_end_iqr_lower = (
+                get_episode_end_mean_std_iqr(merged_out[metric], ends, config.NUM_ENVS)
+            )
+            mean, std, iqr_upper, iqr_lower = get_mean_std_iqr(merged_out, metric)
+            processed_data[metric] = {
+                "mean": mean,
+                "std": std,
+                "iqr_upper": iqr_upper,
+                "iqr_lower": iqr_lower,
+                "episode_end_mean": episode_end_mean,
+                "episode_end_std": episode_end_std,
+                "episode_end_iqr_upper": episode_end_iqr_upper,
+                "episode_end_iqr_lower": episode_end_iqr_lower,
             }
-            log_dict["training_time"] = processed_data["training_time"][i]
-            log_dict["env_step"] = i
-            wandb.log(log_dict)
+        except KeyError:
+            continue
+    return merged_out, merged_out_loss, processed_data, episode_ends
+    
+    
+def plot_metrics(experiment_name: str, processed_data: Dict[str, Any], config: Union[Box, Dict[str, Any]]) -> None:
+    print("Plotting metrics")
+    if config.incremental_loading:
+        plot_metric = processed_data["accepted_services"]["episode_end_mean"]
+        plot_metric_upper = processed_data["accepted_services"]["episode_end_iqr_upper"]
+        plot_metric_lower = processed_data["accepted_services"]["episode_end_iqr_lower"]
+        plot_metric_name = "Accepted Services"
+    elif config.end_first_blocking:
+        plot_metric = processed_data["lengths"]["episode_end_mean"]
+        plot_metric_upper = processed_data["lengths"]["episode_end_iqr_upper"]
+        plot_metric_lower = processed_data["lengths"]["episode_end_iqr_lower"]
+        plot_metric_name = "Episode Length"
+    elif config.reward_type == "service":
+        plot_metric = processed_data["service_blocking_probability"]["mean"]
+        plot_metric_upper = processed_data["service_blocking_probability"]["iqr_upper"]
+        plot_metric_lower = processed_data["service_blocking_probability"]["iqr_lower"]
+        plot_metric_name = "Service Blocking Probability"
+    else:
+        plot_metric = processed_data["bitrate_blocking_probability"]["mean"]
+        plot_metric_upper = processed_data["bitrate_blocking_probability"]["iqr_upper"]
+        plot_metric_lower = processed_data["bitrate_blocking_probability"]["iqr_lower"]
+        plot_metric_name = "Bitrate Blocking Probability"
 
+    plot_metric = moving_average(plot_metric, min(100, int(len(plot_metric) / 2)))
+    plot_metric_upper = moving_average(plot_metric_upper, min(100, int(len(plot_metric_upper) / 2)))
+    plot_metric_lower = moving_average(plot_metric_lower, min(100, int(len(plot_metric_lower) / 2)))
+    plt.plot(plot_metric)
+    plt.fill_between(
+        range(len(plot_metric)),
+        plot_metric_lower,
+        plot_metric_upper,
+        alpha=0.2
+    )
+    plt.xlabel("Environment Step" if not config.incremental_loading else "Episode Count")
+    plt.ylabel(plot_metric_name)
+    plt.title(experiment_name)
+    plt.show()
+
+
+def log_actions(merged_out, processed_data, config):
+    print(f"Logging actions. \
+        N.B. data is only logged from most recent increment. \
+        Total increments: {config.NUM_INCREMENTS}")
+    env, params = make(config)
+    request_source = merged_out["source"]
+    request_dest = merged_out["dest"]
+    request_data_rate = merged_out["data_rate"]
+    path_indices = merged_out["path_index"]
+    slot_indices = merged_out["slot_index"]
+    returns = merged_out["returns"]
+    arrival_time = merged_out["arrival_time"]
+    departure_time = merged_out["departure_time"]
+
+    # Reshape to combine episodes into a single trajectory. Only keep the first environment's output.
+    # TODO - keep all the actions from every episode
+    request_source = request_source.reshape((request_source.shape[0], -1))[0]
+    request_dest = request_dest.reshape((request_dest.shape[0], -1))[0]
+    request_data_rate = request_data_rate.reshape((request_data_rate.shape[0], -1))[0]
+    path_indices = path_indices.reshape((path_indices.shape[0], -1))[0]
+    slot_indices = slot_indices.reshape((slot_indices.shape[0], -1))[0]
+    arrival_time = arrival_time.reshape((arrival_time.shape[0], -1))[0]
+    departure_time = departure_time.reshape((departure_time.shape[0], -1))[0]
+    returns = returns.reshape((returns.shape[0], -1))[0]
+
+    # Get the link length array
+    topology_name = config.topology_name
+    graph = make_graph(topology_name, topology_directory=config.topology_directory)
+    link_length_array = init_link_length_array(graph)
+    # Get path, path lengths, number of hops
+    paths = jnp.take(params.path_link_array.val, path_indices, axis=0)
+    path_lengths = jax.vmap(lambda x: jnp.dot(x, link_length_array), in_axes=(0))(paths)
+    num_hops = jnp.sum(paths, axis=-1)
+
+    paths_list = []
+    spectral_efficiency_list = []
+    required_slots_list = []
+
+    for path_index, slot_index, source, dest, data_rate in zip(path_indices, slot_indices, request_source, request_dest, request_data_rate):
+        source, dest = source.reshape(1), dest.reshape(1)
+        path_links = get_paths(params, jnp.concatenate([source, dest]))[path_index % params.k_paths]
+        # Make path links into a string
+        path_str = "".join([str(x.astype(LARGE_INT_DTYPE)) for x in path_links])
+        paths_list.append(path_str)
+        path_spectral_efficiency = params.path_se_array.val[path_index]
+        required_slots = int(jnp.ceil(data_rate / (path_spectral_efficiency*params.slot_size)))
+        required_slots_list.append(required_slots)
+        spectral_efficiency_list.append(path_spectral_efficiency)
+
+    if config.TRAJ_DATA_OUTPUT_FILE:
+        print(f"Saving trajectory metrics to {config.TRAJ_DATA_OUTPUT_FILE}")
+        # Save episode end metrics to file
+        log_dict = {
+            "request_source": request_source,
+            "request_dest": request_dest,
+            "request_data_rate": request_data_rate,
+            "arrival_time": arrival_time,
+            "departure_time": departure_time,
+            "path_indices": path_indices,
+            "slot_indices": slot_indices,
+            "returns": returns,
+            "path_links": paths_list,
+            "path_spectral_efficiency": spectral_efficiency_list,
+            "required_slots": required_slots_list,
+            "utilization": processed_data["utilisation"]["mean"],
+            "bitrate_blocking_probability": processed_data["bitrate_blocking_probability"]["mean"],
+            "service_blocking_probability": processed_data["service_blocking_probability"]["mean"],
+            "path_length": path_lengths,
+            "num_hops": num_hops,
+        }
+        if "gn_model" in config.env_type.lower():
+            log_dict["launch_power"] = processed_data["launch_power"]["mean"]
+            log_dict["path_snr"] = processed_data["path_snr"]["mean"]
+        df = pd.DataFrame(log_dict)
+        df.to_csv(config.TRAJ_DATA_OUTPUT_FILE)
+
+    if config.log_path_lengths:
+        path_lengths_mean = path_lengths.mean()
+        path_lengths_std = path_lengths.std()
+        path_lengths_iqr_upper = np.percentile(path_lengths, 75)
+        path_lengths_iqr_lower = np.percentile(path_lengths, 25)
+        num_hops_mean = num_hops.mean()
+        num_hops_std = num_hops.std()
+        print(f"Average path length mean: {path_lengths_mean:.0f}")
+        print(f"Average path length std: {path_lengths_std:.0f}")
+        print(f"Average path length IQR upper: {path_lengths_iqr_upper:.0f}")
+        print(f"Average path length IQR lower: {path_lengths_iqr_lower:.0f}")
+        print(f"Average number of hops mean: {num_hops_mean:.2f}")
+        print(f"Average number of hops std: {num_hops_std:.2f}")
+        print(f"Average number of hops IQR upper: {np.percentile(num_hops, 75):.2f}")
+        print(f"Average number of hops IQR lower: {np.percentile(num_hops, 25):.2f}")
+        # Get path lengths where returns are positive, 0 otherwise
+        utilised_path_lengths = jnp.where(returns > 0, jnp.take(path_lengths, path_indices), 0)
+        utilised_path_hops = jnp.where(returns > 0, jnp.take(num_hops, path_indices), 0)
+        print(f"Average path length for successful actions mean: {utilised_path_lengths.mean():.0f}")
+        print(f"Average path length for successful actions std: {utilised_path_lengths.std():.0f}")
+        print(f"Average path length for successful actions IQR upper: {np.percentile(utilised_path_lengths, 75):.0f}")
+        print(f"Average path length for successful actions IQR lower: {np.percentile(utilised_path_lengths, 25):.0f}")
+        print(f"Average number of hops for successful actions mean: {utilised_path_hops.mean():.2f}")
+        print(f"Average number of hops for successful actions std: {utilised_path_hops.std():.2f}")
+        print(f"Average number of hops for successful actions IQR upper: {np.percentile(utilised_path_hops, 75):.2f}")
+        print(f"Average number of hops for successful actions IQR lower: {np.percentile(utilised_path_hops, 25):.2f}")
+
+        request_source = jnp.squeeze(merged_out["source"])
+        request_dest = jnp.squeeze(merged_out["dest"])
+        request_data_rate = jnp.squeeze(merged_out["data_rate"])
+        path_indices = jnp.squeeze(merged_out["path_index"])
+        slot_indices = jnp.squeeze(merged_out["slot_index"])
+
+        # Compare the available paths
+        df_path_links = pd.DataFrame(params.path_link_array.val).reset_index(drop=True)
+        # Set config.weight = "weight" to use the length of the path for ordering else no. of hops
+        config.weight = "weight" if not config.weight else None
+        env, params = make(config)
+        df_path_links_alt = pd.DataFrame(params.path_link_array.val).reset_index(drop=True)
+        # Find rows that are unique to each dataframe
+        # First, make a unique identifer for each row
+        df_path_id = df_path_links.apply(lambda x: hash(tuple(x)), axis=1).reset_index(drop=True)
+        df_path_id_alt = df_path_links_alt.apply(lambda x: hash(tuple(x)), axis=1).reset_index(drop=True)
+        # Then check uniqueness (unique to the path ordering compared to alternate ordering)
+        unique_paths = df_path_id[~df_path_id.isin(df_path_id_alt)]
+        print(f"Fraction of paths that are unique to ordering: {len(unique_paths) / len(df_path_id):.2f}")
+        # Then for each path index we have, see if it corresponds to a unique path
+        # Get indices of unique paths
+        unique_path_indices = jnp.array(unique_paths.index)
+        # Get the path indices of the requests
+        unique_paths_used = jnp.isin(path_indices, unique_path_indices)
+        # Remove elements from unique_paths_used that have negative returns
+        unique_paths_used = jnp.where(returns > 0, unique_paths_used, 0)
+        unique_paths_used_count = jnp.count_nonzero(unique_paths_used, axis=-1)
+        positive_return_count = jnp.count_nonzero(jnp.where(returns > 0, returns, 0), axis=-1)
+        unique_paths_used_mean = (unique_paths_used_count / positive_return_count).reshape(-1).mean()
+        unique_paths_used_std = (unique_paths_used_count / positive_return_count).reshape(-1).std()
+        unique_paths_used_iqr_upper = np.percentile(unique_paths_used_count / positive_return_count, 75)
+        unique_paths_used_iqr_lower = np.percentile(unique_paths_used_count / positive_return_count, 25)
+        print(f"Fraction of successful actions that use unique paths mean: {unique_paths_used_mean:.3f}")
+        print(f"Fraction of successful actions that use unique paths std: {unique_paths_used_std:.3f}")
+        print(f"Fraction of successful actions that use unique paths IQR upper: {unique_paths_used_iqr_upper:.3f}")
+        print(f"Fraction of successful actions that use unique paths IQR lower: {unique_paths_used_iqr_lower:.3f}")
+
+
+def print_metrics(processed_data: Dict[str, Dict[str, Array]], config: Union[Box, Dict[str, Any]]) -> None:
     # Print the final metrics to console
-    for metric in all_metrics:
-        if metric == "training_time": continue;
+    for metric in processed_data.keys():
         if config.continuous_operation:
-            print(f"{metric}: {processed_data[metric]['mean'][-1]:.5f} ± {processed_data[metric]['std'][-1]:.5f}")
-            print(f"{metric} mean: {processed_data[metric]['mean'][-1]:.5f}")
-            print(f"{metric} std: {processed_data[metric]['std'][-1]:.5f}")
-            print(f"{metric} IQR lower: {processed_data[metric]['iqr_lower'][-1]:.5f}")
-            print(f"{metric} IQR upper: {processed_data[metric]['iqr_upper'][-1]:.5f}")
+            print(f"{metric}: {processed_data[metric]['mean'][-1].astype(np.float32):.5f} ± {processed_data[metric]['std'][-1].astype(np.float32):.5f}")
+            print(f"{metric} mean: {processed_data[metric]['mean'][-1].astype(np.float32):.5f}")
+            print(f"{metric} std: {processed_data[metric]['std'][-1].astype(np.float32):.5f}")
+            print(f"{metric} IQR lower: {processed_data[metric]['iqr_lower'][-1].astype(np.float32):.5f}")
+            print(f"{metric} IQR upper: {processed_data[metric]['iqr_upper'][-1].astype(np.float32):.5f}")
         else:
             print(f"{metric}: {processed_data[metric]['episode_end_mean'].mean():.5f} ± {processed_data[metric]['episode_end_std'].mean():.5f}")
             print(f"{metric} mean: {processed_data[metric]['episode_end_mean'].mean():.5f}")
             print(f"{metric} std: {processed_data[metric]['episode_end_std'].mean():.5f}")
             print(f"{metric} IQR lower: {processed_data[metric]['episode_end_iqr_lower'].mean():.5f}")
             print(f"{metric} IQR upper: {processed_data[metric]['episode_end_iqr_upper'].mean():.5f}")
-    if "gn_model" in config.env_type.lower():
-        print(f"Mean launch power: {merged_out['launch_power'].mean():.5f} ± {merged_out['launch_power'].std():.5f}")
 
-    if config.log_actions:
 
-        env, params = make(config)
-        request_source = merged_out["source"]
-        request_dest = merged_out["dest"]
-        request_data_rate = merged_out["data_rate"]
-        path_indices = merged_out["path_index"]
-        slot_indices = merged_out["slot_index"]
-        returns = merged_out["returns"]
-        arrival_time = merged_out["arrival_time"]
-        departure_time = merged_out["departure_time"]
+def log_metrics(
+    config: Box,
+    out: Dict[str, Dict[str, Array]],
+    total_time: float,
+    merge_func: Callable,
+    episode_count: int = 0,
+    update_count: int = 0,
+    step_count: int = 0,
+) -> Tuple[Dict, Dict]:
+    """Log metrics to wandb and/or save episode end metrics to CSV."""
 
-        # Reshape to combine episodes into a single trajectory. Only keep the first environment's output.
-        # TODO - keep all the actions from every episode
-        request_source = request_source.reshape((request_source.shape[0], -1))[0]
-        request_dest = request_dest.reshape((request_dest.shape[0], -1))[0]
-        request_data_rate = request_data_rate.reshape((request_data_rate.shape[0], -1))[0]
-        path_indices = path_indices.reshape((path_indices.shape[0], -1))[0]
-        slot_indices = slot_indices.reshape((slot_indices.shape[0], -1))[0]
-        arrival_time = arrival_time.reshape((arrival_time.shape[0], -1))[0]
-        departure_time = departure_time.reshape((departure_time.shape[0], -1))[0]
-        returns = returns.reshape((returns.shape[0], -1))[0]
+    with TimeIt("Processing metrics"):
+        merged_out, merged_out_loss, processed_data, episode_ends = process_metrics(
+            config, out, total_time, merge_func
+        )
 
-        # Get the link length array
-        topology_name = config.topology_name
-        graph = make_graph(topology_name, topology_directory=config.topology_directory)
-        link_length_array = init_link_length_array(graph)
-        # Get path, path lengths, number of hops
-        paths = jnp.take(params.path_link_array.val, path_indices, axis=0)
-        path_lengths = jax.vmap(lambda x: jnp.dot(x, link_length_array), in_axes=(0))(paths)
-        num_hops = jnp.sum(paths, axis=-1)
+    all_metrics = list(processed_data.keys())
 
-        paths_list = []
-        spectral_efficiency_list = []
-        required_slots_list = []
-
-        for path_index, slot_index, source, dest, data_rate in zip(path_indices, slot_indices, request_source, request_dest, request_data_rate):
-            source, dest = source.reshape(1), dest.reshape(1)
-            path_links = get_paths(params, jnp.concatenate([source, dest]))[path_index % params.k_paths]
-            # Make path links into a string
-            path_str = "".join([str(x.astype(jnp.int32)) for x in path_links])
-            paths_list.append(path_str)
-            path_spectral_efficiency = params.path_se_array.val[path_index]
-            required_slots = int(jnp.ceil(data_rate / (path_spectral_efficiency*params.slot_size)))
-            required_slots_list.append(required_slots)
-            spectral_efficiency_list.append(path_spectral_efficiency)
-
-        if config.TRAJ_DATA_OUTPUT_FILE:
-            print(f"Saving trajectory metrics to {config.TRAJ_DATA_OUTPUT_FILE}")
+    with TimeIt("Logging metrics"):
+        if config.DATA_OUTPUT_FILE:
+            print("Saving metrics to file")
             # Save episode end metrics to file
-            log_dict = {
-                "request_source": request_source,
-                "request_dest": request_dest,
-                "request_data_rate": request_data_rate,
-                "arrival_time": arrival_time,
-                "departure_time": departure_time,
-                "path_indices": path_indices,
-                "slot_indices": slot_indices,
-                "returns": returns,
-                "path_links": paths_list,
-                "path_spectral_efficiency": spectral_efficiency_list,
-                "required_slots": required_slots_list,
-                "utilization": processed_data["utilisation"]["mean"],
-                "bitrate_blocking_probability": processed_data["bitrate_blocking_probability"]["mean"],
-                "service_blocking_probability": processed_data["service_blocking_probability"]["mean"],
-                "path_length": path_lengths,
-                "num_hops": num_hops,
-            }
-            if "gn_model" in config.env_type.lower():
-                log_dict["launch_power"] = merged_out["launch_power"].reshape((merged_out["launch_power"].shape[0], -1))[0]
-                log_dict["path_snr"] = merged_out["path_snr"].reshape((merged_out["path_snr"].shape[0], -1))[0]
-            df = pd.DataFrame(log_dict)
-            df.to_csv(config.TRAJ_DATA_OUTPUT_FILE)
-
-        if config.log_path_lengths:
-            path_lengths_mean = path_lengths.mean()
-            path_lengths_std = path_lengths.std()
-            path_lengths_iqr_upper = np.percentile(path_lengths, 75)
-            path_lengths_iqr_lower = np.percentile(path_lengths, 25)
-            num_hops_mean = num_hops.mean()
-            num_hops_std = num_hops.std()
-            print(f"Average path length mean: {path_lengths_mean:.0f}")
-            print(f"Average path length std: {path_lengths_std:.0f}")
-            print(f"Average path length IQR upper: {path_lengths_iqr_upper:.0f}")
-            print(f"Average path length IQR lower: {path_lengths_iqr_lower:.0f}")
-            print(f"Average number of hops mean: {num_hops_mean:.2f}")
-            print(f"Average number of hops std: {num_hops_std:.2f}")
-            print(f"Average number of hops IQR upper: {np.percentile(num_hops, 75):.2f}")
-            print(f"Average number of hops IQR lower: {np.percentile(num_hops, 25):.2f}")
-            # Get path lengths where returns are positive, 0 otherwise
-            utilised_path_lengths = jnp.where(returns > 0, jnp.take(path_lengths, path_indices), 0)
-            utilised_path_hops = jnp.where(returns > 0, jnp.take(num_hops, path_indices), 0)
-            print(f"Average path length for successful actions mean: {utilised_path_lengths.mean():.0f}")
-            print(f"Average path length for successful actions std: {utilised_path_lengths.std():.0f}")
-            print(f"Average path length for successful actions IQR upper: {np.percentile(utilised_path_lengths, 75):.0f}")
-            print(f"Average path length for successful actions IQR lower: {np.percentile(utilised_path_lengths, 25):.0f}")
-            print(f"Average number of hops for successful actions mean: {utilised_path_hops.mean():.2f}")
-            print(f"Average number of hops for successful actions std: {utilised_path_hops.std():.2f}")
-            print(f"Average number of hops for successful actions IQR upper: {np.percentile(utilised_path_hops, 75):.2f}")
-            print(f"Average number of hops for successful actions IQR lower: {np.percentile(utilised_path_hops, 25):.2f}")
-
-            request_source = jnp.squeeze(merged_out["source"])
-            request_dest = jnp.squeeze(merged_out["dest"])
-            request_data_rate = jnp.squeeze(merged_out["data_rate"])
-            path_indices = jnp.squeeze(merged_out["path_index"])
-            slot_indices = jnp.squeeze(merged_out["slot_index"])
-
-            # Compare the available paths
-            df_path_links = pd.DataFrame(params.path_link_array.val).reset_index(drop=True)
-            # Set config.weight = "weight" to use the length of the path for ordering else no. of hops
-            config.weight = "weight" if not config.weight else None
-            env, params = make(config)
-            df_path_links_alt = pd.DataFrame(params.path_link_array.val).reset_index(drop=True)
-            # Find rows that are unique to each dataframe
-            # First, make a unique identifer for each row
-            df_path_id = df_path_links.apply(lambda x: hash(tuple(x)), axis=1).reset_index(drop=True)
-            df_path_id_alt = df_path_links_alt.apply(lambda x: hash(tuple(x)), axis=1).reset_index(drop=True)
-            # Then check uniqueness (unique to the path ordering compared to alternate ordering)
-            unique_paths = df_path_id[~df_path_id.isin(df_path_id_alt)]
-            print(f"Fraction of paths that are unique to ordering: {len(unique_paths) / len(df_path_id):.2f}")
-            # Then for each path index we have, see if it corresponds to a unique path
-            # Get indices of unique paths
-            unique_path_indices = jnp.array(unique_paths.index)
-            # Get the path indices of the requests
-            unique_paths_used = jnp.isin(path_indices, unique_path_indices)
-            # Remove elements from unique_paths_used that have negative returns
-            unique_paths_used = jnp.where(returns > 0, unique_paths_used, 0)
-            unique_paths_used_count = jnp.count_nonzero(unique_paths_used, axis=-1)
-            positive_return_count = jnp.count_nonzero(jnp.where(returns > 0, returns, 0), axis=-1)
-            unique_paths_used_mean = (unique_paths_used_count / positive_return_count).reshape(-1).mean()
-            unique_paths_used_std = (unique_paths_used_count / positive_return_count).reshape(-1).std()
-            unique_paths_used_iqr_upper = np.percentile(unique_paths_used_count / positive_return_count, 75)
-            unique_paths_used_iqr_lower = np.percentile(unique_paths_used_count / positive_return_count, 25)
-            print(f"Fraction of successful actions that use unique paths mean: {unique_paths_used_mean:.3f}")
-            print(f"Fraction of successful actions that use unique paths std: {unique_paths_used_std:.3f}")
-            print(f"Fraction of successful actions that use unique paths IQR upper: {unique_paths_used_iqr_upper:.3f}")
-            print(f"Fraction of successful actions that use unique paths IQR lower: {unique_paths_used_iqr_lower:.3f}")
+            episode_end_df = pd.DataFrame(
+                {
+                    f"{metric}_{stat}": processed_data[metric][stat]
+                    for metric in all_metrics
+                    for stat in [
+                        "episode_end_mean",
+                        "episode_end_std",
+                        "episode_end_iqr_upper",
+                        "episode_end_iqr_lower",
+                    ]
+                }
+            )
+            # Check if data output file exists
+            write_headers = not os.path.exists(config.DATA_OUTPUT_FILE)
+            episode_end_df.to_csv(config.DATA_OUTPUT_FILE, mode='a', header=write_headers, index=False)
+            # Pickle merged_out for further analysis
+            with open(config.DATA_OUTPUT_FILE.replace(".csv", ".pkl"), "wb") as f:
+                pickle.dump(merged_out, f)
+    
+        if config.WANDB:
+            print("Logging metrics to wandb")
+    
+            if not config.continuous_operation:
+                # Log episode end metrics
+                print(f"Logging episode end metrics for {np.sum(episode_ends)} episodes")
+                for i in range(len(processed_data["returns"]["episode_end_mean"])):
+                    log_dict = {
+                        f"{metric}_{stat}": processed_data[metric][stat][i]
+                        for metric in all_metrics
+                        for stat in [
+                            "episode_end_mean",
+                            "episode_end_std",
+                            "episode_end_iqr_upper",
+                            "episode_end_iqr_lower",
+                        ]
+                    }
+                    log_dict["episode_count"] = i + episode_count
+                    commit = False if i != len(processed_data["returns"]["episode_end_mean"]) - 1 else True
+                    wandb.log(log_dict, commit=commit)
+                    
+            else:
+                # Log metrics from every step
+                # Define the downsample factor to speed up upload to wandb
+                # Then reshape the array and compute the mean
+                training_time = (
+                    jnp.arange(len(processed_data["returns"]["mean"]))
+                    / len(processed_data["returns"]["mean"])
+                    * total_time
+                )
+    
+                chop = len(processed_data["returns"]["mean"]) % config.DOWNSAMPLE_FACTOR
+    
+                def downsample_mean(x: Array) -> Array:
+                    x = jnp.asarray(x)
+                    return x[chop:].reshape(-1, config.DOWNSAMPLE_FACTOR).mean(axis=1)
+    
+                for key in all_metrics:
+                    processed_data[key]["mean"] = downsample_mean(processed_data[key]["mean"])
+                    processed_data[key]["std"] = downsample_mean(processed_data[key]["std"])
+                    processed_data[key]["iqr_upper"] = downsample_mean(processed_data[key]["iqr_upper"])
+                    processed_data[key]["iqr_lower"] = downsample_mean(processed_data[key]["iqr_lower"])
+                training_time = downsample_mean(training_time)
+    
+                # Log per step metrics
+                print("Logging per step metrics")
+                for i in range(len(processed_data["returns"]["mean"])):
+                    log_dict = {
+                        f"{metric}_{agg}": processed_data[metric][agg][i]
+                        for metric in all_metrics
+                        for agg in ["mean", "std", "iqr_upper", "iqr_lower"]
+                    }
+                    log_dict["training_time"] = training_time[i]
+                    log_dict["env_step"] = i + step_count
+                    commit = False if i != len(processed_data["returns"]["mean"]) - 1 else True
+                    wandb.log(log_dict, commit=commit)
+    
+            if config.LOG_LOSS_INFO and merged_out_loss is not None:
+                print("Logging loss info")
+                for i in range(len(merged_out_loss["loss/total_loss"])):
+                    log_dict = {f"{metric}": merged_out_loss[metric][i] for metric in loss_metrics}
+                    log_dict["update_epoch"] = i + update_count
+                    commit = False if i != len(merged_out_loss["loss/total_loss"]) - 1 else True
+                    wandb.log(log_dict, commit=commit)
 
     return merged_out, processed_data

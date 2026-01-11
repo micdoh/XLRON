@@ -63,6 +63,7 @@ class EnvState:
         """
     current_time: chex.Scalar
     holding_time: chex.Scalar
+    arrival_time: chex.Scalar
     total_timesteps: chex.Scalar
     total_requests: chex.Scalar
     graph: jraph.GraphsTuple
@@ -108,6 +109,8 @@ class EnvParams:
     values_bw: chex.Array = struct.field(pytree_node=False)
     truncate_holding_time: bool = struct.field(pytree_node=False)
     traffic_array: bool = struct.field(pytree_node=False)
+    pack_path_bits: bool = struct.field(pytree_node=False)
+    relative_arrival_times: bool = struct.field(pytree_node=False)
     temperature: chex.Scalar = struct.field(pytree_node=False)
 
 
@@ -258,10 +261,9 @@ class GNModelEnvParams(RSAEnvParams):
     attenuation_bar: chex.Scalar = struct.field(pytree_node=False)
     dispersion_coeff: chex.Scalar = struct.field(pytree_node=False)
     dispersion_slope: chex.Scalar = struct.field(pytree_node=False)
-    noise_figure: chex.Scalar = struct.field(pytree_node=False)
+    transceiver_snr: chex.Array = struct.field(pytree_node=False)
+    amplifier_noise_figure: chex.Array = struct.field(pytree_node=False)
     coherent: bool = struct.field(pytree_node=False)
-    gap_width: chex.Scalar = struct.field(pytree_node=False)
-    gap_start: chex.Scalar = struct.field(pytree_node=False)
     num_roadms: chex.Scalar = struct.field(pytree_node=False)
     roadm_loss: chex.Scalar = struct.field(pytree_node=False)
     num_spans: chex.Scalar = struct.field(pytree_node=False)
@@ -272,8 +274,13 @@ class GNModelEnvParams(RSAEnvParams):
     min_power: chex.Scalar = struct.field(pytree_node=False)
     step_power: chex.Scalar = struct.field(pytree_node=False)
     last_fit: bool = struct.field(pytree_node=False)
+    max_power_per_fibre: chex.Scalar = struct.field(pytree_node=False)
     default_launch_power: chex.Scalar = struct.field(pytree_node=False)
     mod_format_correction: bool = struct.field(pytree_node=False)
+    monitor_active_lightpaths: bool = struct.field(pytree_node=False)  # Monitor active lightpaths for throughput calculation
+    gap_starts: chex.Array = struct.field(pytree_node=False)
+    gap_widths: chex.Array = struct.field(pytree_node=False)
+    uniform_spans: bool = struct.field(pytree_node=False)
 
 
 @struct.dataclass
@@ -294,7 +301,8 @@ class GNModelEnvState(RSAEnvState):
 class RSAGNModelEnvParams(GNModelEnvParams):
     """Dataclass to hold environment params for RSA with GN model.
     """
-    pass
+    min_snr: chex.Scalar = struct.field(pytree_node=False)
+    fec_threshold: chex.Scalar = struct.field(pytree_node=False)
 
 
 @struct.dataclass
@@ -303,7 +311,7 @@ class RSAGNModelEnvState(GNModelEnvState):
     """
     active_lightpaths_array: chex.Array  # Active lightpath array. 1 x M array. Each value is a lightpath index. Used to calculate total throughput.
     active_lightpaths_array_departure: chex.Array  # Active lightpath array departure time.
-    current_throughput: chex.Array  # Current throughput
+    throughput: chex.Array  # Current network throughput
 
 
 @struct.dataclass
@@ -339,8 +347,8 @@ class RSAMultibandEnvState(RSAEnvState):
 class RSAMultibandEnvParams(RSAEnvParams):
     """Dataclass to hold environment parameters for MultiBandRSA (RBSA).
     """
-    gap_start: chex.Scalar = struct.field(pytree_node=False)
-    gap_width: chex.Scalar = struct.field(pytree_node=False)
+    gap_starts: chex.Array = struct.field(pytree_node=False)
+    gap_widths: chex.Array = struct.field(pytree_node=False)
 
 
 @struct.dataclass

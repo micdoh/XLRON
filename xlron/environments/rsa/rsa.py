@@ -6,11 +6,16 @@ from xlron.environments.env_funcs import (
     init_graph_tuple, implement_action_rwalr, check_action_rwalr, undo_action_rwalr, finalise_action_rwalr,
     generate_request_rwalr, check_action_rmsa_gn_model, implement_action_rmsa_gn_model, implement_action_rsa_gn_model,
     undo_action_rsa_gn_model, finalise_action_rsa_gn_model, undo_action_rmsa_gn_model, finalise_action_rmsa_gn_model,
-    set_c_l_band_gap
+    set_band_gaps
 )
 from xlron.environments.diff_utils import *
 from xlron.environments.dataclasses import *
 from xlron.environments.wrappers import *
+from xlron.dtype_config import COMPUTE_DTYPE, PARAMS_DTYPE, LARGE_INT_DTYPE, LARGE_FLOAT_DTYPE, \
+    SMALL_INT_DTYPE, SMALL_FLOAT_DTYPE, MED_INT_DTYPE
+
+one = jnp.array(1, dtype=LARGE_FLOAT_DTYPE)
+zero = jnp.array(0, dtype=LARGE_FLOAT_DTYPE)
 
 
 class RSAEnv(environment.Environment):
@@ -38,8 +43,9 @@ class RSAEnv(environment.Environment):
         """
         super().__init__()
         state = RSAEnvState(
-            current_time=0,
-            holding_time=0,
+            current_time=0.,
+            holding_time=0.,
+            arrival_time=0.,
             total_timesteps=0,
             total_requests=-1,
             link_slot_array=init_link_slot_array(params),
@@ -84,15 +90,24 @@ class RSAEnv(environment.Environment):
         obs_st, state_st, reward, done, info = self.step_env(
             key, state, action, params
         )
-        obs_re, state_re = self.reset_env(key_reset, params)
-        # Auto-reset environment based on termination
-        state = jax.tree.map(
-            lambda x, y: jnp.where(done, x, y), state_re, state_st
+        def reset_fn(args):
+            key_reset, state_st, params, state = args
+            obs_re, state_re = self.reset(key_reset, params, state)
+            return obs_re, state_re
+
+        def continue_fn(args):
+            _, state_st, _, _ = args
+            return obs_st, state_st
+
+        obs, new_state = jax.lax.cond(
+            done,
+            reset_fn,
+            continue_fn,
+            (key_reset, state_st, params, state)
         )
-        obs = jax.lax.select(done, obs_re, obs_st)
         return (
             jax.lax.stop_gradient(obs),
-            jax.lax.stop_gradient(state),
+            jax.lax.stop_gradient(new_state),
             reward,
             done,
             info
@@ -100,7 +115,7 @@ class RSAEnv(environment.Environment):
 
     @partial(jax.jit, static_argnums=(0, 2,))
     def reset(
-        self, key: chex.PRNGKey, params: Optional[RSAEnvParams] = None
+        self, key: chex.PRNGKey, params: Optional[RSAEnvParams] = None, state: Optional[RSAEnvState] = None
     ) -> Tuple[chex.Array, RSAEnvState]:
         """Performs resetting of environment.
 
@@ -112,7 +127,7 @@ class RSAEnv(environment.Environment):
             obs: Observation
             state: Reset environment state
         """
-        obs, state = self.reset_env(key, params)
+        obs, state = self.reset_env(key, params, state)
         return obs, state
 
     def step_env(
@@ -216,7 +231,7 @@ class RSAEnv(environment.Environment):
 
     @partial(jax.jit, static_argnums=(0, 2,))
     def reset_env(
-        self, key: chex.PRNGKey, params: RSAEnvParams
+        self, key: chex.PRNGKey, params: RSAEnvParams, state: Optional[RSAEnvState] = None
     ) -> Tuple[chex.Array, RSAEnvState]:
         """Environment-specific reset.
         Generates new random traffic matrix if random_traffic is True, otherwise uses the provided traffic matrix.
@@ -346,19 +361,21 @@ class RSAEnv(environment.Environment):
             params: Optional[EnvParams] = None,
             action: Optional[chex.Array] = None,
     ) -> chex.Array:
-        """Return reward for current state."""
-        # Calculate original reward
+        """Return reward for current state.
+
+        Args:
+            state (optional): Environment state
+
+        Returns:
+            reward: Reward for failure
+        """
+        reward = -one
         if params.reward_type == "service":
-            reward = jnp.array(-1.0)
+            pass
         elif params.reward_type == "bitrate":
-            reward = state.request_array[1] * -1.0 / jnp.max(params.values_bw.val)
+            reward = state.request_array[1] * reward / jnp.max(params.values_bw.val)
         else:
-            reward = -1.0 * read_rsa_request(state.request_array)[1] / jnp.max(
-                params.values_bw.val) if params.maximise_throughput else jnp.array(-1.0)
-
-        # Add integer bonus if action is provided
-        #reward = reward + self.add_integer_bonus(action)
-
+            reward = reward * read_rsa_request(state.request_array)[1] / jnp.max(params.values_bw.val) if params.maximise_throughput else reward
         return reward
 
     def get_reward_success(
@@ -367,9 +384,15 @@ class RSAEnv(environment.Environment):
             params: Optional[EnvParams] = None,
             action: Optional[chex.Array] = None
     ) -> chex.Array:
-        """Return reward for current state."""
-        reward = jnp.array(1.0)
+        """Return reward for current state.
 
+        Args:
+            state: (optional) Environment state
+
+        Returns:
+            reward: Reward for success
+        """
+        reward = zero
         if params.__class__.__name__ in ["RSAGNModelEnvParams", "RMSAGNModelEnvParams"]:
             path_action, _ = action
         else:
@@ -378,31 +401,29 @@ class RSAEnv(environment.Environment):
         if params.reward_type != "service":
             nodes_sd, requested_datarate = read_rsa_request(state.request_array)
             k_index, slot_index = process_path_action(state, params, path_action)
-            reward = state.request_array[1] * 1.0 / jnp.max(params.values_bw.val)
-
-            # Additional rewards based on reward_type...
+            reward = state.request_array[1] * reward / jnp.max(params.values_bw.val)
             if params.reward_type == "bitrate":
                 pass  # No additional calculation needed
             elif params.reward_type == "snr":
                 # SNR calculation...
                 assert params.__class__.__name__ == "RSAGNModelEnvParams"
                 path_start_index = get_path_indices(nodes_sd[0], nodes_sd[1], params.k_paths, params.num_nodes,
-                                                    directed=params.directed_graph).astype(jnp.int32)
+                                                    directed=params.directed_graph).astype(LARGE_INT_DTYPE)
                 path = params.path_link_array[path_start_index + k_index]
-                path_snr = get_snr_for_path(path, state.link_snr_array, params)[slot_index.astype(jnp.int32)]
-                path_snr_norm = jnp.where(path_snr < 0, 0, path_snr) / params.max_snr
-                reward = reward + path_snr_norm
+                path_snr = get_snr_for_path(path, state.link_snr_array, params)[slot_index.astype(MED_INT_DTYPE)]
+                # set to 0 if negative and divide by large SNR (e.g. 50. dB) to scale below 1
+                # N.B. negative SNR in dB would be a fail anyway since min. required is 10dB
+                path_snr_norm = jnp.where(path_snr < zero, zero, path_snr) / params.max_snr
+                return reward + path_snr_norm
             elif params.reward_type == "mod_format":
                 # Modulation format calculation...
                 assert params.__class__.__name__ == "RSAGNModelEnvParams"
                 mod_format_index = get_path_slots(
                     state.modulation_format_index_array, params, nodes_sd, k_index, agg_func='max'
-                )[slot_index.astype(jnp.int32)]
-                reward = reward + 0.05 * (1 + mod_format_index)
-
-        # For tuple actions, apply to path_action which is the slot selection
-        if params.__class__.__name__ in ["RSAGNModelEnvParams", "RMSAGNModelEnvParams"]:
-            reward = reward + self.add_integer_bonus(path_action)
+                )[slot_index.astype(MED_INT_DTYPE)]
+                return reward + 0.05 * (one + mod_format_index)
+            else:
+                return reward
         else:
             reward = reward + self.penalise_non_integer_action(action) #+ self.add_integer_bonus(action)
 
@@ -455,9 +476,10 @@ class RSAMultibandEnv(RSAEnv):
         state = RSAMultibandEnvState(
             current_time=0,
             holding_time=0,
+            arrival_time=0,
             total_timesteps=0,
             total_requests=-1,
-            link_slot_array=set_c_l_band_gap(init_link_slot_array(params), params, -1.),
+            link_slot_array=set_band_gaps(init_link_slot_array(params), params, -1.),
             link_slot_departure_array=init_link_slot_departure_array(params),
             request_array=init_rsa_request_array(),
             link_slot_mask=init_link_slot_mask(params, agg=params.aggregate_slots),

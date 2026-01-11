@@ -362,7 +362,7 @@ if __name__ == '__main__':
     plt.rcParams.update({'xtick.labelsize': 24})
     plt.rcParams.update({'ytick.labelsize': 24})
 
-    data_file = '../data/experiment_results_eval.csv'
+    data_file = '../../../../experiment_data/JOCN2024/experiment_results_eval.csv'
     df = pd.read_csv(data_file)
     # Filter to only have these columns: NAME,TOPOLOGY,LOAD,K,service_blocking_probability_mean/std/iqr_lower/iqr_upper
     df = df[['NAME', 'TOPOLOGY', 'LOAD', 'K', 'WEIGHT', 'service_blocking_probability_mean', 'service_blocking_probability_std',
@@ -447,9 +447,9 @@ if __name__ == '__main__':
             line1 = ax.errorbar(case_rl['load'], case_rl['mean'], yerr=case_rl['stddev'],
                                 label='RL', marker='x', capsize=5, color=rl_col, linewidth=3, markersize=20)
             line2 = ax.errorbar(case_length['load'], case_length['mean'], yerr=case_length['stddev'],
-                                label='5-SP-FF$_{published}$', marker='x', capsize=5, color=length_col, linewidth=3, markersize=20)
+                                label='5-SP-FF$^{published}_{km}$', marker='x', capsize=5, color=length_col, linewidth=3, markersize=20)
             line3 = ax.errorbar(case_length_ours['load'], case_length_ours['mean'], yerr=case_length_ours['stddev'],
-                                label='5-SP-FF$_{ours}$', marker='o', capsize=5, color=length_ours_col, linewidth=3, markersize=10)
+                                label='5-SP-FF$_{km}$', marker='o', capsize=5, color=length_ours_col, linewidth=3, markersize=10)
             case_hops_5 = case_hops[case_hops['k'] == 5]
             case_hops_50 = case_hops[case_hops['k'] == 50]
             line4 = ax.errorbar(case_hops_5['load'], case_hops_5['mean'], yerr=case_hops_5['stddev'],
@@ -474,7 +474,7 @@ if __name__ == '__main__':
                 line = ax.plot(case_length['load'], case_length['mean'], label='5-SP-FF$_{published}$', marker='x',
                                  markerfacecolor=length_col, linestyle='-', color=length_col, markersize=15)
                 lines.append(line[0])
-                labels.append('5-SP-FF$_{published}$')
+                labels.append('5-SP-FF$^{published}_{km}$')
 
             # Plot length data for our method
             if not case_length_ours.empty:
@@ -483,7 +483,7 @@ if __name__ == '__main__':
                 ax.fill_between(case_length_ours['load'], case_length_ours['mean'] - case_length_ours['stddev'],
                                 case_length_ours['mean'] + case_length_ours['stddev'], alpha=0.2, color=length_ours_col)
                 lines.append(line[0])
-                labels.append('5-SP-FF$_{ours}$')
+                labels.append('5-SP-FF$_{km}$')
 
             # Plot hops data for k=5 and k=50 if available
             for k in [5, 50]:

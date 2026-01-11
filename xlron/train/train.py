@@ -1,3 +1,5 @@
+from jax._src.interpreters.pxla import Chunked
+from matplotlib.typing import ColorType
 import wandb
 import sys
 import os
@@ -8,32 +10,49 @@ import math
 import matplotlib.pyplot as plt
 import absl
 from absl import app, flags
+from wandb.sdk import Config
 import xlron.parameter_flags
 import numpy as np
 import pandas as pd
 from box import Box
-from typing import Optional, Union
+from typing import Optional, Union, Dict, Any, List
+import jax
+import jax.numpy as jnp
+import orbax.checkpoint
+
+from xlron import dtype_config
+from xlron.environments.make_env import process_config
+from xlron.environments.env_funcs import create_run_name
+from xlron.environments.wrappers import TimeIt
+from xlron.train.ppo import get_learner_fn
+from xlron.heuristics.eval_heuristic import get_eval_fn
+from xlron.train.train_utils import save_model, print_metrics, plot_metrics, log_metrics, log_actions, setup_wandb, experiment_data_setup
+
 
 FLAGS = flags.FLAGS
 
+# Create a global mutable container to collect data
+collected_states = []
 
-def restrict_visible_gpus(gpu_indices=None, auto_select=False):
+
+def identify_default_device(gpu_index: List[int] = None, auto_select: bool = False) -> List[jax.Device]:
     """
-    Restricts JAX to only initialize and use specific GPUs.
-    To avoid initializing a JAX process on every available device, must be called BEFORE importing JAX.
-    Automated GPU selection is based on free memory.
+    Identifies and sets the default JAX device, preferring the GPU with most free memory.
 
     Args:
-        gpu_indices: List of GPU indices to make visible (e.g. [0,3] for first and fourth GPUs)
+        gpu_index: Specific GPU index to use (0-indexed). If None and auto_select=False, uses GPU 0
         auto_select: If True, automatically select the GPU with most free memory
-                     (overrides gpu_indices if both are provided)
+                     (overrides gpu_index if both are provided)
 
     Returns:
-        selected_gpu: The index of the selected GPU (for later reference)
+        jax_device: The selected JAX device object
     """
+    # Check if running on TPU
     if os.environ.get('COLAB_TPU_ADDR', False):
         print("Running on TPU")
-        return
+        device = jax.devices()[0]
+        jax.config.update('jax_default_device', device)
+        return device
 
     def get_gpu_memory_info():
         """Get memory information for NVIDIA GPUs using nvidia-smi."""
@@ -49,53 +68,89 @@ def restrict_visible_gpus(gpu_indices=None, auto_select=False):
                 gpu_info.append((int(idx.strip()), int(free_mem.strip())))
 
             return gpu_info
-        except:
-            # If nvidia-smi fails, return an empty list and run on CPU
+        except Exception as e:
+            print(f"Warning: Could not query GPU info: {e}")
             return []
 
-    # Auto-select GPU with most free memory if requested
+    # Get available JAX devices
+    jax_devices = jax.devices()
+
+    # If no GPUs available, use default device (likely CPU)
+    if not any(d.platform == 'gpu' for d in jax_devices):
+        print("No GPUs detected, using default device (CPU)")
+        device = jax_devices[0]
+        jax.config.update('jax_default_device', device)
+        return device
+
+    # Get GPU memory information
     gpu_memory_info = get_gpu_memory_info()
-    if not gpu_memory_info:
-        print("Defaulting to CPU")
-        return
-    if auto_select:
-        if gpu_memory_info:
-            # Find GPU with most free memory
-            selected_gpu, free_mem = max(gpu_memory_info, key=lambda x: x[1])
-            gpu_indices = [selected_gpu]
-            print(f"Auto-selected GPU {selected_gpu} with {free_mem} MB free memory")
-        else:
-            # Default to GPU 0 if we can't get memory info
-            gpu_indices = [0]
-            print("Could not get GPU memory info, defaulting to GPU 0")
 
-    # Default to first GPU if nothing specified
-    if gpu_indices is None:
-        gpu_indices = [0]
+    # Auto-select GPU with most free memory
+    if auto_select and gpu_memory_info:
+        selected_gpu_idx, free_mem = max(gpu_memory_info, key=lambda x: x[1])
+        print(f"Auto-selected GPU {selected_gpu_idx} with {free_mem} MB free memory")
 
-    # Create comma-separated string of GPU indices
-    visible_gpus = ','.join(str(idx) for idx in gpu_indices)
+        # Display all GPU memory info for context
+        print("All GPUs:")
+        for idx, mem in gpu_memory_info:
+            print(f"  GPU {idx}: {mem} MB free")
 
-    # Set environment variables to restrict visible GPUs
-    # This must happen BEFORE importing JAX
-    os.environ["CUDA_VISIBLE_DEVICES"] = visible_gpus
+        gpu_index = selected_gpu_idx
 
-    # Prevent excess memory allocation
-    os.environ["XLA_PYTHON_CLIENT_ALLOCATOR"] = "platform"
+    # Default to GPU 0 if nothing specified
+    if gpu_index is None:
+        gpu_index = 0
+        print("No GPU specified, defaulting to GPU 0")
 
-    print(f"Restricted visible GPUs to: {visible_gpus}")
-    return gpu_indices[0]  # Return the first (or only) selected GPU index
+    # Find the corresponding JAX device
+    try:
+        device = [d for d in jax_devices if d.platform == 'gpu'][gpu_index]
+        print(f"Setting default device to: {device}")
+        jax.config.update('jax_default_device', device)
+        return device
+    except IndexError:
+        print(f"Warning: GPU {gpu_index} not found, using first available GPU")
+        device = [d for d in jax_devices if d.platform == 'gpu'][0]
+        jax.config.update('jax_default_device', device)
+        return device
 
 
 def main(argv):
 
     config = process_config(FLAGS)
+    # Identify and set the default JAX device
+    # If user specifies VISIBLE_DEVICES, use the first one; otherwise auto-select
+    if config.VISIBLE_DEVICES:
+        # Parse comma-separated GPU indices
+        gpu_indices = [int(x) for x in config.VISIBLE_DEVICES.split(',')]
+        default_device = identify_default_device(gpu_index=gpu_indices[0], auto_select=False)
+    else:
+        # Auto-select GPU with most free memory
+        default_device = identify_default_device(auto_select=True)
+
+    print(f"Default device set to: {default_device}")
+    
+    def merge_func(x):
+        # Original dims: (learner, num_updates, rollout_length, num_envs)
+        # Compute the new shape
+        # If X has only 2 or 3 dims then add more leading dims until it has 4
+        if x.ndim == 2:
+            x = x[None, :, :, None]
+        elif x.ndim == 3 and config.NUM_LEARNERS == 1:
+            x = x[None, :, :, :]
+        elif x.ndim == 3 and config.NUM_ENVS > 1:
+            x = x[:, :, :, None]
+        learner, num_updates, rollout_length, num_envs = x.shape
+        new_shape = (learner * num_envs, num_updates, rollout_length)
+        # Perform a single transpose operation
+        x = jnp.transpose(x, (0, 3, 1, 2))
+        # Reshape to merge learner and num_envs dimensions
+        return x.reshape(new_shape)
 
     # Check device count
     print(f"Available devices: {jax.devices()}")
     print(f"Local devices: {jax.local_devices()}")
     num_devices = len(jax.devices())
-    assert (num_devices == 1), "Please specify one device using VISIBLE_DEVICES flag or run train_multidevice.py"
     config.NUM_DEVICES = num_devices
 
     # Set flags for debugging
@@ -145,91 +200,99 @@ def main(argv):
         for name in config:
             print(name, config[name])
 
-    rng = jax.random.PRNGKey(config.SEED)
-    rng = jax.random.split(rng, config.NUM_LEARNERS)
-
     if (config.RETRAIN_MODEL or config.EVAL_MODEL) and not config.model:
         orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
         model = orbax_checkpointer.restore(pathlib.Path(config.MODEL_PATH))
         config.model = model
-
-    NUM_UPDATES = (
-            config.TOTAL_TIMESTEPS // config.ROLLOUT_LENGTH // config.NUM_ENVS
+        
+    print(
+        f"Independent learners: {config.NUM_LEARNERS}\n"
+        f"Environments per learner: {config.NUM_ENVS}\n"
+        f"Number of devices: {num_devices}\n"
+        f"Learners per device: {config.NUM_LEARNERS // num_devices}\n"
+        f"Timesteps per learner: {config.TOTAL_TIMESTEPS}\n"
+        f"Timesteps per environment: {config.TOTAL_TIMESTEPS // config.NUM_ENVS}\n"
+        f"Total timesteps: {config.TOTAL_TIMESTEPS * config.NUM_LEARNERS}\n"
+        f"Total updates: {config.NUM_INCREMENTS * config.NUM_UPDATES * config.NUM_MINIBATCHES}\n"
+        f"Batch size: {config.NUM_ENVS * config.ROLLOUT_LENGTH}\n"
+        f"Minibatch size: {config.MINIBATCH_SIZE}\n"
     )
-    MINIBATCH_SIZE = (
-            config.ROLLOUT_LENGTH * config.NUM_ENVS // config.NUM_MINIBATCHES
-    )
-    config.NUM_UPDATES = NUM_UPDATES
-    config.MINIBATCH_SIZE = MINIBATCH_SIZE
 
-    with TimeIt(tag='COMPILATION'):
-        print(f"\n---BEGINNING COMPILATION---\n"
-              f"Independent learners: {config.NUM_LEARNERS}\n"
-              f"Environments per learner: {config.NUM_ENVS}\n"
-              f"Number of devices: {num_devices}\n"
-              f"Learners per device: {config.NUM_LEARNERS // num_devices}\n"
-              f"Timesteps per learner: {config.TOTAL_TIMESTEPS}\n"
-              f"Timesteps per environment: {config.TOTAL_TIMESTEPS // config.NUM_ENVS}\n"
-              f"Total timesteps: {config.TOTAL_TIMESTEPS * config.NUM_LEARNERS}\n"
-              f"Total updates: {config.NUM_UPDATES * config.NUM_MINIBATCHES}\n"
-              f"Batch size: {config.NUM_ENVS * config.ROLLOUT_LENGTH}\n"
-              f"Minibatch size: {config.MINIBATCH_SIZE}\n")
+    with TimeIt(tag="COMPILATION"):
+        print(
+            f"\n---BEGINNING COMPILATION---\n"
+            f"Total timesteps per increment: {config.STEPS_PER_INCREMENT * config.NUM_LEARNERS}\n"
+            f"Timesteps per environment per increment: {config.STEPS_PER_INCREMENT // config.NUM_ENVS}\n"
+            f"Total updates per increment: {config.NUM_UPDATES * config.NUM_MINIBATCHES}\n"
+        )
 
-        experiment_fn = get_learner_fn if not (config.EVAL_HEURISTIC or config.EVAL_MODEL) else get_eval_fn
-        experiment_input, env, env_params = jax.vmap(experiment_data_setup, axis_name='learner', in_axes=(None, 0))(config, rng)
-        experiment_fn = experiment_fn(env, env_params, experiment_input[0], config)
-        run_experiment = jax.jit(jax.vmap(experiment_fn, axis_name='learner')).lower(experiment_input).compile()
-
-    # N.B. that increasing number of learner will increase the number of steps
-    # (essentially training for total_timesteps separately per learner)
-
+        rng = jax.random.PRNGKey(config.SEED)
+        if config.NUM_LEARNERS > 1:
+            rng = jax.random.split(rng, config.NUM_LEARNERS)
+            experiment_fn = get_learner_fn if not (config.EVAL_HEURISTIC or config.EVAL_MODEL) else get_eval_fn
+            experiment_input, env, env_params = jax.vmap(experiment_data_setup, axis_name='learner', in_axes=(None, 0))(config, rng)
+            experiment_fn = experiment_fn(env, env_params, experiment_input[0], config)
+            run_experiment = jax.jit(jax.vmap(experiment_fn, axis_name='learner')).lower(experiment_input).compile()
+        else:
+            experiment_fn = get_learner_fn if not (config.EVAL_HEURISTIC or config.EVAL_MODEL) else get_eval_fn
+            experiment_input, env, env_params = experiment_data_setup(config, rng)
+            experiment_fn = experiment_fn(env, env_params, experiment_input, config)
+            run_experiment = jax.jit(experiment_fn).lower(experiment_input).compile()
+    
+    
+    # START TRAINING
     start_time = time.time()
-    with TimeIt(tag='EXECUTION', frames=config.TOTAL_TIMESTEPS * config.NUM_LEARNERS):
-        out = run_experiment(experiment_input)
-        out["metrics"]["returns"].block_until_ready()  # Wait for all devices to finish
-    total_time = time.time() - start_time
+    log_time = 0.0
+    episode_count = update_count = step_count = 0
+    processed_data_all: Dict[str, Dict[str, jax.Array]] = {}
+    print(f"Running {config.NUM_INCREMENTS} increments of training")
+    for i in range(config.NUM_INCREMENTS):
+        print(f"\n---INCREMENT {i + 1}/{config.NUM_INCREMENTS}---")
+        # Run the increment
+        with TimeIt(tag="EXECUTION", frames=config.STEPS_PER_INCREMENT * config.NUM_LEARNERS):
+            out = run_experiment(experiment_input)
+            out["metrics"]["returns"].block_until_ready()  # Wait for all devices to finish
+        run_time = time.time() - start_time - log_time
+        # Save model params
+        if config.SAVE_MODEL:
+            # Merge seed_device and seed dimensions
+            train_state = jax.tree.map(lambda x: x[0], out["runner_state"][0])
+            save_model(train_state, run_name, config)  # TODO - make flags compatible
 
-    # Output leaf nodes have dimensions:
-    # (learner, num_updates, rollout_length, num_envs)
-    # For eval, output leaf nodes have dimensions:
-    # (learner, num_updates, rollout_length, num_envs)
-
-    # Save model params
-    if config.SAVE_MODEL:
-        # Merge seed_device and seed dimensions
-        print(out["runner_state"])
-        train_state = jax.tree.map(lambda x: x[0], out["runner_state"][0])
-        save_model(train_state, run_name, None)  # TODO - make flags compatible
+        merged_out, processed_data = log_metrics(
+            config,
+            out,
+            run_time,
+            merge_func,
+            episode_count=episode_count,
+            update_count=update_count,
+            step_count=step_count,
+        )
+        # Extend every item in processed data with new data
+        episode_count += len(processed_data["returns"]["episode_end_mean"])
+        step_count += config.STEPS_PER_INCREMENT // config.NUM_ENVS
+        update_count += config.NUM_UPDATES * config.NUM_MINIBATCHES
+        # Concatenate arrays for each key
+        processed_data_all = (
+            processed_data
+            if i == 0
+            else jax.tree.map(lambda x, y: jnp.concatenate([x, y]), processed_data_all, processed_data)
+        )
+        log_time = log_time + time.time() - start_time - run_time
+        # Update the experiment input for the next increment
+        experiment_input = out["runner_state"]  # TrainState, EnvState, Obs, key, key
 
     # END OF TRAINING
 
-    def merge_func(x):
-        # Original dims: (learner, num_updates, rollout_length, num_envs)
-        # Compute the new shape
-        learner, num_updates, rollout_length, num_envs = x.shape
-        new_shape = (learner * num_envs, num_updates, rollout_length)
-        # Perform a single transpose operation
-        x = jnp.transpose(x, (0, 3, 1, 2))
-        # Reshape to merge learner and num_envs dimensions
-        return x.reshape(new_shape)
-
-    log_metrics(config, out, experiment_name, total_time, merge_func)
-
+    print_metrics(processed_data_all, config)
+    if config.PLOTTING:
+        plot_metrics(experiment_name, processed_data_all, config)
+    if config.log_actions:
+        log_actions(merged_out, processed_data, config)
+        
+    if config.WANDB:
+        wandb.finish()
 
 if __name__ == "__main__":
     FLAGS(sys.argv)
-    auto_select = False if FLAGS.VISIBLE_DEVICES else True
-    selected_gpu = restrict_visible_gpus(gpu_indices=FLAGS.VISIBLE_DEVICES, auto_select=auto_select)
-    print(f"Selected GPU: {selected_gpu}")
-    # JAM imports come after GPU selection (to avoid initializing a process on every GPU)
-    import jax
-    import jax.numpy as jnp
-    import orbax.checkpoint
-    from jax.lib import xla_bridge
-    from xlron.environments.make_env import process_config
-    from xlron.environments.env_funcs import create_run_name
-    from xlron.environments.wrappers import TimeIt
-    from xlron.train.ppo import get_learner_fn
-    from xlron.heuristics.eval_heuristic import get_eval_fn
-    from xlron.train.train_utils import save_model, log_metrics, setup_wandb, experiment_data_setup
     app.run(main)
