@@ -8,20 +8,20 @@ chex.all_variants() decorator runs the test once for each variant (e.g. jitted, 
 parameterized.named_parameters() decorator runs the test once for each set of parameters passed to the function under test.
 """
 import os
+
 os.environ['XLA_FLAGS'] = "--xla_force_host_platform_device_count=4"
-import distrax
-from absl.testing import absltest
-from absl.testing import parameterized
 import chex
 import jax
 import jax.numpy as jnp
 import numpy as np
-from xlron.environments.env_funcs import *
-from xlron.environments.vone import *
-from xlron.environments.rsa import *
-from xlron.environments.wrappers import *
+from absl.testing import absltest, parameterized
+
 from xlron.environments.dataclasses import *
+from xlron.environments.env_funcs import *
 from xlron.environments.make_env import make
+from xlron.environments.rsa import *
+from xlron.environments.vone import *
+from xlron.environments.wrappers import *
 
 
 def keys_test_setup():
@@ -596,6 +596,7 @@ class CheckVoneActionTest(parameterized.TestCase):
             jnp.array(True)),
     )
     def test_check_vone_action(self, actions, total_requested_nodes, expected):
+        remaining_actions: Array = jnp.array(0)
         for action in actions:
             total_actions = jnp.squeeze(jax.lax.dynamic_slice(self.state.action_counter, (1,), (1,)))
             remaining_actions = jnp.squeeze(jax.lax.dynamic_slice(self.state.action_counter, (2,), (1,)))
@@ -675,6 +676,7 @@ class VoneStepTest(parameterized.TestCase):
         jnp.array([1, 0, 1, 0, 1, 0, 1, 2, 1, 3, 1, 4, 1, 2, 3, 3, 4, 4, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])),
     )
     def test_vone_step_obs(self, actions, expected):
+        obs: Array = jnp.array(0)
         for action in actions:
             obs, self.state, reward, done, info = self.variant(self.env.step, static_argnums=(3,))(
                 self.key, self.state, action, self.params

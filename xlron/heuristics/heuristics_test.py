@@ -1,17 +1,37 @@
 import os
+
 os.environ['XLA_FLAGS'] = "--xla_force_host_platform_device_count=4"
-from absl.testing import absltest
-from absl.testing import parameterized
 import chex
 import jax
-import numpy as np
-from xlron.environments.env_funcs import *
-from xlron.environments.env_funcs_test import *
-from xlron.environments.vone import *
-from xlron.environments.rsa import *
-from xlron.heuristics.heuristics import *
-from xlron.environments.env_funcs_test import (rwa_4node_test_setup, rsa_nsfnet_16_test_setup, rsa_4node_3_slot_request_test_setup)
-from xlron.environments.rwa_lightpath_reuse.rwa_lightpath_reuse_test import rwa_lightpath_reuse_4_nsfnet_test_setup
+import jax.numpy as jnp
+from absl.testing import absltest, parameterized
+
+# from xlron.environments.env_funcs import 
+from xlron.environments.env_funcs_test import (
+    rsa_4node_3_slot_request_test_setup,
+    rsa_nsfnet_4_test_setup,
+    rsa_nsfnet_16_mod_test_setup,
+    rsa_nsfnet_16_test_setup,
+    rwa_4node_test_setup,
+)
+from xlron.environments.rwa_lightpath_reuse.rwa_lightpath_reuse_test import (
+    rwa_lightpath_reuse_4_nsfnet_test_setup,
+)
+# from xlron.environments.vone import *
+# from xlron.environments.rsa import *
+from xlron.heuristics.heuristics import (
+    bf_ksp,
+    ff_ksp,
+    kca_ff,
+    kmc_ff,
+    kmf_ff,
+    ksp_bf,
+    ksp_ff,
+    ksp_lf,
+    ksp_mu,
+    mu_ksp,
+)
+
 
 class KspffTest(parameterized.TestCase):
 

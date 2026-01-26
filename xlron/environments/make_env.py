@@ -1,13 +1,36 @@
-from typing import Any, Optional, Union
+import math
+import pathlib
+from typing import Any, Optional, Tuple, Union
 
 import absl
+import jax
+import jax.numpy as jnp
+import networkx as nx
+import numpy as np
 from absl.flags import FlagValues
 from box import Box
 
 from xlron import dtype_config
-from xlron import dtype_config
-from xlron.environments import *
-from xlron.environments.dataclasses import *
+from xlron.environments import (
+    DeepRMSAEnv,
+    RMSAGNModelEnv,
+    RSAEnv,
+    RSAGNModelEnv,
+    RSAMultibandEnv,
+    RWALightpathReuseEnv,
+    VONEEnv,
+)
+from xlron.environments.dataclasses import (
+    DeepRMSAEnvParams,
+    EnvParams,
+    HashableArrayWrapper,
+    RMSAGNModelEnvParams,
+    RSAEnvParams,
+    RSAGNModelEnvParams,
+    RSAMultibandEnvParams,
+    RWALightpathReuseEnvParams,
+    VONEEnvParams,
+)
 from xlron.environments.env_funcs import (
     convert_node_probs_to_traffic_matrix,
     generate_source_dest_pairs,
@@ -27,7 +50,7 @@ from xlron.environments.env_funcs import (
     required_slots,
 )
 from xlron.environments.gn_model.isrs_gn_model import from_dbm
-from xlron.environments.wrappers import *
+from xlron.environments.wrappers import LogWrapper
 
 
 def process_config(config: Optional[Union[dict, FlagValues]], **kwargs: Any) -> Box:
@@ -45,30 +68,22 @@ def process_config(config: Optional[Union[dict, FlagValues]], **kwargs: Any) -> 
     if config.get("TOTAL_TIMESTEPS", False):
         config.TOTAL_TIMESTEPS = int(config.TOTAL_TIMESTEPS)
         # For incremental logging, we need to set the number of increments
-        config.STEPS_PER_INCREMENT = min(
-            config.TOTAL_TIMESTEPS, config.STEPS_PER_INCREMENT
-        )
+        config.STEPS_PER_INCREMENT = min(config.TOTAL_TIMESTEPS, config.STEPS_PER_INCREMENT)
         n_increments = config.TOTAL_TIMESTEPS // config.STEPS_PER_INCREMENT
         config.NUM_INCREMENTS = n_increments
         config.TOTAL_TIMESTEPS = n_increments * config.STEPS_PER_INCREMENT
         # Set derived config values
-        config.MINIBATCH_SIZE = (
-            config.ROLLOUT_LENGTH * config.NUM_ENVS // config.NUM_MINIBATCHES
-        )
-        config.NUM_UPDATES = (
-            config.STEPS_PER_INCREMENT // config.ROLLOUT_LENGTH // config.NUM_ENVS
-        )
+        config.MINIBATCH_SIZE = config.ROLLOUT_LENGTH * config.NUM_ENVS // config.NUM_MINIBATCHES
+        config.NUM_UPDATES = config.STEPS_PER_INCREMENT // config.ROLLOUT_LENGTH // config.NUM_ENVS
         # Update these values to show true number of steps completed
-        config.STEPS_PER_INCREMENT = (
-            config.ROLLOUT_LENGTH * config.NUM_ENVS * config.NUM_UPDATES
-        )
+        config.STEPS_PER_INCREMENT = config.ROLLOUT_LENGTH * config.NUM_ENVS * config.NUM_UPDATES
         config.TOTAL_TIMESTEPS = n_increments * config.STEPS_PER_INCREMENT
     return config
 
 
 def make(
     config: Optional[Union[dict, absl.flags.FlagValues]], **kwargs
-) -> Tuple[environment.Environment, EnvParams]:
+) -> Tuple[RSAEnv | VONEEnv, EnvParams]:
     """Create RSA environment.
 
     This function is the entry point to setting up any XLRON environment.
@@ -91,7 +106,7 @@ def make(
     """
     config = process_config(config, **kwargs)
     env_type = config.get("env_type", "").lower()
-    if not env_type in [
+    if env_type not in [
         "rsa",
         "rmsa",
         "rwa",
@@ -110,13 +125,12 @@ def make(
     k = config.get("k", 5)
     incremental_loading = config.get("incremental_loading", False)
     end_first_blocking = config.get("end_first_blocking", False)
+    terminate_on_episode_end = config.get("terminate_on_episode_end", False)
     random_traffic = config.get("random_traffic", False)
     continuous_operation = config.get("continuous_operation", False)
     total_timesteps = config.get("TOTAL_TIMESTEPS", 1e4)
     max_requests = (
-        total_timesteps
-        if continuous_operation
-        else config.get("max_requests", total_timesteps)
+        total_timesteps if continuous_operation else config.get("max_requests", total_timesteps)
     )
     link_resources = config.get("link_resources", 100)
     values_bw = config.get("values_bw", None)
@@ -127,9 +141,7 @@ def make(
     min_bw = config.get("min_bw", 25)
     max_bw = config.get("max_bw", 100)
     step_bw = config.get("step_bw", 1)
-    custom_traffic_matrix_csv_filepath = config.get(
-        "custom_traffic_matrix_csv_filepath", None
-    )
+    custom_traffic_matrix_csv_filepath = config.get("custom_traffic_matrix_csv_filepath", None)
     traffic_requests_csv_filepath = config.get("traffic_requests_csv_filepath", None)
     multiple_topologies_directory = config.get("multiple_topologies_directory", None)
     aggregate_slots = config.get("aggregate_slots", 1)
@@ -165,9 +177,7 @@ def make(
 
     # GN model parameters
     max_span_length = config.get("max_span_length", 100e3)
-    ref_lambda = config.get(
-        "ref_lambda", 1564e-9
-    )  # 1577.5nm centre of C+L bands (1530-1625nm) or
+    ref_lambda = config.get("ref_lambda", 1564e-9)  # 1577.5nm centre of C+L bands (1530-1625nm) or
     # 1564nm for centre of 15THz of L,C,partial-S (1503-1625nm)
     # 1447.5nm for centre of C-band (1530-1565nm)
     # Partial S-band is 1503-1530nm = 195.94 - 199.46THz = 3.52THz
@@ -179,20 +189,12 @@ def make(
     dispersion_coeff = config.get("dispersion_coeff", 17 * 1e-12 / 1e-9 / 1e3)
     dispersion_slope = config.get("dispersion_slope", 0.067 * 1e-12 / 1e-9 / 1e3 / 1e-9)
     coherent = config.get("coherent", False)
-    noise_figure = config.get("noise_figure", 4)
+    config.get("noise_figure", 4)
     uniform_spans = config.get("uniform_spans", True)
-    interband_gap_width = (
-        [200, 200] if config.get("interband_gap_width", None) is None else []
-    )
-    gap_width_slots = [
-        int(math.ceil(width / slot_size)) for width in interband_gap_width
-    ]
-    interband_gap_start = (
-        [4425, 8425] if config.get("interband_gap_start", None) is None else []
-    )
-    gap_start_slots = [
-        int(math.ceil(start / slot_size)) for start in interband_gap_start
-    ]
+    interband_gap_width = [200, 200] if config.get("interband_gap_width", None) is None else []
+    gap_width_slots = [int(math.ceil(width / slot_size)) for width in interband_gap_width]
+    interband_gap_start = [4425, 8425] if config.get("interband_gap_start", None) is None else []
+    gap_start_slots = [int(math.ceil(start / slot_size)) for start in interband_gap_start]
     mod_format_correction = config.get("mod_format_correction", True)
     num_roadms = config.get("num_roadms", 1)
     roadm_loss = config.get("roadm_loss", 18)
@@ -219,9 +221,7 @@ def make(
 
     rng = jax.random.PRNGKey(seed)
     rng, _, _, _, _ = jax.random.split(rng, 5)
-    graph = make_graph(
-        topology_name, topology_directory=config.get("topology_directory", None)
-    )
+    graph = make_graph(topology_name, topology_directory=config.get("topology_directory", None))
     traffic_intensity = config.get("traffic_intensity", 0)
     mean_service_holding_time = config.get("mean_service_holding_time", 10)
 
@@ -266,9 +266,7 @@ def make(
         if launch_power_type == "fixed":
             # Same power for all channels
             launch_power_array = (
-                default_launch_power_array
-                if launch_power_array is None
-                else launch_power_array
+                default_launch_power_array if launch_power_array is None else launch_power_array
             )
             launch_power_type = 1
         elif launch_power_type == "tabular":
@@ -286,26 +284,18 @@ def make(
         elif launch_power_type == "scaled":
             # Power scaled by path length
             launch_power_array = (
-                default_launch_power_array
-                if launch_power_array is None
-                else launch_power_array
+                default_launch_power_array if launch_power_array is None else launch_power_array
             )
             launch_power_type = 4
         else:
             pass
 
     if custom_traffic_matrix_csv_filepath:
-        random_traffic = (
-            False  # Set this False so that traffic matrix isn't replaced on reset
-        )
-        traffic_matrix = jnp.array(
-            np.loadtxt(custom_traffic_matrix_csv_filepath, delimiter=",")
-        )
+        random_traffic = False  # Set this False so that traffic matrix isn't replaced on reset
+        traffic_matrix = jnp.array(np.loadtxt(custom_traffic_matrix_csv_filepath, delimiter=","))
         traffic_matrix = normalise_traffic_matrix(traffic_matrix)
     elif node_probabilities:
-        random_traffic = (
-            False  # Set this False so that traffic matrix isn't replaced on reset
-        )
+        random_traffic = False  # Set this False so that traffic matrix isn't replaced on reset
         node_probabilities = [float(prob) for prob in config.get("node_probs")]
         traffic_matrix = convert_node_probs_to_traffic_matrix(node_probabilities)
     elif traffic_array:
@@ -317,14 +307,10 @@ def make(
         deterministic_requests = True
         # Remove headers from array
         if traffic_requests_csv_filepath:
-            list_of_requests = np.loadtxt(traffic_requests_csv_filepath, delimiter=",")[
-                1:, :
-            ]
+            list_of_requests = np.loadtxt(traffic_requests_csv_filepath, delimiter=",")[1:, :]
             list_of_requests = jnp.array(list_of_requests)
         elif config.get("list_of_requests", None) is not None:
-            list_of_requests = jnp.array(
-                config.get("list_of_requests", [0.0]), dtype=jnp.float32
-            )
+            list_of_requests = jnp.array(config.get("list_of_requests", [0.0]), dtype=jnp.float32)
         else:
             list_of_requests = init_list_of_requests(int(max_requests))
         max_requests = len(list_of_requests)
@@ -337,6 +323,7 @@ def make(
 
     values_bw = init_values_bandwidth(min_bw, max_bw, step_bw, values_bw)
 
+    total_bandwidth = slot_size * link_resources * 1e9
     if env_type == "rsa":
         consider_modulation_format = False
     elif env_type == "rwa":
@@ -349,7 +336,6 @@ def make(
         # that the bandwidth request is still considered when updating link_capacity_array
         guardband = 0
         slot_size = int(max(values_bw))
-        total_bandwidth = slot_size * link_resources * 1e9
     elif env_type == "vone" and slot_size == 1:
         consider_modulation_format = False
     else:
@@ -360,6 +346,9 @@ def make(
     link_length_array = init_link_length_array(graph).reshape((num_links, 1))
 
     # Automated calculation of max slots requested
+    path_capacity_array: jax.Array = jnp.array(0)
+    modulations_array: jax.Array = jnp.array(0)
+    max_spans = int(jnp.ceil(max(link_length_array) / max_span_length)[0])
     if consider_modulation_format:
         modulations_array = init_modulations_array(
             config.get("modulations_csv_filepath", None)
@@ -380,11 +369,8 @@ def make(
         max_slots = required_slots(
             max_bw, min_se, slot_size, guardband=guardband, temperature=temperature
         )
-        max_spans = int(jnp.ceil(max(link_length_array) / max_span_length)[0])
         if env_type == "rmsa_gn_model" or env_type == "rsa_gn_model":
-            link_length_array = init_link_length_array_gn_model(
-                graph, max_span_length, max_spans
-            )
+            link_length_array = init_link_length_array_gn_model(graph, max_span_length, max_spans)
     else:
         path_se_array = jnp.array([1])
         if env_type == "rwa_lightpath_reuse":
@@ -423,9 +409,7 @@ def make(
     # Define edges for use with heuristics and GNNs
     edges = jnp.array(sorted(graph.edges), dtype=dtype_config.MED_INT_DTYPE)
 
-    if (
-        pack_path_bits
-    ):  # This saves memory by packing the path link array into a bit array
+    if pack_path_bits:  # This saves memory by packing the path link array into a bit array
         path_link_array = path_link_array.astype(dtype_config.LARGE_FLOAT_DTYPE)
         path_link_array = jnp.packbits(path_link_array, axis=1)
 
@@ -449,6 +433,7 @@ def make(
         else path_link_array,
         incremental_loading=incremental_loading,
         end_first_blocking=end_first_blocking,
+        terminate_on_episode_end=terminate_on_episode_end,
         edges=HashableArrayWrapper(edges) if not remove_array_wrappers else edges,
         random_traffic=random_traffic,
         path_se_array=HashableArrayWrapper(path_se_array)
@@ -467,9 +452,7 @@ def make(
         multiple_topologies=False,
         directed_graph=graph.is_directed(),
         maximise_throughput=maximise_throughput,
-        values_bw=HashableArrayWrapper(values_bw)
-        if not remove_array_wrappers
-        else values_bw,
+        values_bw=HashableArrayWrapper(values_bw) if not remove_array_wrappers else values_bw,
         reward_type=reward_type,
         truncate_holding_time=truncate_holding_time,
         log_actions=log_actions,
@@ -479,6 +462,7 @@ def make(
         relative_arrival_times=relative_arrival_times,
         temperature=temperature,
         differentiable=differentiable,
+        num_spectral_features=config.get("num_spectral_features", 3),
     )
 
     gap_starts = (
@@ -509,13 +493,11 @@ def make(
         params_dict.update(gap_starts=gap_starts, gap_widths=gap_widths)
     elif "gn_model" in env_type:
         env_params = RSAGNModelEnvParams
-        transceiver_snr, amplifier_noise_figure = (
-            init_transceiver_amplifier_noise_arrays(
-                link_resources,
-                ref_lambda,
-                slot_size,
-                config.get("noise_data_filepath", None),
-            )
+        transceiver_snr, amplifier_noise_figure = init_transceiver_amplifier_noise_arrays(
+            link_resources,
+            ref_lambda,
+            slot_size,
+            config.get("noise_data_filepath", None),
         )
         transceiver_snr, amplifier_noise_figure = (
             HashableArrayWrapper(transceiver_snr),
@@ -590,9 +572,7 @@ def make(
             values = [getattr(v, k) for v in params_list]
             # values = [list(v) if isinstance(v, chex.Array) else v for v in values]
             # Pad arrays to same shape
-            padded_values = HashableArrayWrapper(
-                jnp.array(pad_array(values, fill_value=0))
-            )
+            padded_values = HashableArrayWrapper(jnp.array(pad_array(values, fill_value=0)))
             field_dict[k] = padded_values
         params = cls(**field_dict)
 

@@ -5,10 +5,7 @@ and spectrum allocation problems.
 """
 
 # Submodules are imported for convenience
-from xlron import environments
-from xlron import heuristics
-from xlron import models
-from xlron import train
+from xlron import environments, heuristics, models, train
 
 __version__ = "0.1.0"
 

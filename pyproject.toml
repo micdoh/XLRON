@@ -15,6 +15,7 @@ dependencies = [
     "griffe>=1.14.0",
     "gymnax>=0.0.9",
     "ipykernel>=7.0.1",
+    "isort>=7.0.0",
     "jax>=0.8.0",
     "jaxopt>=0.8.5",
     "jaxtyping>=0.3.3",
@@ -53,13 +54,55 @@ gpu = [
   "jax[cuda12]"
 ]
 
+[tool.ruff]
+exclude = [
+  "__init__.py",
+  "examples/",
+  "experimental/",
+  "xlron/train/multidevice/",
+]
+line-length = 100
+
+[tool.ruff.lint.per-file-ignores]
+"xlron/models/transformer.py" = ["F722", "F403", "F405"]
+"*_test.py" = ["F403", "F405"]
+"xlron/environments/deeprmsa/deeprmsa.py" = ["F403", "F405"]
+"xlron/environments/gn_model/rmsa_gn_model.py" = ["F403", "F405"]
+"xlron/environments/gn_model/rsa_gn_model.py" = ["F403", "F405"]
+"xlron/environments/rsa/rsa.py" = ["F403", "F405"]
+"xlron/environments/rwa_lightpath_reuse/rwa_lightpath_reuse.py" = ["F403", "F405"]
+"xlron/environments/vone/vone.py" = ["F403", "F405"]
+"xlron/heuristics/heuristics.py" = ["F403", "F405"]
+
+[tool.isort]
+multi_line_output = 3
+include_trailing_comma = true
+force_grid_wrap = 0
+use_parentheses = true
+skip = ["notebooks", ".venv"]
+
+[tool.ty.src]
+exclude = [
+  "examples/",
+  "experimental/",
+  "xlron/train/multidevice/",
+]
+
 [tool.ty.rules]
 possibly-unresolved-reference = "warn"
 division-by-zero = "warn"
-
-[[tool.ty.overrides]]
-include = [
-    "xlron"
-]
-
-
+too-many-positional-arguments = "ignore"
+not-subscriptable = "ignore"
+possibly-missing-attribute = "ignore"
+# JAX JIT-related false positives - JIT-wrapped functions lose type information
+unknown-argument = "ignore"  # JIT-wrapped functions lose parameter names
+invalid-argument-type = "ignore"  # JIT-wrapped functions have JitWrapped return types
+not-iterable = "ignore"  # JitWrapped types not recognized as iterable
+unresolved-attribute = "ignore"  # Base class attributes not recognized in subclasses
+invalid-assignment = "ignore"  # JitWrapped return types cause assignment errors
+unsupported-operator = "ignore"  # Array operations not recognized
+invalid-return-type = "ignore"  # JIT-wrapped function return types
+call-non-callable = "ignore"  # JIT-wrapped functions seen as non-callable
+invalid-method-override = "ignore"  # Subclasses with more specific type annotations
+invalid-parameter-default = "ignore"  # Function defaults with compatible but not identical signatures
+no-matching-overload = "ignore"  # JAX numpy function overloads not properly recognized

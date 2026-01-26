@@ -1,7 +1,15 @@
+import math
+
 from gymnax.environments import environment, spaces
 
 from xlron import dtype_config
-from xlron.environments.dataclasses import *
+from xlron.environments.dataclasses import (
+    EnvParams,
+    EnvState,
+    RSAEnvParams,
+    RSAEnvState,
+    RSAMultibandEnvState,
+)
 from xlron.environments.diff_utils import *
 from xlron.environments.env_funcs import (
     calculate_path_stats,
@@ -14,6 +22,7 @@ from xlron.environments.env_funcs import (
     finalise_action_rwalr,
     generate_request_rsa,
     generate_request_rwalr,
+    get_path_slots,
     implement_action_rmsa_gn_model,
     implement_action_rsa,
     implement_action_rsa_gn_model,
@@ -48,9 +57,9 @@ class RSAEnv(environment.Environment):
         self,
         key: chex.PRNGKey,
         params: RSAEnvParams,
-        traffic_matrix: chex.Array = None,
-        list_of_requests: chex.Array = None,
-        laplacian_matrix: chex.Array = None,
+        traffic_matrix: chex.Array | None = None,
+        list_of_requests: chex.Array | None = None,
+        laplacian_matrix: chex.Array | None = None,
     ):
         """Initialise the environment state and set as initial state.
 
@@ -73,7 +82,9 @@ class RSAEnv(environment.Environment):
             link_slot_departure_array=init_link_slot_departure_array(params),
             request_array=init_rsa_request_array(),
             link_slot_mask=init_link_slot_mask(params, agg=params.aggregate_slots),
-            traffic_matrix=traffic_matrix if traffic_matrix is not None else init_traffic_matrix(key, params),
+            traffic_matrix=traffic_matrix
+            if traffic_matrix is not None
+            else init_traffic_matrix(key, params),
             list_of_requests=list_of_requests,
             graph=None,
             full_link_slot_mask=init_link_slot_mask(params),
@@ -81,8 +92,10 @@ class RSAEnv(environment.Environment):
             accepted_bitrate=jnp.array(0, dtype=dtype_config.LARGE_FLOAT_DTYPE),
             total_bitrate=jnp.array(0, dtype=dtype_config.LARGE_FLOAT_DTYPE),
         )
-        if not params.__class__.__name__ in ["RSAGNModelEnvParams", "RMSAGNModelEnvParams"]:
-            self.initial_state = state.replace(graph=init_graph_tuple(state, params, laplacian_matrix))
+        if params.__class__.__name__ not in ["RSAGNModelEnvParams", "RMSAGNModelEnvParams"]:
+            self.initial_state = state.replace(
+                graph=init_graph_tuple(state, params, laplacian_matrix)
+            )
 
     @partial(jax.jit, static_argnums=(0, 4))
     def step(
@@ -91,7 +104,7 @@ class RSAEnv(environment.Environment):
         state: RSAEnvState,
         action: Union[int, float],
         params: Optional[RSAEnvParams] = None,
-    ) -> Tuple[chex.Array, RSAEnvState, float, bool, dict]:
+    ) -> Tuple[chex.Array, RSAEnvState, float, bool, bool, dict]:
         """Performs step transitions in the environment.
 
         Args:
@@ -104,11 +117,14 @@ class RSAEnv(environment.Environment):
             obs: Observation
             state: New environment state
             reward: Reward
-            done: Termination flag
+            terminal: True if terminal condition met
+            truncated: True if max_requests reached
             info: Additional information
         """
         key, key_reset = jax.random.split(key)
-        obs_st, state_st, reward, done, info = self.step_env(key, state, action, params)
+        obs_st, state_st, reward, terminal, truncated, info = self.step_env(
+            key, state, action, params
+        )
 
         def reset_fn(args):
             key_reset, state_st, params, state = args
@@ -119,6 +135,8 @@ class RSAEnv(environment.Environment):
             _, state_st, _, _ = args
             return obs_st, state_st
 
+        done = jnp.logical_or(terminal, truncated)
+
         obs, new_state = jax.lax.cond(
             done, reset_fn, continue_fn, (key_reset, state_st, params, state)
         )
@@ -126,11 +144,18 @@ class RSAEnv(environment.Environment):
             jax.lax.stop_gradient(obs),
             jax.lax.stop_gradient(new_state),
             reward,
-            done,
+            terminal,
+            truncated,
             info,
         )
 
-    @partial(jax.jit, static_argnums=(0, 2,))
+    @partial(
+        jax.jit,
+        static_argnums=(
+            0,
+            2,
+        ),
+    )
     def reset(
         self,
         key: chex.PRNGKey,
@@ -156,7 +181,7 @@ class RSAEnv(environment.Environment):
         state: RSAEnvState,
         action: Union[int, float],
         params: RSAEnvParams,
-    ) -> Tuple[chex.Array, RSAEnvState, chex.Array, chex.Array, chex.Array]:
+    ) -> Tuple[chex.Array, RSAEnvState, chex.Array, chex.Array, chex.Array, dict]:
         """Environment-specific step transition.
         1. Implement action
         2. Check if action was valid
@@ -164,7 +189,7 @@ class RSAEnv(environment.Environment):
             - If invalid, calculate reward and undo action
         3. Generate new request, update current time, remove expired requests
         4. Update timesteps
-        5. Terminate if max_requests exceeded
+        5. Check for terminal/truncated conditions
         6. if DeepRMSAEnv, calculate path stats
         7. if using GNN policy, update graph tuple
 
@@ -178,7 +203,8 @@ class RSAEnv(environment.Environment):
             obs: Observation
             state: New environment state
             reward: Reward
-            done: Termination flag
+            terminal: True if terminal condition met (e.g., end_first_blocking)
+            truncated: True if max_requests reached
             info: Additional information
         """
         # Do action
@@ -186,7 +212,7 @@ class RSAEnv(environment.Environment):
         finalise = finalise_action_rsa
         generate_request = generate_request_rsa
         input_state = [state, action, params]
-        check_state = [state, params]
+        check_state = [state, action, params]
         undo_finalise_state = [state, params, action]
         if params.__class__.__name__ == "RWALightpathReuseEnvParams":
             implement_action = implement_action_rwalr
@@ -219,9 +245,7 @@ class RSAEnv(environment.Environment):
         check = check_action(*check_state)
         state, reward = differentiable_cond(
             check,  # Fail if true
-            jax.tree_util.Partial(
-                lambda x: (undo(*x[:2]), self.get_reward_failure(*x))
-            ),
+            jax.tree_util.Partial(lambda x: (undo(*x[:2]), self.get_reward_failure(*x))),
             jax.tree_util.Partial(
                 lambda x: (finalise(*x[:2]), self.get_reward_success(*x))
             ),  # Finalise actions if complete
@@ -238,12 +262,8 @@ class RSAEnv(environment.Environment):
         state = state.replace(total_timesteps=state.total_timesteps + 1)
         # Terminate if max_requests exceeded or, if consecutive loading,
         # then terminate if reward is failure but not before min number of timesteps before update
-        if params.continuous_operation:
-            done = jnp.array(False)
-        elif params.end_first_blocking:
-            done = jnp.array(reward == self.get_reward_failure(state, params))
-        else:
-            done = self.is_terminal(state, params)
+        terminal = self.is_terminal(state, params, reward)
+        truncated = self.is_truncated(state, params)
         info = {}
         # Calculate path stats if DeepRMSAEnv
         if params.__class__.__name__ == "DeepRMSAEnvParams":
@@ -252,7 +272,7 @@ class RSAEnv(environment.Environment):
         else:
             # Update graph tuple
             state = update_graph_tuple(state, params)
-        return self.get_obs(state, params), state, reward, done, info
+        return self.get_obs(state, params), state, reward, terminal, truncated, info
 
     @partial(jax.jit, static_argnums=(0, 2))
     def reset_env(
@@ -344,8 +364,28 @@ class RSAEnv(environment.Environment):
             axis=0,
         )
 
-    def is_terminal(self, state: RSAEnvState, params: RSAEnvParams) -> chex.Array:
+    def is_terminal(
+        self, state: RSAEnvState, params: RSAEnvParams, reward: chex.Array | None = None
+    ) -> chex.Array:
         """Check whether state transition is terminal.
+
+        Args:
+            state: Environment state
+            params: Environment parameters
+            reward: Reward from current step (needed for end_first_blocking check)
+
+        Returns:
+            done: Boolean termination flag
+        """
+        if params.end_first_blocking:
+            return jnp.array(reward == self.get_reward_failure(state, params))
+        elif params.terminate_on_episode_end:
+            return self.is_truncated(state, params)
+        else:
+            return jnp.array(False)
+
+    def is_truncated(self, state: RSAEnvState, params: RSAEnvParams) -> chex.Array:
+        """Check whether state transition is truncated i.e. max steps reached.
 
         Args:
             state: Environment state
@@ -476,9 +516,7 @@ class RSAEnv(environment.Environment):
                 ]
                 # set to 0 if negative and divide by large SNR (e.g. 50. dB) to scale below 1
                 # N.B. negative SNR in dB would be a fail anyway since min. required is 10dB
-                path_snr_norm = (
-                    jnp.where(path_snr < zero, zero, path_snr) / params.max_snr
-                )
+                path_snr_norm = jnp.where(path_snr < zero, zero, path_snr) / params.max_snr
                 return reward + path_snr_norm
             elif params.reward_type == "mod_format":
                 # Modulation format calculation...
@@ -506,32 +544,28 @@ class RSAEnv(environment.Environment):
         return type(self).__name__
 
     @staticmethod
-    def num_actions(params: RSAEnvParams) -> int:
+    def num_actions(params: EnvParams) -> int:
         """Number of actions possible in environment."""
-        return (
-            math.ceil(params.link_resources / params.aggregate_slots) * params.k_paths
-        )
+        return math.ceil(params.link_resources / params.aggregate_slots) * params.k_paths
 
-    def action_space(self, params: RSAEnvParams):
+    def action_space(self, params: EnvParams):
         """Action space of the environment."""
         return spaces.Discrete(self.num_actions(params))
 
-    def observation_space(self, params: RSAEnvParams):
+    def observation_space(self, params: EnvParams):
         """Observation space of the environment."""
         return spaces.Discrete(
             3  # Request array
             + params.num_links * params.link_resources  # Link slot array
         )
 
-    def state_space(self, params: RSAEnvParams):
+    def state_space(self, params: EnvParams):
         """State space of the environment."""
         return spaces.Dict(
             {
                 "current_time": spaces.Discrete(1),
                 "request_array": spaces.Discrete(3),
-                "link_slot_array": spaces.Discrete(
-                    params.num_links * params.link_resources
-                ),
+                "link_slot_array": spaces.Discrete(params.num_links * params.link_resources),
                 "link_slot_departure_array": spaces.Discrete(
                     params.num_links * params.link_resources
                 ),
@@ -544,9 +578,9 @@ class RSAMultibandEnv(RSAEnv):
         self,
         key: chex.PRNGKey,
         params: RSAEnvParams,
-        traffic_matrix: chex.Array = None,
-        list_of_requests: chex.Array = None,
-        laplacian_matrix: chex.Array = None,
+        traffic_matrix: chex.Array | None = None,
+        list_of_requests: chex.Array | None = None,
+        laplacian_matrix: chex.Array | None = None,
     ):
         super().__init__(
             key,
@@ -575,6 +609,4 @@ class RSAMultibandEnv(RSAEnv):
             total_bitrate=jnp.array(0, dtype=dtype_config.LARGE_FLOAT_DTYPE),
             list_of_requests=list_of_requests,
         )
-        self.initial_state = state.replace(
-            graph=init_graph_tuple(state, params, laplacian_matrix)
-        )
+        self.initial_state = state.replace(graph=init_graph_tuple(state, params, laplacian_matrix))

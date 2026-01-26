@@ -1,37 +1,59 @@
-from typing import Tuple, Union, Optional
-from flax import struct
-from functools import partial
 import math
+from functools import partial
+from typing import Optional, Tuple, Union
+
 import chex
 import jax
 import jax.numpy as jnp
-import jraph
 from gymnax.environments import environment, spaces
-from xlron.environments.env_funcs import (
-    init_vone_request_array, init_link_slot_array, init_link_slot_mask, init_link_slot_departure_array,
-    check_vone_action, undo_action_rsa, finalise_vone_action, generate_vone_request, mask_slots, init_traffic_matrix,
-    init_node_capacity_array, init_node_mask, init_node_resource_array, init_node_departure_array, init_values_nodes,
-    init_action_counter, init_action_history, update_action_history, decrease_last_element, undo_node_action,
-    init_virtual_topology_patterns, mask_nodes, init_graph_tuple, format_vone_slot_request, implement_vone_action,
-)
+
 from xlron.environments.dataclasses import *
+from xlron.environments.env_funcs import (
+    check_vone_action,
+    decrease_last_element,
+    finalise_vone_action,
+    format_vone_slot_request,
+    generate_vone_request,
+    implement_vone_action,
+    init_action_counter,
+    init_action_history,
+    init_graph_tuple,
+    init_link_slot_array,
+    init_link_slot_departure_array,
+    init_link_slot_mask,
+    init_node_capacity_array,
+    init_node_departure_array,
+    init_node_mask,
+    init_node_resource_array,
+    init_traffic_matrix,
+    init_values_nodes,
+    init_virtual_topology_patterns,
+    init_vone_request_array,
+    mask_nodes,
+    mask_slots,
+    undo_action_rsa,
+    undo_node_action,
+    update_action_history,
+)
 from xlron.environments.wrappers import *
 
 
 class VONEEnv(environment.Environment):
-    """This environment simulates the Virtual Optical Network Embedding (VONE) problem.
+    """This environment simulates the Virtual Optical Network Embedding (VONE) problem."""
 
-    """
-    def __init__(self,
-                 key: chex.PRNGKey,
-                 params: VONEEnvParams,
-                 virtual_topologies=["3_ring"],
-                 traffic_matrix: chex.Array = None,
-                 list_of_requests: chex.Array = None,
-                 laplacian_matrix: chex.Array = None,):
+    def __init__(
+        self,
+        key: chex.PRNGKey,
+        params: VONEEnvParams,
+        virtual_topologies: list[str] | None = None,
+        traffic_matrix: chex.Array | None = None,
+        list_of_requests: chex.Array | None = None,
+        laplacian_matrix: chex.Array | None = None,
+    ):
         super().__init__()
         state = VONEEnvState(
             current_time=0,
+            arrival_time=0,
             holding_time=0,
             total_timesteps=0,
             total_requests=-1,
@@ -46,17 +68,23 @@ class VONEEnv(environment.Environment):
             node_mask_s=init_node_mask(params),
             link_slot_mask=init_link_slot_mask(params, agg=params.aggregate_slots),
             node_mask_d=init_node_mask(params),
-            virtual_topology_patterns=init_virtual_topology_patterns(virtual_topologies),
+            virtual_topology_patterns=init_virtual_topology_patterns(
+                virtual_topologies if virtual_topologies is not None else ["3_ring"]
+            ),
             values_nodes=init_values_nodes(params.min_node_resources, params.max_node_resources),
             graph=None,
             full_link_slot_mask=init_link_slot_mask(params),
             accepted_services=0,
-            accepted_bitrate=0.,
-            total_bitrate=0.,
+            accepted_bitrate=0.0,
+            total_bitrate=0.0,
             list_of_requests=list_of_requests,
-            traffic_matrix=traffic_matrix if traffic_matrix is not None else init_traffic_matrix(key, params),
+            traffic_matrix=traffic_matrix
+            if traffic_matrix is not None
+            else init_traffic_matrix(key, params),
         )
-        self.initial_state = state.replace(graph=init_graph_tuple(state, params, laplacian_matrix, exclude_source_dest=True))
+        self.initial_state = state.replace(
+            graph=init_graph_tuple(state, params, laplacian_matrix, exclude_source_dest=True)
+        )
 
     @partial(jax.jit, static_argnums=(0, 4))
     def step(
@@ -65,27 +93,33 @@ class VONEEnv(environment.Environment):
         state: EnvState,
         action: Union[int, float],
         params: Optional[EnvParams] = None,
-    ) -> Tuple[chex.Array, EnvState, float, bool, dict]:
+    ) -> Tuple[chex.Array, EnvState, float, bool, bool, dict]:
         """Performs step transitions in the environment."""
         key, key_reset = jax.random.split(key)
-        obs_st, state_st, reward, done, info = self.step_env(
+        obs_st, state_st, reward, terminal, truncated, info = self.step_env(
             key, state, action, params
         )
+        done = terminal | truncated
         obs_re, state_re = self.reset_env(key_reset, params)
         # Auto-reset environment based on termination
-        state = jax.tree_map(
-            lambda x, y: jnp.where(done, x, y), state_re, state_st
-        )
+        state = jax.tree_map(lambda x, y: jnp.where(done, x, y), state_re, state_st)
         obs = jax.lax.select(done, obs_re, obs_st)
         return (
             jax.lax.stop_gradient(obs),
             jax.lax.stop_gradient(state),
             reward,
-            done,
-            info
+            terminal,
+            truncated,
+            info,
         )
 
-    @partial(jax.jit, static_argnums=(0, 2,))
+    @partial(
+        jax.jit,
+        static_argnums=(
+            0,
+            2,
+        ),
+    )
     def reset(
         self, key: chex.PRNGKey, params: Optional[EnvParams] = None
     ) -> Tuple[chex.Array, EnvState]:
@@ -99,20 +133,28 @@ class VONEEnv(environment.Environment):
         state: EnvState,
         action: Union[int, float],
         params: EnvParams,
-    ) -> Tuple[chex.Array, EnvState, chex.Array, chex.Array, chex.Array]:
+    ) -> Tuple[chex.Array, EnvState, chex.Array, chex.Array, chex.Array, dict]:
         """Environment-specific step transition."""
-        action = jnp.stack(action)  # NN outputs single array but env sample action is tuple of 3 single-value arrays
+        action = jnp.stack(
+            action
+        )  # NN outputs single array but env sample action is tuple of 3 single-value arrays
         # Find actions taken and remaining until end of request
-        total_requested_nodes = jnp.squeeze(jax.lax.dynamic_slice(state.action_counter, (0, ), (1, )))
-        total_actions = jnp.squeeze(jax.lax.dynamic_slice(state.action_counter, (1, ), (1, )))
-        remaining_actions = jnp.squeeze(jax.lax.dynamic_slice(state.action_counter, (2, ), (1, )))
+        total_requested_nodes = jnp.squeeze(jax.lax.dynamic_slice(state.action_counter, (0,), (1,)))
+        total_actions = jnp.squeeze(jax.lax.dynamic_slice(state.action_counter, (1,), (1,)))
+        remaining_actions = jnp.squeeze(jax.lax.dynamic_slice(state.action_counter, (2,), (1,)))
         # Do action
         state = implement_vone_action(
-            state, action, total_actions, remaining_actions, params,
+            state,
+            action,
+            total_actions,
+            remaining_actions,
+            params,
         )
         # Update history and counter
         state = state.replace(
-            action_history=update_action_history(state.action_history, state.action_counter, action),
+            action_history=update_action_history(
+                state.action_history, state.action_counter, action
+            ),
             action_counter=decrease_last_element(state.action_counter),
             total_timesteps=state.total_timesteps + 1,
         )
@@ -123,11 +165,14 @@ class VONEEnv(environment.Environment):
             lambda x: (undo_action_rsa(undo_node_action(x), params), self.get_reward_failure(x)),
             lambda x: jax.lax.cond(
                 jnp.any(remaining_actions <= 1),  # Final action
-                lambda xx: (finalise_vone_action(xx), self.get_reward_success(xx)),  # Finalise actions if complete
+                lambda xx: (
+                    finalise_vone_action(xx),
+                    self.get_reward_success(xx),
+                ),  # Finalise actions if complete
                 lambda xx: (xx, self.get_reward_neutral(xx)),
-                x
+                x,
             ),
-            state
+            state,
         )
         # TODO - write separate functions for deterministic transition (above) and stochastic transition (below)
         # Generate new request if all actions have been taken or if action was invalid
@@ -135,26 +180,32 @@ class VONEEnv(environment.Environment):
             jnp.any(remaining_actions <= 1) | check,
             lambda x: generate_vone_request(*x),
             lambda x: x[1],
-            (key, state, params)
+            (key, state, params),
         )
-        # Terminate if max_requests exceeded or, if consecutive loading,
-        # then terminate if reward is failure but not before min number of timesteps before update
+        # Determine terminal and truncated conditions
         if params.continuous_operation:
-            done = jnp.array(False)
+            terminal = jnp.array(False)
+            truncated = jnp.array(False)
         elif params.incremental_loading:
-            done = jnp.array(reward == self.get_reward_failure())
+            terminal = jnp.array(reward == self.get_reward_failure())
+            truncated = jnp.array(False)
         else:
-            done = self.is_terminal(state, params)
+            terminal = self.is_terminal(state, params, reward)
+            truncated = self.is_truncated(state, params)
         # Update graph tuple
         # TODO - get the update graph tuple working with VONE
         state = state.replace(graph=init_graph_tuple(state, params))
         info = {}
-        return self.get_obs(state), state, reward, done, info
+        return self.get_obs(state), state, reward, terminal, truncated, info
 
-    @partial(jax.jit, static_argnums=(0, 2,))
-    def reset_env(
-        self, key: chex.PRNGKey, params: EnvParams
-    ) -> Tuple[chex.Array, EnvState]:
+    @partial(
+        jax.jit,
+        static_argnums=(
+            0,
+            2,
+        ),
+    )
+    def reset_env(self, key: chex.PRNGKey, params: EnvParams) -> Tuple[chex.Array, EnvState]:
         """Environment-specific reset."""
         state = self.initial_state
         state = generate_vone_request(key, state, params)
@@ -164,15 +215,21 @@ class VONEEnv(environment.Environment):
         """Returns action mask for state."""
         return mask_nodes(state, params.num_nodes)
 
-    def action_mask_dest_node(self, state: EnvState, params: EnvParams, source_action: chex.Array) -> chex.Array:
+    def action_mask_dest_node(
+        self, state: EnvState, params: EnvParams, source_action: chex.Array
+    ) -> chex.Array:
         """Returns action mask for state."""
         empty_mask = jnp.ones(params.num_nodes)
-        mask_source_node = jax.lax.dynamic_update_slice(empty_mask, jnp.array([0.]), (source_action, ))
+        mask_source_node = jax.lax.dynamic_update_slice(
+            empty_mask, jnp.array([0.0]), (source_action,)
+        )
         node_mask_d = jnp.min(jnp.stack((state.node_mask_d, mask_source_node)), axis=0)
         state = state.replace(node_mask_d=node_mask_d)
         return state
 
-    def action_mask_slots(self, state: EnvState, params: EnvParams, action: chex.Array) -> chex.Array:
+    def action_mask_slots(
+        self, state: EnvState, params: EnvParams, action: chex.Array
+    ) -> chex.Array:
         """Returns action mask for state."""
         formatted_request = format_vone_slot_request(state, action)
         return mask_slots(state, params, formatted_request)
@@ -196,8 +253,36 @@ class VONEEnv(environment.Environment):
             axis=0,
         )
 
-    def is_terminal(self, state: EnvState, params: EnvParams) -> chex.Array:
-        """Check whether state transition is terminal."""
+    def is_terminal(
+        self, state: EnvState, params: EnvParams, reward: chex.Array | None = None
+    ) -> chex.Array:
+        """Check whether state transition is terminal.
+
+        Args:
+            state: Environment state
+            params: Environment parameters
+            reward: Reward from current step (needed for end_first_blocking check)
+
+        Returns:
+            done: Boolean termination flag
+        """
+        if params.end_first_blocking:
+            return jnp.array(reward == self.get_reward_failure())
+        elif params.terminate_on_episode_end:
+            return self.is_truncated(state, params)
+        else:
+            return jnp.array(False)
+
+    def is_truncated(self, state: EnvState, params: EnvParams) -> chex.Array:
+        """Check whether state transition is truncated i.e. max steps reached.
+
+        Args:
+            state: Environment state
+            params: Environment parameters
+
+        Returns:
+            done: Boolean truncation flag
+        """
         return jnp.array(state.total_requests >= params.max_requests)
 
     def discount(self, state: EnvState, params: EnvParams) -> chex.Array:
@@ -207,7 +292,9 @@ class VONEEnv(environment.Environment):
     # TODO - Allow configurable rewards and write tests
     def get_reward_success(self, state: EnvState) -> chex.Array:
         """Return reward for current state."""
-        return jnp.array(10.0) #jnp.mean(state.request_array[0]) * state.request_array.shape[1] // 2
+        return jnp.array(
+            10.0
+        )  # jnp.mean(state.request_array[0]) * state.request_array.shape[1] // 2
 
     def get_reward_failure(self, state: Optional[EnvState] = None) -> chex.Array:
         """Return reward for current state."""
@@ -225,9 +312,11 @@ class VONEEnv(environment.Environment):
     @staticmethod
     def num_actions(params: EnvParams) -> int:
         """Number of actions possible in environment."""
-        return (params.num_nodes +
-                params.num_nodes +
-                math.ceil(params.link_resources/params.aggregate_slots) * params.k_paths)
+        return (
+            params.num_nodes
+            + params.num_nodes
+            + math.ceil(params.link_resources / params.aggregate_slots) * params.k_paths
+        )
 
     def action_space(self, params: EnvParams):
         """Action space of the environment."""
@@ -241,7 +330,11 @@ class VONEEnv(environment.Environment):
 
     def observation_space(self, params: EnvParams):
         """Observation space of the environment."""
-        return spaces.Discrete(2*(2*params.max_edges + 1) + params.num_nodes + params.num_links * params.link_resources)
+        return spaces.Discrete(
+            2 * (2 * params.max_edges + 1)
+            + params.num_nodes
+            + params.num_links * params.link_resources
+        )
 
     def state_space(self, params: EnvParams):
         """State space of the environment."""
@@ -249,12 +342,18 @@ class VONEEnv(environment.Environment):
             {
                 "node_capacity_array": spaces.Discrete(params.num_nodes),
                 "current_time": spaces.Discrete(1),
-                "request_array": spaces.Discrete(2*(2*params.max_edges + 1)),
+                "request_array": spaces.Discrete(2 * (2 * params.max_edges + 1)),
                 "link_slot_array": spaces.Discrete(params.num_links * params.link_resources),
                 "node_resource_array": spaces.Discrete(params.num_nodes * params.node_resources),
-                "action_history": spaces.Discrete(params.num_nodes * params.num_nodes * params.link_resources * params.k_paths),
-                "action_counter": spaces.Discrete(params.num_nodes * params.num_nodes * params.link_resources * params.k_paths),
+                "action_history": spaces.Discrete(
+                    params.num_nodes * params.num_nodes * params.link_resources * params.k_paths
+                ),
+                "action_counter": spaces.Discrete(
+                    params.num_nodes * params.num_nodes * params.link_resources * params.k_paths
+                ),
                 "node_departure_array": spaces.Discrete(params.num_nodes * params.node_resources),
-                "link_slot_departure_array": spaces.Discrete(params.num_links * params.link_resources),
+                "link_slot_departure_array": spaces.Discrete(
+                    params.num_links * params.link_resources
+                ),
             }
         )

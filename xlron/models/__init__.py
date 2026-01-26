@@ -1,36 +1,23 @@
 """Neural network models for reinforcement learning agents."""
 
 # Main actor-critic models
-from xlron.models.models import (
-    # MLP-based models
-    ActorCriticMLP,
-    LaunchPowerActorCriticMLP,
-    MLP,
-    # GNN-based models
+from xlron.models.gnn import (  # Core GNN functions; GNN-based models
+    GAT,
     ActorCriticGNN,
     ActorGNN,
     CriticGNN,
     GraphNet,
-    # Helper functions
-    make_dense_layers,
-    crelu,
+    GraphNetGAT,
+    GraphNetwork,
     add_graphs_tuples,
 )
-
-# Graph neural network layers
-from xlron.models.gnn import (
-    # Core GNN functions
-    GraphNetwork,
-    GraphNetGAT,
-    GAT,
-    GraphConvolution,
-    GraphMapFeatures,
-    # Other GNN architectures
-    InteractionNetwork,
-    RelationNetwork,
-    DeepSets,
-    # Helper functions
-    add_self_edges_fn,
+from xlron.models.mlp import (  # Helper functions; MLP-based models
+    MLP,
+    LaunchPowerActorCriticMLP,
+    crelu,
+    make_linear_with_orthogonal_init,
+    orthogonal_init,
+    select_activation,
 )
 
 __all__ = [
@@ -44,17 +31,13 @@ __all__ = [
     "CriticGNN",
     "GraphNet",
     # Model helpers
-    "make_dense_layers",
     "crelu",
     "add_graphs_tuples",
+    "orthogonal_init",
+    "select_activation",
+    "make_linear_with_orthogonal_init",
     # GNN layers
     "GraphNetwork",
     "GraphNetGAT",
     "GAT",
-    "GraphConvolution",
-    "GraphMapFeatures",
-    "InteractionNetwork",
-    "RelationNetwork",
-    "DeepSets",
-    "add_self_edges_fn",
 ]

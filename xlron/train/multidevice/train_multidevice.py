@@ -1,14 +1,16 @@
-import wandb
-import sys
-import os
-import time
-import pathlib
 import math
+import os
+import pathlib
+import sys
+import time
+
 import matplotlib.pyplot as plt
-from absl import app, flags
-import xlron.train.parameter_flags
 import numpy as np
 import pandas as pd
+from absl import app, flags
+
+import wandb
+import xlron.train.parameter_flags
 
 FLAGS = flags.FLAGS
 
@@ -39,11 +41,19 @@ def main(argv):
     FLAGS.__setattr__("NUM_DEVICES", num_devices)
     import jax.numpy as jnp
     import orbax.checkpoint
+
     from xlron.environments.env_funcs import create_run_name
     from xlron.environments.wrappers import TimeIt
-    from xlron.train.ppo_multidevice import learner_data_setup, get_learner_fn
     from xlron.heuristics.eval_heuristic import make_eval
-    from xlron.train.train_utils import save_model, log_metrics, setup_wandb, reshape_keys, merge_leading_dims
+    from xlron.train.ppo_multidevice import get_learner_fn, learner_data_setup
+    from xlron.train.train_utils import (
+        log_metrics,
+        merge_leading_dims,
+        reshape_keys,
+        save_model,
+        setup_wandb,
+    )
+
     # The following flags can improve GPU performance for jaxlib>=0.4.18
     os.environ['XLA_FLAGS'] = (
         '--xla_gpu_enable_triton_softmax_fusion=true '

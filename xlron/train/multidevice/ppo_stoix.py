@@ -1,14 +1,14 @@
-import os
 import math
-import absl
+from typing import Callable, Tuple
+
 import chex
-import jax
+import distrax
 import flax
+import jax
 import jax.numpy as jnp
 import optax
-import distrax
-from typing import Sequence, NamedTuple, Any, Tuple, Callable
 from gymnax.environments import environment
+
 from xlron.environments.env_funcs import *
 from xlron.train.train_utils import *
 
@@ -353,8 +353,10 @@ def learner_setup(env, env_params, config):
 
     # Initialise environment states and timesteps: across devices and batches.
     dimensions = (num_devices, config.NUM_ENVS)
-    reshape = lambda x: x.reshape(dimensions + x.shape[1:])
-    broadcast = lambda x: jnp.broadcast_to(x, (dimensions[1],) + x.shape)
+    def reshape(x):
+        return x.reshape(dimensions + x.shape[1:])
+    def broadcast(x):
+        return jnp.broadcast_to(x, (dimensions[1],) + x.shape)
 
     reset_keys = jax.random.split(reset_rng, math.prod(dimensions))
     observations, env_states = jax.vmap(init_obsv_and_state, in_axes=(0, None))(jnp.stack(reset_keys), env_params)

@@ -1,18 +1,16 @@
 import os
+
 os.environ['XLA_FLAGS'] = "--xla_force_host_platform_device_count=4"
-import distrax
-from absl.testing import absltest
-from absl.testing import parameterized
 import chex
 import jax
 import jax.numpy as jnp
-import numpy as np
+from absl.testing import absltest, parameterized
+
+from xlron.environments.dataclasses import *
 from xlron.environments.env_funcs import *
+from xlron.environments.env_funcs_test import *
 from xlron.environments.rsa.rsa import *
 from xlron.environments.wrappers import *
-from xlron.environments.dataclasses import *
-from xlron.environments.make_env import make
-from xlron.environments.env_funcs_test import *
 
 
 class CalculatePathStatsTest(parameterized.TestCase):

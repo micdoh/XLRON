@@ -1,52 +1,42 @@
-import math
 import os
 import pathlib
 import subprocess
 import sys
 import time
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List
 
-import absl
 import jax
 import jax.numpy as jnp
-import matplotlib.pyplot as plt
-import numpy as np
 import orbax.checkpoint
-import pandas as pd
 from absl import app, flags
-from box import Box
-from jax._src.interpreters.pxla import Chunked
-from matplotlib.typing import ColorType
-from wandb.sdk import Config
 
 import wandb
-
-import xlron.parameter_flags
-
-FLAGS = flags.FLAGS
-
+from xlron import dtype_config
 from xlron.environments.env_funcs import create_run_name
 from xlron.environments.make_env import process_config
 from xlron.environments.wrappers import TimeIt
 from xlron.heuristics.eval_heuristic import get_eval_fn
+from xlron.parameter_flags import *  # noqa: F403,F401  # Ignore linter warnings for * import
 from xlron.train.ppo import get_learner_fn
 from xlron.train.train_utils import (
     experiment_data_setup,
     log_actions,
     log_metrics,
+    metrics,
     plot_metrics,
     print_metrics,
     save_model,
     setup_wandb,
 )
-from xlron import dtype_config
+
+FLAGS = flags.FLAGS
 
 # Create a global mutable container to collect data
 collected_states = []
 
 
 def identify_default_device(
-    gpu_index: List[int] = None, auto_select: bool = False
+    gpu_index: int | None = None, auto_select: bool = False
 ) -> List[jax.Device]:
     """
     Identifies and sets the default JAX device, preferring the GPU with most free memory.
@@ -131,7 +121,7 @@ def identify_default_device(
         return device
 
 
-def train(argv: list[str], config: Dict[str, Any] = {}) -> list[Dict[str, Any]]:
+def train(argv: list[str], config: Dict[str, Any] = {}) -> None:
     flags = FLAGS if not config else config
     config = process_config(flags)
     config.log_wrapper = True  # Always use log wrapper for training
@@ -286,6 +276,8 @@ def train(argv: list[str], config: Dict[str, Any] = {}) -> list[Dict[str, Any]]:
     start_time = time.time()
     log_time = 0.0
     episode_count = update_count = step_count = 0
+    merged_out: Dict[str, Dict[str, jax.Array]] = {}
+    processed_data: Dict[str, Dict[str, jax.Array]] = {}
     processed_data_all: Dict[str, Dict[str, jax.Array]] = {}
     print(f"Running {config.NUM_INCREMENTS} increments of training")
     for i in range(config.NUM_INCREMENTS):
@@ -326,9 +318,16 @@ def train(argv: list[str], config: Dict[str, Any] = {}) -> list[Dict[str, Any]]:
                 lambda x, y: jnp.concatenate([x, y]), processed_data_all, processed_data
             )
         )
+        
         log_time = log_time + time.time() - start_time - run_time
         # Update the experiment input for the next increment
         experiment_input = out["runner_state"]  # TrainState, EnvState, Obs, key, key
+        for metric in metrics:
+            if processed_data.get(metric):
+                if config.continuous_operation:
+                    print(f"{metric}: {float(processed_data[metric]["mean"][-1]):.3f} ± {float(processed_data[metric]["std"][-1]):.3f}")
+                else:
+                    print(f"Episode end {metric}: {float(processed_data[metric]["episode_end_mean"][-1])} ± {float(processed_data[metric]["episode_end_std"][-1]):.3f}")
 
     # END OF TRAINING
 

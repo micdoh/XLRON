@@ -1,17 +1,17 @@
 import os
+
 os.environ['XLA_FLAGS'] = "--xla_force_host_platform_device_count=4"
-import distrax
-from absl.testing import absltest
-from absl.testing import parameterized
 import chex
+import distrax
 import jax
 import jax.numpy as jnp
-import numpy as np
+from absl.testing import absltest, parameterized
+
+from xlron.environments.dataclasses import *
 from xlron.environments.env_funcs import *
+from xlron.environments.make_env import make
 from xlron.environments.rsa.rsa import *
 from xlron.environments.wrappers import *
-from xlron.environments.dataclasses import *
-from xlron.environments.make_env import make
 
 
 def rwa_lightpath_reuse_4_nsfnet_test_setup():
@@ -213,6 +213,7 @@ class RWALightpathReuseTest(parameterized.TestCase):
          ),
     )
     def test_end_episode(self, expected):
+        remaining_capacity: Array = jnp.array(0)
         rng, reset_rng = jax.random.split(self.key)
         obsv, env_state = self.env.reset(reset_rng, self.params)
         reward = jnp.array([0.])

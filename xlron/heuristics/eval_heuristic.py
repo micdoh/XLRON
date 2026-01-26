@@ -1,24 +1,24 @@
+from typing import Callable
+
 import jax
 import jax.numpy as jnp
-from typing import Callable
 from absl import flags
+from box import Box
 from flax.training.train_state import TrainState
 from gymnax.environments import environment
-from xlron.train.train_utils import select_action_eval
+
 from xlron.environments.dataclasses import EnvParams, Transition
+from xlron.train.train_utils import select_action_eval
 
 
 def get_eval_fn(
     env: environment.Environment,
     env_params: EnvParams,
     eval_state: TrainState,
-    config: flags.FlagValues,
+    config: flags.FlagValues | Box | dict,
 ) -> Callable:
-
-
     # COLLECT TRAJECTORIES
     def _env_episode(runner_state, unused):
-
         def _env_step(runner_state, unused):
             eval_state, env_state, last_obs, step_key, rng_epoch = runner_state
 
@@ -26,44 +26,81 @@ def get_eval_fn(
 
             # SELECT ACTION
             select_action_state = (action_key, env_state, last_obs)
-            env_state, action, _, _ = select_action_eval(select_action_state, env, env_params, eval_state, config)
+            env_state, action, _, _ = select_action_eval(
+                select_action_state, env, env_params, eval_state, config
+            )
 
             # STEP ENV
-            obsv, env_state, reward, done, info = env.step(step_key, env_state, action, env_params)
-
-            obsv = (env_state.env_state, env_params) if config.USE_GNN else tuple([obsv])
-            transition = Transition(
-                done, action, reward, last_obs, info
+            obsv, env_state, reward, terminal, truncated, info = env.step(
+                step_key, env_state, action, env_params
             )
+
+            obsv = (
+                (env_state.env_state, env_params)
+                if getattr(config, "USE_GNN", False)
+                else tuple([obsv])
+            )
+            transition = Transition(terminal, truncated, action, reward, last_obs, info)
             runner_state = (eval_state, env_state, obsv, next_step_key, rng_epoch)
 
-            if config.DEBUG:
-                jax.debug.print("request {}", env_state.env_state.request_array, ordered=config.ORDERED)
-                jax.debug.print("link_slot_array {}", env_state.env_state.link_slot_array, ordered=config.ORDERED)
+            if getattr(config, "DEBUG", False):
+                ordered = getattr(config, "ORDERED", False)
+                jax.debug.print("request {}", env_state.env_state.request_array, ordered=ordered)
+                jax.debug.print(
+                    "link_slot_array {}",
+                    env_state.env_state.link_slot_array,
+                    ordered=ordered,
+                )
                 if env_params.__class__.__name__ == "RSAGNModelEnvParams":
-                    jax.debug.print("link_snr_array {}", env_state.env_state.link_snr_array, ordered=config.ORDERED)
-                    jax.debug.print("channel_power_array {}", env_state.env_state.channel_power_array, ordered=config.ORDERED)
-                    jax.debug.print("modulation_format_index_array {}", env_state.env_state.modulation_format_index_array, ordered=config.ORDERED)
-                    jax.debug.print("channel_centre_bw_array {}", env_state.env_state.channel_centre_bw_array, ordered=config.ORDERED)
-                jax.debug.print("link_slot_mask {}", env_state.env_state.link_slot_mask, ordered=config.ORDERED)
-                jax.debug.print("action {}", action, ordered=config.ORDERED)
-                jax.debug.print("reward {}", reward, ordered=config.ORDERED)
+                    jax.debug.print(
+                        "link_snr_array {}",
+                        env_state.env_state.link_snr_array,
+                        ordered=ordered,
+                    )
+                    jax.debug.print(
+                        "channel_power_array {}",
+                        env_state.env_state.channel_power_array,
+                        ordered=ordered,
+                    )
+                    jax.debug.print(
+                        "modulation_format_index_array {}",
+                        env_state.env_state.modulation_format_index_array,
+                        ordered=ordered,
+                    )
+                    jax.debug.print(
+                        "channel_centre_bw_array {}",
+                        env_state.env_state.channel_centre_bw_array,
+                        ordered=ordered,
+                    )
+                jax.debug.print(
+                    "link_slot_mask {}", env_state.env_state.link_slot_mask, ordered=ordered
+                )
+                jax.debug.print("action {}", action, ordered=ordered)
+                jax.debug.print("reward {}", reward, ordered=ordered)
 
             return runner_state, transition
 
         # VECTORISE ENV STEP
-        _env_step_vmap = jax.vmap(
-            _env_step,
-            in_axes=((None, 0, 0, 0, None), None),
-            out_axes=((None, 0, 0, 0, None), 0)
-        ) if config.NUM_ENVS > 1 else _env_step
+        _env_step_vmap = (
+            jax.vmap(
+                _env_step,
+                in_axes=((None, 0, 0, 0, None), None),
+                out_axes=((None, 0, 0, 0, None), 0),
+            )
+            if getattr(config, "NUM_ENVS", 1) > 1
+            else _env_step
+        )
 
         rng_step = runner_state[3]
-        rng_step, *step_keys = jax.random.split(rng_step, config.NUM_ENVS + 1)
-        step_keys = jnp.array(step_keys) if config.NUM_ENVS > 1 else step_keys[0]
+        num_envs = getattr(config, "NUM_ENVS", 1)
+        rng_step, *step_keys = jax.random.split(rng_step, num_envs + 1)
+        step_keys = jnp.array(step_keys) if num_envs > 1 else step_keys[0]
         runner_state = runner_state[:3] + (step_keys,) + runner_state[4:]
         runner_state, traj_episode = jax.lax.scan(
-            _env_step_vmap, runner_state, None, config.max_requests * config.scale_factor
+            _env_step_vmap,
+            runner_state,
+            None,
+            getattr(config, "max_requests", 1000) * getattr(config, "scale_factor", 1),
         )
         runner_state = runner_state[:3] + (rng_step,) + runner_state[4:]
 
@@ -72,11 +109,12 @@ def get_eval_fn(
         return runner_state, metric
 
     def eval_fn(runner_state):
-
-        NUM_EPISODES = config.STEPS_PER_INCREMENT // (config.max_requests * config.scale_factor) // config.NUM_ENVS
-        runner_state, metric = jax.lax.scan(
-            _env_episode, runner_state, None, NUM_EPISODES
+        NUM_EPISODES = (
+            getattr(config, "STEPS_PER_INCREMENT", 1000)
+            // (getattr(config, "max_requests", 1000) * getattr(config, "scale_factor", 1))
+            // getattr(config, "NUM_ENVS", 1)
         )
+        runner_state, metric = jax.lax.scan(_env_episode, runner_state, None, NUM_EPISODES)
         return {"runner_state": runner_state, "metrics": metric}
 
     return eval_fn

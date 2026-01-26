@@ -1,8 +1,8 @@
 from functools import partial
 
-import chex
 import jax
 import jax.numpy as jnp
+from jaxtyping import Array
 
 from xlron import dtype_config
 
@@ -62,7 +62,7 @@ def differentiable_where(
 
 @partial(
     jax.jit,
-    static_argnames=("op_type", "differentiable"),
+    static_argnames=("op_type", "temperature", "differentiable"),
 )
 def differentiable_compare(x, y, op_type="==", temperature=1.0, differentiable=True):
     """
@@ -83,25 +83,25 @@ def differentiable_compare(x, y, op_type="==", temperature=1.0, differentiable=T
     # Define hard results (for forward pass)
     if op_type == "==":
         hard_result = x == y
-        soft_result = jnp.exp(-temperature * (x - y) ** 2)
+        jnp.exp(-temperature * (x - y) ** 2)
     elif op_type == ">=":
         hard_result = x >= y
-        soft_result = jax.nn.sigmoid(temperature * (x - y))
+        jax.nn.sigmoid(temperature * (x - y))
     elif op_type == "<=":
         hard_result = x <= y
-        soft_result = jax.nn.sigmoid(temperature * (y - x))
+        jax.nn.sigmoid(temperature * (y - x))
     elif op_type == ">":
         hard_result = x > y
         # Slightly sharper version for strict inequality
-        soft_result = jax.nn.sigmoid(temperature * (x - y - 1e-5))
+        jax.nn.sigmoid(temperature * (x - y - 1e-5))
     elif op_type == "<":
         hard_result = x < y
         # Slightly sharper version for strict inequality
-        soft_result = jax.nn.sigmoid(temperature * (y - x - 1e-5))
+        jax.nn.sigmoid(temperature * (y - x - 1e-5))
     elif op_type == "!=":
         hard_result = x != y
         # Invert the equality result
-        soft_result = 1.0 - jnp.exp(-temperature * (x - y) ** 2)
+        1.0 - jnp.exp(-temperature * (x - y) ** 2)
     else:
         raise ValueError(f"Unknown operation type: {op_type}")
 
@@ -166,7 +166,7 @@ def differentiable_round_simple(x, temperature=1.0, differentiable=True):
     # For values < 0.5, we round down (output = floor(x))
     # For values >=.5, we round up (output = floor(x) + 1)
     # This sigmoid approaches 1.0 when fractional >= 0.5
-    soft_round = jnp.floor(x) + jax.nn.sigmoid(temperature * (fractional - 0.5))
+    jnp.floor(x) + jax.nn.sigmoid(temperature * (fractional - 0.5))
     # Apply straight-through gradient trick
     return straight_through(hard_round, x)
 
@@ -198,7 +198,7 @@ def differentiable_round(x, decimals=0, temperature=1.0, differentiable=True):
     fractional = x_scaled - jnp.floor(x_scaled)
     # This sigmoid approaches 1.0 when fractional >= 0.5
     # Combine floor and ceiling with sigmoid weighting
-    soft_round = (
+    (
         jnp.floor(x_scaled) + jax.nn.sigmoid(temperature * (fractional - 0.5))
     ) / scale
     # Apply straight-through gradient trick
@@ -231,7 +231,7 @@ def differentiable_ceil(x, temperature=1.0, differentiable=True):
     # When fractional is > 0, ceiling is floor + 1
     # We use a sigmoid that approaches 1 for any fractional > 0
     # Higher temperature makes this transition sharper
-    soft_ceil = jnp.floor(x) + jax.nn.sigmoid(temperature * fractional)
+    jnp.floor(x) + jax.nn.sigmoid(temperature * fractional)
     # Apply straight-through gradient trick
     return straight_through(hard_ceil, x)
 
@@ -262,7 +262,7 @@ def differentiable_floor(x, temperature=1.0, differentiable=True):
     # When fractional is > 0, floor is ceil - 1
     # We use a sigmoid that approaches 1 for any fractional > 0
     # Higher temperature makes this transition sharper
-    soft_floor = jnp.ceil(x) - jax.nn.sigmoid(temperature * fractional)
+    jnp.ceil(x) - jax.nn.sigmoid(temperature * fractional)
     # Apply straight-through gradient trick
     return straight_through(hard_floor, x)
 
@@ -302,7 +302,7 @@ def differentiable_one_hot_index_update(
     return straight_through(hard_result, soft_result)
 
 
-def differentiable_index(array, index, temperature=1.0, differentiable=True):
+def differentiable_index(array: Array, index: Array | int, temperature: float = 1.0, differentiable: bool = True):
     """
     Differentiable indexing along the 0-axis (first dimension) with windowed weight calculation.
     Only calculates weights for indices within a window around the target index.

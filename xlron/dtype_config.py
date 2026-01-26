@@ -1,8 +1,8 @@
 # Usage: import all of these at the top of every file that creates arrays
 
-from typing import Any, Dict
 import inspect
 import os
+from typing import Any, Dict
 
 import jax
 import jax.numpy as jnp

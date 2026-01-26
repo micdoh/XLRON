@@ -13,21 +13,25 @@ import numpy as np
 import pandas as pd
 from box import Box
 from typing import Optional, Union
-from xlron.train.train import restrict_visible_gpus
+from xlron import dtype_config
 
-# Add optimization-specific flags
+# Add differentiable optimization-specific flags
 flags.DEFINE_boolean("ACTION_OPTIMIZATION", True, "Directly optimise rollout actions using first-order gradients from differentiable environment")
 flags.DEFINE_float('OPTIMIZATION_LEARNING_RATE', 0.05,
                    'Learning rate for gradient-based action optimization')
-flags.DEFINE_integer('ACTION_DIM', 1,
-                     'Dimension of action space')
+flags.DEFINE_boolean('PATH_SLOT_ACTIONS', False,
+                     'Use 2-part path-slot actions for optimization')
 
 FLAGS = flags.FLAGS
-
 
 def main(argv):
 
     config = process_config(FLAGS)
+    dtype_config.initialize_dtypes(config)
+    
+    jax.numpy.set_printoptions(threshold=sys.maxsize)  # Don't truncate printed arrays
+    # increase line length for numpy print options
+    jax.numpy.set_printoptions(linewidth=220)
 
     # Check device count
     print(f"Available devices: {jax.devices()}")
@@ -102,24 +106,41 @@ def main(argv):
     config.NUM_UPDATES = NUM_UPDATES
     config.MINIBATCH_SIZE = MINIBATCH_SIZE
 
-    with TimeIt(tag='COMPILATION'):
-        print(f"\n---BEGINNING COMPILATION---\n"
-              f"Independent learners: {config.NUM_LEARNERS}\n"
-              f"Environments per learner: {config.NUM_ENVS}\n"
-              f"Number of devices: {num_devices}\n"
-              f"Learners per device: {config.NUM_LEARNERS // num_devices}\n"
-              f"Timesteps per learner: {config.TOTAL_TIMESTEPS}\n"
-              f"Timesteps per environment: {config.TOTAL_TIMESTEPS // config.NUM_ENVS}\n"
-              f"Total timesteps: {config.TOTAL_TIMESTEPS * config.NUM_LEARNERS}\n"
-              f"Total updates: {config.NUM_UPDATES * config.NUM_MINIBATCHES}\n"
-              f"Batch size: {config.NUM_ENVS * config.ROLLOUT_LENGTH}\n"
-              f"Minibatch size: {config.MINIBATCH_SIZE}\n")
+    with TimeIt(tag="COMPILATION"):
+        print(
+            f"\n---BEGINNING COMPILATION---\n"
+            f"Total timesteps per increment: {config.STEPS_PER_INCREMENT * config.NUM_LEARNERS}\n"
+            f"Timesteps per environment per increment: {config.STEPS_PER_INCREMENT // config.NUM_ENVS}\n"
+            f"Total updates per increment: {config.NUM_UPDATES * config.NUM_MINIBATCHES}\n"
+        )
 
-        experiment_fn = get_learner_fn if not (config.EVAL_HEURISTIC or config.EVAL_MODEL) else get_eval_fn
-        experiment_input, env, env_params = jax.vmap(experiment_data_setup, axis_name='learner', in_axes=(None, 0))(config, rng)
-        experiment_fn = experiment_fn(env, env_params, experiment_input[0], config)
-        run_experiment = jax.jit(jax.vmap(experiment_fn, axis_name='learner')).lower(experiment_input).compile()
-
+        rng = jax.random.PRNGKey(config.SEED)
+        if config.NUM_LEARNERS > 1:
+            rng = jax.random.split(rng, config.NUM_LEARNERS)
+            experiment_fn = (
+                get_learner_fn
+                if not (config.EVAL_HEURISTIC or config.EVAL_MODEL)
+                else get_eval_fn
+            )
+            experiment_input, env, env_params = jax.vmap(
+                experiment_data_setup, axis_name="learner", in_axes=(None, 0)
+            )(config, rng)
+            experiment_fn = experiment_fn(env, env_params, experiment_input[0], config)
+            run_experiment = (
+                jax.jit(jax.vmap(experiment_fn, axis_name="learner"))
+                .lower(experiment_input)
+                .compile()
+            )
+        else:
+            experiment_fn = (
+                get_learner_fn
+                if not (config.EVAL_HEURISTIC or config.EVAL_MODEL)
+                else get_eval_fn
+            )
+            experiment_input, env, env_params = experiment_data_setup(config, rng)
+            experiment_fn = experiment_fn(env, env_params, experiment_input, config)
+            run_experiment = jax.jit(experiment_fn).lower(experiment_input).compile()
+    
     # N.B. that increasing number of learner will increase the number of steps
     # (essentially training for total_timesteps separately per learner)
 
@@ -140,13 +161,13 @@ def main(argv):
     print("Heuristic rewards:", out["heuristic_reward"])
     print("Final actions:", out["final_actions"])
     print("Best actions:", out["best_actions"])
+    print("Heuristic actions:", out["heuristic_actions"])
+    actions = jnp.vstack((out["best_actions"], out["heuristic_actions"], out["final_actions"])).T
+    print("All actions (best, heuristic, final):\n", actions)
 
 
 if __name__ == "__main__":
     FLAGS(sys.argv)
-    auto_select = False if FLAGS.VISIBLE_DEVICES else True
-    selected_gpu = restrict_visible_gpus(gpu_indices=FLAGS.VISIBLE_DEVICES, auto_select=auto_select)
-    print(f"Selected GPU: {selected_gpu}")
     # JAM imports come after GPU selection (to avoid initializing a process on every GPU)
     import jax
     import jax.numpy as jnp

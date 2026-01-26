@@ -1,10 +1,7 @@
+import chex
 import jax
 import jax.numpy as jnp
-import chex
-import numpy as np
-from absl.testing import parameterized
-from absl.testing import absltest
-from seaborn.external.husl import rgb_to_lch
+from absl.testing import absltest, parameterized
 
 # Import the functions you want to test
 from xlron.environments.diff_utils import *
@@ -34,14 +31,20 @@ class StraightThroughTest(parameterized.TestCase):
 class DifferentiableWhereTest(parameterized.TestCase):
     @chex.all_variants()
     @parameterized.named_parameters(
-        ("case_boolean", jnp.array([True, False]),
-         jnp.array([1.0, 1.0]),
-         jnp.array([0.0, 0.0]),
-         0.5),
-        ("case_numerical", jnp.array([1.0, 0.0]),
-         jnp.array([5.0, 5.0]),
-         jnp.array([2.0, 2.0]),
-         0.5),
+        (
+            "case_boolean",
+            jnp.array([True, False]),
+            jnp.array([1.0, 1.0]),
+            jnp.array([0.0, 0.0]),
+            0.5,
+        ),
+        (
+            "case_numerical",
+            jnp.array([1.0, 0.0]),
+            jnp.array([5.0, 5.0]),
+            jnp.array([2.0, 2.0]),
+            0.5,
+        ),
     )
     def test_differentiable_where(self, condition, true_val, false_val, threshold):
         result = self.variant(differentiable_where)(
@@ -54,9 +57,11 @@ class DifferentiableWhereTest(parameterized.TestCase):
 
         # Test gradient flow
         def wrapper(true_input, false_input):
-            return jnp.sum(differentiable_where(
-                condition, true_input, false_input, threshold, temperature=10.0
-            ))
+            return jnp.sum(
+                differentiable_where(
+                    condition, true_input, false_input, threshold, temperature=10.0
+                )
+            )
 
         grad_fn = jax.grad(wrapper, argnums=(0, 1))
         grads = grad_fn(true_val, false_val)
@@ -79,15 +84,19 @@ class DifferentiableEqualsTest(parameterized.TestCase):
         ("case_scalar", jnp.array([1.0, 2.0, 3.0]), 2.0),
     )
     def test_differentiable_equals(self, x, y):
-        result = self.variant(differentiable_equals)(x, y, temperature=10.0)
+        result = self.variant(differentiable_compare)(x, y, op_type="==", temperature=10.0)
 
         # Compare with standard equality for forward pass
-        expected = (x == y)
+        expected = x == y
         chex.assert_trees_all_close(result, expected)
 
         # Test gradient flow for x
         def wrapper(x_input):
-            return jnp.sum(differentiable_equals(x_input, y, temperature=10.0).astype(jnp.float32))
+            return jnp.sum(
+                differentiable_compare(x_input, y, op_type="==", temperature=10.0).astype(
+                    jnp.float32
+                )
+            )
 
         grad_fn = jax.grad(wrapper)
         grads = grad_fn(x)
@@ -124,20 +133,12 @@ class DifferentiableArgmaxTest(parameterized.TestCase):
 class MaskedSelectTest(parameterized.TestCase):
     @chex.all_variants()
     @parameterized.named_parameters(
-        ("case_boolean_mask",
-         jnp.array([1.0, 2.0, 3.0]),
-         jnp.array([True, False, True]),
-         0.0,
-         0.5),
-        ("case_float_mask",
-         jnp.array([1.0, 2.0, 3.0]),
-         jnp.array([0.8, 0.2, 0.9]),
-         0.0,
-         0.5),
+        ("case_boolean_mask", jnp.array([1.0, 2.0, 3.0]), jnp.array([True, False, True]), 0.0, 0.5),
+        ("case_float_mask", jnp.array([1.0, 2.0, 3.0]), jnp.array([0.8, 0.2, 0.9]), 0.0, 0.5),
     )
     def test_masked_select(self, values, mask, replacement, threshold):
-        result = self.variant(masked_select)(
-            values, mask, replacement, threshold, temperature=10.0
+        result = self.variant(differentiable_where)(
+            mask, values, replacement, threshold, temperature=10.0
         )
 
         # Compare with standard where for forward pass
@@ -146,9 +147,9 @@ class MaskedSelectTest(parameterized.TestCase):
 
         # Test gradient flow for values and replacement
         def wrapper(val_input, repl_input):
-            return jnp.sum(masked_select(
-                val_input, mask, repl_input, threshold, temperature=10.0
-            ))
+            return jnp.sum(
+                differentiable_where(mask, val_input, repl_input, threshold, temperature=10.0)
+            )
 
         grad_fn = jax.grad(wrapper, argnums=(0, 1))
         grads = grad_fn(values, replacement)
@@ -258,7 +259,9 @@ class DifferentiableOneHotIndexUpdateTest(parameterized.TestCase):
 
         # Test gradient flow for array and value
         def wrapper(arr_input, val_input):
-            return jnp.sum(differentiable_one_hot_index_update(arr_input, index, val_input))
+            return jnp.sum(
+                differentiable_one_hot_index_update(arr_input, index, val_input, temperature=1.0)
+            )
 
         grad_fn = jax.grad(wrapper, argnums=(0, 1))
         grads = grad_fn(array, value)
@@ -285,15 +288,17 @@ class DifferentiableOneHotIndexUpdateTest(parameterized.TestCase):
             i = jnp.array(i, dtype=jnp.int32)
             idx = jnp.array(idx, dtype=jnp.int32)
             result = jnp.asarray(result, dtype=jnp.float32)
-            result = self.variant(differentiable_one_hot_index_update)(
-                result, idx, values[i]
-            )
+            result = self.variant(differentiable_one_hot_index_update)(result, idx, values[i])
 
         chex.assert_trees_all_close(result, expected)
 
         # Test gradient flow for a single index
         def wrapper(arr_input, val_input):
-            return jnp.sum(differentiable_one_hot_index_update(arr_input, indices[0], val_input))
+            return jnp.sum(
+                differentiable_one_hot_index_update(
+                    arr_input, indices[0], val_input, temperature=1.0
+                )
+            )
 
         grad_fn = jax.grad(wrapper, argnums=(0, 1))
         grads = grad_fn(array, values[0])
@@ -365,7 +370,7 @@ class DifferentiableOneHotIndexUpdateTest(parameterized.TestCase):
             index = jnp.argmax(probs)
 
             # Forward: use the discrete index
-            result = differentiable_one_hot_index_update(array, index, value)
+            result = differentiable_one_hot_index_update(array, index, value, temperature=1.0)
 
             # For backprop: create a soft version directly
             # This mimics what should happen inside differentiable_one_hot_index_update
@@ -400,7 +405,7 @@ class DifferentiableOneHotIndexUpdateTest(parameterized.TestCase):
 class DifferentiableIndexTest(parameterized.TestCase):
     @chex.all_variants()
     @parameterized.named_parameters(
-        ("case_integer", jnp.array([1.0, 2.0, 3.0]), jnp.array(1.)),
+        ("case_integer", jnp.array([1.0, 2.0, 3.0]), jnp.array(1.0)),
         ("case_float", jnp.array([1.0, 2.0, 3.0]), jnp.array(1.2)),
     )
     def test_differentiable_index(self, array, index):
@@ -424,7 +429,7 @@ class DifferentiableIndexTest(parameterized.TestCase):
 class DifferentiableIndexWindowedTest(parameterized.TestCase):
     @chex.all_variants
     @parameterized.named_parameters(
-        ("case_integer", jnp.array([1.0, 2.0, 3.0]), jnp.array(1.)),
+        ("case_integer", jnp.array([1.0, 2.0, 3.0]), jnp.array(1.0)),
         ("case_float", jnp.array([1.0, 2.0, 3.0]), jnp.array(1.2)),
         ("case_edge", jnp.array([1.0, 2.0, 3.0, 4.0, 5.0]), jnp.array(0.1)),
         ("case_edge_end", jnp.array([1.0, 2.0, 3.0, 4.0, 5.0]), jnp.array(4.8)),
@@ -451,7 +456,7 @@ class DifferentiableIndexWindowedTest(parameterized.TestCase):
         chex.assert_trees_all_close(result, orig_result, atol=1e-5)
 
         # Test with large window size (should match original implementation)
-        large_window_result = differentiable_index(array, index, len(array), temperature=10)
+        large_window_result = differentiable_index(array, index, temperature=10)
         chex.assert_trees_all_close(large_window_result, orig_result, atol=1e-7)
 
 

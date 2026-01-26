@@ -8,19 +8,18 @@ chex.all_variants() decorator runs the test once for each variant (e.g. jitted, 
 parameterized.named_parameters() decorator runs the test once for each set of parameters passed to the function under test.
 """
 import os
+
 os.environ['XLA_FLAGS'] = "--xla_force_host_platform_device_count=4"
-import distrax
-from absl.testing import absltest
-from absl.testing import parameterized
 import chex
 import jax
 import jax.numpy as jnp
-import numpy as np
+from absl.testing import absltest, parameterized
+
+from xlron.environments.dataclasses import *
 from xlron.environments.env_funcs import *
+from xlron.environments.make_env import make
 from xlron.environments.rsa.rsa import *
 from xlron.environments.wrappers import *
-from xlron.environments.dataclasses import *
-from xlron.environments.make_env import make
 
 
 def keys_test_setup():
@@ -184,6 +183,7 @@ class GenerateArrivalHoldingTimesTest(parameterized.TestCase):
     )
     def test_generate_arrival_times(self, expected):
         min_arr, min_hold = 0, 0
+        arrival_time, holding_time = 0, 0
         rng = jax.random.PRNGKey(0)
         for i in range(1, 10000):
             rng, key = jax.random.split(rng)

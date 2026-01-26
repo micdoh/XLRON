@@ -1,21 +1,19 @@
-import os
-import math
+from typing import Tuple
+
 import absl
 import chex
+import distrax
 import jax
 import jax.numpy as jnp
-import flax.linen as nn
 import optax
-import distrax
-from flax.linen.initializers import constant, orthogonal
-from typing import Sequence, NamedTuple, Any, Tuple
 from flax.training.train_state import TrainState
+
+from xlron.environments.dataclasses import (
+    EnvParams,
+    RSATransition,
+    VONETransition,
+)
 from xlron.environments.env_funcs import *
-from xlron.environments.wrappers import LogWrapper
-from xlron.environments.vone import make_vone_env
-from xlron.environments.rsa import make
-from xlron.models.models import ActorCriticGNN, ActorCriticMLP
-from xlron.environments.dataclasses import EnvState, EnvParams, VONETransition, RSATransition
 from xlron.train.train_utils import *
 
 
@@ -44,7 +42,8 @@ def get_learner_fn(
             # SELECT ACTION
             action_key = jax.random.split(action_key, config.NUM_DEVICES*config.NUM_ENVS)
             action_key = reshape_keys(action_key, config.NUM_DEVICES, config.NUM_ENVS)
-            select_action_fn = lambda x: select_action(x, env, env_params, train_state, config)
+            def select_action_fn(x):
+                return select_action(x, env, env_params, train_state, config)
             select_action_fn = jax.vmap(select_action_fn, axis_name='env')
             select_action_fn = jax.pmap(select_action_fn, axis_name='device')
             select_action_state = (action_key, env_state, last_obs)
@@ -53,7 +52,8 @@ def get_learner_fn(
             # STEP ENV
             step_key = jax.random.split(step_key, config.NUM_DEVICES*config.NUM_ENVS)
             step_key = reshape_keys(step_key, config.NUM_DEVICES, config.NUM_ENVS)
-            step_fn = lambda x, y, z: env.step(x, y, z, env_params)
+            def step_fn(x, y, z):
+                return env.step(x, y, z, env_params)
             step_fn = jax.vmap(step_fn, axis_name='env')
             step_fn = jax.pmap(step_fn, axis_name='device')
             obsv, env_state, reward, done, info = step_fn(step_key, env_state, action)

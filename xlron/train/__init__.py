@@ -2,50 +2,40 @@
 
 # Core PPO training
 from xlron.train.ppo import (
-    get_learner_fn,
-    compute_trajectory_priority_weights,
+    _sample_prioritized_batch,
     compute_sample_priority_weights,
-    sample_prioritized_batch,
+    compute_trajectory_priority_weights,
+    get_learner_fn,
 )
-
 # Training utilities and state management
-from xlron.train.train_utils import (
-    # Core training state
+from xlron.train.train_utils import (  # Core training state; Model initialization; Action selection; Warmup and scheduling; Model management; Utility functions; Metrics processing; Weights and Biases; Metric definitions
     TrainState,
-    # Model initialization
-    init_network,
+    count_parameters,
     experiment_data_setup,
-    # Action selection
+    get_episode_end_mean_std_iqr,
+    get_mean_std_iqr,
+    get_warmup_fn,
+    init_network,
+    log_actions,
+    log_metrics,
+    loss_metrics,
+    make_ent_schedule,
+    make_lr_schedule,
+    merge_leading_dims,
+    metrics,
+    moving_average,
+    ndim_at_least,
+    plot_metrics,
+    print_metrics,
+    process_metrics,
+    reshape_keys,
+    save_model,
+    scale_gradient,
     select_action,
     select_action_eval,
-    # Warmup and scheduling
-    get_warmup_fn,
-    make_lr_schedule,
-    make_ent_schedule,
-    # Model management
-    save_model,
-    # Utility functions
-    scale_gradient,
-    count_parameters,
-    ndim_at_least,
-    merge_leading_dims,
-    unreplicate_n_dims,
-    unreplicate_batch_dim,
-    moving_average,
-    reshape_keys,
-    # Metrics processing
-    get_mean_std_iqr,
-    get_episode_end_mean_std_iqr,
-    process_metrics,
-    plot_metrics,
-    log_actions,
-    print_metrics,
-    log_metrics,
-    # Weights and Biases
     setup_wandb,
-    # Metric definitions
-    metrics,
-    loss_metrics,
+    unreplicate_batch_dim,
+    unreplicate_n_dims,
 )
 
 __all__ = [

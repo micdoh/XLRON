@@ -29,6 +29,8 @@ flags.DEFINE_integer(
 flags.DEFINE_integer("NUM_INCREMENTS", 1, "Number of increments to log")
 flags.DEFINE_integer("UPDATE_EPOCHS", 1, "Number of epochs per update")
 flags.DEFINE_integer("NUM_MINIBATCHES", 1, "Number of minibatches per update")
+flags.DEFINE_integer("ACTION_DIM", 2, "Dimension of action space")
+flags.DEFINE_integer("INPUT_DIM", 2, "Dimension of input space")
 
 flags.DEFINE_float("LR", 5e-4, "Learning rate")
 flags.DEFINE_float("GAMMA", 0.999, "Discount factor")
@@ -43,7 +45,7 @@ flags.DEFINE_float("ADAM_BETA1", 0.9, "Adam beta1")
 flags.DEFINE_float("ADAM_BETA2", 0.999, "Adam beta2")
 flags.DEFINE_float("MAX_GRAD_NORM", 0.5, "Maximum gradient norm")
 flags.DEFINE_string("ACTIVATION", "tanh", "Activation function")
-flags.DEFINE_string("LR_SCHEDULE", "warmup_cosine", "Learning rate schedule")
+flags.DEFINE_string("LR_SCHEDULE", "cosine", "Learning rate schedule")
 flags.DEFINE_integer(
     "SCHEDULE_MULTIPLIER",
     1,
@@ -75,6 +77,7 @@ flags.DEFINE_float(
     "Temperature for softmax action selection "
     "(high temperature, more exploration) or (low temperature, more exploitation)",
 )
+flags.DEFINE_float("EPSILON", 1e-8, "Small number to prevent div zero")
 # Additional training parameters
 flags.DEFINE_string(
     "VISIBLE_DEVICES",
@@ -176,6 +179,10 @@ flags.DEFINE_float(
     0.1,
     "Fraction of initial entropy coefficient that is final entropy coefficient",
 )
+flags.DEFINE_float("WEIGHT_DECAY", 0.0, "Weight decay for optimizer")
+flags.DEFINE_boolean(
+    "STEP_ON_GRADIENT", False, "Whether to step schedule on gradient update or per update loop"
+)
 
 # Reward scaling flag
 flags.DEFINE_float(
@@ -212,6 +219,12 @@ flags.DEFINE_boolean(
     "Incremental increase in traffic load (non-expiring requests)",
 )
 flags.DEFINE_boolean("end_first_blocking", False, "End episode on first blocking event")
+flags.DEFINE_boolean(
+    "terminate_on_episode_end",
+    False,
+    "If True, treat max_requests reached as terminated (not truncated). "
+    "When False (default), reaching max_requests is treated as truncation.",
+)
 flags.DEFINE_boolean(
     "continuous_operation",
     False,
@@ -305,6 +318,7 @@ flags.DEFINE_string("path_heuristic", "ksp_ff", "Path heuristic to be evaluated"
 flags.DEFINE_string("node_heuristic", "random", "Node heuristic to be evaluated")
 # GNN-specific parameters
 flags.DEFINE_boolean("USE_GNN", False, "Use GNN")
+flags.DEFINE_integer("num_spectral_features", 3, "No. of spectral features")
 flags.DEFINE_boolean(
     "DISABLE_NODE_FEATURES",
     False,
@@ -324,7 +338,7 @@ flags.DEFINE_integer("global_embedding_size", 8, "Size of global embeddings")
 flags.DEFINE_integer("global_mlp_layers", 1, "Number of global MLP layers")
 flags.DEFINE_integer("global_mlp_latent", 16, "Size of global MLP latent dimension")
 flags.DEFINE_integer("global_output_size_actor", 0, "Size of global output for actor")
-flags.DEFINE_integer("global_output_size_critic", 0, "Size of global output for critic")
+flags.DEFINE_integer("global_output_size_critic", 1, "Size of global output for critic")
 flags.DEFINE_integer("node_embedding_size", 16, "Size of node embeddings")
 flags.DEFINE_integer("node_mlp_layers", 2, "Number of node MLP layers")
 flags.DEFINE_integer("node_mlp_latent", 128, "Size of node MLP latent dimension")
@@ -389,6 +403,8 @@ flags.DEFINE_float(
     "step_power", 0.1, "Step size for launch power values between min and max"
 )
 flags.DEFINE_boolean("discrete_launch_power", False, "Discrete launch power values")
+flags.DEFINE_float("min_concentration", 0.1, "For continuous launch power dist.")
+flags.DEFINE_float("max_concentration", 20.0, "For continuous launch power dist.")
 flags.DEFINE_boolean("last_fit", False, "Use KSP-FF for path_action, else KSP-LF")
 flags.DEFINE_boolean(
     "GNN_OUTPUT_LP",
@@ -444,6 +460,9 @@ flags.DEFINE_boolean(
     "INITIALIZE_ACTIONS_HEURISTIC", False, "Initialize actions with heuristic"
 )
 flags.DEFINE_boolean("INITIALIZE_ACTIONS_RANDOM", False, "Initialize actions randomly")
+flags.DEFINE_boolean("INITIALIZE_ACTIONS_ASCENDING", False, "Initialize actions in ascending order")
+flags.DEFINE_boolean("INITIALIZE_ACTIONS_DESCENDING", False, "Initialize actions in descending order")
+flags.DEFINE_boolean("INITIALIZE_ACTIONS_MAX", False, "Initialize actions at max. value")
 flags.DEFINE_float(
     "temperature",
     1.0,
@@ -454,3 +473,9 @@ flags.DEFINE_boolean(
     False,
     "Enable differentiable mode for gradient-based optimization (uses straight-through estimators and temperature approximations)",
 )
+# Add differentiable optimization-specific flags
+flags.DEFINE_boolean("ACTION_OPTIMIZATION", False, "Directly optimise rollout actions using first-order gradients from differentiable environment")
+flags.DEFINE_float('OPTIMIZATION_LEARNING_RATE', 0.05,
+                   'Learning rate for gradient-based action optimization')
+flags.DEFINE_boolean('PATH_SLOT_ACTIONS', False,
+                     'Use 2-part path-slot actions for optimization')

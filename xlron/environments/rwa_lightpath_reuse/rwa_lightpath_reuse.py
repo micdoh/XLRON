@@ -1,10 +1,19 @@
-from xlron.environments.env_funcs import (
-    init_rsa_request_array, init_link_slot_array, init_link_slot_mask, init_link_slot_departure_array,
-    init_traffic_matrix, init_graph_tuple, init_link_capacity_array, init_path_index_array, mask_slots_rwalr,
-)
+import chex
+
 from xlron.environments.dataclasses import *
+from xlron.environments.env_funcs import (
+    init_graph_tuple,
+    init_link_capacity_array,
+    init_link_slot_array,
+    init_link_slot_departure_array,
+    init_link_slot_mask,
+    init_path_index_array,
+    init_rsa_request_array,
+    init_traffic_matrix,
+    mask_slots_rwalr,
+)
+from xlron.environments.rsa.rsa import RSAEnv, RSAEnvParams, RSAEnvState
 from xlron.environments.wrappers import *
-from xlron.environments import RSAEnv, RSAEnvState, RSAEnvParams
 
 
 class RWALightpathReuseEnv(RSAEnv):
@@ -18,14 +27,15 @@ class RWALightpathReuseEnv(RSAEnv):
 
     https://discovery.ucl.ac.uk/id/eprint/10175456/
     """
+
     def __init__(
-            self,
-            key: chex.PRNGKey,
-            params: RSAEnvParams,
-            traffic_matrix: chex.Array = None,
-            list_of_requests: chex.Array = None,
-            path_capacity_array: chex.Array = None,
-            laplacian_matrix: chex.Array = None,
+        self,
+        key: chex.PRNGKey,
+        params: RSAEnvParams,
+        traffic_matrix: chex.Array | None = None,
+        list_of_requests: chex.Array | None = None,
+        path_capacity_array: chex.Array | None = None,
+        laplacian_matrix: chex.Array | None = None,
     ):
         """Initialise the environment state and set as initial state.
 
@@ -38,7 +48,13 @@ class RWALightpathReuseEnv(RSAEnv):
         Returns:
             None
         """
-        super().__init__(key, params, traffic_matrix=traffic_matrix, list_of_requests=list_of_requests, laplacian_matrix=laplacian_matrix)
+        super().__init__(
+            key,
+            params,
+            traffic_matrix=traffic_matrix,
+            list_of_requests=list_of_requests,
+            laplacian_matrix=laplacian_matrix,
+        )
         state = RWALightpathReuseEnvState(
             current_time=0,
             arrival_time=0,
@@ -49,21 +65,29 @@ class RWALightpathReuseEnv(RSAEnv):
             link_slot_departure_array=init_link_slot_departure_array(params),
             request_array=init_rsa_request_array(),
             link_slot_mask=init_link_slot_mask(params, agg=params.aggregate_slots),
-            traffic_matrix=traffic_matrix if traffic_matrix is not None else init_traffic_matrix(key, params),
+            traffic_matrix=traffic_matrix
+            if traffic_matrix is not None
+            else init_traffic_matrix(key, params),
             graph=None,
             full_link_slot_mask=init_link_slot_mask(params),
             path_index_array=init_path_index_array(params),
             path_capacity_array=path_capacity_array,
             link_capacity_array=init_link_capacity_array(params),
             accepted_services=0,
-            accepted_bitrate=0.,
-            total_bitrate=0.,
-            time_since_last_departure=0.,
+            accepted_bitrate=0.0,
+            total_bitrate=0.0,
+            time_since_last_departure=0.0,
             list_of_requests=list_of_requests,
         )
         self.initial_state = state.replace(graph=init_graph_tuple(state, params, laplacian_matrix))
 
-    @partial(jax.jit, static_argnums=(0, 2,))
+    @partial(
+        jax.jit,
+        static_argnums=(
+            0,
+            2,
+        ),
+    )
     def action_mask(self, state: RSAEnvState, params: RSAEnvParams) -> RSAEnvState:
         """Returns mask of valid actions.
 

@@ -8,6 +8,7 @@ from matplotlib import cm
 from absl import flags
 from gymnax.wrappers import GymnaxToGymWrapper
 
+from xlron import dtype_config
 from xlron.environments.env_funcs import *
 from xlron.environments.dataclasses import EnvState
 from xlron.train.train_utils import *
@@ -225,6 +226,7 @@ def make_config(list_of_requests, total_timesteps):
         "max_requests": total_timesteps,
         "temperature": 1.0,
         "deterministic_requests": True,
+        "differentiable": True,
     }
 
     # Define training details
@@ -232,6 +234,8 @@ def make_config(list_of_requests, total_timesteps):
         "SEED": 0,
         "NUM_LEARNERS": 1,
         "TOTAL_TIMESTEPS": total_timesteps,
+        "STEPS_PER_INCREMENT": total_timesteps,
+        "NUM_MINIBATCHES": 1,
         "NUM_ENVS": 1,
         "ROLLOUT_LENGTH": 3,
         "UPDATE_EPOCHS": 2,
@@ -251,6 +255,7 @@ def make_config(list_of_requests, total_timesteps):
 
 def init_environment(config):
     """Initialize the environment and set up the initial state."""
+    dtype_config.initialize_dtypes(config)
     env, env_params = make(config, log_wrapper=False)
     gym_env = GymnaxToGymWrapper(env, env_params)
     rng = jax.random.PRNGKey(config.SEED)
