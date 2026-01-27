@@ -136,6 +136,7 @@ class EnvParams:
     load: float = struct.field(pytree_node=False)
     arrival_rate: float = struct.field(pytree_node=False)
     random_traffic: bool = struct.field(pytree_node=False)
+    include_no_op: bool = struct.field(pytree_node=False) # Include a "no op" action
 
 
 @struct.dataclass

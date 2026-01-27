@@ -820,11 +820,11 @@ def init_node_mask(params: EnvParams):
     return jnp.ones(params.num_nodes, dtype=dtype_config.LARGE_FLOAT_DTYPE)
 
 
-@partial(jax.jit, static_argnums=(0, 1))
-def init_link_slot_mask(params: EnvParams, agg: float = 1.0):
+@partial(jax.jit, static_argnums=(0, 1, 2))
+def init_link_slot_mask(params: EnvParams, include_no_op: bool = False, agg: float = 1.0):
     """Initialize link mask"""
     return jnp.ones(
-        params.k_paths * math.ceil(params.link_resources / agg),
+        params.k_paths * math.ceil(params.link_resources / agg) + (1 * include_no_op),
         dtype=dtype_config.LARGE_FLOAT_DTYPE,
     )
 
@@ -2480,6 +2480,22 @@ def check_slot_overflow(state: EnvState, action: Array, params: EnvParams):
     return overflow
 
 
+def check_no_op(state: EnvState, action: Array, params: EnvParams):
+    """Check for the "NO OP" action.
+    This will be the maximum valid action idex + 1,
+    resulting in a path index exceeding K paths."""
+    nodes_sd, requested_datarate = read_rsa_request(state.request_array)
+    path_index, initial_slot_index = process_path_action(state, params, action)
+    overflow = differentiable_compare(
+        path_index,
+        params.k_paths,
+        op_type=">=",
+        temperature=params.temperature,
+        differentiable=params.differentiable,
+    )
+    return overflow
+
+
 def check_action_rsa(state, action, params):
     """
     Differentiable version of check_action_rsa.
@@ -2496,9 +2512,19 @@ def check_action_rsa(state, action, params):
         state.link_slot_array, params.temperature, params.differentiable
     )
     overflow_check = check_slot_overflow(state, action, params)
+    no_action_check = check_no_op(state, action, params)
     # For multiple checks, use a differentiable version of "any"
-    # Instead of jnp.any, use max or sum to combine checks
-    combined_check = jnp.maximum(spectrum_reuse_check, overflow_check).squeeze(-1)
+    # Instead of jnp.any, use max to combine checks
+    # Squeeze all checks to scalars to ensure consistent shapes for concatenation
+    combined_check = jnp.max(
+        jnp.array(
+            [
+                jnp.squeeze(spectrum_reuse_check),
+                jnp.squeeze(overflow_check),
+                jnp.squeeze(no_action_check),
+            ]
+        )
+    )
     return combined_check
 
 
@@ -2683,6 +2709,9 @@ def mask_slots(state: EnvState, params: EnvParams, request: chex.Array) -> EnvSt
         state = state.replace(full_link_slot_mask=link_slot_mask)
         link_slot_mask, _ = aggregate_slots(link_slot_mask.reshape(params.k_paths, -1), params)
         link_slot_mask = link_slot_mask.reshape(-1)
+    if params.include_no_op:
+        # Include extra unmasked action for "no op"
+        link_slot_mask = jnp.hstack([link_slot_mask, jnp.ones((1,))])
     state = state.replace(link_slot_mask=link_slot_mask)
     return state
 
@@ -3610,6 +3639,9 @@ def mask_slots_rwalr(state: EnvState, params: EnvParams, request: chex.Array) ->
         state = state.replace(full_link_slot_mask=link_slot_mask)
         link_slot_mask, _ = aggregate_slots(link_slot_mask.reshape(params.k_paths, -1), params)
         link_slot_mask = link_slot_mask.reshape(-1)
+    if params.include_no_op:
+        # Include extra unmasked action for "no op"
+        link_slot_mask = jnp.hstack([link_slot_mask, jnp.ones((1,))])
     state = state.replace(link_slot_mask=link_slot_mask)
     return state
 
@@ -4783,6 +4815,9 @@ def mask_slots_rmsa_gn_model(
         state = state.replace(full_link_slot_mask=link_slot_mask)
         link_slot_mask, _ = aggregate_slots(link_slot_mask.reshape(params.k_paths, -1), params)
         link_slot_mask = link_slot_mask.reshape(-1)
+    if params.include_no_op:
+        # Include extra unmasked action for "no op"
+        link_slot_mask = jnp.hstack([link_slot_mask, jnp.ones((1,))])
     state = state.replace(
         link_slot_mask=link_slot_mask,
         mod_format_mask=mod_format_mask,

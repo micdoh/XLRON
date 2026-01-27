@@ -82,7 +82,7 @@ class RSAEnv(environment.Environment):
             link_slot_array=init_link_slot_array(params),
             link_slot_departure_array=init_link_slot_departure_array(params),
             request_array=init_rsa_request_array(),
-            link_slot_mask=init_link_slot_mask(params, agg=params.aggregate_slots),
+            link_slot_mask=init_link_slot_mask(params, include_no_op=params.include_no_op, agg=params.aggregate_slots),
             traffic_matrix=traffic_matrix
             if traffic_matrix is not None
             else init_traffic_matrix(key, params),
@@ -599,7 +599,7 @@ class RSAMultibandEnv(RSAEnv):
             link_slot_array=set_band_gaps(init_link_slot_array(params), params, -1.0),
             link_slot_departure_array=init_link_slot_departure_array(params),
             request_array=init_rsa_request_array(),
-            link_slot_mask=init_link_slot_mask(params, agg=params.aggregate_slots),
+            link_slot_mask=init_link_slot_mask(params, include_no_op=params.include_no_op, agg=params.aggregate_slots),
             traffic_matrix=traffic_matrix
             if traffic_matrix is not None
             else init_traffic_matrix(key, params),

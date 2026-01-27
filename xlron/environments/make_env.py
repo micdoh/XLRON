@@ -478,6 +478,7 @@ def make(
         differentiable=differentiable,
         num_spectral_features=config.get("num_spectral_features", 3),
         line_graph_spectral_features=line_graph_spectral_features,
+        include_no_op=config.get("include_no_op", True),
     )
 
     gap_starts = (

@@ -538,6 +538,8 @@ class ActorCriticTransformer(eqx.Module):
             0, params.k_paths, get_path_action_dist, init_action_array
         )
         action_logits = jnp.reshape(path_action_logits, (-1,))
+        if params.include_no_op:
+            action_logits = jnp.hstack([action_logits, jnp.array([-1e3])])
         action_dist = distrax.Categorical(logits=action_logits)
         
         # Pool and Value

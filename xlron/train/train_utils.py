@@ -272,7 +272,7 @@ def save_model(train_state: TrainState, run_name, config: Union[box.Box, absl.fl
 def init_network(config: Box, key: chex.PRNGKey) -> eqx.Module:
     if config.env_type.lower() == "vone":
         network = ActorCriticMLP(
-            config.ACTION_DIM,
+            config.ACTION_DIM+1, # +1 for "no op"
             config.INPUT_DIM,
             activation=config.ACTIVATION,
             num_layers=config.NUM_LAYERS,
@@ -373,7 +373,7 @@ def init_network(config: Box, key: chex.PRNGKey) -> eqx.Module:
         elif "gn_model" in config.env_type.lower() and config.launch_power_type == 3:
             network = LaunchPowerActorCriticMLP(
                 config.INPUT_DIM,
-                config.ACTION_DIM,
+                config.ACTION_DIM+1, # +1 for "no op"
                 activation=config.ACTIVATION,
                 num_layers=config.NUM_LAYERS,
                 num_units=config.NUM_UNITS,
@@ -388,7 +388,7 @@ def init_network(config: Box, key: chex.PRNGKey) -> eqx.Module:
         else:
             network = ActorCriticMLP(
                 config.ACTION_DIM,
-                config.INPUT_DIM,
+                config.INPUT_DIM+1, # +1 for "no op"
                 activation=config.ACTIVATION,
                 num_layers=config.NUM_LAYERS,
                 num_units=config.NUM_UNITS,
@@ -589,29 +589,6 @@ def select_action(select_action_state, env, env_params, train_state, config):
             path_index, _ = process_path_action(env_state.env_state, env_params, path_action)
             power_action, log_prob = power_action[path_index], log_prob[path_index]
         action = jnp.concatenate([path_action.reshape((1,)), power_action.reshape((1,))], axis=0)
-        # if config.GNN_OUTPUT_RSA:
-        #     if config.GNN_OUTPUT_LP:
-        #         path_action, power_action, log_prob = train_state.sample_fn(action_key, (pi_masked, pi[1]), log_prob=True, deterministic=config.deterministic)
-        #     else:
-        #         path_action, log_prob = train_state.sample_fn(action_key, pi_masked, log_prob=True, deterministic=config.deterministic)
-        #         power_action = jnp.array([env_params.default_launch_power])
-        # else:
-        #     # TODO(GNN_LP) - modify this so its possible to have routing from GNN and LP from another source (maybe)
-        #     # TODO(GNN_LP) - do a foriloop to mark each of the selected path links, get a power action (and log prob) for each,
-        #     #  then select a path action and then select the power action corresponding to that path action
-        #     power_action, log_prob = train_state.sample_fn(action_key, pi[1], log_prob=True, deterministic=config.deterministic)
-        #
-        # if config.GNN_OUTPUT_RSA and config.GNN_OUTPUT_LP:
-        # inner_state = env_state.env_state.replace(launch_power_array=power_action)
-        # env_state = env_state.replace(env_state=inner_state)
-        #
-        # path_action = ksp_lf(env_state.env_state, env_params) if env_params.last_fit is True else ksp_ff(env_state.env_state, env_params)
-        #
-        # if config.output_globals_size_actor == 0:
-        #     path_index, _ = process_path_action(env_state.env_state, env_params, path_action)
-        #     power_action, log_prob = power_action[path_index], log_prob[path_index]
-        #
-        # action = jnp.concatenate([path_action.reshape((1,)), power_action.reshape((1,))], axis=0)
 
     else:
         env_state = env_state.replace(env_state=env.action_mask(env_state.env_state, env_params))

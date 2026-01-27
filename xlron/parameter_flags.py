@@ -105,7 +105,7 @@ flags.DEFINE_string(
 flags.DEFINE_integer("DOWNSAMPLE_FACTOR", 1, "Downsample factor to reduce data uploaded to wandb")
 flags.DEFINE_boolean("DISABLE_JIT", False, "Disable JIT compilation")
 flags.DEFINE_boolean("ENABLE_X64", False, "Enable x64 floating point precision")
-flags.DEFINE_boolean("ACTION_MASKING", False, "Use invalid action masking")
+flags.DEFINE_boolean("ACTION_MASKING", True, "Use invalid action masking")
 flags.DEFINE_boolean("RETRAIN_MODEL", False, "Load model for retraining")
 flags.DEFINE_string("DATA_OUTPUT_FILE", None, "Path to save data output")
 flags.DEFINE_string(
@@ -174,6 +174,10 @@ flags.DEFINE_boolean(
 # Reward scaling flag
 flags.DEFINE_float(
     "REWARD_SCALE", 1.0, "Reward scaling factor (multiply all rewards by this value)"
+)
+# Include "no op"
+flags.DEFINE_boolean(
+    "include_no_op", True, "Whether to include a NO OP action."
 )
 # Flags for mixed precision
 flags.DEFINE_string("COMPUTE_DTYPE", None, "Compute precision dtype (float32, bfloat16)")

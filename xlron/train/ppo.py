@@ -451,14 +451,6 @@ def _loss_fn(
         log_prob = log_prob_source + log_prob_path + log_prob_dest
         entropy = pi_source.entropy().mean() + pi_path.entropy().mean() + pi_dest.entropy().mean()
 
-    elif config.ACTION_MASKING:
-        # Standard action masking
-        pi_masked = distrax.Categorical(
-            logits=jnp.where(traj_batch.action_mask, pi[0]._logits, -1e8)
-        )
-        log_prob = pi_masked.log_prob(traj_batch.action)
-        entropy = pi_masked.entropy().mean()
-
     elif config.env_type.lower() == "rsa_gn_model" and config.launch_power_type == "rl":
         # RSA with power control
         path_actions = traj_batch.action[..., 0]
@@ -505,9 +497,12 @@ def _loss_fn(
             jax.debug.print("entropy {}", entropy, ordered=config.ORDERED)
 
     else:
-        # Standard action
-        log_prob = pi.log_prob(traj_batch.action)
-        entropy = pi.entropy().mean()
+        # Standard action masking
+        pi_masked = distrax.Categorical(
+            logits=jnp.where(traj_batch.action_mask, pi[0]._logits, -1e8)
+        )
+        log_prob = pi_masked.log_prob(traj_batch.action)
+        entropy = pi_masked.entropy().mean()
 
     ratio = jnp.exp(log_prob - traj_batch.log_prob)
     # Recalculate the advantage now that we can clip based on the calculated importance ratio
