@@ -511,7 +511,7 @@ def get_link_relevance_array(paths: Array, paths_se: Array, requested_datarate: 
             paths_se, 
             params.slot_size, 
             guardband=params.guardband, 
-            temperature=params.temeprature
+            temperature=params.temperature
         )
     )(paths_se)
     slot_weights = 1.0 / num_slots
