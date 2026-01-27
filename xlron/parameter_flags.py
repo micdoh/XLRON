@@ -344,7 +344,7 @@ flags.DEFINE_float(
 )
 flags.DEFINE_boolean(
     "transformer_share_layers",
-    True,
+    False,
     "Share encoder layers between actor and critic in transformer",
 )
 flags.DEFINE_integer("transformer_actor_mlp_width", 128, "Width of actor MLP head in transformer")

@@ -504,13 +504,16 @@ class ActorCriticTransformer(eqx.Module):
         actor, critic = self.actor_critic
         actor_key, critic_key = jax.random.split(key) if key is not None else (None, None)
         tokens = get_obs_transformer(state, params)
+        
         action_tokens = actor(
             tokens,
             enable_dropout=enable_dropout,
             key=actor_key,
         )["output"]
+        
+        tokens_for_critic = tokens[: , :-1] # Trim tokens that are relevant to current request
         value_tokens = critic(
-            tokens,
+            tokens_for_critic,
             enable_dropout=enable_dropout,
             key=critic_key,
         )["output"]

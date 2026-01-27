@@ -492,16 +492,27 @@ def init_path_link_array(
     return jnp.array(paths, dtype=dtype_config.SMALL_INT_DTYPE)
 
 
-def get_link_relevance_array(paths: Array, paths_se: Array, k: int):
+def get_link_relevance_array(paths: Array, paths_se: Array, requested_datarate: Array, params: RSAEnvParams):
     """
     paths: (k, E)
+    paths_se: (k, 1)
+    requested_datarate: (1,)
     returns: (num_pairs, E)
     """
-    # Rank weights: higher weight for shorter paths with higher SE
-    ranks = jnp.arange(k)
+    # Rank weights: higher weight for links on shorter path
+    ranks = jnp.arange(params.k_paths)
     rank_weights = 1.0 / (ranks + 1.0)
 
-    weights = rank_weights * paths_se
+    # Slot weights: higher weights for links on paths that require less slots
+    num_slots = jax.vmap(required_slots, in_axes=(None, 0, None, None, None))(
+        requested_datarate,
+        paths_se,
+        params.slot_size,
+        guardband=params.guardband,
+        temperature=params.temperature,
+    )
+    slot_weights = 1.0 / num_slots
+    weights = rank_weights * slot_weights
     weights = weights / (jnp.sum(weights) + 1e-8)
 
     weighted_paths = paths * weights[:, None]
@@ -544,11 +555,12 @@ def get_obs_transformer(
     nodes_sd, requested_datarate = read_rsa_request(state.request_array)
     paths_se = get_paths_se(params, nodes_sd)
     paths = get_paths(params, nodes_sd)
-    link_relevance_features = get_link_relevance_array(paths, paths_se, params.k_paths).reshape((-1, 1))
+    link_relevance_features = get_link_relevance_array(paths, paths_se, requested_datarate,  params.k_paths).reshape((-1, 1))
 
     # Concatenate WiRE features with edge features
     # wire_features: (num_links, num_wire_features)
     # edge_features: (num_links, link_resources)
+    # link_relevance_features: (num_links, 1)
     tokens = jnp.concatenate([wire_features, edge_features, link_relevance_features], axis=-1)
 
     return tokens
@@ -2075,7 +2087,7 @@ def process_path_action(
         # Get the path mask do a dynamic slice and get the index of first unoccupied slot in the slice
         path_mask = jax.lax.dynamic_slice(
             state.full_link_slot_mask,
-            path_index * params.link_resources,
+            path_index.astype(dtype_config.SMALL_INT_DTYPE) * params.link_resources,
             (params.link_resources,),
         )
         path_mask_slice = jax.lax.dynamic_slice(
