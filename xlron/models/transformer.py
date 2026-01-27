@@ -451,7 +451,7 @@ class ActorCriticTransformer(eqx.Module):
             key=encoder_key,
         )
         critic = Encoder(
-            input_size=input_size,
+            input_size=input_size-1,  # Minus 1 because we remove the current request elements
             intermediate_size=intermediate_size,
             embedding_size=embedding_size,
             num_layers=num_layers,

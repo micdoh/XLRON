@@ -492,7 +492,9 @@ def init_path_link_array(
     return jnp.array(paths, dtype=dtype_config.SMALL_INT_DTYPE)
 
 
-def get_link_relevance_array(paths: Array, paths_se: Array, requested_datarate: Array, params: RSAEnvParams):
+def get_link_relevance_array(
+    paths: Array, paths_se: Array, requested_datarate: Array, params: RSAEnvParams
+):
     """
     paths: (k, E)
     paths_se: (k, 1)
@@ -506,28 +508,25 @@ def get_link_relevance_array(paths: Array, paths_se: Array, requested_datarate: 
     # Slot weights: higher weights for links on paths that require less slots
     num_slots = jax.vmap(
         lambda x: required_slots(
-            requested_datarate, 
-            x, 
-            paths_se, 
-            params.slot_size, 
-            guardband=params.guardband, 
-            temperature=params.temperature
+            requested_datarate,
+            x,
+            params.slot_size,
+            guardband=params.guardband,
+            temperature=params.temperature,
         )
-    )(paths_se)
+    )(paths_se.flatten())
     slot_weights = 1.0 / num_slots
-    weights = rank_weights * slot_weights
+    weights = rank_weights * slot_weights.flatten()
     weights = weights / (jnp.sum(weights) + 1e-8)
 
     weighted_paths = paths * weights[:, None]
     relevance = jnp.sum(weighted_paths, axis=0)
 
     return relevance
-    
-    
+
+
 @partial(jax.jit, static_argnums=(1,))
-def get_obs_transformer(
-    state: RSAEnvState, params: RSAEnvParams
-) -> chex.Array:
+def get_obs_transformer(state: RSAEnvState, params: RSAEnvParams) -> chex.Array:
     """Retrieves observation for transformer model.
 
     Creates tokens for each link/edge with:
@@ -549,16 +548,18 @@ def get_obs_transformer(
     # Get edge features based on traffic type
     if params.mean_service_holding_time > 1e5:
         # Static traffic: use raw link_slot_array
-        edge_features = state.link_slot_array 
+        edge_features = state.link_slot_array
     else:
         # Dynamic traffic: use normalized holding time
         edge_features = state.link_slot_departure_array / params.mean_service_holding_time
-        
+
     # Get the relevance of link to current request
     nodes_sd, requested_datarate = read_rsa_request(state.request_array)
     paths_se = get_paths_se(params, nodes_sd)
     paths = get_paths(params, nodes_sd)
-    link_relevance_features = get_link_relevance_array(paths, paths_se, requested_datarate,  params).reshape((-1, 1))
+    link_relevance_features = get_link_relevance_array(
+        paths, paths_se, requested_datarate, params
+    ).reshape((-1, 1))
 
     # Concatenate WiRE features with edge features
     # wire_features: (num_links, num_wire_features)
