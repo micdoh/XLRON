@@ -1006,7 +1006,7 @@ def plot_metrics(
     plot_metric = moving_average(plot_metric, min(100, int(len(plot_metric) / 2)))
     plot_metric_upper = moving_average(plot_metric_upper, min(100, int(len(plot_metric_upper) / 2)))
     plot_metric_lower = moving_average(plot_metric_lower, min(100, int(len(plot_metric_lower) / 2)))
-    plt.plot(plot_metric)
+    plt.plot(plot_metric, processed_data["env_step"])
     plt.fill_between(range(len(plot_metric)), plot_metric_lower, plot_metric_upper, alpha=0.2)
     plt.xlabel("Environment Step" if not config.incremental_loading else "Episode Count")
     plt.ylabel(plot_metric_name)
@@ -1326,7 +1326,7 @@ def log_metrics(
                         for agg in ["mean", "std", "iqr_upper", "iqr_lower"]
                     }
                     log_dict["training_time"] = training_time[i]
-                    log_dict["env_step"] = i + step_count
+                    log_dict["env_step"] = (i*config.DOWNSAMPLE_FACTOR) + step_count
                     wandb.log(log_dict)
 
             if config.LOG_LOSS_INFO and merged_out_loss is not None:

@@ -307,7 +307,7 @@ def train(argv: list[str], config: Dict[str, Any] = {}) -> None:
             step_count=step_count,
         )
         # Extend every item in processed data with new data
-        episode_count += len(processed_data["returns"]["episode_end_mean"])
+        episode_count += len(processed_data["service_blocking_probability"]["episode_end_mean"])
         step_count += config.STEPS_PER_INCREMENT // config.NUM_ENVS
         update_count += config.NUM_UPDATES * config.NUM_MINIBATCHES
         # Concatenate arrays for each key
