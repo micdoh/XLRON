@@ -553,11 +553,13 @@ class GraphNet(eqx.Module):
                 key_idx += 1
 
             if use_attention and attn_mlp_dims:
+                # Ensure at least depth 1 for GATv2-style dynamic attention
+                attn_depth = max(len(attn_mlp_dims), 1)
                 step_layers["attn_mlp"] = eqx.nn.MLP(
                     in_size=attn_mlp_input,
                     out_size=1,
                     width_size=attn_mlp_dims[0] if attn_mlp_dims else 128,
-                    depth=len(attn_mlp_dims),
+                    depth=attn_depth,
                     activation=jax.nn.relu,
                     key=keys[key_idx],
                 )

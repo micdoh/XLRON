@@ -85,6 +85,65 @@ def get_spectral_features(laplacian: Array, num_features: int) -> Array:
     return eigenvectors[:, :num_features].astype(dtype_config.LARGE_FLOAT_DTYPE)
 
 
+def make_line_graph(graph: nx.Graph) -> nx.Graph:
+    """Create the line graph of a NetworkX graph.
+
+    The line graph L(G) has:
+    - One node for each edge in the original graph G
+    - An edge between two nodes in L(G) if the corresponding edges in G share a node
+
+    This is used for transformer architectures where we treat edges (links) as tokens
+    and need positional encodings based on edge relationships.
+
+    Args:
+        graph: NetworkX graph (original topology)
+
+    Returns:
+        line_graph: NetworkX line graph where nodes correspond to edges in the original
+    """
+    return nx.line_graph(graph)
+
+
+def get_line_graph_laplacian(graph: nx.Graph) -> chex.Array:
+    """Compute the Laplacian matrix of the line graph.
+
+    Args:
+        graph: NetworkX graph (original topology)
+
+    Returns:
+        Laplacian matrix of the line graph as a JAX array
+    """
+    line_graph = make_line_graph(graph)
+    if line_graph.is_directed():
+        laplacian = nx.directed_laplacian_matrix(line_graph)
+    else:
+        laplacian = nx.laplacian_matrix(line_graph).todense()
+    return jnp.array(laplacian, dtype=dtype_config.LARGE_FLOAT_DTYPE)
+
+
+def get_line_graph_spectral_features(graph: nx.Graph, num_features: int) -> chex.Array:
+    """Compute spectral features for edges using the line graph Laplacian.
+
+    These features are used as positional encodings for transformer architectures
+    with WiRE (Wavelet-Induced Rotary Encodings).
+
+    Args:
+        graph: NetworkX graph (original topology)
+        num_features: Number of spectral features to compute
+
+    Returns:
+        Array of shape (num_edges, num_features) containing eigenvectors of the
+        line graph Laplacian, ordered by ascending eigenvalue magnitude.
+        These serve as positional encodings for edge/link tokens.
+    """
+    line_laplacian = get_line_graph_laplacian(graph)
+    num_edges = line_laplacian.shape[0]
+    # Clamp num_features to available dimensions
+    actual_features = min(num_features, num_edges)
+    eigenvalues, eigenvectors = jnp.linalg.eigh(line_laplacian)
+    return eigenvectors[:, :actual_features].astype(dtype_config.LARGE_FLOAT_DTYPE)
+
+
 @partial(jax.jit, static_argnums=(1, 3))
 def init_graph_tuple(
     state: EnvState,
@@ -217,7 +276,7 @@ def update_graph_tuple(state: EnvState, params: EnvParams) -> EnvState:
     source_dest_features = differentiable_one_hot_index_update(
         source_dest_features, dest_idx, -1.0, params.temperature, params.differentiable
     )
-    spectral_features = state.graph.nodes[..., :3]
+    spectral_features = state.graph.nodes[..., : params.num_spectral_features]
     holding_time_edge_features = state.link_slot_departure_array / params.mean_service_holding_time
 
     if params.__class__.__name__ in ["RSAGNModelEnvParams", "RMSAGNModelEnvParams"]:
@@ -431,6 +490,68 @@ def init_path_link_array(
         paths.append(empty_path)
 
     return jnp.array(paths, dtype=dtype_config.SMALL_INT_DTYPE)
+
+
+def get_link_relevance_array(paths: Array, paths_se: Array, k: int):
+    """
+    paths: (k, E)
+    returns: (num_pairs, E)
+    """
+    # Rank weights: higher weight for shorter paths with higher SE
+    ranks = jnp.arange(k)
+    rank_weights = 1.0 / (ranks + 1.0)
+
+    weights = rank_weights * paths_se
+    weights = weights / (jnp.sum(weights) + 1e-8)
+
+    weighted_paths = paths * weights[:, None]
+    relevance = jnp.sum(weighted_paths, axis=0)
+
+    return relevance
+    
+    
+@partial(jax.jit, static_argnums=(1,))
+def get_obs_transformer(
+    state: RSAEnvState, params: RSAEnvParams
+) -> chex.Array:
+    """Retrieves observation for transformer model.
+
+    Creates tokens for each link/edge with:
+    - First num_wire_features columns: spectral features from line graph (WiRE positional encodings)
+    - Remaining columns: edge features (link_slot_array or normalized departure times)
+
+    Args:
+        state: Environment state
+        params: Environment parameters
+
+    Returns:
+        Tuple of (tokens, degrees) where:
+        - tokens: Array of shape (num_links, num_wire_features + link_resources)
+        - degrees: Array of shape (num_links, 1) containing line graph node degrees
+    """
+    # Get line graph spectral features (WiRE positional encodings)
+    wire_features = params.line_graph_spectral_features.val
+
+    # Get edge features based on traffic type
+    if params.mean_service_holding_time > 1e5:
+        # Static traffic: use raw link_slot_array
+        edge_features = state.link_slot_array 
+    else:
+        # Dynamic traffic: use normalized holding time
+        edge_features = state.link_slot_departure_array / params.mean_service_holding_time
+        
+    # Get the relevance of link to current request
+    nodes_sd, requested_datarate = read_rsa_request(state.request_array)
+    paths_se = get_paths_se(params, nodes_sd)
+    paths = get_paths(params, nodes_sd)
+    link_relevance_features = get_link_relevance_array(paths, paths_se, params.k_paths).reshape((-1, 1))
+
+    # Concatenate WiRE features with edge features
+    # wire_features: (num_links, num_wire_features)
+    # edge_features: (num_links, link_resources)
+    tokens = jnp.concatenate([wire_features, edge_features, link_relevance_features], axis=-1)
+
+    return tokens
 
 
 def init_path_length_array(path_link_array: chex.Array, graph: nx.Graph) -> chex.Array:
@@ -980,7 +1101,7 @@ def get_path_index_array(params: EnvParams, nodes: Array) -> Array:
     # get source and destination nodes in order (for accurate indexing of path-link array)
     source, dest = nodes.astype(dtype_config.LARGE_INT_DTYPE)
     i = get_path_indices(
-        source, dest, params.k_paths, params.num_nodes, directed=params.directed_graph
+        params, source, dest, params.k_paths, params.num_nodes, directed=params.directed_graph
     )
     index_array = differentiable_indexing(
         jnp.arange(0, params.path_link_array.shape[0], dtype=dtype_config.LARGE_INT_DTYPE),

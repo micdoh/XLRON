@@ -49,6 +49,7 @@ from xlron.heuristics.heuristics import (
 )
 from xlron.models.gnn import ActorCriticGNN
 from xlron.models.mlp import ActorCriticMLP, LaunchPowerActorCriticMLP
+from xlron.models.transformer import ActorCriticTransformer
 
 # TODO - Add all possible metrics here (they will all be registered in wandb) then just add a try except when adding them to processed data
 metrics = [
@@ -289,7 +290,30 @@ def init_network(config: Box, key: chex.PRNGKey) -> eqx.Module:
         "rmsa_gn_model",
         "rsa_multiband",
     ]:
-        if config.USE_GNN:
+        if config.USE_TRANSFORMER:
+            # For transformer: input_size is the per-token feature dimension
+            # This includes: wire_features + edge_features (link_slot_array or departure times)
+            # The link_slot_array has shape (num_links, link_resources) so per-link features
+            input_size = config.num_wire_features + config.link_resources + 1 # 1 for link relevance
+            network = ActorCriticTransformer(
+                input_size=input_size,
+                embedding_size=config.transformer_embedding_size,
+                intermediate_size=config.transformer_intermediate_size,
+                num_slot_actions=config.ACTION_DIM // config.k,  # Number of slot actions per path
+                num_layers=config.transformer_num_layers,
+                num_heads=config.transformer_num_heads,
+                enable_dropout=config.transformer_enable_dropout,
+                dropout_rate=config.transformer_dropout_rate,
+                attention_dropout_rate=config.transformer_attention_dropout_rate,
+                share_layers=config.transformer_share_layers,
+                num_wire_features=config.num_wire_features,
+                actor_mlp_width=config.transformer_actor_mlp_width,
+                critic_mlp_width=config.transformer_critic_mlp_width,
+                actor_mlp_depth=config.transformer_actor_mlp_depth,
+                critic_mlp_depth=config.transformer_critic_mlp_depth,
+                key=key,
+            )
+        elif config.USE_GNN:
             if "gn_model" in config.env_type.lower() and config.output_globals_size_actor > 0:
                 global_output_size_actor = (
                     int((config.max_power - config.min_power) / config.step_power) + 1
@@ -412,7 +436,7 @@ def experiment_data_setup(config: Box, rng: chex.PRNGKey) -> Tuple:
         if config.NUM_ENVS > 1
         else env.reset(reset_key, env_params)
     )
-    obsv = (env_state.env_state, env_params) if config.USE_GNN else tuple([obsv])
+    obsv = (env_state.env_state, env_params) if config.USE_GNN or config.USE_TRANSFORMER else tuple([obsv])
 
     # TRAINING MODE
     if config.RETRAIN_MODEL or config.EVAL_MODEL:
@@ -483,7 +507,8 @@ def select_action(select_action_state, env, env_params, train_state, config):
         value: Value of state
     """
     action_key, env_state, last_obs = select_action_state
-    last_obs = (env_state.env_state, env_params) if config.USE_GNN else last_obs
+    if config.USE_GNN or config.USE_TRANSFORMER:
+        last_obs = (env_state.env_state, env_params)
     model = eqx.combine(train_state.model_params, train_state.model_static)
     pi, value = model(*last_obs)
     # Action masking
@@ -715,7 +740,7 @@ def get_warmup_fn(warmup_state, env, params, train_state, config) -> Callable[[T
             obsv, _state, reward, terminal, truncated, info = env.step(
                 step_key, _state, action, params
             )
-            obsv = (_state.env_state, params) if config.USE_GNN else tuple([obsv])
+            obsv = (_state.env_state, params) if config.USE_GNN or config.USE_TRANSFORMER else tuple([obsv])
             return _rng, _state, _params, _train_state, obsv
 
         vals = jax.lax.fori_loop(

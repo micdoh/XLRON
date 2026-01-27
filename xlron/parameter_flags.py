@@ -12,9 +12,7 @@ flags.DEFINE_integer(
 )
 flags.DEFINE_integer("NUM_DEVICES", 1, "Number of devices")
 flags.DEFINE_integer("NUM_ENVS", 1, "Number of environments per device")
-flags.DEFINE_integer(
-    "ROLLOUT_LENGTH", 150, "Number of steps per rollout per environment"
-)
+flags.DEFINE_integer("ROLLOUT_LENGTH", 150, "Number of steps per rollout per environment")
 flags.DEFINE_integer(
     "NUM_UPDATES",
     1,
@@ -23,9 +21,7 @@ flags.DEFINE_integer(
 )
 flags.DEFINE_integer("MINIBATCH_SIZE", 1, "Minibatch size")
 flags.DEFINE_float("TOTAL_TIMESTEPS", 1e6, "Total number of timesteps")
-flags.DEFINE_integer(
-    "STEPS_PER_INCREMENT", 100000, "Number of steps per logging increment"
-)
+flags.DEFINE_integer("STEPS_PER_INCREMENT", 100000, "Number of steps per logging increment")
 flags.DEFINE_integer("NUM_INCREMENTS", 1, "Number of increments to log")
 flags.DEFINE_integer("UPDATE_EPOCHS", 1, "Number of epochs per update")
 flags.DEFINE_integer("NUM_MINIBATCHES", 1, "Number of minibatches per update")
@@ -63,14 +59,10 @@ flags.DEFINE_integer(
 flags.DEFINE_float(
     "WARMUP_MULTIPLIER", 1, "Increase the learning rate warmup peak compared to init"
 )
-flags.DEFINE_float(
-    "WARMUP_STEPS_FRACTION", 0.2, "Fraction of total timesteps to use for warmup"
-)
+flags.DEFINE_float("WARMUP_STEPS_FRACTION", 0.2, "Fraction of total timesteps to use for warmup")
 flags.DEFINE_float("LR_END_FRACTION", 0.1, "Fraction of init LR that is final LR")
 flags.DEFINE_integer("NUM_LAYERS", 2, "Number of layers in actor and critic networks")
-flags.DEFINE_integer(
-    "NUM_UNITS", 64, "Number of hidden units in actor and critic networks"
-)
+flags.DEFINE_integer("NUM_UNITS", 64, "Number of hidden units in actor and critic networks")
 flags.DEFINE_float(
     "TEMPERATURE",
     1.0,
@@ -85,9 +77,7 @@ flags.DEFINE_string(
     "Comma-separated indices of (desired) visible GPUs e.g. 1,2,3",
 )
 flags.DEFINE_boolean("PREALLOCATE_MEM", True, "Preallocate GPU memory")
-flags.DEFINE_string(
-    "PREALLOCATE_MEM_FRACTION", "0.95", "Fraction of GPU memory to preallocate"
-)
+flags.DEFINE_string("PREALLOCATE_MEM_FRACTION", "0.95", "Fraction of GPU memory to preallocate")
 flags.DEFINE_boolean("PRINT_MEMORY_USE", False, "Print memory usage")
 flags.DEFINE_boolean("WANDB", False, "Use wandb")
 flags.DEFINE_boolean(
@@ -105,18 +95,14 @@ flags.DEFINE_boolean(
 )
 flags.DEFINE_boolean("NO_PRINT_FLAGS", False, "Do not print flags")
 flags.DEFINE_string("MODEL_PATH", None, "Path to save/load model")
-flags.DEFINE_string(
-    "PROJECT", "", "Name of project (same as experiment name if unspecified)"
-)
+flags.DEFINE_string("PROJECT", "", "Name of project (same as experiment name if unspecified)")
 flags.DEFINE_string(
     "EXPERIMENT_NAME",
     "",
     "Name of experiment (equivalent to run name in wandb) "
     "(auto-generated based on other flags if unspecified)",
 )
-flags.DEFINE_integer(
-    "DOWNSAMPLE_FACTOR", 1, "Downsample factor to reduce data uploaded to wandb"
-)
+flags.DEFINE_integer("DOWNSAMPLE_FACTOR", 1, "Downsample factor to reduce data uploaded to wandb")
 flags.DEFINE_boolean("DISABLE_JIT", False, "Disable JIT compilation")
 flags.DEFINE_boolean("ENABLE_X64", False, "Enable x64 floating point precision")
 flags.DEFINE_boolean("ACTION_MASKING", False, "Use invalid action masking")
@@ -189,9 +175,7 @@ flags.DEFINE_float(
     "REWARD_SCALE", 1.0, "Reward scaling factor (multiply all rewards by this value)"
 )
 # Flags for mixed precision
-flags.DEFINE_string(
-    "COMPUTE_DTYPE", None, "Compute precision dtype (float32, bfloat16)"
-)
+flags.DEFINE_string("COMPUTE_DTYPE", None, "Compute precision dtype (float32, bfloat16)")
 flags.DEFINE_string("PARAMS_DTYPE", None, "Parameter storage dtype (float32, bfloat16)")
 flags.DEFINE_string("LARGE_FLOAT_DTYPE", None, "Large float dtype (float32, bfloat16)")
 flags.DEFINE_string("SMALL_FLOAT_DTYPE", None, "Small float dtype (float32, float16)")
@@ -208,9 +192,7 @@ flags.DEFINE_integer("link_resources", 5, "Number of link resources")
 flags.DEFINE_float("max_requests", 4, "Maximum number of requests in an episode")
 flags.DEFINE_integer("min_bw", 25, "Minimum requested bandwidth")
 flags.DEFINE_integer("max_bw", 100, "Maximum requested bandwidth")
-flags.DEFINE_integer(
-    "step_bw", 1, "Step size for requested bandwidth values between min and max"
-)
+flags.DEFINE_integer("step_bw", 1, "Step size for requested bandwidth values between min and max")
 flags.DEFINE_list("values_bw", None, "List of requested bandwidth values")
 flags.DEFINE_float("slot_size", 12.5, "Spectral width of frequency slot in GHz")
 flags.DEFINE_boolean(
@@ -230,12 +212,8 @@ flags.DEFINE_boolean(
     False,
     "If True, do not reset the environment at the end of an episode",
 )
-flags.DEFINE_integer(
-    "aggregate_slots", 1, "Number of slots to aggregate into a single action"
-)
-flags.DEFINE_boolean(
-    "disjoint_paths", False, "Use disjoint paths (k paths still considered)"
-)
+flags.DEFINE_integer("aggregate_slots", 1, "Number of slots to aggregate into a single action")
+flags.DEFINE_boolean("disjoint_paths", False, "Use disjoint paths (k paths still considered)")
 flags.DEFINE_integer("guardband", 1, "Guard band in slots")
 flags.DEFINE_integer(
     "symbol_rate", 100, "Symbol rate in Gbaud (only used in RWA with lightpath reuse"
@@ -251,9 +229,7 @@ flags.DEFINE_string(
     "./xlron/data/modulations/modulations_deeprmsa.csv",
     "Modulation format definitions for RSA environment",
 )
-flags.DEFINE_string(
-    "traffic_requests_csv_filepath", None, "Path to traffic request CSV file"
-)
+flags.DEFINE_string("traffic_requests_csv_filepath", None, "Path to traffic request CSV file")
 flags.DEFINE_string(
     "topology_directory",
     None,
@@ -264,9 +240,7 @@ flags.DEFINE_string(
     None,
     "Directory containing JSON definitions of network topologies that will be alternated per episode",
 )
-flags.DEFINE_float(
-    "traffic_intensity", 0, "Traffic intensity (arrival rate * mean holding time)"
-)
+flags.DEFINE_float("traffic_intensity", 0, "Traffic intensity (arrival rate * mean holding time)")
 flags.DEFINE_boolean(
     "maximise_throughout",
     False,
@@ -278,9 +252,7 @@ flags.DEFINE_boolean(
     False,
     "Truncate holding time to less than 2*mean_service_holding_time",
 )
-flags.DEFINE_integer(
-    "ENV_WARMUP_STEPS", 0, "Number of warmup steps before training or eval"
-)
+flags.DEFINE_integer("ENV_WARMUP_STEPS", 0, "Number of warmup steps before training or eval")
 flags.DEFINE_boolean(
     "pack_path_bits",
     False,
@@ -318,7 +290,7 @@ flags.DEFINE_string("path_heuristic", "ksp_ff", "Path heuristic to be evaluated"
 flags.DEFINE_string("node_heuristic", "random", "Node heuristic to be evaluated")
 # GNN-specific parameters
 flags.DEFINE_boolean("USE_GNN", False, "Use GNN")
-flags.DEFINE_integer("num_spectral_features", 3, "No. of spectral features")
+flags.DEFINE_integer("num_spectral_features", 8, "No. of spectral features")
 flags.DEFINE_boolean(
     "DISABLE_NODE_FEATURES",
     False,
@@ -330,9 +302,7 @@ flags.DEFINE_integer("mlp_latent", None, "Size of MLP latent dimension")
 flags.DEFINE_integer("edge_embedding_size", 128, "Size of edge embeddings")
 flags.DEFINE_integer("edge_mlp_layers", 2, "Number of edge MLP layers")
 flags.DEFINE_integer("edge_mlp_latent", 128, "Size of edge MLP latent dimension")
-flags.DEFINE_integer(
-    "edge_output_size_actor", 0, "Size of edge output for actor (not used)"
-)
+flags.DEFINE_integer("edge_output_size_actor", 0, "Size of edge output for actor (not used)")
 flags.DEFINE_integer("edge_output_size_critic", 1, "Size of edge output for critic")
 flags.DEFINE_integer("global_embedding_size", 8, "Size of global embeddings")
 flags.DEFINE_integer("global_mlp_layers", 1, "Number of global MLP layers")
@@ -349,14 +319,45 @@ flags.DEFINE_integer("attn_mlp_latent", 64, "Size of attention MLP latent dimens
 flags.DEFINE_boolean("normalize_by_link_length", False, "Normalize by link length")
 flags.DEFINE_boolean("gnn_layer_norm", True, "Use layer normalization in GNN")
 flags.DEFINE_boolean("mlp_layer_norm", False, "Use layer normalization in MLPs of GNN")
+# Transformer-specific parameters
+flags.DEFINE_boolean("USE_TRANSFORMER", False, "Use Transformer architecture")
+flags.DEFINE_integer("transformer_embedding_size", 64, "Size of transformer token embeddings")
+flags.DEFINE_integer(
+    "transformer_intermediate_size",
+    256,
+    "Size of intermediate layer in transformer feed-forward blocks",
+)
+flags.DEFINE_integer("transformer_num_layers", 3, "Number of transformer encoder layers")
+flags.DEFINE_integer("transformer_num_heads", 4, "Number of attention heads in transformer")
+flags.DEFINE_integer(
+    "num_wire_features",
+    8,
+    "Number of spectral features for WiRE positional encodings (computed from line graph Laplacian)",
+)
+flags.DEFINE_float("transformer_dropout_rate", 0.1, "Dropout rate for transformer layers")
+flags.DEFINE_float(
+    "transformer_attention_dropout_rate",
+    0.1,
+    "Dropout rate for transformer attention layers",
+)
+flags.DEFINE_boolean(
+    "transformer_share_layers",
+    True,
+    "Share encoder layers between actor and critic in transformer",
+)
+flags.DEFINE_integer("transformer_actor_mlp_width", 64, "Width of actor MLP head in transformer")
+flags.DEFINE_integer("transformer_critic_mlp_width", 64, "Width of critic MLP head in transformer")
+flags.DEFINE_integer("transformer_actor_mlp_depth", 2, "Depth of actor MLP head in transformer")
+flags.DEFINE_integer("transformer_critic_mlp_depth", 2, "Depth of critic MLP head in transformer")
+flags.DEFINE_boolean(
+    "transformer_enable_dropout", True, "Enable dropout during training in transformer"
+)
 # Model evaluation parameters
 flags.DEFINE_boolean("EVAL_MODEL", False, "Load model for evaluation")
 flags.DEFINE_list("model", None, "Used to hold model parameters")
 flags.DEFINE_string("min_traffic", "0.0", "Minimum traffic")
 flags.DEFINE_string("max_traffic", "1.0", "Maximum traffic")
-flags.DEFINE_string(
-    "step_traffic", "0.1", "Step size for traffic values between min and max"
-)
+flags.DEFINE_string("step_traffic", "0.1", "Step size for traffic values between min and max")
 flags.DEFINE_boolean(
     "deterministic", False, "Deterministic evaluation (use mode of action distribution)"
 )
@@ -375,18 +376,14 @@ flags.DEFINE_float("attenuation", 4.605111673e-5, "Attenuation [1/m]")
 flags.DEFINE_float("attenuation_bar", 4.605111673e-5, "Attenuation [1/m]")
 flags.DEFINE_float("dispersion_coeff", 17e-6, "Dispersion [s/m^2]")
 flags.DEFINE_float("dispersion_slope", 60.7, "Dispersion slope [s/m^3]")
-flags.DEFINE_float(
-    "num_roadms", 1, "Consider ROADM loss in SNR calculation (1 ROADM per link)"
-)
+flags.DEFINE_float("num_roadms", 1, "Consider ROADM loss in SNR calculation (1 ROADM per link)")
 flags.DEFINE_float("roadm_loss", 16, "ROADM insertion losses [dB]")
 flags.DEFINE_boolean("coherent", False, "Add NLI contribution coherently per span")
 flags.DEFINE_boolean(
     "mod_format_correction", False, "Apply non-Gaussian modulation format correction"
 )
 flags.DEFINE_multi_integer("interband_gap_width", None, "Gap between bands [GHz]")
-flags.DEFINE_multi_integer(
-    "interband_gap_start", None, "Start index of gap between bands [GHz]"
-)
+flags.DEFINE_multi_integer("interband_gap_start", None, "Start index of gap between bands [GHz]")
 flags.DEFINE_float(
     "snr_margin",
     0.5,
@@ -399,9 +396,7 @@ flags.DEFINE_float(
 )
 flags.DEFINE_float("max_power", 0.5, "Maximum launch power [dBm]")
 flags.DEFINE_float("min_power", -5, "Minimum launch power [dBm]")
-flags.DEFINE_float(
-    "step_power", 0.1, "Step size for launch power values between min and max"
-)
+flags.DEFINE_float("step_power", 0.1, "Step size for launch power values between min and max")
 flags.DEFINE_boolean("discrete_launch_power", False, "Discrete launch power values")
 flags.DEFINE_float("min_concentration", 0.1, "For continuous launch power dist.")
 flags.DEFINE_float("max_concentration", 20.0, "For continuous launch power dist.")
@@ -411,9 +406,7 @@ flags.DEFINE_boolean(
     False,
     "Use GNN for launch power optimization in RSA GN Model environment",
 )
-flags.DEFINE_boolean(
-    "GNN_OUTPUT_RSA", False, "Use GNN for RSA in RSA GN Model environment"
-)
+flags.DEFINE_boolean("GNN_OUTPUT_RSA", False, "Use GNN for RSA in RSA GN Model environment")
 flags.DEFINE_boolean(
     "monitor_active_lightpaths",
     False,
@@ -434,16 +427,12 @@ flags.DEFINE_boolean(
     "Use deteministic requests from list_of_requests to optimise launch power",
 )
 flags.DEFINE_integer("EVAL_STEPS", 100, "Number of steps to run in each evaluation")
-flags.DEFINE_integer(
-    "OPTIMIZATION_ITERATIONS", 1000, "Number of optimization iterations"
-)
+flags.DEFINE_integer("OPTIMIZATION_ITERATIONS", 1000, "Number of optimization iterations")
 flags.DEFINE_boolean("traffic_array", False, "Use traffic array")
 flags.DEFINE_list("list_of_requests", None, "Traffic request list")
 # Flags for finding cut-sets only
 flags.DEFINE_integer("CUTSET_BATCH_SIZE", 1, "Batch size for cut-set generation")
-flags.DEFINE_integer(
-    "CUTSET_ITERATIONS", 1, "Number of iterations per parallel process"
-)
+flags.DEFINE_integer("CUTSET_ITERATIONS", 1, "Number of iterations per parallel process")
 flags.DEFINE_boolean(
     "CUTSET_EXHAUSTIVE",
     False,
@@ -456,12 +445,12 @@ flags.DEFINE_boolean(
     "sort_requests", True, "Sort requests in descending order of required resources"
 )
 # Flags for defining approximation parameters for differentiable functions and optimization
-flags.DEFINE_boolean(
-    "INITIALIZE_ACTIONS_HEURISTIC", False, "Initialize actions with heuristic"
-)
+flags.DEFINE_boolean("INITIALIZE_ACTIONS_HEURISTIC", False, "Initialize actions with heuristic")
 flags.DEFINE_boolean("INITIALIZE_ACTIONS_RANDOM", False, "Initialize actions randomly")
 flags.DEFINE_boolean("INITIALIZE_ACTIONS_ASCENDING", False, "Initialize actions in ascending order")
-flags.DEFINE_boolean("INITIALIZE_ACTIONS_DESCENDING", False, "Initialize actions in descending order")
+flags.DEFINE_boolean(
+    "INITIALIZE_ACTIONS_DESCENDING", False, "Initialize actions in descending order"
+)
 flags.DEFINE_boolean("INITIALIZE_ACTIONS_MAX", False, "Initialize actions at max. value")
 flags.DEFINE_float(
     "temperature",
@@ -474,8 +463,12 @@ flags.DEFINE_boolean(
     "Enable differentiable mode for gradient-based optimization (uses straight-through estimators and temperature approximations)",
 )
 # Add differentiable optimization-specific flags
-flags.DEFINE_boolean("ACTION_OPTIMIZATION", False, "Directly optimise rollout actions using first-order gradients from differentiable environment")
-flags.DEFINE_float('OPTIMIZATION_LEARNING_RATE', 0.05,
-                   'Learning rate for gradient-based action optimization')
-flags.DEFINE_boolean('PATH_SLOT_ACTIONS', False,
-                     'Use 2-part path-slot actions for optimization')
+flags.DEFINE_boolean(
+    "ACTION_OPTIMIZATION",
+    False,
+    "Directly optimise rollout actions using first-order gradients from differentiable environment",
+)
+flags.DEFINE_float(
+    "OPTIMIZATION_LEARNING_RATE", 0.05, "Learning rate for gradient-based action optimization"
+)
+flags.DEFINE_boolean("PATH_SLOT_ACTIONS", False, "Use 2-part path-slot actions for optimization")

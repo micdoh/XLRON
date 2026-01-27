@@ -34,6 +34,7 @@ from xlron.environments.dataclasses import (
 from xlron.environments.env_funcs import (
     convert_node_probs_to_traffic_matrix,
     generate_source_dest_pairs,
+    get_line_graph_spectral_features,
     init_link_length_array,
     init_link_length_array_gn_model,
     init_list_of_requests,
@@ -419,6 +420,19 @@ def make(
         else jnp.array(nx.laplacian_matrix(graph).todense())
     )
 
+    # Compute line graph spectral features for transformer WiRE positional encodings
+    num_wire_features = config.get("num_wire_features", 8)
+    use_transformer = config.get("USE_TRANSFORMER", False)
+    if use_transformer:
+        line_graph_spectral_features = get_line_graph_spectral_features(graph, num_wire_features)
+        line_graph_spectral_features = (
+            HashableArrayWrapper(line_graph_spectral_features)
+            if not remove_array_wrappers
+            else line_graph_spectral_features
+        )
+    else:
+        line_graph_spectral_features = None
+
     params_dict = dict(
         max_requests=max_requests,
         mean_service_holding_time=mean_service_holding_time,
@@ -463,6 +477,7 @@ def make(
         temperature=temperature,
         differentiable=differentiable,
         num_spectral_features=config.get("num_spectral_features", 3),
+        line_graph_spectral_features=line_graph_spectral_features,
     )
 
     gap_starts = (

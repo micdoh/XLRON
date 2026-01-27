@@ -11,6 +11,13 @@ from jaxtyping import (  # https://github.com/google/jaxtyping
     Float,
     PRNGKeyArray,
 )
+from xlron import dtype_config
+from xlron.environments.dataclasses import EnvState, EnvParams
+from xlron.environments.env_funcs import (
+    get_obs_transformer, 
+    read_rsa_request, 
+    get_path_slots,
+)
 
 
 class Embedder(eqx.Module):
@@ -183,8 +190,6 @@ class FeedForwardBlock(eqx.Module):
     output: eqx.nn.Linear
     layernorm: eqx.nn.LayerNorm
     dropout: eqx.nn.Dropout
-    degree_scale: Array
-    degree_gate: Array
 
     def __init__(
         self,
@@ -200,26 +205,16 @@ class FeedForwardBlock(eqx.Module):
         self.output = eqx.nn.Linear(
             in_features=intermediate_size, out_features=embedding_size, key=output_key
         )
-
         self.layernorm = eqx.nn.LayerNorm(shape=embedding_size)
         self.dropout = eqx.nn.Dropout(dropout_rate)
-        self.degree_scale = jnp.ones(embedding_size)
-        self.degree_gate = jnp.zeros(embedding_size)
 
     def __call__(
         self,
         inputs: Array,
         enable_dropout: bool = True,
-        degrees: Array | None = None,
         key: chex.PRNGKey | None = None,
     ) -> Array:
         hidden = self.layernorm(inputs)
-
-        if degrees is not None:
-            # Scale each token by the degree of the corresponding node
-            log_degree = jnp.log(1 + degrees)  # (n, 1)
-            scale = self.degree_scale + log_degree * self.degree_gate  # (n, embedding_size)
-            hidden = hidden * scale
 
         # Feed-forward.
         hidden = self.linear(hidden)
@@ -273,7 +268,6 @@ class TransformerLayer(eqx.Module):
         *,
         enable_dropout: bool = False,
         attn_mask: Array | None = None,
-        degrees: Array | None = None,
         key: chex.PRNGKey | None = None,
         process_heads: Callable | None = None,
     ) -> Array:
@@ -291,8 +285,8 @@ class TransformerLayer(eqx.Module):
 
         seq_len = inputs.shape[0]
         ff_keys = None if ff_key is None else jax.random.split(ff_key, num=seq_len)
-        output = jax.vmap(self.ff_block, in_axes=(0, None, 0, 0))(
-            attention_output, enable_dropout, degrees, ff_keys
+        output = jax.vmap(self.ff_block, in_axes=(0, None, 0))(
+            attention_output, enable_dropout, ff_keys
         )
         return output
 
@@ -301,8 +295,6 @@ class Encoder(eqx.Module):
     embedder_block: Embedder | eqx.nn.Identity
     layers: list[TransformerLayer]
     wire: WIRE
-    degree_scale: Array
-    degree_gate: Array
     num_wire_features: int = eqx.field(static=True)
     num_layers: int = eqx.field(static=True)
 
@@ -328,8 +320,6 @@ class Encoder(eqx.Module):
         head_dim = embedding_size // num_heads
         self.wire = WIRE(num_wire_features, head_dim, wire_key)
         self.num_wire_features = num_wire_features
-        self.degree_scale = jnp.ones(embedding_size)
-        self.degree_gate = jnp.zeros(embedding_size)
 
         layer_keys = jax.random.split(layer_key, num=num_layers)
 
@@ -352,7 +342,6 @@ class Encoder(eqx.Module):
         *,
         enable_dropout: bool = False,
         attn_mask: Array | None = None,
-        degrees: Array | None = None,
         key: chex.PRNGKey | None = None,
     ) -> dict[str, Array]:
         # Index the inputs to retrieve the features used by WiRE (either spectral or random walks)
@@ -400,7 +389,6 @@ class Encoder(eqx.Module):
                 x,
                 enable_dropout=enable_dropout,
                 attn_mask=attn_mask,
-                degrees=degrees,
                 key=cl_key,
                 process_heads=process_heads,
             )
@@ -416,12 +404,6 @@ class Encoder(eqx.Module):
 
         (output, key), layer_outputs = jax.lax.scan(apply_layer, initial_carry, scan_inputs)
 
-        if degrees is not None:
-            # Scale each token by the degree of the corresponding node
-            log_degree = jnp.log(1 + degrees)  # (n, 1)
-            scale = self.degree_scale + log_degree * self.degree_gate  # (n, embedding_size)
-            output = output * scale
-
         return {"output": output, "layers": layer_outputs}
 
 
@@ -430,13 +412,14 @@ class ActorCriticTransformer(eqx.Module):
     actor_mlp: eqx.nn.MLP
     critic_mlp: eqx.nn.MLP
     share_layers: bool
+    num_slot_actions: int
 
     def __init__(
         self,
         input_size: int,
         embedding_size: int,
         intermediate_size: int,
-        num_actions: int,
+        num_slot_actions: int,
         num_layers: int,
         num_heads: int,
         enable_dropout: bool,
@@ -479,20 +462,14 @@ class ActorCriticTransformer(eqx.Module):
             key=encoder_key,
         )
         if self.share_layers:
-
-            def where(actor_critic: tuple) -> Array:
-                return actor_critic[1].weight
-
-            def get(actor_critic: tuple) -> Array:
-                return actor_critic[0].weight
-
-            self.actor_critic = eqx.nn.Shared((actor, critic), where, get)
+            # When sharing layers, use the same encoder for both actor and critic
+            self.actor_critic = (actor, actor)
         else:
             self.actor_critic = (actor, critic)
         self.actor_mlp = eqx.nn.MLP(
             in_size=embedding_size,
             width_size=actor_mlp_width,
-            out_size=num_actions,
+            out_size=num_slot_actions,
             depth=actor_mlp_depth,
             key=actor_key,
         )
@@ -503,63 +480,66 @@ class ActorCriticTransformer(eqx.Module):
             depth=critic_mlp_depth,
             key=critic_key,
         )
+        self.num_slot_actions = num_slot_actions
 
     def __call__(
         self,
-        inputs: Tuple[Array, Array | None],
+        state: EnvState,
+        params: EnvParams,
         *,
         enable_dropout: bool = False,
         key: chex.PRNGKey | None = None,
     ) -> Tuple[distrax.Categorical, Array]:
-        actor, critic = self.actor_critic() if self.share_layers else self.actor_critic
+        """Forward pass through the actor-critic transformer.
+
+        Args:
+            tokens: Input tokens of shape (num_links, num_wire_features + link_resources)
+                   First num_wire_features columns are WiRE positional encodings
+            enable_dropout: Whether to enable dropout
+            key: PRNG key for dropout
+
+        Returns:
+            Tuple of (action_distribution, value)
+        """
+        actor, critic = self.actor_critic
         actor_key, critic_key = jax.random.split(key) if key is not None else (None, None)
-        tokens, degrees = inputs
-        if degrees is None:
-            attn_mask = None
-            valid_mask = None
-        else:
-            # For attention: exclude padding (-1) AND disconnected (0)
-            attn_mask = jnp.outer(degrees >= 0, degrees >= 0)
-            # For pooling: exclude only padding (-1)
-            valid_mask = degrees >= 0  # shape (n, 1)
-            degrees = jnp.clip(degrees, min=0)
+        tokens = get_obs_transformer(state, params)
         action_tokens = actor(
             tokens,
             enable_dropout=enable_dropout,
-            attn_mask=attn_mask,
-            degrees=degrees,
             key=actor_key,
         )["output"]
         value_tokens = critic(
             tokens,
             enable_dropout=enable_dropout,
-            attn_mask=attn_mask,
-            degrees=degrees,
             key=critic_key,
         )["output"]
+        
+        # Project action tokens back to original edge size
+        action_tokens = jax.vmap(self.actor_mlp)(action_tokens)
+        
+        # POOLING - sum edges per path
+        nodes_sd, requested_bw = read_rsa_request(state.request_array)
+        init_action_array = jnp.zeros(
+            params.k_paths * self.num_slot_actions, dtype=dtype_config.SMALL_FLOAT_DTYPE
+        )
 
-        # Pooling
-        if degrees is None:
-            # Mean all tokens
-            action_tokens_mean = jnp.mean(action_tokens, axis=0)
-            value_tokens_mean = jnp.mean(value_tokens, axis=0)
-        else:
-            # Ignore padding tokens
-            num_valid = jnp.maximum(jnp.sum(valid_mask), 1)
-            action_sum = jnp.sum(
-                jnp.where(valid_mask, action_tokens, jnp.zeros_like(action_tokens)), axis=0
+        def get_path_action_dist(i, action_array):
+            path_features = get_path_slots(action_tokens, params, nodes_sd, i, agg_func="sum")
+            action_array = jax.lax.dynamic_update_slice(
+                action_array, path_features, (i * self.num_slot_actions,)
             )
-            action_tokens_mean = action_sum / num_valid
-            value_sum = jnp.sum(
-                jnp.where(valid_mask, value_tokens, jnp.zeros_like(value_tokens)), axis=0
-            )
-            value_tokens_mean = value_sum / num_valid
+            return action_array
 
-        # Pass through MLPs
-        action_logits = self.actor_mlp(action_tokens_mean)
-        value = self.critic_mlp(value_tokens_mean).squeeze()
-
+        path_action_logits = jax.lax.fori_loop(
+            0, params.k_paths, get_path_action_dist, init_action_array
+        )
+        action_logits = jnp.reshape(path_action_logits, (-1,))
         action_dist = distrax.Categorical(logits=action_logits)
+        
+        # Pool and Value
+        value_tokens_mean = jnp.mean(value_tokens, axis=0)
+        value = self.critic_mlp(value_tokens_mean).squeeze()
 
         return action_dist, value
 

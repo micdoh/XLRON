@@ -6,7 +6,7 @@ from flax import struct
 from jax import Array
 
 Shape = Sequence[int]
-T = TypeVar('T')      # Declare type variable
+T = TypeVar("T")  # Declare type variable
 
 
 class HashableArrayWrapper(Generic[T]):
@@ -16,11 +16,12 @@ class HashableArrayWrapper(Generic[T]):
     define a __hash__ method that returns a hash of the array's bytes, thus making the array hashable.
     From: https://github.com/google/jax/issues/4572#issuecomment-709677518
     """
+
     def __init__(self, val: Array):
         self.val = val
 
     def __getattribute__(self, prop):
-        if prop == 'val' or prop == "__hash__" or prop == "__eq__":
+        if prop == "val" or prop == "__hash__" or prop == "__eq__":
             return super(HashableArrayWrapper, self).__getattribute__(prop)
         return getattr(self.val, prop)
 
@@ -100,6 +101,7 @@ class EnvParams:
         temperature (chex.Scalar): Temp. used for softmax differentiable approximation
         window_size (chex.Scalar): Window size for weighted average of neighbouring cells in differentiable indexing
     """
+
     num_nodes: int = struct.field(pytree_node=False)
     num_links: int = struct.field(pytree_node=False)
     max_requests: int = struct.field(pytree_node=False)
@@ -109,7 +111,7 @@ class EnvParams:
     continuous_operation: bool = struct.field(pytree_node=False)
     edges: HashableArrayWrapper = struct.field(pytree_node=False)
     slot_size: int = struct.field(pytree_node=False)
-    consider_modulation_format: bool= struct.field(pytree_node=False)
+    consider_modulation_format: bool = struct.field(pytree_node=False)
     link_length_array: HashableArrayWrapper = struct.field(pytree_node=False)
     aggregate_slots: int = struct.field(pytree_node=False)
     guardband: int = struct.field(pytree_node=False)
@@ -124,6 +126,7 @@ class EnvParams:
     temperature: float = struct.field(pytree_node=False)
     differentiable: bool = struct.field(pytree_node=False)
     num_spectral_features: int = struct.field(pytree_node=False)
+    line_graph_spectral_features: HashableArrayWrapper | None = struct.field(pytree_node=False)
     path_link_array: HashableArrayWrapper = struct.field(pytree_node=False)
     path_se_array: HashableArrayWrapper = struct.field(pytree_node=False)
     k_paths: int = struct.field(pytree_node=False)
@@ -175,6 +178,7 @@ class RSAEnvState(EnvState):
         link_slot_mask (chex.Array): Link slot mask
         traffic_matrix (chex.Array): Traffic matrix
     """
+
     pass
 
 
@@ -197,6 +201,7 @@ class RSAEnvParams(EnvParams):
         deterministic_requests (bool): If True, use deterministic requests
         multiple_topologies (bool): If True, use multiple topologies
     """
+
     max_slots: chex.Scalar = struct.field(pytree_node=False)
     deterministic_requests: bool = struct.field(pytree_node=False)
     multiple_topologies: bool = struct.field(pytree_node=False)
@@ -215,6 +220,7 @@ class DeepRMSAEnvState(RSAEnvState):
         3. Size of 1st free spectrum block
         4. Avg. free block size
     """
+
     path_stats: chex.Array
 
 
@@ -235,9 +241,7 @@ class RWALightpathReuseEnvState(RSAEnvState):
 
     path_index_array: chex.Array  # Contains indices of lightpaths in use on slots
     path_capacity_array: chex.Array  # Contains remaining capacity of each lightpath
-    link_capacity_array: (
-        chex.Array
-    )  # Contains remaining capacity of lightpath on each link-slot
+    link_capacity_array: chex.Array  # Contains remaining capacity of lightpath on each link-slot
     time_since_last_departure: chex.Array  # Time since last departure
 
 
@@ -303,10 +307,10 @@ class GNModelEnvState(RSAEnvState):
     """Dataclass to hold environment state for RSA with GN model."""
 
     link_snr_array: chex.Array  # Available SNR on each link
-    channel_centre_bw_array: (
+    channel_centre_bw_array: chex.Array  # Channel centre bandwidth for each active connection
+    path_index_array: (
         chex.Array
-    )  # Channel centre bandwidth for each active connection
-    path_index_array: chex.Array  # Contains indices of lightpaths in use on slots (used for lightpath SNR calculation)
+    )  # Contains indices of lightpaths in use on slots (used for lightpath SNR calculation)
     channel_power_array: chex.Array  # Channel power for each active connection
     channel_centre_bw_array_prev: (
         chex.Array
@@ -333,9 +337,7 @@ class RSAGNModelEnvState(GNModelEnvState):
     """Dataclass to hold environment state for RSA with GN model."""
 
     active_lightpaths_array: chex.Array  # Active lightpath array. 1 x M array. Each value is a lightpath index. Used to calculate total throughput.
-    active_lightpaths_array_departure: (
-        chex.Array
-    )  # Active lightpath array departure time.
+    active_lightpaths_array_departure: chex.Array  # Active lightpath array departure time.
     throughput: chex.Array  # Current network throughput
 
 
@@ -358,9 +360,7 @@ class RMSAGNModelEnvState(GNModelEnvState):
         link_snr_array (chex.Array): Link SNR array
     """
 
-    modulation_format_index_array: (
-        chex.Array
-    )  # Modulation format index for each active connection
+    modulation_format_index_array: chex.Array  # Modulation format index for each active connection
     modulation_format_index_array_prev: (
         chex.Array
     )  # Modulation format index for each active connection in previous timestep

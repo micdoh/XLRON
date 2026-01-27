@@ -1,4 +1,5 @@
 import math
+from typing import Tuple
 
 from gymnax.environments import environment, spaces
 
@@ -40,6 +41,9 @@ from xlron.environments.env_funcs import (
     undo_action_rsa_gn_model,
     undo_action_rwalr,
     update_graph_tuple,
+    get_link_relevance_array,
+    get_paths,
+    get_paths_se,
 )
 from xlron.environments.wrappers import *
 
