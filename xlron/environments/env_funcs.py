@@ -555,7 +555,7 @@ def get_obs_transformer(
     nodes_sd, requested_datarate = read_rsa_request(state.request_array)
     paths_se = get_paths_se(params, nodes_sd)
     paths = get_paths(params, nodes_sd)
-    link_relevance_features = get_link_relevance_array(paths, paths_se, requested_datarate,  params.k_paths).reshape((-1, 1))
+    link_relevance_features = get_link_relevance_array(paths, paths_se, requested_datarate,  params).reshape((-1, 1))
 
     # Concatenate WiRE features with edge features
     # wire_features: (num_links, num_wire_features)
