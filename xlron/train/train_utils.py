@@ -236,7 +236,7 @@ def unreplicate_batch_dim(x: chex.ArrayTree) -> chex.ArrayTree:
 
 
 def moving_average(x, w):
-    return np.convolve(x, np.ones(w), "valid") / w
+    return jnp.convolve(x, jnp.ones(w), "valid") / w
 
 
 def save_model(train_state: TrainState, run_name, config: Union[box.Box, absl.flags.FlagValues]):
@@ -874,11 +874,11 @@ def get_mean_std_iqr(x, y):
     _std = x[y].std(axis=0).reshape(-1)
     _iqr_upper = jnp.percentile(x[y], 75, axis=0).reshape(-1)
     _iqr_lower = jnp.percentile(x[y], 25, axis=0).reshape(-1)
-    return np.array(_mean), np.array(_std), np.array(_iqr_upper), np.array(_iqr_lower)
+    return jnp.array(_mean), jnp.array(_std), jnp.array(_iqr_upper), jnp.array(_iqr_lower)
 
 
 def get_episode_end_mean_std_iqr(
-    data: Array, episode_ends: Array | np.ndarray, num_envs: int
+    data: Array, episode_ends: Array, num_envs: int
 ) -> Tuple[Array, Array, Array, Array]:
     # Reshape to combine rollout and step dimensions
     data = data.reshape(num_envs, -1)
@@ -953,7 +953,7 @@ def process_metrics(config, out, total_time, merge_func):
     for metric in metrics:
         if metric == "throughput":
             # Shift values down one index position
-            ends = np.concatenate([[False], episode_ends.flatten()[:-1]]).reshape(
+            ends = jnp.concatenate([jnp.array([False]), episode_ends.flatten()[:-1]]).reshape(
                 episode_ends.shape
             )
         else:
@@ -1097,8 +1097,8 @@ def log_actions(merged_out, processed_data, config):
     if config.log_path_lengths:
         path_lengths_mean = path_lengths.mean()
         path_lengths_std = path_lengths.std()
-        path_lengths_iqr_upper = np.percentile(path_lengths, 75)
-        path_lengths_iqr_lower = np.percentile(path_lengths, 25)
+        path_lengths_iqr_upper = jnp.percentile(path_lengths, 75)
+        path_lengths_iqr_lower = jnp.percentile(path_lengths, 25)
         num_hops_mean = num_hops.mean()
         num_hops_std = num_hops.std()
         print(f"Average path length mean: {path_lengths_mean:.0f}")
@@ -1107,8 +1107,8 @@ def log_actions(merged_out, processed_data, config):
         print(f"Average path length IQR lower: {path_lengths_iqr_lower:.0f}")
         print(f"Average number of hops mean: {num_hops_mean:.2f}")
         print(f"Average number of hops std: {num_hops_std:.2f}")
-        print(f"Average number of hops IQR upper: {np.percentile(num_hops, 75):.2f}")
-        print(f"Average number of hops IQR lower: {np.percentile(num_hops, 25):.2f}")
+        print(f"Average number of hops IQR upper: {jnp.percentile(num_hops, 75):.2f}")
+        print(f"Average number of hops IQR lower: {jnp.percentile(num_hops, 25):.2f}")
         # Get path lengths where returns are positive, 0 otherwise
         utilised_path_lengths = jnp.where(returns > 0, jnp.take(path_lengths, path_indices), 0)
         utilised_path_hops = jnp.where(returns > 0, jnp.take(num_hops, path_indices), 0)
@@ -1117,20 +1117,20 @@ def log_actions(merged_out, processed_data, config):
         )
         print(f"Average path length for successful actions std: {utilised_path_lengths.std():.0f}")
         print(
-            f"Average path length for successful actions IQR upper: {np.percentile(utilised_path_lengths, 75):.0f}"
+            f"Average path length for successful actions IQR upper: {jnp.percentile(utilised_path_lengths, 75):.0f}"
         )
         print(
-            f"Average path length for successful actions IQR lower: {np.percentile(utilised_path_lengths, 25):.0f}"
+            f"Average path length for successful actions IQR lower: {jnp.percentile(utilised_path_lengths, 25):.0f}"
         )
         print(
             f"Average number of hops for successful actions mean: {utilised_path_hops.mean():.2f}"
         )
         print(f"Average number of hops for successful actions std: {utilised_path_hops.std():.2f}")
         print(
-            f"Average number of hops for successful actions IQR upper: {np.percentile(utilised_path_hops, 75):.2f}"
+            f"Average number of hops for successful actions IQR upper: {jnp.percentile(utilised_path_hops, 75):.2f}"
         )
         print(
-            f"Average number of hops for successful actions IQR lower: {np.percentile(utilised_path_hops, 25):.2f}"
+            f"Average number of hops for successful actions IQR lower: {jnp.percentile(utilised_path_hops, 25):.2f}"
         )
 
         request_source = jnp.squeeze(merged_out["source"])
@@ -1169,10 +1169,10 @@ def log_actions(merged_out, processed_data, config):
             (unique_paths_used_count / positive_return_count).reshape(-1).mean()
         )
         unique_paths_used_std = (unique_paths_used_count / positive_return_count).reshape(-1).std()
-        unique_paths_used_iqr_upper = np.percentile(
+        unique_paths_used_iqr_upper = jnp.percentile(
             unique_paths_used_count / positive_return_count, 75
         )
-        unique_paths_used_iqr_lower = np.percentile(
+        unique_paths_used_iqr_lower = jnp.percentile(
             unique_paths_used_count / positive_return_count, 25
         )
         print(
@@ -1237,6 +1237,13 @@ def log_metrics(
         )
 
     all_metrics = list(processed_data.keys())
+    if not config.LOG_ALL_INFO:
+        all_metrics = [
+            "service_blocking_probability",
+            "bitrate_blocking_probability",
+            "accepted_services",
+            "accepted_bitrate",
+        ]
 
     with TimeIt("Logging metrics"):
         if config.DATA_OUTPUT_FILE:
@@ -1269,7 +1276,7 @@ def log_metrics(
             if not config.continuous_operation:
                 # Log episode end metrics
                 print(f"Logging episode end metrics for {np.sum(episode_ends)} episodes")
-                for i in range(len(processed_data["returns"]["episode_end_mean"])):
+                for i in range(len(processed_data[all_metrics[0]]["episode_end_mean"])):
                     log_dict = {
                         f"{metric}_{stat}": processed_data[metric][stat][i]
                         for metric in all_metrics
@@ -1281,24 +1288,19 @@ def log_metrics(
                         ]
                     }
                     log_dict["episode_count"] = i + episode_count
-                    commit = (
-                        False
-                        if i != len(processed_data["returns"]["episode_end_mean"]) - 1
-                        else True
-                    )
-                    wandb.log(log_dict, commit=commit)
+                    wandb.log(log_dict)
 
             else:
                 # Log metrics from every step
                 # Define the downsample factor to speed up upload to wandb
                 # Then reshape the array and compute the mean
                 training_time = (
-                    jnp.arange(len(processed_data["returns"]["mean"]))
-                    / len(processed_data["returns"]["mean"])
+                    jnp.arange(len(processed_data[all_metrics[0]]["mean"]))
+                    / len(processed_data[all_metrics[0]]["mean"])
                     * total_time
                 )
 
-                chop = len(processed_data["returns"]["mean"]) % config.DOWNSAMPLE_FACTOR
+                chop = len(processed_data[all_metrics[0]]["mean"]) % config.DOWNSAMPLE_FACTOR
 
                 def downsample_mean(x: Array) -> Array:
                     x = jnp.asarray(x)
@@ -1317,7 +1319,7 @@ def log_metrics(
 
                 # Log per step metrics
                 print("Logging per step metrics")
-                for i in range(len(processed_data["returns"]["mean"])):
+                for i in range(len(processed_data[all_metrics[0]]["mean"])):
                     log_dict = {
                         f"{metric}_{agg}": processed_data[metric][agg][i]
                         for metric in all_metrics
@@ -1325,15 +1327,13 @@ def log_metrics(
                     }
                     log_dict["training_time"] = training_time[i]
                     log_dict["env_step"] = i + step_count
-                    commit = False if i != len(processed_data["returns"]["mean"]) - 1 else True
-                    wandb.log(log_dict, commit=commit)
+                    wandb.log(log_dict)
 
             if config.LOG_LOSS_INFO and merged_out_loss is not None:
                 print("Logging loss info")
                 for i in range(len(merged_out_loss["loss/total_loss"])):
                     log_dict = {f"{metric}": merged_out_loss[metric][i] for metric in loss_metrics}
                     log_dict["update_epoch"] = i + update_count
-                    commit = False if i != len(merged_out_loss["loss/total_loss"]) - 1 else True
-                    wandb.log(log_dict, commit=commit)
+                    wandb.log(log_dict)
 
     return merged_out, processed_data

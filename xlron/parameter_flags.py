@@ -117,6 +117,7 @@ flags.DEFINE_boolean("log_actions", False, "Log actions taken and other details"
 flags.DEFINE_boolean("log_path_lengths", False, "Log path length statistics")
 flags.DEFINE_boolean("PROFILE", False, "Profile programme with perfetto")
 flags.DEFINE_boolean("LOG_LOSS_INFO", False, "Log loss metrics")
+flags.DEFINE_boolean("LOG_ALL_INFO", False, "Log every metric")
 flags.DEFINE_boolean("DEBUG_LOSS", False, "Debug loss calculation")
 flags.DEFINE_boolean("REWARD_CENTERING", False, "Use reward centering")
 flags.DEFINE_float(
@@ -319,15 +320,16 @@ flags.DEFINE_integer("attn_mlp_latent", 64, "Size of attention MLP latent dimens
 flags.DEFINE_boolean("normalize_by_link_length", False, "Normalize by link length")
 flags.DEFINE_boolean("gnn_layer_norm", True, "Use layer normalization in GNN")
 flags.DEFINE_boolean("mlp_layer_norm", False, "Use layer normalization in MLPs of GNN")
+
 # Transformer-specific parameters
 flags.DEFINE_boolean("USE_TRANSFORMER", False, "Use Transformer architecture")
-flags.DEFINE_integer("transformer_embedding_size", 64, "Size of transformer token embeddings")
+flags.DEFINE_integer("transformer_embedding_size", 128, "Size of transformer token embeddings")
 flags.DEFINE_integer(
     "transformer_intermediate_size",
     256,
     "Size of intermediate layer in transformer feed-forward blocks",
 )
-flags.DEFINE_integer("transformer_num_layers", 3, "Number of transformer encoder layers")
+flags.DEFINE_integer("transformer_num_layers", 1, "Number of transformer encoder layers")
 flags.DEFINE_integer("transformer_num_heads", 4, "Number of attention heads in transformer")
 flags.DEFINE_integer(
     "num_wire_features",
@@ -345,13 +347,14 @@ flags.DEFINE_boolean(
     True,
     "Share encoder layers between actor and critic in transformer",
 )
-flags.DEFINE_integer("transformer_actor_mlp_width", 64, "Width of actor MLP head in transformer")
-flags.DEFINE_integer("transformer_critic_mlp_width", 64, "Width of critic MLP head in transformer")
-flags.DEFINE_integer("transformer_actor_mlp_depth", 2, "Depth of actor MLP head in transformer")
+flags.DEFINE_integer("transformer_actor_mlp_width", 128, "Width of actor MLP head in transformer")
+flags.DEFINE_integer("transformer_critic_mlp_width", 128, "Width of critic MLP head in transformer")
+flags.DEFINE_integer("transformer_actor_mlp_depth", 1, "Depth of actor MLP head in transformer")
 flags.DEFINE_integer("transformer_critic_mlp_depth", 2, "Depth of critic MLP head in transformer")
 flags.DEFINE_boolean(
-    "transformer_enable_dropout", True, "Enable dropout during training in transformer"
+    "transformer_enable_dropout", False, "Enable dropout during training in transformer"
 )
+
 # Model evaluation parameters
 flags.DEFINE_boolean("EVAL_MODEL", False, "Load model for evaluation")
 flags.DEFINE_list("model", None, "Used to hold model parameters")
@@ -361,6 +364,7 @@ flags.DEFINE_string("step_traffic", "0.1", "Step size for traffic values between
 flags.DEFINE_boolean(
     "deterministic", False, "Deterministic evaluation (use mode of action distribution)"
 )
+
 # GN model parameters
 flags.DEFINE_float("ref_lambda", 1564e-9, "Reference wavelength [m]")
 flags.DEFINE_float("max_power_per_fibre", 21.0, "Max launch power per fibre [dBm]")
