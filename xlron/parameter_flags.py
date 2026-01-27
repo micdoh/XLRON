@@ -117,7 +117,7 @@ flags.DEFINE_boolean("log_actions", False, "Log actions taken and other details"
 flags.DEFINE_boolean("log_path_lengths", False, "Log path length statistics")
 flags.DEFINE_boolean("PROFILE", False, "Profile programme with perfetto")
 flags.DEFINE_boolean("LOG_LOSS_INFO", False, "Log loss metrics")
-flags.DEFINE_boolean("LOG_ALL_INFO", False, "Log every metric")
+flags.DEFINE_boolean("LOG_ALL_INFO", True, "Log every metric")
 flags.DEFINE_boolean("DEBUG_LOSS", False, "Debug loss calculation")
 flags.DEFINE_boolean("REWARD_CENTERING", False, "Use reward centering")
 flags.DEFINE_float(
