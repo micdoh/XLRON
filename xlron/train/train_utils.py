@@ -1003,10 +1003,12 @@ def plot_metrics(
         plot_metric_lower = processed_data["bitrate_blocking_probability"]["iqr_lower"]
         plot_metric_name = "Bitrate Blocking Probability"
 
-    plot_metric = moving_average(plot_metric, min(100, int(len(plot_metric) / 2)))
-    plot_metric_upper = moving_average(plot_metric_upper, min(100, int(len(plot_metric_upper) / 2)))
-    plot_metric_lower = moving_average(plot_metric_lower, min(100, int(len(plot_metric_lower) / 2)))
-    plt.plot(plot_metric, processed_data["env_step"])
+    smoothing_factor =  min(100, int(len(plot_metric) / 2))
+    step_factor = int(len(plot_metric)) / smoothing_factor
+    plot_metric = moving_average(plot_metric, smoothing_factor)
+    plot_metric_upper = moving_average(plot_metric_upper, smoothing_factor)
+    plot_metric_lower = moving_average(plot_metric_lower, smoothing_factor)
+    plt.plot(jnp.arange(len(plot_metric))*config.DOWNSAMPLE_FACTOR*step_factor, plot_metric)
     plt.fill_between(range(len(plot_metric)), plot_metric_lower, plot_metric_upper, alpha=0.2)
     plt.xlabel("Environment Step" if not config.incremental_loading else "Episode Count")
     plt.ylabel(plot_metric_name)
