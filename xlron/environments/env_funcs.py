@@ -504,13 +504,16 @@ def get_link_relevance_array(paths: Array, paths_se: Array, requested_datarate: 
     rank_weights = 1.0 / (ranks + 1.0)
 
     # Slot weights: higher weights for links on paths that require less slots
-    num_slots = jax.vmap(required_slots, in_axes=(None, 0, None, None, None))(
-        requested_datarate,
-        paths_se,
-        params.slot_size,
-        guardband=params.guardband,
-        temperature=params.temperature,
-    )
+    num_slots = jax.vmap(
+        lambda x: required_slots(
+            requested_datarate, 
+            x, 
+            paths_se, 
+            params.slot_size, 
+            guardband=params.guardband, 
+            temperature=params.temeprature
+        )
+    )(paths_se)
     slot_weights = 1.0 / num_slots
     weights = rank_weights * slot_weights
     weights = weights / (jnp.sum(weights) + 1e-8)
