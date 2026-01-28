@@ -495,6 +495,11 @@ def _loss_fn(
             jax.debug.print("power logits {}", power_dist._logits, ordered=config.ORDERED)
             jax.debug.print("log_prob {}", log_prob, ordered=config.ORDERED)
             jax.debug.print("entropy {}", entropy, ordered=config.ORDERED)
+            
+    elif config.OFF_POLICY_IAM:
+        # Ratio will be policy/masked_policy - also known as off-policy invalid action masking
+        log_prob = pi.log_prob(traj_batch.action)
+        entropy = pi.entropy().mean()
 
     else:
         # Standard action masking

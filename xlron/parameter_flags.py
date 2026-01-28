@@ -179,6 +179,8 @@ flags.DEFINE_float(
 flags.DEFINE_boolean(
     "include_no_op", False, "Whether to include a NO OP action."
 )
+flags.DEFINE_boolean("OFF_POLICY_IAM", False, "Use off-policy invalid action masking i.e. log prob ratio is unmasked policy / masked")
+
 # Flags for mixed precision
 flags.DEFINE_string("COMPUTE_DTYPE", None, "Compute precision dtype (float32, bfloat16)")
 flags.DEFINE_string("PARAMS_DTYPE", None, "Parameter storage dtype (float32, bfloat16)")
@@ -187,6 +189,7 @@ flags.DEFINE_string("SMALL_FLOAT_DTYPE", None, "Small float dtype (float32, floa
 flags.DEFINE_string("LARGE_INT_DTYPE", None, "Large integer dtype (int32)")
 flags.DEFINE_string("MED_INT_DTYPE", None, "Medium integer dtype (int32, int16)")
 flags.DEFINE_string("SMALL_INT_DTYPE", None, "Small integer dtype (int32, int8)")
+
 # Environment parameters
 flags.DEFINE_string("env_type", "rmsa", "Environment type")
 flags.DEFINE_float("load", 250, "Load")

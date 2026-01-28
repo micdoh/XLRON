@@ -981,7 +981,7 @@ class ActorGNN(eqx.Module):
             0, params.k_paths, get_path_action_dist, init_action_array
         )
         if params.include_no_op:
-            path_action_logits = jnp.hstack([path_action_logits, jnp.array([-1e3])])
+            path_action_logits = jnp.hstack([path_action_logits, jnp.array([-1e4])])
         path_action_logits = jnp.reshape(path_action_logits, (-1,)) / self.temperature
         path_action_dist = distrax.Categorical(logits=path_action_logits)
 
