@@ -272,7 +272,7 @@ def save_model(train_state: TrainState, run_name, config: Union[box.Box, absl.fl
 def init_network(config: Box, key: chex.PRNGKey) -> eqx.Module:
     if config.env_type.lower() == "vone":
         network = ActorCriticMLP(
-            config.ACTION_DIM+1, # +1 for "no op"
+            config.ACTION_DIM + (1*config.include_no_op), # +1 for "no op"
             config.INPUT_DIM,
             activation=config.ACTIVATION,
             num_layers=config.NUM_LAYERS,
@@ -373,7 +373,7 @@ def init_network(config: Box, key: chex.PRNGKey) -> eqx.Module:
         elif "gn_model" in config.env_type.lower() and config.launch_power_type == 3:
             network = LaunchPowerActorCriticMLP(
                 config.INPUT_DIM,
-                config.ACTION_DIM+1, # +1 for "no op"
+                config.ACTION_DIM + (1*config.include_no_op), # +1 for "no op"
                 activation=config.ACTIVATION,
                 num_layers=config.NUM_LAYERS,
                 num_units=config.NUM_UNITS,
@@ -388,7 +388,7 @@ def init_network(config: Box, key: chex.PRNGKey) -> eqx.Module:
         else:
             network = ActorCriticMLP(
                 config.ACTION_DIM,
-                config.INPUT_DIM+1, # +1 for "no op"
+                config.INPUT_DIM + (1*config.include_no_op),# +1 for "no op"
                 activation=config.ACTIVATION,
                 num_layers=config.NUM_LAYERS,
                 num_units=config.NUM_UNITS,
