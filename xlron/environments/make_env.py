@@ -432,6 +432,12 @@ def make(
         )
     else:
         line_graph_spectral_features = None
+        
+    transformer_obs_type = config.get("transformer_obs_type", "")
+    if transformer_obs_type:
+        assert transformer_obs_type in ["departure", "occupancy", "capacity"], f"transformer_obs_type must be one of 'departure', 'occupancy', or 'capacity', got {transformer_obs_type}"
+        if transformer_obs_type == "capacity":
+            assert env_type == "rwa_lightpath_reuse", f"transformer_obs_type 'capacity' is only supported for env_type 'rwa_lightpath_reuse', got {env_type}"
 
     params_dict = dict(
         max_requests=max_requests,
@@ -479,6 +485,7 @@ def make(
         num_spectral_features=config.get("num_spectral_features", 3),
         line_graph_spectral_features=line_graph_spectral_features,
         include_no_op=config.get("include_no_op", True),
+        transformer_obs_type=transformer_obs_type,
     )
 
     gap_starts = (

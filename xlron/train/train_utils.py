@@ -294,7 +294,8 @@ def init_network(config: Box, key: chex.PRNGKey) -> eqx.Module:
             # For transformer: input_size is the per-token feature dimension
             # This includes: wire_features + edge_features (link_slot_array or departure times)
             # The link_slot_array has shape (num_links, link_resources) so per-link features
-            input_size = config.num_wire_features + config.link_resources + 1 # 1 for link relevance
+            input_size = config.num_wire_features + config.link_resources + 1 # +1 for link relevance
+            input_size += int(config.transformer_obs_type == "departure") # +1 for holding time of current request
             network = ActorCriticTransformer(
                 input_size=input_size,
                 embedding_size=config.transformer_embedding_size,

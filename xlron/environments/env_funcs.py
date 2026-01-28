@@ -546,12 +546,17 @@ def get_obs_transformer(state: RSAEnvState, params: RSAEnvParams) -> chex.Array:
     wire_features = params.line_graph_spectral_features.val
 
     # Get edge features based on traffic type
-    if params.mean_service_holding_time > 1e5:
+    if params.transformer_obs_type == "occupancy":
         # Static traffic: use raw link_slot_array
         edge_features = state.link_slot_array
+    elif params.transformer_obs_type == "capacity":
+        # Use the normalized capacity array
+        edge_features = state.link_capacity_array / 1e6
     else:
         # Dynamic traffic: use normalized holding time
         edge_features = state.link_slot_departure_array / params.mean_service_holding_time
+        # Append current normalized holding time
+        edge_features = jnp.hstack([edge_features, jnp.full((edge_features.shape[0], 1), state.holding_time / params.mean_service_holding_time)])
 
     # Get the relevance of link to current request
     nodes_sd, requested_datarate = read_rsa_request(state.request_array)

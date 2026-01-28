@@ -268,7 +268,7 @@ flags.DEFINE_boolean(
 )
 flags.DEFINE_boolean(
     "relative_arrival_times",
-    False,
+    True,
     "Don't track the absolute current time, just the relative time since the last request",
 )
 # RSA-specific environment parameters
@@ -330,6 +330,10 @@ flags.DEFINE_boolean("mlp_layer_norm", False, "Use layer normalization in MLPs o
 
 # Transformer-specific parameters
 flags.DEFINE_boolean("USE_TRANSFORMER", False, "Use Transformer architecture")
+flags.DEFINE_string("transformer_obs_type", "departure", "Type of observation to feed to transformer. \
+    1. 'departure': use departure times. \
+    2. 'occupancy': use link occupancy (binary). \
+    3. 'capacity': use remaining capacity array (for use with RWA-LR environment).")
 flags.DEFINE_integer("transformer_embedding_size", 128, "Size of transformer token embeddings")
 flags.DEFINE_integer(
     "transformer_intermediate_size",
