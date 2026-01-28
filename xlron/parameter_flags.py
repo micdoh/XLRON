@@ -177,7 +177,7 @@ flags.DEFINE_float(
 )
 # Include "no op"
 flags.DEFINE_boolean(
-    "include_no_op", True, "Whether to include a NO OP action."
+    "include_no_op", False, "Whether to include a NO OP action."
 )
 # Flags for mixed precision
 flags.DEFINE_string("COMPUTE_DTYPE", None, "Compute precision dtype (float32, bfloat16)")
