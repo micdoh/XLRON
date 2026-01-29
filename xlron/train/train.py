@@ -220,10 +220,10 @@ def train(argv: list[str], config: Dict[str, Any] = {}) -> None:
         for name in config:
             print(name, config[name])
 
-    if (config.RETRAIN_MODEL or config.EVAL_MODEL) and not config.model:
-        orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
-        model = orbax_checkpointer.restore(pathlib.Path(config.MODEL_PATH))
-        config.model = model
+    if (config.RETRAIN_MODEL or config.EVAL_MODEL):
+        model = load_model(config, jax.random.PRNGKey(config.SEED))
+    else:
+        model = None
 
     print(
         f"Independent learners: {config.NUM_LEARNERS}\n"
@@ -272,6 +272,9 @@ def train(argv: list[str], config: Dict[str, Any] = {}) -> None:
             experiment_input, env, env_params = experiment_data_setup(config, rng)
             experiment_fn = experiment_fn(env, env_params, experiment_input, config)
             run_experiment = jax.jit(experiment_fn).lower(experiment_input).compile()
+            
+    if config.PROFILE:
+        jax.profiler.start_trace("train.prof")
 
     # START TRAINING
     start_time = time.time()
@@ -337,6 +340,8 @@ def train(argv: list[str], config: Dict[str, Any] = {}) -> None:
                     print(f"Episode end {metric}: {float(processed_data[metric]["episode_end_mean"][-1])} ± {float(processed_data[metric]["episode_end_std"][-1]):.3f}")
 
     # END OF TRAINING
+    if config.PROFILE:
+        jax.profiler.stop_trace()
 
     print_metrics(processed_data_all, config)
     if config.PLOTTING:

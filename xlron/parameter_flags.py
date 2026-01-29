@@ -369,7 +369,6 @@ flags.DEFINE_boolean(
 
 # Model evaluation parameters
 flags.DEFINE_boolean("EVAL_MODEL", False, "Load model for evaluation")
-flags.DEFINE_list("model", None, "Used to hold model parameters")
 flags.DEFINE_string("min_traffic", "0.0", "Minimum traffic")
 flags.DEFINE_string("max_traffic", "1.0", "Maximum traffic")
 flags.DEFINE_string("step_traffic", "0.1", "Step size for traffic values between min and max")
