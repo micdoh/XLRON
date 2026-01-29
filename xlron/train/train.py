@@ -28,6 +28,7 @@ from xlron.train.train_utils import (
     print_metrics,
     save_model,
     setup_wandb,
+    load_model,
 )
 
 FLAGS = flags.FLAGS
