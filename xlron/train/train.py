@@ -9,6 +9,7 @@ import jax
 import jax.numpy as jnp
 import orbax.checkpoint
 from absl import app, flags
+import equinox as eqx
 
 import wandb
 from xlron import dtype_config
@@ -298,8 +299,9 @@ def train(argv: list[str], config: Dict[str, Any] = {}) -> None:
         # Save model params
         if config.SAVE_MODEL:
             # Merge seed_device and seed dimensions
-            train_state = jax.tree.map(lambda x: x[0], out["runner_state"][0])
-            save_model(train_state, run_name, config)  # TODO - make flags compatible
+            train_state = out["runner_state"][0]
+            model = eqx.combine(train_state.model_params, train_state.model_static)
+            save_model(model, config)
 
         merged_out, processed_data = log_metrics(
             config,

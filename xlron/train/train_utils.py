@@ -239,34 +239,33 @@ def moving_average(x, w):
     return jnp.convolve(x, jnp.ones(w), "valid") / w
 
 
-def save_model(train_state: TrainState, run_name, config: Union[box.Box, absl.flags.FlagValues]):
-    config_dict = config.to_dict() if isinstance(config, box.Box) else config
-    save_data = {"model": train_state, "config": config_dict}
-    orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
-    save_args = orbax_utils.save_args_from_target(save_data)
+def save_model(model: eqx.Module, config: Box) -> None:
     # Get path to current file
     model_path = (
         pathlib.Path(config.MODEL_PATH)
         if config.MODEL_PATH is not None
-        else (pathlib.Path(__file__).resolve().parents[2] / "models" / run_name)
+        else (pathlib.Path(__file__).resolve().parents[2] / "models" / f"{config.EXPERIMENT_NAME}.eqx")
     )
     # If model_path dir already exists, append a number to the end
-    i = 1
-    model_path_og = model_path
-    while model_path.exists():
-        # Add index to end of model_path
-        model_path = (
-            pathlib.Path(str(model_path_og) + f"_{i}")
-            if config.MODEL_PATH
-            else model_path_og.parent / (model_path_og.name + f"_{i}")
-        )
-        i += 1
+    if not config.OVERWRITE_MODEL:
+        i = 1
+        while model_path.exists():
+            # Add index to end of model_path
+            model_path = model_path.parent / f"{model_path.stem}_{i}.eqx"
+            i += 1
+    else:
+        # Delete file
+        model_path.unlink(missing_ok=True)
     print(f"Saving model to {model_path.absolute()}")
-    orbax_checkpointer.save(model_path.absolute(), save_data, save_args=save_args)
+    # Save leaves
+    with open(model_path, "wb") as f:
+        hyperparam_str = json.dumps(config.to_dict())
+        f.write((hyperparam_str + "\n").encode())
+        eqx.tree_serialise_leaves(f, model)
+
     # Upload model to wandb
     if config.WANDB:
-        print((model_path / "*").absolute())
-        wandb.save(str((model_path / "*").absolute()), base_path=str(model_path.parent))
+        wandb.save(model_path.absolute())
 
 
 def init_network(config: Box, key: chex.PRNGKey) -> eqx.Module:
