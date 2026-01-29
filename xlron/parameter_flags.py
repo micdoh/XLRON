@@ -85,6 +85,8 @@ flags.DEFINE_boolean(
     False,
     "Save model (will be saved to --MODEL_PATH locally and uploaded to wandb if --WANDB is True)",
 )
+flags.DEFINE_boolean("RETRAIN_MODEL", False, "Load model for retraining")
+flags.DEFINE_boolean("OVERWRITE_MODEL", True, "Overwrite model saved at MODEL_PATH")
 flags.DEFINE_boolean("DEBUG", False, "Debug mode")
 flags.DEFINE_boolean("DEBUG_NANS", False, "Debug NaNs")
 flags.DEFINE_boolean("NO_TRUNCATE", False, "Do not truncate printed arrays")
@@ -106,7 +108,6 @@ flags.DEFINE_integer("DOWNSAMPLE_FACTOR", 1, "Downsample factor to reduce data u
 flags.DEFINE_boolean("DISABLE_JIT", False, "Disable JIT compilation")
 flags.DEFINE_boolean("ENABLE_X64", False, "Enable x64 floating point precision")
 flags.DEFINE_boolean("ACTION_MASKING", True, "Use invalid action masking")
-flags.DEFINE_boolean("RETRAIN_MODEL", False, "Load model for retraining")
 flags.DEFINE_string("DATA_OUTPUT_FILE", None, "Path to save data output")
 flags.DEFINE_string(
     "TRAJ_DATA_OUTPUT_FILE", None, "Path to save trajectory (actions, etc.) data output"
