@@ -159,6 +159,7 @@ flags.DEFINE_boolean(
     False,
     "Use RNN-based policy (affects prioritization: trajectory-level vs sample-level)",
 )
+flags.DEFINE_boolean("KEEP_VF", "False", "Load the pre-trained value function")
 
 # Entropy scheduling flags
 flags.DEFINE_string("ENT_SCHEDULE", "constant", "Enable entropy coefficient scheduling")
