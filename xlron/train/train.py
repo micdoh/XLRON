@@ -275,6 +275,7 @@ def train(argv: list[str], config: Dict[str, Any] = {}) -> None:
     # START TRAINING
     start_time = time.time()
     log_time = 0.0
+    total_run_time = 0.0
     episode_count = update_count = step_count = 0
     merged_out: Dict[str, Dict[str, jax.Array]] = {}
     processed_data: Dict[str, Dict[str, jax.Array]] = {}
@@ -290,7 +291,10 @@ def train(argv: list[str], config: Dict[str, Any] = {}) -> None:
             out["metrics"][
                 "returns"
             ].block_until_ready()  # Wait for all devices to finish
-        run_time = time.time() - start_time - log_time
+        prev_total = total_run_time
+        total_run_time = time.time() - start_time - log_time  # Update total first
+        increment_run_time = total_run_time - prev_total       # Increment = difference
+        log_start_time = time.time()
         # Save model params
         if config.SAVE_MODEL:
             # Merge seed_device and seed dimensions
@@ -300,7 +304,8 @@ def train(argv: list[str], config: Dict[str, Any] = {}) -> None:
         merged_out, processed_data = log_metrics(
             config,
             out,
-            run_time,
+            total_run_time,
+            increment_run_time,
             merge_func,
             episode_count=episode_count,
             update_count=update_count,
@@ -319,7 +324,7 @@ def train(argv: list[str], config: Dict[str, Any] = {}) -> None:
             )
         )
         
-        log_time = log_time + time.time() - start_time - run_time
+        log_time += time.time() - log_start_time
         # Update the experiment input for the next increment
         experiment_input = out["runner_state"]  # TrainState, EnvState, Obs, key, key
         for metric in metrics:

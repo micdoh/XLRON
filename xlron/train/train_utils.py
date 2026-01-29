@@ -884,7 +884,7 @@ def get_episode_end_mean_std_iqr(
     return _end_mean, _end_std, _end_iqr_upper, _end_iqr_lower
 
 
-def process_metrics(config, out, total_time, merge_func):
+def process_metrics(config, out, merge_func):
     """Calculate statistics from training or evaluation run."""
     merged_out = {k: jax.tree.map(merge_func, v) for k, v in out["metrics"].items()}
     if config.EVAL_HEURISTIC or config.EVAL_MODEL:
@@ -1203,7 +1203,8 @@ def print_metrics(
 def log_metrics(
     config: Box,
     out: Dict[str, Dict[str, Array]],
-    total_time: float,
+    total_run_time: float,
+    increment_run_time: float,
     merge_func: Callable,
     episode_count: int = 0,
     update_count: int = 0,
@@ -1213,7 +1214,7 @@ def log_metrics(
 
     with TimeIt("Processing metrics"):
         merged_out, merged_out_loss, processed_data, episode_ends = process_metrics(
-            config, out, total_time, merge_func
+            config, out, merge_func
         )
 
     all_metrics = list(processed_data.keys())
@@ -1254,6 +1255,14 @@ def log_metrics(
             print("Logging metrics to wandb")
 
             if not config.continuous_operation:
+                # Log metrics from every step
+                # Define the downsample factor to speed up upload to wandb
+                # Then reshape the array and compute the mean
+                training_time = (
+                    jnp.arange(len(processed_data[all_metrics[0]]["episode_end_mean"]))
+                    / len(processed_data[all_metrics[0]]["episode_end_mean"])
+                    * increment_run_time
+                ) + total_run_time
                 # Log episode end metrics
                 print(f"Logging episode end metrics for {np.sum(episode_ends)} episodes")
                 for i in range(len(processed_data[all_metrics[0]]["episode_end_mean"])):
@@ -1267,6 +1276,7 @@ def log_metrics(
                             "episode_end_iqr_lower",
                         ]
                     }
+                    log_dict["training_time"] = training_time[i]
                     log_dict["episode_count"] = i + episode_count
                     wandb.log(log_dict)
 
@@ -1277,8 +1287,8 @@ def log_metrics(
                 training_time = (
                     jnp.arange(len(processed_data[all_metrics[0]]["mean"]))
                     / len(processed_data[all_metrics[0]]["mean"])
-                    * total_time
-                )
+                    * increment_run_time
+                ) + total_run_time
 
                 chop = len(processed_data[all_metrics[0]]["mean"]) % config.DOWNSAMPLE_FACTOR
 

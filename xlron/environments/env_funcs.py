@@ -73,7 +73,8 @@ def get_spectral_features(laplacian: Array, num_features: int) -> Array:
 
     Returns:
         Array of shape (n_nodes, num_features) containing eigenvectors corresponding
-        to the smallest non-zero eigenvalues of the graph Laplacian.
+        to the smallest non-zero eigenvalues of the graph Laplacian. If the graph has
+        fewer nodes than num_features, the result is zero-padded to have num_features columns.
 
     Notes:
         - Skips trivial eigenvectors (those with near-zero eigenvalues)
@@ -82,6 +83,13 @@ def get_spectral_features(laplacian: Array, num_features: int) -> Array:
         - Eigenvector signs are arbitrary (may vary between runs)
     """
     eigenvalues, eigenvectors = jnp.linalg.eigh(laplacian)
+    n_nodes = laplacian.shape[0]
+    # If graph has fewer nodes than requested features, pad with zeros
+    if n_nodes < num_features:
+        padding = jnp.zeros((n_nodes, num_features - n_nodes), dtype=dtype_config.LARGE_FLOAT_DTYPE)
+        return jnp.concatenate([eigenvectors, padding], axis=-1).astype(
+            dtype_config.LARGE_FLOAT_DTYPE
+        )
     return eigenvectors[:, :num_features].astype(dtype_config.LARGE_FLOAT_DTYPE)
 
 
@@ -556,7 +564,15 @@ def get_obs_transformer(state: RSAEnvState, params: RSAEnvParams) -> chex.Array:
         # Dynamic traffic: use normalized holding time
         edge_features = state.link_slot_departure_array / params.mean_service_holding_time
         # Append current normalized holding time
-        edge_features = jnp.hstack([edge_features, jnp.full((edge_features.shape[0], 1), state.holding_time / params.mean_service_holding_time)])
+        edge_features = jnp.hstack(
+            [
+                edge_features,
+                jnp.full(
+                    (edge_features.shape[0], 1),
+                    state.holding_time / params.mean_service_holding_time,
+                ),
+            ]
+        )
 
     # Get the relevance of link to current request
     nodes_sd, requested_datarate = read_rsa_request(state.request_array)
