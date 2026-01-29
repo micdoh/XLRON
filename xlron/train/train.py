@@ -1,5 +1,5 @@
 import os
-import pathlib
+
 import subprocess
 import sys
 import time
@@ -7,7 +7,6 @@ from typing import Any, Dict, List
 
 import jax
 import jax.numpy as jnp
-import orbax.checkpoint
 from absl import app, flags
 import equinox as eqx
 
