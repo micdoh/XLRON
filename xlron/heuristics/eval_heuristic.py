@@ -37,7 +37,7 @@ def get_eval_fn(
 
             obsv = (
                 (env_state.env_state, env_params)
-                if getattr(config, "USE_GNN", False)
+                if config.USE_GNN or config.USE_TRANSFORMER
                 else tuple([obsv])
             )
             transition = Transition(terminal, truncated, action, reward, last_obs, info)
