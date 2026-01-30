@@ -405,9 +405,6 @@ def init_path_link_array(
                 path_hash(p) # N.B. that code used for JOCN "Hype or Hope?" did not include this criterion.
             )
         )
-        print("")
-        for path in paths:
-            print(path)
         return paths
 
     def get_k_disjoint_shortest_paths(
