@@ -360,7 +360,7 @@ def make(
                 k,
                 disjoint=disjoint_paths,
                 directed=graph.is_directed(),
-                weight=weight,
+                path_sort_criteria=path_sort_criteria,
                 modulations_array=modulations_array,
                 path_snr=path_snr,
             )
