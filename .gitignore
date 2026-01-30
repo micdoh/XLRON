@@ -17,4 +17,4 @@ data_processing/misc
 experiment_data/
 .ipynb_checkpoints/
 ./models/
-./examples/vf_pretraining/models/
+./experimental/vf_pretraining/models/
