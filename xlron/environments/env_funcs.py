@@ -2,6 +2,7 @@ import itertools
 import json
 import math
 import pathlib
+import hashlib
 from collections import defaultdict
 from functools import partial
 from itertools import combinations, islice
@@ -346,7 +347,7 @@ def init_link_length_array(graph: nx.Graph) -> chex.Array:
     """
     link_lengths = []
     for edge in sorted(graph.edges):
-        link_lengths.append(graph.edges[edge]["weight"])
+        link_lengths.append(graph.edges[edge]["distance"])
     return jnp.array(link_lengths, dtype=dtype_config.MED_INT_DTYPE)
 
 
@@ -354,7 +355,7 @@ def init_path_link_array(
     graph: nx.Graph,
     k: int,
     disjoint: bool = False,
-    weight: str = "",
+    path_sort_criteria: str = "",
     directed: bool = False,
     modulations_array: None | chex.Array = None,
     rwa_lr: bool = False,
@@ -379,11 +380,35 @@ def init_path_link_array(
     Returns:
         chex.Array: Path-link array (N(N-1)*k x E) where N is number of nodes, E is number of edges, k is number of shortest paths
     """
+    # Assert that sort_criteria is one of the allowed values
+    assert path_sort_criteria in ["spectral_resources", "hops", "distance", "hops_distance", "capacity"], \
+        f"path_sort_criteria must be one of 'spectral_resources', 'hops', 'distance', 'hops_distance', or 'capacity' got '{path_sort_criteria}'"
+
+    # Set weight based on sort_criteria
+    weight = "" if path_sort_criteria in ["spectral_resources", "hops", "hops_distance", "capacity"] else "distance"
+    
+    def path_weight(g, path, weight):
+        return sum(g[u][v].get(weight, 1) for u, v in zip(path, path[1:]))
+        
+    def path_hash(p):
+        return int(hashlib.sha256(str(p).encode()).hexdigest(), 16)
 
     def get_k_shortest_paths(
         g: nx.Graph, source: int, target: int, k: int, weight: str | None
     ) -> List[List[Tuple[int, int]]]:
-        return list(islice(nx.shortest_simple_paths(g, source, target, weight=weight), k))
+        paths = list(islice(nx.shortest_simple_paths(g, source, target, weight=weight), k))
+        # Ensure deterministic sorting. Sort first by weight (if any), then hops, then hash of path (random)
+        paths.sort(
+            key=lambda p: (
+                path_weight(g, p, weight),
+                len(p),
+                path_hash(p) # N.B. that code used for JOCN "Hype or Hope?" did not include this criterion.
+            )
+        )
+        print("")
+        for path in paths:
+            print(path)
+        return paths
 
     def get_k_disjoint_shortest_paths(
         g: nx.Graph, source: int, target: int, k: int, weight: str | None
@@ -416,65 +441,77 @@ def init_path_link_array(
             k_path_collections.append(k_paths_rev)
 
     # Sort the paths for each node pair
-    max_missing_paths = 0
     for k_paths in k_path_collections:
         source, dest = k_paths[0][0], k_paths[0][-1]
 
-        # Sort the paths by # of hops then by length, or just length
-        path_lengths = [nx.path_weight(graph, path, weight="weight") for path in k_paths]
-        path_num_links = [len(path) - 1 for path in k_paths]
-
-        # Get maximum spectral efficiency for modulation format on path
-        if modulations_array is not None and not rwa_lr:
-            se_of_path = []
+        # Get path lengths
+        path_distance = [nx.path_weight(graph, path, weight="distance") for path in k_paths]
+        
+        # Get path num hops
+        path_hops = [len(path) - 1 for path in k_paths]
+        
+        # Get spectral efficiency of each path
+        if modulations_array is not None:
+            path_se = []
             modulations_array = modulations_array[::-1]
-            for length in path_lengths:
+            for length in path_distance:
                 for modulation in modulations_array:
                     if length <= modulation[0]:
-                        se_of_path.append(modulation[1])
+                        path_se.append(modulation[1])
                         break
-            # Sorting by the num_links/se instead of just path length is observed to improve performance
-            path_weighting = [num_links / se for se, num_links in zip(se_of_path, path_num_links)]
-        elif rwa_lr and weight == "capacity":
+        else:
+            path_se = [1] * len(path_distance)
+            
+        if rwa_lr:
             path_capacity = [
                 float(calculate_path_capacity(path_length, scale_factor=scale_factor)) + 1e-6
-                for path_length in path_lengths
+                for path_length in path_distance
             ]
-            path_weighting = [
-                num_links / path_capacity
-                for num_links, path_capacity in zip(path_num_links, path_capacity)
-            ]
-        elif weight == "":
-            path_weighting = path_num_links
         else:
-            path_weighting = path_lengths
+            path_capacity = [1] * len(path_distance)
 
-        # if less then k unique paths, add empty paths
-        empty_path = [0] * len(graph.edges)
+        # If less then k unique paths, add dummy paths (just so each node pair still has K rows in the array)
+        full_path = [1] * len(graph.edges)
         num_missing_paths = k - len(k_paths)
-        max_missing_paths = max(max_missing_paths, num_missing_paths)
-        k_paths = k_paths + [empty_path] * num_missing_paths
-        path_weighting = path_weighting + [1e6] * num_missing_paths
-        path_lengths = path_lengths + [1e6] * num_missing_paths
+        k_paths = k_paths + [full_path] * num_missing_paths
+        path_distance = path_distance + [1e6] * num_missing_paths
+        path_hops = path_hops + [1e6] * num_missing_paths
+        path_se = path_se + [0] * num_missing_paths
+        path_capacity = path_capacity + [0] * num_missing_paths
 
-        # Sort by number of links then by length (or just by length if weight is specified)
-        unsorted_paths = zip(k_paths, path_weighting, path_lengths)
+        # Zip the paths with potential sort criteria
+        unsorted_paths = zip(k_paths, path_distance, path_hops, path_se, path_capacity)
+        
+        def determine_sort_criteria(x, path_sort_criteria):
+            if path_sort_criteria == "spectral_resources":
+                # Sort by ration of hops/se or hops/capacity
+                return (x[2] / x[3]) if not rwa_lr else (x[2] / x[4])
+            elif path_sort_criteria == "distance":
+                return x[1]
+            elif path_sort_criteria == "hops":
+                return x[2]
+            elif path_sort_criteria == "hops_distance":
+                return (x[2], x[1])
+            elif path_sort_criteria == "capacity":
+                return x[4]
+            else:
+                raise ValueError(f"Path sort criteria: {path_sort_criteria}")
+        
         k_paths_sorted = [
-            (source, dest, weighting, path)
-            for path, weighting, _ in sorted(
-                unsorted_paths, key=lambda x: (x[1], 1 / x[2]) if weight == "" else x[2]
+            (source, dest, distance, hops, se, capacity, path)
+            for path, distance, hops, se, capacity in sorted(
+                unsorted_paths, key=lambda x: determine_sort_criteria(x, path_sort_criteria)
             )
         ]
 
         # Keep only first k paths
         k_paths_sorted = k_paths_sorted[:k]
 
-        prev_link_usage = empty_path
         for k_path in k_paths_sorted:
             k_path = k_path[-1]
             link_usage = [0] * len(graph.edges)  # Initialise empty path
-            if sum(k_path) == 0:
-                link_usage = prev_link_usage
+            if sum(k_path) == len(graph.edges):
+                link_usage = full_path
             else:
                 for i in range(len(k_path) - 1):
                     s, d = k_path[i], k_path[i + 1]
@@ -489,7 +526,6 @@ def init_path_link_array(
                         if condition:
                             link_usage[edge_index] = 1
             path = link_usage
-            prev_link_usage = link_usage
             paths.append(path)
 
     # If using GN model, add extra row of zeroes for empty paths for SNR calculation
@@ -2607,7 +2643,7 @@ def make_graph(topology_name: str = "conus", topology_directory: str | None = No
             np.array([[0, 1, 0, 1], [1, 0, 1, 0], [0, 1, 0, 1], [1, 0, 1, 0]])
         )
         # Add edge weights to graph
-        nx.set_edge_attributes(graph, {(0, 1): 4, (1, 2): 3, (2, 3): 2, (3, 0): 1}, "weight")
+        nx.set_edge_attributes(graph, {(0, 1): 4, (1, 2): 3, (2, 3): 2, (3, 0): 1}, "distance")
     elif topology_name == "7node":
         # 7 node ring
         graph = nx.from_numpy_array(
@@ -2635,7 +2671,7 @@ def make_graph(topology_name: str = "conus", topology_directory: str | None = No
                 (5, 6): 3,
                 (6, 0): 4,
             },
-            "weight",
+            "distance",
         )
     else:
         with open(topology_path / f"{topology_name}.json") as f:
@@ -3725,10 +3761,10 @@ def init_link_length_array_gn_model(
     graph = graph.to_undirected()
     edges = sorted(graph.edges)
     for edge in edges:
-        link_lengths.append(graph.edges[edge]["weight"])
+        link_lengths.append(graph.edges[edge]["distance"])
     if directed:
         for edge in edges:
-            link_lengths.append(graph.edges[edge]["weight"])
+            link_lengths.append(graph.edges[edge]["distance"])
     span_length_array = []
     for length in link_lengths:
         num_spans = math.ceil(length / max_span_length)

@@ -233,7 +233,7 @@ flags.DEFINE_float(
     1.0,
     "Scale factor for link capacity (only used in RWA with lightpath reuse)",
 )
-flags.DEFINE_string("weight", "", "Edge attribute name for ordering k-shortest paths")
+flags.DEFINE_string("path_sort_criteria", "spectral_resources", "How paths should be sorted. Must be one of 'spectral_resources' (default), 'hops', 'distance', 'hops_distance', 'capacity' (for RWA-LR only)")
 flags.DEFINE_string(
     "modulations_csv_filepath",
     "./xlron/data/modulations/modulations_deeprmsa.csv",

@@ -150,7 +150,7 @@ def make(
     disjoint_paths = config.get("disjoint_paths", False)
     log_actions = config.get("log_actions", False)
     guardband = config.get("guardband", 1)
-    weight = config.get("weight", None)
+    path_sort_criteria = config.get("path_sort_criteria", "hops")
     remove_array_wrappers = config.get("remove_array_wrappers", False)
     maximise_throughput = config.get("maximise_throughput", False)
     reward_type = config.get("reward_type", "service")
@@ -246,7 +246,7 @@ def make(
         graph,
         k,
         disjoint=disjoint_paths,
-        weight=weight,
+        path_sort_criteria=path_sort_criteria,
         directed=graph.is_directed(),
         rwa_lr=True if env_type == "rwa_lightpath_reuse" else False,
         scale_factor=scale_factor,
@@ -354,7 +354,7 @@ def make(
         modulations_array = init_modulations_array(
             config.get("modulations_csv_filepath", None)
         ).astype(dtype_config.LARGE_FLOAT_DTYPE)
-        if weight is None:  # If paths aren't to be sorted by length alone
+        if path_sort_criteria != "distance":  # If paths aren't to be sorted by distance alone
             path_link_array = init_path_link_array(
                 graph,
                 k,
