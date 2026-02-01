@@ -13,7 +13,7 @@ XLRON ("ex-el-er-on") is a JAX-based library for simulating optical network reso
 uv sync
 
 # Run training
-python -m xlron.train.train --env_type=rsa --topology_name=nsfnet_chen --link_resources=100
+python -m xlron.train.train --env_type=rsa --topology_name=nsfnet_deeprmsa_directed --link_resources=100 --link_resources=100 --continuous_operation --ENV_WARMUP_STEPS=3000 --truncate_holding_time --relative_arrival_times --k=50 --ROLLOUT_LENGTH=128 --TOTAL_TIMESTEPS=1280 --STEPS_PER_INCREMENT=128 --NUM_ENVS=1
 
 # Run with heuristic evaluation
 python -m xlron.train.train --env_type=rsa --topology_name=4node --EVAL_HEURISTIC --path_heuristic=ksp_ff
@@ -31,9 +31,9 @@ pytest tests/test_env_funcs.py -v
 
 ```
 xlron/
-├── environments/           # JAX-based optical network environments
+├── environments/          # JAX-based optical network environments
 │   ├── dataclasses.py     # Flax struct dataclasses for state/params
-│   ├── env_funcs.py       # Core environment functions (step, reset, etc.)
+│   ├── env_funcs.py       # Core environment functions used in step, reset, etc.
 │   ├── diff_utils.py      # Differentiable approximations for discrete ops
 │   ├── make_env.py        # Environment factory
 │   └── wrappers.py        # Gym-style wrappers
@@ -130,13 +130,13 @@ Functions available:
 
 ```bash
 # Run all tests
-pytest tests/ -v
+pytest . -v
 
 # Run specific test
-pytest tests/test_env_funcs.py::test_function_name -v
+pytest xlron/environments/env_funcs_test.py::test_function_name -v
 
 # Run with coverage
-pytest tests/ --cov=xlron
+pytest . --cov=xlron
 ```
 
 ## Dtype Configuration
@@ -144,5 +144,5 @@ pytest tests/ --cov=xlron
 `dtype_config.py` provides device-aware dtypes:
 - `COMPUTE_DTYPE`, `PARAMS_DTYPE` - For neural network computations
 - `LARGE_FLOAT_DTYPE`, `SMALL_FLOAT_DTYPE` - For environment state
-- `LARGE_INT_DTYPE`, `MED_INT_DTYPE`, `SMALL_INT_DTYPE` - For indices/counters
+- `LARGE_INT_DTYPE`, `SMALL_INT_DTYPE` - For indices/counters
 - `INDEX_DTYPE` - Always int32 for JAX array indexing
