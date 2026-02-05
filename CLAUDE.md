@@ -120,6 +120,17 @@ Functions available:
 3. Wire config to params in `make_env.py`
 4. Use `params.field_name` in environment functions
 
+### Adding New Loss/Diagnostic Metrics
+
+When adding new metrics to the PPO loss function (`ppo.py`):
+
+1. Add the metric to the return tuple in `_loss_fn`
+2. Add the metric key to `loss_info` dict in `_update_step`
+3. **Register the metric in wandb**: Add to `loss_metrics` or `diagnostics_metrics` list in `train_utils.py`
+4. If conditional (like `ENHANCED_LOGGING`), update `setup_wandb()` to register metrics when the flag is enabled
+
+Forgetting step 3 will cause metrics to not appear in wandb dashboards.
+
 ### Static vs Dynamic Arguments
 
 - Use `pytree_node=False` in dataclasses for values that don't change during training
