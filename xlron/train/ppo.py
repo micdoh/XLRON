@@ -553,9 +553,11 @@ def _loss_fn(
         )
 
     # --- Hard gate for "no valid actions" ---------------------------------------
-    # gate_empty[t]=1 if there exists at least two valid actions at s_t, else 0.
+    # gate[t]=1 if there exists at least one or two valid actions at s_t, else 0.
     # (Assumes traj_batch.action_mask is boolean or {0,1}.)
-    gate_mask = (jnp.sum(traj_batch.action_mask, axis=-1) > 1).astype(jnp.float32)
+    mask_sum = jnp.sum(traj_batch.action_mask, axis=-1)
+    gate_any = (mask_sum > 0).astype(jnp.float32)  # at least 1 valid action
+    gate_choice = (mask_sum > 1).astype(jnp.float32)  # at least 2 valid actions
 
     # --- Soft damping using valid-mass ------------------------------------------
     # valid_mass must be computed from the *unmasked* behavior policy at rollout time:
@@ -567,8 +569,8 @@ def _loss_fn(
     damp = jnp.clip(valid_mass / valid_mass0, 0.0, 1.0)
     # damp = jnp.sqrt(jnp.clip(I / I0, 0.0, 1.0))  # optional, gentler
 
-    # Combined per-step weight for actor + entropy
-    w = gate_mask * damp
+    # Combined per-step weight for actor + entropy (must have at least 2 valid actions)
+    w = gate_choice * damp
     w_sum = jnp.maximum(w.sum(), 1e-8) # just for numerical stability
 
     # --- Advantage normalization (weighted stats) --------------------------------
@@ -610,7 +612,8 @@ def _loss_fn(
         else:
             current_probs = jax.nn.softmax(pi[0]._logits, axis=-1)
             current_valid_mass = jnp.sum(current_probs * traj_batch.action_mask, axis=-1)
-        validmass_loss = (jnp.square(1.0 - current_valid_mass) * gate_mask).sum() / jnp.maximum(gate_mask.sum(), 1.0)
+        # Must have at least one valid action, else 0
+        validmass_loss = (jnp.square(1.0 - current_valid_mass) * gate_any).sum() / jnp.maximum(gate_any.sum(), 1.0)
     else:
         validmass_loss = jnp.array(0.0)
 
