@@ -122,6 +122,12 @@ flags.DEFINE_boolean("log_wrapper", True, "Wrap Env in LogEnvWrapper")
 flags.DEFINE_boolean("PROFILE", False, "Profile programme with perfetto")
 flags.DEFINE_boolean("LOG_LOSS_INFO", True, "Log loss metrics")
 flags.DEFINE_boolean("LOG_ALL_INFO", True, "Log every metric")
+flags.DEFINE_boolean(
+    "ENHANCED_LOGGING",
+    False,
+    "Enable enhanced diagnostic logging for PPO loss function "
+    "(valid_frac, clip_frac, ratio stats, valid_mass stats, n_valid stats, adv stats, gate_frac)",
+)
 flags.DEFINE_boolean("DEBUG_LOSS", False, "Debug loss calculation")
 flags.DEFINE_boolean("REWARD_CENTERING", False, "Use reward centering")
 flags.DEFINE_float(

@@ -78,4 +78,5 @@ __all__ = [
     "setup_wandb",
     "metrics",
     "loss_metrics",
+    "diagnostics_metrics",
 ]

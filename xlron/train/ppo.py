@@ -508,19 +508,14 @@ def _loss_fn(
             jax.debug.print("power logits {}", power_dist._logits, ordered=config.ORDERED)
             jax.debug.print("log_prob {}", log_prob, ordered=config.ORDERED)
             jax.debug.print("entropy {}", entropy, ordered=config.ORDERED)
-
-    elif config.OFF_POLICY_IAM:
-        # Ratio will be policy/masked_policy - also known as off-policy invalid action masking
-        log_prob = pi.log_prob(traj_batch.action)
-        entropy = pi.entropy()
-
     else:
         # Standard action masking
         pi_masked = distrax.Categorical(
             logits=pi[0]._logits + (-1e8 * (1 - traj_batch.action_mask))
         )
-        log_prob = pi_masked.log_prob(traj_batch.action)
-        entropy = pi_masked.entropy()
+        # Ratio will be policy/masked_policy - also known as off-policy invalid action masking
+        log_prob = pi.log_prob(traj_batch.action) if config.OFF_POLICY_IAM else pi_masked.log_prob(traj_batch.action)
+        entropy = pi_masked.entropy()  # Always use the masked entropy, as we want to encourage exploration within the _valid_ action space
 
     log_ratio = log_prob - traj_batch.log_prob
     log_ratio = jnp.clip(log_ratio, -config.LOGR_CLIP, config.LOGR_CLIP)
@@ -571,7 +566,7 @@ def _loss_fn(
 
     # Combined per-step weight for actor + entropy (must have at least 2 valid actions)
     w = gate_choice * damp
-    w_sum = jnp.maximum(w.sum(), 1e-8) # just for numerical stability
+    w_sum = jnp.maximum(w.sum(), 1e-8)  # just for numerical stability
 
     # --- Advantage normalization (weighted stats) --------------------------------
     # Normalize using only weighted-valid steps so empty-mask / low-valid-mass steps don't skew mean/std.
@@ -613,7 +608,7 @@ def _loss_fn(
             current_probs = jax.nn.softmax(pi[0]._logits, axis=-1)
             current_valid_mass = jnp.sum(current_probs * traj_batch.action_mask, axis=-1)
         # Must have at least one valid action, else 0
-        validmass_loss = (jnp.square(1.0 - current_valid_mass) * gate_any).sum() / jnp.maximum(gate_any.sum(), 1.0)
+        validmass_loss = -jnp.log(current_valid_mass * gate_any + 1e-8).sum() / jnp.maximum(gate_any.sum(), 1.0)
     else:
         validmass_loss = jnp.array(0.0)
 
@@ -633,6 +628,70 @@ def _loss_fn(
         jax.debug.print("entropy {}", entropy, ordered=config.ORDERED)
         jax.debug.print("total_loss {}", total_loss, ordered=config.ORDERED)
 
+    # Compute enhanced diagnostics if enabled
+    if config.ENHANCED_LOGGING:
+        # valid_frac: fraction of transitions with meaningful policy gradient signal
+        valid_frac = w.sum() / w.shape[0]
+        # clip_frac: how often PPO clipping activates
+        clip_frac = (jnp.abs(ratio - 1.0) > config.CLIP_EPS).mean()
+        # ratio statistics
+        ratio_mean = ratio.mean()
+        ratio_std = ratio.std()
+        ratio_min = ratio.min()
+        ratio_max = ratio.max()
+        # valid_mass statistics
+        valid_mass_mean = valid_mass.mean()
+        valid_mass_std = valid_mass.std()
+        valid_mass_min = valid_mass.min()
+        valid_mass_max = valid_mass.max()
+        # n_valid: number of valid actions per step
+        n_valid = traj_batch.action_mask.sum(axis=-1)
+        n_valid_mean = n_valid.mean()
+        n_valid_min = n_valid.min()
+        n_valid_max = n_valid.max()
+        # adv_mean_raw, adv_std_raw: advantage statistics before normalization
+        adv_mean_raw = adv.mean()
+        adv_std_raw = adv.std()
+        # gate_frac: fraction of steps with >= 2 valid actions
+        gate_frac = gate_choice.mean()
+        # log_prob and entropy weighted by gate_choice (steps with >= 2 valid actions)
+        log_prob_choice = (log_prob * gate_choice).sum() / jnp.maximum(gate_choice.sum(), 1.0)
+        entropy_choice = (entropy * gate_choice).sum() / jnp.maximum(gate_choice.sum(), 1.0)
+        # log_prob minimum
+        log_prob_min = log_prob.min()
+        # invalid action taken fraction
+        N = traj_batch.action.shape[0]
+        taken_valid = traj_batch.action_mask[jnp.arange(N), traj_batch.action].astype(jnp.float32)
+        invalid_taken_frac = 1.0 - taken_valid.mean()
+        taken_valid_min = taken_valid.min()
+
+        diagnostics = (
+            valid_frac,
+            clip_frac,
+            ratio_mean,
+            ratio_std,
+            ratio_min,
+            ratio_max,
+            valid_mass_mean,
+            valid_mass_std,
+            valid_mass_min,
+            valid_mass_max,
+            n_valid_mean,
+            n_valid_min,
+            n_valid_max,
+            adv_mean_raw,
+            adv_std_raw,
+            gate_frac,
+            log_prob_choice,
+            entropy_choice,
+            log_prob_min,
+            invalid_taken_frac,
+            taken_valid_min,
+        )
+    else:
+        # Return placeholder zeros to maintain consistent output structure
+        diagnostics = tuple(jnp.array(0.0) for _ in range(21))
+
     return total_loss, (
         log_prob.mean(),
         ratio.mean(),
@@ -642,6 +701,7 @@ def _loss_fn(
         entropy,
         entropy * ent_coef,
         validmass_loss,
+        diagnostics,
     )
 
 
@@ -776,6 +836,35 @@ def _update_step(
         "prioritization/priority_mean": jnp.mean(priorities),
         "prioritization/priority_std": jnp.std(priorities),
     }
+
+    # Add enhanced diagnostics if enabled
+    if config.ENHANCED_LOGGING:
+        diagnostics = loss_info_arrays[1][8]
+        loss_info.update(
+            {
+                "diagnostics/valid_frac": diagnostics[0].reshape(-1),
+                "diagnostics/clip_frac": diagnostics[1].reshape(-1),
+                "diagnostics/ratio_mean": diagnostics[2].reshape(-1),
+                "diagnostics/ratio_std": diagnostics[3].reshape(-1),
+                "diagnostics/ratio_min": diagnostics[4].reshape(-1),
+                "diagnostics/ratio_max": diagnostics[5].reshape(-1),
+                "diagnostics/valid_mass_mean": diagnostics[6].reshape(-1),
+                "diagnostics/valid_mass_std": diagnostics[7].reshape(-1),
+                "diagnostics/valid_mass_min": diagnostics[8].reshape(-1),
+                "diagnostics/valid_mass_max": diagnostics[9].reshape(-1),
+                "diagnostics/n_valid_mean": diagnostics[10].reshape(-1),
+                "diagnostics/n_valid_min": diagnostics[11].reshape(-1),
+                "diagnostics/n_valid_max": diagnostics[12].reshape(-1),
+                "diagnostics/adv_mean_raw": diagnostics[13].reshape(-1),
+                "diagnostics/adv_std_raw": diagnostics[14].reshape(-1),
+                "diagnostics/gate_frac": diagnostics[15].reshape(-1),
+                "diagnostics/log_prob_choice": diagnostics[16].reshape(-1),
+                "diagnostics/entropy_choice": diagnostics[17].reshape(-1),
+                "diagnostics/log_prob_min": diagnostics[18].reshape(-1),
+                "diagnostics/invalid_taken_frac": diagnostics[19].reshape(-1),
+                "diagnostics/taken_valid_min": diagnostics[20].reshape(-1),
+            }
+        )
 
     return runner_state, (metric, loss_info)
 

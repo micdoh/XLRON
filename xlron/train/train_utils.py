@@ -89,6 +89,31 @@ loss_metrics = [
     "loss/validmass_loss_scaled",
 ]
 
+# Enhanced diagnostics metrics (only logged when ENHANCED_LOGGING=True)
+diagnostics_metrics = [
+    "diagnostics/valid_frac",
+    "diagnostics/clip_frac",
+    "diagnostics/ratio_mean",
+    "diagnostics/ratio_std",
+    "diagnostics/ratio_min",
+    "diagnostics/ratio_max",
+    "diagnostics/valid_mass_mean",
+    "diagnostics/valid_mass_std",
+    "diagnostics/valid_mass_min",
+    "diagnostics/valid_mass_max",
+    "diagnostics/n_valid_mean",
+    "diagnostics/n_valid_min",
+    "diagnostics/n_valid_max",
+    "diagnostics/adv_mean_raw",
+    "diagnostics/adv_std_raw",
+    "diagnostics/gate_frac",
+    "diagnostics/log_prob_choice",
+    "diagnostics/entropy_choice",
+    "diagnostics/log_prob_min",
+    "diagnostics/invalid_taken_frac",
+    "diagnostics/taken_valid_min",
+]
+
 
 class TrainState(eqx.Module):
     """Train state for Equinox models.
@@ -905,6 +930,10 @@ def setup_wandb(config, project_name, experiment_name):
             )
     for metric in loss_metrics:
         wandb.define_metric(f"{metric}", step_metric="update_epoch")
+    # Register enhanced diagnostics metrics if ENHANCED_LOGGING is enabled
+    if config.get("ENHANCED_LOGGING", False):
+        for metric in diagnostics_metrics:
+            wandb.define_metric(f"{metric}", step_metric="update_epoch")
     wandb.define_metric("training_time", step_metric="env_step")
     # Eval during training metrics
     for bp in ["service_blocking_probability", "bitrate_blocking_probability"]:
@@ -1503,6 +1532,12 @@ def log_metrics(
                 print("Logging loss info")
                 for i in range(len(merged_out_loss["loss/total_loss"])):
                     log_dict = {f"{metric}": merged_out_loss[metric][i] for metric in loss_metrics}
+                    if config.ENHANCED_LOGGING:
+                        log_dict_diag = {
+                            f"{metric}": merged_out_loss[metric][i]
+                            for metric in diagnostics_metrics
+                        }
+                        log_dict = {**log_dict, **log_dict_diag}
                     log_dict["update_epoch"] = i + update_count
                     wandb.log(log_dict)
 
