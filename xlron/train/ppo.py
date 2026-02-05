@@ -406,8 +406,6 @@ def _env_rollout_advantages(
         train_state = train_state.update_step_size()
         # Extract the one-step TD errors (deltas) from your GAE calculation
         updated_avg_reward = train_state.avg_reward + train_state.reward_stepsize * jnp.mean(deltas)
-        adjustment = train_state.avg_reward - updated_avg_reward
-        targets = targets + adjustment
         # Update avg_reward using eqx.tree_at
         train_state = eqx.tree_at(
             lambda state: state.avg_reward,
@@ -514,7 +512,11 @@ def _loss_fn(
             logits=pi[0]._logits + (-1e8 * (1 - traj_batch.action_mask))
         )
         # Ratio will be policy/masked_policy - also known as off-policy invalid action masking
-        log_prob = pi.log_prob(traj_batch.action) if config.OFF_POLICY_IAM else pi_masked.log_prob(traj_batch.action)
+        log_prob = (
+            pi.log_prob(traj_batch.action)
+            if config.OFF_POLICY_IAM
+            else pi_masked.log_prob(traj_batch.action)
+        )
         entropy = pi_masked.entropy()  # Always use the masked entropy, as we want to encourage exploration within the _valid_ action space
 
     log_ratio = log_prob - traj_batch.log_prob
@@ -608,7 +610,9 @@ def _loss_fn(
             current_probs = jax.nn.softmax(pi[0]._logits, axis=-1)
             current_valid_mass = jnp.sum(current_probs * traj_batch.action_mask, axis=-1)
         # Must have at least one valid action, else 0
-        validmass_loss = -jnp.log(current_valid_mass * gate_any + 1e-8).sum() / jnp.maximum(gate_any.sum(), 1.0)
+        validmass_loss = -jnp.log(current_valid_mass * gate_any + 1e-8).sum() / jnp.maximum(
+            gate_any.sum(), 1.0
+        )
     else:
         validmass_loss = jnp.array(0.0)
 
@@ -836,6 +840,15 @@ def _update_step(
         "prioritization/priority_mean": jnp.mean(priorities),
         "prioritization/priority_std": jnp.std(priorities),
     }
+
+    # Add reward centering diagnostics if enabled
+    if config.REWARD_CENTERING:
+        loss_info.update(
+            {
+                "reward_centering/avg_reward": train_state.avg_reward,
+                "reward_centering/value_mean": traj_batch.value.mean(),
+            }
+        )
 
     # Add enhanced diagnostics if enabled
     if config.ENHANCED_LOGGING:

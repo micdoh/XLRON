@@ -135,6 +135,11 @@ flags.DEFINE_float(
     0.0,
     "Initial average reward estimate for reward centering",
 )
+flags.DEFINE_float(
+    "REWARD_STEPSIZE",
+    0.001,
+    "Initial step size for reward centering average reward update",
+)
 
 # Prioritized Experience Replay flags
 flags.DEFINE_float(

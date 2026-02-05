@@ -89,6 +89,12 @@ loss_metrics = [
     "loss/validmass_loss_scaled",
 ]
 
+# Reward centering metrics (only logged when REWARD_CENTERING=True)
+reward_centering_metrics = [
+    "reward_centering/avg_reward",
+    "reward_centering/value_mean",
+]
+
 # Enhanced diagnostics metrics (only logged when ENHANCED_LOGGING=True)
 diagnostics_metrics = [
     "diagnostics/valid_frac",
@@ -184,7 +190,7 @@ class TrainState(eqx.Module):
         prio_alpha: float = 0.0,
         prio_beta0: float = 1.0,
         prio_beta: float = 1.0,
-        reward_stepsize_init: float = 0.01,
+        reward_stepsize_init: float = 0.0001,
     ) -> "TrainState":
         """Creates a new instance with step=0 and initialized opt_state."""
         opt_state = tx.init(eqx.filter(model, eqx.is_inexact_array))
@@ -515,6 +521,7 @@ def experiment_data_setup(config: Box, rng: chex.PRNGKey) -> Tuple:
         prio_alpha=config.PRIO_ALPHA,
         prio_beta0=config.PRIO_BETA0,
         prio_beta=config.PRIO_BETA0,
+        reward_stepsize_init=config.REWARD_STEPSIZE,
     )
 
     # Recreate DeepRMSA warmup period
@@ -930,6 +937,10 @@ def setup_wandb(config, project_name, experiment_name):
             )
     for metric in loss_metrics:
         wandb.define_metric(f"{metric}", step_metric="update_epoch")
+    # Register reward centering metrics if REWARD_CENTERING is enabled
+    if config.get("REWARD_CENTERING", False):
+        for metric in reward_centering_metrics:
+            wandb.define_metric(f"{metric}", step_metric="update_epoch")
     # Register enhanced diagnostics metrics if ENHANCED_LOGGING is enabled
     if config.get("ENHANCED_LOGGING", False):
         for metric in diagnostics_metrics:
@@ -1532,6 +1543,12 @@ def log_metrics(
                 print("Logging loss info")
                 for i in range(len(merged_out_loss["loss/total_loss"])):
                     log_dict = {f"{metric}": merged_out_loss[metric][i] for metric in loss_metrics}
+                    if config.REWARD_CENTERING:
+                        log_dict_rc = {
+                            f"{metric}": merged_out_loss[metric][i]
+                            for metric in reward_centering_metrics
+                        }
+                        log_dict = {**log_dict, **log_dict_rc}
                     if config.ENHANCED_LOGGING:
                         log_dict_diag = {
                             f"{metric}": merged_out_loss[metric][i]
