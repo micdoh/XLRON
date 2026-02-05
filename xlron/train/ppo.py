@@ -588,7 +588,7 @@ def _loss_fn(
     actor_loss = -(jnp.minimum(loss_actor1, loss_actor2) * w).sum() / w_sum
 
     # --- Value loss (ungated) ----------------------------------------------------
-    value_loss = 0.5 * jnp.maximum(value, targets).mean()
+    value_loss = 0.5 * jnp.square(value - targets).mean()
 
     # --- Entropy loss (PER-STEP, weighted) ---------------------------------------
     # entropy must have same leading shape as w (e.g., [minibatch] or [T*B]).
