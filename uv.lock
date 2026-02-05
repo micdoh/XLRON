@@ -3727,7 +3727,7 @@ requires-dist = [
     { name = "mkinit", specifier = ">=1.1.0" },
     { name = "ml-dtypes", specifier = ">=0.5.3" },
     { name = "networkx", specifier = ">=3.5" },
-    { name = "numpy", specifier = ">=2.3.4" },
+    { name = "numpy", specifier = ">=2.4.1" },
     { name = "orbax", specifier = ">=0.1.9" },
     { name = "penzai", specifier = ">=0.2.5" },
     { name = "pip", specifier = ">=25.2" },
