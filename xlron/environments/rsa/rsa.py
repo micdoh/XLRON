@@ -5,6 +5,7 @@ from gymnax.environments import environment, spaces
 
 from xlron import dtype_config
 from xlron.environments.dataclasses import (
+    ActionInfo,
     EnvParams,
     EnvState,
     RSAEnvParams,
@@ -17,12 +18,11 @@ from xlron.environments.env_funcs import (
     check_action_rmsa_gn_model,
     check_action_rsa,
     check_action_rwalr,
-    finalise_action_rmsa_gn_model,
-    finalise_action_rsa,
-    finalise_action_rsa_gn_model,
-    finalise_action_rwalr,
+    complete_step_rsa,
     generate_request_rsa,
     generate_request_rwalr,
+    get_affected_slots_mask,
+    get_path_and_se,
     get_path_slots,
     implement_action_rmsa_gn_model,
     implement_action_rsa,
@@ -35,9 +35,9 @@ from xlron.environments.env_funcs import (
     init_rsa_request_array,
     init_traffic_matrix,
     mask_slots,
+    required_slots,
     set_band_gaps,
     undo_action_rmsa_gn_model,
-    undo_action_rsa,
     undo_action_rsa_gn_model,
     undo_action_rwalr,
     update_graph_tuple,
@@ -82,7 +82,9 @@ class RSAEnv(environment.Environment):
             link_slot_array=init_link_slot_array(params),
             link_slot_departure_array=init_link_slot_departure_array(params),
             request_array=init_rsa_request_array(),
-            link_slot_mask=init_link_slot_mask(params, include_no_op=params.include_no_op, agg=params.aggregate_slots),
+            link_slot_mask=init_link_slot_mask(
+                params, include_no_op=params.include_no_op, agg=params.aggregate_slots
+            ),
             traffic_matrix=traffic_matrix
             if traffic_matrix is not None
             else init_traffic_matrix(key, params),
@@ -92,6 +94,7 @@ class RSAEnv(environment.Environment):
             accepted_services=jnp.array(0, dtype=dtype_config.LARGE_INT_DTYPE),
             accepted_bitrate=jnp.array(0, dtype=dtype_config.LARGE_FLOAT_DTYPE),
             total_bitrate=jnp.array(0, dtype=dtype_config.LARGE_FLOAT_DTYPE),
+            valid_mass=jnp.array(1.0, dtype=dtype_config.LARGE_FLOAT_DTYPE),
         )
         if params.__class__.__name__ not in ["RSAGNModelEnvParams", "RMSAGNModelEnvParams"]:
             self.initial_state = state.replace(
@@ -208,72 +211,72 @@ class RSAEnv(environment.Environment):
             truncated: True if max_requests reached
             info: Additional information
         """
-        # Do action
-        undo = undo_action_rsa
-        finalise = finalise_action_rsa
+        # Compute relevant info from action
+        action_info = jit_profiler.call(params.profile, self.process_action, state, action, params)
+
+        # Define env-type specific functions
+        implement_action = implement_action_rsa
+        check_action = check_action_rsa
+        complete_step = complete_step_rsa
         generate_request = generate_request_rsa
-        input_state = [state, action, params]
-        check_state = [state, action, params]
-        undo_finalise_state = [state, params, action]
+
         if params.__class__.__name__ == "RWALightpathReuseEnvParams":
             implement_action = implement_action_rwalr
             check_action = check_action_rwalr
-            input_state = check_state = [state, action, params]
+            # input_state = check_state = [state, action_info, params]
             if not params.incremental_loading:
                 # These are relevant to dynamic RWA-LR (upcoming)
-                undo = undo_action_rwalr
-                finalise = finalise_action_rwalr
+                complete_step = undo_action_rwalr
                 generate_request = generate_request_rwalr
         elif params.__class__.__name__ == "RSAGNModelEnvParams":
             implement_action = implement_action_rsa_gn_model
             check_action = check_action_rsa
-            undo = undo_action_rsa_gn_model
-            finalise = finalise_action_rsa_gn_model
-            check_state = [state]
-            input_state = [state, action, params]
+            complete_step = undo_action_rsa_gn_model
         elif params.__class__.__name__ == "RMSAGNModelEnvParams":
             implement_action = implement_action_rmsa_gn_model
             check_action = check_action_rmsa_gn_model
-            undo = undo_action_rmsa_gn_model
-            finalise = finalise_action_rmsa_gn_model
-            input_state = check_state = [state, action, params]
-        else:
-            implement_action = implement_action_rsa
-            check_action = check_action_rsa
+            complete_step = undo_action_rmsa_gn_model
 
-        # Check if action was valid, calculate reward
-        check_state[0] = undo_finalise_state[0] = state = implement_action(*input_state)
-        check = check_action(*check_state)
-        state, reward = differentiable_cond(
-            check,  # Fail if true
-            jax.tree_util.Partial(lambda x: (undo(*x[:2]), self.get_reward_failure(*x))),
-            jax.tree_util.Partial(
-                lambda x: (finalise(*x[:2]), self.get_reward_success(*x))
-            ),  # Finalise actions if complete
-            undo_finalise_state,
-            threshold=0.0,
-            temperature=params.temperature,
-            differentiable=params.differentiable,
+        # Implement action
+        state = jit_profiler.call(params.profile, implement_action, state, action_info, params)
+
+        # Check action
+        check = jit_profiler.call(params.profile, check_action, state, action_info, params)
+
+        # Calculate reward
+        jit_profiler.start(params.profile, "reward_logic")
+        reward = self.get_reward_failure(state, action_info, params) * check + (
+            (1 - check) * self.get_reward_success(state, action_info, params)
         )
+        jit_profiler.end(params.profile, "reward_logic")
+
+        # Complete step
+        state = jit_profiler.call(params.profile, complete_step, state, action_info, check, params)
+
         # TODO (DYNAMIC-RWALR) - calculate allocated bandwidth
         # TODO (DYNAMIC-RWALR) - generate new request if allocated DR equals requested DR, else update requested DR do not advance time do not replace source-dest
         # TODO (AFTERSTATE) - write separate functions for deterministic transition (above) and stochastic transition (below)
-        # Generate new request
-        state = generate_request(key, state, params)
-        state = state.replace(total_timesteps=state.total_timesteps + 1)
+        state = jit_profiler.call(params.profile, generate_request, key, state, params)
+
         # Terminate if max_requests exceeded or, if consecutive loading,
         # then terminate if reward is failure but not before min number of timesteps before update
         terminal = self.is_terminal(state, params, reward)
         truncated = self.is_truncated(state, params)
+
         info = {}
+
         # Calculate path stats if DeepRMSAEnv
         if params.__class__.__name__ == "DeepRMSAEnvParams":
             path_stats = calculate_path_stats(state, params, state.request_array)
             state = state.replace(path_stats=path_stats)
-        else:
-            # Update graph tuple
+        # Update graph tuple
+        elif params.use_gnn:
             state = update_graph_tuple(state, params)
-        return self.get_obs(state, params), state, reward, terminal, truncated, info
+
+        # Get observation
+        obs = jit_profiler.call(params.profile, self.get_obs, state, params)
+
+        return obs, state, reward, terminal, truncated, info
 
     @partial(jax.jit, static_argnums=(0, 2))
     def reset_env(
@@ -311,8 +314,56 @@ class RSAEnv(environment.Environment):
         state = generate_request_rsa(key, state, params)
         return self.get_obs(state, params), state
 
+    def process_action(
+        self,
+        state: EnvState,
+        action: Array,
+        params: EnvParams,
+    ) -> ActionInfo:
+        """Processes action into relevant information."""
+        nodes_sd, requested_datarate = jit_profiler.call(
+            params.profile, read_rsa_request, state.request_array
+        )
+        path_index, initial_slot_index = jit_profiler.call(
+            params.profile, process_path_action, state, params, action
+        )
+        path, path_se = jit_profiler.call(
+            params.profile, get_path_and_se, params, nodes_sd, path_index
+        )
+        path_se = path_se if params.consider_modulation_format else one
+        num_slots = jit_profiler.call(
+            params.profile,
+            required_slots,
+            requested_datarate,
+            path_se,
+            params.slot_size,
+            guardband=params.guardband,
+            temperature=params.temperature,
+        )
+        affected_slots_mask = jit_profiler.call(
+            params.profile,
+            get_affected_slots_mask,
+            state,
+            initial_slot_index,
+            num_slots,
+            path,
+            params,
+        )
+        action_info = ActionInfo(
+            action=action,
+            path_index=path_index,
+            initial_slot_index=initial_slot_index,
+            num_slots=num_slots,
+            path=path,
+            se=path_se,
+            requested_datarate=requested_datarate,
+            nodes_sd=nodes_sd,
+            affected_slots_mask=affected_slots_mask,
+        )
+        return action_info
+
     @partial(jax.jit, static_argnums=(0, 2))
-    def action_mask(self, state: RSAEnvState, params: RSAEnvParams) -> RSAEnvState:
+    def action_mask(self, state: RSAEnvState, params: RSAEnvParams) -> Array:
         """Returns mask of valid actions.
         1. Check request for source and destination nodes
         2. For each path, mask out (0) initial slots that are not valid
@@ -325,8 +376,8 @@ class RSAEnv(environment.Environment):
         Returns:
             state: Environment state with action mask
         """
-        state = mask_slots(state, params, state.request_array)
-        return state
+        action_mask = jit_profiler.call(params.profile, mask_slots, state, params)
+        return action_mask
 
     @partial(jax.jit, static_argnums=(0, 2))
     def get_obs_unflat(
@@ -435,8 +486,8 @@ class RSAEnv(environment.Environment):
     def get_reward_failure(
         self,
         state: Optional[EnvState] = None,
+        action_info: Optional[ActionInfo] = None,
         params: Optional[EnvParams] = None,
-        action: Optional[chex.Array] = None,
     ) -> chex.Array:
         """Return reward for current state.
 
@@ -478,8 +529,8 @@ class RSAEnv(environment.Environment):
     def get_reward_success(
         self,
         state: Optional[EnvState] = None,
+        action_info: Optional[ActionInfo] = None,
         params: Optional[EnvParams] = None,
-        action: Optional[chex.Array] = None,
     ) -> chex.Array:
         """Return reward for current state.
 
@@ -491,13 +542,9 @@ class RSAEnv(environment.Environment):
         """
         reward = zero
         if params.__class__.__name__ in ["RSAGNModelEnvParams", "RMSAGNModelEnvParams"]:
-            path_action, _ = action
-        else:
-            path_action = action
+            path_action, _ = action_info.action
 
         if params.reward_type != "service":
-            nodes_sd, requested_datarate = read_rsa_request(state.request_array)
-            k_index, slot_index = process_path_action(state, params, path_action)
             reward = state.request_array[1] * reward / jnp.max(params.values_bw.val)
             if params.reward_type == "bitrate":
                 pass  # No additional calculation needed
@@ -505,15 +552,15 @@ class RSAEnv(environment.Environment):
                 # SNR calculation...
                 assert params.__class__.__name__ == "RSAGNModelEnvParams"
                 path_start_index = get_path_indices(
-                    nodes_sd[0],
-                    nodes_sd[1],
+                    params,
+                    action_info.nodes_sd[0],
+                    action_info.nodes_sd[1],
                     params.k_paths,
                     params.num_nodes,
-                    directed=params.directed_graph,
                 ).astype(dtype_config.LARGE_INT_DTYPE)
-                path = params.path_link_array[path_start_index + k_index]
+                path = params.path_link_array[path_start_index + action_info.path_index]
                 path_snr = get_snr_for_path(path, state.link_snr_array, params)[
-                    slot_index.astype(dtype_config.MED_INT_DTYPE)
+                    action_info.initial_slot_index.astype(dtype_config.LAREG_INT_DTYPE)
                 ]
                 # set to 0 if negative and divide by large SNR (e.g. 50. dB) to scale below 1
                 # N.B. negative SNR in dB would be a fail anyway since min. required is 10dB
@@ -525,16 +572,16 @@ class RSAEnv(environment.Environment):
                 mod_format_index = get_path_slots(
                     state.modulation_format_index_array,
                     params,
-                    nodes_sd,
-                    k_index,
+                    action_info.nodes_sd,
+                    action_info.path_index,
                     agg_func="max",
-                )[slot_index.astype(dtype_config.MED_INT_DTYPE)]
+                )[action_info.initial_slot_index.astype(dtype_config.LARGE_INT_DTYPE)]
                 return reward + 0.05 * (one + mod_format_index)
             else:
                 return reward
         else:
             reward = reward + self.penalise_non_integer_action(
-                action, params
+                action_info.action, params
             )  # + self.add_integer_bonus(action)
 
         return reward
@@ -599,7 +646,9 @@ class RSAMultibandEnv(RSAEnv):
             link_slot_array=set_band_gaps(init_link_slot_array(params), params, -1.0),
             link_slot_departure_array=init_link_slot_departure_array(params),
             request_array=init_rsa_request_array(),
-            link_slot_mask=init_link_slot_mask(params, include_no_op=params.include_no_op, agg=params.aggregate_slots),
+            link_slot_mask=init_link_slot_mask(
+                params, include_no_op=params.include_no_op, agg=params.aggregate_slots
+            ),
             traffic_matrix=traffic_matrix
             if traffic_matrix is not None
             else init_traffic_matrix(key, params),
@@ -609,5 +658,6 @@ class RSAMultibandEnv(RSAEnv):
             accepted_bitrate=jnp.array(0, dtype=dtype_config.LARGE_FLOAT_DTYPE),
             total_bitrate=jnp.array(0, dtype=dtype_config.LARGE_FLOAT_DTYPE),
             list_of_requests=list_of_requests,
+            valid_mass=jnp.array(1.0, dtype=dtype_config.LARGE_FLOAT_DTYPE),
         )
         self.initial_state = state.replace(graph=init_graph_tuple(state, params, laplacian_matrix))

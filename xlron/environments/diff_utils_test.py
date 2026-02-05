@@ -84,7 +84,9 @@ class DifferentiableEqualsTest(parameterized.TestCase):
         ("case_scalar", jnp.array([1.0, 2.0, 3.0]), 2.0),
     )
     def test_differentiable_equals(self, x, y):
-        result = self.variant(differentiable_compare)(x, y, op_type="==", temperature=10.0)
+        result = self.variant(
+            lambda x, y: differentiable_compare(x, y, op_type="==", temperature=10.0)
+        )(x, y)
 
         # Compare with standard equality for forward pass
         expected = x == y
@@ -201,7 +203,9 @@ class DifferentiableRoundTest(parameterized.TestCase):
         ("case_decimal_2", jnp.array([1.234, 2.789]), 2),
     )
     def test_differentiable_round(self, x, decimals):
-        result = self.variant(differentiable_round)(x, decimals=decimals, temperature=5.0)
+        result = self.variant(
+            lambda x: differentiable_round(x, decimals=decimals, temperature=5.0)
+        )(x)
 
         # Compare with standard round for forward pass
         expected = jnp.round(x, decimals=decimals)
@@ -246,12 +250,12 @@ class DifferentiableCeilTest(parameterized.TestCase):
 class DifferentiableOneHotIndexUpdateTest(parameterized.TestCase):
     @chex.variants(with_device=True, with_jit=True)
     @parameterized.named_parameters(
-        ("case_scalar_index", jnp.array([1.0, 2.0, 3.0]), 1, 5.0),
+        ("case_scalar_index", jnp.array([1.0, 2.0, 3.0]), jnp.int32(1), 5.0),
         # Use just a single index for simplicity
-        ("case_single_index", jnp.array([1.0, 2.0, 3.0]), 0, 5.0),
+        ("case_single_index", jnp.array([1.0, 2.0, 3.0]), jnp.int32(0), 5.0),
     )
     def test_differentiable_one_hot_index_update_scalar(self, array, index, value):
-        result = self.variant(differentiable_one_hot_index_update)(array, index, value)
+        result = self.variant(differentiable_one_hot_index_update)(array, index, value, 1.0)
 
         # Compare with standard update for forward pass
         expected = array.at[index].set(value)
@@ -288,7 +292,7 @@ class DifferentiableOneHotIndexUpdateTest(parameterized.TestCase):
             i = jnp.array(i, dtype=jnp.int32)
             idx = jnp.array(idx, dtype=jnp.int32)
             result = jnp.asarray(result, dtype=jnp.float32)
-            result = self.variant(differentiable_one_hot_index_update)(result, idx, values[i])
+            result = self.variant(differentiable_one_hot_index_update)(result, idx, values[i], 1.0)
 
         chex.assert_trees_all_close(result, expected)
 

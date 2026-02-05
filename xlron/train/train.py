@@ -1,33 +1,33 @@
 import os
-
 import subprocess
 import sys
 import time
 from typing import Any, Dict, List
 
+import equinox as eqx
 import jax
 import jax.numpy as jnp
 from absl import app, flags
-import equinox as eqx
 
 import wandb
 from xlron import dtype_config
 from xlron.environments.env_funcs import create_run_name
 from xlron.environments.make_env import process_config
-from xlron.environments.wrappers import TimeIt
+from xlron.environments.wrappers import Profiler, jit_profiler
 from xlron.heuristics.eval_heuristic import get_eval_fn
 from xlron.parameter_flags import *  # noqa: F403,F401  # Ignore linter warnings for * import
 from xlron.train.ppo import get_learner_fn
 from xlron.train.train_utils import (
     experiment_data_setup,
+    load_model,
     log_actions,
     log_metrics,
     metrics,
     plot_metrics,
     print_metrics,
+    run_eval_during_training,
     save_model,
     setup_wandb,
-    load_model,
 )
 
 FLAGS = flags.FLAGS
@@ -128,16 +128,13 @@ def train(argv: list[str], config: Dict[str, Any] = {}) -> None:
     config.log_wrapper = True  # Always use log wrapper for training
     # Initialize dtypes based on flags
     dtype_config.initialize_dtypes(FLAGS)
-    
-    
+
     # Identify and set the default JAX device
     # If user specifies VISIBLE_DEVICES, use the first one; otherwise auto-select
     if config.VISIBLE_DEVICES:
         # Parse comma-separated GPU indices
         gpu_indices = [int(x) for x in config.VISIBLE_DEVICES.split(",")]
-        default_device = identify_default_device(
-            gpu_index=gpu_indices[0], auto_select=False
-        )
+        default_device = identify_default_device(gpu_index=gpu_indices[0], auto_select=False)
     else:
         # Auto-select GPU with most free memory
         default_device = identify_default_device(auto_select=True)
@@ -187,14 +184,10 @@ def train(argv: list[str], config: Dict[str, Any] = {}) -> None:
     if config.PREALLOCATE_MEM:
         os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "true"
         os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = config.PREALLOCATE_MEM_FRACTION
-        print(
-            f"XLA_PYTHON_CLIENT_MEM_FRACTION={os.environ['XLA_PYTHON_CLIENT_MEM_FRACTION']}"
-        )
+        print(f"XLA_PYTHON_CLIENT_MEM_FRACTION={os.environ['XLA_PYTHON_CLIENT_MEM_FRACTION']}")
     else:
         os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
-    print(
-        f"XLA_PYTHON_CLIENT_PREALLOCATE={os.environ['XLA_PYTHON_CLIENT_PREALLOCATE']}"
-    )
+    print(f"XLA_PYTHON_CLIENT_PREALLOCATE={os.environ['XLA_PYTHON_CLIENT_PREALLOCATE']}")
 
     # Setup the project name, experiment name for wandb and plots
     run_name = create_run_name(config)
@@ -210,9 +203,7 @@ def train(argv: list[str], config: Dict[str, Any] = {}) -> None:
         print("non-flag arguments:", argv)
         jax.config.update("jax_debug_nans", True)
     if config.NO_TRUNCATE:
-        jax.numpy.set_printoptions(
-            threshold=sys.maxsize
-        )  # Don't truncate printed arrays
+        jax.numpy.set_printoptions(threshold=sys.maxsize)  # Don't truncate printed arrays
         # increase line length for numpy print options
         jax.numpy.set_printoptions(linewidth=220)
 
@@ -220,7 +211,7 @@ def train(argv: list[str], config: Dict[str, Any] = {}) -> None:
         for name in config:
             print(name, config[name])
 
-    if (config.RETRAIN_MODEL or config.EVAL_MODEL):
+    if config.RETRAIN_MODEL or config.EVAL_MODEL:
         model = load_model(config, jax.random.PRNGKey(config.SEED))
     else:
         model = None
@@ -238,7 +229,9 @@ def train(argv: list[str], config: Dict[str, Any] = {}) -> None:
         f"Minibatch size: {config.MINIBATCH_SIZE}\n"
     )
 
-    with TimeIt(tag="COMPILATION"):
+    profiler = Profiler(enabled=config.PROFILE)
+
+    with profiler.section("COMPILATION"):
         print(
             f"\n---BEGINNING COMPILATION---\n"
             f"Total timesteps per increment: {config.STEPS_PER_INCREMENT * config.NUM_LEARNERS}\n"
@@ -250,9 +243,7 @@ def train(argv: list[str], config: Dict[str, Any] = {}) -> None:
         if config.NUM_LEARNERS > 1:
             rng = jax.random.split(rng, config.NUM_LEARNERS)
             experiment_fn = (
-                get_learner_fn
-                if not (config.EVAL_HEURISTIC or config.EVAL_MODEL)
-                else get_eval_fn
+                get_learner_fn if not (config.EVAL_HEURISTIC or config.EVAL_MODEL) else get_eval_fn
             )
             experiment_input, env, env_params = jax.vmap(
                 experiment_data_setup, axis_name="learner", in_axes=(None, 0)
@@ -265,21 +256,64 @@ def train(argv: list[str], config: Dict[str, Any] = {}) -> None:
             )
         else:
             experiment_fn = (
-                get_learner_fn
-                if not (config.EVAL_HEURISTIC or config.EVAL_MODEL)
-                else get_eval_fn
+                get_learner_fn if not (config.EVAL_HEURISTIC or config.EVAL_MODEL) else get_eval_fn
             )
             experiment_input, env, env_params = experiment_data_setup(config, rng)
             experiment_fn = experiment_fn(env, env_params, experiment_input, config)
             run_experiment = jax.jit(experiment_fn).lower(experiment_input).compile()
-            
-    if config.PROFILE:
-        jax.profiler.start_trace("train.prof")
+
+    # Set up eval during training: fresh single-env setup without warmup
+    if config.EVAL_DURING_TRAINING and not (config.EVAL_HEURISTIC or config.EVAL_MODEL):
+        with profiler.section("EVAL_COMPILATION"):
+            # Create eval config: single env, no warmup, custom timestep budget
+            eval_config = config.copy()
+            eval_config.NUM_ENVS = min(config.NUM_ENVS, 10)
+            eval_config.ENV_WARMUP_STEPS = 0
+            eval_timesteps = config.EVAL_TIMESTEPS * eval_config.NUM_ENVS if config.EVAL_TIMESTEPS > 0 else config.STEPS_PER_INCREMENT
+            # Ensure eval runs long enough for warmup + measurement
+            eval_timesteps += config.ENV_WARMUP_STEPS * eval_config.NUM_ENVS
+            eval_config.STEPS_PER_INCREMENT = eval_timesteps
+            # With continuous_operation, make_env sets max_requests=TOTAL_TIMESTEPS.
+            # Set eval TOTAL_TIMESTEPS so each env runs eval_timesteps/NUM_ENVS steps
+            # as a single continuous episode.
+            eval_config.TOTAL_TIMESTEPS = eval_timesteps
+            eval_config.log_wrapper = True
+
+            # Fresh env setup for eval (no warmup, single env)
+            eval_rng = jax.random.PRNGKey(config.SEED + 1)
+            eval_input, eval_env, eval_env_params = experiment_data_setup(eval_config, eval_rng)
+
+            # Sync eval_config with what make_env actually computed.
+            # process_config (called inside make_env) rounds TOTAL_TIMESTEPS
+            # down to be divisible by ROLLOUT_LENGTH*NUM_ENVS, which changes
+            # max_requests when continuous_operation=True. The eval scan in
+            # get_eval_fn reads config.max_requests for its scan length, so a
+            # mismatch causes the env to auto-reset mid-eval.
+            eval_config.max_requests = int(eval_env_params.max_requests) // eval_config.NUM_ENVS
+            eval_config.STEPS_PER_INCREMENT = eval_config.TOTAL_TIMESTEPS
+
+            eval_compile_input = (
+                experiment_input[0],
+                eval_input[1],
+                eval_input[2],
+                eval_input[3],
+                eval_input[4],
+            )
+            eval_fn = get_eval_fn(eval_env, eval_env_params, eval_input, eval_config)
+            # Run eval on the same device as training to avoid transfer overhead.
+            # The eval is lightweight (single env) so GPU contention is minimal.
+            run_eval = jax.jit(eval_fn).lower(eval_compile_input).compile()
+        print(
+            f"Eval during training enabled: {eval_config.STEPS_PER_INCREMENT} timesteps every {config.EVAL_FREQUENCY} increment(s)"
+        )
+    else:
+        run_eval = eval_input = None
 
     # START TRAINING
     start_time = time.time()
     log_time = 0.0
     total_run_time = 0.0
+    best_eval_metric = float("inf")
     episode_count = update_count = step_count = 0
     merged_out: Dict[str, Dict[str, jax.Array]] = {}
     processed_data: Dict[str, Dict[str, jax.Array]] = {}
@@ -288,19 +322,15 @@ def train(argv: list[str], config: Dict[str, Any] = {}) -> None:
     for i in range(config.NUM_INCREMENTS):
         print(f"\n---INCREMENT {i + 1}/{config.NUM_INCREMENTS}---")
         # Run the increment
-        with TimeIt(
-            tag="EXECUTION", frames=config.STEPS_PER_INCREMENT * config.NUM_LEARNERS
-        ):
+        with profiler.section("EXECUTION", frames=config.STEPS_PER_INCREMENT * config.NUM_LEARNERS):
             out = run_experiment(experiment_input)
-            out["metrics"][
-                "returns"
-            ].block_until_ready()  # Wait for all devices to finish
+            out["metrics"]["returns"].block_until_ready()  # Wait for all devices to finish
         prev_total = total_run_time
         total_run_time = time.time() - start_time - log_time  # Update total first
-        increment_run_time = total_run_time - prev_total       # Increment = difference
+        increment_run_time = total_run_time - prev_total  # Increment = difference
         log_start_time = time.time()
-        # Save model params
-        if config.SAVE_MODEL:
+        # Save model params (skip if EVAL_DURING_TRAINING, which saves only the best model)
+        if config.SAVE_MODEL and not config.EVAL_DURING_TRAINING:
             # Merge seed_device and seed dimensions
             train_state = out["runner_state"][0]
             model = eqx.combine(train_state.model_params, train_state.model_static)
@@ -328,20 +358,35 @@ def train(argv: list[str], config: Dict[str, Any] = {}) -> None:
                 lambda x, y: jnp.concatenate([x, y]), processed_data_all, processed_data
             )
         )
-        
+
+        # Run eval during training
+        if (
+            config.EVAL_DURING_TRAINING
+            and not (config.EVAL_HEURISTIC or config.EVAL_MODEL)
+            and (i + 1) % config.EVAL_FREQUENCY == 0
+        ):
+            best_eval_metric = run_eval_during_training(
+                config, run_eval, eval_input, out, best_eval_metric, step_count
+            )
+
         log_time += time.time() - log_start_time
         # Update the experiment input for the next increment
         experiment_input = out["runner_state"]  # TrainState, EnvState, Obs, key, key
         for metric in metrics:
             if processed_data.get(metric):
                 if config.continuous_operation:
-                    print(f"{metric}: {float(processed_data[metric]["mean"][-1]):.3f} ± {float(processed_data[metric]["std"][-1]):.3f}")
+                    print(
+                        f"{metric}: {float(processed_data[metric]['mean'][-1]):.3f} ± {float(processed_data[metric]['std'][-1]):.3f}"
+                    )
                 else:
-                    print(f"Episode end {metric}: {float(processed_data[metric]["episode_end_mean"][-1])} ± {float(processed_data[metric]["episode_end_std"][-1]):.3f}")
+                    print(
+                        f"Episode end {metric}: {float(processed_data[metric]['episode_end_mean'][-1])} ± {float(processed_data[metric]['episode_end_std'][-1]):.3f}"
+                    )
 
     # END OF TRAINING
+    profiler.summary()
     if config.PROFILE:
-        jax.profiler.stop_trace()
+        jit_profiler.summary()
 
     print_metrics(processed_data_all, config)
     if config.PLOTTING:

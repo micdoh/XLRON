@@ -29,7 +29,6 @@ global \
     LARGE_FLOAT_DTYPE, \
     SMALL_FLOAT_DTYPE, \
     LARGE_INT_DTYPE, \
-    MED_INT_DTYPE, \
     SMALL_INT_DTYPE, \
     BINARY_DTYPE, \
     REWARD_DTYPE, \
@@ -40,7 +39,6 @@ PARAMS_DTYPE = jnp.bfloat16
 LARGE_FLOAT_DTYPE = jnp.bfloat16
 SMALL_FLOAT_DTYPE = jnp.float16
 LARGE_INT_DTYPE = jnp.int32
-MED_INT_DTYPE = jnp.int16
 SMALL_INT_DTYPE = jnp.int8
 BINARY_DTYPE = jnp.int8  # Default for binary arrays.
 REWARD_DTYPE = jnp.int16  # Default for rewards, can be float or int.
@@ -117,7 +115,7 @@ def initialize_dtypes(flags: flags.FlagValues | Box | Dict) -> None:
     large_float_dtype_flag = get_flag_value_or_none("large_float_dtype", float_dtype_flag)
     small_float_dtype_flag = get_flag_value_or_none("small_float_dtype", float_dtype_flag)
     int_dtype_flag = get_flag_value_or_none("int_dtype", int_default)
-    large_int_dtype_flag = get_flag_value_or_none("large_int_dtype", int_dtype_flag)
+    large_int_dtype_flag =get_flag_value_or_none("large_int_dtype", int_dtype_flag)
     small_int_dtype_flag = get_flag_value_or_none("small_int_dtype", int_dtype_flag)
     binary_dtype_flag = get_flag_value_or_none("binary_dtype", binary_default)
     # Ensure reward is float by default if edge difference is normalised (fractional)
@@ -132,7 +130,6 @@ def initialize_dtypes(flags: flags.FlagValues | Box | Dict) -> None:
     globals()["LARGE_FLOAT_DTYPE"] = DTYPE_MAP[large_float_dtype_flag]
     globals()["SMALL_FLOAT_DTYPE"] = DTYPE_MAP[small_float_dtype_flag]
     globals()["LARGE_INT_DTYPE"] = DTYPE_MAP[large_int_dtype_flag]
-    globals()["MED_INT_DTYPE"] = DTYPE_MAP[int_dtype_flag]
     globals()["SMALL_INT_DTYPE"] = DTYPE_MAP[small_int_dtype_flag]
     globals()["BINARY_DTYPE"] = DTYPE_MAP[binary_dtype_flag]
     globals()["REWARD_DTYPE"] = DTYPE_MAP[reward_dtype_flag]
@@ -145,7 +142,6 @@ def initialize_dtypes(flags: flags.FlagValues | Box | Dict) -> None:
     print(f"LARGE_FLOAT_DTYPE: {globals()['LARGE_FLOAT_DTYPE']}")
     print(f"SMALL_FLOAT_DTYPE: {globals()['SMALL_FLOAT_DTYPE']}")
     print(f"LARGE_INT_DTYPE: {globals()['LARGE_INT_DTYPE']}")
-    print(f"MED_INT_DTYPE: {globals()['MED_INT_DTYPE']}")
     print(f"SMALL_INT_DTYPE: {globals()['SMALL_INT_DTYPE']}")
     print(f"BINARY_DTYPE: {globals()['BINARY_DTYPE']}")
     print(f"REWARD_DTYPE: {globals()['REWARD_DTYPE']}")

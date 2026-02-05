@@ -62,6 +62,7 @@ class DeepRMSAEnv(RSAEnv):
             accepted_services=0,
             accepted_bitrate=0.0,
             total_bitrate=0.0,
+            valid_mass=1.0,
         )
 
     def step_env(

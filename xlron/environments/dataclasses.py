@@ -80,6 +80,7 @@ class EnvState:
     link_slot_departure_array: chex.Array
     link_slot_mask: chex.Array
     traffic_matrix: chex.Array
+    valid_mass: chex.Array
 
 
 @struct.dataclass
@@ -129,6 +130,7 @@ class EnvParams:
     line_graph_spectral_features: HashableArrayWrapper | None = struct.field(pytree_node=False)
     path_link_array: HashableArrayWrapper = struct.field(pytree_node=False)
     path_se_array: HashableArrayWrapper = struct.field(pytree_node=False)
+    unique_se_values: HashableArrayWrapper = struct.field(pytree_node=False)
     k_paths: int = struct.field(pytree_node=False)
     link_resources: int = struct.field(pytree_node=False)
     k_paths: int = struct.field(pytree_node=False)
@@ -136,8 +138,10 @@ class EnvParams:
     load: float = struct.field(pytree_node=False)
     arrival_rate: float = struct.field(pytree_node=False)
     random_traffic: bool = struct.field(pytree_node=False)
-    include_no_op: bool = struct.field(pytree_node=False) # Include a "no op" action
+    include_no_op: bool = struct.field(pytree_node=False)  # Include a "no op" action
     transformer_obs_type: str = struct.field(pytree_node=False)
+    use_gnn: bool = struct.field(pytree_node=False)
+    profile: bool = struct.field(pytree_node=False)
 
 
 @struct.dataclass
@@ -456,6 +460,7 @@ class VONETransition:
     action_mask_s: chex.Array
     action_mask_p: chex.Array
     action_mask_d: chex.Array
+    valid_mass: chex.Array
 
 
 @struct.dataclass
@@ -469,3 +474,18 @@ class RSATransition:
     obs: Obsv
     info: Dict[str, Array]
     action_mask: chex.Array
+    valid_mass: chex.Array
+
+
+# action, path index, initial slot index, requested datarate, required slots, path, se, current time, holding time]
+@struct.dataclass
+class ActionInfo:
+    action: chex.Array
+    path_index: chex.Array
+    initial_slot_index: chex.Array
+    nodes_sd: chex.Array
+    requested_datarate: chex.Array
+    num_slots: chex.Array
+    path: chex.Array
+    se: chex.Array
+    affected_slots_mask: Array

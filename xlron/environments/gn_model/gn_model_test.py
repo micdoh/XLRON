@@ -267,7 +267,7 @@ class TransceiverAmplifierNoiseTest(parameterized.TestCase):
         (
             "case_single_channel_band3",
             1,  # link_resources
-            1550.0,  # ref_lambda (nm) - in band 3
+            1550.0e-9,  # ref_lambda (m) - in band 3
             50.0,  # slot_size (GHz)
             jnp.array([21.25]),  # expected transceiver SNR
             jnp.array([5.5]),  # expected amplifier NF
@@ -275,7 +275,7 @@ class TransceiverAmplifierNoiseTest(parameterized.TestCase):
         (
             "case_three_channels_band3",
             3,  # link_resources
-            1550.0,  # ref_lambda (nm) - center freq ~193.4 THz
+            1550.0e-9,  # ref_lambda (m) - center freq ~193.4 THz
             100.0,  # slot_size (GHz)
             jnp.array([21.25, 21.25, 21.25]),  # all channels in band 3
             jnp.array([5.5, 5.5, 5.5]),  # all band 3 NF
@@ -283,7 +283,7 @@ class TransceiverAmplifierNoiseTest(parameterized.TestCase):
         (
             "case_five_channels_band1",
             5,  # link_resources
-            1500.0,  # ref_lambda (nm) - center freq ~199.9 THz
+            1500.0e-9,  # ref_lambda (m) - center freq ~199.9 THz
             50.0,  # slot_size (GHz)
             jnp.array([15.80, 15.80, 15.80, 15.80, 15.80]),  # all in band 1
             jnp.array([7.0, 7.0, 7.0, 7.0, 7.0]),
@@ -291,7 +291,7 @@ class TransceiverAmplifierNoiseTest(parameterized.TestCase):
         (
             "case_seven_channels_band4",
             7,  # link_resources
-            1588.0,  # ref_lambda (nm) - center freq ~188.8 THz
+            1588.0e-9,  # ref_lambda (m) - center freq ~188.8 THz
             150.0,  # slot_size (GHz)
             jnp.array([21.25, 21.25, 21.25, 21.25, 21.25, 21.25, 21.25]),  # all in band 4
             jnp.array([6.0, 6.0, 6.0, 6.0, 6.0, 6.0, 6.0]),
@@ -299,7 +299,7 @@ class TransceiverAmplifierNoiseTest(parameterized.TestCase):
         (
             "case_channels_spanning_multiple_bands",
             5,  # link_resources
-            1528.77,  # ref_lambda (nm) - positioned at ~196.1 THz (band 2/3 boundary)
+            1528.77e-9,  # ref_lambda (m) - positioned at ~196.1 THz (band 2/3 boundary)
             600.0,  # slot_size (GHz) - spacing to span bands 3, 2, and 1
             jnp.array([21.25, 21.25, 17.82, 17.82, 15.80]),  # bands 3, 3, 2, 2, 1
             jnp.array([5.5, 5.5, 9.0, 9.0, 7.0]),  # corresponding NF values
@@ -330,7 +330,7 @@ class TransceiverAmplifierNoiseTest(parameterized.TestCase):
             # Band 5 max is ~186.5 THz, so wavelength < ~1608 nm gives higher freq
             init_transceiver_amplifier_noise_arrays(
                 link_resources=1,
-                ref_lambda=1450.0,  # Results in ~206.7 THz, outside all bands
+                ref_lambda=1450.0e-9,  # Results in ~206.7 THz, outside all bands
                 slot_size=50.0,
                 noise_data_filepath=self.noise_data_filepath,
             )
@@ -341,12 +341,12 @@ class TransceiverAmplifierNoiseTest(parameterized.TestCase):
     def test_slot_frequency_calculation(self):
         """Test that slot frequencies are calculated correctly"""
         link_resources = 5
-        ref_lambda = 1550.0  # nm
+        ref_lambda = 1550.0e-9  # m
         slot_size = 100.0  # GHz
 
         # Expected center frequency
         c = 299792458  # m/s
-        expected_center_freq = c / (ref_lambda * 1e-9) / 1e9  # GHz
+        expected_center_freq = c / ref_lambda / 1e9  # GHz
 
         # Expected slot centers relative to center
         expected_relative_slots = jnp.array([-200.0, -100.0, 0.0, 100.0, 200.0])

@@ -20,6 +20,7 @@ from xlron.environments.dataclasses import (
 )
 from xlron.environments.env_funcs import process_path_action
 from xlron.environments.gn_model.isrs_gn_model import to_dbm
+from xlron.environments.wrappers import jit_profiler
 from xlron.train.train_utils import TrainState, select_action
 
 RunnerState = Tuple[TrainState, LogEnvState, Obsv, Array, Array]
@@ -129,19 +130,23 @@ def _env_step(
     step_key, action_key = jax.random.split(rng_step)
 
     select_action_state = (action_key, env_state, last_obs)
-    env_state, action, log_prob, value = select_action(
-        select_action_state, env, env_params, train_state, config
+    env_state, action, log_prob, value = jit_profiler.call(
+        env_params.profile, select_action, select_action_state, env, env_params, train_state, config
     )
 
-    obsv, env_state, reward, terminal, truncated, info = env.step(
-        action_key, env_state, action, env_params
+    obsv, env_state, reward, terminal, truncated, info = jit_profiler.call(
+        env_params.profile, env.step, action_key, env_state, action, env_params
     )
     # Apply reward scaling if configured
     reward = reward * config.REWARD_SCALE
 
     # PROCESS OBS AND TRANSITION
-    obsv = (env_state.env_state, env_params) if config.USE_GNN or config.USE_TRANSFORMER else tuple([obsv])
-    
+    obsv = (
+        (env_state.env_state, env_params)
+        if config.USE_GNN or config.USE_TRANSFORMER
+        else tuple([obsv])
+    )
+
     # Create transition based on environment type
     if config.env_type.lower() == "vone":
         transition = VONETransition(
@@ -156,6 +161,7 @@ def _env_step(
             env_state.env_state.node_mask_s,
             env_state.env_state.link_slot_mask,
             env_state.env_state.node_mask_d,
+            env_state.env_state.valid_mass,
         )
     else:
         transition = RSATransition(
@@ -168,6 +174,7 @@ def _env_step(
             last_obs,
             info,
             env_state.env_state.link_slot_mask,
+            env_state.env_state.valid_mass,
         )
 
     # DEBUG LOGGING FOR OPTICAL NETWORKS
@@ -373,7 +380,9 @@ def _env_rollout_advantages(
 
     # CALCULATE ADVANTAGE
     train_state, env_state, last_obs, _, rng_epoch = runner_state
-    last_obs = (env_state.env_state, env_params) if config.USE_GNN or config.USE_TRANSFORMER else last_obs
+    last_obs = (
+        (env_state.env_state, env_params) if config.USE_GNN or config.USE_TRANSFORMER else last_obs
+    )
     axes = (0, None) if config.USE_GNN or config.USE_TRANSFORMER else (0,)
     # With Equinox, the model is called directly
     model = eqx.combine(train_state.model_params, train_state.model_static)
@@ -383,8 +392,14 @@ def _env_rollout_advantages(
 
     # Compute advantages here so they can be used to prioritize trajectories with high absolute advantage estimates
     initial_importance_ratio = jnp.ones_like(traj_batch.reward)
-    adv, targets, deltas = _calculate_puffer_advantage(
-        train_state, traj_batch, last_val, initial_importance_ratio, config
+    adv, targets, deltas = jit_profiler.call(
+        config.PROFILE,
+        _calculate_puffer_advantage,
+        train_state,
+        traj_batch,
+        last_val,
+        initial_importance_ratio,
+        config,
     )
 
     if config.REWARD_CENTERING:
@@ -437,11 +452,9 @@ def _loss_fn(
     # HANDLE DIFFERENT ACTION TYPES FOR OPTICAL NETWORKS
     if config.env_type.lower() == "vone":
         # VONE: source, path, destination actions
-        pi_source = distrax.Categorical(
-            logits=jnp.where(traj_batch.action_mask_s, pi._logits, -1e8)
-        )
-        pi_path = distrax.Categorical(logits=jnp.where(traj_batch.action_mask_p, pi._logits, -1e8))
-        pi_dest = distrax.Categorical(logits=jnp.where(traj_batch.action_mask_d, pi._logits, -1e8))
+        pi_source = distrax.Categorical(logits=pi._logits + (-1e8 * (1 - traj_batch.action_mask_s)))
+        pi_path = distrax.Categorical(logits=pi._logits + (-1e8 * (1 - traj_batch.action_mask_p)))
+        pi_dest = distrax.Categorical(logits=pi._logits + (-1e8 * (1 - traj_batch.action_mask_d)))
         action_s = traj_batch.action[:, 0]
         action_p = traj_batch.action[:, 1]
         action_d = traj_batch.action[:, 2]
@@ -449,7 +462,7 @@ def _loss_fn(
         log_prob_path = pi_path.log_prob(action_p)
         log_prob_dest = pi_dest.log_prob(action_d)
         log_prob = log_prob_source + log_prob_path + log_prob_dest
-        entropy = pi_source.entropy().mean() + pi_path.entropy().mean() + pi_dest.entropy().mean()
+        entropy = pi_source.entropy() + pi_path.entropy() + pi_dest.entropy()
 
     elif config.env_type.lower() == "rsa_gn_model" and config.launch_power_type == "rl":
         # RSA with power control
@@ -460,10 +473,10 @@ def _loss_fn(
 
         if config.GNN_OUTPUT_RSA:
             pi_masked = distrax.Categorical(
-                logits=jnp.where(traj_batch.action_mask, path_dist._logits, -1e8)
+                logits=path_dist._logits + (-1e8 * (1 - traj_batch.action_mask))
             )
             path_log_prob = pi_masked.log_prob(path_actions)
-            path_entropy = pi_masked.entropy().mean()
+            path_entropy = pi_masked.entropy()
 
         path_indices = jax.vmap(process_path_action, in_axes=(0, None, 0))(
             traj_batch.obs[0], config, path_actions
@@ -479,7 +492,7 @@ def _loss_fn(
         power_log_prob = jax.vmap(lambda x, i: jax.lax.dynamic_slice(x, (i,), (1,)))(
             power_log_prob, path_indices
         )
-        power_entropy = power_dist.entropy().mean()
+        power_entropy = power_dist.entropy()
 
         log_prob = path_log_prob + power_log_prob
         entropy = path_entropy + power_entropy
@@ -495,21 +508,24 @@ def _loss_fn(
             jax.debug.print("power logits {}", power_dist._logits, ordered=config.ORDERED)
             jax.debug.print("log_prob {}", log_prob, ordered=config.ORDERED)
             jax.debug.print("entropy {}", entropy, ordered=config.ORDERED)
-            
+
     elif config.OFF_POLICY_IAM:
         # Ratio will be policy/masked_policy - also known as off-policy invalid action masking
         log_prob = pi.log_prob(traj_batch.action)
-        entropy = pi.entropy().mean()
+        entropy = pi.entropy()
 
     else:
         # Standard action masking
         pi_masked = distrax.Categorical(
-            logits=jnp.where(traj_batch.action_mask, pi[0]._logits, -1e8)
+            logits=pi[0]._logits + (-1e8 * (1 - traj_batch.action_mask))
         )
         log_prob = pi_masked.log_prob(traj_batch.action)
-        entropy = pi_masked.entropy().mean()
+        entropy = pi_masked.entropy()
 
-    ratio = jnp.exp(log_prob - traj_batch.log_prob)
+    log_ratio = log_prob - traj_batch.log_prob
+    log_ratio = jnp.clip(log_ratio, -config.LOGR_CLIP, config.LOGR_CLIP)
+    ratio = jnp.exp(log_ratio)
+
     # Recalculate the advantage now that we can clip based on the calculated importance ratio
     if config.RHO_CLIP > 0 and config.C_CLIP > 0:
         minibatch_size = config.MINIBATCH_SIZE
@@ -522,37 +538,85 @@ def _loss_fn(
             ),
             (traj_batch, value, ratio),
         )
-        adv, _, _ = _calculate_puffer_advantage(train_state, traj_batch, value[-1], ratio, config)
+        adv, _, _ = jit_profiler.call(
+            config.PROFILE,
+            _calculate_puffer_advantage,
+            train_state,
+            traj_batch,
+            value[-1],
+            ratio,
+            config,
+        )
         adv, traj_batch, value, ratio = jax.tree.map(
             lambda x: x.reshape((minibatch_size,) + x.shape[2:]),
             (adv, traj_batch, value, ratio),
         )
 
-    # Apply importance weights to correct for bias
-    adv_corrected = importance_weights * (adv - adv.mean()) / (adv.std() + 1e-8)
+    # --- Hard gate for "no valid actions" ---------------------------------------
+    # gate_empty[t]=1 if there exists at least two valid actions at s_t, else 0.
+    # (Assumes traj_batch.action_mask is boolean or {0,1}.)
+    gate_mask = (jnp.sum(traj_batch.action_mask, axis=-1) > 1).astype(jnp.float32)
 
-    loss_actor1 = ratio * adv_corrected
-    loss_actor2 = (
-        jnp.clip(
-            ratio,
-            1.0 - config.CLIP_EPS,
-            1.0 + config.CLIP_EPS,
-        )
-        * adv_corrected
-    )
-    actor_loss = -jnp.minimum(loss_actor1, loss_actor2)
-    actor_loss = actor_loss.mean()
+    # --- Soft damping using valid-mass ------------------------------------------
+    # valid_mass must be computed from the *unmasked* behavior policy at rollout time:
+    # valid_mass[t] = sum_a softmax(logits_unmasked_old)[a] * action_mask[a]
+    valid_mass = traj_batch.valid_mass.astype(jnp.float32)  # shape like [N], in [0, 1]
+    valid_mass0 = config.VALID_MASS_TARGET  # default 0.05 (tune 0.02–0.1)
 
-    value_pred_clipped = traj_batch.value + (value - traj_batch.value).clip(
-        -config.CLIP_EPS, config.CLIP_EPS
-    )
-    value_losses = jnp.square(value - targets)
-    value_losses_clipped = jnp.square(value_pred_clipped - targets)
-    value_loss = 0.5 * jnp.maximum(value_losses, value_losses_clipped).mean()
+    # Linear damping (use sqrt for gentler damping if you prefer)
+    damp = jnp.clip(valid_mass / valid_mass0, 0.0, 1.0)
+    # damp = jnp.sqrt(jnp.clip(I / I0, 0.0, 1.0))  # optional, gentler
 
-    # Calculate current entropy coefficient based on training step
-    ent_coef = train_state.ent_schedule(train_state.step)
-    total_loss = actor_loss + config.VF_COEF * value_loss - ent_coef * entropy
+    # Combined per-step weight for actor + entropy
+    w = gate_mask * damp
+    w_sum = jnp.maximum(w.sum(), 1e-8) # just for numerical stability
+
+    # --- Advantage normalization (weighted stats) --------------------------------
+    # Normalize using only weighted-valid steps so empty-mask / low-valid-mass steps don't skew mean/std.
+    adv_mean = (adv * w).sum() / w_sum
+    adv_var = ((adv - adv_mean) ** 2 * w).sum() / w_sum
+    adv_norm = (adv - adv_mean) / (jnp.sqrt(adv_var) + 1e-8)
+    adv_norm_clipped = jnp.clip(adv_norm, -config.ADV_CLIP, config.ADV_CLIP)
+
+    # Optional: include importance weights (if unused, set importance_weights = 1)
+    adv_weighted = importance_weights * adv_norm_clipped
+
+    # --- PPO clipped surrogate (weighted) ----------------------------------------
+    loss_actor1 = ratio * adv_weighted
+    loss_actor2 = jnp.clip(ratio, 1.0 - config.CLIP_EPS, 1.0 + config.CLIP_EPS) * adv_weighted
+
+    actor_loss = -(jnp.minimum(loss_actor1, loss_actor2) * w).sum() / w_sum
+
+    # --- Value loss (ungated) ----------------------------------------------------
+    value_loss = 0.5 * jnp.maximum(value, targets).mean()
+
+    # --- Entropy loss (PER-STEP, weighted) ---------------------------------------
+    # entropy must have same leading shape as w (e.g., [minibatch] or [T*B]).
+    ent_coef = train_state.ent_schedule(train_state.step)  # scalar
+    entropy_loss = -(ent_coef * entropy * w).sum() / w_sum
+
+    # --- Valid mass loss (encourages current policy to place mass on valid actions) -
+    if config.VALID_MASS_LOSS_COEF > 0:
+        # Recompute valid mass from *current* logits so gradients flow back
+        if config.env_type.lower() == "vone":
+            current_probs = jax.nn.softmax(pi._logits, axis=-1)
+            current_valid_mass = jnp.sum(current_probs * traj_batch.action_mask_p, axis=-1)
+        elif config.env_type.lower() == "rsa_gn_model" and config.launch_power_type == "rl":
+            current_probs = jax.nn.softmax(pi[0]._logits, axis=-1)
+            current_valid_mass = jnp.sum(current_probs * traj_batch.action_mask, axis=-1)
+        elif config.OFF_POLICY_IAM:
+            current_probs = jax.nn.softmax(pi._logits, axis=-1)
+            current_valid_mass = jnp.sum(current_probs * traj_batch.action_mask, axis=-1)
+        else:
+            current_probs = jax.nn.softmax(pi[0]._logits, axis=-1)
+            current_valid_mass = jnp.sum(current_probs * traj_batch.action_mask, axis=-1)
+        validmass_loss = (jnp.square(1.0 - current_valid_mass) * gate_mask).sum() / jnp.maximum(gate_mask.sum(), 1.0)
+    else:
+        validmass_loss = jnp.array(0.0)
+
+    # --- Total loss --------------------------------------------------------------
+    vml_coef = train_state.vml_schedule(train_state.step)  # scalar
+    total_loss = actor_loss + config.VF_COEF * value_loss + entropy_loss + vml_coef * validmass_loss
 
     if config.DEBUG or config.DEBUG_LOSS:
         jax.debug.print("log_prob {}", log_prob, ordered=config.ORDERED)
@@ -569,11 +633,12 @@ def _loss_fn(
     return total_loss, (
         log_prob.mean(),
         ratio.mean(),
-        adv_corrected.mean(),
+        adv_weighted.mean(),
         value_loss,
         actor_loss,
         entropy,
         entropy * ent_coef,
+        validmass_loss,
     )
 
 
@@ -584,7 +649,9 @@ def _update_minibatch(
 ) -> Tuple[TrainState, Tuple[Array, ...]]:
     """Update on a single minibatch. Called via scan with closure wrapper."""
     model = eqx.combine(train_state.model_params, train_state.model_static)
-    total_loss, grads = _loss_fn(
+    total_loss, grads = jit_profiler.call(
+        config.PROFILE,
+        _loss_fn,
         model,
         train_state,
         batch_info,
@@ -613,14 +680,20 @@ def _update_epoch(
     rng_epoch, perm_key = jax.random.split(rng_epoch, 2)
 
     batch = (traj_batch, adv, targets)
-    minibatches, importance_weights_mb = _sample_prioritized_batch(
-        batch, priorities, train_state.prio_beta, perm_key, config
+    minibatches, importance_weights_mb = jit_profiler.call(
+        config.PROFILE,
+        _sample_prioritized_batch,
+        batch,
+        priorities,
+        train_state.prio_beta,
+        perm_key,
+        config,
     )
     batch_info = (*minibatches, importance_weights_mb)
 
     # Scan-compatible wrapper
     def _update_minibatch_wrapper(train_state, batch_info):
-        return _update_minibatch(train_state, batch_info, config)
+        return jit_profiler.call(config.PROFILE, _update_minibatch, train_state, batch_info, config)
 
     train_state, total_loss = jax.lax.scan(_update_minibatch_wrapper, train_state, batch_info)
 
@@ -665,7 +738,7 @@ def _update_step(
     )
 
     def _update_epoch_wrapper(update_state, unused):
-        return _update_epoch(update_state, unused, config)
+        return jit_profiler.call(config.PROFILE, _update_epoch, update_state, unused, config)
 
     update_state, loss_info_arrays = jax.lax.scan(
         _update_epoch_wrapper, update_state, None, config.UPDATE_EPOCHS
@@ -693,6 +766,9 @@ def _update_step(
         "loss/actor_loss": loss_info_arrays[1][4].reshape(-1),
         "loss/entropy": loss_info_arrays[1][5].reshape(-1),
         "loss/entropy_loss_scaled": loss_info_arrays[1][6].reshape(-1),
+        "loss/validmass_loss": loss_info_arrays[1][7].reshape(-1),
+        "loss/validmass_loss_scaled": loss_info_arrays[1][7].reshape(-1)
+        * train_state.vml_schedule(train_state.step),
         "prioritization/beta": train_state.prio_beta,
         "prioritization/priority_mean": jnp.mean(priorities),
         "prioritization/priority_std": jnp.std(priorities),

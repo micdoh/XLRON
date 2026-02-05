@@ -83,25 +83,25 @@ def differentiable_compare(x, y, op_type="==", temperature=1.0, differentiable=T
     # Define hard results (for forward pass)
     if op_type == "==":
         hard_result = x == y
-        jnp.exp(-temperature * (x - y) ** 2)
+        # jnp.exp(-temperature * (x - y) ** 2)
     elif op_type == ">=":
         hard_result = x >= y
-        jax.nn.sigmoid(temperature * (x - y))
+        # jax.nn.sigmoid(temperature * (x - y))
     elif op_type == "<=":
         hard_result = x <= y
-        jax.nn.sigmoid(temperature * (y - x))
+        # jax.nn.sigmoid(temperature * (y - x))
     elif op_type == ">":
         hard_result = x > y
         # Slightly sharper version for strict inequality
-        jax.nn.sigmoid(temperature * (x - y - 1e-5))
+        # jax.nn.sigmoid(temperature * (x - y - 1e-5))
     elif op_type == "<":
         hard_result = x < y
         # Slightly sharper version for strict inequality
-        jax.nn.sigmoid(temperature * (y - x - 1e-5))
+        # jax.nn.sigmoid(temperature * (y - x - 1e-5))
     elif op_type == "!=":
         hard_result = x != y
         # Invert the equality result
-        1.0 - jnp.exp(-temperature * (x - y) ** 2)
+        # 1.0 - jnp.exp(-temperature * (x - y) ** 2)
     else:
         raise ValueError(f"Unknown operation type: {op_type}")
 

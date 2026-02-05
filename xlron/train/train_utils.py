@@ -85,6 +85,8 @@ loss_metrics = [
     "loss/log_prob",
     "loss/entropy_loss_scaled",
     "loss/value_loss_scaled",
+    "loss/validmass_loss",
+    "loss/validmass_loss_scaled",
 ]
 
 
@@ -101,6 +103,7 @@ class TrainState(eqx.Module):
     opt_state: optax.OptState
     lr_schedule: Schedule = eqx.field(static=True)
     ent_schedule: Schedule = eqx.field(static=True)
+    vml_schedule: Schedule = eqx.field(static=True)
     avg_reward: Array
     reward_stepsize: Array
     reward_stepsize_init: Array
@@ -124,6 +127,7 @@ class TrainState(eqx.Module):
             opt_state=new_opt_state,
             lr_schedule=self.lr_schedule,
             ent_schedule=self.ent_schedule,
+            vml_schedule=self.vml_schedule,
             avg_reward=self.avg_reward,
             reward_stepsize=self.reward_stepsize,
             reward_stepsize_init=self.reward_stepsize_init,
@@ -151,6 +155,7 @@ class TrainState(eqx.Module):
         tx: optax.GradientTransformation,
         lr_schedule: Schedule = lambda x: jnp.array(0.0),
         ent_schedule: Schedule = lambda x: jnp.array(0.0),
+        vml_schedule: Schedule = lambda x: jnp.array(0.0),
         prio_alpha: float = 0.0,
         prio_beta0: float = 1.0,
         prio_beta: float = 1.0,
@@ -167,6 +172,7 @@ class TrainState(eqx.Module):
             opt_state=opt_state,
             lr_schedule=lr_schedule,
             ent_schedule=ent_schedule,
+            vml_schedule=vml_schedule,
             avg_reward=jnp.array(0.0, dtype=dtype_config.REWARD_DTYPE),
             reward_stepsize=jnp.array(reward_stepsize_init, dtype=dtype_config.REWARD_DTYPE),
             reward_stepsize_init=jnp.array(reward_stepsize_init, dtype=dtype_config.REWARD_DTYPE),
@@ -240,7 +246,9 @@ def save_model(model: eqx.Module, config: Box) -> None:
     model_path = (
         pathlib.Path(config.MODEL_PATH)
         if config.MODEL_PATH is not None
-        else (pathlib.Path(__file__).resolve().parents[2] / "models" / f"{config.EXPERIMENT_NAME}.eqx")
+        else (
+            pathlib.Path(__file__).resolve().parents[2] / "models" / f"{config.EXPERIMENT_NAME}.eqx"
+        )
     )
     # If model_path dir already exists, append a number to the end
     if not config.OVERWRITE_MODEL:
@@ -267,7 +275,7 @@ def save_model(model: eqx.Module, config: Box) -> None:
 def init_network(config: Box, key: chex.PRNGKey) -> eqx.Module:
     if config.env_type.lower() == "vone":
         network = ActorCriticMLP(
-            config.ACTION_DIM + (1*config.include_no_op), # +1 for "no op"
+            config.ACTION_DIM + (1 * config.include_no_op),  # +1 for "no op"
             config.INPUT_DIM,
             activation=config.ACTIVATION,
             num_layers=config.NUM_LAYERS,
@@ -289,8 +297,12 @@ def init_network(config: Box, key: chex.PRNGKey) -> eqx.Module:
             # For transformer: input_size is the per-token feature dimension
             # This includes: wire_features + edge_features (link_slot_array or departure times)
             # The link_slot_array has shape (num_links, link_resources) so per-link features
-            input_size = config.num_wire_features + config.link_resources + 1 # +1 for link relevance
-            input_size += int(config.transformer_obs_type == "departure") # +1 for holding time of current request
+            input_size = (
+                config.num_wire_features + config.link_resources + 1
+            )  # +1 for link relevance
+            input_size += int(
+                config.transformer_obs_type == "departure"
+            )  # +1 for holding time of current request
             network = ActorCriticTransformer(
                 input_size=input_size,
                 embedding_size=config.transformer_embedding_size,
@@ -369,7 +381,7 @@ def init_network(config: Box, key: chex.PRNGKey) -> eqx.Module:
         elif "gn_model" in config.env_type.lower() and config.launch_power_type == 3:
             network = LaunchPowerActorCriticMLP(
                 config.INPUT_DIM,
-                config.ACTION_DIM + (1*config.include_no_op), # +1 for "no op"
+                config.ACTION_DIM + (1 * config.include_no_op),  # +1 for "no op"
                 activation=config.ACTIVATION,
                 num_layers=config.NUM_LAYERS,
                 num_units=config.NUM_UNITS,
@@ -384,7 +396,7 @@ def init_network(config: Box, key: chex.PRNGKey) -> eqx.Module:
         else:
             network = ActorCriticMLP(
                 config.ACTION_DIM,
-                config.INPUT_DIM + (1*config.include_no_op),# +1 for "no op"
+                config.INPUT_DIM + (1 * config.include_no_op),  # +1 for "no op"
                 activation=config.ACTIVATION,
                 num_layers=config.NUM_LAYERS,
                 num_units=config.NUM_UNITS,
@@ -432,7 +444,11 @@ def experiment_data_setup(config: Box, rng: chex.PRNGKey) -> Tuple:
         if config.NUM_ENVS > 1
         else env.reset(reset_key, env_params)
     )
-    obsv = (env_state.env_state, env_params) if config.USE_GNN or config.USE_TRANSFORMER else tuple([obsv])
+    obsv = (
+        (env_state.env_state, env_params)
+        if config.USE_GNN or config.USE_TRANSFORMER
+        else tuple([obsv])
+    )
 
     # TRAINING MODE
     if config.RETRAIN_MODEL or config.EVAL_MODEL:
@@ -446,14 +462,18 @@ def experiment_data_setup(config: Box, rng: chex.PRNGKey) -> Tuple:
     # INIT LEARNING RATE SCHEDULE AND OPTIMIZER
     lr_schedule = make_lr_schedule(config)
     ent_schedule = make_ent_schedule(config)
+    vml_schedule = make_vml_schedule(config)
 
     # Use AdamW optimizer
-    optimizer = optax.adamw(
-        learning_rate=lr_schedule,
-        eps=config.ADAM_EPS,
-        b1=config.ADAM_BETA1,
-        b2=config.ADAM_BETA2,
-        weight_decay=config.WEIGHT_DECAY,
+    optimizer = optax.chain(
+        optax.clip_by_global_norm(config.MAX_GRAD_NORM),
+        optax.adamw(
+            learning_rate=lr_schedule,
+            eps=config.ADAM_EPS,
+            b1=config.ADAM_BETA1,
+            b2=config.ADAM_BETA2,
+            weight_decay=config.WEIGHT_DECAY,
+        ),
     )
 
     tx = optax.chain(
@@ -466,6 +486,7 @@ def experiment_data_setup(config: Box, rng: chex.PRNGKey) -> Tuple:
         tx=tx,
         lr_schedule=lr_schedule,
         ent_schedule=ent_schedule,
+        vml_schedule=vml_schedule,
         prio_alpha=config.PRIO_ALPHA,
         prio_beta0=config.PRIO_BETA0,
         prio_beta=config.PRIO_BETA0,
@@ -508,7 +529,7 @@ def select_action(select_action_state, env, env_params, train_state, config):
     model = eqx.combine(train_state.model_params, train_state.model_static)
     pi, value = model(*last_obs)
     # Action masking
-    env_state = env_state.replace(env_state=env.action_mask(env_state.env_state, env_params))
+    action_mask, full_action_mask = env.action_mask(env_state.env_state, env_params)
 
     # Always do action masking with VONE
     if config.env_type.lower() == "vone":
@@ -519,7 +540,7 @@ def select_action(select_action_state, env, env_params, train_state, config):
 
         env_state = env_state.replace(env_state=vmap_mask_nodes(env_state.env_state, env_params))
         pi_source = distrax.Categorical(
-            logits=jnp.where(env_state.env_state.node_mask_s, pi[0]._logits, -1e8)
+            logits=pi[0]._logits + (-1e8 * (1 - env_state.env_state.node_mask_s))
         )
 
         action_s = (
@@ -531,7 +552,7 @@ def select_action(select_action_state, env, env_params, train_state, config):
             env_state=vmap_mask_dest_node(env_state.env_state, env_params, action_s)
         )
         pi_dest = distrax.Categorical(
-            logits=jnp.where(env_state.env_state.node_mask_d, pi[0]._logits, -1e8)
+            logits=pi[0]._logits + (-1e8 * (1 - env_state.env_state.node_mask_d))
         )
 
         action_p = jnp.full(action_s.shape, 0)
@@ -542,7 +563,7 @@ def select_action(select_action_state, env, env_params, train_state, config):
             env_state=vmap_mask_slots(env_state.env_state, env_params, action)
         )
         pi_path = distrax.Categorical(
-            logits=jnp.where(env_state.env_state.link_slot_mask, pi[0]._logits, -1e8)
+            logits=pi[0]._logits + (-1e8 * (1 - env_state.env_state.link_slot_mask))
         )
         action_p = pi_path.sample(seed=action_key) if not config.deterministic else pi_path.mode()
         action = jnp.stack((action_s, action_p, action_d), axis=1)
@@ -551,11 +572,11 @@ def select_action(select_action_state, env, env_params, train_state, config):
         log_prob_path = pi_path.log_prob(action_p)
         log_prob_dest = pi_dest.log_prob(action_d)
         log_prob = log_prob_dest + log_prob_path + log_prob_source
+        probs = jax.nn.softmax(pi[0]._logits, axis=-1)
+        valid_mass = jnp.sum(probs * action_mask, axis=-1)
 
     elif "gn_model" in config.env_type.lower() and config.launch_power_type == "rl":
-        pi_masked = distrax.Categorical(
-            logits=jnp.where(env_state.env_state.link_slot_mask, pi[0]._logits, -1e8)
-        )
+        pi_masked = distrax.Categorical(logits=pi[0]._logits + (-1e8 * (1 - action_mask)))
         if config.GNN_OUTPUT_RSA and not config.GNN_OUTPUT_LP:
             path_action, log_prob = train_state.sample_fn(
                 action_key, pi_masked, log_prob=True, deterministic=config.deterministic
@@ -585,14 +606,23 @@ def select_action(select_action_state, env, env_params, train_state, config):
             path_index, _ = process_path_action(env_state.env_state, env_params, path_action)
             power_action, log_prob = power_action[path_index], log_prob[path_index]
         action = jnp.concatenate([path_action.reshape((1,)), power_action.reshape((1,))], axis=0)
+        probs = jax.nn.softmax(pi[0]._logits, axis=-1)
+        valid_mass = jnp.sum(probs * action_mask, axis=-1)
 
     else:
-        env_state = env_state.replace(env_state=env.action_mask(env_state.env_state, env_params))
-        pi_masked = distrax.Categorical(
-            logits=jnp.where(env_state.env_state.link_slot_mask, pi[0]._logits, -1e8)
-        )
+        pi_masked = distrax.Categorical(logits=pi[0]._logits + (-1e8 * (1 - action_mask)))
         action = pi_masked.sample(seed=action_key) if not config.deterministic else pi_masked.mode()
         log_prob = pi_masked.log_prob(action)
+        probs = jax.nn.softmax(pi[0]._logits, axis=-1)
+        valid_mass = jnp.sum(probs * action_mask, axis=-1)
+
+    # Single state update at the end
+    inner_state = env_state.env_state.replace(
+        link_slot_mask=action_mask,
+        full_link_slot_mask=full_action_mask,
+        valid_mass=valid_mass,
+    )
+    env_state = env_state.replace(env_state=inner_state)
 
     return env_state, action, log_prob, value
 
@@ -601,9 +631,6 @@ def select_action_eval(select_action_state, env, env_params, eval_state, config)
     rng, env_state, last_obs = select_action_state
 
     if config.EVAL_HEURISTIC:
-        # Action masking
-        env_state = env_state.replace(env_state=env.action_mask(env_state.env_state, env_params))
-
         if config.env_type.lower() == "vone":
             raise NotImplementedError("VONE heuristics not yet implemented")
 
@@ -713,7 +740,11 @@ def get_warmup_fn(warmup_state, env, params, train_state, config) -> Callable[[T
             obsv, _state, reward, terminal, truncated, info = env.step(
                 step_key, _state, action, params
             )
-            obsv = (_state.env_state, params) if config.USE_GNN or config.USE_TRANSFORMER else tuple([obsv])
+            obsv = (
+                (_state.env_state, params)
+                if config.USE_GNN or config.USE_TRANSFORMER
+                else tuple([obsv])
+            )
             return _rng, _state, _params, _train_state, obsv
 
         vals = jax.lax.fori_loop(
@@ -803,6 +834,40 @@ def make_ent_schedule(config: Box) -> optax.Schedule:
     return ent_schedule
 
 
+def make_vml_schedule(config: Box) -> optax.Schedule:
+    """Create a valid mass loss coefficient schedule based on the configuration."""
+
+    VML_COEF = config.VALID_MASS_LOSS_COEF
+    VML_END_FRACTION = config.VML_END_FRACTION
+    NUM_MINIBATCHES = config.NUM_MINIBATCHES
+    NUM_UPDATES = config.NUM_UPDATES * config.NUM_INCREMENTS
+    UPDATE_EPOCHS = config.UPDATE_EPOCHS
+    SCHEDULE_MULTIPLIER = config.SCHEDULE_MULTIPLIER
+    end_value = VML_COEF * VML_END_FRACTION
+
+    def vml_schedule(count: chex.Numeric) -> chex.Numeric:
+        total_steps = NUM_UPDATES * UPDATE_EPOCHS * NUM_MINIBATCHES * SCHEDULE_MULTIPLIER
+        if config.VML_SCHEDULE == "cosine":
+            schedule = optax.cosine_decay_schedule(
+                init_value=VML_COEF,
+                decay_steps=total_steps,
+                alpha=end_value,
+            )
+        elif config.VML_SCHEDULE == "linear":
+            schedule = optax.linear_schedule(
+                init_value=VML_COEF,
+                end_value=end_value,
+                transition_steps=total_steps,
+            )
+        elif config.VML_SCHEDULE == "constant":
+            schedule = optax.constant_schedule(VML_COEF)
+        else:
+            raise ValueError(f"Invalid VML schedule {config.VML_SCHEDULE}")
+        return schedule(count)
+
+    return vml_schedule
+
+
 def reshape_keys(keys, size1, size2):
     dimensions = (size1, size2)
 
@@ -822,6 +887,7 @@ def setup_wandb(config, project_name, experiment_name):
     run.name = experiment_name
     wandb.define_metric("episode_count")
     wandb.define_metric("env_step")
+    wandb.define_metric("increment")
     for metric in metrics:
         for agg in ["mean", "std", "iqr_upper", "iqr_lower"]:
             wandb.define_metric(f"{metric}_{agg}", step_metric="env_step")
@@ -840,6 +906,125 @@ def setup_wandb(config, project_name, experiment_name):
     for metric in loss_metrics:
         wandb.define_metric(f"{metric}", step_metric="update_epoch")
     wandb.define_metric("training_time", step_metric="env_step")
+    # Eval during training metrics
+    for bp in ["service_blocking_probability", "bitrate_blocking_probability"]:
+        for stat in ["mean", "std"]:
+            wandb.define_metric(f"eval/{bp}_{stat}", step_metric="env_step")
+
+
+def run_eval_during_training(
+    config: Box,
+    run_eval: Callable,
+    eval_input: Tuple,
+    out: Dict,
+    best_eval_metric: float,
+    step_count: int,
+) -> float:
+    """Run evaluation during training and save model if it improves.
+
+    Args:
+        config: Training configuration.
+        run_eval: Compiled eval function.
+        eval_input: Initial eval runner state (train_state, env_state, obsv, rng_step, rng_epoch).
+        out: Output from the current training increment.
+        best_eval_metric: Best eval metric seen so far.
+        step_count: Current training env step count (for wandb logging).
+
+    Returns:
+        Updated best_eval_metric.
+    """
+    # Inject current model params into a copy of the eval runner state.
+    # Copy the eval inputs to prevent buffer donation from invalidating the
+    # original buffers, which need to be reused on subsequent eval runs.
+    current_train_state = out["runner_state"][0]
+    eval_runner_state = jax.tree.map(
+        jnp.copy,
+        (
+            current_train_state,
+            eval_input[1],  # fresh eval env_state
+            eval_input[2],  # fresh eval obsv
+            eval_input[3],  # eval rng_step
+            eval_input[4],  # eval rng_epoch
+        ),
+    )
+    eval_out = run_eval(eval_runner_state)
+    eval_out["metrics"]["returns"].block_until_ready()
+
+    # Compute eval blocking probability, discarding the warmup transient.
+    # Metrics shape: (NUM_EPISODES, steps_per_episode, NUM_ENVS) if NUM_ENVS > 1
+    #                (NUM_EPISODES, steps_per_episode) if NUM_ENVS == 1
+    # With continuous_operation, env_state counters (accepted_services,
+    # accepted_bitrate, total_bitrate) are cumulative and never reset.
+    # LogWrapper's `lengths` resets per episode so can't be used as a
+    # cumulative request count — use the step count directly instead.
+    def _flatten(metric):
+        """Flatten (NUM_EPISODES, steps_per_episode, ...) -> (total_steps, ...) keeping env dim."""
+        x = eval_out["metrics"][metric]
+        return x.reshape(-1, *x.shape[2:])  # (total_steps,) or (total_steps, NUM_ENVS)
+
+    accepted_services = _flatten("accepted_services")
+    accepted_bitrate = _flatten("accepted_bitrate")
+    total_bitrate = _flatten("total_bitrate")
+    total_steps = accepted_services.shape[0]
+
+    # Warmup index is per-env steps. Clamp to valid range.
+    warmup_idx = int(config.ENV_WARMUP_STEPS)
+
+    # Check ENV_WARMUP_STEPS does not exceed total_steps
+    assert warmup_idx < total_steps, (
+        f"ENV_WARMUP_STEPS ({config.ENV_WARMUP_STEPS}) must be less than "
+        f"the total evaluation steps ({total_steps})."
+    )
+
+    # Service BP: each step is one request, so denominator = steps after warmup
+    # # -2 index avoids reset at end of last episode
+    post_warmup_requests = max(total_steps - warmup_idx, 1)
+    post_warmup_accepted = accepted_services[-2] - accepted_services[warmup_idx]
+    service_bp_per_env = 1 - (post_warmup_accepted / post_warmup_requests)
+    service_bp_mean = float(jnp.mean(service_bp_per_env))
+    service_bp_std = float(jnp.std(service_bp_per_env))
+
+    # Bitrate BP: denominator is cumulative total_bitrate delta
+    post_warmup_total_br = total_bitrate[-2] - total_bitrate[warmup_idx]
+    post_warmup_total_br = jnp.where(post_warmup_total_br == 0, 1, post_warmup_total_br)
+    post_warmup_accepted_br = accepted_bitrate[-2] - accepted_bitrate[warmup_idx]
+    bitrate_bp_per_env = 1 - (post_warmup_accepted_br / post_warmup_total_br)
+    bitrate_bp_mean = float(jnp.mean(bitrate_bp_per_env))
+    bitrate_bp_std = float(jnp.std(bitrate_bp_per_env))
+
+    if config.reward_type == "bitrate":
+        eval_metric_mean = bitrate_bp_mean
+        eval_metric_std = bitrate_bp_std
+        eval_metric_name = "bitrate_blocking_probability"
+    else:
+        eval_metric_mean = service_bp_mean
+        eval_metric_std = service_bp_std
+        eval_metric_name = "service_blocking_probability"
+
+    print(
+        f"Eval {eval_metric_name}: {eval_metric_mean:.6f} \u00b1 {eval_metric_std:.6f}"
+        f" (best: {best_eval_metric:.6f})"
+    )
+
+    if config.WANDB:
+        wandb.log(
+            {
+                "eval/service_blocking_probability_mean": service_bp_mean,
+                "eval/service_blocking_probability_std": service_bp_std,
+                "eval/bitrate_blocking_probability_mean": bitrate_bp_mean,
+                "eval/bitrate_blocking_probability_std": bitrate_bp_std,
+                "env_step": step_count,
+            }
+        )
+
+    if eval_metric_mean <= best_eval_metric:
+        best_eval_metric = eval_metric_mean
+        print(f"New best eval {eval_metric_name}: {best_eval_metric:.6f}")
+        if config.SAVE_MODEL:
+            model = eqx.combine(current_train_state.model_params, current_train_state.model_static)
+            save_model(model, config)
+
+    return best_eval_metric
 
 
 def get_mean_std_iqr(x, y):
@@ -976,12 +1161,12 @@ def plot_metrics(
         plot_metric_lower = processed_data["bitrate_blocking_probability"]["iqr_lower"]
         plot_metric_name = "Bitrate Blocking Probability"
 
-    smoothing_factor =  min(100, int(len(plot_metric) / 2))
+    smoothing_factor = min(100, int(len(plot_metric) / 2))
     step_factor = int(len(plot_metric)) / smoothing_factor
     plot_metric = moving_average(plot_metric, smoothing_factor)
     plot_metric_upper = moving_average(plot_metric_upper, smoothing_factor)
     plot_metric_lower = moving_average(plot_metric_lower, smoothing_factor)
-    plt.plot(jnp.arange(len(plot_metric))*config.DOWNSAMPLE_FACTOR*step_factor, plot_metric)
+    plt.plot(jnp.arange(len(plot_metric)) * config.DOWNSAMPLE_FACTOR * step_factor, plot_metric)
     plt.fill_between(range(len(plot_metric)), plot_metric_lower, plot_metric_upper, alpha=0.2)
     plt.xlabel("Environment Step" if not config.incremental_loading else "Episode Count")
     plt.ylabel(plot_metric_name)
@@ -1311,7 +1496,7 @@ def log_metrics(
                         for agg in ["mean", "std", "iqr_upper", "iqr_lower"]
                     }
                     log_dict["training_time"] = training_time[i]
-                    log_dict["env_step"] = (i*config.DOWNSAMPLE_FACTOR) + step_count
+                    log_dict["env_step"] = (i * config.DOWNSAMPLE_FACTOR) + step_count
                     wandb.log(log_dict)
 
             if config.LOG_LOSS_INFO and merged_out_loss is not None:

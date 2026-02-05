@@ -41,6 +41,8 @@ flags.DEFINE_float("ADAM_BETA1", 0.9, "Adam beta1")
 flags.DEFINE_float("ADAM_BETA2", 0.999, "Adam beta2")
 flags.DEFINE_float("MAX_GRAD_NORM", 0.5, "Maximum gradient norm")
 flags.DEFINE_string("ACTIVATION", "tanh", "Activation function")
+flags.DEFINE_float("LOGR_CLIP", 10.0, "Log ratio clip to range +/- this value")
+flags.DEFINE_float("ADV_CLIP", 10.0, "Advantage clip to range +/- this value")
 flags.DEFINE_string("LR_SCHEDULE", "cosine", "Learning rate schedule")
 flags.DEFINE_integer(
     "SCHEDULE_MULTIPLIER",
@@ -116,6 +118,7 @@ flags.DEFINE_boolean("PLOTTING", False, "Plotting")
 flags.DEFINE_integer("EMULATED_DEVICES", None, "Number of devices to emulate")
 flags.DEFINE_boolean("log_actions", False, "Log actions taken and other details")
 flags.DEFINE_boolean("log_path_lengths", False, "Log path length statistics")
+flags.DEFINE_boolean("log_wrapper", True, "Wrap Env in LogEnvWrapper")
 flags.DEFINE_boolean("PROFILE", False, "Profile programme with perfetto")
 flags.DEFINE_boolean("LOG_LOSS_INFO", True, "Log loss metrics")
 flags.DEFINE_boolean("LOG_ALL_INFO", True, "Log every metric")
@@ -178,19 +181,46 @@ flags.DEFINE_float(
     "REWARD_SCALE", 1.0, "Reward scaling factor (multiply all rewards by this value)"
 )
 # Include "no op"
+flags.DEFINE_boolean("include_no_op", False, "Whether to include a NO OP action.")
 flags.DEFINE_boolean(
-    "include_no_op", False, "Whether to include a NO OP action."
+    "OFF_POLICY_IAM",
+    False,
+    "Use off-policy invalid action masking i.e. log prob ratio is unmasked policy / masked",
 )
-flags.DEFINE_boolean("OFF_POLICY_IAM", False, "Use off-policy invalid action masking i.e. log prob ratio is unmasked policy / masked")
+flags.DEFINE_float(
+    "VALID_MASS_TARGET",
+    0.05,
+    "Target valid mass threshold for soft damping of actor and entropy losses "
+    "(valid mass below this value linearly damps the loss contribution)",
+)
+flags.DEFINE_float(
+    "VALID_MASS_LOSS_COEF",
+    0.0,
+    "Coefficient for valid mass loss term that encourages the unmasked policy to place "
+    "probability on valid actions (0.0 = disabled)",
+)
+flags.DEFINE_string(
+    "VML_SCHEDULE", "constant", "Valid mass loss coefficient schedule (constant, linear, cosine)"
+)
+flags.DEFINE_float(
+    "VML_END_FRACTION",
+    10.0,
+    "Fraction of initial VALID_MASS_LOSS_COEF that is final coefficient "
+    "(>1.0 anneals upward, e.g. 10.0 means final = 10x initial)",
+)
 
 # Flags for mixed precision
-flags.DEFINE_string("COMPUTE_DTYPE", None, "Compute precision dtype (float32, bfloat16)")
-flags.DEFINE_string("PARAMS_DTYPE", None, "Parameter storage dtype (float32, bfloat16)")
-flags.DEFINE_string("LARGE_FLOAT_DTYPE", None, "Large float dtype (float32, bfloat16)")
-flags.DEFINE_string("SMALL_FLOAT_DTYPE", None, "Small float dtype (float32, float16)")
-flags.DEFINE_string("LARGE_INT_DTYPE", None, "Large integer dtype (int32)")
-flags.DEFINE_string("MED_INT_DTYPE", None, "Medium integer dtype (int32, int16)")
-flags.DEFINE_string("SMALL_INT_DTYPE", None, "Small integer dtype (int32, int8)")
+flags.DEFINE_string("compute_dtype", None, "Compute precision dtype (float32, bfloat16)")
+flags.DEFINE_string("params_dtype", None, "Parameter storage dtype (float32, bfloat16)")
+flags.DEFINE_string("float_dtype", None, "Float dtype (float32, bfloat16)")
+flags.DEFINE_string("large_float_dtype", None, "Large float dtype (float32, bfloat16)")
+flags.DEFINE_string("small_float_dtype", None, "Small float dtype (float32, float16)")
+flags.DEFINE_string("int_dtype", None, "Integer dtype (int32)")
+flags.DEFINE_string("large_int_dtype", None, "Large integer dtype (int32)")
+flags.DEFINE_string("small_int_dtype", None, "Small integer dtype (int32, int8)")
+flags.DEFINE_string("binary_dtype", None, "Binary dtype (bool)")
+flags.DEFINE_string("reward_dtype", None, "Reward dtype (float32)")
+flags.DEFINE_string("action_dtype", None, "Action dtype (int32)")
 
 # Environment parameters
 flags.DEFINE_string("env_type", "rmsa", "Environment type")
@@ -233,7 +263,11 @@ flags.DEFINE_float(
     1.0,
     "Scale factor for link capacity (only used in RWA with lightpath reuse)",
 )
-flags.DEFINE_string("path_sort_criteria", "spectral_resources", "How paths should be sorted. Must be one of 'spectral_resources' (default), 'hops', 'distance', 'hops_distance', 'capacity' (for RWA-LR only)")
+flags.DEFINE_string(
+    "path_sort_criteria",
+    "spectral_resources",
+    "How paths should be sorted. Must be one of 'spectral_resources' (default), 'hops', 'distance', 'hops_distance', 'capacity' (for RWA-LR only)",
+)
 flags.DEFINE_string(
     "modulations_csv_filepath",
     "./xlron/data/modulations/modulations_deeprmsa.csv",
@@ -332,10 +366,14 @@ flags.DEFINE_boolean("mlp_layer_norm", False, "Use layer normalization in MLPs o
 
 # Transformer-specific parameters
 flags.DEFINE_boolean("USE_TRANSFORMER", False, "Use Transformer architecture")
-flags.DEFINE_string("transformer_obs_type", "departure", "Type of observation to feed to transformer. \
+flags.DEFINE_string(
+    "transformer_obs_type",
+    "departure",
+    "Type of observation to feed to transformer. \
     1. 'departure': use departure times. \
     2. 'occupancy': use link occupancy (binary). \
-    3. 'capacity': use remaining capacity array (for use with RWA-LR environment).")
+    3. 'capacity': use remaining capacity array (for use with RWA-LR environment).",
+)
 flags.DEFINE_integer("transformer_embedding_size", 128, "Size of transformer token embeddings")
 flags.DEFINE_integer(
     "transformer_intermediate_size",
@@ -367,6 +405,15 @@ flags.DEFINE_integer("transformer_critic_mlp_depth", 2, "Depth of critic MLP hea
 flags.DEFINE_boolean(
     "transformer_enable_dropout", False, "Enable dropout during training in transformer"
 )
+
+# Eval during training parameters
+flags.DEFINE_boolean(
+    "EVAL_DURING_TRAINING", False, "Run periodic evaluation during training to track best model"
+)
+flags.DEFINE_integer(
+    "EVAL_TIMESTEPS", 10000, "Number of timesteps per eval run (0 = use STEPS_PER_INCREMENT)"
+)
+flags.DEFINE_integer("EVAL_FREQUENCY", 1, "Run eval every N increments")
 
 # Model evaluation parameters
 flags.DEFINE_boolean("EVAL_MODEL", False, "Load model for evaluation")

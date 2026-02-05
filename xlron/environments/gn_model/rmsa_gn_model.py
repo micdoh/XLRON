@@ -81,6 +81,7 @@ class RMSAGNModelEnv(RSAEnv):
             modulation_format_index_array_prev=init_modulation_format_index_array(params),
             launch_power_array=launch_power_array,
             mod_format_mask=init_mod_format_mask(params),
+            valid_mass=1.0,
         )
         self.initial_state = state.replace(graph=init_graph_tuple(state, params, laplacian_matrix))
 

@@ -31,7 +31,7 @@ from xlron.environments.env_funcs import (
     init_vone_request_array,
     mask_nodes,
     mask_slots,
-    undo_action_rsa,
+    undo_link_action_vone,
     undo_node_action,
     update_action_history,
 )
@@ -81,7 +81,9 @@ class VONEEnv(environment.Environment):
             traffic_matrix=traffic_matrix
             if traffic_matrix is not None
             else init_traffic_matrix(key, params),
+            valid_mass=1.0,
         )
+        self.laplacian_matrix = laplacian_matrix
         self.initial_state = state.replace(
             graph=init_graph_tuple(state, params, laplacian_matrix, exclude_source_dest=True)
         )
@@ -102,7 +104,7 @@ class VONEEnv(environment.Environment):
         done = terminal | truncated
         obs_re, state_re = self.reset_env(key_reset, params)
         # Auto-reset environment based on termination
-        state = jax.tree_map(lambda x, y: jnp.where(done, x, y), state_re, state_st)
+        state = jax.tree.map(lambda x, y: jnp.where(done, x, y), state_re, state_st)
         obs = jax.lax.select(done, obs_re, obs_st)
         return (
             jax.lax.stop_gradient(obs),
@@ -159,10 +161,10 @@ class VONEEnv(environment.Environment):
             total_timesteps=state.total_timesteps + 1,
         )
         # Check if action was valid, calculate reward
-        check = check_vone_action(state, remaining_actions, total_requested_nodes)
+        check = check_vone_action(state, action, remaining_actions, total_requested_nodes, params)
         state, reward = jax.lax.cond(
             check,  # Fail if true
-            lambda x: (undo_action_rsa(undo_node_action(x), params), self.get_reward_failure(x)),
+            lambda x: (undo_link_action_vone(undo_node_action(x)), self.get_reward_failure(x)),
             lambda x: jax.lax.cond(
                 jnp.any(remaining_actions <= 1),  # Final action
                 lambda xx: (
@@ -193,8 +195,9 @@ class VONEEnv(environment.Environment):
             terminal = self.is_terminal(state, params, reward)
             truncated = self.is_truncated(state, params)
         # Update graph tuple
-        # TODO - get the update graph tuple working with VONE
-        state = state.replace(graph=init_graph_tuple(state, params))
+        state = state.replace(
+            graph=init_graph_tuple(state, params, self.laplacian_matrix, exclude_source_dest=True)
+        )
         info = {}
         return self.get_obs(state), state, reward, terminal, truncated, info
 
@@ -227,12 +230,16 @@ class VONEEnv(environment.Environment):
         state = state.replace(node_mask_d=node_mask_d)
         return state
 
-    def action_mask_slots(
-        self, state: EnvState, params: EnvParams, action: chex.Array
-    ) -> chex.Array:
+    def action_mask_slots(self, state: EnvState, params: EnvParams, action: chex.Array) -> EnvState:
         """Returns action mask for state."""
         formatted_request = format_vone_slot_request(state, action)
-        return mask_slots(state, params, formatted_request)
+        state = state.replace(request_array=formatted_request)
+        link_slot_mask, full_link_slot_mask = mask_slots(state, params)
+        state = state.replace(
+            link_slot_mask=link_slot_mask,
+            full_link_slot_mask=full_link_slot_mask,
+        )
+        return state
 
     def get_obs_unflat(self, state: EnvState) -> Tuple[chex.Array]:
         """Applies observation function to state."""

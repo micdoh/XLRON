@@ -149,6 +149,7 @@ def make(
     disable_node_features = config.get("disable_node_features", False)
     disjoint_paths = config.get("disjoint_paths", False)
     log_actions = config.get("log_actions", False)
+    profile = config.get("PROFILE", False)
     guardband = config.get("guardband", 1)
     path_sort_criteria = config.get("path_sort_criteria", "hops")
     remove_array_wrappers = config.get("remove_array_wrappers", False)
@@ -239,6 +240,7 @@ def make(
         arrival_rate = traffic_intensity / mean_service_holding_time
     else:
         arrival_rate = load / mean_service_holding_time
+        
     num_nodes = len(graph.nodes)
     num_links = len(graph.edges)
     scale_factor = config.get("scale_factor", 1.0)
@@ -392,14 +394,14 @@ def make(
             max_requests = int(scale_factor * max_requests)
         else:
             # If considering just RSA without physical layer considerations
-            link_length_array = jnp.ones((num_links, 1)).astype(dtype_config.MED_INT_DTYPE)
+            link_length_array = jnp.ones((num_links, 1)).astype(dtype_config.LARGE_INT_DTYPE)
         max_slots = required_slots(
             max_bw, 1, slot_size, guardband=guardband, temperature=temperature
         )
 
     if env_type == "rsa_gn_model":
         consider_modulation_format = False
-        path_se_array = jnp.array([1]).astype(dtype_config.MED_INT_DTYPE)
+        path_se_array = jnp.array([1]).astype(dtype_config.LARGE_INT_DTYPE)
         max_slots = required_slots(
             max_bw, 1, slot_size, guardband=guardband, temperature=temperature
         )
@@ -408,10 +410,10 @@ def make(
         mean_service_holding_time = load = 1e6
 
     # Define edges for use with heuristics and GNNs
-    edges = jnp.array(sorted(graph.edges), dtype=dtype_config.MED_INT_DTYPE)
+    edges = jnp.array(sorted(graph.edges), dtype=dtype_config.LARGE_INT_DTYPE)
 
     if pack_path_bits:  # This saves memory by packing the path link array into a bit array
-        path_link_array = path_link_array.astype(dtype_config.LARGE_FLOAT_DTYPE)
+        path_link_array = path_link_array.astype(dtype_config.LARGE_INT_DTYPE)
         path_link_array = jnp.packbits(path_link_array, axis=1)
 
     laplacian_matrix = (
@@ -432,12 +434,19 @@ def make(
         )
     else:
         line_graph_spectral_features = None
-        
+
     transformer_obs_type = config.get("transformer_obs_type", "")
     if transformer_obs_type:
-        assert transformer_obs_type in ["departure", "occupancy", "capacity"], f"transformer_obs_type must be one of 'departure', 'occupancy', or 'capacity', got {transformer_obs_type}"
+        assert transformer_obs_type in ["departure", "occupancy", "capacity"], (
+            f"transformer_obs_type must be one of 'departure', 'occupancy', or 'capacity', got {transformer_obs_type}"
+        )
         if transformer_obs_type == "capacity":
-            assert env_type == "rwa_lightpath_reuse", f"transformer_obs_type 'capacity' is only supported for env_type 'rwa_lightpath_reuse', got {env_type}"
+            assert env_type == "rwa_lightpath_reuse", (
+                f"transformer_obs_type 'capacity' is only supported for env_type 'rwa_lightpath_reuse', got {env_type}"
+            )
+
+    # In your env params initialization (outside JIT):
+    unique_se_values = np.unique(np.asarray(path_se_array))  # Use numpy, not jax
 
     params_dict = dict(
         max_requests=max_requests,
@@ -459,6 +468,9 @@ def make(
         path_se_array=HashableArrayWrapper(path_se_array)
         if not remove_array_wrappers
         else path_se_array,
+        unique_se_values=HashableArrayWrapper(unique_se_values)
+        if not remove_array_wrappers
+        else unique_se_values,
         link_length_array=HashableArrayWrapper(link_length_array)
         if not remove_array_wrappers
         else link_length_array,
@@ -486,6 +498,8 @@ def make(
         line_graph_spectral_features=line_graph_spectral_features,
         include_no_op=config.get("include_no_op", True),
         transformer_obs_type=transformer_obs_type,
+        use_gnn=config.get("USE_GNN"),
+        profile=profile,
     )
 
     gap_starts = (

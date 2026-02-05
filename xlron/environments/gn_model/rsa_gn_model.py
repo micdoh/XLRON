@@ -82,6 +82,7 @@ class RSAGNModelEnv(RSAEnv):
             active_lightpaths_array=init_active_lightpaths_array(params),
             active_lightpaths_array_departure=init_active_lightpaths_array_departure(params),
             throughput=jnp.array(0.0, dtype=init_link_snr_array(params).dtype),
+            valid_mass=1.0,
         )
         self.initial_state = state.replace(graph=init_graph_tuple(state, params, laplacian_matrix))
 

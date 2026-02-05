@@ -16,6 +16,7 @@ from xlron.environments.env_funcs import (
     required_slots,
     vmap_set_path_links,
 )
+from xlron.environments.wrappers import jit_profiler
 
 # TODO - define lower/highest GSNR heuristics. Will require returning an alternative mask
 #  e.g. of available SNR on path or of required slots
@@ -455,13 +456,12 @@ def get_link_weights(state: EnvState, params: RSAEnvParams):
 
 
 def get_action_mask(state: EnvState, params: RSAEnvParams) -> chex.Array:
-    """N.B. The mask must already be present in the state!"""
-    mask = (
-        state.link_slot_mask
-        if params.__class__.__name__ != "DeepRMSAEnvParams"
-        else (mask_slots(state, params, state.request_array).link_slot_mask)
+    _, full_mask = jit_profiler.call(
+        params.profile,
+        mask_slots,
+        state, params
     )
-    mask = jnp.reshape(mask, (params.k_paths, -1))
+    mask = jnp.reshape(full_mask, (params.k_paths, -1))
     return mask
 
 

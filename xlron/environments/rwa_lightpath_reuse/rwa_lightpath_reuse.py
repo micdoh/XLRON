@@ -64,7 +64,9 @@ class RWALightpathReuseEnv(RSAEnv):
             link_slot_array=init_link_slot_array(params),
             link_slot_departure_array=init_link_slot_departure_array(params),
             request_array=init_rsa_request_array(),
-            link_slot_mask=init_link_slot_mask(params, agg=params.aggregate_slots),
+            link_slot_mask=init_link_slot_mask(
+                params, include_no_op=params.include_no_op, agg=params.aggregate_slots
+            ),
             traffic_matrix=traffic_matrix
             if traffic_matrix is not None
             else init_traffic_matrix(key, params),
@@ -78,6 +80,7 @@ class RWALightpathReuseEnv(RSAEnv):
             total_bitrate=0.0,
             time_since_last_departure=0.0,
             list_of_requests=list_of_requests,
+            valid_mass=1.0,
         )
         self.initial_state = state.replace(graph=init_graph_tuple(state, params, laplacian_matrix))
 
@@ -98,5 +101,5 @@ class RWALightpathReuseEnv(RSAEnv):
         Returns:
             state: Environment state with action mask
         """
-        state = mask_slots_rwalr(state, params, state.request_array)
-        return state
+        link_slot_mask = mask_slots_rwalr(state, params, state.request_array)
+        return state.replace(link_slot_mask=link_slot_mask)
