@@ -429,6 +429,7 @@ def _env_rollout_advantages(
         train_state,
         annealed_beta,
     )
+    runner_state = (train_state, env_state, last_obs, runner_state[3], rng_epoch)
     return runner_state, traj_batch, adv, targets, priorities
 
 
