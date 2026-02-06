@@ -17,7 +17,6 @@ from xlron.environments.dataclasses import EnvParams, EnvState
 from xlron.environments.env_funcs import (
     get_obs_transformer,
     get_path_slots,
-    pool_path_embeddings,
     read_rsa_request,
 )
 
@@ -526,26 +525,28 @@ class ActorCriticTransformer(eqx.Module):
             key=critic_key,
         )["output"]
 
-        # POOLING - pool link embeddings per path, THEN project to slot logits
+        # Project per-link embeddings to slot logits, then pool across path links
+        action_tokens = jax.vmap(self.actor_mlp)(action_tokens)
+
+        # POOLING - sum edges per path
         nodes_sd, requested_bw = read_rsa_request(state.request_array)
         init_action_array = jnp.zeros(
             params.k_paths * self.num_slot_actions, dtype=dtype_config.SMALL_FLOAT_DTYPE
         )
-
-        def get_path_action_dist(i, action_array):
-            path_embedding = pool_path_embeddings(
-                action_tokens, params, nodes_sd, i, self.embedding_size
+        
+        def path_action_dist(i):
+            return get_path_slots(
+                action_tokens,
+                params,
+                nodes_sd,
+                i,
+                agg_func="sum",
             )
-            path_logits = self.actor_mlp(path_embedding)
-            action_array = jax.lax.dynamic_update_slice(
-                action_array, path_logits, (i * self.num_slot_actions,)
-            )
-            return action_array
-
-        path_action_logits = jax.lax.fori_loop(
-            0, params.k_paths, get_path_action_dist, init_action_array
+        path_action_logits = jax.vmap(path_action_dist)(
+            jnp.arange(params.k_paths)
         )
-        action_logits = jnp.reshape(path_action_logits, (-1,))
+        action_logits = path_action_logits.reshape((-1,))
+
         if params.include_no_op:
             action_logits = jnp.hstack([action_logits, jnp.array([-1e4])])
         action_dist = distrax.Categorical(logits=action_logits)

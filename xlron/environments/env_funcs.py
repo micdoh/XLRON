@@ -595,39 +595,6 @@ def get_link_relevance_array(
     return jnp.stack([weighted_relevance, path_count, best_rank, best_se], axis=-1)  # (E, 4)
 
 
-@partial(jax.jit, static_argnums=(1, 4))
-def pool_path_embeddings(
-    embeddings: chex.Array,
-    params: EnvParams,
-    nodes_sd: chex.Array,
-    i: int,
-    embedding_size: int,
-) -> chex.Array:
-    """Pool link embeddings along a path using summation.
-
-    Args:
-        embeddings: (E, embedding_size) link embedding array
-        params: environment parameters
-        nodes_sd: source-destination nodes
-        i: path index
-        embedding_size: dimension of embeddings (static for JIT)
-
-    Returns:
-        pooled: (embedding_size,) summed embedding for this path
-    """
-    path = get_path(params, nodes_sd, i)
-    path = path.reshape((params.num_links, 1))  # (E, 1)
-    masked = differentiable_where(
-        path,
-        embeddings,
-        jnp.zeros(embedding_size, dtype=embeddings.dtype),
-        threshold=0.5,
-        temperature=params.temperature,
-        differentiable=params.differentiable,
-    )
-    return jnp.sum(masked, axis=0)  # (embedding_size,)
-
-
 @partial(jax.jit, static_argnums=(1,))
 def get_obs_transformer(state: RSAEnvState, params: RSAEnvParams) -> chex.Array:
     """Retrieves observation for transformer model.
@@ -2967,21 +2934,22 @@ def get_path_slots(
         slots: slots on path
     """
     path = get_path(params, nodes_sd, i)
-    path = path.reshape((params.num_links, 1))
+    # path = path.reshape((params.num_links, 1))
     # Get links and collapse to single dimension
-    num_slots = (
-        params.link_resources
-        if agg_func == "max"
-        else math.ceil(params.link_resources / params.aggregate_slots)
-    )
-    slots = differentiable_where(
-        path,
-        link_slot_array,
-        jnp.zeros(num_slots).astype(dtype_config.LARGE_INT_DTYPE),
-        threshold=0.5,
-        temperature=params.temperature,
-        differentiable=params.differentiable,
-    )
+    # num_slots = (
+    #     params.link_resources
+    #     if agg_func == "max"
+    #     else math.ceil(params.link_resources / params.aggregate_slots)
+    # )
+    # slots = differentiable_where(
+    #     path,
+    #     link_slot_array,
+    #     jnp.zeros(num_slots).astype(dtype_config.LARGE_INT_DTYPE),
+    #     threshold=0.5,
+    #     temperature=params.temperature,
+    #     differentiable=params.differentiable,
+    # )
+    slots = path[:, None] * link_slot_array
     # Make any -1s positive then get max for each slot across links
     if agg_func == "max":
         # Use this for getting slots from link_slot_array
