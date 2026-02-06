@@ -9,7 +9,6 @@ ___
 
 ::: xlron.environments.dataclasses
 
-
 ___
 
 # Environment wrappers
@@ -18,15 +17,23 @@ ___
 
 ___
 
-# Constituent functions of environments
+# Environment functions
 
 ::: xlron.environments.env_funcs
 
 ___
 
+# Training Utilities
+
+::: xlron.train.train_utils
+
+___
+
 # Models
 
-::: xlron.models.models
+::: xlron.models.models.mlp
+::: xlron.models.models.gnn
+::: xlron.models.models.transformer
 
 ___
 
