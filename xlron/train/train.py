@@ -172,9 +172,9 @@ def train(argv: list[str], config: Dict[str, Any] = {}) -> None:
     os.environ["XLA_FLAGS"] = (
         "--xla_gpu_enable_triton_softmax_fusion=true "
         "--xla_gpu_triton_gemm_any=True "
-        "--xla_gpu_enable_async_collectives=true "
-        "--xla_gpu_enable_latency_hiding_scheduler=true "
-        "--xla_gpu_enable_highest_priority_async_stream=true "
+        # "--xla_gpu_enable_async_collectives=true "
+        # "--xla_gpu_enable_latency_hiding_scheduler=true "
+        # "--xla_gpu_enable_highest_priority_async_stream=true "
     )
     # Option to print memory usage for debugging OOM errors
     if config.PRINT_MEMORY_USE:
@@ -324,7 +324,7 @@ def train(argv: list[str], config: Dict[str, Any] = {}) -> None:
         # Run the increment
         with profiler.section("EXECUTION", frames=config.STEPS_PER_INCREMENT * config.NUM_LEARNERS):
             out = run_experiment(experiment_input)
-            out["metrics"]["returns"].block_until_ready()  # Wait for all devices to finish
+            train_state = jax.tree_util.tree_map(lambda x: x.block_until_ready() if hasattr(x, "block_until_ready") else x, out)  # Wait for all devices to finish
         prev_total = total_run_time
         total_run_time = time.time() - start_time - log_time  # Update total first
         increment_run_time = total_run_time - prev_total  # Increment = difference
@@ -332,7 +332,6 @@ def train(argv: list[str], config: Dict[str, Any] = {}) -> None:
         # Save model params (skip if EVAL_DURING_TRAINING, which saves only the best model)
         if config.SAVE_MODEL and not config.EVAL_DURING_TRAINING:
             # Merge seed_device and seed dimensions
-            train_state = out["runner_state"][0]
             model = eqx.combine(train_state.model_params, train_state.model_static)
             save_model(model, config)
 
