@@ -183,6 +183,48 @@ flags.DEFINE_float(
     "Fraction of initial entropy coefficient that is final entropy coefficient",
 )
 flags.DEFINE_float("WEIGHT_DECAY", 0.0, "Weight decay for optimizer")
+
+# Separate value function optimizer flags
+flags.DEFINE_boolean(
+    "SEPARATE_VF_OPTIMIZER",
+    False,
+    "Use a separate optimizer for the value function (critic) with its own hyperparameters",
+)
+flags.DEFINE_float("VF_LR", None, "Learning rate for value function optimizer (default: LR / 3)")
+flags.DEFINE_string(
+    "VF_LR_SCHEDULE",
+    None,
+    "Learning rate schedule for VF optimizer (default: same as LR_SCHEDULE)",
+)
+flags.DEFINE_float(
+    "VF_LR_END_FRACTION",
+    None,
+    "Fraction of init VF LR that is final VF LR (default: same as LR_END_FRACTION)",
+)
+flags.DEFINE_float(
+    "VF_WARMUP_MULTIPLIER",
+    None,
+    "VF LR warmup peak multiplier (default: same as WARMUP_MULTIPLIER)",
+)
+flags.DEFINE_float(
+    "VF_WARMUP_STEPS_FRACTION",
+    None,
+    "Fraction of total timesteps for VF LR warmup (default: same as WARMUP_STEPS_FRACTION)",
+)
+flags.DEFINE_float("VF_ADAM_EPS", None, "Adam epsilon for VF optimizer (default: same as ADAM_EPS)")
+flags.DEFINE_float(
+    "VF_ADAM_BETA1", None, "Adam beta1 for VF optimizer (default: same as ADAM_BETA1)"
+)
+flags.DEFINE_float(
+    "VF_ADAM_BETA2", None, "Adam beta2 for VF optimizer (default: same as ADAM_BETA2)"
+)
+flags.DEFINE_float(
+    "VF_MAX_GRAD_NORM", None, "Max gradient norm for VF optimizer (default: same as MAX_GRAD_NORM)"
+)
+flags.DEFINE_float(
+    "VF_WEIGHT_DECAY", None, "Weight decay for VF optimizer (default: same as WEIGHT_DECAY)"
+)
+
 flags.DEFINE_boolean(
     "STEP_ON_GRADIENT", False, "Whether to step schedule on gradient update or per update loop"
 )

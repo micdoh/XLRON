@@ -462,6 +462,79 @@ def load_model(config: Box, key: chex.PRNGKey) -> eqx.Module:
     return model
 
 
+def _make_param_label_fn(model: eqx.Module) -> Callable:
+    """Return a *callable* that maps a parameter pytree to 'actor'/'critic' labels.
+
+    Passed as ``param_labels`` to :func:`optax.multi_transform`.  Using a callable
+    avoids the problem of Equinox modules (which are themselves callable) being
+    mistaken for label functions by optax when passed as a static pytree.
+
+    Works across ActorCriticMLP, ActorCriticGNN, and ActorCriticTransformer:
+    any leaf whose key-path contains ".critic" is labelled ``"critic"``;
+    everything else is ``"actor"``.
+    """
+    # Snapshot the pytree structure of the learnable parameters at build time.
+    params = eqx.filter(model, eqx.is_inexact_array)
+    _, treedef = jax.tree_util.tree_flatten(params)
+
+    # Pre-compute the label for every leaf position.
+    label_list: list[str] = []
+    jax.tree_util.tree_map_with_path(
+        lambda path, _: label_list.append(
+            "critic" if ".critic" in jax.tree_util.keystr(path) else "actor"
+        ),
+        params,
+    )
+
+    def label_fn(params_pytree):
+        """Return a pytree of 'actor'/'critic' strings with the same structure as *params_pytree*."""
+        flat, td = jax.tree_util.tree_flatten(params_pytree)
+        # Sanity: must have same number of leaves
+        assert len(flat) == len(label_list), (
+            f"Parameter tree has {len(flat)} leaves but label list has {len(label_list)}"
+        )
+        return td.unflatten(label_list)
+
+    return label_fn
+
+
+def _make_multi_transform_optimizer(config: Box, actor_lr_schedule, vf_lr_schedule):
+    """Build an optax.multi_transform optimizer with separate actor/critic optimizers."""
+    vf_adam_eps = config.VF_ADAM_EPS if config.VF_ADAM_EPS is not None else config.ADAM_EPS
+    vf_adam_b1 = config.VF_ADAM_BETA1 if config.VF_ADAM_BETA1 is not None else config.ADAM_BETA1
+    vf_adam_b2 = config.VF_ADAM_BETA2 if config.VF_ADAM_BETA2 is not None else config.ADAM_BETA2
+    vf_max_grad_norm = (
+        config.VF_MAX_GRAD_NORM if config.VF_MAX_GRAD_NORM is not None else config.MAX_GRAD_NORM
+    )
+    vf_weight_decay = (
+        config.VF_WEIGHT_DECAY if config.VF_WEIGHT_DECAY is not None else config.WEIGHT_DECAY
+    )
+
+    actor_optimizer = optax.chain(
+        optax.clip_by_global_norm(config.MAX_GRAD_NORM),
+        optax.adamw(
+            learning_rate=actor_lr_schedule,
+            eps=config.ADAM_EPS,
+            b1=config.ADAM_BETA1,
+            b2=config.ADAM_BETA2,
+            weight_decay=config.WEIGHT_DECAY,
+        ),
+    )
+
+    critic_optimizer = optax.chain(
+        optax.clip_by_global_norm(vf_max_grad_norm),
+        optax.adamw(
+            learning_rate=vf_lr_schedule,
+            eps=vf_adam_eps,
+            b1=vf_adam_b1,
+            b2=vf_adam_b2,
+            weight_decay=vf_weight_decay,
+        ),
+    )
+
+    return actor_optimizer, critic_optimizer
+
+
 def experiment_data_setup(config: Box, rng: chex.PRNGKey) -> Tuple:
     # INIT ENV
     env, env_params = make(config)
@@ -496,22 +569,32 @@ def experiment_data_setup(config: Box, rng: chex.PRNGKey) -> Tuple:
     ent_schedule = make_ent_schedule(config)
     vml_schedule = make_vml_schedule(config)
 
-    # Use AdamW optimizer
-    optimizer = optax.chain(
-        optax.clip_by_global_norm(config.MAX_GRAD_NORM),
-        optax.adamw(
-            learning_rate=lr_schedule,
-            eps=config.ADAM_EPS,
-            b1=config.ADAM_BETA1,
-            b2=config.ADAM_BETA2,
-            weight_decay=config.WEIGHT_DECAY,
-        ),
-    )
+    if config.get("SEPARATE_VF_OPTIMIZER", False) and model is not None:
+        # Build separate actor/critic optimizers via optax.multi_transform
+        vf_lr_schedule = make_vf_lr_schedule(config)
+        actor_opt, critic_opt = _make_multi_transform_optimizer(config, lr_schedule, vf_lr_schedule)
+        param_labels = _make_param_label_fn(model)
+        tx = optax.multi_transform(
+            transforms={"actor": actor_opt, "critic": critic_opt},
+            param_labels=param_labels,
+        )
+    else:
+        # Use single AdamW optimizer for all parameters
+        optimizer = optax.chain(
+            optax.clip_by_global_norm(config.MAX_GRAD_NORM),
+            optax.adamw(
+                learning_rate=lr_schedule,
+                eps=config.ADAM_EPS,
+                b1=config.ADAM_BETA1,
+                b2=config.ADAM_BETA2,
+                weight_decay=config.WEIGHT_DECAY,
+            ),
+        )
 
-    tx = optax.chain(
-        optax.clip_by_global_norm(config.MAX_GRAD_NORM),
-        optimizer,
-    )
+        tx = optax.chain(
+            optax.clip_by_global_norm(config.MAX_GRAD_NORM),
+            optimizer,
+        )
 
     runner_state = TrainState.create(
         model=model,
@@ -788,6 +871,78 @@ def get_warmup_fn(warmup_state, env, params, train_state, config) -> Callable[[T
         return vals[1], vals[4]
 
     return warmup_fn
+
+
+def _make_schedule(
+    lr: float,
+    lr_end_fraction: float,
+    schedule_type: str,
+    warmup_multiplier: float,
+    warmup_steps_fraction: float,
+    config: Box,
+) -> optax.Schedule:
+    """Generic schedule builder used by both actor and VF LR schedules."""
+    NUM_MINIBATCHES = config.NUM_MINIBATCHES
+    NUM_UPDATES = config.NUM_UPDATES * config.NUM_INCREMENTS
+    UPDATE_EPOCHS = config.UPDATE_EPOCHS
+    SCHEDULE_MULTIPLIER = config.SCHEDULE_MULTIPLIER
+    end_value = lr * lr_end_fraction
+
+    def schedule_fn(count: chex.Numeric) -> chex.Numeric:
+        total_steps = NUM_UPDATES * UPDATE_EPOCHS * NUM_MINIBATCHES * SCHEDULE_MULTIPLIER
+        if schedule_type == "warmup_cosine":
+            schedule = optax.warmup_cosine_decay_schedule(
+                init_value=lr,
+                peak_value=lr * warmup_multiplier,
+                warmup_steps=total_steps * warmup_steps_fraction,
+                decay_steps=total_steps,
+                end_value=end_value,
+            )
+        elif schedule_type == "cosine":
+            schedule = optax.cosine_decay_schedule(
+                init_value=lr,
+                decay_steps=total_steps,
+                alpha=end_value,
+            )
+        elif schedule_type == "linear":
+            schedule = optax.linear_schedule(
+                init_value=lr,
+                end_value=end_value,
+                transition_steps=total_steps,
+            )
+        elif schedule_type == "constant":
+            schedule = optax.constant_schedule(lr)
+        else:
+            raise ValueError(f"Invalid LR schedule {schedule_type}")
+        return schedule(count)
+
+    return schedule_fn
+
+
+def make_vf_lr_schedule(config: Box) -> optax.Schedule:
+    """Create a learning rate schedule for the value function optimizer."""
+    vf_lr = config.VF_LR if config.VF_LR is not None else config.LR / 3.0
+    vf_schedule_type = (
+        config.VF_LR_SCHEDULE if config.VF_LR_SCHEDULE is not None else config.LR_SCHEDULE
+    )
+    vf_end_fraction = (
+        config.VF_LR_END_FRACTION
+        if config.VF_LR_END_FRACTION is not None
+        else config.LR_END_FRACTION
+    )
+    vf_warmup_mult = (
+        config.VF_WARMUP_MULTIPLIER
+        if config.VF_WARMUP_MULTIPLIER is not None
+        else config.WARMUP_MULTIPLIER
+    )
+    vf_warmup_frac = (
+        config.VF_WARMUP_STEPS_FRACTION
+        if config.VF_WARMUP_STEPS_FRACTION is not None
+        else config.WARMUP_STEPS_FRACTION
+    )
+    return _make_schedule(
+        vf_lr, vf_end_fraction, vf_schedule_type, vf_warmup_mult, vf_warmup_frac, config
+    )
 
 
 def make_lr_schedule(config: Box) -> optax.Schedule:
