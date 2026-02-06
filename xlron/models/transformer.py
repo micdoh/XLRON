@@ -11,12 +11,14 @@ from jaxtyping import (  # https://github.com/google/jaxtyping
     Float,
     PRNGKeyArray,
 )
+
 from xlron import dtype_config
-from xlron.environments.dataclasses import EnvState, EnvParams
+from xlron.environments.dataclasses import EnvParams, EnvState
 from xlron.environments.env_funcs import (
-    get_obs_transformer, 
-    read_rsa_request, 
+    get_obs_transformer,
     get_path_slots,
+    pool_path_embeddings,
+    read_rsa_request,
 )
 
 
@@ -413,6 +415,8 @@ class ActorCriticTransformer(eqx.Module):
     critic_mlp: eqx.nn.MLP
     share_layers: bool
     num_slot_actions: int
+    num_request_specific_cols: int = eqx.field(static=True)
+    embedding_size: int = eqx.field(static=True)
 
     def __init__(
         self,
@@ -431,6 +435,7 @@ class ActorCriticTransformer(eqx.Module):
         critic_mlp_width: int,
         actor_mlp_depth: int,
         critic_mlp_depth: int,
+        num_request_specific_cols: int,
         key: chex.PRNGKey,
     ):
         (
@@ -439,6 +444,8 @@ class ActorCriticTransformer(eqx.Module):
             critic_key,
         ) = jax.random.split(key, 3)
         self.share_layers = share_layers
+        self.num_request_specific_cols = num_request_specific_cols
+        self.embedding_size = embedding_size
         actor = Encoder(
             input_size=input_size,
             intermediate_size=intermediate_size,
@@ -451,7 +458,7 @@ class ActorCriticTransformer(eqx.Module):
             key=encoder_key,
         )
         critic = Encoder(
-            input_size=input_size-1,  # Minus 1 because we remove the current request elements
+            input_size=input_size - num_request_specific_cols,
             intermediate_size=intermediate_size,
             embedding_size=embedding_size,
             num_layers=num_layers,
@@ -493,8 +500,8 @@ class ActorCriticTransformer(eqx.Module):
         """Forward pass through the actor-critic transformer.
 
         Args:
-            tokens: Input tokens of shape (num_links, num_wire_features + link_resources)
-                   First num_wire_features columns are WiRE positional encodings
+            state: Environment state
+            params: Environment parameters
             enable_dropout: Whether to enable dropout
             key: PRNG key for dropout
 
@@ -504,33 +511,34 @@ class ActorCriticTransformer(eqx.Module):
         actor, critic = self.actor_critic
         actor_key, critic_key = jax.random.split(key) if key is not None else (None, None)
         tokens = get_obs_transformer(state, params)
-        
+
         action_tokens = actor(
             tokens,
             enable_dropout=enable_dropout,
             key=actor_key,
         )["output"]
-        
-        tokens_for_critic = tokens[: , :-1] # Trim tokens that are relevant to current request
+
+        # Strip request-specific columns for critic
+        tokens_for_critic = tokens[:, : -self.num_request_specific_cols]
         value_tokens = critic(
             tokens_for_critic,
             enable_dropout=enable_dropout,
             key=critic_key,
         )["output"]
-        
-        # Project action tokens back to original edge size
-        action_tokens = jax.vmap(self.actor_mlp)(action_tokens)
-        
-        # POOLING - sum edges per path
+
+        # POOLING - pool link embeddings per path, THEN project to slot logits
         nodes_sd, requested_bw = read_rsa_request(state.request_array)
         init_action_array = jnp.zeros(
             params.k_paths * self.num_slot_actions, dtype=dtype_config.SMALL_FLOAT_DTYPE
         )
 
         def get_path_action_dist(i, action_array):
-            path_features = get_path_slots(action_tokens, params, nodes_sd, i, agg_func="sum")
+            path_embedding = pool_path_embeddings(
+                action_tokens, params, nodes_sd, i, self.embedding_size
+            )
+            path_logits = self.actor_mlp(path_embedding)
             action_array = jax.lax.dynamic_update_slice(
-                action_array, path_features, (i * self.num_slot_actions,)
+                action_array, path_logits, (i * self.num_slot_actions,)
             )
             return action_array
 
@@ -541,7 +549,7 @@ class ActorCriticTransformer(eqx.Module):
         if params.include_no_op:
             action_logits = jnp.hstack([action_logits, jnp.array([-1e4])])
         action_dist = distrax.Categorical(logits=action_logits)
-        
+
         # Pool and Value
         value_tokens_mean = jnp.mean(value_tokens, axis=0)
         value = self.critic_mlp(value_tokens_mean).squeeze()

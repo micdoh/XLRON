@@ -540,17 +540,26 @@ def init_path_link_array(
 def get_link_relevance_array(
     paths: Array, paths_se: Array, requested_datarate: Array, params: RSAEnvParams
 ):
-    """
-    paths: (k, E)
-    paths_se: (k, 1)
-    requested_datarate: (1,)
-    returns: (num_pairs, E)
-    """
-    # Rank weights: higher weight for links on shorter path
-    ranks = jnp.arange(params.k_paths)
-    rank_weights = 1.0 / (ranks + 1.0)
+    """Compute 4 link relevance features for the current request.
 
-    # Slot weights: higher weights for links on paths that require less slots
+    Args:
+        paths: (k, E) binary path-link indicators
+        paths_se: (k, 1) spectral efficiency per path
+        requested_datarate: (1,)
+        params: environment parameters
+
+    Returns:
+        (E, 4) array with columns:
+            0: weighted_relevance - combined rank/SE weighted sum across paths
+            1: path_count - fraction of k paths using each link
+            2: best_rank - 1 - min_rank/k for links on any path, 0 otherwise
+            3: best_se - max SE among paths through link, normalized
+    """
+    k = params.k_paths
+
+    # --- Feature 1: Weighted relevance (existing logic) ---
+    ranks = jnp.arange(k)
+    rank_weights = 1.0 / (ranks + 1.0)
     num_slots = jax.vmap(
         lambda x: required_slots(
             requested_datarate,
@@ -561,73 +570,137 @@ def get_link_relevance_array(
         )
     )(paths_se.flatten())
     slot_weights = 1.0 / num_slots
-
-    # Combine weights
     weights = rank_weights * slot_weights.flatten()
     weights = weights / (jnp.sum(weights) + 1e-8)
-
     weighted_paths = paths * weights[:, None]
-    relevance = jnp.sum(weighted_paths, axis=0)
+    weighted_relevance = jnp.sum(weighted_paths, axis=0)  # (E,)
 
-    return relevance
+    # --- Feature 2: Path count - fraction of k paths using each link ---
+    path_count = jnp.sum(paths, axis=0) / k  # (E,)
+
+    # --- Feature 3: Best rank - 1 - min_rank/k for links on any path, 0 otherwise ---
+    rank_per_path = jnp.arange(k).reshape(k, 1)  # (k, 1)
+    # Where path uses link, use rank; otherwise use k (sentinel)
+    rank_masked = jnp.where(paths > 0, rank_per_path, k)  # (k, E)
+    min_rank = jnp.min(rank_masked, axis=0)  # (E,)
+    on_any_path = (path_count > 0).astype(jnp.float32)  # (E,)
+    best_rank = on_any_path * (1.0 - min_rank / k)  # (E,)
+
+    # --- Feature 4: Best SE - max SE among paths through link, normalized ---
+    se_vals = paths_se.flatten()  # (k,)
+    max_se = jnp.max(se_vals) + 1e-8
+    se_masked = jnp.where(paths > 0, se_vals[:, None], 0.0)  # (k, E)
+    best_se = jnp.max(se_masked, axis=0) / max_se  # (E,)
+
+    return jnp.stack([weighted_relevance, path_count, best_rank, best_se], axis=-1)  # (E, 4)
+
+
+@partial(jax.jit, static_argnums=(1, 4))
+def pool_path_embeddings(
+    embeddings: chex.Array,
+    params: EnvParams,
+    nodes_sd: chex.Array,
+    i: int,
+    embedding_size: int,
+) -> chex.Array:
+    """Pool link embeddings along a path using summation.
+
+    Args:
+        embeddings: (E, embedding_size) link embedding array
+        params: environment parameters
+        nodes_sd: source-destination nodes
+        i: path index
+        embedding_size: dimension of embeddings (static for JIT)
+
+    Returns:
+        pooled: (embedding_size,) summed embedding for this path
+    """
+    path = get_path(params, nodes_sd, i)
+    path = path.reshape((params.num_links, 1))  # (E, 1)
+    masked = differentiable_where(
+        path,
+        embeddings,
+        jnp.zeros(embedding_size, dtype=embeddings.dtype),
+        threshold=0.5,
+        temperature=params.temperature,
+        differentiable=params.differentiable,
+    )
+    return jnp.sum(masked, axis=0)  # (embedding_size,)
 
 
 @partial(jax.jit, static_argnums=(1,))
 def get_obs_transformer(state: RSAEnvState, params: RSAEnvParams) -> chex.Array:
     """Retrieves observation for transformer model.
 
-    Creates tokens for each link/edge with:
-    - First num_wire_features columns: spectral features from line graph (WiRE positional encodings)
-    - Remaining columns: edge features (link_slot_array or normalized departure times)
+    Creates tokens for each link/edge. Column order:
+        [wire_features | edge_features | traffic_marginals | request-specific...]
+    where request-specific features are at the end so the critic can strip them.
+
+    Request-specific columns (stripped for critic):
+        - holding_time (1 col, departure mode only)
+        - request_size (1 col)
+        - link_relevance (4 cols)
 
     Args:
         state: Environment state
         params: Environment parameters
 
     Returns:
-        Tuple of (tokens, degrees) where:
-        - tokens: Array of shape (num_links, num_wire_features + link_resources)
-        - degrees: Array of shape (num_links, 1) containing line graph node degrees
+        tokens: Array of shape (num_links, input_size)
     """
     # Get line graph spectral features (WiRE positional encodings)
     wire_features = params.line_graph_spectral_features.val
 
-    # Get edge features based on traffic type
+    # Get edge features based on traffic type (WITHOUT holding time - that's request-specific)
     if params.transformer_obs_type == "occupancy":
-        # Static traffic: use raw link_slot_array
         edge_features = state.link_slot_array
     elif params.transformer_obs_type == "capacity":
-        # Use the normalized capacity array
         edge_features = state.link_capacity_array / 1e6
     else:
-        # Dynamic traffic: use normalized holding time
+        # Dynamic traffic: normalized departure times only
         edge_features = state.link_slot_departure_array / params.mean_service_holding_time
-        # Append current normalized holding time
-        edge_features = jnp.hstack(
-            [
-                edge_features,
-                jnp.full(
-                    (edge_features.shape[0], 1),
-                    state.holding_time / params.mean_service_holding_time,
-                ),
-            ]
-        )
 
-    # Get the relevance of link to current request
+    # --- Traffic matrix node marginal features (NOT request-specific) ---
+    send_load = jnp.sum(state.traffic_matrix, axis=1)  # (N,) row marginals
+    recv_load = jnp.sum(state.traffic_matrix, axis=0)  # (N,) col marginals
+    send_load = send_load / (jnp.sum(send_load) + 1e-8)
+    recv_load = recv_load / (jnp.sum(recv_load) + 1e-8)
+    link_src = params.edges.val[:, 0].astype(jnp.int32)  # (E,)
+    link_dst = params.edges.val[:, 1].astype(jnp.int32)  # (E,)
+    endpoint_send = (send_load[link_src] + send_load[link_dst]).reshape(-1, 1)  # (E, 1)
+    endpoint_recv = (recv_load[link_src] + recv_load[link_dst]).reshape(-1, 1)  # (E, 1)
+    traffic_marginal_features = jnp.concatenate([endpoint_send, endpoint_recv], axis=-1)  # (E, 2)
+
+    # --- Request-specific features (critic should NOT see these) ---
     nodes_sd, requested_datarate = read_rsa_request(state.request_array)
+
+    # Normalized request size
+    max_bw = jnp.max(params.values_bw.val)
+    request_size_feature = jnp.full(
+        (params.num_links, 1),
+        requested_datarate.squeeze() / (max_bw + 1e-8),
+    )  # (E, 1)
+
+    # Link relevance (4 features)
     paths_se = get_paths_se(params, nodes_sd)
     paths = get_paths(params, nodes_sd)
     link_relevance_features = get_link_relevance_array(
         paths, paths_se, requested_datarate, params
-    ).reshape((-1, 1))
+    )  # (E, 4)
 
-    # TODO - calculate betweeneess of each link taking into account the traffic matrix, then add a feature for this
+    # Concatenation: shared features first, request-specific features last
+    # Shared: wire_features, edge_features, traffic_marginals
+    # Request-specific: [holding_time (departure only),] request_size, link_relevance
+    shared = [wire_features, edge_features, traffic_marginal_features]
+    request_specific = [request_size_feature, link_relevance_features]
+    if params.transformer_obs_type == "departure":
+        holding_time_col = jnp.full(
+            (params.num_links, 1),
+            state.holding_time / params.mean_service_holding_time,
+        )  # (E, 1)
+        request_specific = [holding_time_col] + request_specific
 
-    # Concatenate WiRE features with edge features
-    # wire_features: (num_links, num_wire_features)
-    # edge_features: (num_links, link_resources)
-    # link_relevance_features: (num_links, 1)
-    tokens = jnp.concatenate([wire_features, edge_features, link_relevance_features], axis=-1)
+    tokens = jnp.concatenate(shared + request_specific, axis=-1)
 
     return tokens
 

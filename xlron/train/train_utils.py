@@ -327,14 +327,19 @@ def init_network(config: Box, key: chex.PRNGKey) -> eqx.Module:
     ]:
         if config.USE_TRANSFORMER:
             # For transformer: input_size is the per-token feature dimension
-            # This includes: wire_features + edge_features (link_slot_array or departure times)
-            # The link_slot_array has shape (num_links, link_resources) so per-link features
+            # Column order: [wire | edge | traffic_marginals | request-specific...]
+            # Request-specific: [holding_time (departure only)] + request_size + link_relevance(4)
+            num_request_specific_cols = (
+                4  # link relevance
+                + 1  # request size
+                + int(config.transformer_obs_type == "departure")  # holding time
+            )
             input_size = (
-                config.num_wire_features + config.link_resources + 1
-            )  # +1 for link relevance
-            input_size += int(
-                config.transformer_obs_type == "departure"
-            )  # +1 for holding time of current request
+                config.num_wire_features
+                + config.link_resources
+                + 2  # traffic marginals
+                + num_request_specific_cols
+            )
             network = ActorCriticTransformer(
                 input_size=input_size,
                 embedding_size=config.transformer_embedding_size,
@@ -351,6 +356,7 @@ def init_network(config: Box, key: chex.PRNGKey) -> eqx.Module:
                 critic_mlp_width=config.transformer_critic_mlp_width,
                 actor_mlp_depth=config.transformer_actor_mlp_depth,
                 critic_mlp_depth=config.transformer_critic_mlp_depth,
+                num_request_specific_cols=num_request_specific_cols,
                 key=key,
             )
         elif config.USE_GNN:
