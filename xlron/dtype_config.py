@@ -4,20 +4,20 @@ import inspect
 import os
 from typing import Any, Dict
 
+# Set XLA flags here before any JAX imports.
+os.environ["XLA_FLAGS"] = (
+    "--xla_gpu_enable_triton_softmax_fusion=True " \
+    "--xla_gpu_triton_gemm_any=True " \
+    "--xla_gpu_enable_latency_hiding_scheduler=True " \
+    "--xla_gpu_deterministic_ops=True"
+)
+
 import jax
 import jax.numpy as jnp
 from absl import flags
 from box import Box
 
 FLAGS = flags.FLAGS
-
-# Set XLA flags here before any JAX imports.
-os.environ["XLA_FLAGS"] = (
-    "--xla_gpu_enable_triton_softmax_fusion=true " \
-    "--xla_gpu_triton_gemm_any=True " \
-    "--xla_gpu_enable_latency_hiding_scheduler=true " \
-    "--xla_gpu_deterministic_ops=true"
-)
 
 DTYPE_MAP = {
     "int32": jnp.int32,
