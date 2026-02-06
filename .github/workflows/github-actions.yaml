@@ -40,5 +40,5 @@ jobs:
           path: .cache
           restore-keys: |
             mkdocs-material-
-      - run: uv tool install mkdocs-material && uv tool install mkdocstrings-python
-      - run: uvx mkdocs gh-deploy --force
+      - run: uv sync --python ${{ matrix.python-version }} --extra docs
+      - run: uv run --python ${{ matrix.python-version }} mkdocs gh-deploy --force

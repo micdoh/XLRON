@@ -22,10 +22,6 @@ dependencies = [
     "joblib>=1.5.2",
     "jraph>=0.0.6.dev0",
     "jupyter>=1.1.1",
-    "mkdocs>=1.6.1",
-    "mkdocs-material>=9.6.22",
-    "mkdocstrings-python>=1.18.2",
-    "mkdocstrings[python]>=0.30.1",
     "mkinit>=1.1.0",
     "ml-dtypes>=0.5.3",
     "networkx>=3.5",
@@ -52,6 +48,14 @@ dependencies = [
 [dependency-groups]
 gpu = [
   "jax[cuda12]"
+]
+
+[project.optional-dependencies]
+docs = [
+  "mkdocs",
+  "mkdocs-material",
+  "mkdocstrings-python",
+  "mkdocstrings[python]",
 ]
 
 [tool.ruff]
