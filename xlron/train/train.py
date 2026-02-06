@@ -168,14 +168,6 @@ def train(argv: list[str], config: Dict[str, Any] = {}) -> None:
     jax.config.update("jax_debug_nans", config.DEBUG_NANS)
     jax.config.update("jax_disable_jit", config.DISABLE_JIT)
     jax.config.update("jax_enable_x64", config.ENABLE_X64)
-    # The following flags can improve GPU performance for jaxlib>=0.4.18
-    os.environ["XLA_FLAGS"] = (
-        "--xla_gpu_enable_triton_softmax_fusion=true "
-        "--xla_gpu_triton_gemm_any=True "
-        # "--xla_gpu_enable_async_collectives=true "
-        # "--xla_gpu_enable_latency_hiding_scheduler=true "
-        # "--xla_gpu_enable_highest_priority_async_stream=true "
-    )
     # Option to print memory usage for debugging OOM errors
     if config.PRINT_MEMORY_USE:
         os.environ["TF_CPP_MIN_LOG_LEVEL"] = "0"
