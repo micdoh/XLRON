@@ -190,7 +190,8 @@ class TrainState(eqx.Module):
         prio_alpha: float = 0.0,
         prio_beta0: float = 1.0,
         prio_beta: float = 1.0,
-        reward_stepsize_init: float = 0.0001,
+        reward_stepsize_init: float = 0.001,
+        initial_avg_reward: float = 0.0,
     ) -> "TrainState":
         """Creates a new instance with step=0 and initialized opt_state."""
         opt_state = tx.init(eqx.filter(model, eqx.is_inexact_array))
@@ -204,7 +205,7 @@ class TrainState(eqx.Module):
             lr_schedule=lr_schedule,
             ent_schedule=ent_schedule,
             vml_schedule=vml_schedule,
-            avg_reward=jnp.array(0.0, dtype=dtype_config.REWARD_DTYPE),
+            avg_reward=jnp.array(initial_avg_reward, dtype=dtype_config.REWARD_DTYPE),
             reward_stepsize=jnp.array(reward_stepsize_init, dtype=dtype_config.REWARD_DTYPE),
             reward_stepsize_init=jnp.array(reward_stepsize_init, dtype=dtype_config.REWARD_DTYPE),
             reward_stepsize_offset=jnp.array(1.0, dtype=dtype_config.REWARD_DTYPE),
@@ -522,6 +523,7 @@ def experiment_data_setup(config: Box, rng: chex.PRNGKey) -> Tuple:
         prio_beta0=config.PRIO_BETA0,
         prio_beta=config.PRIO_BETA0,
         reward_stepsize_init=config.REWARD_STEPSIZE,
+        initial_avg_reward=config.INITIAL_AVERAGE_REWARD,
     )
 
     # Recreate DeepRMSA warmup period
