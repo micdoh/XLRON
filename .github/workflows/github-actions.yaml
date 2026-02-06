@@ -5,7 +5,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.13"]
+        python-version: ["3.12"]
     steps:
       - uses: actions/checkout@v3
       - name: Install uv
@@ -18,7 +18,7 @@ jobs:
         run: uv sync
       - name: Test with chex
         run: |
-          PYTHONPATH=. uv run pytest --ignore=xlron/environments/vone --cov xlron
+          PYTHONPATH=. uv run pytest--cov xlron
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v3
         env:
