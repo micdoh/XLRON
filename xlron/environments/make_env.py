@@ -70,15 +70,34 @@ def process_config(config: Optional[Union[dict, FlagValues]], **kwargs: Any) -> 
         config.TOTAL_TIMESTEPS = int(config.TOTAL_TIMESTEPS)
         # For incremental logging, we need to set the number of increments
         config.STEPS_PER_INCREMENT = min(config.TOTAL_TIMESTEPS, config.STEPS_PER_INCREMENT)
+
+        is_eval = config.get("EVAL_HEURISTIC") or config.get("EVAL_MODEL")
+
+        # For episodic eval (EVAL_HEURISTIC/EVAL_MODEL without continuous_operation),
+        # ensure STEPS_PER_INCREMENT is large enough for at least one episode per increment.
+        # The eval scan runs max_requests*scale_factor steps per episode, and NUM_EPISODES
+        # = STEPS_PER_INCREMENT // (max_requests * scale_factor) // NUM_ENVS.
+        if is_eval and not config.get("continuous_operation", False):
+            max_requests = int(config.get("max_requests", 1000))
+            scale_factor = int(config.get("scale_factor", 1))
+            episode_length = max_requests * scale_factor
+            min_steps = episode_length * config.NUM_ENVS
+            if config.STEPS_PER_INCREMENT < min_steps:
+                config.STEPS_PER_INCREMENT = min_steps
+
         n_increments = config.TOTAL_TIMESTEPS // config.STEPS_PER_INCREMENT
         config.NUM_INCREMENTS = n_increments
         config.TOTAL_TIMESTEPS = n_increments * config.STEPS_PER_INCREMENT
-        # Set derived config values
+        # Set derived config values for RL training (not used by eval, but kept consistent)
         config.MINIBATCH_SIZE = config.ROLLOUT_LENGTH * config.NUM_ENVS // config.NUM_MINIBATCHES
         config.NUM_UPDATES = config.STEPS_PER_INCREMENT // config.ROLLOUT_LENGTH // config.NUM_ENVS
-        # Update these values to show true number of steps completed
-        config.STEPS_PER_INCREMENT = config.ROLLOUT_LENGTH * config.NUM_ENVS * config.NUM_UPDATES
-        config.TOTAL_TIMESTEPS = n_increments * config.STEPS_PER_INCREMENT
+        if not is_eval:
+            # Only snap STEPS_PER_INCREMENT to ROLLOUT_LENGTH multiples for RL training.
+            # For eval, STEPS_PER_INCREMENT controls episode count and must not be overwritten.
+            config.STEPS_PER_INCREMENT = (
+                config.ROLLOUT_LENGTH * config.NUM_ENVS * config.NUM_UPDATES
+            )
+            config.TOTAL_TIMESTEPS = n_increments * config.STEPS_PER_INCREMENT
     return config
 
 
@@ -240,7 +259,7 @@ def make(
         arrival_rate = traffic_intensity / mean_service_holding_time
     else:
         arrival_rate = load / mean_service_holding_time
-        
+
     num_nodes = len(graph.nodes)
     num_links = len(graph.edges)
     scale_factor = config.get("scale_factor", 1.0)
