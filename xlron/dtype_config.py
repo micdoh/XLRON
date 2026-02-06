@@ -13,9 +13,9 @@ FLAGS = flags.FLAGS
 
 # Set XLA flags here before any JAX imports.
 os.environ["XLA_FLAGS"] = (
-    "--xla_gpu_enable_triton_softmax_fusion=true "
-    "--xla_gpu_triton_gemm_any=True "
-    "--xla_gpu_enable_latency_hiding_scheduler=true ",
+    "--xla_gpu_enable_triton_softmax_fusion=true " \
+    "--xla_gpu_triton_gemm_any=True " \
+    "--xla_gpu_enable_latency_hiding_scheduler=true " \
     "--xla_gpu_deterministic_ops=true"
 )
 
