@@ -530,10 +530,6 @@ class ActorCriticTransformer(eqx.Module):
 
         # POOLING - sum edges per path
         nodes_sd, requested_bw = read_rsa_request(state.request_array)
-        init_action_array = jnp.zeros(
-            params.k_paths * self.num_slot_actions, dtype=dtype_config.SMALL_FLOAT_DTYPE
-        )
-        
         def path_action_dist(i):
             return get_path_slots(
                 action_tokens,
