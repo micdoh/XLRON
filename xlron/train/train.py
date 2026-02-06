@@ -3,7 +3,7 @@ os.environ['XLA_FLAGS'] = (
     '--xla_gpu_triton_gemm_any=False '
     # '--xla_gpu_enable_latency_hiding_scheduler=true '
     # '--xla_gpu_enable_highest_priority_async_stream=true '
-    '--xla_gpu_deterministic_ops=true'
+    # '--xla_gpu_deterministic_ops=true'
 )
 import subprocess
 import sys
