@@ -31,9 +31,9 @@ ___
 
 # Models
 
-::: xlron.models.models.mlp
-::: xlron.models.models.gnn
-::: xlron.models.models.transformer
+::: xlron.models.mlp
+::: xlron.models.gnn
+::: xlron.models.transformer
 
 ___
 
