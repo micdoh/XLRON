@@ -645,7 +645,7 @@ def get_obs_transformer(state: RSAEnvState, params: RSAEnvParams) -> chex.Array:
     max_bw = jnp.max(params.values_bw.val)
     request_size_feature = jnp.full(
         (params.num_links, 1),
-        requested_datarate.squeeze() / (max_bw + 1e-8),
+        requested_datarate / (max_bw + 1e-8),
     )  # (E, 1)
 
     # Link relevance (4 features)
@@ -1836,8 +1836,8 @@ def complete_step_rsa(
         link_slot_departure_array=state.link_slot_departure_array
         - (fail * action_info.affected_slots_mask * (state.current_time + state.holding_time)),
         accepted_services=state.accepted_services + success,
-        accepted_bitrate=state.accepted_bitrate + (success * action_info.requested_datarate[0]),
-        total_bitrate=state.total_bitrate + action_info.requested_datarate[0],
+        accepted_bitrate=state.accepted_bitrate + (success * action_info.requested_datarate),
+        total_bitrate=state.total_bitrate + action_info.requested_datarate,
         total_timesteps=state.total_timesteps + 1,
     )
     return state
@@ -1860,7 +1860,7 @@ def undo_action_rsa(state: EnvState, action_info: ActionInfo, params: EnvParams)
         link_slot_array=state.link_slot_array - action_info.affected_slots_mask,
         link_slot_departure_array=state.link_slot_departure_array
         - (action_info.affected_slots_mask * (state.current_time + state.holding_time)),
-        total_bitrate=state.total_bitrate + action_info.requested_datarate[0],
+        total_bitrate=state.total_bitrate + action_info.requested_datarate,
     )
     return state
 
@@ -2392,17 +2392,13 @@ def format_vone_slot_request(state: EnvState, action: chex.Array) -> chex.Array:
 
 def read_rsa_request(request_array: chex.Array) -> Tuple[chex.Array, chex.Array]:
     """Read RSA request from request array. Return source-destination nodes and bandwidth request.
-
     Args:
         request_array: request array
-
     Returns:
         Tuple[chex.Array, chex.Array]: source-destination nodes and bandwidth request
     """
-    node_s = jax.lax.dynamic_slice(request_array, (0,), (1,))
-    requested_datarate = jax.lax.dynamic_slice(request_array, (1,), (1,))
-    node_d = jax.lax.dynamic_slice(request_array, (2,), (1,))
-    nodes_sd = jnp.concatenate((node_s, node_d))
+    nodes_sd = request_array[jnp.array([0, 2])]
+    requested_datarate = request_array[1]
     return nodes_sd, requested_datarate
 
 
@@ -2441,8 +2437,8 @@ def finalise_action_rsa(state: EnvState, action_info: ActionInfo, params: EnvPar
     """
     state = state.replace(
         accepted_services=state.accepted_services + 1,
-        accepted_bitrate=state.accepted_bitrate + action_info.requested_datarate[0],
-        total_bitrate=state.total_bitrate + action_info.requested_datarate[0],
+        accepted_bitrate=state.accepted_bitrate + action_info.requested_datarate,
+        total_bitrate=state.total_bitrate + action_info.requested_datarate,
     )
     return state
 
@@ -2461,8 +2457,8 @@ def finalise_action_rwalr(state: EnvState, params: Optional[EnvParams]):
     state = state.replace(
         link_slot_departure_array=make_positive(state.link_slot_departure_array),
         accepted_services=state.accepted_services + 1,
-        accepted_bitrate=state.accepted_bitrate + requested_datarate[0],
-        total_bitrate=state.total_bitrate + requested_datarate[0],
+        accepted_bitrate=state.accepted_bitrate + requested_datarate,
+        total_bitrate=state.total_bitrate + requested_datarate,
     )
     return state
 
@@ -2934,21 +2930,6 @@ def get_path_slots(
         slots: slots on path
     """
     path = get_path(params, nodes_sd, i)
-    # path = path.reshape((params.num_links, 1))
-    # Get links and collapse to single dimension
-    # num_slots = (
-    #     params.link_resources
-    #     if agg_func == "max"
-    #     else math.ceil(params.link_resources / params.aggregate_slots)
-    # )
-    # slots = differentiable_where(
-    #     path,
-    #     link_slot_array,
-    #     jnp.zeros(num_slots).astype(dtype_config.LARGE_INT_DTYPE),
-    #     threshold=0.5,
-    #     temperature=params.temperature,
-    #     differentiable=params.differentiable,
-    # )
     slots = path[:, None] * link_slot_array
     # Make any -1s positive then get max for each slot across links
     if agg_func == "max":
