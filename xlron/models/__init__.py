@@ -19,7 +19,6 @@ from xlron.models.mlp import (  # Helper functions; MLP-based models
     orthogonal_init,
     select_activation,
 )
-from xlron.models.attention import MultiheadAttention
 from xlron.models.transformer import ActorCriticTransformer
 
 __all__ = [
@@ -42,8 +41,6 @@ __all__ = [
     "GraphNetwork",
     "GraphNetGAT",
     "GAT",
-    # Attention layers
-    "MultiheadAttention",
     # Transformer models
     "ActorCriticTransformer",
 ]
