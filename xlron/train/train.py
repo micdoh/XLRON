@@ -6,6 +6,12 @@ import sys
 if "--DETERMINISTIC_OPS" in sys.argv:
     os.environ["XLA_FLAGS"] = "--xla_gpu_deterministic_ops=true --xla_gpu_enable_triton_gemm=false "
     os.environ["NVIDIA_TF32_OVERRIDE"] = "0"
+else:
+    os.environ["XLA_FLAGS"] = (
+        "--xla_gpu_triton_gemm_any=True "
+        "--xla_gpu_enable_latency_hiding_scheduler=true "
+        "--xla_gpu_enable_highest_priority_async_stream=true "
+    )
 
 from absl import app, flags
 
