@@ -78,6 +78,7 @@ flags.DEFINE_string(
     None,
     "Comma-separated indices of (desired) visible GPUs e.g. 1,2,3",
 )
+flags.DEFINE_boolean("DETERMINISTIC_OPS", False, "Use deterministic GPU operations")
 flags.DEFINE_boolean("PREALLOCATE_MEM", True, "Preallocate GPU memory")
 flags.DEFINE_string("PREALLOCATE_MEM_FRACTION", "0.95", "Fraction of GPU memory to preallocate")
 flags.DEFINE_boolean("PRINT_MEMORY_USE", False, "Print memory usage")

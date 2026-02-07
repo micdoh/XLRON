@@ -1,20 +1,20 @@
-# import os
-
-# os.environ["XLA_FLAGS"] = (
-#     "--xla_gpu_triton_gemm_any=False "
-#     "--xla_gpu_enable_latency_hiding_scheduler=false "
-#     "--xla_gpu_enable_highest_priority_async_stream=false "
-#     "--xla_gpu_deterministic_ops=true"
-# )
+from absl import app, flags
+from xlron.parameter_flags import *  # noqa: F403,F401  # Ignore linter warnings for * import
+FLAGS = flags.FLAGS
 import os
-
-os.environ["XLA_FLAGS"] = (
-    "--xla_gpu_deterministic_ops=true "
-    "--xla_gpu_enable_triton_gemm=false "
-)
-
-# Strongly recommended for repeatability on Ampere+:
-os.environ["NVIDIA_TF32_OVERRIDE"] = "0"
+if FLAGS.DETERMINISTIC_OPS:
+    os.environ["XLA_FLAGS"] = (
+        "--xla_gpu_deterministic_ops=true "
+        "--xla_gpu_enable_triton_gemm=false "
+    )
+    # Strongly recommended for repeatability on Ampere+:
+    os.environ["NVIDIA_TF32_OVERRIDE"] = "0"
+# else:
+#     os.environ["XLA_FLAGS"] = (
+#         "--xla_gpu_triton_gemm_any=True "
+#         "--xla_gpu_enable_latency_hiding_scheduler=true "
+#         "--xla_gpu_enable_highest_priority_async_stream=true "
+#     )
 import subprocess
 import sys
 import time
@@ -23,7 +23,7 @@ from typing import Any, Dict, List
 import equinox as eqx
 import jax
 import jax.numpy as jnp
-from absl import app, flags
+
 
 import wandb
 from xlron import dtype_config
@@ -31,7 +31,7 @@ from xlron.environments.env_funcs import create_run_name
 from xlron.environments.make_env import process_config
 from xlron.environments.wrappers import Profiler, jit_profiler
 from xlron.heuristics.eval_heuristic import get_eval_fn
-from xlron.parameter_flags import *  # noqa: F403,F401  # Ignore linter warnings for * import
+
 from xlron.train.ppo import get_learner_fn
 from xlron.train.train_utils import (
     experiment_data_setup,
@@ -46,7 +46,7 @@ from xlron.train.train_utils import (
     setup_wandb,
 )
 
-FLAGS = flags.FLAGS
+
 
 # Create a global mutable container to collect data
 collected_states = []
