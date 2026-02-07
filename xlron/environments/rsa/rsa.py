@@ -244,11 +244,7 @@ class RSAEnv(environment.Environment):
         check = jit_profiler.call(params.profile, check_action, state, action_info, params)
 
         # Calculate reward
-        jit_profiler.start(params.profile, "reward_logic")
-        reward = self.get_reward_failure(state, action_info, params) * check + (
-            (1 - check) * self.get_reward_success(state, action_info, params)
-        )
-        jit_profiler.end(params.profile, "reward_logic")
+        reward = jit_profiler.call(params.profile, self.calculate_reward, state, action_info, check, params)
 
         # Complete step
         state = jit_profiler.call(params.profile, complete_step, state, action_info, check, params)
@@ -482,6 +478,23 @@ class RSAEnv(environment.Environment):
                 differentiable=params.differentiable,
             )
         )
+        
+    def calculate_reward(self, state: RSAEnvState, action_info: ActionInfo, check: Array, params: RSAEnvParams) -> chex.Array:
+        """Calculate reward for current state and action.
+
+        Args:
+            state: Environment state
+            action_info: Processed action information
+            check: Result of action validity check
+            params: Environment parameters
+            
+        Returns:
+            reward: Calculated reward
+        """
+        reward = self.get_reward_failure(state, action_info, params) * check + (
+            (1 - check) * self.get_reward_success(state, action_info, params)
+        )
+        return reward  
 
     def get_reward_failure(
         self,
