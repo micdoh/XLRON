@@ -1,9 +1,10 @@
 import os
-os.environ['XLA_FLAGS'] = (
-    '--xla_gpu_triton_gemm_any=False '
-    '--xla_gpu_enable_latency_hiding_scheduler=false '
-    '--xla_gpu_enable_highest_priority_async_stream=false '
-    '--xla_gpu_deterministic_ops=false'
+
+os.environ["XLA_FLAGS"] = (
+    "--xla_gpu_triton_gemm_any=False "
+    "--xla_gpu_enable_latency_hiding_scheduler=false "
+    "--xla_gpu_enable_highest_priority_async_stream=false "
+    "--xla_gpu_deterministic_ops=false"
 )
 import subprocess
 import sys
@@ -267,7 +268,11 @@ def train(argv: list[str], config: Dict[str, Any] = {}) -> None:
             eval_config = config.copy()
             eval_config.NUM_ENVS = min(config.NUM_ENVS, 10)
             eval_config.ENV_WARMUP_STEPS = 0
-            eval_timesteps = config.EVAL_TIMESTEPS * eval_config.NUM_ENVS if config.EVAL_TIMESTEPS > 0 else config.STEPS_PER_INCREMENT
+            eval_timesteps = (
+                config.EVAL_TIMESTEPS * eval_config.NUM_ENVS
+                if config.EVAL_TIMESTEPS > 0
+                else config.STEPS_PER_INCREMENT
+            )
             # Ensure eval runs long enough for warmup + measurement
             eval_timesteps += config.ENV_WARMUP_STEPS * eval_config.NUM_ENVS
             eval_config.STEPS_PER_INCREMENT = eval_timesteps
@@ -322,7 +327,9 @@ def train(argv: list[str], config: Dict[str, Any] = {}) -> None:
         # Run the increment
         with profiler.section("EXECUTION", frames=config.STEPS_PER_INCREMENT * config.NUM_LEARNERS):
             out = run_experiment(experiment_input)
-            out = jax.tree_util.tree_map(lambda x: x.block_until_ready() if hasattr(x, "block_until_ready") else x, out)  # Wait for all devices to finish
+            out = jax.tree_util.tree_map(
+                lambda x: x.block_until_ready() if hasattr(x, "block_until_ready") else x, out
+            )  # Wait for all devices to finish
         prev_total = total_run_time
         total_run_time = time.time() - start_time - log_time  # Update total first
         increment_run_time = total_run_time - prev_total  # Increment = difference
@@ -363,9 +370,10 @@ def train(argv: list[str], config: Dict[str, Any] = {}) -> None:
             and not (config.EVAL_HEURISTIC or config.EVAL_MODEL)
             and (i + 1) % config.EVAL_FREQUENCY == 0
         ):
-            best_eval_metric = run_eval_during_training(
-                config, run_eval, eval_input, out, best_eval_metric, step_count
-            )
+            with profiler.section("EVAL"):
+                best_eval_metric = run_eval_during_training(
+                    config, run_eval, eval_input, out, best_eval_metric, step_count
+                )
 
         log_time += time.time() - log_start_time
         # Update the experiment input for the next increment
