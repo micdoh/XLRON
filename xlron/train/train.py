@@ -1,11 +1,20 @@
+# import os
+
+# os.environ["XLA_FLAGS"] = (
+#     "--xla_gpu_triton_gemm_any=False "
+#     "--xla_gpu_enable_latency_hiding_scheduler=false "
+#     "--xla_gpu_enable_highest_priority_async_stream=false "
+#     "--xla_gpu_deterministic_ops=true"
+# )
 import os
 
 os.environ["XLA_FLAGS"] = (
-    "--xla_gpu_triton_gemm_any=False "
-    "--xla_gpu_enable_latency_hiding_scheduler=false "
-    "--xla_gpu_enable_highest_priority_async_stream=false "
-    "--xla_gpu_deterministic_ops=true"
+    "--xla_gpu_deterministic_ops=true "
+    "--xla_gpu_enable_triton_gemm=false "
 )
+
+# Strongly recommended for repeatability on Ampere+:
+os.environ["NVIDIA_TF32_OVERRIDE"] = "0"
 import subprocess
 import sys
 import time

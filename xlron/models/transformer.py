@@ -5,7 +5,7 @@ import distrax
 import equinox as eqx
 import jax
 import jax.numpy as jnp
-from xlron.models.attention import MultiheadAttention
+from equinox.nn import MultiheadAttention
 from jaxtyping import (  # https://github.com/google/jaxtyping
     Array,
     Float,
