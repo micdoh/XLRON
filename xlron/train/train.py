@@ -341,16 +341,6 @@ def train(argv: list[str], config: Dict[str, Any] = {}) -> None:
         total_run_time = time.time() - start_time - log_time  # Update total first
         increment_run_time = total_run_time - prev_total  # Increment = difference
         log_start_time = time.time()
-        # Save model params (skip if EVAL_DURING_TRAINING, which saves only the best model)
-        if config.SAVE_MODEL and not config.EVAL_DURING_TRAINING:
-            # Merge seed_device and seed dimensions
-            train_state = out["runner_state"][0]  # Get TrainState from the first learner
-            model = eqx.combine(train_state.model_params, train_state.model_static)
-            saved_path = save_model(model, config, first_save=first_save)
-            if first_save:
-                config.MODEL_PATH = str(saved_path)
-                first_save = False
-
         merged_out, processed_data = log_metrics(
             config,
             out,
@@ -361,6 +351,36 @@ def train(argv: list[str], config: Dict[str, Any] = {}) -> None:
             update_count=update_count,
             step_count=step_count,
         )
+        # Save model params (skip if EVAL_DURING_TRAINING, which saves only the best model)
+        if config.SAVE_MODEL and not config.EVAL_DURING_TRAINING:
+            train_state = out["runner_state"][0]  # Get TrainState from the first learner
+            # Determine current metric value to decide whether to save
+            if config.continuous_operation:
+                if config.reward_type == "bitrate":
+                    current_metric = float(
+                        processed_data["bitrate_blocking_probability"]["mean"][-1]
+                    )
+                else:
+                    current_metric = float(
+                        processed_data["service_blocking_probability"]["mean"][-1]
+                    )
+            else:
+                if config.reward_type == "bitrate":
+                    current_metric = float(
+                        processed_data["bitrate_blocking_probability"]["episode_end_mean"][-1]
+                    )
+                else:
+                    current_metric = float(
+                        processed_data["service_blocking_probability"]["episode_end_mean"][-1]
+                    )
+            if current_metric <= best_eval_metric:
+                best_eval_metric = current_metric
+                model = eqx.combine(train_state.model_params, train_state.model_static)
+                saved_path = save_model(model, config, first_save=first_save)
+                if first_save:
+                    config.MODEL_PATH = str(saved_path)
+                    first_save = False
+
         # Extend every item in processed data with new data
         episode_count += len(processed_data["service_blocking_probability"]["episode_end_mean"])
         step_count += config.STEPS_PER_INCREMENT // config.NUM_ENVS
