@@ -13,8 +13,6 @@ else:
         "--xla_gpu_enable_highest_priority_async_stream=true "
     )
 
-from absl import app, flags
-
 import subprocess
 import time
 from typing import Any, Dict, List
@@ -22,6 +20,7 @@ from typing import Any, Dict, List
 import equinox as eqx
 import jax
 import jax.numpy as jnp
+from absl import app, flags
 
 import wandb
 from xlron import dtype_config
@@ -29,6 +28,7 @@ from xlron.environments.env_funcs import create_run_name
 from xlron.environments.make_env import process_config
 from xlron.environments.wrappers import Profiler, jit_profiler
 from xlron.heuristics.eval_heuristic import get_eval_fn
+from xlron.parameter_flags import *  # noqa: F403,F401  # Ignore linter warnings for * import
 from xlron.train.ppo import get_learner_fn
 from xlron.train.train_utils import (
     experiment_data_setup,
@@ -42,7 +42,6 @@ from xlron.train.train_utils import (
     save_model,
     setup_wandb,
 )
-from xlron.parameter_flags import *  # noqa: F403,F401  # Ignore linter warnings for * import
 
 FLAGS = flags.FLAGS
 
@@ -324,6 +323,7 @@ def train(argv: list[str], config: Dict[str, Any] = {}) -> None:
     log_time = 0.0
     total_run_time = 0.0
     best_eval_metric = float("inf")
+    first_save = True
     episode_count = update_count = step_count = 0
     merged_out: Dict[str, Dict[str, jax.Array]] = {}
     processed_data: Dict[str, Dict[str, jax.Array]] = {}
@@ -346,7 +346,10 @@ def train(argv: list[str], config: Dict[str, Any] = {}) -> None:
             # Merge seed_device and seed dimensions
             train_state = out["runner_state"][0]  # Get TrainState from the first learner
             model = eqx.combine(train_state.model_params, train_state.model_static)
-            save_model(model, config)
+            saved_path = save_model(model, config, first_save=first_save)
+            if first_save:
+                config.MODEL_PATH = str(saved_path)
+                first_save = False
 
         merged_out, processed_data = log_metrics(
             config,
@@ -378,8 +381,14 @@ def train(argv: list[str], config: Dict[str, Any] = {}) -> None:
             and (i + 1) % config.EVAL_FREQUENCY == 0
         ):
             with profiler.section("EVAL"):
-                best_eval_metric = run_eval_during_training(
-                    config, run_eval, eval_input, out, best_eval_metric, step_count
+                best_eval_metric, first_save = run_eval_during_training(
+                    config,
+                    run_eval,
+                    eval_input,
+                    out,
+                    best_eval_metric,
+                    step_count,
+                    first_save=first_save,
                 )
 
         log_time += time.time() - log_start_time

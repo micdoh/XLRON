@@ -273,7 +273,7 @@ def moving_average(x, w):
     return jnp.convolve(x, jnp.ones(w), "valid") / w
 
 
-def save_model(model: eqx.Module, config: Box) -> None:
+def save_model(model: eqx.Module, config: Box, first_save: bool = True) -> pathlib.Path:
     # Get path to current file
     model_path = (
         pathlib.Path(config.MODEL_PATH)
@@ -282,16 +282,25 @@ def save_model(model: eqx.Module, config: Box) -> None:
             pathlib.Path(__file__).resolve().parents[2] / "models" / f"{config.EXPERIMENT_NAME}.eqx"
         )
     )
-    # If model_path dir already exists, append a number to the end
     if not config.OVERWRITE_MODEL:
+        # Never overwrite: always find a new unique filename
         i = 1
-        while model_path.exists():
-            # Add index to end of model_path
-            model_path = model_path.parent / f"{model_path.stem}_{i}.eqx"
+        candidate = model_path
+        while candidate.exists():
+            candidate = model_path.parent / f"{model_path.stem}_{i}.eqx"
             i += 1
-    else:
-        # Delete file
-        model_path.unlink(missing_ok=True)
+        model_path = candidate
+    elif first_save and model_path.exists():
+        # First save of this run and file exists from a different run:
+        # find a unique filename with suffix
+        i = 1
+        candidate = model_path.parent / f"{model_path.stem}_{i}.eqx"
+        while candidate.exists():
+            i += 1
+            candidate = model_path.parent / f"{model_path.stem}_{i}.eqx"
+        model_path = candidate
+    # else: OVERWRITE_MODEL and not first_save — overwrite in place
+
     print(f"Saving model to {model_path.absolute()}")
     # Save leaves
     with open(model_path, "wb") as f:
@@ -302,6 +311,8 @@ def save_model(model: eqx.Module, config: Box) -> None:
     # Upload model to wandb
     if config.WANDB:
         wandb.save(model_path.absolute())
+
+    return model_path
 
 
 def init_network(config: Box, key: chex.PRNGKey) -> eqx.Module:
@@ -1129,7 +1140,8 @@ def run_eval_during_training(
     out: Dict,
     best_eval_metric: float,
     step_count: int,
-) -> float:
+    first_save: bool = True,
+) -> Tuple:
     """Run evaluation during training and save model if it improves.
 
     Args:
@@ -1139,9 +1151,10 @@ def run_eval_during_training(
         out: Output from the current training increment.
         best_eval_metric: Best eval metric seen so far.
         step_count: Current training env step count (for wandb logging).
+        first_save: Whether this is the first save of the training run.
 
     Returns:
-        Updated best_eval_metric.
+        Tuple of (updated best_eval_metric, updated first_save).
     """
     # Inject current model params into a copy of the eval runner state.
     # Copy the eval inputs to prevent buffer donation from invalidating the
@@ -1232,9 +1245,12 @@ def run_eval_during_training(
         print(f"New best eval {eval_metric_name}: {best_eval_metric:.6f}")
         if config.SAVE_MODEL:
             model = eqx.combine(current_train_state.model_params, current_train_state.model_static)
-            save_model(model, config)
+            saved_path = save_model(model, config, first_save=first_save)
+            if first_save:
+                config.MODEL_PATH = str(saved_path)
+                first_save = False
 
-    return best_eval_metric
+    return best_eval_metric, first_save
 
 
 def get_mean_std_iqr(x, y):
