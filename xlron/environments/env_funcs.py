@@ -17,7 +17,7 @@ import networkx as nx
 import numpy as np
 from jax._src import core, dtypes, prng
 from jax._src.typing import Array, ArrayLike, DTypeLike
-from scipy.constants import c
+from scipy.constants import c, h
 
 from xlron import dtype_config
 from xlron.environments.dataclasses import (
@@ -3300,7 +3300,7 @@ def calculate_path_capacity(
     L_eff = (1 - jnp.exp(-alpha_np * L_s)) / alpha_np
 
     sigma_2_ase = (
-        (jnp.exp(alpha_np * L_s) - 1) * 10 ** (NF / 10) * 6.626e-34 * 2.998e8 * R_s / lambda0
+        (jnp.exp(alpha_np * L_s) - 1) * 10 ** (NF / 10) * h * c * R_s / lambda0
     )
 
     span_NSR = jnp.cbrt(
