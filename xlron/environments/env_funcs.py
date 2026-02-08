@@ -2150,29 +2150,27 @@ def process_path_action(
         int: path index
         int: initial slot index
     """
-    num_slot_actions = jnp.ceil(params.link_resources / params.aggregate_slots)
+    num_slot_actions = params.link_resources // params.aggregate_slots
     path_action = differentiable_round_simple(
         path_action, params.temperature, params.differentiable
     )
     path_index = differentiable_floor(
-        path_action / num_slot_actions, params.temperature, params.differentiable
-    ).astype(dtype_config.LARGE_INT_DTYPE)
+        path_action // num_slot_actions, params.temperature, params.differentiable
+    ) .astype(dtype_config.LARGE_INT_DTYPE)
     initial_aggregated_slot_index = jnp.mod(path_action, num_slot_actions)
     initial_slot_index = initial_aggregated_slot_index * params.aggregate_slots
 
     if params.aggregate_slots > 1:
         # Compute flat index into 1D array of shape (k_paths * link_resources,)
-        flat_index = (path_index * params.link_resources + initial_slot_index).astype(
-            dtype_config.LARGE_INT_DTYPE
-        )
-        window_slice = jax.lax.dynamic_slice(
-            state.full_link_slot_mask,
-            (flat_index,),
-            (params.aggregate_slots,),
+        full_mask = state.full_link_slot_mask.reshape((params.k_paths, num_slot_actions, params.aggregate_slots))
+        window = jax.lax.dynamic_slice(
+            full_mask,
+            (path_index, initial_aggregated_slot_index, 0),
+            (1, 1, params.aggregate_slots),
         )
         # Use argmax to get index of first 1 in slice of mask
         initial_slot_index = initial_slot_index + differentiable_argmax(
-            window_slice, temperature=params.temperature, differentiable=params.differentiable
+            window, temperature=params.temperature, differentiable=params.differentiable
         ).astype(dtype_config.LARGE_INT_DTYPE)
     return path_index, initial_slot_index
 
