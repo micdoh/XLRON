@@ -44,19 +44,30 @@ flags.DEFINE_string("ACTIVATION", "tanh", "Activation function")
 flags.DEFINE_float("LOGR_CLIP", 10.0, "Log ratio clip to range +/- this value")
 flags.DEFINE_float("ADV_CLIP", 10.0, "Advantage clip to range +/- this value")
 flags.DEFINE_string("LR_SCHEDULE", "cosine", "Learning rate schedule")
-flags.DEFINE_integer(
-    "SCHEDULE_MULTIPLIER",
-    1,
-    "Increase the learning rate schedule horizon "
-    "by this factor (to keep schedule for longer final training runs "
-    "consistent with that from tuning runs)",
+flags.DEFINE_float(
+    "LR_SCHEDULE_MULTIPLIER",
+    1.0,
+    "Multiply the LR schedule horizon by this factor",
 )
-flags.DEFINE_integer(
+flags.DEFINE_float(
     "LAMBDA_SCHEDULE_MULTIPLIER",
-    1,
-    "Increase the GAE-lambda schedule horizon "
-    "by this factor (to keep schedule for longer final training runs "
-    "consistent with that from tuning runs)",
+    1.0,
+    "Multiply the GAE-lambda schedule horizon by this factor",
+)
+flags.DEFINE_float(
+    "ENT_SCHEDULE_MULTIPLIER",
+    1.0,
+    "Multiply the entropy schedule horizon by this factor",
+)
+flags.DEFINE_float(
+    "VML_SCHEDULE_MULTIPLIER",
+    1.0,
+    "Multiply the valid mass loss schedule horizon by this factor",
+)
+flags.DEFINE_float(
+    "VF_SCHEDULE_MULTIPLIER",
+    1.0,
+    "Multiply the value function LR schedule horizon by this factor",
 )
 flags.DEFINE_float(
     "WARMUP_MULTIPLIER", 1, "Increase the learning rate warmup peak compared to init"

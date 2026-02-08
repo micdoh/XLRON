@@ -886,12 +886,13 @@ def _make_schedule(
     warmup_multiplier: float,
     warmup_steps_fraction: float,
     config: Box,
+    schedule_multiplier: float = 1.0,
 ) -> optax.Schedule:
     """Generic schedule builder used by both actor and VF LR schedules."""
     NUM_MINIBATCHES = config.NUM_MINIBATCHES
     NUM_UPDATES = config.NUM_UPDATES * config.NUM_INCREMENTS
     UPDATE_EPOCHS = config.UPDATE_EPOCHS
-    SCHEDULE_MULTIPLIER = config.SCHEDULE_MULTIPLIER
+    SCHEDULE_MULTIPLIER = schedule_multiplier
     end_value = lr * lr_end_fraction
 
     def schedule_fn(count: chex.Numeric) -> chex.Numeric:
@@ -947,7 +948,13 @@ def make_vf_lr_schedule(config: Box) -> optax.Schedule:
         else config.WARMUP_STEPS_FRACTION
     )
     return _make_schedule(
-        vf_lr, vf_end_fraction, vf_schedule_type, vf_warmup_mult, vf_warmup_frac, config
+        vf_lr,
+        vf_end_fraction,
+        vf_schedule_type,
+        vf_warmup_mult,
+        vf_warmup_frac,
+        config,
+        schedule_multiplier=config.VF_SCHEDULE_MULTIPLIER,
     )
 
 
@@ -959,7 +966,7 @@ def make_lr_schedule(config: Box) -> optax.Schedule:
     NUM_MINIBATCHES = config.NUM_MINIBATCHES
     NUM_UPDATES = config.NUM_UPDATES * config.NUM_INCREMENTS
     UPDATE_EPOCHS = config.UPDATE_EPOCHS
-    SCHEDULE_MULTIPLIER = config.SCHEDULE_MULTIPLIER
+    SCHEDULE_MULTIPLIER = config.LR_SCHEDULE_MULTIPLIER
     WARMUP_MULTIPLIER = config.WARMUP_MULTIPLIER
     WARMUP_STEPS_FRACTION = config.WARMUP_STEPS_FRACTION
     end_value = LR * LR_END_FRACTION
@@ -1003,7 +1010,7 @@ def make_ent_schedule(config: Box) -> optax.Schedule:
     NUM_MINIBATCHES = config.NUM_MINIBATCHES
     NUM_UPDATES = config.NUM_UPDATES * config.NUM_INCREMENTS
     UPDATE_EPOCHS = config.UPDATE_EPOCHS
-    SCHEDULE_MULTIPLIER = config.SCHEDULE_MULTIPLIER
+    SCHEDULE_MULTIPLIER = config.ENT_SCHEDULE_MULTIPLIER
     end_value = ENT_COEF * ENT_END_FRACTION
 
     def ent_schedule(count: chex.Numeric) -> chex.Numeric:
@@ -1037,7 +1044,7 @@ def make_vml_schedule(config: Box) -> optax.Schedule:
     NUM_MINIBATCHES = config.NUM_MINIBATCHES
     NUM_UPDATES = config.NUM_UPDATES * config.NUM_INCREMENTS
     UPDATE_EPOCHS = config.UPDATE_EPOCHS
-    SCHEDULE_MULTIPLIER = config.SCHEDULE_MULTIPLIER
+    SCHEDULE_MULTIPLIER = config.VML_SCHEDULE_MULTIPLIER
     end_value = VML_COEF * VML_END_FRACTION
 
     def vml_schedule(count: chex.Numeric) -> chex.Numeric:
