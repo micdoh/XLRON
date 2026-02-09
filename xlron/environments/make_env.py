@@ -98,7 +98,7 @@ def process_config(config: Optional[Union[dict, FlagValues]], **kwargs: Any) -> 
                 config.ROLLOUT_LENGTH * config.NUM_ENVS * config.NUM_UPDATES
             )
             config.TOTAL_TIMESTEPS = n_increments * config.STEPS_PER_INCREMENT
-    config.aggregate_slots = 1 if config.EVAL_HEURISTIC else config.aggregate_slots
+    config.aggregate_slots = 1 if config.get("EVAL_HEURISTIC") else config.aggregate_slots
     return config
 
 
