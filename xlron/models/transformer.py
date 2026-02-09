@@ -12,7 +12,6 @@ from jaxtyping import (  # https://github.com/google/jaxtyping
     PRNGKeyArray,
 )
 
-from xlron import dtype_config
 from xlron.environments.dataclasses import EnvParams, EnvState
 from xlron.environments.env_funcs import (
     get_obs_transformer,

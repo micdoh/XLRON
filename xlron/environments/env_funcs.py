@@ -485,8 +485,9 @@ def init_path_link_array(
 
         def determine_sort_criteria(x, path_sort_criteria):
             if path_sort_criteria == "spectral_resources":
-                # Sort by ration of hops/se or hops/capacity
-                return (x[2] / x[3]) if not rwa_lr else (x[2] / x[4])
+                # Sort by ratio of hops/se or hops/capacity
+                # Use max(..., 1) to avoid division by zero for dummy/padded paths
+                return (x[2] / max(x[3], 1)) if not rwa_lr else (x[2] / max(x[4], 1))
             elif path_sort_criteria == "distance":
                 return x[1]
             elif path_sort_criteria == "hops":
@@ -2156,13 +2157,15 @@ def process_path_action(
     )
     path_index = differentiable_floor(
         path_action // num_slot_actions, params.temperature, params.differentiable
-    ) .astype(dtype_config.LARGE_INT_DTYPE)
+    ).astype(dtype_config.LARGE_INT_DTYPE)
     initial_aggregated_slot_index = jnp.mod(path_action, num_slot_actions)
     initial_slot_index = initial_aggregated_slot_index * params.aggregate_slots
 
     if params.aggregate_slots > 1:
         # Compute flat index into 1D array of shape (k_paths * link_resources,)
-        full_mask = state.full_link_slot_mask.reshape((params.k_paths, num_slot_actions, params.aggregate_slots))
+        full_mask = state.full_link_slot_mask.reshape(
+            (params.k_paths, num_slot_actions, params.aggregate_slots)
+        )
         window = jax.lax.dynamic_slice(
             full_mask,
             (path_index, initial_aggregated_slot_index, 0),
@@ -3297,9 +3300,7 @@ def calculate_path_capacity(
     N_spans = jnp.floor(path_length * 1e3 / L_s)
     L_eff = (1 - jnp.exp(-alpha_np * L_s)) / alpha_np
 
-    sigma_2_ase = (
-        (jnp.exp(alpha_np * L_s) - 1) * 10 ** (NF / 10) * h * c * R_s / lambda0
-    )
+    sigma_2_ase = (jnp.exp(alpha_np * L_s) - 1) * 10 ** (NF / 10) * h * c * R_s / lambda0
 
     span_NSR = jnp.cbrt(
         2

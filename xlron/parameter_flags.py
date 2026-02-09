@@ -100,7 +100,7 @@ flags.DEFINE_boolean(
     "Save model (will be saved to --MODEL_PATH locally and uploaded to wandb if --WANDB is True)",
 )
 flags.DEFINE_boolean("RETRAIN_MODEL", False, "Load model for retraining")
-flags.DEFINE_boolean("OVERWRITE_MODEL", False, "Overwrite model saved at MODEL_PATH")
+flags.DEFINE_boolean("OVERWRITE_MODEL", True, "Overwrite model saved at MODEL_PATH")
 flags.DEFINE_boolean("DEBUG", False, "Debug mode")
 flags.DEFINE_boolean("DEBUG_NANS", False, "Debug NaNs")
 flags.DEFINE_boolean("NO_TRUNCATE", False, "Do not truncate printed arrays")

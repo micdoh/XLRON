@@ -8,14 +8,13 @@ import copy
 import jax.numpy as jnp
 import chex
 import jax
-import xlron.train.parameter_flags
+import xlron.parameter_flags
 from xlron.environments.dataclasses import *
-from xlron.environments import isrs_gn_model
-from xlron.environments.env_funcs import generate_request_rsa, get_paths_se, required_slots, get_paths, \
-    implement_action_rsa, finalise_action_rsa, check_action_rsa
+from xlron.environments.env_funcs import generate_request_rsa
 from xlron.environments.wrappers import TimeIt
-from xlron.train.train_utils import define_env
+from xlron.environments.make_env import make
 from xlron.heuristics.heuristics import ksp_ff, ff_ksp
+from xlron.train.train import identify_default_device
 from reconfigurable_routing_bounds import generate_request_list, sort_requests
 
 FLAGS = flags.FLAGS
@@ -48,6 +47,11 @@ def get_active_requests(requests: jnp.ndarray, i: int) -> jnp.ndarray:
 
 def get_eval_fn(config, env, env_params) -> Callable:
 
+    # Use the raw env (unwrap LogWrapper) for step_env which does not auto-reset.
+    # Auto-reset causes dtype/shape mismatches when list_of_requests differs
+    # between the injected requests and the default reset state.
+    raw_env = env._env if hasattr(env, '_env') else env
+
     def _env_episode(runner_state):
 
         def _env_step(runner_state, unused):
@@ -56,14 +60,17 @@ def get_eval_fn(config, env, env_params) -> Callable:
             rng, action_key, step_key = jax.random.split(rng, 3)
 
             # SELECT ACTION
-            action = ksp_ff(env_state.env_state, env_params) if config.path_heuristic == 'ksp_ff'\
-                else ff_ksp(env_state.env_state, env_params)
-            state = implement_action_rsa(env_state.env_state, action, env_params)
-            blocking = check_action_rsa(state)
-            state = finalise_action_rsa(state, env_params)
-            state = generate_request_rsa(step_key, state, env_params)
-            env_state = env_state.replace(env_state=state)
-            runner_state = (env_state, last_obs, rng)
+            inner_state = env_state.env_state
+            action = ksp_ff(inner_state, env_params) if config.path_heuristic == 'ksp_ff'\
+                else ff_ksp(inner_state, env_params)
+
+            # STEP ENV (use raw step_env to avoid auto-reset on done)
+            obsv, new_inner_state, reward, terminal, truncated, info = raw_env.step_env(
+                step_key, inner_state, action, env_params
+            )
+            env_state = env_state.replace(env_state=new_inner_state)
+            blocking = reward < 0
+            runner_state = (env_state, obsv, rng)
 
             return runner_state, blocking
 
@@ -96,21 +103,34 @@ def get_eval_fn(config, env, env_params) -> Callable:
 
 
 @partial(jax.jit, static_argnums=(1, 3))
-def step_env(rng, env, env_state, env_params):
-    # Step through the environment
+def step_env(rng, raw_env, env_state, env_params):
+    """Step through the environment using raw step_env (no auto-reset).
+
+    Uses raw_env.step_env to avoid auto-reset which causes dtype/shape
+    mismatches when list_of_requests has been injected.
+    """
     rng, action_key, step_key = jax.random.split(rng, 3)
     # SELECT ACTION
-    action = ksp_ff(env_state.env_state, env_params) if FLAGS.path_heuristic == 'ksp_ff'\
-        else ff_ksp(env_state.env_state, env_params)
-    # STEP ENV
-    obsv, env_state, reward, done, info = env.step(step_key, env_state, action, env_params)
-    return obsv, env_state, reward, done, info
+    inner_state = env_state.env_state
+    action = ksp_ff(inner_state, env_params) if FLAGS.path_heuristic == 'ksp_ff'\
+        else ff_ksp(inner_state, env_params)
+    # STEP ENV (use raw step_env to avoid auto-reset on done)
+    obsv, new_inner_state, reward, terminal, truncated, info = raw_env.step_env(
+        step_key, inner_state, action, env_params
+    )
+    env_state = env_state.replace(env_state=new_inner_state)
+    return obsv, env_state, reward, terminal, truncated, info
 
 
 def main(argv):
 
     FLAGS.__setattr__("max_requests", FLAGS.TOTAL_TIMESTEPS)
-    print(f"Using device {jax.devices()[int(FLAGS.VISIBLE_DEVICES)]}")
+    if FLAGS.VISIBLE_DEVICES:
+        gpu_indices = [int(x) for x in FLAGS.VISIBLE_DEVICES.split(",")]
+        default_device = identify_default_device(gpu_index=gpu_indices[0], auto_select=False)
+    else:
+        default_device = identify_default_device(auto_select=True)
+    print(f"Default device set to: {default_device}")
     jax.numpy.set_printoptions(threshold=sys.maxsize)  # Don't truncate printed arrays
     jax.numpy.set_printoptions(linewidth=220)
 
@@ -122,7 +142,7 @@ def main(argv):
 
         # Define environment
         FLAGS.__setattr__("deterministic_requests", False)
-        env, env_params = define_env(FLAGS)
+        env, env_params = make(FLAGS)
 
         # Generate requests for parallel envs
         rng = jax.random.PRNGKey(seed)
@@ -131,7 +151,8 @@ def main(argv):
         request_array = generate_request_list(setup_key, FLAGS.TOTAL_TIMESTEPS, env_state, env_params)
         # Define env again but this time with deterministic requests
         FLAGS.__setattr__("deterministic_requests", True)
-        env, env_params = define_env(FLAGS)
+        env, env_params = make(FLAGS)
+        raw_env = env._env if hasattr(env, '_env') else env
         # Set the requests arrays for each state
         inner_state = env_state.env_state.replace(list_of_requests=request_array)
         inner_state = generate_request_rsa(setup_key, inner_state, env_params)
@@ -154,7 +175,7 @@ def main(argv):
             fix_count = 0
             for i in range(int(FLAGS.TOTAL_TIMESTEPS)):
                 # Step through the environment
-                obsv, env_state, reward, done, info = step_env(env_key, env, env_state, env_params)
+                obsv, env_state, reward, terminal, truncated, info = step_env(env_key, raw_env, env_state, env_params)
                 blocking = 1 if reward < 0 else 0
                 if blocking:
                     print(i)
@@ -168,7 +189,6 @@ def main(argv):
                             link_slot_array=new_link_slot_array,
                             link_slot_departure_array=new_link_slot_departure_array
                         )
-                        inner = finalise_action_rsa(inner, env_params)
                         env_state = env_state.replace(env_state=inner)
                         fix_count += 1
                 # Replace env_state requests with unsorted ones
@@ -205,7 +225,7 @@ def main(argv):
     print(f"Blocking Probability IQR lower: {blocking_prob_iqr_lower:.5f}")
     print(f"Blocking Probability IQR upper: {blocking_prob_iqr_upper:.5f}")
     print(f"Block Count mean: {block_count_mean:.5f}")
-    print(f"Block Count std: {block_count_std:.5f}") 
+    print(f"Block Count std: {block_count_std:.5f}")
     print(f"Block Count IQR lower: {block_count_iqr_lower:.5f}")
     print(f"Block Count IQR upper: {block_count_iqr_upper:.5f}")
     print(f"Fix Count mean: {fix_count_mean:.5f}")

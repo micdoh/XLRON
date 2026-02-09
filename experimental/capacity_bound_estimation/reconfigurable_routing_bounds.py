@@ -7,13 +7,13 @@ from absl import flags
 import jax.numpy as jnp
 import chex
 import jax
-import xlron.train.parameter_flags
+import xlron.parameter_flags
 from xlron.environments.dataclasses import *
-from xlron.environments.gn_model import isrs_gn_model
 from xlron.environments.env_funcs import generate_request_rsa, get_paths_se, required_slots, get_paths
 from xlron.environments.wrappers import TimeIt
-from xlron.train.train_utils import define_env
+from xlron.environments.make_env import make
 from xlron.heuristics.heuristics import ksp_ff
+from xlron.train.train import identify_default_device
 
 FLAGS = flags.FLAGS
 
@@ -117,6 +117,11 @@ def get_active_requests(requests: jnp.ndarray, i: int) -> jnp.ndarray:
 
 def get_eval_fn(config, env, env_params) -> Callable:
 
+    # Use the raw env (unwrap LogWrapper) for step_env which does not auto-reset.
+    # Auto-reset causes dtype/shape mismatches when list_of_requests differs
+    # between the injected requests and the default reset state.
+    raw_env = env._env if hasattr(env, '_env') else env
+
     # COLLECT TRAJECTORIES
     def _env_episode(runner_state):
 
@@ -126,26 +131,27 @@ def get_eval_fn(config, env, env_params) -> Callable:
             rng, action_key, step_key = jax.random.split(rng, 3)
 
             # SELECT ACTION
-            action = ksp_ff(env_state.env_state, env_params)
+            inner_state = env_state.env_state
+            action = ksp_ff(inner_state, env_params)
 
-            # STEP ENV
-            obsv, env_state, reward, done, info = env.step(step_key, env_state, action, env_params)
+            # STEP ENV (use raw step_env to avoid auto-reset on done)
+            obsv, new_inner_state, reward, terminal, truncated, info = raw_env.step_env(
+                step_key, inner_state, action, env_params
+            )
+            env_state = env_state.replace(env_state=new_inner_state)
             if config.PROFILE:
                 jax.profiler.save_device_memory_profile("memory_step.prof")
-            transition = Transition(
-                done, action, reward, last_obs, info
-            )
             runner_state = (env_state, obsv, rng)
 
-            return runner_state, transition
+            return runner_state, reward
 
-        runner_state, traj_episode = jax.lax.scan(
+        runner_state, rewards = jax.lax.scan(
             _env_step, runner_state, None, config.TOTAL_TIMESTEPS
         )
         if config.PROFILE:
             jax.profiler.save_device_memory_profile("memory_scan.prof")
 
-        return traj_episode.reward
+        return rewards
 
 
     @partial(jax.jit, static_argnums=(5,))
@@ -205,10 +211,15 @@ def main(argv):
     # Define environment
     FLAGS.__setattr__("deterministic_requests", False)
     FLAGS.__setattr__("max_requests", FLAGS.TOTAL_TIMESTEPS)
-    print(f"Using device {jax.devices()[int(FLAGS.VISIBLE_DEVICES)]}")
+    if FLAGS.VISIBLE_DEVICES:
+        gpu_indices = [int(x) for x in FLAGS.VISIBLE_DEVICES.split(",")]
+        default_device = identify_default_device(gpu_index=gpu_indices[0], auto_select=False)
+    else:
+        default_device = identify_default_device(auto_select=True)
+    print(f"Default device set to: {default_device}")
     jax.numpy.set_printoptions(threshold=sys.maxsize)  # Don't truncate printed arrays
     jax.numpy.set_printoptions(linewidth=220)
-    env, env_params = define_env(FLAGS)
+    env, env_params = make(FLAGS)
 
     # Generate requests for parallel envs
     rng = jax.random.PRNGKey(FLAGS.SEED)
@@ -217,7 +228,7 @@ def main(argv):
     request_arrays = jax.vmap(generate_request_list, in_axes=(0, None, 0, None))(setup_keys, FLAGS.TOTAL_TIMESTEPS, env_states, env_params)
     # Define env again but this time with deterministic requests
     FLAGS.__setattr__("deterministic_requests", True)
-    env, env_params = define_env(FLAGS)
+    env, env_params = make(FLAGS)
     # Set the requests arrays for each state
     inner_states = jax.vmap(lambda x, y: x.replace(list_of_requests=y), in_axes=(0, 0))(env_states.env_state, request_arrays)
     env_states = env_states.replace(env_state=inner_states)
