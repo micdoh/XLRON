@@ -1,37 +1,38 @@
 """
 Example command:
-    uv run python -m experimental.capacity_bound_estimation.cutsets_bounds --topology_name=nsfnet_deeprmsa_directed --env_type=rmsa --truncate_holding_time --load=250 --link_resources=100 --k=5 --min_bw=25 --max_bw=100 --step_bw=1 --slot_size=12.5 --continuous_operation --num_sim_requests=100000 --num_trials=10 --sim_min_load=200 --sim_max_load=300 --sim_step_load=10 --CUTSET_EXHAUSTIVE --CUTSET_BATCH_SIZE=512 --CUTSET_ITERATIONS=32 --CUTSET_TOP_K=256 --NUM_ENVS=1 --link_selection_mode=least_congested
+    uv run python -m experimental.capacity_bound_estimation.cutsets_bounds --topology_name=nsfnet_deeprmsa_directed --env_type=rmsa --truncate_holding_time --load=250 --link_resources=100 --k=5 --min_bw=25 --max_bw=100 --step_bw=1 --slot_size=12.5 --continuous_operation --num_sim_requests=100000 --num_trials=10 --sim_min_load=200 --sim_max_load=300 --sim_step_load=10 --CUTSET_EXHAUSTIVE --CUTSET_BATCH_SIZE=512 --CUTSET_ITERATIONS=32 --CUTSET_TOP_K=256 --link_selection_mode=least_congested
 """
 
-import networkx as nx
-import numpy as np
 import itertools
 import math
 import os
+import sys
 import time
 from functools import partial
-from absl import flags, app
-import jax.numpy as jnp
-import jax
-import sys
 
+import jax
+import jax.numpy as jnp
+import networkx as nx
+import numpy as np
+from absl import app, flags
+
+import xlron.parameter_flags
+from xlron.environments.dataclasses import ActionInfo, HashableArrayWrapper
 from xlron.environments.env_funcs import (
-    make_graph,
-    get_paths,
-    get_paths_se,
-    normalise_traffic_matrix,
-    generate_request_rsa,
-    implement_action_rsa,
     check_action_rsa,
     complete_step_rsa,
+    generate_request_rsa,
     get_affected_slots_mask,
-    required_slots,
+    get_paths,
+    get_paths_se,
+    implement_action_rsa,
+    make_graph,
+    normalise_traffic_matrix,
     read_rsa_request,
+    required_slots,
 )
 from xlron.environments.make_env import make
-import xlron.parameter_flags
-from xlron.environments.wrappers import TimeIt, Profiler
-from xlron.environments.dataclasses import HashableArrayWrapper, ActionInfo
+from xlron.environments.wrappers import Profiler, TimeIt
 
 FLAGS = flags.FLAGS
 
@@ -43,13 +44,33 @@ _CUTSET_SIM_FLAGS_REGISTERED = False
 if not _CUTSET_SIM_FLAGS_REGISTERED:
     for name, defn in [
         ("num_sim_requests", (flags.DEFINE_integer, 100000, "Number of requests per trial")),
-        ("num_trials", (flags.DEFINE_integer, 10, "Number of random-seed trials per traffic intensity")),
+        (
+            "num_trials",
+            (flags.DEFINE_integer, 10, "Number of random-seed trials per traffic intensity"),
+        ),
         ("sim_min_load", (flags.DEFINE_float, 10.0, "Minimum traffic load (Erlangs) for sweep")),
         ("sim_max_load", (flags.DEFINE_float, 200.0, "Maximum traffic load (Erlangs) for sweep")),
         ("sim_step_load", (flags.DEFINE_float, 10.0, "Step size for traffic load sweep")),
-        ("max_concurrent_requests", (flags.DEFINE_integer, 5000, "Max concurrent connections for departure tracking")),
-        ("USE_MEAN_CONGESTION_THRESHOLD", (flags.DEFINE_bool, False, "Filter cutsets to keep only those with congestion above the mean")),
-        ("link_selection_mode", (flags.DEFINE_string, "least_congested", "Secondary link selection heuristic: least_congested, most_congested, best_fit, random")),
+        (
+            "max_concurrent_requests",
+            (flags.DEFINE_integer, 5000, "Max concurrent connections for departure tracking"),
+        ),
+        (
+            "USE_MEAN_CONGESTION_THRESHOLD",
+            (
+                flags.DEFINE_bool,
+                False,
+                "Filter cutsets to keep only those with congestion above the mean",
+            ),
+        ),
+        (
+            "link_selection_mode",
+            (
+                flags.DEFINE_string,
+                "least_congested",
+                "Secondary link selection heuristic: least_congested, most_congested, best_fit, random",
+            ),
+        ),
     ]:
         if not hasattr(FLAGS, name):
             defn[0](name, defn[1], defn[2])
@@ -58,6 +79,7 @@ if not _CUTSET_SIM_FLAGS_REGISTERED:
 # =====================================================================
 #  Cut-set discovery helpers (unchanged from original)
 # =====================================================================
+
 
 def get_weighted_traffic_matrix(graph, params):
     n_nodes = len(graph.nodes())
@@ -68,12 +90,12 @@ def get_weighted_traffic_matrix(graph, params):
                 nodes = jnp.array([s, d])
                 se = get_paths_se(params, nodes)
                 traffic_matrix = jax.lax.dynamic_update_slice(
-                    traffic_matrix,
-                    jnp.array(1 / se[0]).reshape((1, 1)),
-                    (s, d)
+                    traffic_matrix, jnp.array(1 / se[0]).reshape((1, 1)), (s, d)
                 )
             else:
-                traffic_matrix = jax.lax.dynamic_update_slice(traffic_matrix, jnp.array(0.).reshape((1, 1)), (s, d))
+                traffic_matrix = jax.lax.dynamic_update_slice(
+                    traffic_matrix, jnp.array(0.0).reshape((1, 1)), (s, d)
+                )
     return traffic_matrix
 
 
@@ -90,7 +112,7 @@ def edges_to_adjacency(path_array, source_nodes, dest_nodes, num_nodes):
 
     def update_adj(idx, adj):
         s, d = source_nodes.val[idx], dest_nodes.val[idx]
-        update_val = jnp.array([[1.]]) * path_array[idx]
+        update_val = jnp.array([[1.0]]) * path_array[idx]
         adj = jax.lax.dynamic_update_slice(adj, update_val, (s, d))
         adj = jax.lax.dynamic_update_slice(adj, update_val, (d, s))
         return adj
@@ -124,13 +146,12 @@ def get_cutset_from_path(path_array, adjacency, source_nodes, dest_nodes):
 def find_cutset_edges(p1, p2, source_nodes, dest_nodes):
     def is_cut_edge(edge):
         u, v = edge
-        return jnp.logical_or(
-            jnp.logical_and(p1[u], p2[v]),
-            jnp.logical_and(p1[v], p2[u])
-        )
+        return jnp.logical_or(jnp.logical_and(p1[u], p2[v]), jnp.logical_and(p1[v], p2[u]))
 
     offset = -jnp.min(jnp.concatenate([source_nodes.val, dest_nodes.val]))
-    cut_set = jax.vmap(is_cut_edge)(jnp.stack([source_nodes.val + offset, dest_nodes.val + offset], axis=1))
+    cut_set = jax.vmap(is_cut_edge)(
+        jnp.stack([source_nodes.val + offset, dest_nodes.val + offset], axis=1)
+    )
     return cut_set.astype(jnp.int32)
 
 
@@ -139,16 +160,17 @@ def find_cutset_adj(subgraph_matrix, full_matrix):
     in_subgraph = (subgraph_matrix.sum(axis=0) + subgraph_matrix.sum(axis=1)) > 0
     inside = in_subgraph.reshape(-1, 1)
     outside = ~in_subgraph.reshape(1, -1)
-    cutset = jnp.logical_and(full_matrix.val,
-                             jnp.logical_or(
-                                 jnp.logical_and(inside, outside),
-                                 jnp.logical_and(outside.T, inside.T)
-                             ))
+    cutset = jnp.logical_and(
+        full_matrix.val,
+        jnp.logical_or(jnp.logical_and(inside, outside), jnp.logical_and(outside.T, inside.T)),
+    )
     return cutset
 
 
 @partial(jax.jit, static_argnums=(1, 2, 3, 4))
-def calculate_congestion(partition_mask, adjacency_matrix, traffic_matrix, source_nodes, dest_nodes):
+def calculate_congestion(
+    partition_mask, adjacency_matrix, traffic_matrix, source_nodes, dest_nodes
+):
     num_nodes = adjacency_matrix.shape[0]
     partition1 = partition_mask
     partition2 = 1 - partition_mask
@@ -157,10 +179,8 @@ def calculate_congestion(partition_mask, adjacency_matrix, traffic_matrix, sourc
     cut_matrix = edges_to_adjacency(edges, source_nodes, dest_nodes, num_nodes)
     cut_size = jnp.sum(cut_matrix)
 
-    traffic_across_cut = jnp.sum(
-        traffic_matrix.val * (partition1[:, None] * partition2[None, :])
-    )
-    congestion = jnp.where(cut_size > 0, traffic_across_cut / cut_size, 0.)
+    traffic_across_cut = jnp.sum(traffic_matrix.val * (partition1[:, None] * partition2[None, :]))
+    congestion = jnp.where(cut_size > 0, traffic_across_cut / cut_size, 0.0)
 
     partitioned_adj = adjacency_matrix.val - cut_matrix
     masked1 = jnp.where(jnp.outer(partition1, partition1) > 0, partitioned_adj, 0)
@@ -184,16 +204,25 @@ def generate_gray_code_masks(n_nodes: int, max_batch_size: int, start: int):
 
 
 @partial(jax.jit, static_argnums=(1, 2, 3, 4), donate_argnums=(0,))
-def calculate_congestion_batch(partition_masks_batch, adjacency_matrix, traffic_matrix, source_nodes, dest_nodes):
+def calculate_congestion_batch(
+    partition_masks_batch, adjacency_matrix, traffic_matrix, source_nodes, dest_nodes
+):
     return jax.vmap(calculate_congestion, in_axes=(0, None, None, None, None))(
         partition_masks_batch, adjacency_matrix, traffic_matrix, source_nodes, dest_nodes
     )
 
 
 def find_congested_cuts_exhaustive(
-        start, num_iterations, num_batches_per_iteration,
-        adj_matrix, traf_matrix, num_nodes, top_k, max_batch_size,
-        source_nodes, dest_nodes,
+    start,
+    num_iterations,
+    num_batches_per_iteration,
+    adj_matrix,
+    traf_matrix,
+    num_nodes,
+    top_k,
+    max_batch_size,
+    source_nodes,
+    dest_nodes,
 ):
     def find_congested_cuts_iter(_, i):
         batch_indices = jnp.arange(num_batches_per_iteration) + i
@@ -201,7 +230,9 @@ def find_congested_cuts_exhaustive(
         def batch_eval_sort(_, j):
             j = j * max_batch_size
             new_masks = generate_gray_code_masks(num_nodes, max_batch_size, j)
-            new_congestions = calculate_congestion_batch(new_masks, adj_matrix, traf_matrix, source_nodes, dest_nodes)
+            new_congestions = calculate_congestion_batch(
+                new_masks, adj_matrix, traf_matrix, source_nodes, dest_nodes
+            )
             top_indices = jnp.argsort(new_congestions)[-top_k:]
             new_congestions = new_congestions[top_indices]
             new_masks = new_masks[top_indices]
@@ -216,7 +247,8 @@ def find_congested_cuts_exhaustive(
         return None, (congestions_iter, masks_iter)
 
     _, (congestions, masks) = jax.lax.scan(
-        find_congested_cuts_iter, None,
+        find_congested_cuts_iter,
+        None,
         (jnp.arange(num_iterations) + start) * num_batches_per_iteration,
     )
 
@@ -227,21 +259,28 @@ def find_congested_cuts_exhaustive(
     return congestions, partition1, partition2
 
 
-def find_congested_cuts_simple(path_link_array, source_nodes, dest_nodes, adjacency_matrix, traffic_matrix):
+def find_congested_cuts_simple(
+    path_link_array, source_nodes, dest_nodes, adjacency_matrix, traffic_matrix
+):
     def get_cutset_partitions_and_congestion(_, i):
         path = path_link_array.val[i]
         p1, p2 = get_cutset_from_path(path, adjacency_matrix, source_nodes, dest_nodes)
-        congestion = calculate_congestion(p1, adjacency_matrix, traffic_matrix, source_nodes, dest_nodes)
+        congestion = calculate_congestion(
+            p1, adjacency_matrix, traffic_matrix, source_nodes, dest_nodes
+        )
         return None, (congestion, p1, p2)
 
     path_indices = jnp.arange(path_link_array.shape[0])
-    _, (congestions, partition1, partition2) = jax.lax.scan(get_cutset_partitions_and_congestion, None, path_indices)
+    _, (congestions, partition1, partition2) = jax.lax.scan(
+        get_cutset_partitions_and_congestion, None, path_indices
+    )
     return congestions, partition1, partition2
 
 
 # =====================================================================
 #  Capacity Bound Simulation
 # =====================================================================
+
 
 def precompute_cutset_data(heavy_cut_sets, num_links):
     """Precompute data structures for the capacity-bound simulation.
@@ -256,9 +295,9 @@ def precompute_cutset_data(heavy_cut_sets, num_links):
         unique_link_indices, cutset_link_mask, partition1, partition2, num_cutsets,
         num_unique_links
     """
-    cutset_edges = heavy_cut_sets['cutset_edges']  # (num_cutsets, num_links)
-    partition1 = heavy_cut_sets['partition1']       # (num_cutsets, num_nodes)
-    partition2 = heavy_cut_sets['partition2']       # (num_cutsets, num_nodes)
+    cutset_edges = heavy_cut_sets["cutset_edges"]  # (num_cutsets, num_links)
+    partition1 = heavy_cut_sets["partition1"]  # (num_cutsets, num_nodes)
+    partition2 = heavy_cut_sets["partition2"]  # (num_cutsets, num_nodes)
 
     # Union of all links in any cut-set
     any_cutset = jnp.any(cutset_edges > 0, axis=0)  # (num_links,)
@@ -270,7 +309,9 @@ def precompute_cutset_data(heavy_cut_sets, num_links):
     # Build a mapping from global link index -> compressed index
     # We create a lookup table of size num_links, default -1
     link_to_compressed = jnp.full(num_links, -1, dtype=jnp.int32)
-    link_to_compressed = link_to_compressed.at[unique_link_indices].set(jnp.arange(num_unique_links))
+    link_to_compressed = link_to_compressed.at[unique_link_indices].set(
+        jnp.arange(num_unique_links)
+    )
 
     # Build cutset_link_mask in compressed space: (num_cutsets, num_unique_links)
     # For each cut-set, select which of the unique links belong to it
@@ -281,13 +322,13 @@ def precompute_cutset_data(heavy_cut_sets, num_links):
     num_cutsets = cutset_edges.shape[0]
 
     return {
-        'unique_link_indices': unique_link_indices,          # (num_unique_links,)
-        'cutset_link_mask': cutset_link_mask.astype(jnp.int32),  # (num_cutsets, num_unique_links)
-        'partition1': partition1.astype(jnp.int32),          # (num_cutsets, num_nodes)
-        'partition2': partition2.astype(jnp.int32),          # (num_cutsets, num_nodes)
-        'num_cutsets': num_cutsets,
-        'num_unique_links': num_unique_links,
-        'link_to_compressed': link_to_compressed,            # (num_links,)
+        "unique_link_indices": unique_link_indices,  # (num_unique_links,)
+        "cutset_link_mask": cutset_link_mask.astype(jnp.int32),  # (num_cutsets, num_unique_links)
+        "partition1": partition1.astype(jnp.int32),  # (num_cutsets, num_nodes)
+        "partition2": partition2.astype(jnp.int32),  # (num_cutsets, num_nodes)
+        "num_cutsets": num_cutsets,
+        "num_unique_links": num_unique_links,
+        "link_to_compressed": link_to_compressed,  # (num_links,)
     }
 
 
@@ -296,6 +337,7 @@ def precompute_cutset_data(heavy_cut_sets, num_links):
 # Supports RMSA: multi-slot contiguous block assignment with
 # modulation-format-dependent spectral efficiency.
 # -------------------------------------------------------------------
+
 
 def build_best_se_matrix(params):
     """Precompute best (highest) spectral efficiency for each (s,d) pair.
@@ -358,21 +400,19 @@ def _find_feasible_start_slots(traversed, cutset_link_mask, slot_array, num_slot
         feasible_starts: (S,) boolean — True if starting at that slot is feasible.
     """
     num_total_slots = slot_array.shape[1]
-    free = (1 - slot_array)  # (L, S), 1=free
+    free = 1 - slot_array  # (L, S), 1=free
 
     # Sliding-window sum using cumulative sum + dynamic indexing.
     # cumfree[link, i] = sum(free[link, 0:i])
     cumfree = jnp.concatenate(
-        [jnp.zeros((free.shape[0], 1), dtype=free.dtype),
-         jnp.cumsum(free, axis=1)],
-        axis=1
+        [jnp.zeros((free.shape[0], 1), dtype=free.dtype), jnp.cumsum(free, axis=1)], axis=1
     )  # (L, S+1)
 
     # For each start position s, block_free_count[link, s] =
     #   cumfree[link, s + num_slots] - cumfree[link, s]
     # We compute this using dynamic indexing that works with traced num_slots.
     start_indices = jnp.arange(num_total_slots)  # (S,)
-    end_indices = start_indices + num_slots       # (S,) — may exceed S, handled below
+    end_indices = start_indices + num_slots  # (S,) — may exceed S, handled below
 
     # cumfree has S+1 columns (indices 0..S). Gather columns at end_indices and start_indices.
     # Clamp end_indices to at most S (the last valid cumfree column index).
@@ -380,8 +420,8 @@ def _find_feasible_start_slots(traversed, cutset_link_mask, slot_array, num_slot
 
     # Gather: cumfree[:, end_indices_clamped] and cumfree[:, start_indices]
     # Using advanced indexing: cumfree is (L, S+1)
-    cumfree_at_end = cumfree[:, end_indices_clamped]    # (L, S)
-    cumfree_at_start = cumfree[:, start_indices]         # (L, S)
+    cumfree_at_end = cumfree[:, end_indices_clamped]  # (L, S)
+    cumfree_at_start = cumfree[:, start_indices]  # (L, S)
     block_free_count = cumfree_at_end - cumfree_at_start  # (L, S)
 
     # Positions where the block would overflow the array are infeasible
@@ -390,11 +430,12 @@ def _find_feasible_start_slots(traversed, cutset_link_mask, slot_array, num_slot
     link_block_free = (block_free_count >= num_slots) & valid_start[None, :]  # (L, S)
 
     # Per cut-set: block at start s is feasible if ANY link in the cut-set has it free
-    available = jnp.einsum(
-        'cl,ls->cs',
-        cutset_link_mask.astype(jnp.int32),
-        link_block_free.astype(jnp.int32)
-    ) > 0  # (C, S)
+    available = (
+        jnp.einsum(
+            "cl,ls->cs", cutset_link_mask.astype(jnp.int32), link_block_free.astype(jnp.int32)
+        )
+        > 0
+    )  # (C, S)
 
     # Non-traversed cut-sets: treat as available
     available_or_skip = available | (~traversed[:, None])  # (C, S)
@@ -431,7 +472,8 @@ def _compute_link_tiebreaker(slot_array, start_slot, num_slots, link_selection_m
     elif link_selection_mode == "best_fit":
         # Prefer links where the contiguous free run containing the block is shortest
         # (i.e. least wasted space around the block).
-        free = (1 - slot_array)  # (L, S), 1=free
+        free = 1 - slot_array  # (L, S), 1=free
+
         # Compute contiguous free run length at each position using cumsum trick:
         # run_length[l, s] = number of consecutive free slots ending at position s.
         # We compute this cumulatively: reset on each occupied slot.
@@ -440,14 +482,17 @@ def _compute_link_tiebreaker(slot_array, start_slot, num_slots, link_selection_m
             def scan_fn(run, f):
                 new_run = (run + 1) * f  # reset to 0 on occupied, else increment
                 return new_run, new_run
+
             _, runs = jax.lax.scan(scan_fn, jnp.int32(0), free_row.astype(jnp.int32))
             return runs
+
         run_at = jax.vmap(_run_lengths)(free)  # (L, S)
         # The run length of the contiguous free block containing [start, start+num_slots)
         # is run_at[l, end_of_run] where end_of_run is the last free slot in the run.
         # Approximate: use the run length at (start + num_slots - 1).
         end_pos = jnp.minimum(start_slot + num_slots - 1, num_total_slots - 1)
         run_at_end = run_at[:, end_pos]  # (L,)
+
         # Now find the full run by looking forward from end_pos for remaining free slots
         # Actually, run_at gives backward runs. We also need forward runs to get the full
         # contiguous block. Compute forward runs similarly.
@@ -455,8 +500,10 @@ def _compute_link_tiebreaker(slot_array, start_slot, num_slots, link_selection_m
             def scan_fn(run, f):
                 new_run = (run + 1) * f
                 return new_run, new_run
+
             _, runs = jax.lax.scan(scan_fn, jnp.int32(0), free_row.astype(jnp.int32)[::-1])
             return runs[::-1]
+
         run_fwd = jax.vmap(_run_lengths_rev)(free)  # (L, S)
         run_fwd_at_start = run_fwd[:, jnp.minimum(start_slot, num_total_slots - 1)]  # (L,)
         # Total contiguous run = backward run at end + forward run at start - num_slots
@@ -473,8 +520,14 @@ def _compute_link_tiebreaker(slot_array, start_slot, num_slots, link_selection_m
 
 
 def _assign_links_for_block(
-    start_slot, num_slots, traversed, cutset_link_mask, slot_array, max_links_to_assign,
-    link_selection_mode, rng_key,
+    start_slot,
+    num_slots,
+    traversed,
+    cutset_link_mask,
+    slot_array,
+    max_links_to_assign,
+    link_selection_mode,
+    rng_key,
 ):
     """Greedy link assignment for a contiguous slot block [start_slot, start_slot+num_slots).
 
@@ -499,8 +552,10 @@ def _assign_links_for_block(
     slot_indices = jnp.arange(slot_array.shape[1])
     in_block = (slot_indices >= start_slot) & (slot_indices < start_slot + num_slots)  # (S,)
     # For each link: are ALL slots in the block free?
-    block_occupied = jnp.sum(slot_array * in_block[None, :], axis=1)  # (L,) — count of occupied in block
-    link_block_free = (block_occupied == 0)  # (L,) bool
+    block_occupied = jnp.sum(
+        slot_array * in_block[None, :], axis=1
+    )  # (L,) — count of occupied in block
+    link_block_free = block_occupied == 0  # (L,) bool
 
     # Compute tiebreaker based on selection mode
     tiebreaker = _compute_link_tiebreaker(
@@ -536,9 +591,18 @@ def _assign_links_for_block(
     return assigned_links, num_assigned
 
 
-def _simulation_step(carry, rng_key, partition1, partition2, cutset_link_mask,
-                     unique_link_indices, max_links_to_assign,
-                     best_se_matrix, params, link_selection_mode):
+def _simulation_step(
+    carry,
+    rng_key,
+    partition1,
+    partition2,
+    cutset_link_mask,
+    unique_link_indices,
+    max_links_to_assign,
+    best_se_matrix,
+    params,
+    link_selection_mode,
+):
     """One timestep of the capacity-bound simulation.
 
     Uses standard RSA env functions for request generation, expiry,
@@ -548,8 +612,7 @@ def _simulation_step(carry, rng_key, partition1, partition2, cutset_link_mask,
              always_accepted_bitrate, blocked_bitrate)
       state: RSAEnvState with link_slot_array (num_links, link_resources), etc.
     """
-    state, always_accepted_count, blocked_count, \
-        always_accepted_bitrate, blocked_bitrate = carry
+    state, always_accepted_count, blocked_count, always_accepted_bitrate, blocked_bitrate = carry
 
     rng_key, rng_link = jax.random.split(rng_key)
 
@@ -562,8 +625,11 @@ def _simulation_step(carry, rng_key, partition1, partition2, cutset_link_mask,
     dest = nodes_sd[1].astype(jnp.int32)
     se = best_se_matrix[source, dest].astype(jnp.float32)
     num_slots = required_slots(
-        requested_datarate, se, params.slot_size,
-        guardband=params.guardband, temperature=params.temperature,
+        requested_datarate,
+        se,
+        params.slot_size,
+        guardband=params.guardband,
+        temperature=params.temperature,
         differentiable=params.differentiable,
     )
 
@@ -581,9 +647,14 @@ def _simulation_step(carry, rng_key, partition1, partition2, cutset_link_mask,
 
     # --- 5. Assign links (greedy set cover in compressed space) ---
     assigned_links_compressed, _ = _assign_links_for_block(
-        start_slot, num_slots, traversed, cutset_link_mask,
-        slot_array_subset, max_links_to_assign,
-        link_selection_mode, rng_link,
+        start_slot,
+        num_slots,
+        traversed,
+        cutset_link_mask,
+        slot_array_subset,
+        max_links_to_assign,
+        link_selection_mode,
+        rng_link,
     )
 
     # --- 6. Build path vector in full link space ---
@@ -603,8 +674,11 @@ def _simulation_step(carry, rng_key, partition1, partition2, cutset_link_mask,
 
     # --- 7. Build ActionInfo ---
     affected_slots_mask = get_affected_slots_mask(
-        state, start_slot.astype(state.link_slot_array.dtype),
-        num_slots.astype(state.link_slot_array.dtype), path, params
+        state,
+        start_slot.astype(state.link_slot_array.dtype),
+        num_slots.astype(state.link_slot_array.dtype),
+        path,
+        params,
     )
     action_info = ActionInfo(
         action=jnp.array(0, dtype=state.link_slot_array.dtype),
@@ -642,16 +716,31 @@ def _simulation_step(carry, rng_key, partition1, partition2, cutset_link_mask,
     is_blocked = any_traversed & (check > 0)
     always_accepted_count = always_accepted_count + (~any_traversed).astype(jnp.int32)
     blocked_count = blocked_count + is_blocked.astype(jnp.int32)
-    always_accepted_bitrate = always_accepted_bitrate + jnp.where(~any_traversed, requested_datarate, 0.0)
+    always_accepted_bitrate = always_accepted_bitrate + jnp.where(
+        ~any_traversed, requested_datarate, 0.0
+    )
     blocked_bitrate = blocked_bitrate + jnp.where(is_blocked, requested_datarate, 0.0)
 
-    return (final_state, always_accepted_count, blocked_count,
-            always_accepted_bitrate, blocked_bitrate), None
+    return (
+        final_state,
+        always_accepted_count,
+        blocked_count,
+        always_accepted_bitrate,
+        blocked_bitrate,
+    ), None
 
 
 def run_single_trial(
-    rng, initial_state, params, partition1, partition2, cutset_link_mask,
-    unique_link_indices, best_se_matrix, num_requests, max_links_to_assign,
+    rng,
+    initial_state,
+    params,
+    partition1,
+    partition2,
+    cutset_link_mask,
+    unique_link_indices,
+    best_se_matrix,
+    num_requests,
+    max_links_to_assign,
     link_selection_mode,
 ):
     """Run a single trial of the capacity-bound simulation.
@@ -663,35 +752,66 @@ def run_single_trial(
         (accepted_count, blocked_count, always_accepted_count,
          accepted_bitrate, blocked_bitrate, always_accepted_bitrate, total_bitrate)
     """
-    init_carry = (initial_state, jnp.int32(0), jnp.int32(0),
-                  jnp.float32(0.0), jnp.float32(0.0), jnp.int32(0))
+    init_carry = (
+        initial_state,
+        jnp.int32(0),
+        jnp.int32(0),
+        jnp.float32(0.0),
+        jnp.float32(0.0),
+        jnp.int32(0),
+    )
 
     def step_fn(carry, _):
         state, aa, bc, aabr, bbr, step_idx = carry
         rng_key = jax.random.fold_in(rng, step_idx)
         (state, aa, bc, aabr, bbr), _ = _simulation_step(
-            (state, aa, bc, aabr, bbr), rng_key,
-            partition1, partition2, cutset_link_mask,
-            unique_link_indices, max_links_to_assign,
-            best_se_matrix, params, link_selection_mode,
+            (state, aa, bc, aabr, bbr),
+            rng_key,
+            partition1,
+            partition2,
+            cutset_link_mask,
+            unique_link_indices,
+            max_links_to_assign,
+            best_se_matrix,
+            params,
+            link_selection_mode,
         )
         return (state, aa, bc, aabr, bbr, step_idx + 1), None
 
     final_carry, _ = jax.lax.scan(step_fn, init_carry, None, length=num_requests)
 
-    final_state, always_accepted_count, blocked_count, \
-        always_accepted_bitrate, blocked_bitrate, _ = final_carry
+    (
+        final_state,
+        always_accepted_count,
+        blocked_count,
+        always_accepted_bitrate,
+        blocked_bitrate,
+        _,
+    ) = final_carry
     accepted_count = final_state.accepted_services
     accepted_bitrate = final_state.accepted_bitrate
     total_bitrate = final_state.total_bitrate
 
-    return (accepted_count, blocked_count, always_accepted_count,
-            accepted_bitrate, blocked_bitrate, always_accepted_bitrate, total_bitrate)
+    return (
+        accepted_count,
+        blocked_count,
+        always_accepted_count,
+        accepted_bitrate,
+        blocked_bitrate,
+        always_accepted_bitrate,
+        total_bitrate,
+    )
 
 
 def run_capacity_bound_simulation(
-    heavy_cut_sets, env, params, best_se_matrix,
-    loads, num_requests, num_trials, seed=0,
+    heavy_cut_sets,
+    env,
+    params,
+    best_se_matrix,
+    loads,
+    num_requests,
+    num_trials,
+    seed=0,
     link_selection_mode="least_congested",
 ):
     """Run the full capacity-bound simulation across multiple loads and trials.
@@ -716,12 +836,12 @@ def run_capacity_bound_simulation(
 
     # Precompute cut-set data
     cs_data = precompute_cutset_data(heavy_cut_sets, num_links)
-    partition1 = cs_data['partition1']
-    partition2 = cs_data['partition2']
-    cutset_link_mask = cs_data['cutset_link_mask']
-    unique_link_indices = cs_data['unique_link_indices']
-    num_unique_links = cs_data['num_unique_links']
-    num_cutsets = cs_data['num_cutsets']
+    partition1 = cs_data["partition1"]
+    partition2 = cs_data["partition2"]
+    cutset_link_mask = cs_data["cutset_link_mask"]
+    unique_link_indices = cs_data["unique_link_indices"]
+    num_unique_links = cs_data["num_unique_links"]
+    num_cutsets = cs_data["num_cutsets"]
 
     max_links_to_assign = min(num_cutsets, num_unique_links, 20)
 
@@ -756,10 +876,16 @@ def run_capacity_bound_simulation(
 
         def single(rng):
             return run_single_trial(
-                rng, initial_state, params_for_load,
-                partition1, partition2, cutset_link_mask,
-                unique_link_indices, best_se_matrix,
-                num_requests, max_links_to_assign,
+                rng,
+                initial_state,
+                params_for_load,
+                partition1,
+                partition2,
+                cutset_link_mask,
+                unique_link_indices,
+                best_se_matrix,
+                num_requests,
+                max_links_to_assign,
                 link_selection_mode,
             )
 
@@ -772,8 +898,15 @@ def run_capacity_bound_simulation(
             f"EXECUTION (load={load_val:.0f})",
             frames=num_requests * num_trials,
         ):
-            (accepted, blocked, always_accepted,
-             accepted_br, blocked_br, always_accepted_br, total_br) = jitted_single(trial_rngs)
+            (
+                accepted,
+                blocked,
+                always_accepted,
+                accepted_br,
+                blocked_br,
+                always_accepted_br,
+                total_br,
+            ) = jitted_single(trial_rngs)
             # Block until results are ready for accurate timing
             jax.block_until_ready((accepted, blocked))
 
@@ -791,20 +924,22 @@ def run_capacity_bound_simulation(
 
         mean_bp = float(np.mean(blocking_prob))
         mean_bbp = float(np.mean(bitrate_blocking_prob))
-        print(f"  Blocking prob: {mean_bp:.6f}  Bitrate blocking prob: {mean_bbp:.6f} "
-              f"(accepted={np.mean(accepted):.0f}, blocked={np.mean(blocked):.0f}, "
-              f"always_accepted={np.mean(always_accepted):.0f})")
+        print(
+            f"  Blocking prob: {mean_bp:.6f}  Bitrate blocking prob: {mean_bbp:.6f} "
+            f"(accepted={np.mean(accepted):.0f}, blocked={np.mean(blocked):.0f}, "
+            f"always_accepted={np.mean(always_accepted):.0f})"
+        )
 
         results[float(load_val)] = {
-            'accepted': accepted,
-            'blocked': blocked,
-            'always_accepted': always_accepted,
-            'blocking_prob': blocking_prob,
-            'accepted_bitrate': accepted_br,
-            'blocked_bitrate': blocked_br,
-            'always_accepted_bitrate': always_accepted_br,
-            'total_bitrate': total_br,
-            'bitrate_blocking_prob': bitrate_blocking_prob,
+            "accepted": accepted,
+            "blocked": blocked,
+            "always_accepted": always_accepted,
+            "blocking_prob": blocking_prob,
+            "accepted_bitrate": accepted_br,
+            "blocked_bitrate": blocked_br,
+            "always_accepted_bitrate": always_accepted_br,
+            "total_bitrate": total_br,
+            "bitrate_blocking_prob": bitrate_blocking_prob,
         }
 
     profiler.summary()
@@ -814,22 +949,27 @@ def run_capacity_bound_simulation(
 def print_results_table(results):
     """Print a summary table of simulation results."""
     print("\n" + "=" * 100)
-    print(f"{'Load':>10s}  {'Block Prob (mean)':>18s}  {'Block Prob (std)':>18s}  "
-          f"{'BR Block Prob':>14s}  {'Accepted':>10s}  {'Blocked':>10s}  {'Always Acc':>10s}")
+    print(
+        f"{'Load':>10s}  {'Block Prob (mean)':>18s}  {'Block Prob (std)':>18s}  "
+        f"{'BR Block Prob':>14s}  {'Accepted':>10s}  {'Blocked':>10s}  {'Always Acc':>10s}"
+    )
     print("-" * 100)
     for load in sorted(results.keys()):
         r = results[load]
-        bp = r['blocking_prob']
-        bbp = r['bitrate_blocking_prob']
-        print(f"{load:10.1f}  {float(np.mean(bp)):18.8f}  {float(np.std(bp)):18.8f}  "
-              f"{float(np.mean(bbp)):14.8f}  {float(np.mean(r['accepted'])):10.0f}  "
-              f"{float(np.mean(r['blocked'])):10.0f}  {float(np.mean(r['always_accepted'])):10.0f}")
+        bp = r["blocking_prob"]
+        bbp = r["bitrate_blocking_prob"]
+        print(
+            f"{load:10.1f}  {float(np.mean(bp)):18.8f}  {float(np.std(bp)):18.8f}  "
+            f"{float(np.mean(bbp)):14.8f}  {float(np.mean(r['accepted'])):10.0f}  "
+            f"{float(np.mean(r['blocked'])):10.0f}  {float(np.mean(r['always_accepted'])):10.0f}"
+        )
     print("=" * 100)
 
 
 # =====================================================================
 #  Main entry point
 # =====================================================================
+
 
 def main(argv):
     print(f"Available devices: {jax.devices()}")
@@ -858,12 +998,14 @@ def main(argv):
 
     # --- Find congested cut-sets ---
     if FLAGS.CUTSET_EXHAUSTIVE:
-        total_combinations = 2 ** params.num_nodes
+        total_combinations = 2**params.num_nodes
         parallel_processes = FLAGS.NUM_ENVS
         batch_size = min(FLAGS.CUTSET_BATCH_SIZE, total_combinations)
         batches_per_process = math.ceil(total_combinations / parallel_processes / batch_size)
         iterations_per_process = min(FLAGS.CUTSET_ITERATIONS, batches_per_process)
-        batches_per_iteration = math.ceil(total_combinations / parallel_processes / iterations_per_process / batch_size)
+        batches_per_iteration = math.ceil(
+            total_combinations / parallel_processes / iterations_per_process / batch_size
+        )
         print(f"Top k: {top_k}")
         print(f"Num Nodes: {params.num_nodes}")
         print(f"Parallel processes: {parallel_processes}")
@@ -878,40 +1020,66 @@ def main(argv):
             starts = jax.device_put(starts, jax.devices()[int(FLAGS.VISIBLE_DEVICES)])
         if FLAGS.DISABLE_JIT:
             heavy_cut_sets_raw = find_congested_cuts_exhaustive(
-                starts, iterations_per_process, batches_per_iteration,
-                adj_matrix_haw, traffic_matrix_haw, params.num_nodes,
-                top_k, batch_size, source_nodes_haw, destination_nodes_haw
+                starts,
+                iterations_per_process,
+                batches_per_iteration,
+                adj_matrix_haw,
+                traffic_matrix_haw,
+                params.num_nodes,
+                top_k,
+                batch_size,
+                source_nodes_haw,
+                destination_nodes_haw,
             )
         else:
             with TimeIt("CUT-SET COMPILATION:"):
-                func = jax.jit(
-                    jax.vmap(
-                        find_congested_cuts_exhaustive,
-                        in_axes=(0, None, None, None, None, None, None, None, None, None)
-                    ),
-                    static_argnums=(1, 2, 3, 4, 5, 6, 7, 8, 9)).lower(
-                    starts, iterations_per_process, batches_per_iteration,
-                    adj_matrix_haw, traffic_matrix_haw,
-                    params.num_nodes, top_k, batch_size,
-                    source_nodes_haw, destination_nodes_haw
-                ).compile()
+                func = (
+                    jax.jit(
+                        jax.vmap(
+                            find_congested_cuts_exhaustive,
+                            in_axes=(0, None, None, None, None, None, None, None, None, None),
+                        ),
+                        static_argnums=(1, 2, 3, 4, 5, 6, 7, 8, 9),
+                    )
+                    .lower(
+                        starts,
+                        iterations_per_process,
+                        batches_per_iteration,
+                        adj_matrix_haw,
+                        traffic_matrix_haw,
+                        params.num_nodes,
+                        top_k,
+                        batch_size,
+                        source_nodes_haw,
+                        destination_nodes_haw,
+                    )
+                    .compile()
+                )
             with TimeIt("CUT-SET EXECUTION:", frames=total_combinations):
                 heavy_cut_sets_raw = func(starts)
                 heavy_cut_sets_raw[0].block_until_ready()
     else:
         if FLAGS.DISABLE_JIT:
             heavy_cut_sets_raw = find_congested_cuts_simple(
-                params.path_link_array, source_nodes_haw, destination_nodes_haw,
-                adj_matrix_haw, traffic_matrix_haw
+                params.path_link_array,
+                source_nodes_haw,
+                destination_nodes_haw,
+                adj_matrix_haw,
+                traffic_matrix_haw,
             )
         else:
             with TimeIt("CUT-SET COMPILATION:"):
-                func = jax.jit(
-                    find_congested_cuts_simple, static_argnums=(0, 1, 2, 3, 4)
-                ).lower(
-                    params.path_link_array, source_nodes_haw, destination_nodes_haw,
-                    adj_matrix_haw, traffic_matrix_haw
-                ).compile()
+                func = (
+                    jax.jit(find_congested_cuts_simple, static_argnums=(0, 1, 2, 3, 4))
+                    .lower(
+                        params.path_link_array,
+                        source_nodes_haw,
+                        destination_nodes_haw,
+                        adj_matrix_haw,
+                        traffic_matrix_haw,
+                    )
+                    .compile()
+                )
             with TimeIt("CUT-SET EXECUTION:"):
                 heavy_cut_sets_raw = func()
                 heavy_cut_sets_raw[0].block_until_ready()
@@ -959,14 +1127,16 @@ def main(argv):
         print(f"Cutsets after mean filtering: {len(congestions)}")
 
     heavy_cut_sets = {
-        'congestion': congestions,
-        'partition1': partition1,
-        'partition2': partition2,
-        'cutset_edges': cutset_edges,
+        "congestion": congestions,
+        "partition1": partition1,
+        "partition2": partition2,
+        "cutset_edges": cutset_edges,
     }
 
     print(f"\nSelected {len(congestions)} cut-sets:")
-    for i, (cong, ce) in enumerate(zip(heavy_cut_sets['congestion'], heavy_cut_sets['cutset_edges'])):
+    for i, (cong, ce) in enumerate(
+        zip(heavy_cut_sets["congestion"], heavy_cut_sets["cutset_edges"])
+    ):
         links = [int(j) for j, v in enumerate(ce) if v > 0]
         print(f"  Cut-set {i}: congestion={float(cong):.4f}, links={links}")
 
@@ -974,12 +1144,14 @@ def main(argv):
     print("Building best spectral efficiency matrix...")
     best_se_matrix = build_best_se_matrix(params)
     if params.consider_modulation_format:
-        print(f"  SE range: {int(jnp.min(best_se_matrix[best_se_matrix > 0]))} - {int(jnp.max(best_se_matrix))}")
+        print(
+            f"  SE range: {int(jnp.min(best_se_matrix[best_se_matrix > 0]))} - {int(jnp.max(best_se_matrix))}"
+        )
     else:
         print("  Modulation format not considered (SE=1 everywhere)")
 
     # --- Get raw RSAEnv (unwrap LogWrapper) ---
-    raw_env = env._env if hasattr(env, '_env') else env
+    raw_env = env._env if hasattr(env, "_env") else env
 
     # --- Run capacity bound simulation ---
     loads = np.arange(
@@ -1002,41 +1174,58 @@ def main(argv):
 
     print_results_table(results)
 
-    # Save results to CSV
-    output_dir = os.path.dirname(os.path.abspath(__file__))
-    output_path = os.path.join(output_dir, f"cutset_bound_results_{FLAGS.topology_name}.csv")
-    fieldnames = [
-        'load', 'trial', 'accepted', 'blocked', 'always_accepted', 'blocking_prob',
-        'accepted_bitrate', 'blocked_bitrate', 'always_accepted_bitrate',
-        'total_bitrate', 'bitrate_blocking_prob',
-    ]
-    rows = []
+    # Print summary statistics for each load (parseable by shell scripts)
     for load in sorted(results.keys()):
         r = results[load]
-        for trial_idx in range(len(r['blocking_prob'])):
-            rows.append({
-                'load': load,
-                'trial': trial_idx,
-                'accepted': int(r['accepted'][trial_idx]),
-                'blocked': int(r['blocked'][trial_idx]),
-                'always_accepted': int(r['always_accepted'][trial_idx]),
-                'blocking_prob': float(r['blocking_prob'][trial_idx]),
-                'accepted_bitrate': float(r['accepted_bitrate'][trial_idx]),
-                'blocked_bitrate': float(r['blocked_bitrate'][trial_idx]),
-                'always_accepted_bitrate': float(r['always_accepted_bitrate'][trial_idx]),
-                'total_bitrate': float(r['total_bitrate'][trial_idx]),
-                'bitrate_blocking_prob': float(r['bitrate_blocking_prob'][trial_idx]),
-            })
+        bp = r["blocking_prob"]
+        bbp = r["bitrate_blocking_prob"]
 
-    import csv
-    with open(output_path, 'w', newline='') as f:
-        # Write the generating command as a comment at the top
-        cmd = ' '.join(sys.argv)
-        f.write(f"# {cmd}\n")
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
-        writer.writeheader()
-        writer.writerows(rows)
-    print(f"\nResults saved to {output_path}")
+        bp_mean = float(np.mean(bp))
+        bp_std = float(np.std(bp))
+        bp_iqr_lower = float(np.nanpercentile(bp, 25))
+        bp_iqr_upper = float(np.nanpercentile(bp, 75))
+
+        bbp_mean = float(np.mean(bbp))
+        bbp_std = float(np.std(bbp))
+        bbp_iqr_lower = float(np.nanpercentile(bbp, 25))
+        bbp_iqr_upper = float(np.nanpercentile(bbp, 75))
+
+        accepted_mean = float(np.mean(r["accepted"]))
+        accepted_std = float(np.std(r["accepted"]))
+        accepted_iqr_lower = float(np.nanpercentile(r["accepted"], 25))
+        accepted_iqr_upper = float(np.nanpercentile(r["accepted"], 75))
+
+        blocked_mean = float(np.mean(r["blocked"]))
+        blocked_std = float(np.std(r["blocked"]))
+        blocked_iqr_lower = float(np.nanpercentile(r["blocked"], 25))
+        blocked_iqr_upper = float(np.nanpercentile(r["blocked"], 75))
+
+        always_accepted_mean = float(np.mean(r["always_accepted"]))
+        always_accepted_std = float(np.std(r["always_accepted"]))
+        always_accepted_iqr_lower = float(np.nanpercentile(r["always_accepted"], 25))
+        always_accepted_iqr_upper = float(np.nanpercentile(r["always_accepted"], 75))
+
+        print(f"\n=== SUMMARY load={load:.1f} ===")
+        print(f"Blocking Probability mean: {bp_mean:.8f}")
+        print(f"Blocking Probability std: {bp_std:.8f}")
+        print(f"Blocking Probability IQR lower: {bp_iqr_lower:.8f}")
+        print(f"Blocking Probability IQR upper: {bp_iqr_upper:.8f}")
+        print(f"Bitrate Blocking Probability mean: {bbp_mean:.8f}")
+        print(f"Bitrate Blocking Probability std: {bbp_std:.8f}")
+        print(f"Bitrate Blocking Probability IQR lower: {bbp_iqr_lower:.8f}")
+        print(f"Bitrate Blocking Probability IQR upper: {bbp_iqr_upper:.8f}")
+        print(f"Accepted Count mean: {accepted_mean:.5f}")
+        print(f"Accepted Count std: {accepted_std:.5f}")
+        print(f"Accepted Count IQR lower: {accepted_iqr_lower:.5f}")
+        print(f"Accepted Count IQR upper: {accepted_iqr_upper:.5f}")
+        print(f"Blocked Count mean: {blocked_mean:.5f}")
+        print(f"Blocked Count std: {blocked_std:.5f}")
+        print(f"Blocked Count IQR lower: {blocked_iqr_lower:.5f}")
+        print(f"Blocked Count IQR upper: {blocked_iqr_upper:.5f}")
+        print(f"Always Accepted Count mean: {always_accepted_mean:.5f}")
+        print(f"Always Accepted Count std: {always_accepted_std:.5f}")
+        print(f"Always Accepted Count IQR lower: {always_accepted_iqr_lower:.5f}")
+        print(f"Always Accepted Count IQR upper: {always_accepted_iqr_upper:.5f}")
 
 
 if __name__ == "__main__":
