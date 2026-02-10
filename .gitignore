@@ -13,10 +13,7 @@ config/
 .run
 .venv
 .zed
-.DS_store
-*.png
-experimental/data_processing/misc
+data_processing/misc
 experiment_data/
 .ipynb_checkpoints/
 saved_models/
-experimental/vf_pretraining/models/
