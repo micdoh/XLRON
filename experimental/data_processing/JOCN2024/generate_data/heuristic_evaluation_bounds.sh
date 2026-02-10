@@ -22,7 +22,6 @@ run_experiment() {
         --load=$traffic_load \
         --k=$k \
         --topology_name=$topology \
-        --max_requests=1e3 \
         --continuous_operation \
         --ENV_WARMUP_STEPS=3000 \
         --TOTAL_TIMESTEPS 20000000 \
@@ -125,7 +124,7 @@ for traffic_load in 150 160 170 180 190 200 210 220 230 240 250 260 270 280 290 
     run_experiment "DeepRMSA" "nsfnet_deeprmsa_directed" "$traffic_load" "$k" "ksp_ff" "$args"
 done
 args="--env_type rmsa --link_resources 100 --mean_service_holding_time 20 --truncate_holding_time"
-for traffic_load in 400 410 420 430 440 450 460 470 480 500 510 520 530 540 550 560 570 580 590 600 610 620 630; do
+for traffic_load in 400 410 420 430 440 450 460 470 480 490 500 510 520 530 540 550 560 570 580 590 600 610 620 630; do
     run_experiment "DeepRMSA" "cost239_deeprmsa_directed" "$traffic_load" "$k" "ksp_ff" "$args"
 done
 args="--env_type rmsa --link_resources 100 --mean_service_holding_time 20 --truncate_holding_time"
