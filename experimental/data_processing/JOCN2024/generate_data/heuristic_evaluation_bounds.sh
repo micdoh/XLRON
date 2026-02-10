@@ -27,10 +27,9 @@ run_experiment() {
         --ENV_WARMUP_STEPS=3000 \
         --TOTAL_TIMESTEPS 20000000 \
         --NUM_ENVS 2000 \
-        --VISIBLE_DEVICES 0 \
         --EVAL_HEURISTIC \
         --path_heuristic $heur \
-        --modulations_csv_filepath "./modulations/modulations_deeprmsa.csv" \
+        --modulations_csv_filepath "./xlron/data/modulations/modulations_deeprmsa.csv"  \
         $additional_args)
 
     # Extract metrics using awk and store in CSV format
