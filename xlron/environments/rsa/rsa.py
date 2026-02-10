@@ -442,7 +442,10 @@ class RSAEnv(environment.Environment):
         Returns:
             done: Boolean termination flag
         """
-        return jnp.array(state.total_requests >= params.max_requests)
+        if params.continuous_operation:
+            return jnp.array(False)
+        else:
+            return jnp.array(state.total_requests >= params.max_requests)
 
     @staticmethod
     def add_integer_bonus(action, scale=0.0):

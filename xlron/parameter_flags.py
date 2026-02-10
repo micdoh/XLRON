@@ -132,6 +132,11 @@ flags.DEFINE_boolean("log_actions", False, "Log actions taken and other details"
 flags.DEFINE_boolean("log_path_lengths", False, "Log path length statistics")
 flags.DEFINE_boolean("log_wrapper", True, "Wrap Env in LogEnvWrapper")
 flags.DEFINE_boolean("PROFILE", False, "Profile programme with perfetto")
+flags.DEFINE_boolean(
+    "COMPILE_RR_BOUNDS",
+    False,
+    "AOT-compile run_defrag in reconfigurable routing bounds (default: interpreted)",
+)
 flags.DEFINE_boolean("LOG_LOSS_INFO", True, "Log loss metrics")
 flags.DEFINE_boolean("LOG_ALL_INFO", True, "Log every metric")
 flags.DEFINE_boolean(

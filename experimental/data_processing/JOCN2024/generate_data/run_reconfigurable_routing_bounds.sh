@@ -1,7 +1,7 @@
 #!/bin/bash
 
-PYTHON_PATH="/Users/michaeldoherty/git/XLRON/.venv/bin/python"
-SCRIPT_PATH="/Users/michaeldoherty/git/XLRON/experimental/capacity_bound_estimation/reconfigurable_routing_bounds_sequential.py"
+PYTHON_PATH="./.venv/bin/python"
+SCRIPT_PATH="./xlron/bounds/reconfigurable_routing_bounds_sequential.py"
 OUTPUT_FILE="experiment_results_bounds.csv"
 
 echo "experiment,topology,load,k,heur,blocking_prob_mean,blocking_prob_std,blocking_prob_iqr_lower,blocking_prob_iqr_upper,block_count_mean,block_count_std,block_count_iqr_lower,block_count_iqr_upper,fix_count_mean,fix_count_std,fix_count_iqr_lower,fix_count_iqr_upper,fix_ratio_mean,fix_ratio_std,fix_ratio_iqr_lower,fix_ratio_iqr_upper" > $OUTPUT_FILE
@@ -16,7 +16,7 @@ run_experiment() {
 
     echo "Running $name: topology=$topology, load=$traffic_load, k=$k, heur=$heur"
 
-    output=$($PYTHON_PATH $SCRIPT_PATH \
+    output=$($PYTHON_PATH -u $SCRIPT_PATH \
         --topology_name "$topology" \
         --load "$traffic_load" \
         --k "$k" \
@@ -24,6 +24,7 @@ run_experiment() {
         --NUM_ENVS 1 \
         --modulations_csv_filepath "./xlron/data/modulations/modulations_deeprmsa.csv" \
         --path_heuristic "$heur" \
+        --COMPILE_RR_BOUNDS \
         $additional_args 2>&1 | tee /dev/tty)
 
     blocking_mean=$(echo "$output" | grep "Blocking Probability mean:" | sed 's/.*: \(.*\)/\1/')
