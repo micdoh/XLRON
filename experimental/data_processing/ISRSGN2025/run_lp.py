@@ -15,7 +15,7 @@ if __name__ == "__main__":
 
     num_envs = 2000 if env_type == "rsa" else 1
 
-    base_command = (f"/home/uceedoh/xlron_env/bin/python3.11 /home/uceedoh/git/XLRON/xlron/train/train.py "
+    base_command = (f"/home/uceedoh/git/XLRON/.venv/bin/python3.11 /home/uceedoh/git/XLRON/xlron/train/train.py "
                     f" --env_type={env_type} --DOWNSAMPLE_FACTOR 100 --guardband=0 --incremental_loading "
                     f" --end_first_blocking --NUM_ENVS {num_envs} "
                     f" --EVAL_HEURISTIC --SMALL_FLOAT_DTYPE float32 --LARGE_FLOAT_DTYPE float32 "
