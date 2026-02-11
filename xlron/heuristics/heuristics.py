@@ -14,7 +14,7 @@ from xlron.environments.env_funcs import (
     mask_slots,
     read_rsa_request,
     required_slots,
-    vmap_set_path_links,
+    set_path_links, get_affected_slots_mask,
 )
 from xlron.environments.wrappers import jit_profiler
 
@@ -244,9 +244,10 @@ def kmc_ff(state: EnvState, params: RSAEnvParams) -> chex.Array:
         path = get_paths(params, nodes_sd)[i]
         se = get_paths_se(params, nodes_sd)[i] if params.consider_modulation_format else 1
         num_slots = required_slots(requested_bw, se, params.slot_size, guardband=params.guardband)
+        affected_slots_mask = get_affected_slots_mask(initial_slot_index, num_slots, path, params)
         # Make link-slot_array positive
-        updated_slots = vmap_set_path_links(
-            link_slot_array, path, initial_slot_index, num_slots, 1.0
+        updated_slots = set_path_links(
+            link_slot_array, affected_slots_mask, 1.0
         )
         updated_block_sizes = jax.vmap(find_block_sizes, in_axes=(0,))(updated_slots)
         updated_block_sizes_mask = jnp.where(
@@ -296,10 +297,11 @@ def kmf_ff(state: RSAEnvState, params: RSAEnvParams) -> chex.Array:
         path = get_paths(params, nodes_sd)[i]
         se = get_paths_se(params, nodes_sd)[i] if params.consider_modulation_format else 1
         num_slots = required_slots(requested_bw, se, params.slot_size, guardband=params.guardband)
+        affected_slots_mask = get_affected_slots_mask(initial_slot_index, num_slots, path, params)
         # Mask on path links
         block_sizes = jax.vmap(lambda x, y: jnp.where(x > 0, y, 0.0), in_axes=(0, 0))(path, blocks)
-        updated_slots = vmap_set_path_links(
-            state.link_slot_array, path, initial_slot_index, num_slots, -1
+        updated_slots = set_path_links(
+            state.link_slot_array, affected_slots_mask, -1
         )
         updated_block_sizes = jax.vmap(find_block_sizes, in_axes=(0,))(updated_slots)
         # Mask on path links
@@ -362,9 +364,10 @@ def kme_ff(state: EnvState, params: RSAEnvParams) -> chex.Array:
         path = get_paths(params, nodes_sd)[i]
         se = get_paths_se(params, nodes_sd)[i] if params.consider_modulation_format else 1
         num_slots = required_slots(requested_bw, se, params.slot_size, guardband=params.guardband)
+        affected_slots_mask = get_affected_slots_mask(initial_slot_index, num_slots, path, params)
         # Make link-slot_array positive
-        updated_slots = vmap_set_path_links(
-            link_slot_array, path, initial_slot_index, num_slots, 1.0
+        updated_slots = set_path_links(
+            link_slot_array, affected_slots_mask, 1.0
         )
         updated_block_sizes = jax.vmap(find_block_sizes, in_axes=(0,))(updated_slots)
         updated_entropy = jax.vmap(get_link_entropy, in_axes=(0,))(updated_block_sizes)

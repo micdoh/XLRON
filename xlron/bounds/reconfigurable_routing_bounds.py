@@ -1,7 +1,6 @@
 import copy
 import sys
 from functools import partial
-from itertools import combinations, islice
 from typing import Callable
 
 import absl.app as app
@@ -10,16 +9,11 @@ import jax.numpy as jnp
 from absl import flags
 from tqdm import tqdm
 
-from xlron import parameter_flags
-from xlron.environments.dataclasses import *
+from xlron.environments.dataclasses import EnvState, EnvParams
 from xlron.environments.env_funcs import (
-    check_action_rsa,
-    complete_step_rsa,
     generate_request_rsa,
-    get_affected_slots_mask,
     get_paths,
     get_paths_se,
-    implement_action_rsa,
     required_slots,
 )
 from xlron.environments.make_env import make
@@ -325,6 +319,8 @@ def get_eval_fn(config, env, env_params, compile_defrag=False) -> Callable:
                 jax.lax.scan(scan_body, init_carry, sort_indices)
             )
             return final_env_state, final_sorted_requests, blocking_events, block_count, fix_count
+            
+        return compiled_main_loop, run_defrag_trimmed
 
     else:
         # --- Non-compiled path: Python loop over only actual active requests ---
@@ -373,9 +369,6 @@ def get_eval_fn(config, env, env_params, compile_defrag=False) -> Callable:
             sorted_requests = sorted_requests.at[sort_index].set(blocked_request)
             return sorted_requests, env_state, blocking
 
-    if compile_defrag:
-        return compiled_main_loop, run_defrag_trimmed
-    else:
         return None, run_defragmentation
 
 

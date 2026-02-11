@@ -255,6 +255,86 @@ class GenerateArrivalHoldingTimesTest(parameterized.TestCase):
         chex.assert_trees_all_close(holding_time, expected[1])
 
 
+class SetPathLinksTest(parameterized.TestCase):
+    def setUp(self):
+        super().setUp()
+        self.key, self.env, self.obs, self.state, self.params = rwa_4node_test_setup()
+
+    def _make_action_info(self, link_array, path, initial_slot, num_slots):
+        initial_slot_index = jnp.array(initial_slot)
+        num_slots_arr = jnp.array(num_slots)
+        slot_indices = jnp.arange(link_array.shape[1])
+        slot_mask = (slot_indices >= initial_slot_index) & (
+            slot_indices < initial_slot_index + num_slots_arr
+        )
+        combined_mask = path[:, None] * slot_mask[None, :].astype(jnp.float32)
+        return ActionInfo(
+            action=jnp.array(0),
+            path_index=jnp.array(0),
+            initial_slot_index=initial_slot_index,
+            num_slots=num_slots_arr,
+            path=path,
+            se=jnp.array(1.0),
+            requested_datarate=jnp.array(1),
+            nodes_sd=jnp.array([0, 1]),
+            affected_slots_mask=combined_mask,
+        )
+
+    @chex.all_variants()
+    @parameterized.named_parameters(
+        (
+            "case_base",
+            [[0, 0, 0, 0, 0], [0, 0, 0, 0, 0], [0, 0, 0, 0, 0], [0, 0, 0, 0, 0]],
+            [1, 0, 0, 0],
+            3,
+            2,
+            -1,
+            [[0, 0, 0, -1, -1], [0, 0, 0, 0, 0], [0, 0, 0, 0, 0], [0, 0, 0, 0, 0]],
+        ),
+        (
+            "case_overwrite",
+            [[1, 1, 1, 1, 1], [2, 2, 2, 2, 2], [3, 3, 3, 3, 3], [4, 4, 4, 4, 4]],
+            [1, 0, 1, 0],
+            1,
+            3,
+            0,
+            [[1, 0, 0, 0, 1], [2, 2, 2, 2, 2], [3, 0, 0, 0, 3], [4, 4, 4, 4, 4]],
+        ),
+        (
+            "case_multilink",
+            [[5, 5, 5, 5, 5], [5, 5, 5, 5, 5], [5, 5, 5, 5, 5], [5, 5, 5, 5, 5]],
+            [1, 0, 1, 1],
+            0,
+            4,
+            -99,
+            [
+                [-99, -99, -99, -99, 5],
+                [5, 5, 5, 5, 5],
+                [-99, -99, -99, -99, 5],
+                [-99, -99, -99, -99, 5],
+            ],
+        ),
+        (
+            "case_no_path",
+            [[1, 2, 3, 4, 5], [6, 7, 8, 9, 10], [1, 2, 3, 4, 5], [6, 7, 8, 9, 10]],
+            [0, 0, 0, 0],
+            3,
+            2,
+            -1,
+            [[1, 2, 3, 4, 5], [6, 7, 8, 9, 10], [1, 2, 3, 4, 5], [6, 7, 8, 9, 10]],
+        ),
+    )
+    def test_set_path_links(self, link_array, path, initial_slot, num_slots, value, expected):
+        link_array = jnp.array(link_array, dtype=jnp.float32)
+        path = jnp.array(path, dtype=jnp.float32)
+        expected = jnp.array(expected, dtype=jnp.float32)
+        action_info = self._make_action_info(link_array, path, initial_slot, num_slots)
+        updated_link_array = self.variant(set_path_links)(
+            link_array, action_info.affected_slots_mask, value
+        )
+        chex.assert_trees_all_close(updated_link_array, expected)
+
+
 class UpdatePathLinksTest(parameterized.TestCase):
     def setUp(self):
         super().setUp()
@@ -322,9 +402,7 @@ class UpdatePathLinksTest(parameterized.TestCase):
         path = jnp.array(path)
         expected = jnp.array(expected)
         action_info = self._make_action_info(link_array, path, initial_slot, num_slots)
-        updated_link_array = self.variant(update_path_links)(
-            link_array, action_info, value, self.params
-        )
+        updated_link_array = self.variant(update_path_links)(link_array, action_info, value)
         chex.assert_trees_all_close(updated_link_array, expected)
 
 
@@ -393,7 +471,7 @@ class UndoLinkSlotActionTest(parameterized.TestCase):
         path = jnp.array([1, 0, 0, 0])
         initial_slot_index = jnp.array(0)
         num_slots = jnp.array(2)
-        mask = get_affected_slots_mask(self.state, initial_slot_index, num_slots, path, self.params)
+        mask = get_affected_slots_mask(initial_slot_index, num_slots, path, self.params)
         self.action_info = ActionInfo(
             action=jnp.array(0),
             path_index=jnp.array(0),
@@ -429,7 +507,7 @@ class ImplementPathActionTest(parameterized.TestCase):
     def _make_action_info(self, path, initial_slot_index, num_slots):
         initial_slot_index = jnp.array(initial_slot_index)
         num_slots = jnp.array(num_slots)
-        mask = get_affected_slots_mask(self.state, initial_slot_index, num_slots, path, self.params)
+        mask = get_affected_slots_mask(initial_slot_index, num_slots, path, self.params)
         return ActionInfo(
             action=jnp.array(0),
             path_index=jnp.array(0),
@@ -493,7 +571,7 @@ class CheckNoSpectrumReuseTest(parameterized.TestCase):
     def _make_action_info(self, state, path, initial_slot_index, num_slots):
         initial_slot_index = jnp.array(initial_slot_index)
         num_slots = jnp.array(num_slots)
-        mask = get_affected_slots_mask(state, initial_slot_index, num_slots, path, self.params)
+        mask = get_affected_slots_mask(initial_slot_index, num_slots, path, self.params)
         return ActionInfo(
             action=jnp.array(0),
             path_index=jnp.array(0),
@@ -1029,13 +1107,13 @@ class ProcessPathActionTest(parameterized.TestCase):
     @parameterized.named_parameters(
         (
             "case_last_fit",
-            jnp.array([0, 0, 0, 0, 0, 0, 0, 0, 1, 0]),
+            jnp.array([0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0]),
             jnp.array(4),
             jnp.array(2),
         ),
         (
             "case_first_fit",
-            jnp.array([0, 0, 1, 0, 0, 0, 0, 0, 0, 0]),
+            jnp.array([0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
             jnp.array(1),
             jnp.array(2),
         ),

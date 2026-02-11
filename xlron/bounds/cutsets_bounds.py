@@ -3,11 +3,8 @@ Example command:
     uv run python -m xlron.bounds.cutsets_bounds --topology_name=nsfnet_deeprmsa_directed --env_type=rmsa --truncate_holding_time --load=250 --link_resources=100 --k=5 --min_bw=25 --max_bw=100 --step_bw=1 --slot_size=12.5 --continuous_operation --num_sim_requests=100000 --num_trials=10 --sim_min_load=250 --sim_max_load=250 --sim_step_load=10 --CUTSET_EXHAUSTIVE --CUTSET_BATCH_SIZE=512 --CUTSET_ITERATIONS=32 --CUTSET_TOP_K=256 --link_selection_mode=least_congested
 """
 
-import itertools
 import math
-import os
 import sys
-import time
 from functools import partial
 
 import jax
@@ -16,14 +13,12 @@ import networkx as nx
 import numpy as np
 from absl import app, flags
 
-import xlron.parameter_flags
 from xlron.environments.dataclasses import ActionInfo, HashableArrayWrapper
 from xlron.environments.env_funcs import (
     check_action_rsa,
     complete_step_rsa,
     generate_request_rsa,
     get_affected_slots_mask,
-    get_paths,
     get_paths_se,
     implement_action_rsa,
     make_graph,
@@ -363,7 +358,6 @@ def build_best_se_matrix(params):
         best_se: (num_nodes, num_nodes) int array of SE values.
     """
     num_nodes = params.num_nodes
-    k = params.k_paths
     best_se = np.ones((num_nodes, num_nodes), dtype=np.int32)
 
     if not params.consider_modulation_format:
@@ -687,7 +681,6 @@ def _simulation_step(
 
     # --- 7. Build ActionInfo ---
     affected_slots_mask = get_affected_slots_mask(
-        state,
         start_slot.astype(state.link_slot_array.dtype),
         num_slots.astype(state.link_slot_array.dtype),
         path,
@@ -858,7 +851,7 @@ def run_capacity_bound_simulation(
 
     max_links_to_assign = min(num_cutsets, num_unique_links, 20)
 
-    print(f"Capacity bound simulation setup:")
+    print("Capacity bound simulation setup:")
     print(f"  Num cut-sets: {num_cutsets}")
     print(f"  Num unique links in cut-sets: {num_unique_links}")
     print(f"  Num slots per link: {params.link_resources}")

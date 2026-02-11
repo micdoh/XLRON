@@ -17,8 +17,9 @@ import jax.numpy as jnp
 import numpy as np
 from absl.testing import absltest, parameterized
 
+from xlron.environments.env_funcs import decrease_last_element
 from xlron.environments.dataclasses import *
-from xlron.environments.env_funcs import *
+from xlron.environments.vone.vone_funcs import *
 from xlron.environments.make_env import make
 from xlron.environments.rsa import *
 from xlron.environments.vone import *

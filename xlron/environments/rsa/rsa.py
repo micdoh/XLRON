@@ -263,7 +263,7 @@ class RSAEnv(environment.Environment):
 
         # Calculate path stats if DeepRMSAEnv
         if params.__class__.__name__ == "DeepRMSAEnvParams":
-            path_stats = calculate_path_stats(state, params, state.request_array)
+            path_stats = jit_profiler.call(params.profile, calculate_path_stats, state, params, state.request_array)
             state = state.replace(path_stats=path_stats)
         # Update graph tuple
         elif params.use_gnn:
@@ -339,7 +339,6 @@ class RSAEnv(environment.Environment):
         affected_slots_mask = jit_profiler.call(
             params.profile,
             get_affected_slots_mask,
-            state,
             initial_slot_index,
             num_slots,
             path,

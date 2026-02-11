@@ -13,7 +13,6 @@ from xlron.environments.dataclasses import (
 )
 from xlron.environments.env_funcs import (
     generate_arrival_holding_times,
-    remove_expired_node_requests,
     remove_expired_services_rsa,
     process_path_action,
     get_affected_slots_mask,
@@ -446,7 +445,7 @@ def implement_vone_action(
     )
 
     affected_slots_mask = get_affected_slots_mask(
-        state, initial_slot_index, num_slots, path, params
+        initial_slot_index, num_slots, path, params
     )
     action_info = ActionInfo(
         action=action,
@@ -781,7 +780,7 @@ def undo_node_action(state: EnvState) -> EnvState:
     
     
 @partial(jax.jit, static_argnums=(1,))
-def remove_expired_node_requests(state: EnvState, params: Optional[EnvParams]) -> EnvState:
+def remove_expired_node_requests(state: EnvState, params: EnvParams) -> EnvState:
     """Check for values in node_departure_array that are less than the current time but greater than zero
     (negative time indicates the request is not yet finalised).
     If found, set to infinity in node_departure_array, set to zero in node_resource_array, and increase
