@@ -3859,7 +3859,7 @@ def mask_slots_rmsa_gn_model(
     return state
 
 
-@partial(jax.jit, static_argnums=(1,))
+@partial(jax.jit, static_argnums=(4,))
 def get_launch_power(
     state: EnvState,
     path_action: chex.Array,
