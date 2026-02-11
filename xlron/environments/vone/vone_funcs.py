@@ -630,3 +630,199 @@ def decrement_action_counter(state):
 def init_node_mask(params: EnvParams):
     """Initialize node mask"""
     return jnp.ones(params.num_nodes, dtype=dtype_config.LARGE_FLOAT_DTYPE)
+    
+    
+@partial(jax.jit, static_argnums=(1,))
+def mask_nodes(state: EnvState, num_nodes: chex.Scalar) -> EnvState:
+    """Returns mask of valid actions for node selection. 1 for valid action, 0 for invalid action.
+
+    Args:
+        state: Environment state
+        num_nodes: Number of nodes
+
+    Returns:
+        state: Updated environment state
+    """
+    total_actions = jnp.squeeze(jax.lax.dynamic_slice_in_dim(state.action_counter, 1, 1))
+    remaining_actions = jnp.squeeze(jax.lax.dynamic_slice_in_dim(state.action_counter, 2, 1))
+    full_request = jnp.squeeze(jax.lax.dynamic_slice_in_dim(state.request_array, 0, 1))
+    virtual_topology = jnp.squeeze(jax.lax.dynamic_slice_in_dim(state.request_array, 1, 1))
+    request = jax.lax.dynamic_slice_in_dim(full_request, (remaining_actions - 1) * 2, 3)
+    node_request_s = jax.lax.dynamic_slice_in_dim(request, 2, 1)
+    node_request_d = jax.lax.dynamic_slice_in_dim(request, 0, 1)
+    prev_action = jax.lax.dynamic_slice_in_dim(state.action_history, (remaining_actions) * 2, 3)
+    prev_dest = jax.lax.dynamic_slice_in_dim(prev_action, 0, 1)
+    node_indices = jnp.arange(0, num_nodes)
+    # Get requested indices from request array virtual topology
+    requested_indices = jax.lax.dynamic_slice_in_dim(
+        virtual_topology, (remaining_actions - 1) * 2, 3
+    )
+    requested_index_d = jax.lax.dynamic_slice_in_dim(requested_indices, 0, 1)
+    # Get index of previous selected node
+    prev_selected_node = jnp.where(
+        virtual_topology == requested_index_d,
+        state.action_history,
+        jnp.full(virtual_topology.shape, -1),
+    )
+    # will be current index if node only occurs once in virtual topology or will be different index if occurs more than once
+    prev_selected_index = jnp.argmax(prev_selected_node).astype(dtype_config.LARGE_INT_DTYPE)
+    prev_selected_node_d = jax.lax.dynamic_slice_in_dim(
+        state.action_history, prev_selected_index, 1
+    )
+
+    # If first action, source and dest both to be assigned -> just mask all nodes based on resources
+    # Thereafter, source must be previous dest. Dest can be any node (except previous allocations).
+    state = state.replace(
+        node_mask_s=jax.lax.cond(
+            jnp.equal(remaining_actions, total_actions),
+            lambda x: jnp.where(
+                state.node_capacity_array >= node_request_s,
+                x,
+                jnp.zeros(num_nodes).astype(jnp.float32),
+            ),
+            lambda x: jnp.where(
+                node_indices == prev_dest, x, jnp.zeros(num_nodes).astype(jnp.float32)
+            ),
+            jnp.ones(num_nodes).astype(jnp.float32),
+        )
+    )
+    state = state.replace(
+        node_mask_d=jnp.where(
+            state.node_capacity_array >= node_request_d,
+            jnp.ones(num_nodes).astype(jnp.float32),
+            jnp.zeros(num_nodes).astype(jnp.float32),
+        )
+    )
+    # If not first move, set node_mask_d to zero wherever node_mask_s is 1
+    # to avoid same node selection for s and d
+    state = state.replace(
+        node_mask_d=jax.lax.cond(
+            jnp.equal(remaining_actions, total_actions),
+            lambda x: x,
+            lambda x: jnp.where(
+                state.node_mask_s == 1, jnp.zeros(num_nodes).astype(jnp.float32), x
+            ),
+            state.node_mask_d,
+        )
+    )
+
+    def mask_previous_selections(i, val):
+        # Disallow previously allocated nodes
+        def update_slice(j, x):
+            return jax.lax.dynamic_update_slice_in_dim(x, jnp.array([0.0]), j, axis=0)
+
+        val = jax.lax.cond(
+            i % 2 == 0,
+            lambda x: update_slice(x[0][i], x[1]),  # i is node request index
+            lambda x: update_slice(
+                x[0][i + 1], x[1]
+            ),  # i is slot request index (so add 1 to get next node)
+            (state.action_history, val),
+        )
+        return val
+
+    state = state.replace(
+        node_mask_d=jax.lax.fori_loop(
+            remaining_actions * 2,
+            state.action_history.shape[0] - 1,
+            mask_previous_selections,
+            state.node_mask_d,
+        )
+    )
+    # If requested node index is new then disallow previously allocated nodes
+    # If not new, then must match previously allocated node for that index
+    state = state.replace(
+        node_mask_d=jax.lax.cond(
+            jnp.squeeze(prev_selected_node_d) >= 0,
+            lambda x: jnp.where(
+                node_indices == prev_selected_node_d,
+                x[1],
+                x[0],
+            ),
+            lambda x: x[2],
+            (
+                jnp.zeros(num_nodes).astype(jnp.float32),
+                jnp.ones(num_nodes).astype(jnp.float32),
+                state.node_mask_d,
+            ),
+        )
+    )
+    return state
+    
+    
+@partial(jax.jit, donate_argnums=(0,))
+def undo_node_action(state: EnvState) -> EnvState:
+    """If the request is unsuccessful i.e. checks fail, then remove the partial (unfinalised) resource allocation.
+    Partial resource allocation is indicated by negative time in node departure array.
+    Check for values in node_departure_array that are less than zero.
+    If found, set to infinity in node_departure_array, set to zero in node_resource_array, and increase
+    node_capacity_array by expired resources on each node.
+
+    Args:
+        state: Environment state
+
+    Returns:
+        Updated environment state
+    """
+    # TODO - Check that node resource clash doesn't happen (so time is always negative after implementation)
+    #  and undoing always succeeds with negative time
+    mask = jnp.where(state.node_departure_array < 0, 1, 0)
+    resources = jnp.sum(
+        jnp.where(mask == 1, state.node_resource_array, 0),
+        axis=1,
+        promote_integers=False,
+    )
+    state = state.replace(
+        node_capacity_array=state.node_capacity_array + resources,
+        node_resource_array=jnp.where(mask == 1, 0, state.node_resource_array),
+        node_departure_array=jnp.where(mask == 1, jnp.inf, state.node_departure_array),
+    )
+    return state
+    
+    
+@partial(jax.jit, static_argnums=(1,))
+def remove_expired_node_requests(state: EnvState, params: Optional[EnvParams]) -> EnvState:
+    """Check for values in node_departure_array that are less than the current time but greater than zero
+    (negative time indicates the request is not yet finalised).
+    If found, set to infinity in node_departure_array, set to zero in node_resource_array, and increase
+    node_capacity_array by expired resources on each node.
+
+    Args:
+        state: Environment state
+
+    Returns:
+        Updated environment state
+    """
+    mask = jnp.where(state.node_departure_array < jnp.squeeze(state.current_time), 1, 0)
+    mask = jnp.where(0 < state.node_departure_array, mask, 0)
+    expired_resources = jnp.sum(
+        jnp.where(mask == 1, state.node_resource_array, 0),
+        axis=1,
+        promote_integers=False,
+    )
+    state = state.replace(
+        node_capacity_array=state.node_capacity_array + expired_resources,
+        node_resource_array=jnp.where(mask == 1, 0, state.node_resource_array),
+        node_departure_array=jnp.where(mask == 1, jnp.inf, state.node_departure_array),
+    )
+    return state
+    
+    
+def update_action_history(
+    action_history: chex.Array, action_counter: chex.Array, action: chex.Array
+) -> chex.Array:
+    """Update action history by adding action to first available index starting from the end.
+
+    Args:
+        action_history: Action history
+        action_counter: Action counter
+        action: Action to add to history
+
+    Returns:
+        Updated action_history
+    """
+    return jax.lax.dynamic_update_slice(
+        action_history,
+        jnp.flip(action, axis=0).astype(action_history.dtype),
+        ((action_counter[-1] - 1) * 2,),
+    )
