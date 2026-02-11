@@ -3111,6 +3111,84 @@ def get_snr_link_array(state: EnvState, params: EnvParams) -> chex.Array:
     return link_snr_array
 
 
+@partial(jax.jit, static_argnums=(1,))
+def get_snr_link_array_fused(state: EnvState, params: EnvParams) -> chex.Array:
+    """Get SNR per link using fused computation (uniform spans, no mod_format_correction).
+
+    Drop-in replacement for get_snr_link_array that uses get_snr_fused to
+    reduce XLA op count and kernel launch overhead on GPU.
+    """
+    # Precompute per-link num_spans and span_length from static link_length_array
+    # link_length_array is (L, max_spans) in km
+    link_lengths_km = params.link_length_array.val  # (L, max_spans)
+    total_link_length_km = jnp.sum(link_lengths_km, axis=1)  # (L,)
+    num_spans_per_link = jnp.ceil(total_link_length_km * 1e3 / params.max_span_length).astype(
+        dtype_config.LARGE_INT_DTYPE
+    )  # (L,)
+    # span_length in km to match original get_snr: span_length = sum(length) / num_spans
+    # where length is link_length_array values (in km)
+    span_length_per_link = total_link_length_km / jnp.maximum(num_spans_per_link, 1).astype(
+        jnp.float32
+    )  # (L,) in km
+
+    # Per-link channel data from state: (L, N)
+    ch_power_all = state.channel_power_array  # (L, N)
+    bw_all = state.channel_centre_bw_array  # (L, N) in GHz
+
+    # Compute centre frequencies for all links: (L, N)
+    # When mod_format_correction=False, se=1 everywhere
+    se_all = jnp.ones_like(bw_all)
+    required_slots_all = jax.vmap(get_required_slots_on_link, in_axes=(0, 0, None))(
+        bw_all, se_all, params
+    )  # (L, N)
+    slot_indices = jnp.arange(params.link_resources)
+    ch_centres_all = jax.vmap(get_centre_freq_on_link, in_axes=(None, 0, None))(
+        slot_indices, required_slots_all, params
+    )  # (L, N) in GHz
+
+    # Convert to Hz for the GN model
+    ch_centres_hz = ch_centres_all * 1e9  # (L, N)
+    bw_hz = bw_all * 1e9  # (L, N)
+
+    # Tile amplifier noise figure and transceiver SNR to (L, N) for vmap
+    amp_nf = jnp.broadcast_to(params.amplifier_noise_figure.val, ch_power_all.shape)
+    trx_snr = jnp.broadcast_to(params.transceiver_snr.val, ch_power_all.shape)
+
+    def _link_snr_fused(ch_pow, ch_centre, ch_bw, n_spans, s_length, amp_nf_link, trx_snr_link):
+        return isrs_gn_model.get_snr_fused(
+            ch_power_w_i=ch_pow,
+            ch_centre_i=ch_centre,
+            ch_bandwidth_i=ch_bw,
+            num_spans=n_spans,
+            span_length=s_length,
+            num_channels=params.link_resources,
+            ref_lambda=params.ref_lambda,
+            attenuation=params.attenuation,
+            attenuation_bar=params.attenuation_bar,
+            nonlinear_coeff=params.nonlinear_coeff,
+            raman_gain_slope=params.raman_gain_slope,
+            dispersion_coeff=params.dispersion_coeff,
+            dispersion_slope=params.dispersion_slope,
+            amplifier_noise_figure=amp_nf_link,
+            transceiver_snr=trx_snr_link,
+            roadm_loss=params.roadm_loss,
+            num_roadms=params.num_roadms,
+            coherent=params.coherent,
+        )
+
+    link_snr_array = jax.vmap(_link_snr_fused)(
+        ch_power_all,
+        ch_centres_hz,
+        bw_hz,
+        num_spans_per_link,
+        span_length_per_link,
+        amp_nf,
+        trx_snr,
+    )
+    link_snr_array = jnp.nan_to_num(link_snr_array, nan=1e-5)
+    return link_snr_array
+
+
 # @partial(jax.jit, static_argnums=(3,))
 # def get_best_modulation_format(
 #     state: EnvState,
@@ -3178,8 +3256,8 @@ def get_snr_link_array(state: EnvState, params: EnvParams) -> chex.Array:
 #         0, mod_format_count, acceptable_modulation_format, acceptable_mod_format_indices
 #     )
 #     return acceptable_mod_format_indices
-    
-    
+
+
 @partial(jax.jit, static_argnums=(3,))
 def get_best_modulation_format(
     state: EnvState,
@@ -3196,16 +3274,23 @@ def get_best_modulation_format(
         req_snr = mod_format_row[2] + params.snr_margin
         se = mod_format_row[1]
         req_slots = required_slots(
-            requested_datarate, se, params.slot_size,
-            params.guardband, temperature=params.temperature,
+            requested_datarate,
+            se,
+            params.slot_size,
+            params.guardband,
+            temperature=params.temperature,
         )
         affected_slots_mask = get_affected_slots_mask(initial_slot_index, req_slots, path, params)
         new_state = state.replace(
             channel_power_array=set_path_links(
-                state.channel_power_array, affected_slots_mask, launch_power,
+                state.channel_power_array,
+                affected_slots_mask,
+                launch_power,
             ),
             channel_centre_bw_array=set_path_links(
-                state.channel_centre_bw_array, affected_slots_mask, params.slot_size,
+                state.channel_centre_bw_array,
+                affected_slots_mask,
+                params.slot_size,
             ),
         )
         snr_value = get_minimum_snr_of_channels_on_path(

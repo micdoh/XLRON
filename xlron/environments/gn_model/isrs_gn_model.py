@@ -12,8 +12,6 @@ Scattering, " J. Lighw. Technol., Early Access, Jan. 2019
 Author: Daniel Semrau, Eric Sillekens, R. I. Killey, P. Bayvel, Jan 2019.
 """
 
-from functools import partial
-
 import chex
 import jax
 from jax import numpy as jnp
@@ -145,14 +143,12 @@ def isrs_gn_model(
     )
 
     Phi = excess_kurtosis_i
-    # indicates this channels first transmission span is span j=1 of channel i
     tx1_i = jnp.ones((num_channels, 1))
-    # indicates this channels first two transmission spans are span j=1 and j=2 of channel i
     tx2_i = jnp.ones((num_channels, 1))
     T_0 = (a + a_bar - f * power * cr) ** 2
 
-    f_i = f[:, None]  # Shape: (N, 1) - column vector
-    f_k = f[None, :]  # Shape: (1, N) - row vector
+    f_i = f[:, None]
+    f_k = f[None, :]
     f_i_plus_f_k = f_i + f_k
 
     phi_ik_corr = (
@@ -162,15 +158,11 @@ def isrs_gn_model(
         ch_pow, ch_pow.T, phi_ik_corr, T_0.T, ch_bw, ch_bw.T, a.T, a_bar.T, gamma, Phi.T, tx1_i
     )
 
-    # Precompute all scan-invariant quantities outside the loop
+    # Precompute all scan-invariant quantities
     ch_bw_k = ch_bw.T
     ch_pow_k = ch_pow.T
     df = jnp.abs(f_k - f_i)
-
-    # Phase term for SPM (does not depend on span)
     phi_i = 3 / 2 * pi**2 * (beta2 + pi * beta3 * (f + f) + 2 * pi**2 * beta4 * f**2)
-
-    # Frequency differences and phase terms for XPM (do not depend on span)
     phi = jnp.abs(4 * pi**2 * (beta2 + pi * beta3 * f_i_plus_f_k))
     phi_ik = (
         2
@@ -182,22 +174,15 @@ def isrs_gn_model(
             + 2 / 3 * pi**2 * beta4 * (f_i**2 + f_i * f_k + f_k**2)
         )
     )
-
-    T_i = T_0  # Same as (a + a_bar - f * power * cr) ** 2, already computed
+    T_i = T_0
     T_k = T_i.T
 
-    # Single-span SPM
     spm_single = jnp.squeeze(_spm(phi_i, T_i, ch_bw, a, a_bar, gamma))
-
-    # Single-span XPM
     xpm_single = _xpm(ch_pow, ch_pow_k, phi_ik, T_k, ch_bw, ch_bw_k, a.T, a_bar.T, gamma)
 
     def scan_fun(carry, l_span):
-        """Accumulate NLI contributions across spans."""
         _eta_spm = carry[0] + spm_single
         _eta_xpm = carry[1] + xpm_single
-
-        # Asymptotic correction depends on l_span
         _eta_xpm_corr_asymp = carry[2] + _xpm_corr_asymp(
             ch_pow,
             ch_pow_k,
@@ -213,17 +198,11 @@ def isrs_gn_model(
             tx2_i,
             l_span,
         )
-
         return (_eta_spm, _eta_xpm, _eta_xpm_corr_asymp), None
 
-    init = (
-        jnp.zeros((num_channels,)),
-        jnp.zeros((num_channels,)),
-        jnp.zeros((num_channels,)),
-    )
+    init = (jnp.zeros(num_channels), jnp.zeros(num_channels), jnp.zeros(num_channels))
     final_state, _ = jax.lax.scan(scan_fun, init, length, length=max_spans)
 
-    # Apply coherence factor to SPM
     eps = _eps(ch_bw, f, a, l_mean, beta2, beta3)
     eta_spm = final_state[0] * num_spans ** (eps * coherent)
     eta_xpm = final_state[1]
@@ -233,9 +212,8 @@ def isrs_gn_model(
         eta_xpm_corr = jnp.zeros((num_channels,))
         eta_xpm_corr_asymp = jnp.zeros((num_channels,))
 
-    # computation of NLI - see Ref. [1, Eq. (5)]
     eta_n = (eta_spm + eta_xpm + eta_xpm_corr_asymp).T + eta_xpm_corr
-    NLI = jnp.squeeze(ch_pow) ** 3 * eta_n  # Ref. [1, Eq. (1)]
+    NLI = jnp.squeeze(ch_pow) ** 3 * eta_n
     return NLI, eta_n, eta_spm, eta_xpm
 
 
@@ -243,7 +221,7 @@ def isrs_gn_model_uniform(
     num_channels: int = 420,
     num_spans: int = 1,
     ref_lambda: float = 1577.5e-9,
-    length: float = 100e3,  # Single span length
+    length: float = 100e3,
     attenuation_i: chex.Array | None = None,
     attenuation_bar_i: chex.Array | None = None,
     ch_power_W_i: chex.Array | None = None,
@@ -256,17 +234,12 @@ def isrs_gn_model_uniform(
     coherent: bool = True,
     excess_kurtosis_i: chex.Array | None = None,
     mod_format_correction: bool = False,
-    max_spans: int | None = None,  # Keep to match signature of isrs_gn_model
+    max_spans: int | None = None,
 ):
     """
     Simplified ISRS GN model for uniform spans with identical parameters.
     Computes single span and scales appropriately.
-    Assumptions:
-    All spans have the same length
-    All spans have the same fiber parameters (loss, dispersion, etc.)
-    Power is restored to the same level after each span
     """
-    # Set defaults (keeping your original defaults)
     a = attenuation_i if attenuation_i is not None else 0.2 / 4.343 / 1e3 * jnp.ones(num_channels)
     a_bar = (
         attenuation_bar_i
@@ -305,15 +278,28 @@ def isrs_gn_model_uniform(
 
     Phi = excess_kurtosis_i if excess_kurtosis_i is not None else jnp.zeros(num_channels)
 
-    # Total power
     total_power = jnp.sum(ch_pow)
 
-    # Phase term for SPM
+    # -- Fused SPM computation --
+    # phi_i for SPM
     phi_i = 3 / 2 * pi**2 * (beta2 + pi * beta3 * (f + f) + 2 * pi**2 * beta4 * f**2)
+    # T term
+    T = (a + a_bar - f * total_power * cr) ** 2
+    # SPM (inlined _spm)
+    B2 = jnp.maximum(ch_bw**2, EPS)
+    a_plus_abar = a + a_bar
+    eta_spm = 4 / 9 * gamma**2 / B2 * pi / (phi_i * a_bar * (2 * a + a_bar)) * (
+        T - a**2
+    ) / a * jnp.arcsinh(phi_i * B2 / a / pi) + (a_plus_abar**2 - T) / a_plus_abar * jnp.arcsinh(
+        phi_i * B2 / a_plus_abar / pi
+    )
+    # Coherence scaling
+    eps = _eps(ch_bw, f, a, length, beta2, beta3) * coherent
+    eta_spm = eta_spm * num_spans ** (1 + eps)
 
-    # Frequency difference and phase terms for XPM
-    f_i = f[:, None]  # Shape: (N, 1) - column vector
-    f_k = f[None, :]  # Shape: (1, N) - row vector
+    # -- XPM computation --
+    f_i = f[:, None]
+    f_k = f[None, :]
     f_i_plus_f_k = f_i + f_k
     phi_ik = (
         2
@@ -325,61 +311,42 @@ def isrs_gn_model_uniform(
             + 2 / 3 * pi**2 * beta4 * (f_i**2 + f_i * f_k + f_k**2)
         )
     )
-
-    # T terms
-    T = (a + a_bar - f * total_power * cr) ** 2
     T_k = T[None, :]
-
-    # Single span SPM
-    spm_single = _spm(phi_i, T, ch_bw, a, a_bar, gamma)
-
-    # Apply coherence factor for total SPM across all spans
-    eps = _eps(ch_bw, f, a, length, beta2, beta3) * coherent
-    eta_spm = spm_single * num_spans ** (1 + eps)
-
-    # Single span XPM (linear accumulation)
-    ch_pow_k = ch_pow.T
-    ch_bw_k = ch_bw.T
-    a_k = a.T
-    a_bar_k = a_bar.T
-    xpm_single = _xpm(ch_pow, ch_pow_k, phi_ik, T_k, ch_bw, ch_bw_k, a_k, a_bar_k, gamma)
+    # .T is a no-op on 1D arrays — matches original _xpm broadcasting conventions
+    xpm_single = _xpm(ch_pow, ch_pow.T, phi_ik, T_k, ch_bw, ch_bw.T, a.T, a_bar.T, gamma)
     eta_xpm = xpm_single * num_spans
 
     # XPM corrections (if enabled)
     if mod_format_correction:
-        # First-order correction (single span)
         tx1_i = jnp.ones((num_channels, 1))
         eta_xpm_corr = _xpm_corr(
-            ch_pow, ch_pow_k, phi_ik, T_k, ch_bw, ch_bw_k, a_k, a_bar_k, gamma, Phi.T, tx1_i
+            ch_pow, ch_pow.T, phi_ik, T_k, ch_bw, ch_bw.T, a.T, a_bar.T, gamma, Phi.T, tx1_i
         )
-
-        # Asymptotic correction
         df = jnp.abs(f_k - f_i)
         phi = jnp.abs(4 * pi**2 * (beta2 + pi * beta3 * f_i_plus_f_k))
-        Phi_k = Phi.T
         tx2_i = jnp.ones((num_channels, 1))
-
-        eta_xpm_corr_asymp_single = _xpm_corr_asymp(
-            ch_pow,
-            ch_pow_k,
-            phi_ik,
-            phi,
-            T_k,
-            ch_bw_k,
-            a_k,
-            a_bar_k,
-            gamma,
-            df,
-            Phi_k,
-            tx2_i,
-            length,
+        eta_xpm_corr_asymp = (
+            _xpm_corr_asymp(
+                ch_pow,
+                ch_pow.T,
+                phi_ik,
+                phi,
+                T_k,
+                ch_bw.T,
+                a.T,
+                a_bar.T,
+                gamma,
+                df,
+                Phi.T,
+                tx2_i,
+                length,
+            )
+            * num_spans
         )
-        eta_xpm_corr_asymp = eta_xpm_corr_asymp_single * num_spans
     else:
         eta_xpm_corr = jnp.zeros((num_channels,))
         eta_xpm_corr_asymp = jnp.zeros((num_channels,))
 
-    # Total NLI
     eta_n = (eta_spm + eta_xpm + eta_xpm_corr_asymp).T + eta_xpm_corr
     NLI = jnp.squeeze(ch_pow) ** 3 * eta_n
 
@@ -387,10 +354,8 @@ def isrs_gn_model_uniform(
 
 
 def _eps(B_i, f_i, a_i, mean_l, beta2, beta3):
-    """
-    Closed-form formula for average coherence factor extended by dispersion slope, cf. Ref. [2, Eq. (22)]
-    """
-    eps = (
+    """Coherence factor, cf. Ref. [2, Eq. (22)]"""
+    return (
         3
         / 10
         * jnp.log(
@@ -408,50 +373,27 @@ def _eps(B_i, f_i, a_i, mean_l, beta2, beta3):
             )
         )
     )
-    return eps
 
 
 def _spm(phi_i, t_i, B_i, a_i, a_bar_i, gamma):
-    """
-    Closed-form formula for SPM contribution, see Ref. [1, Eq. (9-10)]
-    """
+    """SPM contribution, see Ref. [1, Eq. (9-10)]"""
     B2 = jnp.maximum(B_i**2, EPS)
-    inv_B2 = jnp.reciprocal(B2)
-    coeff = gamma**2 * inv_B2
-    arcsinh_a = jnp.arcsinh(phi_i * B2 / a_i / pi)
     a_plus_abar = a_i + a_bar_i
-    arcsinh_ab = jnp.arcsinh(phi_i * B2 / a_plus_abar / pi)
-    return (
-        4
-        / 9
-        * coeff
-        * pi
-        / (phi_i * a_bar_i * (2 * a_i + a_bar_i))
-        * (t_i - a_i**2)
-        / a_i
-        * arcsinh_a
-        + ((a_plus_abar) ** 2 - t_i) / a_plus_abar * arcsinh_ab
-    )
+    return 4 / 9 * gamma**2 / B2 * pi / (phi_i * a_bar_i * (2 * a_i + a_bar_i)) * (
+        t_i - a_i**2
+    ) / a_i * jnp.arcsinh(phi_i * B2 / a_i / pi) + (
+        a_plus_abar**2 - t_i
+    ) / a_plus_abar * jnp.arcsinh(phi_i * B2 / a_plus_abar / pi)
 
 
 def _xpm(p_i, p_k, phi_ik, T_k, B_i, B_k, a_k, a_bar_k, gamma):
-    """
-    Closed-form formula for XPM contribution, see Ref. [1, Eq. (11)]
-    Uses safe-division pattern: compute with safe denominator, then mask.
-    """
-    # Safe power ratio: avoid division by zero for inactive channels
+    """XPM contribution, see Ref. [1, Eq. (11)]"""
     p_i_safe = jnp.where(p_i != 0.0, p_i, 1.0)
     power_ratio_sq = (p_k / p_i_safe) ** 2
-
-    # Safe denominator: replace zeros with 1.0, compute, then mask
     denom = B_k * phi_ik * a_bar_k * (2 * a_k + a_bar_k)
     denom_mask = denom != 0
     denom_safe = jnp.where(denom_mask, denom, 1.0)
-
     a_k_plus_abar_k = a_k + a_bar_k
-    arctan_a = jnp.arctan(phi_ik * B_i / a_k)
-    arctan_ab = jnp.arctan(phi_ik * B_i / a_k_plus_abar_k)
-
     xpm_ik = (
         32
         / 27
@@ -459,19 +401,17 @@ def _xpm(p_i, p_k, phi_ik, T_k, B_i, B_k, a_k, a_bar_k, gamma):
         * gamma**2
         / denom_safe
         * (
-            (T_k - a_k**2) / a_k * arctan_a
-            + (a_k_plus_abar_k**2 - T_k) / a_k_plus_abar_k * arctan_ab
+            (T_k - a_k**2) / a_k * jnp.arctan(phi_ik * B_i / a_k)
+            + (a_k_plus_abar_k**2 - T_k)
+            / a_k_plus_abar_k
+            * jnp.arctan(phi_ik * B_i / a_k_plus_abar_k)
         )
     )
-    # Zero out invalid entries (diagonal / inactive channels)
-    xpm = jnp.sum(xpm_ik * denom_mask, axis=1)
-    return xpm
+    return jnp.sum(xpm_ik * denom_mask, axis=1)
 
 
 def _xpm_corr(p_i, p_k, phi_ik, T_k, B_i, B_k, a_k, a_bar_k, gamma, Phi, TX1):
-    """
-    Closed-form formula for XPM correction, see Ref. 1
-    """
+    """XPM correction, see Ref. 1"""
     p_i = jnp.where(p_i > 0.0, p_i, 1.0)
     B_k = jnp.where(B_k > 0.0, B_k, 1.0)
     a = Phi * TX1.T * jnp.where(p_i > 1.0, p_k / p_i, 0.0) ** 2
@@ -497,9 +437,7 @@ def _xpm_corr(p_i, p_k, phi_ik, T_k, B_i, B_k, a_k, a_bar_k, gamma, Phi, TX1):
 
 
 def _xpm_corr_asymp(p_i, p_k, phi_ik, phi, T_k, B_k, a, a_bar, gamma, df, Phi, TX2, L):
-    """
-    Closed-form formula for asymptotic XPM correction, see Ref. 1
-    """
+    """Asymptotic XPM correction, see Ref. 1"""
     p_i = jnp.where(p_i > 0.0, p_i, 1)
     B_k = jnp.where(B_k > 0.0, B_k, 1)
     a0 = jnp.where(p_i > 1.0, p_k / p_i, 0.0) ** 2
@@ -532,48 +470,61 @@ def _xpm_corr_asymp(p_i, p_k, phi_ik, phi, T_k, B_k, a, a_bar, gamma, df, Phi, T
 
 def calculate_amplifier_gain_isrs(attenuation, length, raman_slope, ch_power, ch_centre_freq):
     """
-    Calculate amplifier gain compensating for fiber loss, ROADM loss, and ISRS.
+    Calculate amplifier gain compensating for fiber loss and ISRS.
+    All inputs in SI units. ch_power and ch_centre_freq are 1D arrays of shape (N,).
     """
-    # Convert units
     a = attenuation * 1000
     L = length / 1000
     cr = raman_slope * 1e12
     f_ch = jnp.squeeze(ch_centre_freq).flatten() / 1e12
     P = jnp.squeeze(ch_power).flatten()
 
-    # Effective fiber length [km]
     Leff = (1 - jnp.exp(-a * L)) / a
-
-    # Total power across all active channels
     Ptot = jnp.sum(P)
-
-    # Precompute common term
     cr_Leff_Ptot = cr * Leff * Ptot
 
-    # Calculate ISRS gain tilt factor for each channel
-    f_k = f_ch[:, None]  # [Nch x 1]
-    f_l = f_ch[None, :]  # [1 x Nch]
+    # N x N Raman transfer matrix
+    raman_transfer = jnp.exp(-(f_ch[:, None] - f_ch[None, :]) * cr_Leff_Ptot)
+    psd_sum = jnp.maximum(jnp.sum(P[None, :] * raman_transfer, axis=1), EPS)
 
-    # Raman-induced power transfer
-    raman_transfer = jnp.exp(-(f_k - f_l) * cr_Leff_Ptot)  # [Nch x Nch]
-
-    # Sum of power-weighted Raman contributions
-    psd_sum = jnp.sum(P[None, :] * raman_transfer, axis=1)  # [Nch]
-
-    # Safe division
-    psd_sum_safe = jnp.maximum(psd_sum, EPS)
-
-    # ISRS gain tilt factor
-    gsrs_tilt = Ptot * jnp.exp(-f_ch * cr_Leff_Ptot) / psd_sum_safe
-
-    # Total gain: fiber loss compensation / ISRS tilt
+    gsrs_tilt = Ptot * jnp.exp(-f_ch * cr_Leff_Ptot) / psd_sum
     total_loss_compensation = jnp.exp(L * a)
-    gain = total_loss_compensation / gsrs_tilt
+    gain = jnp.where(P > 0, total_loss_compensation / gsrs_tilt, total_loss_compensation)
 
-    # Set gain to total loss compensation only for inactive channels
-    gain = jnp.where(P > 0, gain, jnp.full_like(gain, total_loss_compensation))
+    return jnp.squeeze(gain)
 
-    return jnp.squeeze(gain)  # Ensure 1D output
+
+def _calculate_ase_with_isrs_gain(
+    noise_figure,
+    attenuation_i,
+    length,
+    ref_lambda,
+    ch_centre_i,
+    ch_bandwidth,
+    ch_power_i,
+    raman_gain_slope_i,
+):
+    """Compute ASE power using ISRS-aware gain. Fused for fewer XLA ops."""
+    a_mean = jnp.mean(attenuation_i)
+    cr_mean = jnp.mean(raman_gain_slope_i)
+    gain = calculate_amplifier_gain_isrs(a_mean, length, cr_mean, ch_power_i, ch_centre_i)
+    gain = jnp.squeeze(gain)
+    gain_minus_1 = gain - 1
+    N_sp = (10 ** (noise_figure / 10) * gain) / (2.0 * gain_minus_1)
+    return jnp.squeeze(2 * N_sp * gain_minus_1 * h * (c / ref_lambda + ch_centre_i) * ch_bandwidth)
+
+
+def _calculate_ase_with_fixed_gain(
+    noise_figure,
+    ref_lambda,
+    ch_centre_i,
+    ch_bandwidth,
+    gain,
+):
+    """Compute ASE power with a pre-computed scalar gain. Fused for fewer XLA ops."""
+    gain_minus_1 = gain - 1
+    N_sp = (10 ** (noise_figure / 10) * gain) / (2.0 * gain_minus_1)
+    return jnp.squeeze(2 * N_sp * gain_minus_1 * h * (c / ref_lambda + ch_centre_i) * ch_bandwidth)
 
 
 def get_ase_power(
@@ -598,19 +549,15 @@ def get_ase_power(
     """
     if gain is None:
         if ch_power_i is not None and raman_gain_slope_i is not None:
-            # Use ISRS-aware gain calculation with ROADM loss
             a = jnp.mean(attenuation_i)
             cr = jnp.mean(raman_gain_slope_i)
             gain = calculate_amplifier_gain_isrs(a, length, cr, ch_power_i, ch_centre_i)
         else:
-            # Fallback to simple gain (no ISRS compensation)
             a = jnp.mean(attenuation_i)
             roadm_loss_linear = 10 ** (roadm_loss_db / 10)
             gain = jnp.exp(a * length) * roadm_loss_linear
 
-    # Ensure gain is properly shaped (same shape as ch_bandwidth)
     gain = jnp.squeeze(gain)
-    # Calculate ASE power for each channel
     gain_minus_1 = gain - 1
     N_sp = (10 ** (noise_figure / 10) * gain) / (2.0 * gain_minus_1)
     p_ASE = 2 * N_sp * gain_minus_1 * h * (c / ref_lambda + ch_centre_i) * ch_bandwidth
@@ -643,58 +590,37 @@ def get_snr(
 ):
     """
     Compute the signal-to-noise ratio (SNR) of a WDM system.
-    The SNR is defined as the ratio of the signal power to the sum of the ASE and NLI powers.
-
-    Args:
-        num_channels: number of channels
-        num_spans: number of spans
-        max_spans: maximum number of spans
-        ref_lambda: reference wavelength [m]
-        length: fiber length per span [m]
-        attenuation_i: attenuation coefficient [1/m]
-        attenuation_bar_i: attenuation coefficient [1/m]
-        ch_power_w_i: channel power [W]
-        nonlinear_coeff: Nonlinear coefficient [1/W^2]
-        ch_centre_i: channel center frequency [Hz]
-        ch_bandwidth_i: channel bandwidth [Hz]
-        raman_gain_slope_i: Raman gain slope [1/(W*m)]
-        dispersion_coeff: dispersion coefficient [s/m^2]
-        dispersion_slope: dispersion slope [s/m^3]
-        coherent: NLI is added coherently across multiple spans
-        noise_figure: amplifier noise figure [dB]
-        mod_format_correction: apply modulation format correction
-        excess_kurtosis_i: excess kurtosis of modulation format
-        roadm_loss: ROADM loss [dB]
-        num_roadms: number of ROADMs per link (i.e. one at receive end or none)
-        uniform_spans: uniform spans (simplified caluclations)
 
     Returns:
         snr: signal-to-noise ratio (linear units)
     """
     gn_model = isrs_gn_model_uniform if uniform_spans else isrs_gn_model
     span_length = jnp.sum(length) / num_spans
-    roadm_noise_figure = (
-        amplifier_noise_figure + 1
-    )  # ROADM noise figure is 1 dB higher than amplifier noise figure
-    p_ase_inline = num_spans * get_ase_power(
+
+    # ASE noise - inline amplifiers (ISRS-aware gain)
+    p_ase_inline = num_spans * _calculate_ase_with_isrs_gain(
         amplifier_noise_figure,
         attenuation_i,
         span_length,
         ref_lambda,
         ch_centre_i,
         ch_bandwidth_i,
-        ch_power_i=ch_power_w_i,
-        raman_gain_slope_i=raman_gain_slope_i,
+        ch_power_w_i,
+        raman_gain_slope_i,
     )
-    p_ase_roadm = num_roadms * get_ase_power(
+
+    # ASE noise - ROADMs (fixed gain)
+    roadm_gain = 10 ** (roadm_loss / 10)
+    roadm_noise_figure = amplifier_noise_figure + 1
+    p_ase_roadm = num_roadms * _calculate_ase_with_fixed_gain(
         roadm_noise_figure,
-        attenuation_i,
-        span_length,
         ref_lambda,
         ch_centre_i,
         ch_bandwidth_i,
-        gain=10 ** (roadm_loss / 10),
+        roadm_gain,
     )
+
+    # NLI
     p_nli, eta_nli, eta_spm, eta_xpm = gn_model(
         num_channels=num_channels,
         num_spans=num_spans,
@@ -714,12 +640,177 @@ def get_snr(
         mod_format_correction=mod_format_correction,
         excess_kurtosis_i=excess_kurtosis_i,
     )
+
+    # SNR
     transceiver_noise = ch_power_w_i / from_db(transceiver_snr)
     noise_power = p_ase_inline + p_ase_roadm + p_nli + transceiver_noise
     noise_power = jnp.where(noise_power > 0, noise_power, EPS)
-    ch_power_W_i = jnp.squeeze(ch_power_w_i)
-    snr = jnp.where(ch_power_W_i > 0, ch_power_W_i / noise_power, -1e5)
+    ch_power_squeezed = jnp.squeeze(ch_power_w_i)
+    snr = jnp.where(ch_power_squeezed > 0, ch_power_squeezed / noise_power, -1e5)
     return snr, (eta_nli, eta_spm, eta_xpm, p_ase_inline, p_ase_roadm, p_nli, transceiver_noise)
+
+
+def get_snr_fused(
+    ch_power_w_i: chex.Array,
+    ch_centre_i: chex.Array,
+    ch_bandwidth_i: chex.Array,
+    num_spans: int,
+    span_length: float,
+    num_channels: int,
+    ref_lambda: float,
+    attenuation: float,
+    attenuation_bar: float,
+    nonlinear_coeff: float,
+    raman_gain_slope: float,
+    dispersion_coeff: float,
+    dispersion_slope: float,
+    amplifier_noise_figure: chex.Array,
+    transceiver_snr: chex.Array,
+    roadm_loss: float = 6.0,
+    num_roadms: int = 1,
+    coherent: bool = True,
+):
+    """Fully fused SNR computation for a single link (uniform spans, no mod_format_correction).
+
+    This function computes the full SNR in a single pass with minimal intermediate
+    allocations, optimized for GPU execution where kernel launch overhead dominates.
+
+    Dynamic inputs (change per call / per link):
+        ch_power_w_i: channel powers [W], shape (N,)
+        ch_centre_i: channel centre frequencies [Hz], shape (N,)
+        ch_bandwidth_i: channel bandwidths [Hz], shape (N,)
+        num_spans: number of spans (can be traced)
+        span_length: single span length [m] (can be traced)
+
+    Static inputs (same for all links, from params):
+        Everything else.
+
+    Returns:
+        snr: shape (N,) — linear SNR per channel
+    """
+    a = attenuation
+    a_bar = attenuation_bar
+    gamma = nonlinear_coeff
+    cr = raman_gain_slope
+
+    # Dispersion coefficients (scalars)
+    beta2 = -dispersion_coeff * ref_lambda**2 / (2 * pi * c)
+    beta3 = (
+        ref_lambda**2
+        / (2 * pi * c) ** 2
+        * (ref_lambda**2 * dispersion_slope + 2 * ref_lambda * dispersion_coeff)
+    )
+    beta4 = (
+        -(ref_lambda**4)
+        / (2 * pi * c) ** 3
+        * (
+            6 * ref_lambda * dispersion_slope
+            + 6 * dispersion_coeff
+            + dispersion_slope * ref_lambda**2
+        )
+    )
+
+    f = ch_centre_i  # (N,)
+    ch_bw = ch_bandwidth_i  # (N,)
+    ch_pow = ch_power_w_i  # (N,)
+    total_power = jnp.sum(ch_pow)
+
+    # === SPM (inlined, no function call overhead) ===
+    phi_i = 3 / 2 * pi**2 * (beta2 + pi * beta3 * (f + f) + 2 * pi**2 * beta4 * f**2)
+    T = (a + a_bar - f * total_power * cr) ** 2
+    B2 = jnp.maximum(ch_bw**2, EPS)
+    a_plus_abar = a + a_bar
+    eta_spm = 4 / 9 * gamma**2 / B2 * pi / (phi_i * a_bar * (2 * a + a_bar)) * (
+        T - a**2
+    ) / a * jnp.arcsinh(phi_i * B2 / a / pi) + (a_plus_abar**2 - T) / a_plus_abar * jnp.arcsinh(
+        phi_i * B2 / a_plus_abar / pi
+    )
+    # Coherence factor
+    eps = _eps(ch_bw, f, a, span_length, beta2, beta3) * coherent
+    eta_spm = eta_spm * num_spans ** (1 + eps)
+
+    # === XPM (inlined, fused N x N computation) ===
+    f_i = f[:, None]  # (N, 1)
+    f_k = f[None, :]  # (1, N)
+    f_sum = f_i + f_k
+    phi_ik = (
+        2
+        * pi**2
+        * (f_i - f_k)
+        * (beta2 + pi * beta3 * f_sum + 2 / 3 * pi**2 * beta4 * (f_i**2 + f_i * f_k + f_k**2))
+    )
+    T_k = T[None, :]  # (1, N)
+    a_k = a  # scalar (uniform fiber)
+    a_bar_k = a_bar  # scalar
+    a_k_plus_abar_k = a_k + a_bar_k
+
+    p_i_safe = jnp.where(ch_pow[:, None] != 0.0, ch_pow[:, None], 1.0)
+    power_ratio_sq = (ch_pow[None, :] / p_i_safe) ** 2
+    denom = ch_bw[None, :] * phi_ik * a_bar_k * (2 * a_k + a_bar_k)
+    denom_mask = denom != 0
+    denom_safe = jnp.where(denom_mask, denom, 1.0)
+
+    xpm_ik = (
+        32
+        / 27
+        * power_ratio_sq
+        * gamma**2
+        / denom_safe
+        * (
+            (T_k - a_k**2) / a_k * jnp.arctan(phi_ik * ch_bw[:, None] / a_k)
+            + (a_k_plus_abar_k**2 - T_k)
+            / a_k_plus_abar_k
+            * jnp.arctan(phi_ik * ch_bw[:, None] / a_k_plus_abar_k)
+        )
+    )
+    eta_xpm = jnp.sum(xpm_ik * denom_mask, axis=1) * num_spans
+
+    # === NLI power ===
+    eta_n = jnp.squeeze(eta_spm + eta_xpm)
+    p_nli = jnp.squeeze(ch_pow) ** 3 * eta_n
+
+    # === ASE inline (ISRS-aware gain) ===
+    a_si = a * 1000  # convert to 1/km
+    L_km = span_length / 1000
+    cr_scaled = cr * 1e12
+    f_THz = jnp.squeeze(ch_centre_i).flatten() / 1e12
+    P_flat = jnp.squeeze(ch_pow).flatten()
+
+    Leff = (1 - jnp.exp(-a_si * L_km)) / a_si
+    Ptot = jnp.sum(P_flat)
+    cr_Leff_Ptot = cr_scaled * Leff * Ptot
+
+    raman_transfer = jnp.exp(-(f_THz[:, None] - f_THz[None, :]) * cr_Leff_Ptot)
+    psd_sum = jnp.maximum(jnp.sum(P_flat[None, :] * raman_transfer, axis=1), EPS)
+    gsrs_tilt = Ptot * jnp.exp(-f_THz * cr_Leff_Ptot) / psd_sum
+    total_loss = jnp.exp(L_km * a_si)
+    gain_inline = jnp.where(P_flat > 0, total_loss / gsrs_tilt, total_loss)
+    gain_inline = jnp.squeeze(gain_inline)
+
+    gain_m1 = gain_inline - 1
+    N_sp_inline = (10 ** (amplifier_noise_figure / 10) * gain_inline) / (2.0 * gain_m1)
+    freq_abs = c / ref_lambda + ch_centre_i
+    p_ase_inline = num_spans * jnp.squeeze(
+        2 * N_sp_inline * gain_m1 * h * freq_abs * ch_bandwidth_i
+    )
+
+    # === ASE ROADM (fixed gain) ===
+    roadm_gain = 10 ** (roadm_loss / 10)
+    roadm_nf = amplifier_noise_figure + 1
+    roadm_gain_m1 = roadm_gain - 1
+    N_sp_roadm = (10 ** (roadm_nf / 10) * roadm_gain) / (2.0 * roadm_gain_m1)
+    p_ase_roadm = num_roadms * jnp.squeeze(
+        2 * N_sp_roadm * roadm_gain_m1 * h * freq_abs * ch_bandwidth_i
+    )
+
+    # === Final SNR ===
+    transceiver_noise = ch_pow / from_db(transceiver_snr)
+    noise_power = p_ase_inline + p_ase_roadm + p_nli + transceiver_noise
+    noise_power = jnp.where(noise_power > 0, noise_power, EPS)
+    ch_pow_sq = jnp.squeeze(ch_pow)
+    snr = jnp.where(ch_pow_sq > 0, ch_pow_sq / noise_power, -1e5)
+
+    return snr
 
 
 def to_db(x):
