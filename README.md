@@ -8,16 +8,11 @@
 
 
 
-## See the documentation at https://micdoh.github.io/XLRON/
+## Documentation: https://micdoh.github.io/XLRON/
 
 ---
 
 ### *_As presented at [Optical Fibre Communication Conference (OFC)](https://www.ofcconference.org/en-us/home/about/) 2024_* - see the paper [here](ofc_paper.pdf)
-
----
-
-### To recreate plots from papers follow instructions in `/examples` directory
-
 
 ### To cite XLRON in your work, please use the following BibTeX entry:
 
@@ -68,32 +63,23 @@ pip install -e .
 
 ### Training an RL Agent
 
-Train a PPO agent on the RSA (Routing and Spectrum Assignment) problem:
+Train a PPO agent on the RMSA problem with the NSFNET topology:
 
 ```bash
 python -m xlron.train.train \
-  --env_type=rsa \
-  --topology_name=nsfnet_chen \
+  --env_type=rmsa \
+  --topology_name=nsfnet_deeprmsa_directed \
   --link_resources=100 \
-  --k_paths=5 \
+  --k=50 \
   --load=250 \
-  --TOTAL_TIMESTEPS=1000000 \
-  --NUM_ENVS=100 \
-  --LR=0.0005
+  --continuous_operation \
+  --ENV_WARMUP_STEPS=3000 \
+  --TOTAL_TIMESTEPS=5000000 \
+  --NUM_ENVS=64 \
+  --LR=5e-4
 ```
 
-Train on DeepRMSA (with modulation format selection):
-
-```bash
-python -m xlron.train.train \
-  --env_type=deeprmsa \
-  --topology_name=nsfnet_chen \
-  --link_resources=100 \
-  --k_paths=5 \
-  --load=250 \
-  --TOTAL_TIMESTEPS=1000000 \
-  --NUM_ENVS=100
-```
+See the full **[Training with PPO](https://micdoh.github.io/XLRON/training/)** guide for details on hyperparameters, model architectures (MLP, GNN, Transformer), algorithmic features (reward centering, prioritized sampling, VTrace), schedules, and more.
 
 ### Evaluating Heuristics
 
@@ -101,22 +87,47 @@ Evaluate classical heuristic algorithms without training:
 
 ```bash
 python -m xlron.train.train \
-  --env_type=rsa \
-  --topology_name=nsfnet_chen \
+  --env_type=rmsa \
+  --topology_name=nsfnet_deeprmsa_directed \
   --link_resources=100 \
-  --max_requests=1000 \
+  --k=50 \
+  --load=250 \
+  --continuous_operation \
+  --ENV_WARMUP_STEPS=3000 \
+  --TOTAL_TIMESTEPS=20000000 \
+  --NUM_ENVS=2000 \
   --EVAL_HEURISTIC \
   --path_heuristic=ksp_ff
 ```
 
-Available heuristics:
-- `ksp_ff` - K-Shortest Paths with First-Fit spectrum assignment
-- `ksp_bf` - K-Shortest Paths with Best-Fit spectrum assignment
-- `ff_ksp` - First-Fit spectrum selection with KSP
-- `ksp_mu` - K-Shortest Paths with Most-Used spectrum assignment
-- `ksp_lu` - K-Shortest Paths with Least-Used spectrum assignment
-- `ksp_mf` - K-Shortest Paths with Most-Fragmented spectrum assignment
-- `kca_ff` - K Congestion-Aware with First-Fit
+See the full **[Heuristic Evaluation](https://micdoh.github.io/XLRON/heuristic_evaluation/)** guide for all available heuristics, traffic configuration, and examples.
+
+### Capacity Bound Estimation
+
+Estimate theoretical performance bounds using cut-set or reconfigurable routing methods:
+
+```bash
+# Cut-set bounds
+python -m xlron.bounds.cutsets_bounds \
+  --topology_name=nsfnet_deeprmsa_directed \
+  --env_type=rmsa \
+  --link_resources=100 --k=50 --load=250 \
+  --continuous_operation --truncate_holding_time \
+  --num_sim_requests=100000 --num_trials=10 \
+  --sim_min_load=150 --sim_max_load=300 --sim_step_load=10 \
+  --CUTSET_EXHAUSTIVE --CUTSET_TOP_K=256
+
+# Reconfigurable routing bounds
+python xlron/bounds/reconfigurable_routing_bounds.py \
+  --topology_name=nsfnet_deeprmsa_directed \
+  --env_type=rmsa \
+  --link_resources=100 --k=50 --load=250 \
+  --continuous_operation --truncate_holding_time \
+  --path_heuristic=ksp_ff \
+  --TOTAL_TIMESTEPS=13000 --NUM_ENVS=1 --COMPILE_RR_BOUNDS
+```
+
+See the full **[Capacity Bound Estimation](https://micdoh.github.io/XLRON/capacity_bounds/)** guide for details.
 
 ---
 
@@ -126,110 +137,62 @@ Available heuristics:
 
 | Environment | Description |
 |-------------|-------------|
-| `rsa` | Basic Routing and Spectrum Assignment |
+| `rsa` | Routing and Spectrum Assignment |
 | `rmsa` | Routing, Modulation and Spectrum Assignment |
-| `deeprmsa` | DeepRMSA with path statistics observation space |
-| `rwa_lightpath_reuse` | Routing and Wavelength Assignment with lightpath reuse |
+| `rwa` | Routing and Wavelength Assignment (convenience wrapper: unit bandwidth, slot size 1) |
+| `deeprmsa` | DeepRMSA-compatible observation/action space |
+| `rwa_lightpath_reuse` | RWA with lightpath reuse |
 | `vone` | Virtual Optical Network Embedding |
-| `rsa_gn_model` | RSA with GN model physical layer impairments |
-| `rmsa_gn_model` | RMSA with GN model physical layer impairments |
-| `rsa_multiband` | RSA with multi-band transmission |
+| `rsa_gn_model` / `rmsa_gn_model` | With GN model physical layer impairments |
+| `rsa_multiband` | Multi-band transmission |
+
+### Network Topologies
+
+Topologies are loaded from JSON files in `xlron/data/topologies/`. Each topology is available in directed and/or undirected variants. Built-in topologies include:
+
+- **NSFNET** (`nsfnet_deeprmsa_directed`, `nsfnet_deeprmsa_undirected`, `nsfnet_nevin_undirected`)
+- **COST239** (`cost239_deeprmsa_directed`, `cost239_ptrnet_real_undirected`, etc.)
+- **USNET** (`usnet_gcnrnn_directed`, `usnet_ptrnet_undirected`, etc.)
+- **JPN48** (`jpn48_directed`, `jpn48_undirected`)
+- **German17** (`german17_directed`, `german17_undirected`)
+- **CONUS** (`conus_directed`, `conus_undirected`)
+- **5-node** (`5node_directed`, `5node_undirected`)
+- Custom topologies via `--topology_directory`
+
+### Model Architectures
+
+- **MLP** (default) -- simple multi-layer perceptron
+- **GNN** (`--USE_GNN`) -- Jraph-based graph neural network with optional GATv2 attention
+- **Transformer** (`--USE_TRANSFORMER`) -- transformer encoder with WIRE graph-aware positional encodings
+
+### Physical Layer Modeling
+
+The `rsa_gn_model` and `rmsa_gn_model` environments include a closed-form ISRS GN model for estimating physical layer impairments (SNR). This enables modulation format selection based on estimated path GSNR and launch power optimization:
+
+```bash
+python -m xlron.train.train \
+  --env_type=rmsa_gn_model \
+  --topology_name=nsfnet_deeprmsa_directed \
+  --link_resources=100 \
+  --snr_margin=0.5 \
+  --launch_power_type=fixed \
+  ...
+```
 
 ### Differentiable Mode
 
 XLRON supports differentiable operations for gradient-based optimization through the environment. This is useful for research into differentiable discrete optimization and end-to-end learning.
 
 ```bash
-# Enable differentiable mode
 python -m xlron.train.train \
-  --env_type=deeprmsa \
-  --topology_name=4node \
-  --differentiable=True \
+  --env_type=rmsa \
+  --topology_name=nsfnet_deeprmsa_directed \
+  --differentiable \
   --temperature=1.0 \
   ...
 ```
 
-When `--differentiable=True`, discrete operations (comparisons, argmax, indexing, rounding) use differentiable approximations based on:
-- Straight-through gradient estimators
-- Temperature-controlled soft functions (sigmoid, softmax)
-
-When `--differentiable=False` (default), standard non-differentiable operations are used for maximum performance.
-
-### Network Topologies
-
-Built-in topologies include:
-- `4node` - Simple 4-node test network
-- `nsfnet_chen` - 14-node NSFNET topology
-- `conus` - 75-node continental US topology
-- `dtag` - German Telekom topology
-- `euro28` - 28-node European network
-- Custom topologies via `--topology_directory`
-
-### Physical Layer Modeling
-
-For `rsa_gn_model` and `rmsa_gn_model` environments:
-
-```bash
-python -m xlron.train.train \
-  --env_type=rmsa_gn_model \
-  --topology_name=nsfnet_chen \
-  --consider_modulation_format=True \
-  --path_snr=True \
-  --snr_margin=0.5 \
-  ...
-```
-
-### Graph Neural Networks
-
-XLRON supports GNN-based agents:
-
-```bash
-python -m xlron.train.train \
-  --env_type=rsa \
-  --USE_GNN=True \
-  --gnn_latent=64 \
-  --message_passing_steps=3 \
-  ...
-```
-
----
-
-## Key Configuration Options
-
-### Environment Parameters
-
-| Flag | Description | Default |
-|------|-------------|---------|
-| `--env_type` | Environment type | `rsa` |
-| `--topology_name` | Network topology | `nsfnet_chen` |
-| `--link_resources` | Frequency slots per link | `100` |
-| `--k_paths` | Number of candidate paths | `5` |
-| `--load` | Traffic load (Erlangs) | `250` |
-| `--max_requests` | Max requests per episode | `1e4` |
-| `--mean_service_holding_time` | Mean holding time | `10` |
-| `--slot_size` | Slot bandwidth (GHz) | `12.5` |
-| `--guardband` | Guard band slots | `1` |
-
-### Training Parameters
-
-| Flag | Description | Default |
-|------|-------------|---------|
-| `--TOTAL_TIMESTEPS` | Total training timesteps | `1e7` |
-| `--NUM_ENVS` | Parallel environments | `100` |
-| `--NUM_LEARNERS` | Independent learners | `1` |
-| `--LR` | Learning rate | `0.0005` |
-| `--GAMMA` | Discount factor | `0.999` |
-| `--CLIP_EPS` | PPO clip epsilon | `0.2` |
-| `--ENT_COEF` | Entropy coefficient | `0.0` |
-| `--VF_COEF` | Value function coefficient | `0.5` |
-| `--UPDATE_EPOCHS` | PPO update epochs | `1` |
-
-### Differentiable Mode
-
-| Flag | Description | Default |
-|------|-------------|---------|
-| `--differentiable` | Enable differentiable operations | `False` |
-| `--temperature` | Temperature for soft approximations | `1.0` |
+When `--differentiable` is enabled, discrete operations (comparisons, argmax, indexing, rounding) use differentiable approximations based on straight-through gradient estimators and temperature-controlled soft functions (sigmoid, softmax). When disabled (default), standard non-differentiable operations are used for maximum performance.
 
 ---
 
@@ -247,7 +210,9 @@ xlron/
 │   ├── train.py           # Main training entry point
 │   ├── train_utils.py     # Training utilities
 │   └── ppo.py             # PPO implementation
-├── heuristics/            # Classical algorithms (KSP, First-Fit, etc.)
+├── heuristics/            # Classical algorithms (KSP-FF, etc.)
+├── bounds/                # Capacity bound estimation (cut-sets, reconfigurable routing)
+├── models/                # Neural network architectures (MLP, GNN, Transformer)
 ├── dtype_config.py        # Device-aware dtype configuration
 └── parameter_flags.py     # Command-line flags
 ```
