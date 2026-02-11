@@ -325,8 +325,11 @@ class RSAEnv(environment.Environment):
         nodes_sd, requested_datarate = jit_profiler.call(
             params.profile, read_rsa_request, state.request_array
         )
+        # For GN model envs, action is [path_slot_action, launch_power];
+        # process_path_action only needs the path_slot component.
+        path_action = jnp.atleast_1d(action)[0]
         path_index, initial_slot_index = jit_profiler.call(
-            params.profile, process_path_action, state, params, action
+            params.profile, process_path_action, state, params, path_action
         )
         path, path_se = jit_profiler.call(
             params.profile, get_path_and_se, params, nodes_sd, path_index
