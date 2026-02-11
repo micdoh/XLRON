@@ -52,20 +52,20 @@ args="--env_type rmsa --link_resources 100 --mean_service_holding_time 20 --cont
 for traffic_load in 150 160 170 180 190 200 210 220 230 240 250 260 270 280 290 300; do
   run_reconfigurable_routing_bound "DeepRMSA~Reward-RMSA~GCN-RMSA" "nsfnet_deeprmsa_directed" "$traffic_load" "50" "$args" "ksp_ff"
 done
-for traffic_load in 400 410 420 430 440 450 460 470 480 490 500 510 520 530 540 550 560 570 580 590 600 610 620 630; do
+for traffic_load in 400 410 420 430 440 450 460 470 480 490 500 510 520 530 540 550 560 570 580 590 600 610 620 630 640 650 660 670; do
   run_reconfigurable_routing_bound "DeepRMSA~Reward-RMSA~GCN-RMSA" "cost239_deeprmsa_directed" "$traffic_load" "50" "$args" "ksp_ff"
 done
-for traffic_load in 310 320 330 340 350 360 370 380 390 400 410 420 430 440 450 460 470 480 490 500 510; do
+for traffic_load in 310 320 330 340 350 360 370 380 390 400 410 420 430 440 450 460 470 480 490 500 510 520 530 540; do
   run_reconfigurable_routing_bound "DeepRMSA~Reward-RMSA~GCN-RMSA" "usnet_gcnrnn_directed" "$traffic_load" "50" "$args" "ksp_ff"
 done
 
 # MaskRSA NSFNET
 args="--env_type rmsa --link_resources 80 --max_bw 50 --guardband 0 --slot_size 12.5 --mean_service_holding_time 12 --continuous_operation"
-for traffic_load in 90 95 100 105 110 115 120 125 130 135 140 145; do
+for traffic_load in 90 95 100 105 110 115 120 125 130 135 140 145 150 160 165 170 175; do
 run_reconfigurable_routing_bound "MaskRSA" "nsfnet_deeprmsa_undirected" "$traffic_load" "50" "$args" "ksp_ff"
 done
 # MaskRSA JPN48
-for traffic_load in 160 170 180 190 200 210 220 230 240 250 260; do
+for traffic_load in 160 170 180 190 200 210 220 230 240 250 260 270 280 290 300; do
 run_reconfigurable_routing_bound "MaskRSA" "jpn48_undirected" "$traffic_load" "50" "$args" "ff_ksp"
 done
 # PtrNet-RSA
