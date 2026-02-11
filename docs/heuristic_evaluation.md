@@ -37,6 +37,8 @@ The environment type. For heuristic evaluation, the most commonly used types are
 | `rmsa` | Routing, Modulation and Spectrum Assignment |
 | `rwa` | Routing and Wavelength Assignment. A convenience wrapper around `rsa` that defaults to requested datarate of 1, slot size of 1, and spectral efficiency of 1 — i.e. each service occupies exactly one slot. |
 | `deeprmsa` | DeepRMSA-compatible (same as `rmsa` but with a specific observation/action space) |
+| `rsa_gn_model` | RSA with GN model physical layer impairments (see [GN Model section](#gn-model-specific-flags)) |
+| `rmsa_gn_model` | RMSA with GN model physical layer impairments (see [GN Model section](#gn-model-specific-flags)) |
 | `rwa_lightpath_reuse` | RWA with lightpath reuse (see [RWA-LR section](#rwa-lightpath-reuse-specific-flags)) |
 
 ### `--topology_name`
@@ -241,6 +243,50 @@ Symbol rate in Gbaud. Used to calculate lightpath capacity. Default: `100`.
 The `capacity` sort criterion is specific to the RWA-LR environment — it sorts paths by their lightpath capacity.
 
 When using `rwa_lightpath_reuse`, the `--max_requests` flag interacts with `--scale_factor`: the effective episode length becomes `max_requests * scale_factor`.
+
+
+## GN Model Specific Flags
+
+The `rsa_gn_model` and `rmsa_gn_model` environments include a closed-form ISRS GN model for estimating physical layer impairments. When running heuristic evaluation with these environments, the heuristic selects the path and spectrum assignment as usual, and launch power is automatically calculated (the `--launch_power_type` must not be `rl` for heuristic evaluation).
+
+### `--launch_power_type`
+
+How launch power is determined. For heuristic evaluation, use `fixed` (same power per transceiver, default) or `tabular` (power depends on path). The `rl` option is not compatible with `--EVAL_HEURISTIC`.
+
+### `--snr_margin`
+
+Required SNR margin (in dB) above the modulation format threshold for a connection to be accepted. Default: `0.5`.
+
+### `--max_power` / `--min_power` / `--step_power`
+
+Launch power range and step size in dBm. Default: `0.5`, `-5`, `0.1`.
+
+### `--last_fit`
+
+When enabled, use KSP-LF (last-fit) instead of KSP-FF (first-fit) for the path action in GN model environments. Default: `False`.
+
+### `--noise_data_filepath`
+
+Path to transceiver and amplifier noise data file. Default: `None` (uses analytical noise model).
+
+### `--monitor_active_lightpaths`
+
+Track active lightpaths for throughput calculations. Default: `False`.
+
+### Physical Layer Parameters
+
+These control the fibre and amplifier characteristics used in the GN model:
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--alpha` | Fibre attenuation coefficient [dB/km] | `0.2` |
+| `--beta_2` | Dispersion parameter [ps^2/km] | `-21.7` |
+| `--gamma` | Nonlinear coefficient | `1.2` |
+| `--span_length` | Span length [km] | `100` |
+| `--amplifier_noise_figure` | Amplifier noise figure [dB] | `4.5` |
+| `--ref_lambda` | Reference wavelength [m] | `1564e-9` |
+| `--coherent` | Add NLI contribution coherently per span | `False` |
+| `--uniform_spans` | Use uniform spans (simplifies calculations) | `True` |
 
 
 ## Examples
