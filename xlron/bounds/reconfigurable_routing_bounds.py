@@ -412,7 +412,7 @@ def main(argv):
     all_block_counts = []
     all_fix_counts = []
 
-    num_seeds = 1 if profile else 3
+    num_seeds = 1 if profile else 10
     for seed in range(num_seeds):
         print(f"  Seed {seed + 1}/{num_seeds}: setting up environment...", flush=True)
 
