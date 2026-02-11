@@ -53,6 +53,12 @@ cd XLRON
 # Install with uv (recommended)
 uv sync
 
+# If running on GPU
+uv sync --group gpu
+
+# If running on TPU
+uv sync --group tpu
+
 # Or with pip
 pip install -e .
 ```

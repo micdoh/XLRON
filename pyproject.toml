@@ -49,6 +49,9 @@ dependencies = [
 gpu = [
   "jax[cuda12]"
 ]
+tpu = [
+  "jax[tpu]"
+]
 
 [project.optional-dependencies]
 docs = [

@@ -1093,6 +1093,11 @@ cuda12 = [
     { name = "jax-cuda12-plugin", extra = ["with-cuda"] },
     { name = "jaxlib" },
 ]
+tpu = [
+    { name = "jaxlib" },
+    { name = "libtpu" },
+    { name = "requests" },
+]
 
 [[package]]
 name = "jax-cuda12-pjrt"
@@ -1605,6 +1610,18 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/da/34/28fff3ab31ccff1fd4f6c7c7b0ceb2b6968d8ea4950663eadcb5720591a0/lark-1.3.1.tar.gz", hash = "sha256:b426a7a6d6d53189d318f2b6236ab5d6429eaf09259f1ca33eb716eed10d2905", size = 382732, upload-time = "2025-10-27T18:25:56.653Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/82/3d/14ce75ef66813643812f3093ab17e46d3a206942ce7376d31ec2d36229e7/lark-1.3.1-py3-none-any.whl", hash = "sha256:c629b661023a014c37da873b4ff58a817398d12635d3bbb2c5a03be7fe5d1e12", size = 113151, upload-time = "2025-10-27T18:25:54.882Z" },
+]
+
+[[package]]
+name = "libtpu"
+version = "0.0.32"
+source = { registry = "https://pypi.org/simple" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/8f/48/38fbb75df8f30ee65f06092ed43f9d6a156c81910a31406f2b30e5dc2883/libtpu-0.0.32-cp312-cp312-manylinux_2_31_x86_64.whl", hash = "sha256:d2a0e7abe4a029b79049bc95da20e4c2a64f8ef09823f75286cecfbb4b0b6da1", size = 194351445, upload-time = "2025-12-16T00:18:26.911Z" },
+    { url = "https://files.pythonhosted.org/packages/a6/de/a558a9ccf0411ed40834d8cae86377ae8336588c19b2d44cfd8326de379b/libtpu-0.0.32-cp313-cp313-manylinux_2_31_x86_64.whl", hash = "sha256:6453995774b902e43d1caf0d82298a2e90f2f731ddd74d6bef9510d91732775f", size = 194351727, upload-time = "2025-12-16T00:18:56.118Z" },
+    { url = "https://files.pythonhosted.org/packages/ef/f0/15b1be52a6cfc333239bdb02d982a196c5055fc21e728da4819a78969fbd/libtpu-0.0.32-cp313-cp313t-manylinux_2_31_x86_64.whl", hash = "sha256:98d9713a39d9581c9b10a7bdeaa575cc874a4a7f543cfb40d3a723ee27b428b5", size = 194352693, upload-time = "2025-12-16T00:18:46.183Z" },
+    { url = "https://files.pythonhosted.org/packages/b0/ca/0648072f32228eb57c04c02b40666b3702471334fe13541cf1218b29f744/libtpu-0.0.32-cp314-cp314-manylinux_2_31_x86_64.whl", hash = "sha256:37f6aefe6d69d24e5e268e74c1e90cd0ce0fa6a796720709445d8938605912ee", size = 194351773, upload-time = "2025-12-16T00:19:05.753Z" },
+    { url = "https://files.pythonhosted.org/packages/58/20/b2f159af8d2bed2dacb434e6d8a81781592f4f3102477a52fdaeb8cc0343/libtpu-0.0.32-cp314-cp314t-manylinux_2_31_x86_64.whl", hash = "sha256:7ffd9cdb89da22d32bb60ce70b88e9e76861c5d704ebf673f32987e19e9913f3", size = 194352499, upload-time = "2025-12-16T00:18:16.238Z" },
 ]
 
 [[package]]
@@ -3978,6 +3995,9 @@ docs = [
 gpu = [
     { name = "jax", extra = ["cuda12"] },
 ]
+tpu = [
+    { name = "jax", extra = ["tpu"] },
+]
 
 [package.metadata]
 requires-dist = [
@@ -4027,6 +4047,7 @@ provides-extras = ["docs"]
 
 [package.metadata.requires-dev]
 gpu = [{ name = "jax", extras = ["cuda12"] }]
+tpu = [{ name = "jax", extras = ["tpu"] }]
 
 [[package]]
 name = "zipp"
