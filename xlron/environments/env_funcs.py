@@ -3111,6 +3111,75 @@ def get_snr_link_array(state: EnvState, params: EnvParams) -> chex.Array:
     return link_snr_array
 
 
+# @partial(jax.jit, static_argnums=(3,))
+# def get_best_modulation_format(
+#     state: EnvState,
+#     path: chex.Array,
+#     initial_slot_index: int,
+#     launch_power: chex.Array,
+#     params: EnvParams,
+# ) -> chex.Array:
+#     """Get best modulation format for lightpath. "Best" is the highest order that has SNR requirements below available.
+#     Try each modulation format, calculate SNR for each, then return the highest order possible.
+#     Args:
+#         state (EnvState): Environment state
+#         path (chex.Array): Path array
+#         initial_slot_index (int): Initial slot index
+#         params (EnvParams): Environment parameters
+#     Returns:
+#         jnp.array: Acceptable modulation format indices
+#     """
+#     _, requested_datarate = read_rsa_request(state.request_array)
+#     mod_format_count = params.modulations_array.val.shape[0]
+#     acceptable_mod_format_indices = jnp.full((mod_format_count,), -2)
+
+#     def acceptable_modulation_format(i, acceptable_format_indices):
+#         req_snr = params.modulations_array.val[i][2] + params.snr_margin
+#         se = params.modulations_array.val[i][1]
+#         req_slots = required_slots(
+#             requested_datarate,
+#             se,
+#             params.slot_size,
+#             params.guardband,
+#             temperature=params.temperature,
+#         )
+#         # TODO - need to check we don't overwrite values in already occupied slots
+#         # Possible approaches:
+#         # Check slot occupancy? Probably would need to iterate through for num_slots, but that's an issue
+#         # What about we allocate and then fix up later, e.g. could it be possible to just add the modulation format on top without
+#         # check sum of path links prior to assigning?
+#         #
+#         affected_slots_mask = get_affected_slots_mask(initial_slot_index, req_slots, path, params)
+#         new_state = state.replace(
+#             channel_power_array=set_path_links(
+#                 state.channel_power_array,
+#                 affected_slots_mask,
+#                 launch_power,
+#             ),
+#             channel_centre_bw_array=set_path_links(
+#                 state.channel_centre_bw_array,
+#                 affected_slots_mask,
+#                 params.slot_size,
+#             ),
+#         )
+#         snr_value = get_minimum_snr_of_channels_on_path(
+#             new_state, path, initial_slot_index, req_slots, params
+#         )
+#         # jax.debug.print("snr_value {}", snr_value, ordered=True)
+#         # jax.debug.print("req_snr {}", req_snr, ordered=True)
+#         acceptable_format_index = jnp.where(snr_value >= req_snr, i, -1).reshape((1,))
+#         acceptable_format_indices = jax.lax.dynamic_update_slice(
+#             acceptable_format_indices, acceptable_format_index, (i,)
+#         )
+#         # jax.debug.print("acceptable_format_indices {}", acceptable_format_indices, ordered=True)
+#         return acceptable_format_indices
+
+#     acceptable_mod_format_indices = jax.lax.fori_loop(
+#         0, mod_format_count, acceptable_modulation_format, acceptable_mod_format_indices
+#     )
+#     return acceptable_mod_format_indices
+    
+    
 @partial(jax.jit, static_argnums=(3,))
 def get_best_modulation_format(
     state: EnvState,
@@ -3119,64 +3188,34 @@ def get_best_modulation_format(
     launch_power: chex.Array,
     params: EnvParams,
 ) -> chex.Array:
-    """Get best modulation format for lightpath. "Best" is the highest order that has SNR requirements below available.
-    Try each modulation format, calculate SNR for each, then return the highest order possible.
-    Args:
-        state (EnvState): Environment state
-        path (chex.Array): Path array
-        initial_slot_index (int): Initial slot index
-        params (EnvParams): Environment parameters
-    Returns:
-        jnp.array: Acceptable modulation format indices
-    """
     _, requested_datarate = read_rsa_request(state.request_array)
-    mod_format_count = params.modulations_array.val.shape[0]
-    acceptable_mod_format_indices = jnp.full((mod_format_count,), -2)
 
-    def acceptable_modulation_format(i, acceptable_format_indices):
-        req_snr = params.modulations_array.val[i][2] + params.snr_margin
-        se = params.modulations_array.val[i][1]
+    mod_formats = params.modulations_array.val  # (mod_format_count, ...)
+
+    def check_single_format(mod_format_row, i):
+        req_snr = mod_format_row[2] + params.snr_margin
+        se = mod_format_row[1]
         req_slots = required_slots(
-            requested_datarate,
-            se,
-            params.slot_size,
-            params.guardband,
-            temperature=params.temperature,
+            requested_datarate, se, params.slot_size,
+            params.guardband, temperature=params.temperature,
         )
-        # TODO - need to check we don't overwrite values in already occupied slots
-        # Possible approaches:
-        # Check slot occupancy? Probably would need to iterate through for num_slots, but that's an issue
-        # What about we allocate and then fix up later, e.g. could it be possible to just add the modulation format on top without
-        # check sum of path links prior to assigning?
-        #
         affected_slots_mask = get_affected_slots_mask(initial_slot_index, req_slots, path, params)
         new_state = state.replace(
             channel_power_array=set_path_links(
-                state.channel_power_array,
-                affected_slots_mask,
-                launch_power,
+                state.channel_power_array, affected_slots_mask, launch_power,
             ),
             channel_centre_bw_array=set_path_links(
-                state.channel_centre_bw_array,
-                affected_slots_mask,
-                params.slot_size,
+                state.channel_centre_bw_array, affected_slots_mask, params.slot_size,
             ),
         )
         snr_value = get_minimum_snr_of_channels_on_path(
             new_state, path, initial_slot_index, req_slots, params
         )
-        # jax.debug.print("snr_value {}", snr_value, ordered=True)
-        # jax.debug.print("req_snr {}", req_snr, ordered=True)
-        acceptable_format_index = jnp.where(snr_value >= req_snr, i, -1).reshape((1,))
-        acceptable_format_indices = jax.lax.dynamic_update_slice(
-            acceptable_format_indices, acceptable_format_index, (i,)
-        )
-        # jax.debug.print("acceptable_format_indices {}", acceptable_format_indices, ordered=True)
-        return acceptable_format_indices
+        return jnp.where(snr_value >= req_snr, i, -1)
 
-    acceptable_mod_format_indices = jax.lax.fori_loop(
-        0, mod_format_count, acceptable_modulation_format, acceptable_mod_format_indices
-    )
+    indices = jnp.arange(mod_formats.shape[0])
+    acceptable_mod_format_indices = jax.vmap(check_single_format)(mod_formats, indices)
+
     return acceptable_mod_format_indices
 
 
