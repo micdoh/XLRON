@@ -2959,10 +2959,10 @@ def update_active_lightpaths_array(
     """
     first_empty_index = jnp.argmin(
         state.active_lightpaths_array[:, 0]
-    ).astype(dtype_config.INDEX_DTYPE) # Just look at the first column
+    ) # Just look at the first column
     return jax.lax.dynamic_update_slice(
         state.active_lightpaths_array,
-        jnp.array([[path_index, initial_slot_index, num_slots]]),
+        jnp.array([[path_index, initial_slot_index, num_slots]], dtype=state.active_lightpaths_array.dtype),
         (first_empty_index, 0),
     )
 
