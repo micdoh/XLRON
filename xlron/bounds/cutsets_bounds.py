@@ -1,6 +1,6 @@
 """
 Example command:
-    uv run python -m experimental.capacity_bound_estimation.cutsets_bounds --topology_name=nsfnet_deeprmsa_directed --env_type=rmsa --truncate_holding_time --load=250 --link_resources=100 --k=5 --min_bw=25 --max_bw=100 --step_bw=1 --slot_size=12.5 --continuous_operation --num_sim_requests=100000 --num_trials=10 --sim_min_load=200 --sim_max_load=300 --sim_step_load=10 --CUTSET_EXHAUSTIVE --CUTSET_BATCH_SIZE=512 --CUTSET_ITERATIONS=32 --CUTSET_TOP_K=256 --link_selection_mode=least_congested
+    uv run python -m xlron.bounds.cutsets_bounds --topology_name=nsfnet_deeprmsa_directed --env_type=rmsa --truncate_holding_time --load=250 --link_resources=100 --k=5 --min_bw=25 --max_bw=100 --step_bw=1 --slot_size=12.5 --continuous_operation --num_sim_requests=100000 --num_trials=10 --sim_min_load=250 --sim_max_load=250 --sim_step_load=10 --CUTSET_EXHAUSTIVE --CUTSET_BATCH_SIZE=512 --CUTSET_ITERATIONS=32 --CUTSET_TOP_K=256 --link_selection_mode=least_congested
 """
 
 import itertools
@@ -106,25 +106,26 @@ def make_complete_subgraph(path_adj_matrix, adj_matrix):
     return result
 
 
-@partial(jax.jit, static_argnums=(1, 2, 3))
-def edges_to_adjacency(path_array, source_nodes, dest_nodes, num_nodes):
+@partial(jax.jit, static_argnums=(1, 2, 3, 4))
+def edges_to_adjacency(path_array, source_nodes, dest_nodes, num_nodes, directed=False):
     adjacency = jnp.zeros((num_nodes, num_nodes))
 
     def update_adj(idx, adj):
         s, d = source_nodes.val[idx], dest_nodes.val[idx]
         update_val = jnp.array([[1.0]]) * path_array[idx]
         adj = jax.lax.dynamic_update_slice(adj, update_val, (s, d))
-        adj = jax.lax.dynamic_update_slice(adj, update_val, (d, s))
+        if not directed:
+            adj = jax.lax.dynamic_update_slice(adj, update_val, (d, s))
         return adj
 
     adjacency = jax.lax.fori_loop(0, len(path_array), update_adj, adjacency)
     return adjacency
 
 
-@partial(jax.jit, static_argnums=(1, 2, 3))
-def get_cutset_from_path(path_array, adjacency, source_nodes, dest_nodes):
+@partial(jax.jit, static_argnums=(1, 2, 3, 4))
+def get_cutset_from_path(path_array, adjacency, source_nodes, dest_nodes, directed=False):
     num_nodes = adjacency.val.shape[0]
-    path_adjacency = edges_to_adjacency(path_array, source_nodes, dest_nodes, num_nodes)
+    path_adjacency = edges_to_adjacency(path_array, source_nodes, dest_nodes, num_nodes, directed)
     subgraph_adjacency = make_complete_subgraph(path_adjacency, adjacency)
     cutset_adjacency = find_cutset_adj(subgraph_adjacency, adjacency)
     remaining_graph = adjacency.val * (1 - cutset_adjacency)
@@ -144,11 +145,13 @@ def get_cutset_from_path(path_array, adjacency, source_nodes, dest_nodes):
 
 @partial(jax.jit, static_argnums=(2, 3))
 def find_cutset_edges(p1, p2, source_nodes, dest_nodes):
+    offset = -jnp.min(jnp.concatenate([source_nodes.val, dest_nodes.val]))
+
+    # Edge crosses cut if its endpoints are in different partitions
     def is_cut_edge(edge):
         u, v = edge
         return jnp.logical_or(jnp.logical_and(p1[u], p2[v]), jnp.logical_and(p1[v], p2[u]))
 
-    offset = -jnp.min(jnp.concatenate([source_nodes.val, dest_nodes.val]))
     cut_set = jax.vmap(is_cut_edge)(
         jnp.stack([source_nodes.val + offset, dest_nodes.val + offset], axis=1)
     )
@@ -167,19 +170,23 @@ def find_cutset_adj(subgraph_matrix, full_matrix):
     return cutset
 
 
-@partial(jax.jit, static_argnums=(1, 2, 3, 4))
+@partial(jax.jit, static_argnums=(1, 2, 3, 4, 5))
 def calculate_congestion(
-    partition_mask, adjacency_matrix, traffic_matrix, source_nodes, dest_nodes
+    partition_mask, adjacency_matrix, traffic_matrix, source_nodes, dest_nodes, directed=False
 ):
     num_nodes = adjacency_matrix.shape[0]
     partition1 = partition_mask
     partition2 = 1 - partition_mask
 
     edges = find_cutset_edges(partition1, partition2, source_nodes, dest_nodes)
-    cut_matrix = edges_to_adjacency(edges, source_nodes, dest_nodes, num_nodes)
+    cut_matrix = edges_to_adjacency(edges, source_nodes, dest_nodes, num_nodes, directed)
     cut_size = jnp.sum(cut_matrix)
 
-    traffic_across_cut = jnp.sum(traffic_matrix.val * (partition1[:, None] * partition2[None, :]))
+    # For directed graphs, traffic crosses the cut in both directions
+    cross_mask = partition1[:, None] * partition2[None, :]
+    if directed:
+        cross_mask = cross_mask + partition2[:, None] * partition1[None, :]
+    traffic_across_cut = jnp.sum(traffic_matrix.val * cross_mask)
     congestion = jnp.where(cut_size > 0, traffic_across_cut / cut_size, 0.0)
 
     partitioned_adj = adjacency_matrix.val - cut_matrix
@@ -203,12 +210,17 @@ def generate_gray_code_masks(n_nodes: int, max_batch_size: int, start: int):
     return masks
 
 
-@partial(jax.jit, static_argnums=(1, 2, 3, 4), donate_argnums=(0,))
+@partial(jax.jit, static_argnums=(1, 2, 3, 4, 5), donate_argnums=(0,))
 def calculate_congestion_batch(
-    partition_masks_batch, adjacency_matrix, traffic_matrix, source_nodes, dest_nodes
+    partition_masks_batch,
+    adjacency_matrix,
+    traffic_matrix,
+    source_nodes,
+    dest_nodes,
+    directed=False,
 ):
-    return jax.vmap(calculate_congestion, in_axes=(0, None, None, None, None))(
-        partition_masks_batch, adjacency_matrix, traffic_matrix, source_nodes, dest_nodes
+    return jax.vmap(calculate_congestion, in_axes=(0, None, None, None, None, None))(
+        partition_masks_batch, adjacency_matrix, traffic_matrix, source_nodes, dest_nodes, directed
     )
 
 
@@ -223,6 +235,7 @@ def find_congested_cuts_exhaustive(
     max_batch_size,
     source_nodes,
     dest_nodes,
+    directed=False,
 ):
     def find_congested_cuts_iter(_, i):
         batch_indices = jnp.arange(num_batches_per_iteration) + i
@@ -231,7 +244,7 @@ def find_congested_cuts_exhaustive(
             j = j * max_batch_size
             new_masks = generate_gray_code_masks(num_nodes, max_batch_size, j)
             new_congestions = calculate_congestion_batch(
-                new_masks, adj_matrix, traf_matrix, source_nodes, dest_nodes
+                new_masks, adj_matrix, traf_matrix, source_nodes, dest_nodes, directed
             )
             top_indices = jnp.argsort(new_congestions)[-top_k:]
             new_congestions = new_congestions[top_indices]
@@ -260,13 +273,13 @@ def find_congested_cuts_exhaustive(
 
 
 def find_congested_cuts_simple(
-    path_link_array, source_nodes, dest_nodes, adjacency_matrix, traffic_matrix
+    path_link_array, source_nodes, dest_nodes, adjacency_matrix, traffic_matrix, directed=False
 ):
     def get_cutset_partitions_and_congestion(_, i):
         path = path_link_array.val[i]
-        p1, p2 = get_cutset_from_path(path, adjacency_matrix, source_nodes, dest_nodes)
+        p1, p2 = get_cutset_from_path(path, adjacency_matrix, source_nodes, dest_nodes, directed)
         congestion = calculate_congestion(
-            p1, adjacency_matrix, traffic_matrix, source_nodes, dest_nodes
+            p1, adjacency_matrix, traffic_matrix, source_nodes, dest_nodes, directed
         )
         return None, (congestion, p1, p2)
 
@@ -997,7 +1010,14 @@ def main(argv):
     top_k = FLAGS.CUTSET_TOP_K
 
     # --- Find congested cut-sets ---
-    if FLAGS.CUTSET_EXHAUSTIVE:
+    use_exhaustive = FLAGS.CUTSET_EXHAUSTIVE
+    if use_exhaustive and 2**params.num_nodes > jnp.iinfo(jnp.int32).max:
+        print(
+            f"WARNING: Topology has {params.num_nodes} nodes (2^{params.num_nodes} combinations), "
+            f"which exceeds int32 max. Falling back to non-exhaustive (shortest-paths) cut-set method."
+        )
+        use_exhaustive = False
+    if use_exhaustive:
         total_combinations = 2**params.num_nodes
         parallel_processes = FLAGS.NUM_ENVS
         batch_size = min(FLAGS.CUTSET_BATCH_SIZE, total_combinations)
@@ -1030,6 +1050,7 @@ def main(argv):
                 batch_size,
                 source_nodes_haw,
                 destination_nodes_haw,
+                params.directed_graph,
             )
         else:
             with TimeIt("CUT-SET COMPILATION:"):
@@ -1037,9 +1058,9 @@ def main(argv):
                     jax.jit(
                         jax.vmap(
                             find_congested_cuts_exhaustive,
-                            in_axes=(0, None, None, None, None, None, None, None, None, None),
+                            in_axes=(0, None, None, None, None, None, None, None, None, None, None),
                         ),
-                        static_argnums=(1, 2, 3, 4, 5, 6, 7, 8, 9),
+                        static_argnums=(1, 2, 3, 4, 5, 6, 7, 8, 9, 10),
                     )
                     .lower(
                         starts,
@@ -1052,6 +1073,7 @@ def main(argv):
                         batch_size,
                         source_nodes_haw,
                         destination_nodes_haw,
+                        params.directed_graph,
                     )
                     .compile()
                 )
@@ -1066,17 +1088,19 @@ def main(argv):
                 destination_nodes_haw,
                 adj_matrix_haw,
                 traffic_matrix_haw,
+                params.directed_graph,
             )
         else:
             with TimeIt("CUT-SET COMPILATION:"):
                 func = (
-                    jax.jit(find_congested_cuts_simple, static_argnums=(0, 1, 2, 3, 4))
+                    jax.jit(find_congested_cuts_simple, static_argnums=(0, 1, 2, 3, 4, 5))
                     .lower(
                         params.path_link_array,
                         source_nodes_haw,
                         destination_nodes_haw,
                         adj_matrix_haw,
                         traffic_matrix_haw,
+                        params.directed_graph,
                     )
                     .compile()
                 )
