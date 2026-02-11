@@ -1503,6 +1503,27 @@ def complete_step_rsa(
     return state
 
 
+def complete_step_rwalr(
+    state: EnvState, action_info: ActionInfo, check: Array, params: EnvParams
+) -> EnvState:
+    """Complete step for RWA-LR environments.
+    Unlike complete_step_rsa, this does not modify link_slot_array on failure,
+    because implement_action_rwalr already handles the undo via blending and
+    link_slot_array stores a capacity mask (not an occupancy counter).
+    """
+    fail = check
+    success = 1 - check
+    state = state.replace(
+        link_slot_departure_array=state.link_slot_departure_array
+        - (fail * action_info.affected_slots_mask * (state.current_time + state.holding_time)),
+        accepted_services=state.accepted_services + success,
+        accepted_bitrate=state.accepted_bitrate + (success * action_info.requested_datarate),
+        total_bitrate=state.total_bitrate + action_info.requested_datarate,
+        total_timesteps=state.total_timesteps + 1,
+    )
+    return state
+
+
 @partial(jax.jit, donate_argnums=(0,))
 def undo_action_rsa(state: EnvState, action_info: ActionInfo, params: EnvParams) -> EnvState:
     """If the request is unsuccessful i.e. checks fail, then remove the partial (unfinalised) resource allocation.

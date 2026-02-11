@@ -8,13 +8,15 @@ import jax.numpy as jnp
 from xlron.environments.dataclasses import EnvState, RSAEnvParams, RSAEnvState
 from xlron.environments.env_funcs import (
     find_block_sizes,
+    get_affected_slots_mask,
     get_paths,
     get_paths_se,
     init_path_capacity_array,
     mask_slots,
+    mask_slots_rwalr,
     read_rsa_request,
     required_slots,
-    set_path_links, get_affected_slots_mask,
+    set_path_links,
 )
 from xlron.environments.wrappers import jit_profiler
 
@@ -246,9 +248,7 @@ def kmc_ff(state: EnvState, params: RSAEnvParams) -> chex.Array:
         num_slots = required_slots(requested_bw, se, params.slot_size, guardband=params.guardband)
         affected_slots_mask = get_affected_slots_mask(initial_slot_index, num_slots, path, params)
         # Make link-slot_array positive
-        updated_slots = set_path_links(
-            link_slot_array, affected_slots_mask, 1.0
-        )
+        updated_slots = set_path_links(link_slot_array, affected_slots_mask, 1.0)
         updated_block_sizes = jax.vmap(find_block_sizes, in_axes=(0,))(updated_slots)
         updated_block_sizes_mask = jnp.where(
             updated_block_sizes > 0, 1, 0
@@ -300,9 +300,7 @@ def kmf_ff(state: RSAEnvState, params: RSAEnvParams) -> chex.Array:
         affected_slots_mask = get_affected_slots_mask(initial_slot_index, num_slots, path, params)
         # Mask on path links
         block_sizes = jax.vmap(lambda x, y: jnp.where(x > 0, y, 0.0), in_axes=(0, 0))(path, blocks)
-        updated_slots = set_path_links(
-            state.link_slot_array, affected_slots_mask, -1
-        )
+        updated_slots = set_path_links(state.link_slot_array, affected_slots_mask, -1)
         updated_block_sizes = jax.vmap(find_block_sizes, in_axes=(0,))(updated_slots)
         # Mask on path links
         updated_block_sizes = jax.vmap(lambda x, y: jnp.where(x > 0, y, 0.0), in_axes=(0, 0))(
@@ -366,9 +364,7 @@ def kme_ff(state: EnvState, params: RSAEnvParams) -> chex.Array:
         num_slots = required_slots(requested_bw, se, params.slot_size, guardband=params.guardband)
         affected_slots_mask = get_affected_slots_mask(initial_slot_index, num_slots, path, params)
         # Make link-slot_array positive
-        updated_slots = set_path_links(
-            link_slot_array, affected_slots_mask, 1.0
-        )
+        updated_slots = set_path_links(link_slot_array, affected_slots_mask, 1.0)
         updated_block_sizes = jax.vmap(find_block_sizes, in_axes=(0,))(updated_slots)
         updated_entropy = jax.vmap(get_link_entropy, in_axes=(0,))(updated_block_sizes)
         new_path_entropy = jnp.sum(jnp.dot(path, updated_entropy)).reshape((1,))
@@ -459,11 +455,12 @@ def get_link_weights(state: EnvState, params: RSAEnvParams):
 
 
 def get_action_mask(state: EnvState, params: RSAEnvParams) -> chex.Array:
-    _, full_mask = jit_profiler.call(
-        params.profile,
-        mask_slots,
-        state, params
-    )
+    if params.__class__.__name__ == "RWALightpathReuseEnvParams":
+        full_mask = jit_profiler.call(
+            params.profile, mask_slots_rwalr, state, params, state.request_array
+        )
+    else:
+        _, full_mask = jit_profiler.call(params.profile, mask_slots, state, params)
     mask = jnp.reshape(full_mask, (params.k_paths, -1))
     return mask
 

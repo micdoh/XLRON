@@ -19,6 +19,7 @@ from xlron.environments.env_funcs import (
     check_action_rsa,
     check_action_rwalr,
     complete_step_rsa,
+    complete_step_rwalr,
     generate_request_rsa,
     generate_request_rwalr,
     get_affected_slots_mask,
@@ -223,7 +224,7 @@ class RSAEnv(environment.Environment):
         if params.__class__.__name__ == "RWALightpathReuseEnvParams":
             implement_action = implement_action_rwalr
             check_action = check_action_rwalr
-            # input_state = check_state = [state, action_info, params]
+            complete_step = complete_step_rwalr
             if not params.incremental_loading:
                 # These are relevant to dynamic RWA-LR (upcoming)
                 complete_step = undo_action_rwalr
@@ -244,7 +245,9 @@ class RSAEnv(environment.Environment):
         check = jit_profiler.call(params.profile, check_action, state, action_info, params)
 
         # Calculate reward
-        reward = jit_profiler.call(params.profile, self.calculate_reward, state, action_info, check, params)
+        reward = jit_profiler.call(
+            params.profile, self.calculate_reward, state, action_info, check, params
+        )
 
         # Complete step
         state = jit_profiler.call(params.profile, complete_step, state, action_info, check, params)
@@ -263,7 +266,9 @@ class RSAEnv(environment.Environment):
 
         # Calculate path stats if DeepRMSAEnv
         if params.__class__.__name__ == "DeepRMSAEnvParams":
-            path_stats = jit_profiler.call(params.profile, calculate_path_stats, state, params, state.request_array)
+            path_stats = jit_profiler.call(
+                params.profile, calculate_path_stats, state, params, state.request_array
+            )
             state = state.replace(path_stats=path_stats)
         # Update graph tuple
         elif params.use_gnn:
@@ -480,8 +485,10 @@ class RSAEnv(environment.Environment):
                 differentiable=params.differentiable,
             )
         )
-        
-    def calculate_reward(self, state: RSAEnvState, action_info: ActionInfo, check: Array, params: RSAEnvParams) -> chex.Array:
+
+    def calculate_reward(
+        self, state: RSAEnvState, action_info: ActionInfo, check: Array, params: RSAEnvParams
+    ) -> chex.Array:
         """Calculate reward for current state and action.
 
         Args:
@@ -489,14 +496,14 @@ class RSAEnv(environment.Environment):
             action_info: Processed action information
             check: Result of action validity check
             params: Environment parameters
-            
+
         Returns:
             reward: Calculated reward
         """
         reward = self.get_reward_failure(state, action_info, params) * check + (
             (1 - check) * self.get_reward_success(state, action_info, params)
         )
-        return reward  
+        return reward
 
     def get_reward_failure(
         self,
