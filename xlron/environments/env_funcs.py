@@ -2962,7 +2962,7 @@ def update_active_lightpaths_array(
     )  # Just look at the first column
     return jax.lax.dynamic_update_slice(
         state.active_lightpaths_array,
-        jnp.array([[path_index, initial_slot_index, num_slots[0]]]),
+        jnp.array([[path_index, initial_slot_index, num_slots]]),
         (first_empty_index, 0),
     )
 
