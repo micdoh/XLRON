@@ -363,6 +363,77 @@ class TransceiverAmplifierNoiseTest(parameterized.TestCase):
         self.assertEqual(amplifier_noise_figure_array.shape, (link_resources,))
 
 
+def rmsa_gn_model_test_setup():
+    key = jax.random.PRNGKey(0)
+    settings = dict(
+        k=4,
+        topology_name="nsfnet_deeprmsa_directed",
+        link_resources=10,
+        max_requests=100,
+        values_bw=[100],
+        incremental_loading=True,
+        env_type="rmsa_gn_model",
+        slot_size=100,
+        guardband=0,
+        mod_format_correction=False,
+        launch_power=3.0,
+        max_power_per_fibre=13.0,
+        coherent=False,
+        include_no_op=False,
+    )
+    env, params = make(settings, log_wrapper=False)
+    obs, state = env.reset(key, params)
+    return key, env, obs, state, params
+
+
+class RMSAGNModelMaskTest(parameterized.TestCase):
+    def setUp(self):
+        super().setUp()
+        self.key, self.env, self.obs, self.state, self.params = rmsa_gn_model_test_setup()
+
+    def test_mask_has_valid_entries_empty_network(self):
+        """On an empty network, the mask should have at least one valid slot."""
+        state = self.env.action_mask(self.state, self.params)
+        mask = state.link_slot_mask
+        self.assertTrue(jnp.any(mask > 0), "Mask should have valid entries on empty network")
+
+    def test_mask_shape(self):
+        """Mask should have correct shape accounting for include_no_op."""
+        state = self.env.action_mask(self.state, self.params)
+        base_size = self.params.k_paths * self.params.link_resources
+        expected_mask_size = base_size + (1 if self.params.include_no_op else 0)
+        self.assertEqual(state.link_slot_mask.shape, (expected_mask_size,))
+        self.assertEqual(state.mod_format_mask.shape, (base_size,))
+
+    def test_mod_format_mask_values(self):
+        """mod_format_mask should contain -1 (invalid) or valid mod format indices."""
+        state = self.env.action_mask(self.state, self.params)
+        mfm = state.mod_format_mask
+        num_mods = self.params.modulations_array.val.shape[0]
+        # All entries should be >= -1 and < num_mods
+        self.assertTrue(jnp.all(mfm >= -1.0))
+        self.assertTrue(jnp.all(mfm < num_mods))
+
+    def test_step_after_mask_does_not_crash(self):
+        """Taking a masked action should not crash."""
+        rng = self.key
+        state = self.env.action_mask(self.state, self.params)
+        mask = state.link_slot_mask
+        # Sample a valid action
+        rng, rng_sample, rng_step = jax.random.split(rng, 3)
+        action_dist = distrax.Categorical(logits=jnp.where(mask > 0, 0.0, -1e8))
+        path_action = action_dist.sample(seed=rng_sample)
+        power_action = jnp.array([0])
+        action = jnp.concatenate([path_action.reshape((1,)), power_action.reshape((1,))], axis=0)
+        obs, new_state, reward, terminal, truncated, info = self.env.step(
+            rng_step, state, action, self.params
+        )
+        # Verify step completes without error and returns valid arrays
+        self.assertTrue(jnp.isfinite(reward))
+        self.assertTrue(isinstance(terminal, jax.Array))
+        self.assertTrue(isinstance(truncated, jax.Array))
+
+
 if __name__ == "__main__":
     os.environ["XLA_FLAGS"] = "--xla_force_host_platform_device_count=4"
     jax.config.update("jax_numpy_rank_promotion", "raise")
