@@ -509,8 +509,15 @@ flags.DEFINE_float("attenuation", 4.605111673e-5, "Attenuation [1/m]")
 flags.DEFINE_float("attenuation_bar", 4.605111673e-5, "Attenuation [1/m]")
 flags.DEFINE_float("dispersion_coeff", 17e-6, "Dispersion [s/m^2]")
 flags.DEFINE_float("dispersion_slope", 60.7, "Dispersion slope [s/m^3]")
-flags.DEFINE_float("num_roadms", 1, "Consider ROADM loss in SNR calculation (1 ROADM per link)")
-flags.DEFINE_float("roadm_loss", 16, "ROADM insertion losses [dB]")
+flags.DEFINE_float(
+    "num_roadms", 1, "Deprecated: use roadm_express_loss/roadm_add_drop_loss instead"
+)
+flags.DEFINE_float(
+    "roadm_loss", 16, "Deprecated: use roadm_express_loss/roadm_add_drop_loss instead"
+)
+flags.DEFINE_float("roadm_express_loss", 5.0, "ROADM express (pass-through) loss [dB]")
+flags.DEFINE_float("roadm_add_drop_loss", 8.0, "ROADM add/drop loss [dB]")
+flags.DEFINE_float("roadm_noise_figure", 5.0, "ROADM booster amplifier noise figure [dB]")
 flags.DEFINE_boolean("coherent", False, "Add NLI contribution coherently per span")
 flags.DEFINE_boolean(
     "mod_format_correction", False, "Apply non-Gaussian modulation format correction"

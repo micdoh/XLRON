@@ -220,6 +220,9 @@ def make(
     mod_format_correction = config.get("mod_format_correction", True)
     num_roadms = config.get("num_roadms", 1)
     roadm_loss = config.get("roadm_loss", 18)
+    roadm_express_loss = config.get("roadm_express_loss", 5.0)
+    roadm_add_drop_loss = config.get("roadm_add_drop_loss", 8.0)
+    roadm_noise_figure = config.get("roadm_noise_figure", 5.0)
     snr_margin = config.get("snr_margin", 1)
     path_snr = True if env_type in ["rsa_gn_model", "rmsa_gn_model"] else False
     max_snr = config.get("max_snr", 50.0)
@@ -581,6 +584,9 @@ def make(
             gap_widths=gap_widths,
             roadm_loss=roadm_loss,
             num_roadms=num_roadms,
+            roadm_express_loss=roadm_express_loss,
+            roadm_add_drop_loss=roadm_add_drop_loss,
+            roadm_noise_figure=roadm_noise_figure,
             num_spans=num_spans,
             launch_power_type=launch_power_type,
             snr_margin=snr_margin,
@@ -631,7 +637,9 @@ def make(
             f"  Per-channel launch power: {per_channel_power_dbm:.2f} dBm ({per_channel_power_w * 1e3:.4f} mW)"
         )
         print(f"  launch_power_type:        {launch_power_type}")
-        print(f"  ROADM loss:               {roadm_loss} dB (num_roadms={num_roadms})")
+        print(f"  ROADM express loss:       {roadm_express_loss} dB")
+        print(f"  ROADM add/drop loss:      {roadm_add_drop_loss} dB")
+        print(f"  ROADM noise figure:       {roadm_noise_figure} dB")
         print(
             f"  Amplifier NF range:       {float(jnp.min(nf_vals)):.1f} - {float(jnp.max(nf_vals)):.1f} dB"
         )
@@ -662,18 +670,25 @@ def make(
         _NF_lin = 10 ** (_nf_typical / 10)
         _N_sp = (_NF_lin * _G_inline) / (2.0 * (_G_inline - 1))
         _p_ase_one = 2 * _N_sp * (_G_inline - 1) * _h * _ref_freq * _B
-        _G_roadm = 10 ** (roadm_loss / 10)
-        _NF_roadm_lin = 10 ** ((_nf_typical + 1) / 10)
-        _N_sp_roadm = (_NF_roadm_lin * _G_roadm) / (2.0 * (_G_roadm - 1))
-        _p_ase_roadm = 2 * _N_sp_roadm * (_G_roadm - 1) * _h * _ref_freq * _B
+        _NF_roadm_lin = 10 ** (roadm_noise_figure / 10)
+        _G_express = 10 ** (roadm_express_loss / 10)
+        _N_sp_express = (_NF_roadm_lin * _G_express) / (2.0 * (_G_express - 1))
+        _p_ase_express_one = 2 * _N_sp_express * (_G_express - 1) * _h * _ref_freq * _B
+        _G_ad = 10 ** (roadm_add_drop_loss / 10)
+        _N_sp_ad = (_NF_roadm_lin * _G_ad) / (2.0 * (_G_ad - 1))
+        _p_ase_ad_one = 2 * _N_sp_ad * (_G_ad - 1) * _h * _ref_freq * _B
         _trx_snr_typical = float(jnp.median(trx_vals))
         _trx_noise = (
             per_channel_power_w / (10 ** (_trx_snr_typical / 10)) if per_channel_power_w > 0 else 0
         )
         print("  --- Estimated single-channel ASE-limited SNR (no NLI) ---")
+        print("    (ROADM noise: 2x add/drop + N_intermediate x express per path)")
         for _lkm in [300, 600, 1200, 2400]:
             _nspans = math.ceil(_lkm * 1e3 / max_span_length)  # km -> m
-            _total_noise = _nspans * _p_ase_one + num_roadms * _p_ase_roadm + _trx_noise
+            # Estimate intermediate nodes: assume ~1 per 500 km (rough heuristic for diagnostic)
+            _n_intermediate = max(_nspans // 5, 0)
+            _roadm_noise = _n_intermediate * _p_ase_express_one + 2 * _p_ase_ad_one
+            _total_noise = _nspans * _p_ase_one + _roadm_noise + _trx_noise
             if per_channel_power_w > 0 and _total_noise > 0:
                 _snr_db = 10 * math.log10(per_channel_power_w / _total_noise)
             else:

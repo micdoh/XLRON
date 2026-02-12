@@ -564,6 +564,58 @@ def get_ase_power(
     return jnp.squeeze(p_ASE)
 
 
+def calculate_roadm_ase(
+    roadm_express_loss,
+    roadm_add_drop_loss,
+    roadm_noise_figure,
+    num_roadm_express,
+    ref_lambda,
+    ch_centre_i,
+    ch_bandwidth_i,
+):
+    """Compute total ROADM ASE noise power for a path.
+
+    Models ROADMs with separate express (pass-through) and add/drop losses.
+    Each ROADM has a booster amplifier that compensates for the ROADM loss
+    and adds ASE noise.
+
+    A path traverses:
+      - 1 add ROADM at the source (loss = roadm_add_drop_loss)
+      - num_roadm_express express ROADMs at intermediate nodes (loss = roadm_express_loss each)
+      - 1 drop ROADM at the destination (loss = roadm_add_drop_loss)
+
+    Args:
+        roadm_express_loss: Express ROADM loss in dB
+        roadm_add_drop_loss: Add/drop ROADM loss in dB
+        roadm_noise_figure: ROADM booster amplifier noise figure in dB
+        num_roadm_express: Number of express (intermediate) ROADMs on the path
+        ref_lambda: Reference wavelength in metres
+        ch_centre_i: Channel centre frequencies in Hz, shape (N,)
+        ch_bandwidth_i: Channel bandwidths in Hz, shape (N,)
+
+    Returns:
+        Total ROADM ASE noise power per channel, shape (N,)
+    """
+    freq_abs = c / ref_lambda + ch_centre_i
+    nf_lin = 10 ** (roadm_noise_figure / 10)
+
+    # Express ROADM booster amplifiers
+    express_gain = 10 ** (roadm_express_loss / 10)
+    express_gain_m1 = express_gain - 1
+    nsp_express = (nf_lin * express_gain) / (2.0 * express_gain_m1)
+    p_ase_express = (
+        num_roadm_express * 2 * nsp_express * express_gain_m1 * h * freq_abs * ch_bandwidth_i
+    )
+
+    # Add/drop ROADM booster amplifiers (2: one at source, one at destination)
+    ad_gain = 10 ** (roadm_add_drop_loss / 10)
+    ad_gain_m1 = ad_gain - 1
+    nsp_ad = (nf_lin * ad_gain) / (2.0 * ad_gain_m1)
+    p_ase_ad = 2 * 2 * nsp_ad * ad_gain_m1 * h * freq_abs * ch_bandwidth_i
+
+    return jnp.squeeze(p_ase_express + p_ase_ad)
+
+
 def get_snr(
     num_channels: int = 420,
     max_spans: int = 20,
@@ -609,16 +661,8 @@ def get_snr(
         raman_gain_slope_i,
     )
 
-    # ASE noise - ROADMs (fixed gain)
-    roadm_gain = 10 ** (roadm_loss / 10)
-    roadm_noise_figure = amplifier_noise_figure + 1
-    p_ase_roadm = num_roadms * _calculate_ase_with_fixed_gain(
-        roadm_noise_figure,
-        ref_lambda,
-        ch_centre_i,
-        ch_bandwidth_i,
-        roadm_gain,
-    )
+    # ROADM ASE is now computed at path level (see calculate_roadm_ase)
+    p_ase_roadm = jnp.zeros_like(p_ase_inline)
 
     # NLI
     p_nli, eta_nli, eta_spm, eta_xpm = gn_model(
@@ -794,14 +838,8 @@ def get_snr_fused(
         2 * N_sp_inline * gain_m1 * h * freq_abs * ch_bandwidth_i
     )
 
-    # === ASE ROADM (fixed gain) ===
-    roadm_gain = 10 ** (roadm_loss / 10)
-    roadm_nf = amplifier_noise_figure + 1
-    roadm_gain_m1 = roadm_gain - 1
-    N_sp_roadm = (10 ** (roadm_nf / 10) * roadm_gain) / (2.0 * roadm_gain_m1)
-    p_ase_roadm = num_roadms * jnp.squeeze(
-        2 * N_sp_roadm * roadm_gain_m1 * h * freq_abs * ch_bandwidth_i
-    )
+    # ROADM ASE is now computed at path level (see calculate_roadm_ase)
+    p_ase_roadm = jnp.zeros_like(p_ase_inline)
 
     # === Final SNR ===
     transceiver_noise = ch_pow / from_db(transceiver_snr)

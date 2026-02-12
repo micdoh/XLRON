@@ -3167,13 +3167,45 @@ def update_active_lightpaths_array_departure(state: RSAGNModelEnvState, time: fl
     )
 
 
-def get_snr_for_path(path, link_snr_array, params):
+def get_snr_for_path(path, link_snr_array, params, state=None):
     nsr_slots = jnp.where(
         path.reshape((params.num_links, 1)) == 1,
         1 / link_snr_array,
         jnp.zeros(params.link_resources, dtype=dtype_config.LARGE_FLOAT_DTYPE),
     )
     nsr_path_slots = jnp.sum(nsr_slots, axis=0, promote_integers=False)
+
+    # Add path-level ROADM ASE noise (GN model environments only)
+    if state is not None and hasattr(params, "roadm_express_loss"):
+        num_links_on_path = jnp.sum(path)
+        num_express = jnp.maximum(num_links_on_path - 1, 0)
+        # Channel power/bandwidth from first link on path
+        # (all links on a path carry the same channels)
+        first_link_idx = jnp.argmax(path)
+        ch_power = state.channel_power_array[first_link_idx]  # (link_resources,)
+        ch_bw_hz = state.channel_centre_bw_array[first_link_idx] * 1e9  # GHz -> Hz
+
+        # Compute per-slot centre frequencies for ROADM ASE
+        se = jnp.ones(params.link_resources, dtype=dtype_config.LARGE_FLOAT_DTYPE)
+        req_slots = get_required_slots_on_link(
+            state.channel_centre_bw_array[first_link_idx], se, params
+        )
+        ch_centres_hz = (
+            get_centre_freq_on_link(jnp.arange(params.link_resources), req_slots, params) * 1e9
+        )  # GHz -> Hz
+
+        roadm_ase = isrs_gn_model.calculate_roadm_ase(
+            roadm_express_loss=params.roadm_express_loss,
+            roadm_add_drop_loss=params.roadm_add_drop_loss,
+            roadm_noise_figure=params.roadm_noise_figure,
+            num_roadm_express=num_express,
+            ref_lambda=params.ref_lambda,
+            ch_centre_i=ch_centres_hz,
+            ch_bandwidth_i=ch_bw_hz,
+        )
+        nsr_roadm = jnp.where(ch_power > 0, roadm_ase / ch_power, 0.0)
+        nsr_path_slots = nsr_path_slots + nsr_roadm
+
     return jnp.nan_to_num(
         isrs_gn_model.to_db(1 / nsr_path_slots), nan=-50, neginf=-50, posinf=50
     )  # Link SNR array must be in linear units so that 1/inf = 0
@@ -3191,8 +3223,8 @@ def get_lightpath_snr(state: RSAGNModelEnvParams, params: RSAGNModelEnvParams) -
         chex.array: SNR for each link on path
     """
     # Get the SNR for the channel that the path occupies
-    path_snr_array = jax.vmap(get_snr_for_path, in_axes=(0, None, None))(
-        params.path_link_array.val, state.link_snr_array, params
+    path_snr_array = jax.vmap(get_snr_for_path, in_axes=(0, None, None, None))(
+        params.path_link_array.val, state.link_snr_array, params, state
     )
     # Where value in path_index_array matches index of path_snr_array, substitute in SNR value
     slot_indices = jnp.arange(params.link_resources)
@@ -3498,7 +3530,8 @@ def get_best_modulation_format_simple(
     """
     link_snr_array = get_snr_link_array(state, params)
     snr_value = (
-        get_snr_for_path(path, link_snr_array, params)[initial_slot_index] - params.snr_margin
+        get_snr_for_path(path, link_snr_array, params, state)[initial_slot_index]
+        - params.snr_margin
     )  # Margin
     mod_format_count = params.modulations_array.val.shape[0]
     acceptable_mod_format_indices = jnp.arange(mod_format_count)
@@ -3678,93 +3711,8 @@ def implement_action_rmsa_gn_model(
     # jax.debug.print("mod_format_index {}", mod_format_index, ordered=True)
     # jax.debug.print("initial_slot_index {}", initial_slot_index, ordered=True)
     # jax.debug.print("state.mod_format_mask {}", state.mod_format_mask, ordered=True)
-    # jax.debug.print("path_snr {}", get_snr_for_path(path, state.link_snr_array, params), ordered=True)
+    # jax.debug.print("path_snr {}", get_snr_for_path(path, state.link_snr_array, params, state), ordered=True)
     # jax.debug.print("required_snr {}", params.modulations_array.val[mod_format_index][2] + params.snr_margin, ordered=True)
-    return state
-
-
-@partial(jax.jit, static_argnums=(1,))
-def undo_action_rsa_gn_model(state: RSAGNModelEnvState, params: RSAGNModelEnvParams) -> EnvState:
-    """Undo action for RSA GN model
-    Args:
-        state (EnvState): Environment state
-        action (chex.Array): Action array
-        params (EnvParams): Environment parameters
-    Returns:
-        EnvState: Updated environment state
-    """
-    state = undo_action_rsa(state, params)  # Undo link_slot_array and link_slot_departure_array
-    state = state.replace(
-        link_slot_array=set_band_gaps(state.link_slot_array, params, -1),  # Set C+L band gap
-        channel_centre_bw_array=state.channel_centre_bw_array_prev,
-        path_index_array=state.path_index_array_prev,
-        channel_power_array=state.channel_power_array_prev,
-    )
-    if params.monitor_active_lightpaths:
-        # If departure array is negative, then undo the action
-        mask = jnp.where(state.active_lightpaths_array_departure < zero, one, zero)
-        state = state.replace(
-            active_lightpaths_array=jnp.where(mask == one, -one, state.active_lightpaths_array),
-            active_lightpaths_array_departure=jnp.where(
-                mask == one,
-                state.active_lightpaths_array_departure + state.current_time + state.holding_time,
-                state.active_lightpaths_array_departure,
-            ),
-        )
-    return state
-
-
-@partial(jax.jit, static_argnums=(1,))
-def undo_action_rmsa_gn_model(state: RSAGNModelEnvState, params: RSAGNModelEnvParams) -> EnvState:
-    """Undo action for RMSA GN model
-    Args:
-        state (EnvState): Environment state
-        action (chex.Array): Action array
-        params (EnvParams): Environment parameters
-    Returns:
-        EnvState: Updated environment state
-    """
-    state = undo_action_rsa(state, params)  # Undo link_slot_array and link_slot_departure_array
-    state = state.replace(
-        link_slot_array=set_band_gaps(state.link_slot_array, params, -1),  # Set C+L band gap
-        channel_centre_bw_array=state.channel_centre_bw_array_prev,
-        path_index_array=state.path_index_array_prev,
-        channel_power_array=state.channel_power_array_prev,
-        modulation_format_index_array=state.modulation_format_index_array_prev,
-    )
-    return state
-
-
-def finalise_action_rsa_gn_model(
-    state: RSAGNModelEnvState, params: Optional[EnvParams]
-) -> EnvState:
-    state = finalise_action_rsa(state, params)
-    state = state.replace(
-        link_slot_array=set_band_gaps(state.link_slot_array, params, -1),  # Set C+L band gap
-        channel_centre_bw_array_prev=state.channel_centre_bw_array,
-        path_index_array_prev=state.path_index_array,
-        channel_power_array_prev=state.channel_power_array,
-    )
-    if params.monitor_active_lightpaths:
-        state = state.replace(
-            active_lightpaths_array_departure=make_positive(
-                state.active_lightpaths_array_departure
-            ),
-        )
-    return state
-
-
-def finalise_action_rmsa_gn_model(
-    state: RSAGNModelEnvState, params: Optional[EnvParams]
-) -> EnvState:
-    state = finalise_action_rsa(state, params)
-    state = state.replace(
-        link_slot_array=set_band_gaps(state.link_slot_array, params, -1),  # Set C+L band gap
-        channel_centre_bw_array_prev=state.channel_centre_bw_array,
-        path_index_array_prev=state.path_index_array,
-        channel_power_array_prev=state.channel_power_array,
-        modulation_format_index_array_prev=state.modulation_format_index_array,
-    )
     return state
 
 
@@ -3779,7 +3727,7 @@ def calculate_throughput_from_active_lightpaths(
         # Get path index from active lightpaths array
         path_index, initial_slot_index, num_slots = state.active_lightpaths_array[i]
         path_packed = params.path_link_array.val[path_index]
-        path_snr = get_snr_for_path(path_packed, state.link_snr_array, params)
+        path_snr = get_snr_for_path(path_packed, state.link_snr_array, params, state)
         path = (
             jnp.unpackbits(path_packed)[: params.num_links]
             if params.pack_path_bits
@@ -3827,7 +3775,7 @@ def get_minimum_snr_of_channels_on_path(
 ) -> chex.Array:
     """Get the minimum value of the SNR on newly assigned channels.
     N.B. this requires the link_snr_array to have already been calculated and present in state."""
-    snr_value_all_channels = get_snr_for_path(path, state.link_snr_array, params)
+    snr_value_all_channels = get_snr_for_path(path, state.link_snr_array, params, state)
     min_snr_value_sub_channels = jnp.min(
         jnp.concatenate(
             [
@@ -4025,7 +3973,7 @@ def mask_slots_rmsa_gn_model(
 
         # Check 1: New lightpath SNR meets modulation format threshold
         # (inlined get_minimum_snr_of_channels_on_path to avoid static_argnums issue in vmap)
-        snr_all_channels = get_snr_for_path(path_vec, temp_state.link_snr_array, params)
+        snr_all_channels = get_snr_for_path(path_vec, temp_state.link_snr_array, params, temp_state)
         new_snr = jnp.min(
             jnp.concatenate(
                 [

@@ -220,7 +220,7 @@ class RSAGNModelTest(parameterized.TestCase):
             jax.debug.print("link snr array {}", env_state.link_snr_array, ordered=True)
             jax.debug.print(
                 "path_snr {}",
-                get_snr_for_path(path, env_state.link_snr_array, self.params),
+                get_snr_for_path(path, env_state.link_snr_array, self.params, env_state),
                 ordered=True,
             )
             jax.debug.print("link_slot_array {}", env_state.link_slot_array, ordered=True)
