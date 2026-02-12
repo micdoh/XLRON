@@ -3549,8 +3549,16 @@ def check_action_rmsa_gn_model(state: EnvState, action_info: ActionInfo, params:
     # TODO - log failure reasons in info
     snr_sufficient_check = check_snr_sufficient(state, params)
     rsa_check = check_action_rsa(state, action_info, params)
-    # jax.debug.print("spectrum_reuse_check {}", spectrum_reuse_check, ordered=True)
-    # jax.debug.print("snr_sufficient_check {}", snr_sufficient_check, ordered=True)
+    jax.debug.print(
+        "DEBUG check_action_rmsa_gn: rsa_check={} snr_check={} action={} slot={} num_slots={} path_idx={}",
+        rsa_check,
+        snr_sufficient_check,
+        action_info.action,
+        action_info.initial_slot_index,
+        action_info.num_slots,
+        action_info.path_index,
+        ordered=True,
+    )
     return jnp.any(
         jnp.stack(
             (
@@ -3648,6 +3656,14 @@ def implement_action_rmsa_gn_model(
     mod_format_index = jax.lax.dynamic_slice(state.mod_format_mask, (path_action,), (1,)).astype(
         dtype_config.LARGE_INT_DTYPE
     )[0]
+    jax.debug.print(
+        "DEBUG implement_rmsa_gn: path_action={} mod_format_index={} launch_power={} se={}",
+        path_action,
+        mod_format_index,
+        launch_power,
+        action_info.se,
+        ordered=True,
+    )
     # Update link_slot_array and link_slot_departure_array, then other arrays
     state = implement_path_action(state, action_info, params)
     state = state.replace(
