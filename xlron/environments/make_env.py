@@ -223,6 +223,7 @@ def make(
     snr_margin = config.get("snr_margin", 1)
     path_snr = True if env_type in ["rsa_gn_model", "rmsa_gn_model"] else False
     max_snr = config.get("max_snr", 50.0)
+    min_snr = config.get("min_snr", 7.0)
     max_power = config.get("max_power", 9)
     min_power = config.get("min_power", -5)
     step_power = config.get("step_power", 1)
@@ -587,9 +588,9 @@ def make(
             min_power=min_power,
             step_power=step_power,
             max_snr=max_snr,
+            min_snr=min_snr,
             mod_format_correction=mod_format_correction,
             monitor_active_lightpaths=config.get("monitor_active_lightpaths", False),
-            min_snr=config.get("min_snr", 7.0),
             fec_threshold=config.get("fec_threshold", 0.28),
             transceiver_snr=transceiver_snr,
             amplifier_noise_figure=amplifier_noise_figure,

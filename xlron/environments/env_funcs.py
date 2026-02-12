@@ -3540,9 +3540,9 @@ def set_band_gaps(link_slot_array: chex.Array, params: RSAGNModelEnvParams, val:
     return link_slot_array
 
 
-@partial(jax.jit, static_argnums=(1,))
+@partial(jax.jit, static_argnums=(2,))
 def check_action_rmsa_gn_model(
-    state: EnvState, action: Optional[chex.Array], params: EnvParams
+    state: EnvState, action_info: ActionInfo, params: EnvParams
 ) -> bool:
     """Check if action is valid for RSA GN model
     Args:
@@ -3555,13 +3555,13 @@ def check_action_rmsa_gn_model(
     # Check if action is valid
     # TODO - log failure reasons in info
     snr_sufficient_check = check_snr_sufficient(state, params)
-    spectrum_reuse_check = check_no_spectrum_reuse(state, action, params)
+    rsa_check = check_action_rsa(state, action_info, params)
     # jax.debug.print("spectrum_reuse_check {}", spectrum_reuse_check, ordered=True)
     # jax.debug.print("snr_sufficient_check {}", snr_sufficient_check, ordered=True)
     return jnp.any(
         jnp.stack(
             (
-                spectrum_reuse_check,
+                rsa_check,
                 snr_sufficient_check,
             )
         )

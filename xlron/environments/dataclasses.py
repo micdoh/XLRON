@@ -306,6 +306,8 @@ class GNModelEnvParams(RSAEnvParams):
     gap_starts: HashableArrayWrapper = struct.field(pytree_node=False)
     gap_widths: HashableArrayWrapper = struct.field(pytree_node=False)
     uniform_spans: bool = struct.field(pytree_node=False)
+    min_snr: chex.Scalar = struct.field(pytree_node=False)
+    fec_threshold: chex.Scalar = struct.field(pytree_node=False)
 
 
 @struct.dataclass
@@ -333,9 +335,7 @@ class GNModelEnvState(RSAEnvState):
 @struct.dataclass
 class RSAGNModelEnvParams(GNModelEnvParams):
     """Dataclass to hold environment params for RSA with GN model."""
-
-    min_snr: chex.Scalar = struct.field(pytree_node=False)
-    fec_threshold: chex.Scalar = struct.field(pytree_node=False)
+    pass
 
 
 @struct.dataclass

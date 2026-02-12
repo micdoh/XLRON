@@ -108,7 +108,6 @@ class RSAGNModelEnv(RSAEnv):
         )
         obs, state = super().reset(key, params, state)
         state = state.replace(throughput=throughput)
-        jax.debug.print("resetting env, throughput: {}", throughput, ordered=True)
         return obs, state
 
     @partial(

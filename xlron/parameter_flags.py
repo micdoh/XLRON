@@ -524,8 +524,13 @@ flags.DEFINE_float(
 )
 flags.DEFINE_float(
     "max_snr",
-    30,
+    30.0,
     "Maximum SNR that a link can take (just used for normalization purposes)",
+)
+flags.DEFINE_float(
+    "min_snr",
+    7.0,
+    "Minimum SNR for any data transmission",
 )
 flags.DEFINE_float("max_power", 0.5, "Maximum launch power [dBm]")
 flags.DEFINE_float("min_power", -5, "Minimum launch power [dBm]")
