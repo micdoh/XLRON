@@ -3200,27 +3200,22 @@ def get_lightpath_snr(state: RSAGNModelEnvParams, params: RSAGNModelEnvParams) -
 
 
 def check_snr_sufficient(state: RSAGNModelEnvState, params: RSAGNModelEnvParams) -> chex.Array:
-    """Check if SNR is sufficient for all connections
+    """Check if SNR is sufficient for all active connections.
     Args:
         state (EnvState): Environment state
         params (EnvParams): Environment parameters
     Returns:
-        jnp.array: 1 if SNR is sufficient for connection else 0
+        jnp.array: 1 if any active connection has insufficient SNR, else 0
     """
-    # TODO - this check needs to be faster!
     required_snr_array = get_required_snr_se_kurtosis_array(
         state.modulation_format_index_array, 2, params
     )
-    # Transform lightpath index array by getting lightpath value, getting path-link array, and summing inverse link SNRs
     lightpath_snr_array = get_lightpath_snr(state, params)
-    check_snr_sufficient = jnp.where(lightpath_snr_array >= required_snr_array, 0, 1)
-    # jax.debug.print("check_snr_sufficient {}", check_snr_sufficient, ordered=True)
-    # jax.debug.print("required_snr_array {}", required_snr_array, ordered=True)
-    # jax.debug.print("lightpath_snr_array {}", lightpath_snr_array, ordered=True)
-    # jax.debug.print("state.modulation_format_index_array {}", state.modulation_format_index_array, ordered=True)
-    # jax.debug.print("state.channel_centre_bw_array {}", state.channel_centre_bw_array, ordered=True)
-    # jax.debug.print("state.channel_power_array {}", state.channel_power_array, ordered=True)
-    return jnp.any(check_snr_sufficient)
+    # Only check slots that are actually occupied (have nonzero channel bandwidth)
+    is_occupied = state.channel_centre_bw_array != 0
+    snr_insufficient = jnp.where(lightpath_snr_array >= required_snr_array, 0, 1)
+    snr_insufficient = jnp.where(is_occupied, snr_insufficient, 0)
+    return jnp.any(snr_insufficient)
 
 
 @partial(jax.jit, static_argnums=(1,))

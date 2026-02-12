@@ -5,7 +5,7 @@ import chex
 import jax
 import jax.numpy as jnp
 
-from xlron.environments.dataclasses import EnvState, RSAEnvParams, RSAEnvState
+from xlron.environments.dataclasses import EnvState, RMSAGNModelEnvParams, RSAEnvParams, RSAEnvState, RWALightpathReuseEnvParams
 from xlron.environments.env_funcs import (
     find_block_sizes,
     get_affected_slots_mask,
@@ -13,6 +13,7 @@ from xlron.environments.env_funcs import (
     get_paths_se,
     init_path_capacity_array,
     mask_slots,
+    mask_slots_rmsa_gn_model,
     mask_slots_rwalr,
     read_rsa_request,
     required_slots,
@@ -430,7 +431,7 @@ def get_link_weights(state: EnvState, params: RSAEnvParams):
     Returns:
         chex.Array: Link weights
     """
-    if params.__class__.__name__ != "RWALightpathReuseEnvParams":
+    if isinstance(params, RWALightpathReuseEnvParams):
         link_occupancy = jnp.count_nonzero(state.link_slot_array, axis=1)
     else:
         initial_path_capacity = init_path_capacity_array(
@@ -455,10 +456,15 @@ def get_link_weights(state: EnvState, params: RSAEnvParams):
 
 
 def get_action_mask(state: EnvState, params: RSAEnvParams) -> chex.Array:
-    if params.__class__.__name__ == "RWALightpathReuseEnvParams":
+    if isinstance(params, RWALightpathReuseEnvParams):
         full_mask = jit_profiler.call(
             params.profile, mask_slots_rwalr, state, params, state.request_array
         )
+    elif isinstance(params, RMSAGNModelEnvParams):
+        updated_state = jit_profiler.call(
+            params.profile, mask_slots_rmsa_gn_model, state, params, state.request_array
+        )
+        full_mask = jnp.where(updated_state.mod_format_mask >= 0, 1.0, 0.0)
     else:
         _, full_mask = jit_profiler.call(params.profile, mask_slots, state, params)
     mask = jnp.reshape(full_mask, (params.k_paths, -1))
