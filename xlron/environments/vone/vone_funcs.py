@@ -13,13 +13,13 @@ from xlron.environments.dataclasses import (
 )
 from xlron.environments.env_funcs import (
     generate_arrival_holding_times,
-    remove_expired_services_rsa,
-    process_path_action,
     get_affected_slots_mask,
     get_path_and_se,
-    required_slots,
     implement_path_action,
     make_positive,
+    process_path_action,
+    remove_expired_services_rsa,
+    required_slots,
 )
 
 one = jnp.array(1.0, dtype=dtype_config.SMALL_INT_DTYPE)
@@ -137,7 +137,7 @@ def implement_node_action(
     )
 
     return state
-    
+
 
 def check_all_nodes_assigned(node_departure_array: chex.Array, total_requested_nodes: int) -> bool:
     """Count negative values on each node (row) in node departure array, sum them, must equal total requested_nodes.
@@ -178,7 +178,7 @@ def check_node_capacities(capacity_array: chex.Array) -> bool:
         bool: True if check failed, False if check passed
     """
     return jnp.any(capacity_array < 0)
-    
+
 
 def update_node_departure(node_row, inf_index, value):
     row_indices = jnp.arange(node_row.shape[0])
@@ -192,8 +192,8 @@ def update_selected_node_departure(node_row, node_selected, first_inf_index, val
         lambda x: node_row,
         (node_row, first_inf_index, value),
     )
-    
-    
+
+
 @partial(jax.jit, static_argnums=(0,))
 def init_action_history(params: EnvParams):
     """Initialize action history"""
@@ -259,8 +259,8 @@ def vmap_update_node_resources(node_resource_array, selected_nodes):
 def update_node_array(node_indices, array, node, request):
     """Used to udated selected_nodes array with new requested resources on each node, for use in"""
     return jnp.where(node_indices == node, array - request, array)
-    
-    
+
+
 @partial(jax.jit, static_argnums=(0,))
 def init_vone_request_array(params: EnvParams):
     """Initialize request array either with uniform resources"""
@@ -281,21 +281,21 @@ def init_node_capacity_array(params: EnvParams):
     Returns:
         jnp.array: Node capacity array (N x 1) where N is number of nodes"""
     return jnp.array([params.node_resources] * params.num_nodes, dtype=dtype_config.LARGE_INT_DTYPE)
-    
-    
+
+
 @partial(jax.jit, static_argnums=(0,))
 def init_node_departure_array(params: EnvParams):
     return jnp.full((params.num_nodes, params.node_resources), jnp.inf)
-    
-    
+
+
 @partial(jax.jit, static_argnums=(0,))
 def init_node_resource_array(params: EnvParams):
     """Array to track node resources occupied by virtual nodes"""
     return jnp.zeros(
         (params.num_nodes, params.node_resources), dtype=dtype_config.LARGE_FLOAT_DTYPE
     )
-    
-    
+
+
 @jax.jit
 def check_unique_nodes(node_departure_array: chex.Array) -> bool:
     """Count negative values on each node (row) in node departure array, must not exceed 1.
@@ -314,8 +314,8 @@ def check_unique_nodes(node_departure_array: chex.Array) -> bool:
         )
         > one
     )
-    
-    
+
+
 @partial(jax.jit, static_argnums=(2,))
 def generate_vone_request(key: chex.PRNGKey, state: EnvState, params: EnvParams):
     """Generate a new request for the VONE environment.
@@ -358,7 +358,7 @@ def generate_vone_request(key: chex.PRNGKey, state: EnvState, params: EnvParams)
     state = remove_expired_node_requests(state, params) if not params.incremental_loading else state
     state = remove_expired_services_rsa(state, params) if not params.incremental_loading else state
     return state
-    
+
 
 def undo_link_action_vone(state: EnvState) -> EnvState:
     """Undo tentative link slot assignments for VONE.
@@ -378,7 +378,7 @@ def undo_link_action_vone(state: EnvState) -> EnvState:
         link_slot_departure_array=jnp.where(mask == one, zero, state.link_slot_departure_array),
     )
     return state
-    
+
 
 @partial(jax.jit, static_argnums=(4,))
 def implement_vone_action(
@@ -444,9 +444,7 @@ def implement_vone_action(
         (state, nodes[0], nodes[1], node_request_s, node_request_d, n_nodes),
     )
 
-    affected_slots_mask = get_affected_slots_mask(
-        initial_slot_index, num_slots, path, params
-    )
+    affected_slots_mask = get_affected_slots_mask(initial_slot_index, num_slots, path, params)
     action_info = ActionInfo(
         action=action,
         path_index=path_index,
@@ -457,10 +455,11 @@ def implement_vone_action(
         requested_datarate=requested_datarate,
         nodes_sd=nodes,
         affected_slots_mask=-affected_slots_mask,
+        power_action=jnp.float32(0.0),
     )
     state = implement_path_action(state, action_info, params)
 
-    return state  
+    return state
 
 
 def path_action_only(
@@ -490,8 +489,8 @@ def path_action_only(
         jnp.sum(jnp.where(prev_assigned_topology == new_node_to_be_assigned, 1, 0)) > 0
     )
     return nodes_already_assigned_check
-    
-    
+
+
 def format_vone_slot_request(state: EnvState, action: chex.Array) -> chex.Array:
     """Format slot request for VONE action into format (source-node, slot, destination-node).
 
@@ -510,7 +509,7 @@ def format_vone_slot_request(state: EnvState, action: chex.Array) -> chex.Array:
     node_d = jax.lax.dynamic_slice_in_dim(action, 2, 1)
     formatted_request = jnp.concatenate((node_s, requested_slots, node_d))
     return formatted_request
-    
+
 
 @partial(jax.jit, donate_argnums=(0,))
 def finalise_vone_action(state):
@@ -529,8 +528,8 @@ def finalise_vone_action(state):
         accepted_bitrate=state.accepted_bitrate,  # TODO - get sum of bitrates for requested links
     )
     return state
-    
-    
+
+
 def check_vone_action(state, action, remaining_actions, total_requested_nodes, params):
     """Check if action is valid.
     Combines checks for:
@@ -572,7 +571,7 @@ def check_vone_action(state, action, remaining_actions, total_requested_nodes, p
         )
     )
     return jnp.any(checks)
-    
+
 
 def init_virtual_topology_patterns(pattern_names: str) -> Array:
     """Initialise virtual topology patterns.
@@ -609,8 +608,8 @@ def init_virtual_topology_patterns(pattern_names: str) -> Array:
     for pattern in patterns:
         pattern.extend([0] * (max_length - len(pattern)))
     return jnp.array(patterns, dtype=dtype_config.SMALL_INT_DTYPE)
-    
-    
+
+
 def init_action_counter():
     """Initialize action counter.
     First index is num unique nodes, second index is total steps, final is remaining steps until completion of request.
@@ -623,14 +622,14 @@ def decrement_action_counter(state):
     """Decrement action counter in-place. Used in VONE environments."""
     state.action_counter.at[-1].add(-1)
     return state
-    
-    
+
+
 @partial(jax.jit, static_argnums=(0,))
 def init_node_mask(params: EnvParams):
     """Initialize node mask"""
     return jnp.ones(params.num_nodes, dtype=dtype_config.LARGE_FLOAT_DTYPE)
-    
-    
+
+
 @partial(jax.jit, static_argnums=(1,))
 def mask_nodes(state: EnvState, num_nodes: chex.Scalar) -> EnvState:
     """Returns mask of valid actions for node selection. 1 for valid action, 0 for invalid action.
@@ -747,8 +746,8 @@ def mask_nodes(state: EnvState, num_nodes: chex.Scalar) -> EnvState:
         )
     )
     return state
-    
-    
+
+
 @partial(jax.jit, donate_argnums=(0,))
 def undo_node_action(state: EnvState) -> EnvState:
     """If the request is unsuccessful i.e. checks fail, then remove the partial (unfinalised) resource allocation.
@@ -777,8 +776,8 @@ def undo_node_action(state: EnvState) -> EnvState:
         node_departure_array=jnp.where(mask == 1, jnp.inf, state.node_departure_array),
     )
     return state
-    
-    
+
+
 @partial(jax.jit, static_argnums=(1,))
 def remove_expired_node_requests(state: EnvState, params: EnvParams) -> EnvState:
     """Check for values in node_departure_array that are less than the current time but greater than zero
@@ -805,8 +804,8 @@ def remove_expired_node_requests(state: EnvState, params: EnvParams) -> EnvState
         node_departure_array=jnp.where(mask == 1, jnp.inf, state.node_departure_array),
     )
     return state
-    
-    
+
+
 def update_action_history(
     action_history: chex.Array, action_counter: chex.Array, action: chex.Array
 ) -> chex.Array:

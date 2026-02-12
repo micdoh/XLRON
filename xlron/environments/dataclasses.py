@@ -489,3 +489,4 @@ class ActionInfo:
     path: chex.Array
     se: chex.Array
     affected_slots_mask: Array
+    power_action: chex.Array

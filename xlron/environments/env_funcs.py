@@ -1279,45 +1279,73 @@ def set_path_links(
     affected_slots_mask: Array,
     value: int,
 ) -> Array:
-    # Single vectorized update
-    return link_slot_array * (1 - affected_slots_mask) + affected_slots_mask * value
+    # Single vectorized update, preserving input dtype
+    mask = affected_slots_mask.astype(link_slot_array.dtype)
+    return link_slot_array * (1 - mask) + mask * jnp.asarray(value, dtype=link_slot_array.dtype)
+
+
+# @partial(jax.jit, static_argnums=(1,))
+# def remove_expired_services_rsa(state: EnvState, params: Optional[EnvParams]) -> EnvState:
+#     """Check for values in link_slot_departure_array that are less than the current time.
+#     If found, set to zero in link_slot_array and link_slot_departure_array.
+
+#     Args:
+#         state: Environment state
+#         params: Environment parameters
+
+#     Returns:
+#         Updated environment state
+#     """
+#     # Set one where link_slot_departure_array is >= zero and <= current time
+#     current_time = state.current_time if not params.relative_arrival_times else state.arrival_time
+#     mask_remove = jnp.where(
+#         state.link_slot_departure_array <= jnp.squeeze(current_time),
+#         one,
+#         zero,
+#     )
+#     updated_link_slot_array = jnp.where(mask_remove == one, zero, state.link_slot_array)
+#     updated_link_slot_departure_array = jnp.where(
+#         mask_remove == one, zero, state.link_slot_departure_array
+#     )
+#     if params.relative_arrival_times:
+#         mask_subtract = jnp.where(updated_link_slot_departure_array > zero, one, zero)
+#         updated_link_slot_departure_array = jnp.where(
+#             mask_subtract == one,
+#             state.link_slot_departure_array - jnp.squeeze(current_time),
+#             updated_link_slot_departure_array,
+#         )
+#     state = state.replace(
+#         link_slot_array=updated_link_slot_array,
+#         link_slot_departure_array=updated_link_slot_departure_array,
+#     )
+#     return state
 
 
 @partial(jax.jit, static_argnums=(1,))
-def remove_expired_services_rsa(state: EnvState, params: Optional[EnvParams]) -> EnvState:
-    """Check for values in link_slot_departure_array that are less than the current time.
-    If found, set to zero in link_slot_array and link_slot_departure_array.
+def remove_expired_services_rsa(state: EnvState, params: EnvParams) -> EnvState:
+    t = state.current_time if not params.relative_arrival_times else state.arrival_time
 
-    Args:
-        state: Environment state
-        params: Environment parameters
+    dep = state.link_slot_departure_array
 
-    Returns:
-        Updated environment state
-    """
-    # Set one where link_slot_departure_array is >= zero and <= current time
-    current_time = state.current_time if not params.relative_arrival_times else state.arrival_time
-    mask_remove = jnp.where(
-        state.link_slot_departure_array <= jnp.squeeze(current_time),
-        one,
-        zero,
-    )
-    updated_link_slot_array = jnp.where(mask_remove == one, zero, state.link_slot_array)
-    updated_link_slot_departure_array = jnp.where(
-        mask_remove == one, zero, state.link_slot_departure_array
-    )
+    keep = differentiable_compare(
+        dep, t, ">", params.differentiable, params.temperature
+    )  # 1 where dep > t, else 0
+    keep_f = keep.astype(dep.dtype)  # 0/1 in dep dtype
+
+    # Clear expired slots
+    new_slots = state.link_slot_array * keep_f
+
     if params.relative_arrival_times:
-        mask_subtract = jnp.where(updated_link_slot_departure_array > zero, one, zero)
-        updated_link_slot_departure_array = jnp.where(
-            mask_subtract == one,
-            state.link_slot_departure_array - jnp.squeeze(current_time),
-            updated_link_slot_departure_array,
-        )
-    state = state.replace(
-        link_slot_array=updated_link_slot_array,
-        link_slot_departure_array=updated_link_slot_departure_array,
+        # Keep only those that are still active and shift them by -t
+        new_dep = (dep - t) * keep_f
+    else:
+        # Keep only those that are still active
+        new_dep = dep * keep_f
+
+    return state.replace(
+        link_slot_array=new_slots,
+        link_slot_departure_array=new_dep,
     )
-    return state
 
 
 @partial(jax.jit, static_argnums=(1,))
@@ -1333,25 +1361,32 @@ def remove_expired_services_rwalr(state: EnvState, params: Optional[EnvParams]) 
     """
     # Set one where link_slot_departure_array is >= zero and <= current time
     current_time = state.current_time if not params.relative_arrival_times else state.arrival_time
-    mask_remove = jnp.where(
-        (zero <= state.link_slot_departure_array)
-        & (state.link_slot_departure_array <= jnp.squeeze(current_time)),
-        one,
+    mask_remove = differentiable_compare(
+        state.link_slot_departure_array,
+        current_time,
+        "<=",
+        params.differentiable,
+        params.temperature,
+    ) * differentiable_compare(
+        state.link_slot_departure_array,
         zero,
+        ">=",
+        params.differentiable,
+        params.temperature,
     )
-    updated_link_slot_departure_array = jnp.where(
-        mask_remove == one, zero, state.link_slot_departure_array
-    )
+    updated_link_slot_departure_array = state.link_slot_departure_array * (
+        1 - mask_remove
+    )  # Set to zero where mask is one
     if params.relative_arrival_times:
-        mask_subtract = jnp.where(updated_link_slot_departure_array <= zero, zero, one)
-        updated_link_slot_departure_array = jnp.where(
-            mask_subtract == one,
-            state.link_slot_departure_array - jnp.squeeze(current_time),
-            updated_link_slot_departure_array,
+        mask_subtract = differentiable_compare(
+            updated_link_slot_departure_array, zero, ">", params.differentiable, params.temperature
+        )
+        updated_link_slot_departure_array = (
+            updated_link_slot_departure_array - jnp.squeeze(current_time) * mask_subtract
         )
     state = state.replace(
-        link_slot_array=jnp.where(mask_remove == one, zero, state.link_slot_array),
-        path_index_array=jnp.where(mask_remove == one, -one, state.path_index_array),
+        link_slot_array=state.link_slot_array * (1 - mask_remove),
+        path_index_array=state.path_index_array * (1 - mask_remove) + (-one) * mask_remove,
         link_slot_departure_array=updated_link_slot_departure_array,
     )
     return state
@@ -1359,118 +1394,336 @@ def remove_expired_services_rwalr(state: EnvState, params: Optional[EnvParams]) 
 
 @partial(jax.jit, static_argnums=(1,))
 def remove_expired_services_rsa_gn_model(state: EnvState, params: Optional[EnvParams]) -> EnvState:
-    """
+    t = state.current_time if not params.relative_arrival_times else state.arrival_time
+    dep = state.link_slot_departure_array
 
-    Args:
-        state: Environment state
-        params: Environment parameters
+    # expired: 0 <= dep <= t
+    mask_remove = differentiable_compare(
+        dep, zero, ">=", params.differentiable, params.temperature
+    ) * differentiable_compare(dep, t, "<=", params.differentiable, params.temperature)
 
-    Returns:
-        Updated environment state
-    """
-    # Set one where link_slot_departure_array is >= zero and <= current time
-    current_time = state.current_time if not params.relative_arrival_times else state.arrival_time
-    mask_remove = jnp.where(
-        (zero <= state.link_slot_departure_array)
-        & (state.link_slot_departure_array <= jnp.squeeze(current_time)),
-        one,
-        zero,
-    )
-    updated_link_slot_departure_array = jnp.where(
-        mask_remove == one, zero, state.link_slot_departure_array
-    )
+    keep = 1 - mask_remove
+    keep_f = keep.astype(dep.dtype)
+
+    # Update departures
     if params.relative_arrival_times:
-        mask_subtract = jnp.where(updated_link_slot_departure_array <= zero, zero, one)
-        updated_link_slot_departure_array = jnp.where(
-            mask_subtract == one,
-            state.link_slot_departure_array - jnp.squeeze(current_time),
-            updated_link_slot_departure_array,
-        )
+        new_dep = (dep - t) * keep_f
+    else:
+        new_dep = dep * keep_f
+
+    keep_i = keep.astype(state.path_index_array.dtype)
+    mask_remove_i = mask_remove.astype(state.path_index_array.dtype)
     state = state.replace(
-        link_slot_array=jnp.where(mask_remove == one, zero, state.link_slot_array),
-        link_slot_departure_array=updated_link_slot_departure_array,
-        link_snr_array=jnp.where(mask_remove == one, zero, state.link_snr_array),
-        path_index_array=jnp.where(mask_remove == one, -one, state.path_index_array),
-        channel_centre_bw_array=jnp.where(mask_remove == one, zero, state.channel_centre_bw_array),
-        channel_power_array=jnp.where(mask_remove == one, zero, state.channel_power_array),
-        path_index_array_prev=jnp.where(mask_remove == one, -one, state.path_index_array_prev),
-        channel_centre_bw_array_prev=jnp.where(
-            mask_remove == one, zero, state.channel_centre_bw_array_prev
-        ),
-        channel_power_array_prev=jnp.where(
-            mask_remove == one, zero, state.channel_power_array_prev
-        ),
+        link_slot_array=state.link_slot_array * keep_f,
+        link_slot_departure_array=new_dep,
+        link_snr_array=state.link_snr_array * keep_f,
+        path_index_array=state.path_index_array * keep_i
+        + jnp.array(-1, dtype=state.path_index_array.dtype) * mask_remove_i,
+        channel_centre_bw_array=state.channel_centre_bw_array * keep_f,
+        channel_power_array=state.channel_power_array * keep_f,
+        path_index_array_prev=state.path_index_array_prev * keep_i
+        + jnp.array(-1, dtype=state.path_index_array_prev.dtype) * mask_remove_i,
+        channel_centre_bw_array_prev=state.channel_centre_bw_array_prev * keep_f,
+        channel_power_array_prev=state.channel_power_array_prev * keep_f,
     )
+
     if params.monitor_active_lightpaths:
-        # The active_lightpaths_array is set to -1 when the lightpath is not active
-        # The active_lightpaths_array_departure is set to 0 when the lightpath is not active
-        # (active_lightpaths_array is used to calculate the total throughput)
-        mask_remove = jnp.where(
-            (zero <= state.active_lightpaths_array_departure)
-            & (state.active_lightpaths_array_departure <= jnp.squeeze(current_time)),
-            one,
-            zero,
-        )
+        dep_lp = state.active_lightpaths_array_departure
+
+        mask_remove_lp = differentiable_compare(
+            dep_lp, zero, ">=", params.differentiable, params.temperature
+        ) * differentiable_compare(dep_lp, t, "<=", params.differentiable, params.temperature)
+
+        keep_lp = 1 - mask_remove_lp
+        keep_lp_f = keep_lp.astype(dep_lp.dtype)
+        keep_lp_i = keep_lp.astype(state.active_lightpaths_array.dtype)
+        mask_remove_lp_i = mask_remove_lp.astype(state.active_lightpaths_array.dtype)
+
         state = state.replace(
-            active_lightpaths_array=jnp.where(
-                mask_remove == one, -one, state.active_lightpaths_array
-            ),
-            active_lightpaths_array_departure=jnp.where(
-                mask_remove == one, zero, state.active_lightpaths_array_departure
-            ),
+            active_lightpaths_array=state.active_lightpaths_array * keep_lp_i
+            + jnp.array(-1, dtype=state.active_lightpaths_array.dtype) * mask_remove_lp_i,
+            active_lightpaths_array_departure=dep_lp * keep_lp_f,
         )
+
     return state
 
 
 @partial(jax.jit, static_argnums=(1,))
 def remove_expired_services_rmsa_gn_model(state: EnvState, params: Optional[EnvParams]) -> EnvState:
-    """
+    t = state.current_time if not params.relative_arrival_times else state.arrival_time
 
-    Args:
-        state: Environment state
-        params: Environment parameters
+    dep = state.link_slot_departure_array
 
-    Returns:
-        Updated environment state
-    """
-    # Set one where link_slot_departure_array is >= zero and <= current time
-    current_time = state.current_time if not params.relative_arrival_times else state.arrival_time
-    mask_remove = jnp.where(
-        (zero <= state.link_slot_departure_array)
-        & (state.link_slot_departure_array <= jnp.squeeze(current_time)),
-        one,
-        zero,
-    )
-    updated_link_slot_departure_array = jnp.where(
-        mask_remove == one, zero, state.link_slot_departure_array
-    )
+    # expired: 0 <= dep <= t
+    mask_remove = differentiable_compare(
+        dep, zero, ">=", params.differentiable, params.temperature
+    ) * differentiable_compare(dep, t, "<=", params.differentiable, params.temperature)
+
+    keep = 1 - mask_remove
+    keep_f = keep.astype(dep.dtype)
+
+    # departures: clear expired; optionally shift remaining by -t
     if params.relative_arrival_times:
-        mask_subtract = jnp.where(updated_link_slot_departure_array <= zero, zero, one)
-        updated_link_slot_departure_array = jnp.where(
-            mask_subtract == one,
-            state.link_slot_departure_array - jnp.squeeze(current_time),
-            updated_link_slot_departure_array,
-        )
+        new_dep = (dep - t) * keep_f
+    else:
+        new_dep = dep * keep_f
+
+    keep_i = keep.astype(state.path_index_array.dtype)
+    mask_remove_i = mask_remove.astype(state.path_index_array.dtype)
+    neg_one_i = jnp.array(-1, dtype=state.path_index_array.dtype)
     state = state.replace(
-        link_slot_array=jnp.where(mask_remove == one, zero, state.link_slot_array),
-        link_slot_departure_array=updated_link_slot_departure_array,
-        link_snr_array=jnp.where(mask_remove == one, zero, state.link_snr_array),
-        path_index_array=jnp.where(mask_remove == one, -one, state.path_index_array),
-        channel_centre_bw_array=jnp.where(mask_remove == one, zero, state.channel_centre_bw_array),
-        channel_power_array=jnp.where(mask_remove == one, zero, state.channel_power_array),
-        modulation_format_index_array=jnp.where(
-            mask_remove == one, -one, state.modulation_format_index_array
+        link_slot_array=state.link_slot_array * keep_f,
+        link_slot_departure_array=new_dep,
+        link_snr_array=state.link_snr_array * keep_f,
+        path_index_array=state.path_index_array * keep_i + neg_one_i * mask_remove_i,
+        channel_centre_bw_array=state.channel_centre_bw_array * keep_f,
+        channel_power_array=state.channel_power_array * keep_f,
+        modulation_format_index_array=state.modulation_format_index_array * keep_i
+        + neg_one_i * mask_remove_i,
+        path_index_array_prev=state.path_index_array_prev * keep_i + neg_one_i * mask_remove_i,
+        channel_centre_bw_array_prev=state.channel_centre_bw_array_prev * keep_f,
+        channel_power_array_prev=state.channel_power_array_prev * keep_f,
+        modulation_format_index_array_prev=state.modulation_format_index_array_prev * keep_i
+        + neg_one_i * mask_remove_i,
+    )
+    return state
+
+
+# @partial(jax.jit, static_argnums=(1,))
+# def remove_expired_services_rsa_gn_model(state: EnvState, params: Optional[EnvParams]) -> EnvState:
+#     """
+
+#     Args:
+#         state: Environment state
+#         params: Environment parameters
+
+#     Returns:
+#         Updated environment state
+#     """
+#     # Set one where link_slot_departure_array is >= zero and <= current time
+#     current_time = state.current_time if not params.relative_arrival_times else state.arrival_time
+#     mask_remove = jnp.where(
+#         (zero <= state.link_slot_departure_array)
+#         & (state.link_slot_departure_array <= jnp.squeeze(current_time)),
+#         one,
+#         zero,
+#     )
+#     updated_link_slot_departure_array = jnp.where(
+#         mask_remove == one, zero, state.link_slot_departure_array
+#     )
+#     if params.relative_arrival_times:
+#         mask_subtract = jnp.where(updated_link_slot_departure_array <= zero, zero, one)
+#         updated_link_slot_departure_array = jnp.where(
+#             mask_subtract == one,
+#             state.link_slot_departure_array - jnp.squeeze(current_time),
+#             updated_link_slot_departure_array,
+#         )
+#     state = state.replace(
+#         link_slot_array=jnp.where(mask_remove == one, zero, state.link_slot_array),
+#         link_slot_departure_array=updated_link_slot_departure_array,
+#         link_snr_array=jnp.where(mask_remove == one, zero, state.link_snr_array),
+#         path_index_array=jnp.where(mask_remove == one, -one, state.path_index_array),
+#         channel_centre_bw_array=jnp.where(mask_remove == one, zero, state.channel_centre_bw_array),
+#         channel_power_array=jnp.where(mask_remove == one, zero, state.channel_power_array),
+#         path_index_array_prev=jnp.where(mask_remove == one, -one, state.path_index_array_prev),
+#         channel_centre_bw_array_prev=jnp.where(
+#             mask_remove == one, zero, state.channel_centre_bw_array_prev
+#         ),
+#         channel_power_array_prev=jnp.where(
+#             mask_remove == one, zero, state.channel_power_array_prev
+#         ),
+#     )
+#     if params.monitor_active_lightpaths:
+#         # The active_lightpaths_array is set to -1 when the lightpath is not active
+#         # The active_lightpaths_array_departure is set to 0 when the lightpath is not active
+#         # (active_lightpaths_array is used to calculate the total throughput)
+#         mask_remove = jnp.where(
+#             (zero <= state.active_lightpaths_array_departure)
+#             & (state.active_lightpaths_array_departure <= jnp.squeeze(current_time)),
+#             one,
+#             zero,
+#         )
+#         state = state.replace(
+#             active_lightpaths_array=jnp.where(
+#                 mask_remove == one, -one, state.active_lightpaths_array
+#             ),
+#             active_lightpaths_array_departure=jnp.where(
+#                 mask_remove == one, zero, state.active_lightpaths_array_departure
+#             ),
+#         )
+# return state
+
+
+# @partial(jax.jit, static_argnums=(1,))
+# def remove_expired_services_rmsa_gn_model(state: EnvState, params: Optional[EnvParams]) -> EnvState:
+#     """
+
+#     Args:
+#         state: Environment state
+#         params: Environment parameters
+
+#     Returns:
+#         Updated environment state
+#     """
+#     # Set one where link_slot_departure_array is >= zero and <= current time
+#     current_time = state.current_time if not params.relative_arrival_times else state.arrival_time
+#     mask_remove = jnp.where(
+#         (zero <= state.link_slot_departure_array)
+#         & (state.link_slot_departure_array <= jnp.squeeze(current_time)),
+#         one,
+#         zero,
+#     )
+#     updated_link_slot_departure_array = jnp.where(
+#         mask_remove == one, zero, state.link_slot_departure_array
+#     )
+#     if params.relative_arrival_times:
+#         mask_subtract = jnp.where(updated_link_slot_departure_array <= zero, zero, one)
+#         updated_link_slot_departure_array = jnp.where(
+#             mask_subtract == one,
+#             state.link_slot_departure_array - jnp.squeeze(current_time),
+#             updated_link_slot_departure_array,
+#         )
+#     state = state.replace(
+#         link_slot_array=jnp.where(mask_remove == one, zero, state.link_slot_array),
+#         link_slot_departure_array=updated_link_slot_departure_array,
+#         link_snr_array=jnp.where(mask_remove == one, zero, state.link_snr_array),
+#         path_index_array=jnp.where(mask_remove == one, -one, state.path_index_array),
+#         channel_centre_bw_array=jnp.where(mask_remove == one, zero, state.channel_centre_bw_array),
+#         channel_power_array=jnp.where(mask_remove == one, zero, state.channel_power_array),
+#         modulation_format_index_array=jnp.where(
+#             mask_remove == one, -one, state.modulation_format_index_array
+#         ),
+#         path_index_array_prev=jnp.where(mask_remove == one, -one, state.path_index_array_prev),
+#         channel_centre_bw_array_prev=jnp.where(
+#             mask_remove == one, zero, state.channel_centre_bw_array_prev
+#         ),
+#         channel_power_array_prev=jnp.where(
+#             mask_remove == one, zero, state.channel_power_array_prev
+#         ),
+#         modulation_format_index_array_prev=jnp.where(
+#             mask_remove == one, -one, state.modulation_format_index_array_prev
+#         ),
+#     )
+#     return state
+
+
+def complete_step_rsa_gn_model(
+    state: RSAGNModelEnvState,
+    action_info: ActionInfo,
+    check: chex.Array,
+    params: RSAGNModelEnvParams,
+) -> RSAGNModelEnvState:
+    """Complete step for RSA GN-model environments.
+
+    On failure (check==1), undo partial slot allocation and restore GN-model
+    auxiliary arrays from their *_prev snapshots.
+    """
+    fail = check
+    success = 1 - check
+
+    # Cast once for broadcasting/multiplication
+    fail_f_dep = fail.astype(state.link_slot_departure_array.dtype)
+    fail_f_slots = fail.astype(state.link_slot_array.dtype)
+
+    # --- Undo partial RSA allocation on failure (same pattern as complete_step_rsa) ---
+    state = state.replace(
+        link_slot_array=state.link_slot_array - (fail_f_slots * action_info.affected_slots_mask),
+        link_slot_departure_array=state.link_slot_departure_array
+        - (
+            fail_f_dep * action_info.affected_slots_mask * (state.current_time + state.holding_time)
         ),
-        path_index_array_prev=jnp.where(mask_remove == one, -one, state.path_index_array_prev),
-        channel_centre_bw_array_prev=jnp.where(
-            mask_remove == one, zero, state.channel_centre_bw_array_prev
+    )
+
+    # --- Restore GN-model-specific state on failure (blend current vs *_prev) ---
+    one_m_fail = 1 - fail
+    one_m_fail_f = one_m_fail.astype(state.channel_power_array.dtype)
+
+    state = state.replace(
+        link_slot_array=set_band_gaps(state.link_slot_array, params, -1),
+        # For arrays: x := (1-fail)*x + fail*x_prev
+        channel_centre_bw_array=state.channel_centre_bw_array * one_m_fail_f
+        + state.channel_centre_bw_array_prev * fail.astype(state.channel_centre_bw_array.dtype),
+        channel_power_array=state.channel_power_array * one_m_fail_f
+        + state.channel_power_array_prev * fail.astype(state.channel_power_array.dtype),
+        # For scalar/int arrays: same blend, but keep dtype stable
+        path_index_array=state.path_index_array * one_m_fail.astype(state.path_index_array.dtype)
+        + state.path_index_array_prev * fail.astype(state.path_index_array.dtype),
+    )
+
+    if params.monitor_active_lightpaths:
+        # Only undo partially-added lightpaths (negative departure), and only if fail==1
+        neg = (state.active_lightpaths_array_departure < zero).astype(
+            state.active_lightpaths_array_departure.dtype
+        )
+        do_undo_dep = neg * fail.astype(state.active_lightpaths_array_departure.dtype)
+        do_undo_lp = do_undo_dep.astype(state.active_lightpaths_array.dtype)
+
+        state = state.replace(
+            active_lightpaths_array=state.active_lightpaths_array * (1 - do_undo_lp)
+            + jnp.array(-1, dtype=state.active_lightpaths_array.dtype) * do_undo_lp,
+            active_lightpaths_array_departure=state.active_lightpaths_array_departure
+            + do_undo_dep * (state.current_time + state.holding_time),
+        )
+
+    # --- Book-keeping (always) ---
+    state = state.replace(
+        accepted_services=state.accepted_services + success,
+        accepted_bitrate=state.accepted_bitrate + (success * action_info.requested_datarate),
+        total_bitrate=state.total_bitrate + action_info.requested_datarate,
+        total_timesteps=state.total_timesteps + 1,
+    )
+    return state
+
+
+def complete_step_rmsa_gn_model(
+    state: RSAGNModelEnvState,
+    action_info: ActionInfo,
+    check: chex.Array,
+    params: RSAGNModelEnvParams,
+) -> RSAGNModelEnvState:
+    """Complete step for RMSA GN-model environments.
+
+    Same as RSA GN-model, plus modulation_format_index_array restoration.
+    """
+    fail = check
+    success = 1 - check
+
+    fail_f_dep = fail.astype(state.link_slot_departure_array.dtype)
+    fail_f_slots = fail.astype(state.link_slot_array.dtype)
+
+    # --- Undo partial RSA allocation on failure ---
+    state = state.replace(
+        link_slot_array=state.link_slot_array - (fail_f_slots * action_info.affected_slots_mask),
+        link_slot_departure_array=state.link_slot_departure_array
+        - (
+            fail_f_dep * action_info.affected_slots_mask * (state.current_time + state.holding_time)
         ),
-        channel_power_array_prev=jnp.where(
-            mask_remove == one, zero, state.channel_power_array_prev
-        ),
-        modulation_format_index_array_prev=jnp.where(
-            mask_remove == one, -one, state.modulation_format_index_array_prev
-        ),
+    )
+
+    # --- Restore GN-model-specific state on failure ---
+    one_m_fail = 1 - fail
+    one_m_fail_f = one_m_fail.astype(state.channel_power_array.dtype)
+
+    state = state.replace(
+        link_slot_array=set_band_gaps(state.link_slot_array, params, -1),
+        channel_centre_bw_array=state.channel_centre_bw_array * one_m_fail_f
+        + state.channel_centre_bw_array_prev * fail.astype(state.channel_centre_bw_array.dtype),
+        channel_power_array=state.channel_power_array * one_m_fail_f
+        + state.channel_power_array_prev * fail.astype(state.channel_power_array.dtype),
+        path_index_array=state.path_index_array * one_m_fail.astype(state.path_index_array.dtype)
+        + state.path_index_array_prev * fail.astype(state.path_index_array.dtype),
+        modulation_format_index_array=state.modulation_format_index_array
+        * one_m_fail.astype(state.modulation_format_index_array.dtype)
+        + state.modulation_format_index_array_prev
+        * fail.astype(state.modulation_format_index_array.dtype),
+    )
+
+    # --- Book-keeping (always) ---
+    state = state.replace(
+        accepted_services=state.accepted_services + success,
+        accepted_bitrate=state.accepted_bitrate + (success * action_info.requested_datarate),
+        total_bitrate=state.total_bitrate + action_info.requested_datarate,
+        total_timesteps=state.total_timesteps + 1,
     )
     return state
 
@@ -1521,45 +1774,6 @@ def complete_step_rwalr(
         total_bitrate=state.total_bitrate + action_info.requested_datarate,
         total_timesteps=state.total_timesteps + 1,
     )
-    return state
-
-
-@partial(jax.jit, donate_argnums=(0,))
-def undo_action_rsa(state: EnvState, action_info: ActionInfo, params: EnvParams) -> EnvState:
-    """If the request is unsuccessful i.e. checks fail, then remove the partial (unfinalised) resource allocation.
-    Partial resource allocation is indicated by negative time in link slot departure array.
-    Check for values in link_slot_departure_array that are less than zero.
-    If found, increase link_slot_array by +1 and link_slot_departure_array by current_time + holding_time of current request.
-
-    Args:
-        state: Environment state
-
-    Returns:
-        Updated environment state
-    """
-    state = state.replace(
-        link_slot_array=state.link_slot_array - action_info.affected_slots_mask,
-        link_slot_departure_array=state.link_slot_departure_array
-        - (action_info.affected_slots_mask * (state.current_time + state.holding_time)),
-        total_bitrate=state.total_bitrate + action_info.requested_datarate,
-    )
-    return state
-
-
-@partial(jax.jit, donate_argnums=(0,))
-def undo_action_rwalr(state: EnvState, action_info: ActionInfo, params: EnvParams) -> EnvState:
-    """If the request is unsuccessful i.e. checks fail, then remove the partial (unfinalised) resource allocation.
-    Partial resource allocation is indicated by negative time in link slot departure array.
-    Check for values in link_slot_departure_array that are less than zero.
-    If found, increase link_slot_array by +1 and link_slot_departure_array by current_time + holding_time of current request.
-
-    Args:
-        state: Environment state
-
-    Returns:
-        Updated environment state
-    """
-    state = undo_action_rsa(state, action_info, params)
     return state
 
 
@@ -1756,44 +1970,6 @@ def read_rsa_request(request_array: chex.Array) -> Tuple[chex.Array, chex.Array]
 
 def make_positive(x):
     return jnp.where(x < 0, -x, x)
-
-
-@partial(jax.jit, donate_argnums=(0,))
-def finalise_action_rsa(state: EnvState, action_info: ActionInfo, params: EnvParams):
-    """Turn departure times positive.
-
-    Args:
-        state: current state
-
-    Returns:
-        state: updated state
-    """
-    state = state.replace(
-        accepted_services=state.accepted_services + 1,
-        accepted_bitrate=state.accepted_bitrate + action_info.requested_datarate,
-        total_bitrate=state.total_bitrate + action_info.requested_datarate,
-    )
-    return state
-
-
-@partial(jax.jit, donate_argnums=(0,))
-def finalise_action_rwalr(state: EnvState, params: Optional[EnvParams]):
-    """Turn departure times positive.
-
-    Args:
-        state: current state
-
-    Returns:
-        state: updated state
-    """
-    _, requested_datarate = read_rsa_request(state.request_array)
-    state = state.replace(
-        link_slot_departure_array=make_positive(state.link_slot_departure_array),
-        accepted_services=state.accepted_services + 1,
-        accepted_bitrate=state.accepted_bitrate + requested_datarate,
-        total_bitrate=state.total_bitrate + requested_datarate,
-    )
-    return state
 
 
 def check_slot_overflow(state: EnvState, action_info: ActionInfo, params: EnvParams):
@@ -2959,10 +3135,12 @@ def update_active_lightpaths_array(
     """
     first_empty_index = jnp.argmin(
         state.active_lightpaths_array[:, 0]
-    ) # Just look at the first column
+    )  # Just look at the first column
     return jax.lax.dynamic_update_slice(
         state.active_lightpaths_array,
-        jnp.array([[path_index, initial_slot_index, num_slots]], dtype=state.active_lightpaths_array.dtype),
+        jnp.array(
+            [[path_index, initial_slot_index, num_slots]], dtype=state.active_lightpaths_array.dtype
+        ),
         (first_empty_index, 0),
     )
 
@@ -3408,10 +3586,9 @@ def implement_action_rsa_gn_model(
     Returns:
         EnvState: Updated environment state
     """
-    path_action, power_action = action_info.action
-    path_action = path_action.astype(dtype_config.LARGE_INT_DTYPE)
+    path_action = action_info.action.astype(dtype_config.LARGE_INT_DTYPE)
     lightpath_index = get_lightpath_index(params, action_info.nodes_sd, action_info.path_index)
-    launch_power = get_launch_power(state, path_action, power_action, params)
+    launch_power = get_launch_power(state, path_action, action_info.power_action, params)
     # Update link_slot_array and link_slot_departure_array, then other arrays
     state = implement_path_action(state, action_info, params)
     state = state.replace(
@@ -3471,10 +3648,9 @@ def implement_action_rmsa_gn_model(
     Returns:
         EnvState: Updated environment state
     """
-    path_action, power_action = action_info.action
-    path_action = path_action.astype(dtype_config.LARGE_INT_DTYPE)
+    path_action = action_info.action.astype(dtype_config.LARGE_INT_DTYPE)
     lightpath_index = get_lightpath_index(params, action_info.nodes_sd, action_info.path_index)
-    launch_power = get_launch_power(state, path_action, power_action, params)
+    launch_power = get_launch_power(state, path_action, action_info.power_action, params)
     # TODO(GN MODEL) - get mod. format based on maximum reach
     mod_format_index = jax.lax.dynamic_slice(state.mod_format_mask, (path_action,), (1,)).astype(
         dtype_config.LARGE_INT_DTYPE
@@ -3526,7 +3702,7 @@ def undo_action_rsa_gn_model(state: RSAGNModelEnvState, params: RSAGNModelEnvPar
     """
     state = undo_action_rsa(state, params)  # Undo link_slot_array and link_slot_departure_array
     state = state.replace(
-        link_slot_array=set_band_gaps(state.link_slot_array, params, -one),  # Set C+L band gap
+        link_slot_array=set_band_gaps(state.link_slot_array, params, -1),  # Set C+L band gap
         channel_centre_bw_array=state.channel_centre_bw_array_prev,
         path_index_array=state.path_index_array_prev,
         channel_power_array=state.channel_power_array_prev,
@@ -3557,7 +3733,7 @@ def undo_action_rmsa_gn_model(state: RSAGNModelEnvState, params: RSAGNModelEnvPa
     """
     state = undo_action_rsa(state, params)  # Undo link_slot_array and link_slot_departure_array
     state = state.replace(
-        link_slot_array=set_band_gaps(state.link_slot_array, params, -one),  # Set C+L band gap
+        link_slot_array=set_band_gaps(state.link_slot_array, params, -1),  # Set C+L band gap
         channel_centre_bw_array=state.channel_centre_bw_array_prev,
         path_index_array=state.path_index_array_prev,
         channel_power_array=state.channel_power_array_prev,
@@ -3571,7 +3747,7 @@ def finalise_action_rsa_gn_model(
 ) -> EnvState:
     state = finalise_action_rsa(state, params)
     state = state.replace(
-        link_slot_array=set_band_gaps(state.link_slot_array, params, -one),  # Set C+L band gap
+        link_slot_array=set_band_gaps(state.link_slot_array, params, -1),  # Set C+L band gap
         channel_centre_bw_array_prev=state.channel_centre_bw_array,
         path_index_array_prev=state.path_index_array,
         channel_power_array_prev=state.channel_power_array,
@@ -3590,7 +3766,7 @@ def finalise_action_rmsa_gn_model(
 ) -> EnvState:
     state = finalise_action_rsa(state, params)
     state = state.replace(
-        link_slot_array=set_band_gaps(state.link_slot_array, params, -one),  # Set C+L band gap
+        link_slot_array=set_band_gaps(state.link_slot_array, params, -1),  # Set C+L band gap
         channel_centre_bw_array_prev=state.channel_centre_bw_array,
         path_index_array_prev=state.path_index_array,
         channel_power_array_prev=state.channel_power_array,
@@ -3996,7 +4172,7 @@ def get_paths_obs_gn_model(state: RSAGNModelEnvState, params: RSAGNModelEnvParam
     return jnp.concatenate(
         (
             jnp.array([source]),
-            requested_datarate / 100.0,
+            jnp.reshape(requested_datarate / 100.0, (-1,)),
             jnp.array([dest]),
             jnp.reshape(state.holding_time, (-1,)),
             jnp.reshape(all_stats, (-1,)),

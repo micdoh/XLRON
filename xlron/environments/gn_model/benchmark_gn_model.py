@@ -1,8 +1,10 @@
 """Benchmark suite for the ISRS GN model.
 
-Measures JIT compilation time and steady-state execution time for each function
-at various channel counts. Records numerical reference values for correctness
-verification after optimizations.
+Measures performance in contexts that reflect real usage:
+1. Isolated function benchmarks (for numerical verification)
+2. Inside-JIT benchmarks via jax.lax.scan (simulates training loop)
+3. XLA HLO operation counts (measures compilation-graph complexity)
+4. Full env.step comparison: rsa_gn_model vs plain rsa
 
 Usage:
     python xlron/environments/gn_model/benchmark_gn_model.py
@@ -18,33 +20,30 @@ from scipy.constants import c, pi
 from xlron.environments.gn_model.isrs_gn_model import (
     EPS,
     calculate_amplifier_gain_isrs,
-    get_ase_power,
     get_snr,
     get_snr_fused,
     isrs_gn_model,
     isrs_gn_model_uniform,
 )
-from xlron.environments.wrappers import Profiler
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 
 
 def make_test_params(num_channels, num_spans=10, ref_lambda=1564e-9):
     """Create realistic test parameters for a given channel count."""
-    slot_size_hz = 50e9  # 50 GHz slot size
+    slot_size_hz = 50e9
 
-    # Channel centre frequencies (evenly spaced around ref_lambda)
     ch_indices = jnp.arange(num_channels) - (num_channels - 1) / 2.0
-    ch_centre_i = ch_indices * slot_size_hz  # relative to f_centre, in Hz
+    ch_centre_i = ch_indices * slot_size_hz
 
-    # Channel bandwidths (all same)
     ch_bandwidth_i = slot_size_hz * jnp.ones(num_channels)
 
-    # Channel powers: mix of active and inactive channels
-    # ~80% active at 0 dBm, ~20% inactive
     key = jax.random.PRNGKey(42)
     active_mask = jax.random.uniform(key, (num_channels,)) < 0.8
-    ch_power_w_i = jnp.where(active_mask, 1e-3, 0.0)  # 0 dBm = 1 mW
+    ch_power_w_i = jnp.where(active_mask, 1e-3, 0.0)
 
-    # Fiber parameters (typical SMF-28)
     attenuation = 0.2 / 4.343 / 1e3
     attenuation_bar = 0.2 / 4.343 / 1e3
     raman_gain_slope = 0.028 / 1e3 / 1e12
@@ -56,11 +55,9 @@ def make_test_params(num_channels, num_spans=10, ref_lambda=1564e-9):
     attenuation_bar_i = attenuation_bar * jnp.ones(num_channels)
     raman_gain_slope_i = raman_gain_slope * jnp.ones(num_channels)
 
-    # Span lengths
-    span_length = 100e3  # 100 km per span
+    span_length = 100e3
     length = span_length * jnp.ones(num_spans)
 
-    # Noise parameters
     amplifier_noise_figure = 5.5 * jnp.ones(num_channels)
     transceiver_snr = 21.25 * jnp.ones(num_channels)
     excess_kurtosis_i = jnp.zeros(num_channels)
@@ -115,193 +112,6 @@ def _bench(fn, args, kwargs, n_warmup=3, n_iters=50):
     return compile_time, exec_time, result
 
 
-def benchmark_isrs_gn_model_uniform(params, **kw):
-    fn = jax.jit(
-        partial(
-            isrs_gn_model_uniform,
-            num_channels=params["num_channels"],
-            coherent=params["coherent"],
-            mod_format_correction=params["mod_format_correction"],
-        )
-    )
-    kwargs = dict(
-        num_spans=params["num_spans"],
-        ref_lambda=params["ref_lambda"],
-        length=params["span_length"],
-        attenuation_i=params["attenuation_i"],
-        attenuation_bar_i=params["attenuation_bar_i"],
-        ch_power_W_i=params["ch_power_w_i"],
-        nonlinear_coeff=params["nonlinear_coeff_arr"],
-        ch_centre_i=params["ch_centre_i"],
-        ch_bandwidth_i=params["ch_bandwidth_i"],
-        raman_gain_slope_i=params["raman_gain_slope_i"],
-        dispersion_coeff=params["dispersion_coeff_arr"],
-        dispersion_slope=params["dispersion_slope_arr"],
-        excess_kurtosis_i=params["excess_kurtosis_i"],
-    )
-    ct, et, result = _bench(fn, (), kwargs, **kw)
-    return ct, et, *result
-
-
-def benchmark_isrs_gn_model_hetero(params, **kw):
-    fn = jax.jit(
-        partial(
-            isrs_gn_model,
-            num_channels=params["num_channels"],
-            max_spans=params["max_spans"],
-            coherent=params["coherent"],
-            mod_format_correction=params["mod_format_correction"],
-        )
-    )
-    kwargs = dict(
-        num_spans=params["num_spans"],
-        ref_lambda=params["ref_lambda"],
-        length=params["length"],
-        attenuation_i=params["attenuation_i"],
-        attenuation_bar_i=params["attenuation_bar_i"],
-        ch_power_W_i=params["ch_power_w_i"],
-        nonlinear_coeff=params["nonlinear_coeff_arr"],
-        ch_centre_i=params["ch_centre_i"],
-        ch_bandwidth_i=params["ch_bandwidth_i"],
-        raman_gain_slope_i=params["raman_gain_slope_i"],
-        dispersion_coeff=params["dispersion_coeff_arr"],
-        dispersion_slope=params["dispersion_slope_arr"],
-        excess_kurtosis_i=params["excess_kurtosis_i"],
-    )
-    ct, et, result = _bench(fn, (), kwargs, **kw)
-    return ct, et, *result
-
-
-def benchmark_get_snr(params, uniform_spans=True, **kw):
-    fn = jax.jit(
-        partial(
-            get_snr,
-            num_channels=params["num_channels"],
-            max_spans=params["max_spans"],
-            coherent=params["coherent"],
-            mod_format_correction=params["mod_format_correction"],
-            uniform_spans=uniform_spans,
-        )
-    )
-    kwargs = dict(
-        num_spans=params["num_spans"],
-        ref_lambda=params["ref_lambda"],
-        length=params["length"],
-        attenuation_i=params["attenuation_i"],
-        attenuation_bar_i=params["attenuation_bar_i"],
-        nonlinear_coeff=params["nonlinear_coeff_arr"],
-        raman_gain_slope_i=params["raman_gain_slope_i"],
-        dispersion_coeff=params["dispersion_coeff_arr"],
-        dispersion_slope=params["dispersion_slope_arr"],
-        ch_power_w_i=params["ch_power_w_i"],
-        ch_centre_i=params["ch_centre_i"],
-        ch_bandwidth_i=params["ch_bandwidth_i"],
-        excess_kurtosis_i=params["excess_kurtosis_i"],
-        amplifier_noise_figure=params["amplifier_noise_figure"],
-        transceiver_snr=params["transceiver_snr"],
-    )
-    ct, et, result = _bench(fn, (), kwargs, **kw)
-    snr, aux = result
-    return ct, et, snr, aux
-
-
-def benchmark_get_snr_fused(params, **kw):
-    """Benchmark the fused SNR computation (uniform spans, no mod_format_correction)."""
-    fn = jax.jit(
-        partial(
-            get_snr_fused,
-            num_channels=params["num_channels"],
-            ref_lambda=params["ref_lambda"],
-            attenuation=params["attenuation"],
-            attenuation_bar=params["attenuation_bar"],
-            nonlinear_coeff=params["nonlinear_coeff"],
-            raman_gain_slope=params["raman_gain_slope"],
-            dispersion_coeff=params["dispersion_coeff"],
-            dispersion_slope=params["dispersion_slope"],
-            roadm_loss=6.0,
-            num_roadms=1,
-            coherent=params["coherent"],
-        )
-    )
-    kwargs = dict(
-        ch_power_w_i=params["ch_power_w_i"],
-        ch_centre_i=params["ch_centre_i"],
-        ch_bandwidth_i=params["ch_bandwidth_i"],
-        num_spans=params["num_spans"],
-        span_length=params["span_length"],
-        amplifier_noise_figure=params["amplifier_noise_figure"],
-        transceiver_snr=params["transceiver_snr"],
-    )
-    ct, et, snr = _bench(fn, (), kwargs, **kw)
-    return ct, et, snr
-
-
-def benchmark_get_snr_fused_vmapped(params, num_links=44, **kw):
-    """Benchmark vmapped fused SNR over multiple links (simulates get_snr_link_array)."""
-
-    # Wrap to separate vmapped (positional) from static (closure) args
-    def _link_snr(ch_pow, ch_centre, ch_bw, n_spans, s_length, amp_nf, trx_snr):
-        return get_snr_fused(
-            ch_power_w_i=ch_pow,
-            ch_centre_i=ch_centre,
-            ch_bandwidth_i=ch_bw,
-            num_spans=n_spans,
-            span_length=s_length,
-            num_channels=params["num_channels"],
-            ref_lambda=params["ref_lambda"],
-            attenuation=params["attenuation"],
-            attenuation_bar=params["attenuation_bar"],
-            nonlinear_coeff=params["nonlinear_coeff"],
-            raman_gain_slope=params["raman_gain_slope"],
-            dispersion_coeff=params["dispersion_coeff"],
-            dispersion_slope=params["dispersion_slope"],
-            amplifier_noise_figure=amp_nf,
-            transceiver_snr=trx_snr,
-            roadm_loss=6.0,
-            num_roadms=1,
-            coherent=params["coherent"],
-        )
-
-    fn_vmapped = jax.jit(jax.vmap(_link_snr))
-
-    # Create batched inputs (num_links, num_channels)
-    key = jax.random.PRNGKey(123)
-    ch_power_batch = jnp.tile(params["ch_power_w_i"], (num_links, 1))
-    # Add some variation per link
-    noise = jax.random.uniform(key, (num_links, params["num_channels"])) * 0.2e-3
-    ch_power_batch = ch_power_batch + noise
-    ch_power_batch = jnp.where(ch_power_batch > 0.1e-3, ch_power_batch, 0.0)
-
-    ch_centre_batch = jnp.tile(params["ch_centre_i"], (num_links, 1))
-    ch_bw_batch = jnp.tile(params["ch_bandwidth_i"], (num_links, 1))
-    num_spans_batch = jnp.full(num_links, params["num_spans"])
-    span_length_batch = jnp.full(num_links, params["span_length"])
-    amp_nf_batch = jnp.tile(params["amplifier_noise_figure"], (num_links, 1))
-    trx_snr_batch = jnp.tile(params["transceiver_snr"], (num_links, 1))
-
-    args = (
-        ch_power_batch,
-        ch_centre_batch,
-        ch_bw_batch,
-        num_spans_batch,
-        span_length_batch,
-        amp_nf_batch,
-        trx_snr_batch,
-    )
-
-    ct, et, snr_batch = _bench(fn_vmapped, args, {}, **kw)
-    return ct, et, snr_batch
-
-
-def benchmark_calculate_amplifier_gain(params, **kw):
-    a = jnp.mean(params["attenuation_i"])
-    cr = jnp.mean(params["raman_gain_slope_i"])
-    fn = jax.jit(calculate_amplifier_gain_isrs)
-    args = (a, params["span_length"], cr, params["ch_power_w_i"], params["ch_centre_i"])
-    ct, et, result = _bench(fn, args, {}, n_iters=200, **kw)
-    return ct, et, result
-
-
 def print_reference_values(label, **arrays):
     print(f"\n  Reference values ({label}):")
     for name, arr in arrays.items():
@@ -317,133 +127,70 @@ def print_reference_values(label, **arrays):
             print(f"    {name:20s}: all zeros")
 
 
-def main():
-    print(f"JAX backend: {jax.default_backend()}")
-    print(f"JAX devices: {jax.devices()}")
-    print()
+def count_hlo_ops(fn, *args, **kwargs):
+    """Count HLO operations in the compiled XLA graph."""
+    lowered = jax.jit(fn).lower(*args, **kwargs)
+    compiled = lowered.compile()
+    hlo_text = compiled.as_text()
+    # Count lines that look like HLO ops (indented, containing '=')
+    op_count = sum(1 for line in hlo_text.split("\n") if "=" in line and line.startswith("  "))
+    return op_count, len(hlo_text)
 
-    channel_counts = [4, 100, 420]
-    num_spans = 10
 
-    header = f"{'Function':<40} {'N_ch':>5} {'Compile (s)':>12} {'Exec (us)':>12} {'Exec (ms)':>12}"
-    sep = "-" * len(header)
+# ---------------------------------------------------------------------------
+# Section 1: Numerical verification (isolated calls)
+# ---------------------------------------------------------------------------
 
-    print("=" * len(header))
-    print("ISRS GN MODEL BENCHMARK")
-    print("=" * len(header))
-    print(header)
-    print(sep)
 
-    for n_ch in channel_counts:
-        params = make_test_params(n_ch, num_spans=num_spans)
+def run_numerical_verification():
+    """Quick numerical check that get_snr and get_snr_fused agree."""
+    print("=" * 80)
+    print("NUMERICAL VERIFICATION: get_snr vs get_snr_fused")
+    print("=" * 80)
 
-        # --- isrs_gn_model_uniform ---
-        ct, et, NLI, eta_n, eta_spm, eta_xpm = benchmark_isrs_gn_model_uniform(params)
-        print(
-            f"{'isrs_gn_model_uniform':<40} {n_ch:>5} {ct:>12.4f} {et * 1e6:>12.1f} {et * 1e3:>12.4f}"
+    for n_ch in [4, 100, 420]:
+        p = make_test_params(n_ch)
+
+        snr_orig, _ = get_snr(
+            num_channels=n_ch,
+            max_spans=p["max_spans"],
+            ref_lambda=p["ref_lambda"],
+            attenuation_i=p["attenuation_i"],
+            attenuation_bar_i=p["attenuation_bar_i"],
+            nonlinear_coeff=p["nonlinear_coeff_arr"],
+            raman_gain_slope_i=p["raman_gain_slope_i"],
+            dispersion_coeff=p["dispersion_coeff_arr"],
+            dispersion_slope=p["dispersion_slope_arr"],
+            length=p["length"],
+            num_spans=p["num_spans"],
+            ch_power_w_i=p["ch_power_w_i"],
+            ch_centre_i=p["ch_centre_i"],
+            ch_bandwidth_i=p["ch_bandwidth_i"],
+            excess_kurtosis_i=p["excess_kurtosis_i"],
+            amplifier_noise_figure=p["amplifier_noise_figure"],
+            transceiver_snr=p["transceiver_snr"],
+            uniform_spans=True,
         )
-        print_reference_values(
-            f"uniform N={n_ch}", NLI=NLI, eta_n=eta_n, eta_spm=eta_spm, eta_xpm=eta_xpm
+
+        snr_fused = get_snr_fused(
+            ch_power_w_i=p["ch_power_w_i"],
+            ch_centre_i=p["ch_centre_i"],
+            ch_bandwidth_i=p["ch_bandwidth_i"],
+            num_spans=p["num_spans"],
+            span_length=p["span_length"],
+            num_channels=n_ch,
+            ref_lambda=p["ref_lambda"],
+            attenuation=p["attenuation"],
+            attenuation_bar=p["attenuation_bar"],
+            nonlinear_coeff=p["nonlinear_coeff"],
+            raman_gain_slope=p["raman_gain_slope"],
+            dispersion_coeff=p["dispersion_coeff"],
+            dispersion_slope=p["dispersion_slope"],
+            amplifier_noise_figure=p["amplifier_noise_figure"],
+            transceiver_snr=p["transceiver_snr"],
         )
 
-        # --- isrs_gn_model (heterogeneous) ---
-        ct, et, NLI_h, eta_n_h, eta_spm_h, eta_xpm_h = benchmark_isrs_gn_model_hetero(params)
-        print(
-            f"{'isrs_gn_model (hetero)':<40} {n_ch:>5} {ct:>12.4f} {et * 1e6:>12.1f} {et * 1e3:>12.4f}"
-        )
-        print_reference_values(
-            f"hetero N={n_ch}", NLI=NLI_h, eta_n=eta_n_h, eta_spm=eta_spm_h, eta_xpm=eta_xpm_h
-        )
-
-        # --- get_snr (uniform) ---
-        ct, et, snr, aux = benchmark_get_snr(params, uniform_spans=True)
-        print(
-            f"{'get_snr (uniform)':<40} {n_ch:>5} {ct:>12.4f} {et * 1e6:>12.1f} {et * 1e3:>12.4f}"
-        )
-        print_reference_values(f"get_snr uniform N={n_ch}", snr=snr)
-
-        # --- get_snr_fused (single link) ---
-        ct, et, snr_f = benchmark_get_snr_fused(params)
-        print(
-            f"{'get_snr_fused (single link)':<40} {n_ch:>5} {ct:>12.4f} {et * 1e6:>12.1f} {et * 1e3:>12.4f}"
-        )
-        print_reference_values(f"get_snr_fused N={n_ch}", snr=snr_f)
-
-        # --- get_snr_fused vmapped (44 links, simulating NSFNET) ---
-        ct, et, snr_batch = benchmark_get_snr_fused_vmapped(params, num_links=44)
-        print(
-            f"{'get_snr_fused vmap(44 links)':<40} {n_ch:>5} {ct:>12.4f} {et * 1e6:>12.1f} {et * 1e3:>12.4f}"
-        )
-        print_reference_values(f"get_snr_fused vmap44 N={n_ch}", snr=snr_batch[0])
-
-        # --- get_snr (heterogeneous) ---
-        ct, et, snr_h, aux_h = benchmark_get_snr(params, uniform_spans=False)
-        print(f"{'get_snr (hetero)':<40} {n_ch:>5} {ct:>12.4f} {et * 1e6:>12.1f} {et * 1e3:>12.4f}")
-        print_reference_values(f"get_snr hetero N={n_ch}", snr=snr_h)
-
-        # --- calculate_amplifier_gain_isrs ---
-        ct, et, gain = benchmark_calculate_amplifier_gain(params)
-        print(
-            f"{'calculate_amplifier_gain_isrs':<40} {n_ch:>5} {ct:>12.4f} {et * 1e6:>12.1f} {et * 1e3:>12.4f}"
-        )
-        print_reference_values(f"amp_gain N={n_ch}", gain=gain)
-
-        print(sep)
-
-    # =====================================================================
-    # End-to-end benchmark: get_snr_link_array vs get_snr_link_array_fused
-    # Uses a real environment setup (NSFNET undirected, 22 links)
-    # =====================================================================
-    print()
-    print("=" * len(header))
-    print("END-TO-END: get_snr_link_array vs get_snr_link_array_fused")
-    print("=" * len(header))
-
-    from xlron.environments.env_funcs import get_snr_link_array, get_snr_link_array_fused
-    from xlron.environments.make_env import make
-
-    for n_ch in [4, 100]:
-        env_settings = dict(
-            k=5,
-            topology_name="nsfnet_deeprmsa_undirected",
-            link_resources=n_ch,
-            max_requests=10,
-            values_bw=[100],
-            incremental_loading=True,
-            env_type="rsa_gn_model",
-            interband_gap=0,
-            slot_size=12.5 if n_ch >= 100 else 25,
-            mod_format_correction=False,
-            launch_power=0.0,
-        )
-        env, env_params = make(env_settings, log_wrapper=False)
-        state = env.initial_state
-
-        # Populate ~30% of channels with active traffic
-        key = jax.random.PRNGKey(42)
-        active_mask = jax.random.uniform(key, state.channel_power_array.shape) < 0.3
-        ch_pow = jnp.where(active_mask, 1e-3, 0.0)
-        bw_val = 12.5 if n_ch >= 100 else 25.0
-        bw_arr = jnp.where(active_mask, bw_val, 0.0)
-        state = state.replace(channel_power_array=ch_pow, channel_centre_bw_array=bw_arr)
-
-        num_links = env_params.num_links
-        print(f"\n  N_ch={n_ch}, num_links={num_links}")
-
-        # --- Original get_snr_link_array ---
-        fn_orig = jax.jit(get_snr_link_array, static_argnums=(1,))
-        ct_o, et_o, snr_orig = _bench(fn_orig, (state, env_params), {}, n_warmup=2, n_iters=20)
-        print(f"  {'get_snr_link_array':<40} compile={ct_o:.3f}s  exec={et_o * 1e3:.3f}ms")
-
-        # --- Fused get_snr_link_array_fused ---
-        fn_fused = jax.jit(get_snr_link_array_fused, static_argnums=(1,))
-        ct_f, et_f, snr_fused = _bench(fn_fused, (state, env_params), {}, n_warmup=2, n_iters=20)
-        print(f"  {'get_snr_link_array_fused':<40} compile={ct_f:.3f}s  exec={et_f * 1e3:.3f}ms")
-
-        # Verify correctness
-        diff = jnp.abs(snr_orig - snr_fused)
-        max_diff = float(jnp.max(diff))
-        mask = snr_orig > -1e4
+        mask = jnp.abs(snr_orig) > 1e-5
         if jnp.any(mask):
             rel_diff = float(
                 jnp.max(
@@ -453,10 +200,318 @@ def main():
             )
         else:
             rel_diff = 0.0
-        speedup = et_o / et_f if et_f > 0 else float("inf")
-        print(f"  max_rel_diff={rel_diff:.2e}  speedup={speedup:.2f}x")
+        status = "PASS" if rel_diff < 1e-5 else "FAIL"
+        print(f"  N={n_ch:>3}: max_rel_diff={rel_diff:.2e}  [{status}]")
 
     print()
+
+
+# ---------------------------------------------------------------------------
+# Section 2: XLA HLO op count comparison
+# ---------------------------------------------------------------------------
+
+
+def run_hlo_comparison():
+    """Compare XLA graph complexity between get_snr and get_snr_fused."""
+    print("=" * 80)
+    print("XLA HLO GRAPH COMPLEXITY")
+    print("=" * 80)
+    print(f"  {'Function':<45} {'N_ch':>5} {'HLO ops':>10} {'HLO bytes':>12}")
+    print("  " + "-" * 74)
+
+    for n_ch in [4, 100]:
+        p = make_test_params(n_ch)
+
+        # get_snr
+        fn_orig = partial(
+            get_snr,
+            num_channels=n_ch,
+            max_spans=p["max_spans"],
+            coherent=True,
+            mod_format_correction=False,
+            uniform_spans=True,
+        )
+        ops_o, size_o = count_hlo_ops(
+            fn_orig,
+            num_spans=p["num_spans"],
+            ref_lambda=p["ref_lambda"],
+            length=p["length"],
+            attenuation_i=p["attenuation_i"],
+            attenuation_bar_i=p["attenuation_bar_i"],
+            nonlinear_coeff=p["nonlinear_coeff_arr"],
+            raman_gain_slope_i=p["raman_gain_slope_i"],
+            dispersion_coeff=p["dispersion_coeff_arr"],
+            dispersion_slope=p["dispersion_slope_arr"],
+            ch_power_w_i=p["ch_power_w_i"],
+            ch_centre_i=p["ch_centre_i"],
+            ch_bandwidth_i=p["ch_bandwidth_i"],
+            excess_kurtosis_i=p["excess_kurtosis_i"],
+            amplifier_noise_figure=p["amplifier_noise_figure"],
+            transceiver_snr=p["transceiver_snr"],
+        )
+
+        # get_snr_fused
+        fn_fused = partial(
+            get_snr_fused,
+            num_channels=n_ch,
+            ref_lambda=p["ref_lambda"],
+            attenuation=p["attenuation"],
+            attenuation_bar=p["attenuation_bar"],
+            nonlinear_coeff=p["nonlinear_coeff"],
+            raman_gain_slope=p["raman_gain_slope"],
+            dispersion_coeff=p["dispersion_coeff"],
+            dispersion_slope=p["dispersion_slope"],
+            roadm_loss=6.0,
+            num_roadms=1,
+            coherent=True,
+        )
+        ops_f, size_f = count_hlo_ops(
+            fn_fused,
+            ch_power_w_i=p["ch_power_w_i"],
+            ch_centre_i=p["ch_centre_i"],
+            ch_bandwidth_i=p["ch_bandwidth_i"],
+            num_spans=p["num_spans"],
+            span_length=p["span_length"],
+            amplifier_noise_figure=p["amplifier_noise_figure"],
+            transceiver_snr=p["transceiver_snr"],
+        )
+
+        print(f"  {'get_snr':<45} {n_ch:>5} {ops_o:>10} {size_o:>12}")
+        print(f"  {'get_snr_fused':<45} {n_ch:>5} {ops_f:>10} {size_f:>12}")
+        if ops_o > 0:
+            print(f"  {'':45s} {'':>5} reduction: {(1 - ops_f / ops_o) * 100:.1f}%")
+
+    print()
+
+
+# ---------------------------------------------------------------------------
+# Section 3: Inside-JIT scan benchmark (simulates training loop)
+# ---------------------------------------------------------------------------
+
+
+def run_scan_benchmark():
+    """Measure per-iteration cost when called inside jax.lax.scan.
+
+    This is the realistic scenario: during training, get_snr_link_array is
+    called inside env.step() which is inside a scan over ROLLOUT_LENGTH steps.
+    The entire scan is one JIT-compiled XLA graph, so there's no per-call
+    kernel dispatch overhead.
+    """
+    print("=" * 80)
+    print("INSIDE-JIT BENCHMARK (jax.lax.scan, amortised per-iteration cost)")
+    print("=" * 80)
+
+    scan_lengths = [10, 50, 200]
+
+    for n_ch in [4, 100]:
+        p = make_test_params(n_ch)
+
+        # --- get_snr inside scan ---
+        def snr_scan_body_orig(carry, _):
+            ch_pow = carry
+            snr, _ = get_snr(
+                num_channels=n_ch,
+                max_spans=p["max_spans"],
+                ref_lambda=p["ref_lambda"],
+                attenuation_i=p["attenuation_i"],
+                attenuation_bar_i=p["attenuation_bar_i"],
+                nonlinear_coeff=p["nonlinear_coeff_arr"],
+                raman_gain_slope_i=p["raman_gain_slope_i"],
+                dispersion_coeff=p["dispersion_coeff_arr"],
+                dispersion_slope=p["dispersion_slope_arr"],
+                length=p["length"],
+                num_spans=p["num_spans"],
+                ch_power_w_i=ch_pow,
+                ch_centre_i=p["ch_centre_i"],
+                ch_bandwidth_i=p["ch_bandwidth_i"],
+                excess_kurtosis_i=p["excess_kurtosis_i"],
+                amplifier_noise_figure=p["amplifier_noise_figure"],
+                transceiver_snr=p["transceiver_snr"],
+                uniform_spans=True,
+                coherent=True,
+                mod_format_correction=False,
+            )
+            # Slightly perturb power each iteration to prevent dead-code elimination
+            new_pow = ch_pow + snr * 1e-15
+            return new_pow, snr
+
+        # --- get_snr_fused inside scan ---
+        def snr_scan_body_fused(carry, _):
+            ch_pow = carry
+            snr = get_snr_fused(
+                ch_power_w_i=ch_pow,
+                ch_centre_i=p["ch_centre_i"],
+                ch_bandwidth_i=p["ch_bandwidth_i"],
+                num_spans=p["num_spans"],
+                span_length=p["span_length"],
+                num_channels=n_ch,
+                ref_lambda=p["ref_lambda"],
+                attenuation=p["attenuation"],
+                attenuation_bar=p["attenuation_bar"],
+                nonlinear_coeff=p["nonlinear_coeff"],
+                raman_gain_slope=p["raman_gain_slope"],
+                dispersion_coeff=p["dispersion_coeff"],
+                dispersion_slope=p["dispersion_slope"],
+                amplifier_noise_figure=p["amplifier_noise_figure"],
+                transceiver_snr=p["transceiver_snr"],
+                roadm_loss=6.0,
+                num_roadms=1,
+                coherent=True,
+            )
+            new_pow = ch_pow + snr * 1e-15
+            return new_pow, snr
+
+        print(f"\n  N_ch={n_ch}")
+        print(
+            f"  {'Function':<30} {'scan_len':>9} {'compile':>10} {'total(ms)':>10} {'per_iter(us)':>13}"
+        )
+        print("  " + "-" * 74)
+
+        for scan_len in scan_lengths:
+            for label, body_fn in [
+                ("get_snr", snr_scan_body_orig),
+                ("get_snr_fused", snr_scan_body_fused),
+            ]:
+
+                @jax.jit
+                def run_scan(init_pow, body=body_fn, length=scan_len):
+                    return jax.lax.scan(body, init_pow, None, length=length)
+
+                ct, et, _ = _bench(run_scan, (p["ch_power_w_i"],), {}, n_warmup=2, n_iters=20)
+                per_iter_us = et * 1e6 / scan_len
+                print(
+                    f"  {label:<30} {scan_len:>9} {ct:>10.3f} {et * 1e3:>10.3f} {per_iter_us:>13.1f}"
+                )
+
+    print()
+
+
+# ---------------------------------------------------------------------------
+# Section 4: Full env.step comparison (rsa_gn_model vs plain rsa)
+# ---------------------------------------------------------------------------
+
+
+def run_env_step_comparison():
+    """Compare env.step() time with and without GN model to see its overhead."""
+    print("=" * 80)
+    print("ENV.STEP COMPARISON: rsa vs rsa_gn_model")
+    print("=" * 80)
+
+    from xlron.environments.make_env import make
+
+    for n_ch in [4, 100]:
+        print(f"\n  link_resources={n_ch}")
+
+        results = {}
+        for env_type in ["rsa", "rsa_gn_model"]:
+            env_settings = dict(
+                k=5,
+                topology_name="nsfnet_deeprmsa_undirected",
+                link_resources=n_ch,
+                max_requests=10,
+                values_bw=[100],
+                incremental_loading=True,
+                env_type=env_type,
+                slot_size=12.5 if n_ch >= 100 else 25,
+            )
+            if env_type == "rsa_gn_model":
+                env_settings.update(
+                    mod_format_correction=False,
+                    launch_power=0.0,
+                    interband_gap=0,
+                )
+
+            try:
+                env, env_params = make(env_settings, log_wrapper=False)
+            except Exception as e:
+                print(f"  {env_type:<20} SKIPPED ({e})")
+                continue
+
+            state = env.initial_state
+            n_actions = env.num_actions(env_params)
+
+            # Build a scan that runs N steps with random actions
+            num_steps = 50
+
+            @jax.jit
+            def run_steps(key, state, env=env, params=env_params, _n_act=n_actions):
+                def step_body(carry, _):
+                    k, s = carry
+                    k, subkey = jax.random.split(k)
+                    action = jax.random.randint(subkey, (), 0, _n_act)
+                    obs, new_s, reward, done, truncated, info = env.step_env(
+                        subkey, s, action, params
+                    )
+                    # Squeeze scalar state fields that step_env may return as (1,)
+                    new_s = new_s.replace(
+                        current_time=jnp.squeeze(new_s.current_time),
+                        holding_time=jnp.squeeze(new_s.holding_time),
+                        arrival_time=jnp.squeeze(new_s.arrival_time),
+                    )
+                    return (k, new_s), jnp.squeeze(reward)
+
+                return jax.lax.scan(step_body, (key, state), None, length=num_steps)
+
+            key = jax.random.PRNGKey(0)
+
+            try:
+                # Compile
+                t0 = time.perf_counter()
+                result = run_steps(key, state)
+                jax.block_until_ready(result)
+                compile_time = time.perf_counter() - t0
+
+                # Warmup
+                for _ in range(3):
+                    result = run_steps(key, state)
+                    jax.block_until_ready(result)
+
+                # Measure
+                n_iters = 10
+                t0 = time.perf_counter()
+                for _ in range(n_iters):
+                    result = run_steps(key, state)
+                    jax.block_until_ready(result)
+                exec_time = (time.perf_counter() - t0) / n_iters
+                per_step_us = exec_time * 1e6 / num_steps
+            except Exception as e:
+                print(f"  {env_type:<20} FAILED ({type(e).__name__}: {e})")
+                continue
+
+            results[env_type] = per_step_us
+            print(
+                f"  {env_type:<20} compile={compile_time:.2f}s  "
+                f"total({num_steps} steps)={exec_time * 1e3:.2f}ms  "
+                f"per_step={per_step_us:.1f}us"
+            )
+
+        if "rsa" in results and "rsa_gn_model" in results:
+            overhead = results["rsa_gn_model"] - results["rsa"]
+            ratio = results["rsa_gn_model"] / results["rsa"] if results["rsa"] > 0 else float("inf")
+            print(f"  GN model overhead: {overhead:.1f}us/step ({ratio:.2f}x)")
+
+    print()
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
+
+def main():
+    print(f"JAX backend: {jax.default_backend()}")
+    print(f"JAX devices: {jax.devices()}")
+    print()
+
+    run_numerical_verification()
+    run_hlo_comparison()
+    run_scan_benchmark()
+
+    try:
+        run_env_step_comparison()
+    except Exception as e:
+        print(f"  env.step comparison skipped: {e}")
+        print()
 
 
 if __name__ == "__main__":

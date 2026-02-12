@@ -696,6 +696,7 @@ def _simulation_step(
         requested_datarate=requested_datarate,
         nodes_sd=nodes_sd,
         affected_slots_mask=affected_slots_mask,
+        power_action=jnp.float32(0.0),
     )
 
     # --- 8-10. Implement, check, complete (for traversed requests) ---

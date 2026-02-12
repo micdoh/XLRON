@@ -278,6 +278,7 @@ class SetPathLinksTest(parameterized.TestCase):
             requested_datarate=jnp.array(1),
             nodes_sd=jnp.array([0, 1]),
             affected_slots_mask=combined_mask,
+            power_action=jnp.float32(0.0),
         )
 
     @chex.all_variants()
@@ -360,6 +361,7 @@ class UpdatePathLinksTest(parameterized.TestCase):
             requested_datarate=jnp.array(1),
             nodes_sd=jnp.array([0, 1]),
             affected_slots_mask=combined_mask,
+            power_action=jnp.float32(0.0),
         )
 
     @chex.all_variants()
@@ -482,21 +484,8 @@ class UndoLinkSlotActionTest(parameterized.TestCase):
             requested_datarate=jnp.array([0]),
             nodes_sd=jnp.array([0, 1]),
             affected_slots_mask=mask,
+            power_action=jnp.float32(0.0),
         )
-
-    @chex.all_variants()
-    @parameterized.named_parameters(("case_base",))
-    def test_undo_link_slot_action(self):
-        expected = jnp.full((4, 4), 0)
-        updated_state = self.variant(undo_action_rsa)(self.state, self.action_info, self.params)
-        chex.assert_trees_all_close(updated_state.link_slot_array, expected)
-
-    @chex.all_variants()
-    @parameterized.named_parameters(("case_base",))
-    def test_undo_link_slot_action_departure(self):
-        expected = jnp.full((4, 4), 0)
-        updated_state = self.variant(undo_action_rsa)(self.state, self.action_info, self.params)
-        chex.assert_trees_all_close(updated_state.link_slot_departure_array, expected)
 
 
 class ImplementPathActionTest(parameterized.TestCase):
@@ -518,6 +507,7 @@ class ImplementPathActionTest(parameterized.TestCase):
             requested_datarate=jnp.array(1),
             nodes_sd=jnp.array([0, 1]),
             affected_slots_mask=mask,
+            power_action=jnp.float32(0.0),
         )
 
     @chex.all_variants()
@@ -582,6 +572,7 @@ class CheckNoSpectrumReuseTest(parameterized.TestCase):
             requested_datarate=jnp.array(1),
             nodes_sd=jnp.array([0, 1]),
             affected_slots_mask=mask,
+            power_action=jnp.float32(0.0),
         )
 
     @chex.all_variants()

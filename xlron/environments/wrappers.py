@@ -113,7 +113,7 @@ class LogWrapper(GymnaxWrapper):
             info["slot_index"] = slot_index
             info["source"] = source
             info["dest"] = dest
-            info["data_rate"] = dr_request[0]
+            info["data_rate"] = dr_request
 
             # RSA-specific throughput info
             if is_gn_params:

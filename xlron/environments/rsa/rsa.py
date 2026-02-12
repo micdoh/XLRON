@@ -18,7 +18,9 @@ from xlron.environments.env_funcs import (
     check_action_rmsa_gn_model,
     check_action_rsa,
     check_action_rwalr,
+    complete_step_rmsa_gn_model,
     complete_step_rsa,
+    complete_step_rsa_gn_model,
     complete_step_rwalr,
     generate_request_rsa,
     generate_request_rwalr,
@@ -38,9 +40,6 @@ from xlron.environments.env_funcs import (
     mask_slots,
     required_slots,
     set_band_gaps,
-    undo_action_rmsa_gn_model,
-    undo_action_rsa_gn_model,
-    undo_action_rwalr,
     update_graph_tuple,
 )
 from xlron.environments.wrappers import *
@@ -227,16 +226,16 @@ class RSAEnv(environment.Environment):
             complete_step = complete_step_rwalr
             if not params.incremental_loading:
                 # These are relevant to dynamic RWA-LR (upcoming)
-                complete_step = undo_action_rwalr
+                complete_step = complete_step_rwalr
                 generate_request = generate_request_rwalr
         elif params.__class__.__name__ == "RSAGNModelEnvParams":
             implement_action = implement_action_rsa_gn_model
             check_action = check_action_rsa
-            complete_step = undo_action_rsa_gn_model
+            complete_step = complete_step_rsa_gn_model
         elif params.__class__.__name__ == "RMSAGNModelEnvParams":
             implement_action = implement_action_rmsa_gn_model
             check_action = check_action_rmsa_gn_model
-            complete_step = undo_action_rmsa_gn_model
+            complete_step = complete_step_rmsa_gn_model
 
         # Implement action
         state = jit_profiler.call(params.profile, implement_action, state, action_info, params)
@@ -259,7 +258,7 @@ class RSAEnv(environment.Environment):
 
         # Terminate if max_requests exceeded or, if consecutive loading,
         # then terminate if reward is failure but not before min number of timesteps before update
-        terminal = self.is_terminal(state, params, reward)
+        terminal = self.is_terminal(state, params, action_info, reward)
         truncated = self.is_truncated(state, params)
 
         info = {}
@@ -325,9 +324,11 @@ class RSAEnv(environment.Environment):
         nodes_sd, requested_datarate = jit_profiler.call(
             params.profile, read_rsa_request, state.request_array
         )
-        # For GN model envs, action is [path_slot_action, launch_power];
-        # process_path_action only needs the path_slot component.
-        path_action = jnp.atleast_1d(action)[0]
+        # For GN model envs, action is [path_slot_action, launch_power].
+        # Decompose into scalar path_action and power_action.
+        action_1d = jnp.atleast_1d(action)
+        path_action = action_1d[0]
+        power_action = action_1d[1] if action_1d.shape[0] > 1 else jnp.float32(0.0)
         path_index, initial_slot_index = jit_profiler.call(
             params.profile, process_path_action, state, params, path_action
         )
@@ -353,7 +354,7 @@ class RSAEnv(environment.Environment):
             params,
         )
         action_info = ActionInfo(
-            action=action,
+            action=path_action,
             path_index=path_index,
             initial_slot_index=initial_slot_index,
             num_slots=num_slots,
@@ -362,6 +363,7 @@ class RSAEnv(environment.Environment):
             requested_datarate=requested_datarate,
             nodes_sd=nodes_sd,
             affected_slots_mask=affected_slots_mask,
+            power_action=power_action,
         )
         return action_info
 
@@ -420,7 +422,11 @@ class RSAEnv(environment.Environment):
         )
 
     def is_terminal(
-        self, state: RSAEnvState, params: RSAEnvParams, reward: chex.Array | None = None
+        self,
+        state: RSAEnvState,
+        params: RSAEnvParams,
+        action_info: ActionInfo,
+        reward: chex.Array | None = None,
     ) -> chex.Array:
         """Check whether state transition is terminal.
 
@@ -433,7 +439,7 @@ class RSAEnv(environment.Environment):
             done: Boolean termination flag
         """
         if params.end_first_blocking:
-            return jnp.array(reward == self.get_reward_failure(state, params))
+            return jnp.array(reward == self.get_reward_failure(state, action_info, params))
         elif params.terminate_on_episode_end:
             return self.is_truncated(state, params)
         else:
@@ -566,8 +572,6 @@ class RSAEnv(environment.Environment):
             reward: Reward for success
         """
         reward = zero
-        if params.__class__.__name__ in ["RSAGNModelEnvParams", "RMSAGNModelEnvParams"]:
-            path_action, _ = action_info.action
 
         if params.reward_type != "service":
             reward = state.request_array[1] * reward / jnp.max(params.values_bw.val)
