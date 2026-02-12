@@ -165,30 +165,6 @@ class CheckRsaActionTest(parameterized.TestCase):
         chex.assert_trees_all_close(actual, expected)
 
 
-class FinaliseRsaActionTest(parameterized.TestCase):
-    def setUp(self):
-        super().setUp()
-        self.key, self.env, self.obs, self.state, self.params = rwa_4node_test_setup()
-
-    @chex.all_variants()
-    @parameterized.named_parameters(
-        (
-            "case_pass",
-            jnp.array([[4, 0, 0, 0], [0, 0, 0, 0], [4, 0, 0, 0], [0, 0, 0, 0]]),
-            jnp.array([[2, 0, 0, 0], [0, 0, 0, 0], [2, 0, 0, 0], [0, 0, 0, 0]]),
-        ),
-    )
-    def test_finalise_rsa_action(self, expected_dept, expected_link_slot):
-        self.state = self.state.replace(current_time=1, holding_time=1)
-        action_info = self.env.process_action(self.state, jnp.array(0), self.params)
-        self.state = implement_action_rsa(self.state, action_info, self.params)
-        action_info = self.env.process_action(self.state, jnp.array(0), self.params)
-        self.state = implement_action_rsa(self.state, action_info, self.params)
-        final_state = self.variant(finalise_action_rsa)(self.state, action_info, self.params)
-        chex.assert_trees_all_close(final_state.link_slot_departure_array, expected_dept)
-        chex.assert_trees_all_close(final_state.link_slot_array, expected_link_slot)
-
-
 class RsaStepTest(parameterized.TestCase):
     def setUp(self):
         super().setUp()

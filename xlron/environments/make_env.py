@@ -50,7 +50,7 @@ from xlron.environments.env_funcs import (
     pad_array,
     required_slots,
 )
-from xlron.environments.gn_model.isrs_gn_model import from_dbm
+from xlron.environments.gn_model.isrs_gn_model import from_dbm, to_dbm
 from xlron.environments.wrappers import LogWrapper
 
 
@@ -372,7 +372,8 @@ def make(
     # Automated calculation of max slots requested
     path_capacity_array: jax.Array = jnp.array(0)
     modulations_array: jax.Array = jnp.array(0)
-    max_spans = int(jnp.ceil(max(link_length_array) / max_span_length)[0])
+    # link_length_array is in km (from topology); convert to metres for max_span_length (metres)
+    max_spans = int(jnp.ceil(max(link_length_array) * 1e3 / max_span_length)[0])
     if consider_modulation_format:
         modulations_array = init_modulations_array(
             config.get("modulations_csv_filepath", None)
@@ -603,6 +604,83 @@ def make(
                 if not remove_array_wrappers
                 else modulations_array,
             )
+
+        # Print GN model power budget summary
+        per_channel_power_w = default_launch_power
+        per_channel_power_dbm = (
+            10 * math.log10(per_channel_power_w / 0.001)
+            if per_channel_power_w > 0
+            else float("-inf")
+        )
+        nf_vals = (
+            amplifier_noise_figure.val
+            if hasattr(amplifier_noise_figure, "val")
+            else amplifier_noise_figure
+        )
+        trx_vals = transceiver_snr.val if hasattr(transceiver_snr, "val") else transceiver_snr
+        print("\n" + "=" * 70)
+        print("GN MODEL POWER BUDGET SUMMARY")
+        print("=" * 70)
+        print(f"  Environment type:         {env_type}")
+        print(
+            f"  max_power_per_fibre:      {max_power_per_fibre:.1f} dBm ({from_dbm(max_power_per_fibre) * 1e3:.2f} mW)"
+        )
+        print(f"  link_resources (slots):   {link_resources}")
+        print(f"  slot_size:                {slot_size} GHz")
+        print(
+            f"  Per-channel launch power: {per_channel_power_dbm:.2f} dBm ({per_channel_power_w * 1e3:.4f} mW)"
+        )
+        print(f"  launch_power_type:        {launch_power_type}")
+        print(f"  ROADM loss:               {roadm_loss} dB (num_roadms={num_roadms})")
+        print(
+            f"  Amplifier NF range:       {float(jnp.min(nf_vals)):.1f} - {float(jnp.max(nf_vals)):.1f} dB"
+        )
+        print(
+            f"  Transceiver SNR range:    {float(jnp.min(trx_vals)):.1f} - {float(jnp.max(trx_vals)):.1f} dB"
+        )
+        print(f"  SNR margin:               {snr_margin} dB")
+        if (
+            consider_modulation_format
+            and hasattr(modulations_array, "__len__")
+            and len(modulations_array) > 0
+        ):
+            mod_snr_thresholds = modulations_array[:, 2]
+            print(
+                f"  Modulation SNR thresholds: {[f'{float(s):.1f}' for s in mod_snr_thresholds]} dB"
+            )
+            print(
+                f"  (+ margin = {[f'{float(s) + snr_margin:.1f}' for s in mod_snr_thresholds]} dB)"
+            )
+        # Estimate single-channel ASE-limited SNR (no NLI) for representative link lengths
+        _h = 6.62607015e-34
+        _c = 299792458.0
+        _ref_freq = _c / ref_lambda
+        _B = slot_size * 1e9
+        _span_loss_db = attenuation * max_span_length * 4.343  # Np/m * m * (dB/Np) = dB
+        _G_inline = 10 ** (_span_loss_db / 10)
+        _nf_typical = float(jnp.median(nf_vals))
+        _NF_lin = 10 ** (_nf_typical / 10)
+        _N_sp = (_NF_lin * _G_inline) / (2.0 * (_G_inline - 1))
+        _p_ase_one = 2 * _N_sp * (_G_inline - 1) * _h * _ref_freq * _B
+        _G_roadm = 10 ** (roadm_loss / 10)
+        _NF_roadm_lin = 10 ** ((_nf_typical + 1) / 10)
+        _N_sp_roadm = (_NF_roadm_lin * _G_roadm) / (2.0 * (_G_roadm - 1))
+        _p_ase_roadm = 2 * _N_sp_roadm * (_G_roadm - 1) * _h * _ref_freq * _B
+        _trx_snr_typical = float(jnp.median(trx_vals))
+        _trx_noise = (
+            per_channel_power_w / (10 ** (_trx_snr_typical / 10)) if per_channel_power_w > 0 else 0
+        )
+        print("  --- Estimated single-channel ASE-limited SNR (no NLI) ---")
+        for _lkm in [300, 600, 1200, 2400]:
+            _nspans = math.ceil(_lkm * 1e3 / max_span_length)  # km -> m
+            _total_noise = _nspans * _p_ase_one + num_roadms * _p_ase_roadm + _trx_noise
+            if per_channel_power_w > 0 and _total_noise > 0:
+                _snr_db = 10 * math.log10(per_channel_power_w / _total_noise)
+            else:
+                _snr_db = float("-inf")
+            print(f"    Link {_lkm:4d} km ({_nspans:2d} spans): ~{_snr_db:.1f} dB")
+        print("=" * 70 + "\n")
+
     else:
         env_params = RSAEnvParams
 

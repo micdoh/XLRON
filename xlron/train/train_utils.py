@@ -787,13 +787,6 @@ def select_action_eval(select_action_state, env, env_params, eval_state, config)
                     env_state.env_state, env_params, env_state.env_state.request_array
                 )
                 env_state = env_state.replace(env_state=updated_inner)
-                jax.debug.print(
-                    "DEBUG rmsa_gn mask_sum={} mod_format_mask_nonzero={} request={}",
-                    jnp.sum(updated_inner.link_slot_mask),
-                    jnp.sum(updated_inner.mod_format_mask >= 0),
-                    updated_inner.request_array,
-                    ordered=True,
-                )
 
             if config.path_heuristic.lower() == "ksp_ff":
                 action = ksp_ff(env_state.env_state, env_params)
@@ -833,15 +826,6 @@ def select_action_eval(select_action_state, env, env_params, eval_state, config)
                         "launch_power_type cannot be 'rl' when --EVAL_HEURISTIC flag is True"
                     )
                 launch_power = get_launch_power(env_state.env_state, action, action, env_params)
-                jax.debug.print(
-                    "DEBUG action={} mod_format_at_action={} launch_power={}",
-                    action,
-                    jax.lax.dynamic_slice(
-                        env_state.env_state.mod_format_mask, (action.astype(jnp.int32),), (1,)
-                    ),
-                    launch_power,
-                    ordered=True,
-                )
                 action = jnp.concatenate([action.reshape((1,)), launch_power.reshape((1,))], axis=0)
         else:
             raise ValueError(f"Invalid environment type {config.env_type}")

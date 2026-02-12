@@ -184,6 +184,63 @@ XLRON supports diverse learning rate schedules for the agent.
 See the flags for learning rate schedules in the [commandline options](flags_reference.md) section.
 
 
+### GN Model Environments
+
+XLRON provides two environment types that incorporate the ISRS (Inter-channel Stimulated Raman Scattering) GN (Gaussian Noise) model for physical layer impairment estimation. These environments model signal-to-noise ratio (SNR) degradation from amplified spontaneous emission (ASE) noise and nonlinear interference (NLI), enabling physically-aware resource allocation decisions.
+
+#### `rsa_gn_model` — RSA with End-of-Episode Throughput
+
+The `rsa_gn_model` environment performs Routing and Spectrum Assignment without per-step modulation format selection. Spectrum assignment and action masking use the same logic as the standard `rsa` environment (no SNR-aware masking). The GN model is used at each step to update SNR estimates, and optionally at episode end to compute Shannon-Hartley throughput across all active lightpaths.
+
+This environment is best suited for:
+
+- Measuring network throughput capacity under physical layer constraints
+- Faster simulations where per-step SNR-aware masking is not required
+- Scenarios where modulation format is predetermined by path distance
+
+Enable throughput measurement with `--monitor_active_lightpaths`. The throughput is computed at episode end using the Shannon-Hartley theorem with dual polarisation and FEC overhead: `datarate = log2(1 + SNR) * slot_size * 2 * (1 - fec_overhead)`, summed over all active lightpaths.
+
+#### `rmsa_gn_model` — RMSA with Per-Step SNR-Aware Masking
+
+The `rmsa_gn_model` environment performs Routing, Modulation and Spectrum Assignment with full per-step GN model evaluation during action masking. For each candidate (path, slot, modulation format) combination, the mask function:
+
+1. Tentatively places the lightpath with the candidate's modulation format and launch power
+2. Computes SNR via the GN model for the modified network state
+3. Checks that both the new lightpath and all existing lightpaths meet their SNR thresholds
+4. Only marks the action as valid if all checks pass
+
+This environment is best suited for:
+
+- Realistic simulations where modulation format depends on current network load and interference
+- Training RL agents that learn to account for physical layer constraints
+- Studying the interaction between routing decisions and nonlinear impairments
+
+Note: The `rmsa_gn_model` environment does not currently compute Shannon throughput. It tracks `accepted_bitrate` (cumulative demanded bandwidth of accepted requests) and `accepted_services` (count of successfully routed requests).
+
+#### Launch Power Configuration
+
+The per-channel launch power is derived from the total fibre power budget:
+
+```
+per_channel_power = from_dbm(max_power_per_fibre) / link_resources
+```
+
+where `from_dbm(x) = 10^(x/10) * 0.001` converts dBm to Watts. In dBm, this simplifies to:
+
+```
+per_channel_power_dBm = max_power_per_fibre_dBm - 10 * log10(link_resources)
+```
+
+For typical C-band EDFA systems, the optimal per-channel launch power is approximately -2 to +2 dBm. The table below shows per-channel power for different configurations:
+
+| `max_power_per_fibre` | `link_resources=10` | `link_resources=50` | `link_resources=150` |
+|---|---|---|---|
+| 13 dBm | +3.0 dBm | -3.99 dBm | -8.76 dBm |
+| 21 dBm (default) | +11.0 dBm | +4.01 dBm | -0.76 dBm |
+| 25 dBm | +15.0 dBm | +8.01 dBm | +3.24 dBm |
+
+**Guidance**: For `link_resources` of 100-150, the default `max_power_per_fibre=21` dBm gives per-channel powers near 0 dBm, which is in the physically realistic range. If the GN model mask finds zero valid actions on an empty network, the per-channel power is likely too low for any modulation format's SNR threshold. Increase `--max_power_per_fibre` or decrease `--link_resources` to raise per-channel power.
+
 ### GNNs with Jraph
 
 We use the [Jraph](https://github.com/google-deepmind/jraph/tree/master) library for graph neural networks in JAX to implement the policy and/or value networks of our agent, while retaining the advantages of JIT compilation and accelerator hardware. Jraph agents are now fully implemented and accessible through the `--USE_GNN` flag. The GNN agent is a multi-layer graph neural network with message passing and aggregation layers. We also make Graph Attention Network (GAT) models available. The GNN agent is compatible with all environments. The GNN agent is implemented in `agents.py` and can be modified to experiment with different architectures. The GNN agent is trained using the same `train.py` script as a MLP agent, with the `--USE_GNN` flag enabled.

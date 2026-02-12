@@ -2830,18 +2830,21 @@ def init_link_length_array_gn_model(
 
     Args:
         graph (nx.Graph): NetworkX graph
+        max_span_length (int): Maximum span length in metres
+        max_spans (int): Maximum number of spans per link
     Returns:
-        jnp.array: Link length array (L x max_spans)
+        jnp.array: Link length array (L x max_spans) in metres
     """
     link_lengths = []
     directed = graph.is_directed()
     graph = graph.to_undirected()
     edges = sorted(graph.edges)
     for edge in edges:
-        link_lengths.append(graph.edges[edge]["distance"])
+        # Topology distances are in km; convert to metres for GN model
+        link_lengths.append(graph.edges[edge]["distance"] * 1e3)
     if directed:
         for edge in edges:
-            link_lengths.append(graph.edges[edge]["distance"])
+            link_lengths.append(graph.edges[edge]["distance"] * 1e3)
     span_length_array = []
     for length in link_lengths:
         num_spans = math.ceil(length / max_span_length)
@@ -3230,8 +3233,8 @@ def get_snr_link_array(state: EnvState, params: EnvParams) -> chex.Array:
 
     def get_link_snr(link_index, state, params):
         # Get channel power, channel centre, bandwidth, and noise figure
-        link_lengths = params.link_length_array[link_index, :]
-        num_spans = jnp.ceil(jnp.sum(link_lengths) * 1e3 / params.max_span_length).astype(
+        link_lengths = params.link_length_array[link_index, :]  # in metres
+        num_spans = jnp.ceil(jnp.sum(link_lengths) / params.max_span_length).astype(
             dtype_config.LARGE_INT_DTYPE
         )
         if params.mod_format_correction:
@@ -3292,17 +3295,16 @@ def get_snr_link_array_fused(state: EnvState, params: EnvParams) -> chex.Array:
     reduce XLA op count and kernel launch overhead on GPU.
     """
     # Precompute per-link num_spans and span_length from static link_length_array
-    # link_length_array is (L, max_spans) in km
-    link_lengths_km = params.link_length_array.val  # (L, max_spans)
-    total_link_length_km = jnp.sum(link_lengths_km, axis=1)  # (L,)
-    num_spans_per_link = jnp.ceil(total_link_length_km * 1e3 / params.max_span_length).astype(
+    # link_length_array is (L, max_spans) in metres
+    link_lengths_m = params.link_length_array.val  # (L, max_spans)
+    total_link_length_m = jnp.sum(link_lengths_m, axis=1)  # (L,)
+    num_spans_per_link = jnp.ceil(total_link_length_m / params.max_span_length).astype(
         dtype_config.LARGE_INT_DTYPE
     )  # (L,)
-    # span_length in km to match original get_snr: span_length = sum(length) / num_spans
-    # where length is link_length_array values (in km)
-    span_length_per_link = total_link_length_km / jnp.maximum(num_spans_per_link, 1).astype(
+    # span_length in metres to match GN model expectations
+    span_length_per_link = total_link_length_m / jnp.maximum(num_spans_per_link, 1).astype(
         jnp.float32
-    )  # (L,) in km
+    )  # (L,) in metres
 
     # Per-link channel data from state: (L, N)
     ch_power_all = state.channel_power_array  # (L, N)
@@ -3549,16 +3551,6 @@ def check_action_rmsa_gn_model(state: EnvState, action_info: ActionInfo, params:
     # TODO - log failure reasons in info
     snr_sufficient_check = check_snr_sufficient(state, params)
     rsa_check = check_action_rsa(state, action_info, params)
-    jax.debug.print(
-        "DEBUG check_action_rmsa_gn: rsa_check={} snr_check={} action={} slot={} num_slots={} path_idx={}",
-        rsa_check,
-        snr_sufficient_check,
-        action_info.action,
-        action_info.initial_slot_index,
-        action_info.num_slots,
-        action_info.path_index,
-        ordered=True,
-    )
     return jnp.any(
         jnp.stack(
             (
@@ -3656,14 +3648,6 @@ def implement_action_rmsa_gn_model(
     mod_format_index = jax.lax.dynamic_slice(state.mod_format_mask, (path_action,), (1,)).astype(
         dtype_config.LARGE_INT_DTYPE
     )[0]
-    jax.debug.print(
-        "DEBUG implement_rmsa_gn: path_action={} mod_format_index={} launch_power={} se={}",
-        path_action,
-        mod_format_index,
-        launch_power,
-        action_info.se,
-        ordered=True,
-    )
     # Update link_slot_array and link_slot_departure_array, then other arrays
     state = implement_path_action(state, action_info, params)
     state = state.replace(
