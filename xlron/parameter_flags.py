@@ -497,6 +497,11 @@ flags.DEFINE_boolean(
 # GN model parameters
 flags.DEFINE_float("ref_lambda", 1564e-9, "Reference wavelength [m]")
 flags.DEFINE_float("max_power_per_fibre", 21.0, "Max launch power per fibre [dBm]")
+flags.DEFINE_float(
+    "power_per_channel",
+    None,
+    "Per-channel launch power [dBm]. If None, defaults to max_power_per_fibre divided equally among slots.",
+)
 flags.DEFINE_string(
     "launch_power_type",
     "fixed",

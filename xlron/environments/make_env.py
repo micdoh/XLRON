@@ -230,8 +230,14 @@ def make(
     max_power = config.get("max_power", 9)
     min_power = config.get("min_power", -5)
     step_power = config.get("step_power", 1)
-    max_power_per_fibre = config.get("max_power_per_fibre", 21.0)
-    default_launch_power = float(from_dbm(max_power_per_fibre)) / link_resources
+    max_power_per_fibre_dbm = config.get("max_power_per_fibre", 21.0)
+    max_power_per_fibre = float(from_dbm(max_power_per_fibre_dbm))  # linear Watts
+    power_per_channel_dbm = config.get("power_per_channel", None)
+    if power_per_channel_dbm is not None:
+        default_launch_power = float(from_dbm(power_per_channel_dbm))
+    else:
+        default_launch_power = max_power_per_fibre / link_resources
+    power_per_channel = default_launch_power  # linear Watts
     optimise_launch_power = config.get("optimise_launch_power", False)
     traffic_array = config.get("traffic_array", False)
     launch_power_array = config.get("launch_power_array", None)
@@ -572,6 +578,7 @@ def make(
             max_spans=max_spans,
             max_span_length=max_span_length,
             default_launch_power=default_launch_power,
+            power_per_channel=power_per_channel,
             max_power_per_fibre=max_power_per_fibre,
             nonlinear_coeff=nonlinear_coeff,
             raman_gain_slope=raman_gain_slope,
@@ -629,7 +636,7 @@ def make(
         print("=" * 70)
         print(f"  Environment type:         {env_type}")
         print(
-            f"  max_power_per_fibre:      {max_power_per_fibre:.1f} dBm ({from_dbm(max_power_per_fibre) * 1e3:.2f} mW)"
+            f"  max_power_per_fibre:      {max_power_per_fibre_dbm:.1f} dBm ({max_power_per_fibre * 1e3:.2f} mW)"
         )
         print(f"  link_resources (slots):   {link_resources}")
         print(f"  slot_size:                {slot_size} GHz")

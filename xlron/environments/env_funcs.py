@@ -3234,6 +3234,32 @@ def get_lightpath_snr(state: RSAGNModelEnvParams, params: RSAGNModelEnvParams) -
     return lightpath_snr_array
 
 
+def compute_total_power_per_link(channel_power_array, path_index_array):
+    """Compute total optical power per link by summing one power value per channel.
+
+    Each channel spans multiple contiguous slots with the same power value and
+    the same path_index. We identify channel starts (where path_index differs
+    from previous slot and is >= 0) and sum their power values.
+
+    Args:
+        channel_power_array: (num_links, link_resources) per-channel power in linear Watts
+        path_index_array: (num_links, link_resources) lightpath index (-1 for empty)
+    Returns:
+        (num_links,) total optical power per link in linear Watts
+    """
+    occupied = path_index_array >= 0
+    prev_path_idx = jnp.concatenate(
+        [
+            jnp.full((path_index_array.shape[0], 1), -1, dtype=path_index_array.dtype),
+            path_index_array[:, :-1],
+        ],
+        axis=1,
+    )
+    is_channel_start = occupied & (path_index_array != prev_path_idx)
+    channel_start_powers = jnp.where(is_channel_start, channel_power_array, 0.0)
+    return jnp.sum(channel_start_powers, axis=1)
+
+
 def check_snr_sufficient(state: RSAGNModelEnvState, params: RSAGNModelEnvParams) -> chex.Array:
     """Check if SNR is sufficient for all active connections.
     Args:
@@ -3584,11 +3610,15 @@ def check_action_rmsa_gn_model(state: EnvState, action_info: ActionInfo, params:
     # TODO - log failure reasons in info
     snr_sufficient_check = check_snr_sufficient(state, params)
     rsa_check = check_action_rsa(state, action_info, params)
+    # Check total power per link doesn't exceed max_power_per_fibre
+    total_power = compute_total_power_per_link(state.channel_power_array, state.path_index_array)
+    power_check = jnp.any(total_power > params.max_power_per_fibre)
     return jnp.any(
         jnp.stack(
             (
                 rsa_check,
                 snr_sufficient_check,
+                power_check,
             )
         )
     )
@@ -3989,7 +4019,11 @@ def mask_slots_rmsa_gn_model(
         existing_fail = check_snr_sufficient(temp_state, params)
         existing_ok = (1.0 - existing_fail).astype(jnp.float32)
 
-        return new_ok * existing_ok * has_cand.astype(jnp.float32)
+        # Check 3: Total power on each link doesn't exceed max_power_per_fibre
+        total_power = compute_total_power_per_link(ch_power, path_idx_arr)
+        power_ok = (~jnp.any(total_power > params.max_power_per_fibre)).astype(jnp.float32)
+
+        return new_ok * existing_ok * power_ok * has_cand.astype(jnp.float32)
 
     all_results = jax.vmap(evaluate_one_candidate)(
         all_ch_bw,
