@@ -204,6 +204,34 @@ Default formats for the GN model environments (from `modulations_gn_model.csv`):
 | 64QAM | 6 | 30.4 dB | -0.32 |
 
 
+### Calculating SNR Thresholds from Spectral Efficiency
+
+Instead of using pre-specified `minimum_osnr` values from the CSV, the GSNR threshold can be calculated analytically from the modulation order using the `--calc_minimum_osnr` flag. When enabled, the `minimum_osnr` column is overwritten with values computed from:
+
+```
+GSNR_th(m') = f(m') * erfc_inv(g(m', beta_FEC))
+```
+
+where `m' = spectral_efficiency` is the modulation level (so that `M = 2^m'`), `beta_FEC` is the pre-FEC BER target (`--beta_fec`, default 1.5e-2), and `erfc_inv` is the inverse complementary error function. The formula has three cases:
+
+- **m' in {1, 2}** (BPSK, QPSK): `GSNR_th = m' * erfc_inv(2 * beta_FEC)`
+- **m' = 3** (8QAM): `GSNR_th = (2(M-1)/3) * erfc_inv(1.5 * beta_FEC)`
+- **m' in {4, 5, 6}** (16QAM, 32QAM, 64QAM): `GSNR_th = (2(M-1)/3) * erfc_inv(m' * beta_FEC / (2(1 - 1/sqrt(M))))`
+
+The result is converted to dB: `GSNR_th_dB = 10 * log10(GSNR_th)`.
+
+With the default `beta_fec=1.5e-2`, the calculated thresholds are:
+
+| Format | SE | Calculated GSNR threshold |
+|---|---|---|
+| BPSK | 1 | 1.9 dB |
+| QPSK | 2 | 4.9 dB |
+| 8QAM | 3 | 8.8 dB |
+| 16QAM | 4 | 11.6 dB |
+| 32QAM | 5 | 14.7 dB |
+| 64QAM | 6 | 17.6 dB |
+
+
 ## Path-Level SNR Computation
 
 The per-link SNR values (computed as described above) are combined into a path-level SNR for each frequency slot:
@@ -291,12 +319,24 @@ The masking step is computationally expensive because it runs the GN model for e
 - **`get_snr_link_array_fused`** (used when `--uniform_spans=True` and `--mod_format_correction=False`): a fully inlined version that reduces XLA operations by ~41-48% compared to the standard version
 - **FF/LF only**: evaluating only first-fit and last-fit positions (rather than all free slots) keeps the candidate count at `O(k * M)` rather than `O(k * M * link_resources)`
 
+### FEC Code Rate
+
+The `--fec_rate` parameter (default 0.8) models the overhead introduced by forward error correction. When a request is successfully accepted, the bitrate counted towards `accepted_bitrate` is scaled by this factor:
+
+```
+accepted_bitrate += requested_datarate * fec_rate
+```
+
+This reflects the fact that a fraction `(1 - fec_rate)` of the transmitted symbols carry FEC redundancy rather than user data. For example, with `fec_rate=0.8`, a 100 Gbit/s request contributes 80 Gbit/s of effective user throughput to the `accepted_bitrate` metric.
+
+This parameter only applies to `rmsa_gn_model`.
+
 ### Metrics
 
 The `rmsa_gn_model` environment tracks:
 
 - `accepted_services`: count of successfully routed requests
-- `accepted_bitrate`: cumulative demanded bandwidth of accepted requests
+- `accepted_bitrate`: cumulative effective bandwidth of accepted requests (scaled by `fec_rate`)
 - Blocking probability: fraction of requests that could not be served
 
 It does not compute Shannon throughput (unlike `rsa_gn_model` with `--monitor_active_lightpaths`).
@@ -343,7 +383,10 @@ It does not compute Shannon throughput (unlike `rsa_gn_model` with `--monitor_ac
 | `--snr_margin` | 1 | dB | Margin added to modulation format SNR thresholds |
 | `--mod_format_correction` | False | -- | Enable modulation-format-dependent NLI correction |
 | `--modulations_csv_filepath` | (built-in) | -- | Path to modulation formats CSV file |
-| `--fec_threshold` | 0.28 | -- | FEC overhead fraction (28%) for throughput calculation |
+| `--calc_minimum_osnr` | False | -- | Calculate `minimum_osnr` from spectral efficiency using GSNR threshold formula (ignores CSV values) |
+| `--beta_fec` | 1.5e-2 | -- | Pre-FEC BER target for GSNR threshold calculation (used with `--calc_minimum_osnr`) |
+| `--fec_rate` | 0.8 | -- | FEC code rate applied to accepted bitrate in `rmsa_gn_model` (`effective_bitrate = requested * fec_rate`) |
+| `--fec_threshold` | 0.28 | -- | FEC overhead fraction (28%) for throughput calculation in `rsa_gn_model` |
 | `--max_snr` | 50.0 | dB | Upper SNR clamp for observations |
 | `--min_snr` | 7.0 | dB | Lower SNR limit for throughput calculation |
 

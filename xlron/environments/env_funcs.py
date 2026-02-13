@@ -1639,13 +1639,10 @@ def complete_step_rsa_gn_model(
     one_m_fail_f = one_m_fail.astype(state.channel_power_array.dtype)
 
     state = state.replace(
-        link_slot_array=set_band_gaps(state.link_slot_array, params, -1),
-        # For arrays: x := (1-fail)*x + fail*x_prev
         channel_centre_bw_array=state.channel_centre_bw_array * one_m_fail_f
         + state.channel_centre_bw_array_prev * fail.astype(state.channel_centre_bw_array.dtype),
         channel_power_array=state.channel_power_array * one_m_fail_f
         + state.channel_power_array_prev * fail.astype(state.channel_power_array.dtype),
-        # For scalar/int arrays: same blend, but keep dtype stable
         path_index_array=state.path_index_array * one_m_fail.astype(state.path_index_array.dtype)
         + state.path_index_array_prev * fail.astype(state.path_index_array.dtype),
     )
@@ -1705,7 +1702,6 @@ def complete_step_rmsa_gn_model(
     one_m_fail_f = one_m_fail.astype(state.channel_power_array.dtype)
 
     state = state.replace(
-        link_slot_array=set_band_gaps(state.link_slot_array, params, -1),
         channel_centre_bw_array=state.channel_centre_bw_array * one_m_fail_f
         + state.channel_centre_bw_array_prev * fail.astype(state.channel_centre_bw_array.dtype),
         channel_power_array=state.channel_power_array * one_m_fail_f
@@ -1721,7 +1717,8 @@ def complete_step_rmsa_gn_model(
     # --- Book-keeping (always) ---
     state = state.replace(
         accepted_services=state.accepted_services + success,
-        accepted_bitrate=state.accepted_bitrate + (success * action_info.requested_datarate),
+        accepted_bitrate=state.accepted_bitrate
+        + (success * action_info.requested_datarate * params.fec_rate),
         total_bitrate=state.total_bitrate + action_info.requested_datarate,
         total_timesteps=state.total_timesteps + 1,
     )
@@ -2924,15 +2921,16 @@ def init_transceiver_amplifier_noise_arrays(
     ref_lambda: float,
     slot_size: float,
     noise_data_filepath: str | None = None,
-) -> Tuple[chex.Array, chex.Array]:
-    """Initialise transceiver and amplifier noise arrays.
+) -> Tuple[chex.Array, chex.Array, chex.Array, chex.Array, chex.Array]:
+    """Initialise transceiver, amplifier, and ROADM noise arrays from per-band CSV data.
     Args:
         link_resources (int): Number of link resources
         ref_lambda (float): Reference wavelength
         slot_size (float): Slot size
         noise_data_filepath (str, optional): Path to CSV file containing modulation formats. Defaults to None.
     Returns:
-        Tuple[chex.Array, chex.Array]: Transceiver noise array, Amplifier noise array
+        Tuple of per-slot arrays: (transceiver_snr, amplifier_noise_figure,
+            roadm_express_loss, roadm_add_drop_loss, roadm_noise_figure)
     """
     f = (
         pathlib.Path(noise_data_filepath)
@@ -2947,11 +2945,15 @@ def init_transceiver_amplifier_noise_arrays(
     noise_data = np.genfromtxt(f, delimiter=",")
     # Drop empty first row (headers) and column (name)
     noise_data = noise_data[1:, 1:]
-    # Columns are: wavelength_min_nm,wavelength_max_nm,frequency_min_ghz,frequency_max_ghz,NF_ASE_dB,SNR_TRX_dB
+    # Columns are: wavelength_min_nm,wavelength_max_nm,frequency_min_ghz,frequency_max_ghz,
+    #   NF_ASE_dB,SNR_TRX_dB,roadm_express_loss_dB,roadm_add_drop_loss_dB,roadm_NF_dB
     frequency_min_ghz = noise_data[:, 2]
     frequency_max_ghz = noise_data[:, 3]
     amplifier_noise_db = noise_data[:, 4]  # NF_ASE_dB
     transceiver_snr_db = noise_data[:, 5]  # SNR_TRX_dB
+    roadm_express_loss_db = noise_data[:, 6]  # roadm_express_loss_dB
+    roadm_add_drop_loss_db = noise_data[:, 7]  # roadm_add_drop_loss_dB
+    roadm_nf_db = noise_data[:, 8]  # roadm_NF_dB
 
     # Define slot centres in GHz relative to central wavelength
     slot_centres = (jnp.arange(link_resources) - (link_resources - 1) / 2) * slot_size
@@ -2963,6 +2965,9 @@ def init_transceiver_amplifier_noise_arrays(
     # Initialize output arrays
     transceiver_snr_array = jnp.zeros(link_resources)
     amplifier_noise_figure_array = jnp.zeros(link_resources)
+    roadm_express_loss_array = jnp.zeros(link_resources)
+    roadm_add_drop_loss_array = jnp.zeros(link_resources)
+    roadm_noise_figure_array = jnp.zeros(link_resources)
 
     # For each slot, find which band it belongs to
     for i, freq in enumerate(slot_frequencies_ghz):
@@ -2973,12 +2978,100 @@ def init_transceiver_amplifier_noise_arrays(
                 amplifier_noise_figure_array = amplifier_noise_figure_array.at[i].set(
                     amplifier_noise_db[j]
                 )
+                roadm_express_loss_array = roadm_express_loss_array.at[i].set(
+                    roadm_express_loss_db[j]
+                )
+                roadm_add_drop_loss_array = roadm_add_drop_loss_array.at[i].set(
+                    roadm_add_drop_loss_db[j]
+                )
+                roadm_noise_figure_array = roadm_noise_figure_array.at[i].set(roadm_nf_db[j])
                 break
         else:
             # If frequency is outside all bands, could raise error or use default
             raise ValueError(f"Frequency {freq} GHz is outside the defined bands")
 
-    return transceiver_snr_array, amplifier_noise_figure_array
+    return (
+        transceiver_snr_array,
+        amplifier_noise_figure_array,
+        roadm_express_loss_array,
+        roadm_add_drop_loss_array,
+        roadm_noise_figure_array,
+    )
+
+
+def compute_band_gaps_from_csv(
+    link_resources: int,
+    ref_lambda: float,
+    slot_size: float,
+    noise_data_filepath: str | None = None,
+) -> Tuple[list, list]:
+    """Compute band gap slot positions from per-band CSV data.
+
+    Reads the transceiver/amplifier CSV and derives actual band frequency ranges
+    from the wavelength columns (the CSV frequency columns contain sentinel values
+    that paper over the physical gaps). Any slot whose centre frequency falls
+    between bands is marked as a gap slot.
+
+    Args:
+        link_resources: Number of frequency slots per link.
+        ref_lambda: Reference wavelength (m).
+        slot_size: Slot width in GHz.
+        noise_data_filepath: Optional path to CSV file. Defaults to built-in data.
+
+    Returns:
+        Tuple of (gap_start_slots, gap_width_slots) as Python lists of ints.
+    """
+    f = (
+        pathlib.Path(noise_data_filepath)
+        if noise_data_filepath
+        else (
+            pathlib.Path(__file__).parents[1].absolute()
+            / "data"
+            / "gn_model"
+            / "transceiver_amplifier_data.csv"
+        )
+    )
+    noise_data = np.genfromtxt(f, delimiter=",")
+    noise_data = noise_data[1:, 1:]  # Drop headers and name column
+    # Columns: wavelength_min_nm, wavelength_max_nm, frequency_min_ghz, frequency_max_ghz, ...
+    wavelength_min_nm = noise_data[:, 0]
+    wavelength_max_nm = noise_data[:, 1]
+
+    # Derive frequency ranges from wavelength columns (higher wavelength = lower frequency)
+    # freq_lo corresponds to wavelength_max, freq_hi corresponds to wavelength_min
+    band_freq_lo = c / (wavelength_max_nm * 1e-9) / 1e9  # GHz
+    band_freq_hi = c / (wavelength_min_nm * 1e-9) / 1e9  # GHz
+
+    # Compute per-slot absolute frequencies in GHz
+    slot_centres = (np.arange(link_resources) - (link_resources - 1) / 2) * slot_size
+    ref_frequency_ghz = c / ref_lambda / 1e9
+    slot_frequencies_ghz = ref_frequency_ghz + slot_centres
+
+    # Mark each slot as covered if its centre falls within any band's frequency range
+    covered = np.zeros(link_resources, dtype=bool)
+    for i, freq in enumerate(slot_frequencies_ghz):
+        for j in range(len(band_freq_lo)):
+            if band_freq_lo[j] <= freq <= band_freq_hi[j]:
+                covered[i] = True
+                break
+
+    # Find contiguous runs of uncovered slots
+    gap_start_slots = []
+    gap_width_slots = []
+    in_gap = False
+    for i in range(link_resources):
+        if not covered[i] and not in_gap:
+            gap_start = i
+            in_gap = True
+        elif covered[i] and in_gap:
+            gap_start_slots.append(gap_start)
+            gap_width_slots.append(i - gap_start)
+            in_gap = False
+    if in_gap:
+        gap_start_slots.append(gap_start)
+        gap_width_slots.append(link_resources - gap_start)
+
+    return gap_start_slots, gap_width_slots
 
 
 @partial(jax.jit, static_argnums=(1, 2))
@@ -3195,9 +3288,9 @@ def get_snr_for_path(path, link_snr_array, params, state=None):
         )  # GHz -> Hz
 
         roadm_ase = isrs_gn_model.calculate_roadm_ase(
-            roadm_express_loss=params.roadm_express_loss,
-            roadm_add_drop_loss=params.roadm_add_drop_loss,
-            roadm_noise_figure=params.roadm_noise_figure,
+            roadm_express_loss=params.roadm_express_loss.val,
+            roadm_add_drop_loss=params.roadm_add_drop_loss.val,
+            roadm_noise_figure=params.roadm_noise_figure.val,
             num_roadm_express=num_express,
             ref_lambda=params.ref_lambda,
             ch_centre_i=ch_centres_hz,

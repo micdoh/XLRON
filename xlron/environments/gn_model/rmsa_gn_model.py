@@ -16,6 +16,7 @@ from xlron.environments.env_funcs import (
     init_rsa_request_array,
     init_traffic_matrix,
     mask_slots_rmsa_gn_model,
+    set_band_gaps,
 )
 from xlron.environments.rsa.rsa import RSAEnv, RSAEnvParams, RSAEnvState
 from xlron.environments.wrappers import *
@@ -57,7 +58,7 @@ class RMSAGNModelEnv(RSAEnv):
             holding_time=0,
             total_timesteps=0,
             total_requests=-1,
-            link_slot_array=init_link_slot_array(params),
+            link_slot_array=set_band_gaps(init_link_slot_array(params), params, -1.0),
             link_slot_departure_array=init_link_slot_departure_array(params),
             request_array=init_rsa_request_array(),
             link_slot_mask=init_link_slot_mask(params, agg=params.aggregate_slots),

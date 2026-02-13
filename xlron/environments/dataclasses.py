@@ -289,9 +289,9 @@ class GNModelEnvParams(RSAEnvParams):
     coherent: bool = struct.field(pytree_node=False)
     num_roadms: chex.Scalar = struct.field(pytree_node=False)
     roadm_loss: chex.Scalar = struct.field(pytree_node=False)
-    roadm_express_loss: chex.Scalar = struct.field(pytree_node=False)
-    roadm_add_drop_loss: chex.Scalar = struct.field(pytree_node=False)
-    roadm_noise_figure: chex.Scalar = struct.field(pytree_node=False)
+    roadm_express_loss: HashableArrayWrapper = struct.field(pytree_node=False)
+    roadm_add_drop_loss: HashableArrayWrapper = struct.field(pytree_node=False)
+    roadm_noise_figure: HashableArrayWrapper = struct.field(pytree_node=False)
     num_spans: chex.Scalar = struct.field(pytree_node=False)
     launch_power_type: chex.Scalar = struct.field(pytree_node=False)
     snr_margin: chex.Scalar = struct.field(pytree_node=False)
@@ -361,6 +361,7 @@ class RMSAGNModelEnvParams(GNModelEnvParams):
     """
 
     modulations_array: HashableArrayWrapper = struct.field(pytree_node=False)
+    fec_rate: chex.Scalar = struct.field(pytree_node=False)
 
 
 @struct.dataclass

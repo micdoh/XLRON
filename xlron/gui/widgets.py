@@ -197,6 +197,7 @@ DEFAULTS = {
     "modulations_csv_filepath": "./xlron/data/modulations/modulations_deeprmsa.csv",
     "calc_minimum_osnr": False,
     "beta_fec": 1.5e-2,
+    "fec_rate": 0.8,
     "alpha": 0.2,
     "beta_2": -21.7,
     "gamma": 1.2,
@@ -957,6 +958,18 @@ def physical_layer_section() -> dict:
             help=_h("beta_fec"),
         )
         _emit(flags, "beta_fec", beta_fec)
+
+    if st.session_state.get("_env_type") == "rmsa_gn_model":
+        fec_rate = st.number_input(
+            "FEC Code Rate",
+            min_value=0.0,
+            max_value=1.0,
+            value=float(_get_preset_val("fec_rate")),
+            step=0.01,
+            format="%.2f",
+            help=_h("fec_rate"),
+        )
+        _emit(flags, "fec_rate", fec_rate)
 
     col1, col2 = st.columns(2)
     with col1:

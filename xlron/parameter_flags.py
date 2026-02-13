@@ -345,7 +345,7 @@ flags.DEFINE_string(
 )
 flags.DEFINE_boolean(
     "calc_minimum_osnr",
-    False,
+    True,
     "Calculate minimum OSNR column from spectral efficiency using GSNR threshold formula "
     "instead of reading pre-specified values from the modulations CSV",
 )
@@ -353,6 +353,12 @@ flags.DEFINE_float(
     "beta_fec",
     1.5e-2,
     "Pre-FEC BER target for GSNR threshold calculation (used with --calc_minimum_osnr)",
+)
+flags.DEFINE_float(
+    "fec_rate",
+    0.8,
+    "FEC code rate applied to accepted bitrate (effective_bitrate = requested_bitrate * fec_rate). "
+    "Only used with rmsa_gn_model environment.",
 )
 flags.DEFINE_string("traffic_requests_csv_filepath", None, "Path to traffic request CSV file")
 flags.DEFINE_string(
@@ -525,15 +531,17 @@ flags.DEFINE_float("attenuation", 4.605111673e-5, "Attenuation [1/m]")
 flags.DEFINE_float("attenuation_bar", 4.605111673e-5, "Attenuation [1/m]")
 flags.DEFINE_float("dispersion_coeff", 17e-6, "Dispersion [s/m^2]")
 flags.DEFINE_float("dispersion_slope", 60.7, "Dispersion slope [s/m^3]")
-flags.DEFINE_float("roadm_express_loss", 5.0, "ROADM express (pass-through) loss [dB]")
-flags.DEFINE_float("roadm_add_drop_loss", 8.0, "ROADM add/drop loss [dB]")
-flags.DEFINE_float("roadm_noise_figure", 5.0, "ROADM booster amplifier noise figure [dB]")
 flags.DEFINE_boolean("coherent", False, "Add NLI contribution coherently per span")
 flags.DEFINE_boolean(
     "mod_format_correction", False, "Apply non-Gaussian modulation format correction"
 )
 flags.DEFINE_multi_integer("interband_gap_width", None, "Gap between bands [GHz]")
 flags.DEFINE_multi_integer("interband_gap_start", None, "Start index of gap between bands [GHz]")
+flags.DEFINE_boolean(
+    "enforce_band_gaps",
+    False,
+    "Compute and enforce band boundary gaps from CSV data (RMSA GN Model only)",
+)
 flags.DEFINE_float(
     "snr_margin",
     0.5,

@@ -33,6 +33,7 @@ from xlron.environments.dataclasses import (
     VONEEnvParams,
 )
 from xlron.environments.env_funcs import (
+    compute_band_gaps_from_csv,
     convert_node_probs_to_traffic_matrix,
     generate_source_dest_pairs,
     get_line_graph_spectral_features,
@@ -254,16 +255,21 @@ def make(
     coherent = config.get("coherent", False)
     config.get("noise_figure", 4)
     uniform_spans = config.get("uniform_spans", True)
-    interband_gap_width = [200, 200] if config.get("interband_gap_width", None) is None else []
-    gap_width_slots = [int(math.ceil(width / slot_size)) for width in interband_gap_width]
-    interband_gap_start = [4425, 8425] if config.get("interband_gap_start", None) is None else []
-    gap_start_slots = [int(math.ceil(start / slot_size)) for start in interband_gap_start]
+    enforce_band_gaps = config.get("enforce_band_gaps", False)
+    if enforce_band_gaps:
+        gap_start_slots, gap_width_slots = compute_band_gaps_from_csv(
+            link_resources, ref_lambda, slot_size, config.get("noise_data_filepath", None)
+        )
+    else:
+        interband_gap_width = [200, 200] if config.get("interband_gap_width", None) is None else []
+        gap_width_slots = [int(math.ceil(width / slot_size)) for width in interband_gap_width]
+        interband_gap_start = (
+            [4425, 8425] if config.get("interband_gap_start", None) is None else []
+        )
+        gap_start_slots = [int(math.ceil(start / slot_size)) for start in interband_gap_start]
     mod_format_correction = config.get("mod_format_correction", True)
     num_roadms = config.get("num_roadms", 1)
     roadm_loss = config.get("roadm_loss", 18)
-    roadm_express_loss = config.get("roadm_express_loss", 5.0)
-    roadm_add_drop_loss = config.get("roadm_add_drop_loss", 8.0)
-    roadm_noise_figure = config.get("roadm_noise_figure", 5.0)
     snr_margin = config.get("snr_margin", 1)
     path_snr = True if env_type in ["rsa_gn_model", "rmsa_gn_model"] else False
     max_snr = config.get("max_snr", 50.0)
@@ -606,18 +612,24 @@ def make(
         params_dict.update(gap_starts=gap_starts, gap_widths=gap_widths)
     elif "gn_model" in env_type:
         env_params = RSAGNModelEnvParams
-        transceiver_snr, amplifier_noise_figure = init_transceiver_amplifier_noise_arrays(
+        (
+            transceiver_snr,
+            amplifier_noise_figure,
+            roadm_express_loss,
+            roadm_add_drop_loss,
+            roadm_noise_figure,
+        ) = init_transceiver_amplifier_noise_arrays(
             link_resources,
             ref_lambda,
             slot_size,
             config.get("noise_data_filepath", None),
         )
-        transceiver_snr, amplifier_noise_figure = (
-            HashableArrayWrapper(transceiver_snr),
-            HashableArrayWrapper(amplifier_noise_figure)
-            if not remove_array_wrappers
-            else (transceiver_snr, amplifier_noise_figure),
-        )
+        if not remove_array_wrappers:
+            transceiver_snr = HashableArrayWrapper(transceiver_snr)
+            amplifier_noise_figure = HashableArrayWrapper(amplifier_noise_figure)
+            roadm_express_loss = HashableArrayWrapper(roadm_express_loss)
+            roadm_add_drop_loss = HashableArrayWrapper(roadm_add_drop_loss)
+            roadm_noise_figure = HashableArrayWrapper(roadm_noise_figure)
         params_dict.update(
             ref_lambda=ref_lambda,
             max_spans=max_spans,
@@ -661,6 +673,7 @@ def make(
                 modulations_array=HashableArrayWrapper(modulations_array)
                 if not remove_array_wrappers
                 else modulations_array,
+                fec_rate=config.get("fec_rate", 0.8),
             )
 
         # Print GN model power budget summary
@@ -689,9 +702,24 @@ def make(
             f"  Per-channel launch power: {per_channel_power_dbm:.2f} dBm ({per_channel_power_w * 1e3:.4f} mW)"
         )
         print(f"  launch_power_type:        {launch_power_type}")
-        print(f"  ROADM express loss:       {roadm_express_loss} dB")
-        print(f"  ROADM add/drop loss:      {roadm_add_drop_loss} dB")
-        print(f"  ROADM noise figure:       {roadm_noise_figure} dB")
+        roadm_el_vals = (
+            roadm_express_loss.val if hasattr(roadm_express_loss, "val") else roadm_express_loss
+        )
+        roadm_ad_vals = (
+            roadm_add_drop_loss.val if hasattr(roadm_add_drop_loss, "val") else roadm_add_drop_loss
+        )
+        roadm_nf_vals = (
+            roadm_noise_figure.val if hasattr(roadm_noise_figure, "val") else roadm_noise_figure
+        )
+        print(
+            f"  ROADM express loss range: {float(jnp.min(roadm_el_vals)):.1f} - {float(jnp.max(roadm_el_vals)):.1f} dB"
+        )
+        print(
+            f"  ROADM add/drop loss range: {float(jnp.min(roadm_ad_vals)):.1f} - {float(jnp.max(roadm_ad_vals)):.1f} dB"
+        )
+        print(
+            f"  ROADM NF range:           {float(jnp.min(roadm_nf_vals)):.1f} - {float(jnp.max(roadm_nf_vals)):.1f} dB"
+        )
         print(
             f"  Amplifier NF range:       {float(jnp.min(nf_vals)):.1f} - {float(jnp.max(nf_vals)):.1f} dB"
         )
@@ -722,11 +750,14 @@ def make(
         _NF_lin = 10 ** (_nf_typical / 10)
         _N_sp = (_NF_lin * _G_inline) / (2.0 * (_G_inline - 1))
         _p_ase_one = 2 * _N_sp * (_G_inline - 1) * _h * _ref_freq * _B
-        _NF_roadm_lin = 10 ** (roadm_noise_figure / 10)
-        _G_express = 10 ** (roadm_express_loss / 10)
+        _roadm_nf_typical = float(jnp.median(roadm_nf_vals))
+        _roadm_el_typical = float(jnp.median(roadm_el_vals))
+        _roadm_ad_typical = float(jnp.median(roadm_ad_vals))
+        _NF_roadm_lin = 10 ** (_roadm_nf_typical / 10)
+        _G_express = 10 ** (_roadm_el_typical / 10)
         _N_sp_express = (_NF_roadm_lin * _G_express) / (2.0 * (_G_express - 1))
         _p_ase_express_one = 2 * _N_sp_express * (_G_express - 1) * _h * _ref_freq * _B
-        _G_ad = 10 ** (roadm_add_drop_loss / 10)
+        _G_ad = 10 ** (_roadm_ad_typical / 10)
         _N_sp_ad = (_NF_roadm_lin * _G_ad) / (2.0 * (_G_ad - 1))
         _p_ase_ad_one = 2 * _N_sp_ad * (_G_ad - 1) * _h * _ref_freq * _B
         _trx_snr_typical = float(jnp.median(trx_vals))

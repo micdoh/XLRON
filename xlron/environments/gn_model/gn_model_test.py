@@ -245,12 +245,12 @@ class TransceiverAmplifierNoiseTest(parameterized.TestCase):
     def setUp(self):
         super().setUp()
         # Create a temporary CSV file with test data
-        self.test_data = """sub_band,wavelength_min_nm,wavelength_max_nm,frequency_min_ghz,frequency_max_ghz,NF_ASE_dB,SNR_TRX_dB
-1,1484.86,1519.8,197242.07,201921.52,7.0,15.80
-2,1520,1529,196069.31,197225.30,9.0,17.82
-3,1529.2,1568,191121.46,196043.48,5.5,21.25
-4,1568.2,1607.8,186519.62,191096.83,6.0,21.25
-5,1608,1619.67,185105.45,186483.67,9.0,17.07"""
+        self.test_data = """sub_band,wavelength_min_nm,wavelength_max_nm,frequency_min_ghz,frequency_max_ghz,NF_ASE_dB,SNR_TRX_dB,roadm_express_loss_dB,roadm_add_drop_loss_dB,roadm_NF_dB
+1,1484.86,1519.8,197242.07,201921.52,7.0,15.80,5.0,8.0,5.0
+2,1520,1529,196069.31,197225.30,9.0,17.82,5.0,8.0,5.0
+3,1529.2,1568,191121.46,196043.48,5.5,21.25,5.0,8.0,5.0
+4,1568.2,1607.8,186519.62,191096.83,6.0,21.25,5.0,8.0,5.0
+5,1608,1619.67,185105.45,186483.67,9.0,17.07,5.0,8.0,5.0"""
 
         self.temp_file = tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False)
         self.temp_file.write(self.test_data)
@@ -309,9 +309,15 @@ class TransceiverAmplifierNoiseTest(parameterized.TestCase):
         self, link_resources, ref_lambda, slot_size, expected_transceiver_snr, expected_amplifier_nf
     ):
         # Call the function
-        transceiver_snr_array, amplifier_noise_figure_array = self.variant(
-            init_transceiver_amplifier_noise_arrays, static_argnums=(0, 1, 2)
-        )(link_resources, ref_lambda, slot_size, self.noise_data_filepath)
+        (
+            transceiver_snr_array,
+            amplifier_noise_figure_array,
+            roadm_express_loss_array,
+            roadm_add_drop_loss_array,
+            roadm_noise_figure_array,
+        ) = self.variant(init_transceiver_amplifier_noise_arrays, static_argnums=(0, 1, 2))(
+            link_resources, ref_lambda, slot_size, self.noise_data_filepath
+        )
 
         # Debug prints
         jax.debug.print("transceiver_snr_array: {}", transceiver_snr_array, ordered=True)
@@ -354,13 +360,22 @@ class TransceiverAmplifierNoiseTest(parameterized.TestCase):
 
         # Run function and check intermediate calculations
         # (Would need to modify function to return slot_frequencies_ghz for testing)
-        transceiver_snr_array, amplifier_noise_figure_array = self.variant(
-            init_transceiver_amplifier_noise_arrays, static_argnums=(0, 1, 2)
-        )(link_resources, ref_lambda, slot_size, self.noise_data_filepath)
+        (
+            transceiver_snr_array,
+            amplifier_noise_figure_array,
+            roadm_express_loss_array,
+            roadm_add_drop_loss_array,
+            roadm_noise_figure_array,
+        ) = self.variant(init_transceiver_amplifier_noise_arrays, static_argnums=(0, 1, 2))(
+            link_resources, ref_lambda, slot_size, self.noise_data_filepath
+        )
 
         # At least check the arrays have correct shape
         self.assertEqual(transceiver_snr_array.shape, (link_resources,))
         self.assertEqual(amplifier_noise_figure_array.shape, (link_resources,))
+        self.assertEqual(roadm_express_loss_array.shape, (link_resources,))
+        self.assertEqual(roadm_add_drop_loss_array.shape, (link_resources,))
+        self.assertEqual(roadm_noise_figure_array.shape, (link_resources,))
 
 
 def rmsa_gn_model_test_setup():
@@ -432,6 +447,98 @@ class RMSAGNModelMaskTest(parameterized.TestCase):
         self.assertTrue(jnp.isfinite(reward))
         self.assertTrue(isinstance(terminal, jax.Array))
         self.assertTrue(isinstance(truncated, jax.Array))
+
+
+def rmsa_gn_model_enforce_band_gaps_test_setup():
+    key = jax.random.PRNGKey(3)
+    settings = dict(
+        k=4,
+        topology_name="nsfnet_deeprmsa_directed",
+        link_resources=100,
+        max_requests=100,
+        values_bw=[100],
+        incremental_loading=True,
+        env_type="rmsa_gn_model",
+        slot_size=12.5,
+        guardband=0,
+        mod_format_correction=False,
+        max_power_per_fibre=10.0,
+        coherent=False,
+        include_no_op=False,
+        enforce_band_gaps=True,
+    )
+    env, params = make(settings, log_wrapper=False)
+    obs, state = env.reset(key, params)
+    return key, env, obs, state, params
+
+
+class EnforceBandGapsTest(parameterized.TestCase):
+    def setUp(self):
+        super().setUp()
+        (
+            self.key,
+            self.env,
+            self.obs,
+            self.state,
+            self.params,
+        ) = rmsa_gn_model_enforce_band_gaps_test_setup()
+
+    def test_band_gaps_present_in_initial_state(self):
+        """Band gap slots should be -1 in the initial link_slot_array."""
+        lsa = self.state.link_slot_array
+        gap_starts = self.params.gap_starts.val
+        gap_widths = self.params.gap_widths.val
+        # There should be at least one gap
+        self.assertGreater(len(gap_starts), 0, "enforce_band_gaps should produce gaps")
+        # All gap slots should be -1 on every link
+        for i in range(len(gap_starts)):
+            start = int(gap_starts[i])
+            width = int(gap_widths[i])
+            gap_slots = lsa[:, start : start + width]
+            self.assertTrue(
+                jnp.all(gap_slots == -1),
+                f"Gap at slot {start} width {width} should be -1 but got {gap_slots}",
+            )
+
+    def test_mask_does_not_propose_gap_slots(self):
+        """Action mask should be zero for any slot inside a band gap."""
+        state = self.env.action_mask(self.state, self.params)
+        mask = state.link_slot_mask
+        gap_starts = self.params.gap_starts.val
+        gap_widths = self.params.gap_widths.val
+        for i in range(len(gap_starts)):
+            start = int(gap_starts[i])
+            width = int(gap_widths[i])
+            for p in range(self.params.k_paths):
+                offset = p * self.params.link_resources
+                gap_mask = mask[offset + start : offset + start + width]
+                self.assertTrue(
+                    jnp.all(gap_mask == 0),
+                    f"Mask should be 0 in gap at path {p} slot {start}",
+                )
+
+    def test_band_gaps_survive_step(self):
+        """Band gap slots should remain -1 after taking a valid action."""
+        state = self.env.action_mask(self.state, self.params)
+        mask = state.link_slot_mask
+        rng_sample, rng_step = jax.random.split(self.key)
+        action_dist = distrax.Categorical(logits=jnp.where(mask > 0, 0.0, -1e8))
+        path_action = action_dist.sample(seed=rng_sample)
+        power_action = jnp.array([0])
+        action = jnp.concatenate([path_action.reshape((1,)), power_action.reshape((1,))])
+        _, new_state, _, _, _, _ = self.env.step(rng_step, state, action, self.params)
+        # Gaps must still be -1
+        lsa = new_state.link_slot_array
+        gap_starts = self.params.gap_starts.val
+        gap_widths = self.params.gap_widths.val
+        for i in range(len(gap_starts)):
+            start = int(gap_starts[i])
+            width = int(gap_widths[i])
+            gap_slots = lsa[:, start : start + width]
+            self.assertTrue(
+                jnp.all(gap_slots == -1),
+                f"Gap at slot {start} should still be -1 after step",
+            )
 
 
 if __name__ == "__main__":
