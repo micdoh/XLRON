@@ -244,8 +244,16 @@ def print_experiment_summary(config: Box, env_params=None) -> None:
     # --- Environment ---
     env_type = config.get("env_type", "?")
     topology = config.get("topology_name", "?")
-    num_nodes = env_params.num_nodes if env_params else config.get("NUM_NODES", "?")
-    num_links = env_params.num_links if env_params else config.get("NUM_LINKS", "?")
+    if env_params:
+        num_nodes = env_params.num_nodes
+        num_links = env_params.num_links
+    elif config.get("NUM_NODES"):
+        num_nodes = config.NUM_NODES
+        num_links = config.NUM_LINKS
+    else:
+        graph = make_graph(topology, topology_directory=config.get("topology_directory", None))
+        num_nodes = len(graph.nodes)
+        num_links = len(graph.edges)
     k = env_params.k_paths if env_params else config.get("k", "?")
     link_resources = env_params.link_resources if env_params else config.get("link_resources", "?")
     slot_size = env_params.slot_size if env_params else config.get("slot_size", 12.5)
@@ -256,10 +264,15 @@ def print_experiment_summary(config: Box, env_params=None) -> None:
 
     # --- Traffic ---
     load = env_params.load if env_params else config.get("load", "?")
-    arrival_rate = env_params.arrival_rate if env_params else "?"
     holding_time = (
         env_params.mean_service_holding_time if env_params else config.get("mean_service_holding_time", "?")
     )
+    if env_params:
+        arrival_rate = env_params.arrival_rate
+    elif load != "?" and holding_time != "?":
+        arrival_rate = float(load) / float(holding_time)
+    else:
+        arrival_rate = "?"
     continuous = env_params.continuous_operation if env_params else config.get("continuous_operation", False)
     incremental = env_params.incremental_loading if env_params else config.get("incremental_loading", False)
     max_requests = env_params.max_requests if env_params else config.get("max_requests", "?")
