@@ -66,7 +66,7 @@ xlron.train.parameter_flags:
     (default: '1')
     (an integer)
   --MODEL_PATH: Path to save/load model
-  --[no]NO_PRINT_FLAGS: Do not print flags
+  --[no]PRINT_FLAGS: Print flags
     (default: 'false')
   --NUM_DEVICES: Number of devices
     (default: '1')

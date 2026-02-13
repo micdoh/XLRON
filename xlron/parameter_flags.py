@@ -109,7 +109,7 @@ flags.DEFINE_boolean(
     True,
     "Order print statements when debugging (must be false if using pmap)",
 )
-flags.DEFINE_boolean("NO_PRINT_FLAGS", False, "Do not print flags")
+flags.DEFINE_boolean("PRINT_FLAGS", False, "Print flags")
 flags.DEFINE_string("MODEL_PATH", None, "Path to save/load model")
 flags.DEFINE_string("PROJECT", "", "Name of project (same as experiment name if unspecified)")
 flags.DEFINE_string(

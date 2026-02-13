@@ -37,6 +37,7 @@ from xlron.train.train_utils import (
     log_metrics,
     metrics,
     plot_metrics,
+    print_experiment_summary,
     print_metrics,
     run_eval_during_training,
     save_model,
@@ -212,7 +213,7 @@ def train(argv: list[str], config: Dict[str, Any] = {}) -> None:
         # increase line length for numpy print options
         jax.numpy.set_printoptions(linewidth=220)
 
-    if not config.NO_PRINT_FLAGS:
+    if config.PRINT_FLAGS:
         for name in config:
             print(name, config[name])
 
@@ -221,28 +222,13 @@ def train(argv: list[str], config: Dict[str, Any] = {}) -> None:
     else:
         model = None
 
-    print(
-        f"Independent learners: {config.NUM_LEARNERS}\n"
-        f"Environments per learner: {config.NUM_ENVS}\n"
-        f"Number of devices: {num_devices}\n"
-        f"Learners per device: {config.NUM_LEARNERS // num_devices}\n"
-        f"Timesteps per learner: {config.TOTAL_TIMESTEPS}\n"
-        f"Timesteps per environment: {config.TOTAL_TIMESTEPS // config.NUM_ENVS}\n"
-        f"Total timesteps: {config.TOTAL_TIMESTEPS * config.NUM_LEARNERS}\n"
-        f"Total updates: {config.NUM_INCREMENTS * config.NUM_UPDATES * config.NUM_MINIBATCHES}\n"
-        f"Batch size: {config.NUM_ENVS * config.ROLLOUT_LENGTH}\n"
-        f"Minibatch size: {config.MINIBATCH_SIZE}\n"
-    )
+    # Print experiment summary (env_params not yet available; will print after setup)
+    print_experiment_summary(config)
 
     profiler = Profiler(enabled=config.PROFILE)
 
     with profiler.section("COMPILATION"):
-        print(
-            f"\n---BEGINNING COMPILATION---\n"
-            f"Total timesteps per increment: {config.STEPS_PER_INCREMENT * config.NUM_LEARNERS}\n"
-            f"Timesteps per environment per increment: {config.STEPS_PER_INCREMENT // config.NUM_ENVS}\n"
-            f"Total updates per increment: {config.NUM_UPDATES * config.NUM_MINIBATCHES}\n"
-        )
+        print("\n---BEGINNING COMPILATION---\n")
 
         rng = jax.random.PRNGKey(config.SEED)
         if config.NUM_LEARNERS > 1:

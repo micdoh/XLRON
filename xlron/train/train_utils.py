@@ -226,6 +226,168 @@ def count_parameters(params: chex.ArrayTree) -> int:
     return sum(x.size for x in jax.tree_util.tree_leaves(params))
 
 
+def print_experiment_summary(config: Box, env_params=None) -> None:
+    """Print a formatted summary of the experiment configuration."""
+    W = 70
+    sep = "=" * W
+
+    # --- Determine execution mode ---
+    if config.get("EVAL_HEURISTIC", False):
+        mode = f"Heuristic Evaluation ({config.get('path_heuristic', '?')})"
+    elif config.get("EVAL_MODEL", False):
+        mode = "Model Evaluation"
+    elif config.get("ACTION_OPTIMIZATION", False):
+        mode = "Action Optimization"
+    else:
+        mode = "RL Training (PPO)"
+
+    # --- Environment ---
+    env_type = config.get("env_type", "?")
+    topology = config.get("topology_name", "?")
+    num_nodes = env_params.num_nodes if env_params else config.get("NUM_NODES", "?")
+    num_links = env_params.num_links if env_params else config.get("NUM_LINKS", "?")
+    k = env_params.k_paths if env_params else config.get("k", "?")
+    link_resources = env_params.link_resources if env_params else config.get("link_resources", "?")
+    slot_size = env_params.slot_size if env_params else config.get("slot_size", 12.5)
+    guardband = env_params.guardband if env_params else config.get("guardband", 1)
+    directed = env_params.directed_graph if env_params else config.get("directed_graph", "?")
+    path_sort = config.get("path_sort_criteria", "hops")
+    total_bw = float(link_resources) * float(slot_size) if link_resources != "?" else "?"
+
+    # --- Traffic ---
+    load = env_params.load if env_params else config.get("load", "?")
+    arrival_rate = env_params.arrival_rate if env_params else "?"
+    holding_time = (
+        env_params.mean_service_holding_time if env_params else config.get("mean_service_holding_time", "?")
+    )
+    continuous = env_params.continuous_operation if env_params else config.get("continuous_operation", False)
+    incremental = env_params.incremental_loading if env_params else config.get("incremental_loading", False)
+    max_requests = env_params.max_requests if env_params else config.get("max_requests", "?")
+    warmup = config.get("ENV_WARMUP_STEPS", 0)
+    reward_type = env_params.reward_type if env_params else config.get("reward_type", "service")
+    values_bw = env_params.values_bw if env_params else config.get("values_bw", None)
+    if hasattr(values_bw, "val"):
+        values_bw = values_bw.val
+    truncate_ht = env_params.truncate_holding_time if env_params else config.get("truncate_holding_time", False)
+
+    # --- Training / Execution ---
+    total_timesteps = config.get("TOTAL_TIMESTEPS", "?")
+    num_envs = config.get("NUM_ENVS", 1)
+    num_learners = config.get("NUM_LEARNERS", 1)
+    rollout_length = config.get("ROLLOUT_LENGTH", "?")
+    num_updates = config.get("NUM_UPDATES", "?")
+    num_minibatches = config.get("NUM_MINIBATCHES", 1)
+    update_epochs = config.get("UPDATE_EPOCHS", 1)
+    num_increments = config.get("NUM_INCREMENTS", 1)
+    steps_per_inc = config.get("STEPS_PER_INCREMENT", "?")
+    batch_size = config.get("MINIBATCH_SIZE", "?")
+
+    # --- Model ---
+    if config.get("USE_TRANSFORMER", False):
+        arch = "Transformer"
+        arch_detail = (
+            f"{config.get('transformer_num_layers', '?')}L / "
+            f"{config.get('transformer_num_heads', '?')}H / "
+            f"d={config.get('transformer_embedding_size', '?')}"
+        )
+    elif config.get("USE_GNN", False):
+        arch = "GNN"
+        arch_detail = (
+            f"{config.get('message_passing_steps', '?')} msg steps / "
+            f"edge_emb={config.get('edge_embedding_size', '?')}"
+        )
+    else:
+        arch = "MLP"
+        arch_detail = (
+            f"{config.get('NUM_LAYERS', '?')} layers x "
+            f"{config.get('NUM_UNITS', '?')} units"
+        )
+
+    # --- Print ---
+    print(f"\n{sep}")
+    print("EXPERIMENT SUMMARY")
+    print(sep)
+
+    print(f"  Mode:                     {mode}")
+    print(f"  Experiment name:          {config.get('EXPERIMENT_NAME', '-')}")
+
+    print(f"\n  {'--- Environment ---':^{W - 4}}")
+    print(f"  Type:                     {env_type}")
+    print(f"  Topology:                 {topology} ({'directed' if directed else 'undirected'})")
+    print(f"  Nodes / Links:            {num_nodes} / {num_links}")
+    print(f"  K-shortest paths:         {k}  (sort: {path_sort})")
+    print(f"  Slots per link:           {link_resources}  ({slot_size} GHz each, guardband={guardband})")
+    if total_bw != "?":
+        print(f"  Total spectrum per link:  {total_bw:.0f} GHz")
+    consider_mod = env_params.consider_modulation_format if env_params else "?"
+    if consider_mod and consider_mod != "?":
+        print(f"  Modulation format:        enabled")
+    if config.get("aggregate_slots", 1) > 1:
+        print(f"  Slot aggregation:         {config.get('aggregate_slots')}x")
+
+    print(f"\n  {'--- Traffic ---':^{W - 4}}")
+    print(f"  Load:                     {load} Erlang")
+    print(f"  Arrival rate:             {arrival_rate}")
+    print(f"  Mean holding time:        {holding_time}{' (truncated)' if truncate_ht else ''}")
+    if values_bw is not None:
+        bw_str = ", ".join(str(int(v)) for v in np.asarray(values_bw).flatten()) if hasattr(values_bw, '__len__') else str(values_bw)
+        print(f"  Bandwidth values (Gbps):  [{bw_str}]")
+    print(f"  Reward type:              {reward_type}")
+    op_mode = "continuous" if continuous else ("incremental" if incremental else "episodic")
+    print(f"  Operation mode:           {op_mode}")
+    if not continuous:
+        print(f"  Max requests / episode:   {max_requests}")
+    if warmup > 0:
+        print(f"  Warmup steps:             {warmup}")
+
+    print(f"\n  {'--- Execution ---':^{W - 4}}")
+    print(f"  Total timesteps:          {total_timesteps:,}" if isinstance(total_timesteps, int) else f"  Total timesteps:          {total_timesteps}")
+    print(f"  Parallel envs:            {num_envs}")
+    if num_learners > 1:
+        print(f"  Independent learners:     {num_learners}")
+        print(f"  Grand total timesteps:    {total_timesteps * num_learners:,}")
+    print(f"  Increments:               {num_increments}  ({steps_per_inc:,} steps each)" if isinstance(steps_per_inc, int) else f"  Increments:               {num_increments}")
+
+    if not config.get("EVAL_HEURISTIC", False):
+        print(f"  Rollout length:           {rollout_length}")
+        batch_total = num_envs * rollout_length if isinstance(rollout_length, int) else "?"
+        print(f"  Batch size:               {batch_total}  (= {num_envs} envs x {rollout_length} steps)")
+        print(f"  Minibatches / epoch:      {num_minibatches}  (minibatch size: {batch_size})")
+        print(f"  Update epochs:            {update_epochs}")
+        total_updates = num_increments * num_updates * update_epochs * num_minibatches
+        print(f"  Total gradient steps:     {total_updates:,}" if isinstance(total_updates, int) else f"  Total gradient steps:     {total_updates}")
+
+    if not (config.get("EVAL_HEURISTIC", False) or config.get("EVAL_MODEL", False)):
+        print(f"\n  {'--- Model & Optimiser ---':^{W - 4}}")
+        print(f"  Architecture:             {arch}  ({arch_detail})")
+        print(f"  Activation:               {config.get('ACTIVATION', '?')}")
+        print(f"  Learning rate:            {config.get('LR', '?')}  (schedule: {config.get('LR_SCHEDULE', '?')})")
+        print(f"  Discount (gamma):         {config.get('GAMMA', '?')}")
+        gae = config.get("GAE_LAMBDA", None)
+        if gae is not None:
+            print(f"  GAE lambda:               {gae}")
+        else:
+            print(f"  GAE lambda:               annealed ({config.get('INITIAL_LAMBDA', '?')} -> {config.get('FINAL_LAMBDA', '?')})")
+        print(f"  PPO clip:                 {config.get('CLIP_EPS', '?')}")
+        print(f"  Entropy coef:             {config.get('ENT_COEF', '?')}  (schedule: {config.get('ENT_SCHEDULE', '?')})")
+        print(f"  VF coef:                  {config.get('VF_COEF', '?')}")
+        print(f"  Max grad norm:            {config.get('MAX_GRAD_NORM', '?')}")
+        if config.get("REWARD_CENTERING", False):
+            print(f"  Reward centering:         enabled (stepsize={config.get('REWARD_STEPSIZE', '?')})")
+        if config.get("SEPARATE_VF_OPTIMIZER", False):
+            print(f"  Separate VF optimizer:    enabled (VF_LR={config.get('VF_LR', 'auto')})")
+
+    if config.get("EVAL_DURING_TRAINING", False):
+        print(f"\n  Eval during training:     every {config.get('EVAL_FREQUENCY', '?')} increment(s)")
+
+    if config.get("WANDB", False):
+        print(f"  Logging:                  wandb ({config.get('PROJECT', '-')})")
+    if config.get("SAVE_MODEL", False):
+        print(f"  Model saving:             enabled")
+
+    print(sep + "\n")
+
+
 def ndim_at_least(x: chex.Array, num_dims: chex.Numeric) -> jax.Array:
     """Check if the number of dimensions of `x` is at least `num_dims`."""
     if not (isinstance(x, jax.Array) or isinstance(x, np.ndarray)):

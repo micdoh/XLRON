@@ -83,7 +83,7 @@ def main(argv):
         # increase line length for numpy print options
         jax.numpy.set_printoptions(linewidth=220)
 
-    if not config.NO_PRINT_FLAGS:
+    if config.PRINT_FLAGS:
         for name in config:
             print(name, config[name])
 
