@@ -69,7 +69,7 @@ def _format_command_multiline(cmd: str) -> str:
 
 with st.sidebar:
     if _LOGO_PATH.exists():
-        st.image(str(_LOGO_PATH), use_container_width=True)
+        st.image(str(_LOGO_PATH), width="stretch")
     else:
         st.title("XLRON")
     st.caption("Optical Network RL Training GUI")
@@ -78,7 +78,7 @@ with st.sidebar:
     # Preset selector
     st.subheader("Presets")
     preset_name = st.selectbox("Load a preset", list(PRESETS.keys()))
-    if st.button("Load Preset", use_container_width=True):
+    if st.button("Load Preset", width="stretch"):
         st.session_state["_loaded_preset"] = PRESETS[preset_name]
         st.rerun()
 
@@ -186,10 +186,10 @@ with st.sidebar:
     cmd_placeholder.code(command_multiline, language="bash")
 
     # Copy Command button — shows the command in a modal/popover for easy copy
-    if copy_btn_placeholder.button("Copy Command", use_container_width=True):
+    if copy_btn_placeholder.button("Copy Command", width="stretch"):
         st.session_state["_show_command"] = True
 
-    if run_btn_placeholder.button("Run", type="primary", use_container_width=True):
+    if run_btn_placeholder.button("Run", type="primary", width="stretch"):
         info = launch_run(command)
         st.session_state["_active_run_id"] = info.run_id
         st.session_state["_log_offset"] = 0
@@ -201,7 +201,7 @@ with st.sidebar:
         active_runs = get_active_runs()
         active_ids = {r["run_id"] for r in active_runs}
         if active_run in active_ids:
-            if stop_btn_placeholder.button("Stop", type="secondary", use_container_width=True):
+            if stop_btn_placeholder.button("Stop", type="secondary", width="stretch"):
                 stop_run(active_run)
                 st.session_state.pop("_active_run_id", None)
                 st.rerun()
@@ -284,7 +284,7 @@ with col_output:
             if plot_files:
                 st.subheader("Plots")
                 for pf in plot_files:
-                    st.image(str(pf), caption=pf.stem, use_container_width=True)
+                    st.image(str(pf), caption=pf.stem, width="stretch")
 
             # Auto-refresh while process is running
             if run_entry["status"] == "running":
