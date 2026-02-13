@@ -15,15 +15,10 @@ from functools import partial
 
 import jax
 import jax.numpy as jnp
-from scipy.constants import c, pi
 
 from xlron.environments.gn_model.isrs_gn_model import (
-    EPS,
-    calculate_amplifier_gain_isrs,
     get_snr,
     get_snr_fused,
-    isrs_gn_model,
-    isrs_gn_model_uniform,
 )
 
 # ---------------------------------------------------------------------------

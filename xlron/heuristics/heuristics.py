@@ -5,7 +5,13 @@ import chex
 import jax
 import jax.numpy as jnp
 
-from xlron.environments.dataclasses import EnvState, RMSAGNModelEnvParams, RSAEnvParams, RSAEnvState, RWALightpathReuseEnvParams
+from xlron.environments.dataclasses import (
+    EnvState,
+    RMSAGNModelEnvParams,
+    RSAEnvParams,
+    RSAEnvState,
+    RWALightpathReuseEnvParams,
+)
 from xlron.environments.env_funcs import (
     find_block_sizes,
     get_affected_slots_mask,
@@ -432,8 +438,6 @@ def get_link_weights(state: EnvState, params: RSAEnvParams):
         chex.Array: Link weights
     """
     if isinstance(params, RWALightpathReuseEnvParams):
-        link_occupancy = jnp.count_nonzero(state.link_slot_array, axis=1)
-    else:
         initial_path_capacity = init_path_capacity_array(
             params.link_length_array.val, params.path_link_array.val, scale_factor=1.0
         )
@@ -449,6 +453,8 @@ def get_link_weights(state: EnvState, params: RSAEnvParams):
             / initial_path_capacity
         )
         link_occupancy = jnp.sum(utilisation, axis=1)
+    else:
+        link_occupancy = jnp.count_nonzero(state.link_slot_array, axis=1)
     link_weights = jnp.multiply(
         params.link_length_array.val.T, (1 / (1 - link_occupancy / (params.link_resources + 1)))
     )[0]
@@ -460,6 +466,10 @@ def get_action_mask(state: EnvState, params: RSAEnvParams) -> chex.Array:
         full_mask = jit_profiler.call(
             params.profile, mask_slots_rwalr, state, params, state.request_array
         )
+        # mask_slots_rwalr returns a 1D array that may include a trailing no-op element;
+        # strip it so the mask is (k_paths * link_resources,) before reshape
+        if params.include_no_op:
+            full_mask = full_mask[:-1]
     elif isinstance(params, RMSAGNModelEnvParams):
         updated_state = jit_profiler.call(
             params.profile, mask_slots_rmsa_gn_model, state, params, state.request_array
@@ -590,9 +600,9 @@ def most_used(state: EnvState, params: RSAEnvParams, unique_lightpaths, relative
     Returns:
         chex.Array: Most used slots (array length = link_resources)
     """
-    if params.__class__.__name__ != "RWALightpathReuseEnvParams":
-        most_used_slots = jnp.count_nonzero(state.link_slot_array, axis=0) + 1
-    elif params.__class__.__name__ == "RWALightpathReuseEnvParams" and not unique_lightpaths:
+    if isinstance(params, RWALightpathReuseEnvParams) and unique_lightpaths:
+        most_used_slots = jnp.count_nonzero(state.path_index_array + 1, axis=0) + 1
+    elif isinstance(params, RWALightpathReuseEnvParams) and not unique_lightpaths:
         # Get initial path capacity
         initial_path_capacity = init_path_capacity_array(
             params.link_length_array.val, params.path_link_array.val, scale_factor=1.0
@@ -610,5 +620,5 @@ def most_used(state: EnvState, params: RSAEnvParams, unique_lightpaths, relative
         # Get most used slots by summing the utilisation along the slots
         most_used_slots = jnp.sum(utilisation, axis=0) + 1
     else:
-        most_used_slots = jnp.count_nonzero(state.path_index_array + 1, axis=0) + 1
+        most_used_slots = jnp.count_nonzero(state.link_slot_array, axis=0) + 1
     return most_used_slots

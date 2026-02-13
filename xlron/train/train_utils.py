@@ -334,7 +334,7 @@ def print_experiment_summary(config: Box, env_params=None) -> None:
         print(f"  Total spectrum per link:  {total_bw:.0f} GHz")
     consider_mod = env_params.consider_modulation_format if env_params else "?"
     if consider_mod and consider_mod != "?":
-        print(f"  Modulation format:        enabled")
+        print("  Modulation format:        enabled")
     if config.get("aggregate_slots", 1) > 1:
         print(f"  Slot aggregation:         {config.get('aggregate_slots')}x")
 
@@ -396,7 +396,7 @@ def print_experiment_summary(config: Box, env_params=None) -> None:
     if config.get("WANDB", False):
         print(f"  Logging:                  wandb ({config.get('PROJECT', '-')})")
     if config.get("SAVE_MODEL", False):
-        print(f"  Model saving:             enabled")
+        print("  Model saving:             enabled")
 
     print(sep + "\n")
 

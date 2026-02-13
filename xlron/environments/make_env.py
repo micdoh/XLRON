@@ -50,7 +50,7 @@ from xlron.environments.env_funcs import (
     pad_array,
     required_slots,
 )
-from xlron.environments.gn_model.isrs_gn_model import from_dbm, to_dbm
+from xlron.environments.gn_model.isrs_gn_model import from_dbm
 from xlron.environments.wrappers import LogWrapper
 
 
