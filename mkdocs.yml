@@ -39,6 +39,7 @@ nav:
       - Quick Start: "quickstart.md"
   - "User Guide":
       - Understanding XLRON: "understanding_xlron.md"
+      - GN Model Physical Layer: "gn_model.md"
       - Training with PPO: "training.md"
       - Heuristic Evaluation: "heuristic_evaluation.md"
       - Capacity Bound Estimation: "capacity_bounds.md"
