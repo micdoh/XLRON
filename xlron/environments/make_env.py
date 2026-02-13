@@ -9,6 +9,7 @@ import networkx as nx
 import numpy as np
 from absl.flags import FlagValues
 from box import Box
+from scipy.special import erfcinv
 
 from xlron import dtype_config
 from xlron.environments import (
@@ -52,6 +53,46 @@ from xlron.environments.env_funcs import (
 )
 from xlron.environments.gn_model.isrs_gn_model import from_dbm
 from xlron.environments.wrappers import LogWrapper
+
+
+def _gsnr_threshold_db(beta_fec: float, m_prime: int) -> float:
+    """GSNR threshold in dB for a given pre-FEC BER target and modulation level.
+
+    Parameters
+    ----------
+    beta_fec : float
+        Pre-FEC BER target (must be in (0, 1)).
+    m_prime : int
+        Modulation level in {1,2,3,4,5,6} where M = 2^m_prime.
+
+    Returns
+    -------
+    float
+        GSNR threshold in dB.
+    """
+    M = 2**m_prime
+    if m_prime in (1, 2):
+        gsnr_lin = float(m_prime * erfcinv(2.0 * beta_fec))
+    elif m_prime == 3:
+        gsnr_lin = float((2.0 * (M - 1.0) / 3.0) * erfcinv(1.5 * beta_fec))
+    else:  # m_prime in {4, 5, 6}
+        denom = 2.0 * (1.0 - np.sqrt(1.0 / M))
+        arg = (m_prime * beta_fec) / denom
+        gsnr_lin = float((2.0 * (M - 1.0) / 3.0) * erfcinv(arg))
+    return 10.0 * np.log10(gsnr_lin)
+
+
+def _calc_modulations_osnr(modulations_array: np.ndarray, beta_fec: float) -> np.ndarray:
+    """Replace the minimum_osnr column (index 2) in the modulations array
+    with values calculated from the GSNR threshold formula.
+
+    The spectral_efficiency column (index 1) gives m' (the modulation level),
+    since spectral_efficiency = log2(M) = m'.
+    """
+    for i in range(modulations_array.shape[0]):
+        m_prime = int(modulations_array[i, 1])
+        modulations_array[i, 2] = _gsnr_threshold_db(beta_fec, m_prime)
+    return modulations_array
 
 
 def process_config(config: Optional[Union[dict, FlagValues]], **kwargs: Any) -> Box:
@@ -384,9 +425,13 @@ def make(
     # link_length_array is in km (from topology); convert to metres for max_span_length (metres)
     max_spans = int(jnp.ceil(max(link_length_array) * 1e3 / max_span_length)[0])
     if consider_modulation_format:
-        modulations_array = init_modulations_array(
-            config.get("modulations_csv_filepath", None)
-        ).astype(dtype_config.LARGE_FLOAT_DTYPE)
+        modulations_array = init_modulations_array(config.get("modulations_csv_filepath", None))
+        if config.get("calc_minimum_osnr", False):
+            beta_fec = config.get("beta_fec", 1.5e-2)
+            modulations_array = jnp.array(
+                _calc_modulations_osnr(np.array(modulations_array), beta_fec)
+            )
+        modulations_array = modulations_array.astype(dtype_config.LARGE_FLOAT_DTYPE)
         if path_sort_criteria != "distance":  # If paths aren't to be sorted by distance alone
             path_link_array = init_path_link_array(
                 graph,

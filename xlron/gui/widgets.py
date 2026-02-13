@@ -195,6 +195,8 @@ DEFAULTS = {
     "EVAL_DURING_TRAINING": False,
     # Physical layer (GN model)
     "modulations_csv_filepath": "./xlron/data/modulations/modulations_deeprmsa.csv",
+    "calc_minimum_osnr": False,
+    "beta_fec": 1.5e-2,
     "alpha": 0.2,
     "beta_2": -21.7,
     "gamma": 1.2,
@@ -303,7 +305,9 @@ def execution_mode_section() -> dict:
 
     elif mode == "Model Evaluation":
         flags["EVAL_MODEL"] = True
-        model_path = st.text_input("Model Path", value=_get_preset_val("MODEL_PATH") or "", help=_h("MODEL_PATH"))
+        model_path = st.text_input(
+            "Model Path", value=_get_preset_val("MODEL_PATH") or "", help=_h("MODEL_PATH")
+        )
         if model_path:
             flags["MODEL_PATH"] = model_path
 
@@ -331,29 +335,40 @@ def environment_section() -> dict:
         _emit(flags, "topology_name", topology)
 
         link_res = st.number_input(
-            "Link Resources (slots)", min_value=1, value=int(_get_preset_val("link_resources")),
+            "Link Resources (slots)",
+            min_value=1,
+            value=int(_get_preset_val("link_resources")),
             help=_h("link_resources"),
         )
         _emit(flags, "link_resources", int(link_res))
 
     with col2:
-        k = st.number_input("K Shortest Paths", min_value=1, value=int(_get_preset_val("k")), help=_h("k"))
+        k = st.number_input(
+            "K Shortest Paths", min_value=1, value=int(_get_preset_val("k")), help=_h("k")
+        )
         _emit(flags, "k", int(k))
 
         slot_size = st.number_input(
-            "Slot Size (GHz)", min_value=0.1, value=float(_get_preset_val("slot_size")), step=0.5,
+            "Slot Size (GHz)",
+            min_value=0.1,
+            value=float(_get_preset_val("slot_size")),
+            step=0.5,
             help=_h("slot_size"),
         )
         _emit(flags, "slot_size", slot_size)
 
         guardband = st.number_input(
-            "Guardband (slots)", min_value=0, value=int(_get_preset_val("guardband")),
+            "Guardband (slots)",
+            min_value=0,
+            value=int(_get_preset_val("guardband")),
             help=_h("guardband"),
         )
         _emit(flags, "guardband", int(guardband))
 
         agg = st.number_input(
-            "Aggregate Slots", min_value=1, value=int(_get_preset_val("aggregate_slots")),
+            "Aggregate Slots",
+            min_value=1,
+            value=int(_get_preset_val("aggregate_slots")),
             help=_h("aggregate_slots"),
         )
         _emit(flags, "aggregate_slots", int(agg))
@@ -361,7 +376,9 @@ def environment_section() -> dict:
     sort_options = ["spectral_resources", "hops", "distance", "hops_distance", "capacity"]
     default_sort = _get_preset_val("path_sort_criteria")
     sort_idx = sort_options.index(default_sort) if default_sort in sort_options else 0
-    path_sort = st.selectbox("Path Sort Criteria", sort_options, index=sort_idx, help=_h("path_sort_criteria"))
+    path_sort = st.selectbox(
+        "Path Sort Criteria", sort_options, index=sort_idx, help=_h("path_sort_criteria")
+    )
     _emit(flags, "path_sort_criteria", path_sort)
 
     # Store env_type in session state for other sections to read
@@ -376,7 +393,10 @@ def traffic_section() -> dict:
     col1, col2 = st.columns(2)
     with col1:
         load = st.number_input(
-            "Load (Erlangs)", min_value=0.1, value=float(_get_preset_val("load")), step=10.0,
+            "Load (Erlangs)",
+            min_value=0.1,
+            value=float(_get_preset_val("load")),
+            step=10.0,
             help=_h("load"),
         )
         _emit(flags, "load", load)
@@ -399,31 +419,38 @@ def traffic_section() -> dict:
 
     with col2:
         cont_op = st.checkbox(
-            "Continuous Operation", value=bool(_get_preset_val("continuous_operation")),
+            "Continuous Operation",
+            value=bool(_get_preset_val("continuous_operation")),
             help=_h("continuous_operation"),
         )
         _emit(flags, "continuous_operation", cont_op)
 
         trunc_ht = st.checkbox(
-            "Truncate Holding Time", value=bool(_get_preset_val("truncate_holding_time")),
+            "Truncate Holding Time",
+            value=bool(_get_preset_val("truncate_holding_time")),
             help=_h("truncate_holding_time"),
         )
         _emit(flags, "truncate_holding_time", trunc_ht)
 
         inc_load = st.checkbox(
-            "Incremental Loading", value=bool(_get_preset_val("incremental_loading")),
+            "Incremental Loading",
+            value=bool(_get_preset_val("incremental_loading")),
             help=_h("incremental_loading"),
         )
         _emit(flags, "incremental_loading", inc_load)
 
         end_fb = st.checkbox(
-            "End on First Blocking", value=bool(_get_preset_val("end_first_blocking")),
+            "End on First Blocking",
+            value=bool(_get_preset_val("end_first_blocking")),
             help=_h("end_first_blocking"),
         )
         _emit(flags, "end_first_blocking", end_fb)
 
     warmup = st.number_input(
-        "ENV Warmup Steps", min_value=0, value=int(_get_preset_val("ENV_WARMUP_STEPS")), step=1000,
+        "ENV Warmup Steps",
+        min_value=0,
+        value=int(_get_preset_val("ENV_WARMUP_STEPS")),
+        step=1000,
         help=_h("ENV_WARMUP_STEPS"),
     )
     _emit(flags, "ENV_WARMUP_STEPS", int(warmup))
@@ -456,13 +483,19 @@ def execution_section() -> dict:
         _emit(flags, "TOTAL_TIMESTEPS", int(total))
 
         num_envs = st.number_input(
-            "Num Environments", min_value=1, value=int(_get_preset_val("NUM_ENVS")), step=100,
+            "Num Environments",
+            min_value=1,
+            value=int(_get_preset_val("NUM_ENVS")),
+            step=100,
             help=_h("NUM_ENVS"),
         )
         _emit(flags, "NUM_ENVS", int(num_envs))
 
         rollout = st.number_input(
-            "Rollout Length", min_value=1, value=int(_get_preset_val("ROLLOUT_LENGTH")), step=10,
+            "Rollout Length",
+            min_value=1,
+            value=int(_get_preset_val("ROLLOUT_LENGTH")),
+            step=10,
             help=_h("ROLLOUT_LENGTH"),
         )
         _emit(flags, "ROLLOUT_LENGTH", int(rollout))
@@ -479,13 +512,17 @@ def execution_section() -> dict:
         _emit(flags, "STEPS_PER_INCREMENT", int(spi))
 
         minibatches = st.number_input(
-            "Num Minibatches", min_value=1, value=int(_get_preset_val("NUM_MINIBATCHES")),
+            "Num Minibatches",
+            min_value=1,
+            value=int(_get_preset_val("NUM_MINIBATCHES")),
             help=_h("NUM_MINIBATCHES"),
         )
         _emit(flags, "NUM_MINIBATCHES", int(minibatches))
 
         epochs = st.number_input(
-            "Update Epochs", min_value=1, value=int(_get_preset_val("UPDATE_EPOCHS")),
+            "Update Epochs",
+            min_value=1,
+            value=int(_get_preset_val("UPDATE_EPOCHS")),
             help=_h("UPDATE_EPOCHS"),
         )
         _emit(flags, "UPDATE_EPOCHS", int(epochs))
@@ -508,25 +545,32 @@ def architecture_section() -> dict:
     else:
         arch_default = 0
 
-    arch = st.radio("Architecture", ["MLP", "GNN", "Transformer"], index=arch_default, horizontal=True)
+    arch = st.radio(
+        "Architecture", ["MLP", "GNN", "Transformer"], index=arch_default, horizontal=True
+    )
 
     if arch == "MLP":
         col1, col2, col3 = st.columns(3)
         with col1:
             layers = st.number_input(
-                "Num Layers", min_value=1, value=int(_get_preset_val("NUM_LAYERS")),
+                "Num Layers",
+                min_value=1,
+                value=int(_get_preset_val("NUM_LAYERS")),
                 help=_h("NUM_LAYERS"),
             )
             _emit(flags, "NUM_LAYERS", int(layers))
         with col2:
             units = st.number_input(
-                "Hidden Units", min_value=1, value=int(_get_preset_val("NUM_UNITS")),
+                "Hidden Units",
+                min_value=1,
+                value=int(_get_preset_val("NUM_UNITS")),
                 help=_h("NUM_UNITS"),
             )
             _emit(flags, "NUM_UNITS", int(units))
         with col3:
             activation = st.selectbox(
-                "Activation", ["tanh", "relu", "gelu", "silu"],
+                "Activation",
+                ["tanh", "relu", "gelu", "silu"],
                 index=["tanh", "relu", "gelu", "silu"].index(_get_preset_val("ACTIVATION")),
                 help=_h("ACTIVATION"),
             )
@@ -725,7 +769,11 @@ def ppo_section() -> dict:
     use_gae = st.checkbox("Set GAE Lambda (default: auto-anneal)", help=_h("GAE_LAMBDA"))
     if use_gae:
         gae = st.number_input(
-            "GAE Lambda", min_value=0.0, max_value=1.0, value=0.95, step=0.01,
+            "GAE Lambda",
+            min_value=0.0,
+            max_value=1.0,
+            value=0.95,
+            step=0.01,
             help=_h("GAE_LAMBDA"),
         )
         flags["GAE_LAMBDA"] = gae
@@ -775,14 +823,23 @@ def advanced_training_section() -> dict:
 
     col1, col2 = st.columns(2)
     with col1:
-        rc = st.checkbox("Reward Centering", value=bool(_get_preset_val("REWARD_CENTERING")), help=_h("REWARD_CENTERING"))
+        rc = st.checkbox(
+            "Reward Centering",
+            value=bool(_get_preset_val("REWARD_CENTERING")),
+            help=_h("REWARD_CENTERING"),
+        )
         _emit(flags, "REWARD_CENTERING", rc)
 
-        opiam = st.checkbox("Off-Policy IAM", value=bool(_get_preset_val("OFF_POLICY_IAM")), help=_h("OFF_POLICY_IAM"))
+        opiam = st.checkbox(
+            "Off-Policy IAM",
+            value=bool(_get_preset_val("OFF_POLICY_IAM")),
+            help=_h("OFF_POLICY_IAM"),
+        )
         _emit(flags, "OFF_POLICY_IAM", opiam)
 
         sep_vf = st.checkbox(
-            "Separate VF Optimizer", value=bool(_get_preset_val("SEPARATE_VF_OPTIMIZER")),
+            "Separate VF Optimizer",
+            value=bool(_get_preset_val("SEPARATE_VF_OPTIMIZER")),
             help=_h("SEPARATE_VF_OPTIMIZER"),
         )
         _emit(flags, "SEPARATE_VF_OPTIMIZER", sep_vf)
@@ -846,7 +903,11 @@ def advanced_training_section() -> dict:
         )
         _emit(flags, "C_CLIP", c_clip)
 
-    diff = st.checkbox("Differentiable Mode", value=bool(_get_preset_val("differentiable")), help=_h("differentiable"))
+    diff = st.checkbox(
+        "Differentiable Mode",
+        value=bool(_get_preset_val("differentiable")),
+        help=_h("differentiable"),
+    )
     _emit(flags, "differentiable", diff)
     if diff:
         temp = st.number_input(
@@ -874,8 +935,28 @@ def physical_layer_section() -> dict:
     else:
         mod_idx = 0
     if display_files:
-        mod_path = st.selectbox("Modulations CSV", display_files, index=mod_idx, help=_h("modulations_csv_filepath"))
+        mod_path = st.selectbox(
+            "Modulations CSV", display_files, index=mod_idx, help=_h("modulations_csv_filepath")
+        )
         _emit(flags, "modulations_csv_filepath", mod_path)
+
+    calc_osnr = st.checkbox(
+        "Calculate Minimum OSNR from Spectral Efficiency",
+        value=bool(_get_preset_val("calc_minimum_osnr")),
+        help=_h("calc_minimum_osnr"),
+    )
+    _emit(flags, "calc_minimum_osnr", calc_osnr)
+    if calc_osnr:
+        beta_fec = st.number_input(
+            "Pre-FEC BER Target (beta_fec)",
+            min_value=1e-6,
+            max_value=0.5,
+            value=float(_get_preset_val("beta_fec")),
+            format="%.1e",
+            step=1e-3,
+            help=_h("beta_fec"),
+        )
+        _emit(flags, "beta_fec", beta_fec)
 
     col1, col2 = st.columns(2)
     with col1:
@@ -938,41 +1019,54 @@ def logging_section() -> dict:
 
     col1, col2 = st.columns(2)
     with col1:
-        wandb = st.checkbox("Enable W&B Logging", value=bool(_get_preset_val("WANDB")), help=_h("WANDB"))
+        wandb = st.checkbox(
+            "Enable W&B Logging", value=bool(_get_preset_val("WANDB")), help=_h("WANDB")
+        )
         _emit(flags, "WANDB", wandb)
 
         if wandb:
-            project = st.text_input("W&B Project", value=_get_preset_val("PROJECT") or "", help=_h("PROJECT"))
+            project = st.text_input(
+                "W&B Project", value=_get_preset_val("PROJECT") or "", help=_h("PROJECT")
+            )
             if project:
                 _emit(flags, "PROJECT", project)
 
             exp_name = st.text_input(
-                "Experiment Name", value=_get_preset_val("EXPERIMENT_NAME") or "",
+                "Experiment Name",
+                value=_get_preset_val("EXPERIMENT_NAME") or "",
                 help=_h("EXPERIMENT_NAME"),
             )
             if exp_name:
                 _emit(flags, "EXPERIMENT_NAME", exp_name)
 
-        save = st.checkbox("Save Model", value=bool(_get_preset_val("SAVE_MODEL")), help=_h("SAVE_MODEL"))
+        save = st.checkbox(
+            "Save Model", value=bool(_get_preset_val("SAVE_MODEL")), help=_h("SAVE_MODEL")
+        )
         _emit(flags, "SAVE_MODEL", save)
 
         if save:
-            mpath = st.text_input("Model Save Path", value=_get_preset_val("MODEL_PATH") or "", help=_h("MODEL_PATH"))
+            mpath = st.text_input(
+                "Model Save Path", value=_get_preset_val("MODEL_PATH") or "", help=_h("MODEL_PATH")
+            )
             if mpath:
                 flags["MODEL_PATH"] = mpath
 
     with col2:
-        plotting = st.checkbox("Enable Plotting", value=bool(_get_preset_val("PLOTTING")), help=_h("PLOTTING"))
+        plotting = st.checkbox(
+            "Enable Plotting", value=bool(_get_preset_val("PLOTTING")), help=_h("PLOTTING")
+        )
         _emit(flags, "PLOTTING", plotting)
 
         edt = st.checkbox(
-            "Eval During Training", value=bool(_get_preset_val("EVAL_DURING_TRAINING")),
+            "Eval During Training",
+            value=bool(_get_preset_val("EVAL_DURING_TRAINING")),
             help=_h("EVAL_DURING_TRAINING"),
         )
         _emit(flags, "EVAL_DURING_TRAINING", edt)
 
         data_out = st.text_input(
-            "Data Output File", value=_get_preset_val("DATA_OUTPUT_FILE") or "",
+            "Data Output File",
+            value=_get_preset_val("DATA_OUTPUT_FILE") or "",
             help=_h("DATA_OUTPUT_FILE"),
         )
         if data_out.strip():
