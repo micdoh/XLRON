@@ -1,28 +1,37 @@
 """Heuristic algorithms for routing and spectrum allocation."""
 
-# Main heuristic functions
-# Evaluation utilities
-from xlron.heuristics.eval_heuristic import get_eval_fn
-from xlron.heuristics.heuristics import (  # K-Shortest Path with First/Last/Best Fit; Most-Used heuristics; Advanced heuristics; Utility functions
-    best_fit,
-    bf_ksp,
-    ff_ksp,
-    first_fit,
-    get_action_mask,
-    get_link_weights,
-    kca_ff,
-    kmc_ff,
-    kme_ff,
-    kmf_ff,
-    ksp_bf,
-    ksp_ff,
-    ksp_lf,
-    ksp_mu,
-    last_fit,
-    lf_ksp,
-    most_used,
-    mu_ksp,
-)
+
+def __getattr__(name):
+    _heuristic_names = {
+        "best_fit",
+        "bf_ksp",
+        "ff_ksp",
+        "first_fit",
+        "get_action_mask",
+        "get_link_weights",
+        "kca_ff",
+        "kmc_ff",
+        "kme_ff",
+        "kmf_ff",
+        "ksp_bf",
+        "ksp_ff",
+        "ksp_lf",
+        "ksp_mu",
+        "last_fit",
+        "lf_ksp",
+        "most_used",
+        "mu_ksp",
+    }
+    if name in _heuristic_names:
+        from xlron.heuristics import heuristics
+
+        return getattr(heuristics, name)
+    if name == "get_eval_fn":
+        from xlron.heuristics.eval_heuristic import get_eval_fn
+
+        return get_eval_fn
+    raise AttributeError(f"module 'xlron.heuristics' has no attribute {name}")
+
 
 __all__ = [
     # Main heuristics

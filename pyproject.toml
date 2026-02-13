@@ -1,3 +1,7 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [project]
 name = "xlron"
 version = "0.1.0"
@@ -44,6 +48,9 @@ dependencies = [
     "wandb>=0.22.2",
 ]
 
+[project.scripts]
+xlron = "xlron.gui:main"
+
 
 [dependency-groups]
 gpu = [
@@ -54,6 +61,9 @@ tpu = [
 ]
 
 [project.optional-dependencies]
+gui = [
+  "streamlit>=1.38.0",
+]
 docs = [
   "mkdocs",
   "mkdocs-material",

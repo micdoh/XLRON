@@ -1,0 +1,981 @@
+"""Widget builder functions for XLRON GUI.
+
+Each function renders a UI section and returns a dict of {flag_name: value}
+for flags that differ from their defaults. Help text for each widget is
+auto-populated from parameter_flags.py so it stays in sync with the CLI.
+"""
+
+import ast
+import functools
+from pathlib import Path
+
+import streamlit as st
+
+_DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+_FLAGS_PATH = Path(__file__).resolve().parent.parent / "parameter_flags.py"
+
+
+@functools.cache
+def _parse_flag_help() -> dict[str, str]:
+    """Parse parameter_flags.py and return {flag_name: help_text}.
+
+    Uses the Python AST so it works without importing absl/JAX.
+    """
+    help_map: dict[str, str] = {}
+    try:
+        source = _FLAGS_PATH.read_text()
+        tree = ast.parse(source)
+    except (OSError, SyntaxError):
+        return help_map
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        # Match flags.DEFINE_*(name, default, help_text, ...)
+        func = node.func
+        if not (
+            isinstance(func, ast.Attribute)
+            and isinstance(func.value, ast.Name)
+            and func.value.id == "flags"
+            and func.attr.startswith("DEFINE_")
+        ):
+            continue
+        if not node.args:
+            continue
+        # First arg is the flag name
+        name_node = node.args[0]
+        if not isinstance(name_node, ast.Constant) or not isinstance(name_node.value, str):
+            continue
+        flag_name = name_node.value
+        # Help text is the last positional string arg (typically arg index 2)
+        help_text = None
+        for arg in node.args[1:]:
+            if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+                help_text = arg.value
+            elif isinstance(arg, ast.JoinedStr):
+                # f-string — skip
+                pass
+            elif isinstance(arg, ast.BinOp) and isinstance(arg.op, ast.Add):
+                # Concatenated string literals: "foo " + "bar"
+                parts = []
+                _collect_str_parts(arg, parts)
+                if parts:
+                    help_text = "".join(parts)
+        # Also check keyword arguments for 'help' (rare but possible)
+        # The standard pattern is positional, but just in case
+        if help_text is None:
+            for kw in node.keywords:
+                if kw.arg == "help" and isinstance(kw.value, ast.Constant):
+                    help_text = kw.value.value
+        if help_text:
+            help_map[flag_name] = help_text
+    return help_map
+
+
+def _collect_str_parts(node: ast.expr, parts: list[str]):
+    """Recursively collect string literal parts from BinOp(Add) chains."""
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        parts.append(node.value)
+    elif isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        _collect_str_parts(node.left, parts)
+        _collect_str_parts(node.right, parts)
+
+
+def _h(flag_name: str) -> str | None:
+    """Get the help text for a flag, or None if not found."""
+    return _parse_flag_help().get(flag_name)
+
+
+def _scan_topologies() -> list[str]:
+    """Scan topology JSON files and return sorted list of names."""
+    topo_dir = _DATA_DIR / "topologies"
+    if not topo_dir.exists():
+        return []
+    return sorted(p.stem for p in topo_dir.glob("*.json"))
+
+
+def _scan_modulations() -> list[str]:
+    """Scan modulation CSV files and return sorted list of paths."""
+    mod_dir = _DATA_DIR / "modulations"
+    if not mod_dir.exists():
+        return []
+    return sorted(str(p) for p in mod_dir.glob("*.csv"))
+
+
+# ---------------------------------------------------------------------------
+# Defaults — must match parameter_flags.py
+# ---------------------------------------------------------------------------
+
+DEFAULTS = {
+    # Environment
+    "env_type": "rmsa",
+    "topology_name": "4node",
+    "link_resources": 5,
+    "k": 5,
+    "slot_size": 12.5,
+    "guardband": 1,
+    # Traffic
+    "load": 250,
+    "mean_service_holding_time": 25,
+    "continuous_operation": False,
+    "ENV_WARMUP_STEPS": 0,
+    "max_requests": 4,
+    "reward_type": "service",
+    "incremental_loading": False,
+    "end_first_blocking": False,
+    "truncate_holding_time": False,
+    # Execution
+    "TOTAL_TIMESTEPS": 1e6,
+    "NUM_ENVS": 1,
+    "ROLLOUT_LENGTH": 150,
+    "STEPS_PER_INCREMENT": 100000,
+    "NUM_MINIBATCHES": 1,
+    "UPDATE_EPOCHS": 1,
+    "SEED": 42,
+    # Architecture
+    "NUM_LAYERS": 2,
+    "NUM_UNITS": 64,
+    "ACTIVATION": "tanh",
+    "USE_GNN": False,
+    "USE_TRANSFORMER": False,
+    # GNN
+    "message_passing_steps": 3,
+    "edge_embedding_size": 128,
+    "node_embedding_size": 16,
+    "attn_mlp_layers": 1,
+    # Transformer
+    "transformer_num_layers": 1,
+    "transformer_num_heads": 4,
+    "transformer_embedding_size": 128,
+    "transformer_obs_type": "departure",
+    "transformer_share_layers": False,
+    "transformer_actor_mlp_width": 128,
+    "transformer_critic_mlp_width": 128,
+    "transformer_intermediate_size": 256,
+    "transformer_actor_mlp_depth": 1,
+    "transformer_critic_mlp_depth": 2,
+    # PPO
+    "LR": 5e-4,
+    "GAMMA": 0.999,
+    "GAE_LAMBDA": None,
+    "CLIP_EPS": 0.2,
+    "ENT_COEF": 0.0,
+    "VF_COEF": 0.5,
+    "MAX_GRAD_NORM": 0.5,
+    # Schedules
+    "LR_SCHEDULE": "cosine",
+    "ENT_SCHEDULE": "constant",
+    "VML_SCHEDULE": "constant",
+    # Advanced
+    "REWARD_CENTERING": False,
+    "OFF_POLICY_IAM": False,
+    "VALID_MASS_LOSS_COEF": 0.0,
+    "PRIO_ALPHA": 0.0,
+    "PRIO_BETA0": 1.0,
+    "RHO_CLIP": -1.0,
+    "C_CLIP": -1.0,
+    "REWARD_SCALE": 1.0,
+    "SEPARATE_VF_OPTIMIZER": False,
+    # Path sorting
+    "path_sort_criteria": "spectral_resources",
+    # Heuristics
+    "path_heuristic": "ksp_ff",
+    "EVAL_HEURISTIC": False,
+    "EVAL_MODEL": False,
+    "RETRAIN_MODEL": False,
+    "KEEP_VF": False,
+    # Logging
+    "WANDB": False,
+    "PROJECT": "",
+    "EXPERIMENT_NAME": "",
+    "SAVE_MODEL": False,
+    "MODEL_PATH": None,
+    "DATA_OUTPUT_FILE": None,
+    "PLOTTING": False,
+    "EVAL_DURING_TRAINING": False,
+    # Physical layer (GN model)
+    "modulations_csv_filepath": "./xlron/data/modulations/modulations_deeprmsa.csv",
+    "alpha": 0.2,
+    "beta_2": -21.7,
+    "gamma": 1.2,
+    "span_length": 100,
+    "amplifier_noise_figure": 4.5,
+    "snr_margin": 0.5,
+    # Differentiable
+    "differentiable": False,
+    "temperature": 1.0,
+    # Aggregate
+    "aggregate_slots": 1,
+}
+
+ENV_TYPES = [
+    "rsa",
+    "rmsa",
+    "rwa",
+    "deeprmsa",
+    "rwa_lightpath_reuse",
+    "vone",
+    "rsa_gn_model",
+    "rmsa_gn_model",
+]
+
+PATH_HEURISTICS = [
+    "ksp_ff",
+    "ksp_lf",
+    "ksp_bf",
+    "ksp_mu",
+    "ff_ksp",
+    "lf_ksp",
+    "bf_ksp",
+    "mu_ksp",
+    "kmc_ff",
+    "kmf_ff",
+    "kme_ff",
+    "kca_ff",
+]
+
+
+def _emit(flags: dict, key: str, value):
+    """Add key to flags dict only if it differs from the default."""
+    default = DEFAULTS.get(key)
+    if value != default:
+        flags[key] = value
+
+
+def _get_preset_val(key):
+    """Get the value for a key from the loaded preset, falling back to default."""
+    preset = st.session_state.get("_loaded_preset", {})
+    return preset.get(key, DEFAULTS.get(key))
+
+
+# ---------------------------------------------------------------------------
+# Section builders
+# ---------------------------------------------------------------------------
+
+
+def execution_mode_section() -> dict:
+    """Radio selector for RL / Heuristic / Model Eval."""
+    flags = {}
+    modes = ["RL Training", "Heuristic Evaluation", "Model Evaluation"]
+    preset = st.session_state.get("_loaded_preset", {})
+
+    if preset.get("EVAL_HEURISTIC"):
+        default_idx = 1
+    elif preset.get("EVAL_MODEL"):
+        default_idx = 2
+    else:
+        default_idx = 0
+
+    mode = st.radio("Execution Mode", modes, index=default_idx, horizontal=True)
+
+    if mode == "RL Training":
+        retrain = st.checkbox(
+            "Retrain from saved model",
+            value=bool(_get_preset_val("RETRAIN_MODEL")),
+            help=_h("RETRAIN_MODEL"),
+        )
+        if retrain:
+            flags["RETRAIN_MODEL"] = True
+            model_path = st.text_input(
+                "Model Path (to load for retraining)",
+                value=_get_preset_val("MODEL_PATH") or "",
+                help=_h("MODEL_PATH"),
+            )
+            if model_path:
+                flags["MODEL_PATH"] = model_path
+            keep_vf = st.checkbox(
+                "Keep pre-trained value function",
+                value=bool(_get_preset_val("KEEP_VF")),
+                help=_h("KEEP_VF"),
+            )
+            if keep_vf:
+                flags["KEEP_VF"] = True
+
+    elif mode == "Heuristic Evaluation":
+        flags["EVAL_HEURISTIC"] = True
+        heuristic = st.selectbox(
+            "Path Heuristic",
+            PATH_HEURISTICS,
+            index=PATH_HEURISTICS.index(_get_preset_val("path_heuristic")),
+            help=_h("path_heuristic"),
+        )
+        _emit(flags, "path_heuristic", heuristic)
+
+    elif mode == "Model Evaluation":
+        flags["EVAL_MODEL"] = True
+        model_path = st.text_input("Model Path", value=_get_preset_val("MODEL_PATH") or "", help=_h("MODEL_PATH"))
+        if model_path:
+            flags["MODEL_PATH"] = model_path
+
+    return flags
+
+
+def environment_section() -> dict:
+    """Environment type, topology, link resources, k, slot size, guardband."""
+    flags = {}
+
+    col1, col2 = st.columns(2)
+    with col1:
+        env_type = st.selectbox(
+            "Environment Type",
+            ENV_TYPES,
+            index=ENV_TYPES.index(_get_preset_val("env_type")),
+            help=_h("env_type"),
+        )
+        _emit(flags, "env_type", env_type)
+
+        topologies = _scan_topologies()
+        default_topo = _get_preset_val("topology_name")
+        topo_idx = topologies.index(default_topo) if default_topo in topologies else 0
+        topology = st.selectbox("Topology", topologies, index=topo_idx, help=_h("topology_name"))
+        _emit(flags, "topology_name", topology)
+
+        link_res = st.number_input(
+            "Link Resources (slots)", min_value=1, value=int(_get_preset_val("link_resources")),
+            help=_h("link_resources"),
+        )
+        _emit(flags, "link_resources", int(link_res))
+
+    with col2:
+        k = st.number_input("K Shortest Paths", min_value=1, value=int(_get_preset_val("k")), help=_h("k"))
+        _emit(flags, "k", int(k))
+
+        slot_size = st.number_input(
+            "Slot Size (GHz)", min_value=0.1, value=float(_get_preset_val("slot_size")), step=0.5,
+            help=_h("slot_size"),
+        )
+        _emit(flags, "slot_size", slot_size)
+
+        guardband = st.number_input(
+            "Guardband (slots)", min_value=0, value=int(_get_preset_val("guardband")),
+            help=_h("guardband"),
+        )
+        _emit(flags, "guardband", int(guardband))
+
+        agg = st.number_input(
+            "Aggregate Slots", min_value=1, value=int(_get_preset_val("aggregate_slots")),
+            help=_h("aggregate_slots"),
+        )
+        _emit(flags, "aggregate_slots", int(agg))
+
+    sort_options = ["spectral_resources", "hops", "distance", "hops_distance", "capacity"]
+    default_sort = _get_preset_val("path_sort_criteria")
+    sort_idx = sort_options.index(default_sort) if default_sort in sort_options else 0
+    path_sort = st.selectbox("Path Sort Criteria", sort_options, index=sort_idx, help=_h("path_sort_criteria"))
+    _emit(flags, "path_sort_criteria", path_sort)
+
+    # Store env_type in session state for other sections to read
+    st.session_state["_env_type"] = env_type
+    return flags
+
+
+def traffic_section() -> dict:
+    """Load, holding time, bandwidth, continuous operation, warmup."""
+    flags = {}
+
+    col1, col2 = st.columns(2)
+    with col1:
+        load = st.number_input(
+            "Load (Erlangs)", min_value=0.1, value=float(_get_preset_val("load")), step=10.0,
+            help=_h("load"),
+        )
+        _emit(flags, "load", load)
+
+        mht = st.number_input(
+            "Mean Service Holding Time",
+            min_value=1.0,
+            value=float(_get_preset_val("mean_service_holding_time")),
+            help=_h("mean_service_holding_time"),
+        )
+        _emit(flags, "mean_service_holding_time", mht)
+
+        values_bw = st.text_input(
+            "Bandwidth Values (comma-separated, leave blank for default)",
+            value="",
+            help=_h("values_bw"),
+        )
+        if values_bw.strip():
+            flags["values_bw"] = values_bw.strip()
+
+    with col2:
+        cont_op = st.checkbox(
+            "Continuous Operation", value=bool(_get_preset_val("continuous_operation")),
+            help=_h("continuous_operation"),
+        )
+        _emit(flags, "continuous_operation", cont_op)
+
+        trunc_ht = st.checkbox(
+            "Truncate Holding Time", value=bool(_get_preset_val("truncate_holding_time")),
+            help=_h("truncate_holding_time"),
+        )
+        _emit(flags, "truncate_holding_time", trunc_ht)
+
+        inc_load = st.checkbox(
+            "Incremental Loading", value=bool(_get_preset_val("incremental_loading")),
+            help=_h("incremental_loading"),
+        )
+        _emit(flags, "incremental_loading", inc_load)
+
+        end_fb = st.checkbox(
+            "End on First Blocking", value=bool(_get_preset_val("end_first_blocking")),
+            help=_h("end_first_blocking"),
+        )
+        _emit(flags, "end_first_blocking", end_fb)
+
+    warmup = st.number_input(
+        "ENV Warmup Steps", min_value=0, value=int(_get_preset_val("ENV_WARMUP_STEPS")), step=1000,
+        help=_h("ENV_WARMUP_STEPS"),
+    )
+    _emit(flags, "ENV_WARMUP_STEPS", int(warmup))
+
+    reward_type = st.selectbox(
+        "Reward Type",
+        ["service", "bitrate", "utilisation"],
+        index=0,
+        help=_h("reward_type"),
+    )
+    _emit(flags, "reward_type", reward_type)
+
+    return flags
+
+
+def execution_section() -> dict:
+    """Total timesteps, num envs, rollout length, steps per increment, etc."""
+    flags = {}
+
+    col1, col2 = st.columns(2)
+    with col1:
+        total = st.number_input(
+            "Total Timesteps",
+            min_value=1,
+            value=int(_get_preset_val("TOTAL_TIMESTEPS")),
+            step=1_000_000,
+            format="%d",
+            help=_h("TOTAL_TIMESTEPS"),
+        )
+        _emit(flags, "TOTAL_TIMESTEPS", int(total))
+
+        num_envs = st.number_input(
+            "Num Environments", min_value=1, value=int(_get_preset_val("NUM_ENVS")), step=100,
+            help=_h("NUM_ENVS"),
+        )
+        _emit(flags, "NUM_ENVS", int(num_envs))
+
+        rollout = st.number_input(
+            "Rollout Length", min_value=1, value=int(_get_preset_val("ROLLOUT_LENGTH")), step=10,
+            help=_h("ROLLOUT_LENGTH"),
+        )
+        _emit(flags, "ROLLOUT_LENGTH", int(rollout))
+
+    with col2:
+        spi = st.number_input(
+            "Steps Per Increment",
+            min_value=1,
+            value=int(_get_preset_val("STEPS_PER_INCREMENT")),
+            step=10000,
+            format="%d",
+            help=_h("STEPS_PER_INCREMENT"),
+        )
+        _emit(flags, "STEPS_PER_INCREMENT", int(spi))
+
+        minibatches = st.number_input(
+            "Num Minibatches", min_value=1, value=int(_get_preset_val("NUM_MINIBATCHES")),
+            help=_h("NUM_MINIBATCHES"),
+        )
+        _emit(flags, "NUM_MINIBATCHES", int(minibatches))
+
+        epochs = st.number_input(
+            "Update Epochs", min_value=1, value=int(_get_preset_val("UPDATE_EPOCHS")),
+            help=_h("UPDATE_EPOCHS"),
+        )
+        _emit(flags, "UPDATE_EPOCHS", int(epochs))
+
+    seed = st.number_input("Seed", min_value=0, value=int(_get_preset_val("SEED")), help=_h("SEED"))
+    _emit(flags, "SEED", int(seed))
+
+    return flags
+
+
+def architecture_section() -> dict:
+    """MLP / GNN / Transformer architecture selection and params."""
+    flags = {}
+
+    preset = st.session_state.get("_loaded_preset", {})
+    if preset.get("USE_GNN"):
+        arch_default = 1
+    elif preset.get("USE_TRANSFORMER"):
+        arch_default = 2
+    else:
+        arch_default = 0
+
+    arch = st.radio("Architecture", ["MLP", "GNN", "Transformer"], index=arch_default, horizontal=True)
+
+    if arch == "MLP":
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            layers = st.number_input(
+                "Num Layers", min_value=1, value=int(_get_preset_val("NUM_LAYERS")),
+                help=_h("NUM_LAYERS"),
+            )
+            _emit(flags, "NUM_LAYERS", int(layers))
+        with col2:
+            units = st.number_input(
+                "Hidden Units", min_value=1, value=int(_get_preset_val("NUM_UNITS")),
+                help=_h("NUM_UNITS"),
+            )
+            _emit(flags, "NUM_UNITS", int(units))
+        with col3:
+            activation = st.selectbox(
+                "Activation", ["tanh", "relu", "gelu", "silu"],
+                index=["tanh", "relu", "gelu", "silu"].index(_get_preset_val("ACTIVATION")),
+                help=_h("ACTIVATION"),
+            )
+            _emit(flags, "ACTIVATION", activation)
+
+    elif arch == "GNN":
+        flags["USE_GNN"] = True
+        col1, col2 = st.columns(2)
+        with col1:
+            mp_steps = st.number_input(
+                "Message Passing Steps",
+                min_value=1,
+                value=int(_get_preset_val("message_passing_steps")),
+                help=_h("message_passing_steps"),
+            )
+            _emit(flags, "message_passing_steps", int(mp_steps))
+
+            edge_emb = st.number_input(
+                "Edge Embedding Size",
+                min_value=1,
+                value=int(_get_preset_val("edge_embedding_size")),
+                help=_h("edge_embedding_size"),
+            )
+            _emit(flags, "edge_embedding_size", int(edge_emb))
+        with col2:
+            node_emb = st.number_input(
+                "Node Embedding Size",
+                min_value=1,
+                value=int(_get_preset_val("node_embedding_size")),
+                help=_h("node_embedding_size"),
+            )
+            _emit(flags, "node_embedding_size", int(node_emb))
+
+            attn_layers = st.number_input(
+                "Attention MLP Layers",
+                min_value=1,
+                value=int(_get_preset_val("attn_mlp_layers")),
+                help=_h("attn_mlp_layers"),
+            )
+            _emit(flags, "attn_mlp_layers", int(attn_layers))
+
+    elif arch == "Transformer":
+        flags["USE_TRANSFORMER"] = True
+        col1, col2 = st.columns(2)
+        with col1:
+            t_layers = st.number_input(
+                "Num Layers",
+                min_value=1,
+                value=int(_get_preset_val("transformer_num_layers")),
+                help=_h("transformer_num_layers"),
+            )
+            _emit(flags, "transformer_num_layers", int(t_layers))
+
+            t_heads = st.number_input(
+                "Num Heads",
+                min_value=1,
+                value=int(_get_preset_val("transformer_num_heads")),
+                help=_h("transformer_num_heads"),
+            )
+            _emit(flags, "transformer_num_heads", int(t_heads))
+
+            t_emb = st.number_input(
+                "Embedding Size",
+                min_value=1,
+                value=int(_get_preset_val("transformer_embedding_size")),
+                help=_h("transformer_embedding_size"),
+            )
+            _emit(flags, "transformer_embedding_size", int(t_emb))
+
+            t_inter = st.number_input(
+                "Intermediate Size",
+                min_value=1,
+                value=int(_get_preset_val("transformer_intermediate_size")),
+                help=_h("transformer_intermediate_size"),
+            )
+            _emit(flags, "transformer_intermediate_size", int(t_inter))
+
+            t_obs = st.selectbox(
+                "Observation Type",
+                ["departure", "occupancy", "capacity"],
+                index=["departure", "occupancy", "capacity"].index(
+                    _get_preset_val("transformer_obs_type")
+                ),
+                help=_h("transformer_obs_type"),
+            )
+            _emit(flags, "transformer_obs_type", t_obs)
+        with col2:
+            t_actor_w = st.number_input(
+                "Actor MLP Width",
+                min_value=1,
+                value=int(_get_preset_val("transformer_actor_mlp_width")),
+                help=_h("transformer_actor_mlp_width"),
+            )
+            _emit(flags, "transformer_actor_mlp_width", int(t_actor_w))
+
+            t_actor_d = st.number_input(
+                "Actor MLP Depth",
+                min_value=1,
+                value=int(_get_preset_val("transformer_actor_mlp_depth")),
+                help=_h("transformer_actor_mlp_depth"),
+            )
+            _emit(flags, "transformer_actor_mlp_depth", int(t_actor_d))
+
+            t_critic_w = st.number_input(
+                "Critic MLP Width",
+                min_value=1,
+                value=int(_get_preset_val("transformer_critic_mlp_width")),
+                help=_h("transformer_critic_mlp_width"),
+            )
+            _emit(flags, "transformer_critic_mlp_width", int(t_critic_w))
+
+            t_critic_d = st.number_input(
+                "Critic MLP Depth",
+                min_value=1,
+                value=int(_get_preset_val("transformer_critic_mlp_depth")),
+                help=_h("transformer_critic_mlp_depth"),
+            )
+            _emit(flags, "transformer_critic_mlp_depth", int(t_critic_d))
+
+        share = st.checkbox(
+            "Share encoder layers between actor and critic",
+            value=bool(_get_preset_val("transformer_share_layers")),
+            help=_h("transformer_share_layers"),
+        )
+        _emit(flags, "transformer_share_layers", share)
+
+    return flags
+
+
+def ppo_section() -> dict:
+    """PPO hyperparameters."""
+    flags = {}
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        lr = st.number_input(
+            "Learning Rate",
+            min_value=0.0,
+            value=float(_get_preset_val("LR")),
+            format="%.1e",
+            step=1e-4,
+            help=_h("LR"),
+        )
+        _emit(flags, "LR", lr)
+
+        gamma = st.number_input(
+            "Discount (GAMMA)",
+            min_value=0.0,
+            max_value=1.0,
+            value=float(_get_preset_val("GAMMA")),
+            step=0.001,
+            format="%.4f",
+            help=_h("GAMMA"),
+        )
+        _emit(flags, "GAMMA", gamma)
+
+    with col2:
+        clip = st.number_input(
+            "Clip Epsilon",
+            min_value=0.0,
+            value=float(_get_preset_val("CLIP_EPS")),
+            step=0.05,
+            help=_h("CLIP_EPS"),
+        )
+        _emit(flags, "CLIP_EPS", clip)
+
+        ent = st.number_input(
+            "Entropy Coef",
+            min_value=0.0,
+            value=float(_get_preset_val("ENT_COEF")),
+            step=0.001,
+            format="%.4f",
+            help=_h("ENT_COEF"),
+        )
+        _emit(flags, "ENT_COEF", ent)
+
+    with col3:
+        vf = st.number_input(
+            "VF Coef",
+            min_value=0.0,
+            value=float(_get_preset_val("VF_COEF")),
+            step=0.1,
+            help=_h("VF_COEF"),
+        )
+        _emit(flags, "VF_COEF", vf)
+
+        grad_norm = st.number_input(
+            "Max Grad Norm",
+            min_value=0.0,
+            value=float(_get_preset_val("MAX_GRAD_NORM")),
+            step=0.1,
+            help=_h("MAX_GRAD_NORM"),
+        )
+        _emit(flags, "MAX_GRAD_NORM", grad_norm)
+
+    use_gae = st.checkbox("Set GAE Lambda (default: auto-anneal)", help=_h("GAE_LAMBDA"))
+    if use_gae:
+        gae = st.number_input(
+            "GAE Lambda", min_value=0.0, max_value=1.0, value=0.95, step=0.01,
+            help=_h("GAE_LAMBDA"),
+        )
+        flags["GAE_LAMBDA"] = gae
+
+    return flags
+
+
+def schedule_section() -> dict:
+    """LR schedule, entropy schedule, VML schedule."""
+    flags = {}
+
+    schedules = ["cosine", "warmup_cosine", "linear", "constant"]
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        lr_sched = st.selectbox(
+            "LR Schedule",
+            schedules,
+            index=schedules.index(_get_preset_val("LR_SCHEDULE")),
+            help=_h("LR_SCHEDULE"),
+        )
+        _emit(flags, "LR_SCHEDULE", lr_sched)
+    with col2:
+        ent_scheds = ["constant", "linear", "cosine"]
+        ent_sched = st.selectbox(
+            "Entropy Schedule",
+            ent_scheds,
+            index=ent_scheds.index(_get_preset_val("ENT_SCHEDULE")),
+            help=_h("ENT_SCHEDULE"),
+        )
+        _emit(flags, "ENT_SCHEDULE", ent_sched)
+    with col3:
+        vml_scheds = ["constant", "linear", "cosine"]
+        vml_sched = st.selectbox(
+            "VML Schedule",
+            vml_scheds,
+            index=vml_scheds.index(_get_preset_val("VML_SCHEDULE")),
+            help=_h("VML_SCHEDULE"),
+        )
+        _emit(flags, "VML_SCHEDULE", vml_sched)
+
+    return flags
+
+
+def advanced_training_section() -> dict:
+    """Advanced training flags: reward centering, off-policy IAM, etc."""
+    flags = {}
+
+    col1, col2 = st.columns(2)
+    with col1:
+        rc = st.checkbox("Reward Centering", value=bool(_get_preset_val("REWARD_CENTERING")), help=_h("REWARD_CENTERING"))
+        _emit(flags, "REWARD_CENTERING", rc)
+
+        opiam = st.checkbox("Off-Policy IAM", value=bool(_get_preset_val("OFF_POLICY_IAM")), help=_h("OFF_POLICY_IAM"))
+        _emit(flags, "OFF_POLICY_IAM", opiam)
+
+        sep_vf = st.checkbox(
+            "Separate VF Optimizer", value=bool(_get_preset_val("SEPARATE_VF_OPTIMIZER")),
+            help=_h("SEPARATE_VF_OPTIMIZER"),
+        )
+        _emit(flags, "SEPARATE_VF_OPTIMIZER", sep_vf)
+
+    with col2:
+        vml = st.number_input(
+            "Valid Mass Loss Coef",
+            min_value=0.0,
+            value=float(_get_preset_val("VALID_MASS_LOSS_COEF")),
+            step=0.01,
+            format="%.3f",
+            help=_h("VALID_MASS_LOSS_COEF"),
+        )
+        _emit(flags, "VALID_MASS_LOSS_COEF", vml)
+
+        prio = st.number_input(
+            "Priority Alpha",
+            min_value=0.0,
+            max_value=1.0,
+            value=float(_get_preset_val("PRIO_ALPHA")),
+            step=0.1,
+            help=_h("PRIO_ALPHA"),
+        )
+        _emit(flags, "PRIO_ALPHA", prio)
+
+        prio_beta = st.number_input(
+            "Priority Beta0",
+            min_value=0.0,
+            max_value=1.0,
+            value=float(_get_preset_val("PRIO_BETA0")),
+            step=0.1,
+            help=_h("PRIO_BETA0"),
+        )
+        _emit(flags, "PRIO_BETA0", prio_beta)
+
+        rscale = st.number_input(
+            "Reward Scale",
+            min_value=0.0,
+            value=float(_get_preset_val("REWARD_SCALE")),
+            step=0.1,
+            help=_h("REWARD_SCALE"),
+        )
+        _emit(flags, "REWARD_SCALE", rscale)
+
+    st.markdown("**VTrace / Importance Ratio Clipping**")
+    col3, col4 = st.columns(2)
+    with col3:
+        rho = st.number_input(
+            "RHO Clip",
+            value=float(_get_preset_val("RHO_CLIP")),
+            step=0.5,
+            help=_h("RHO_CLIP"),
+        )
+        _emit(flags, "RHO_CLIP", rho)
+    with col4:
+        c_clip = st.number_input(
+            "C Clip",
+            value=float(_get_preset_val("C_CLIP")),
+            step=0.5,
+            help=_h("C_CLIP"),
+        )
+        _emit(flags, "C_CLIP", c_clip)
+
+    diff = st.checkbox("Differentiable Mode", value=bool(_get_preset_val("differentiable")), help=_h("differentiable"))
+    _emit(flags, "differentiable", diff)
+    if diff:
+        temp = st.number_input(
+            "Temperature",
+            min_value=0.01,
+            value=float(_get_preset_val("temperature")),
+            step=0.1,
+            help=_h("temperature"),
+        )
+        _emit(flags, "temperature", temp)
+
+    return flags
+
+
+def physical_layer_section() -> dict:
+    """GN model physical layer params. Only shown for *gn_model env types."""
+    flags = {}
+
+    mod_files = _scan_modulations()
+    default_mod = _get_preset_val("modulations_csv_filepath")
+    # Show relative paths for display
+    display_files = [str(p) for p in mod_files]
+    if default_mod in display_files:
+        mod_idx = display_files.index(default_mod)
+    else:
+        mod_idx = 0
+    if display_files:
+        mod_path = st.selectbox("Modulations CSV", display_files, index=mod_idx, help=_h("modulations_csv_filepath"))
+        _emit(flags, "modulations_csv_filepath", mod_path)
+
+    col1, col2 = st.columns(2)
+    with col1:
+        alpha = st.number_input(
+            "Fibre Attenuation (dB/km)",
+            value=float(_get_preset_val("alpha")),
+            step=0.01,
+            format="%.3f",
+            help=_h("alpha"),
+        )
+        _emit(flags, "alpha", alpha)
+
+        beta2 = st.number_input(
+            "Dispersion (ps^2/km)",
+            value=float(_get_preset_val("beta_2")),
+            step=0.1,
+            help=_h("beta_2"),
+        )
+        _emit(flags, "beta_2", beta2)
+
+        gam = st.number_input(
+            "Nonlinear Coefficient",
+            value=float(_get_preset_val("gamma")),
+            step=0.1,
+            help=_h("gamma"),
+        )
+        _emit(flags, "gamma", gam)
+
+    with col2:
+        span = st.number_input(
+            "Span Length (km)",
+            value=float(_get_preset_val("span_length")),
+            step=10.0,
+            help=_h("span_length"),
+        )
+        _emit(flags, "span_length", span)
+
+        nf = st.number_input(
+            "Amplifier Noise Figure (dB)",
+            value=float(_get_preset_val("amplifier_noise_figure")),
+            step=0.5,
+            help=_h("amplifier_noise_figure"),
+        )
+        _emit(flags, "amplifier_noise_figure", nf)
+
+        snr_m = st.number_input(
+            "SNR Margin (dB)",
+            value=float(_get_preset_val("snr_margin")),
+            step=0.1,
+            help=_h("snr_margin"),
+        )
+        _emit(flags, "snr_margin", snr_m)
+
+    return flags
+
+
+def logging_section() -> dict:
+    """Logging, saving, plotting, eval-during-training."""
+    flags = {}
+
+    col1, col2 = st.columns(2)
+    with col1:
+        wandb = st.checkbox("Enable W&B Logging", value=bool(_get_preset_val("WANDB")), help=_h("WANDB"))
+        _emit(flags, "WANDB", wandb)
+
+        if wandb:
+            project = st.text_input("W&B Project", value=_get_preset_val("PROJECT") or "", help=_h("PROJECT"))
+            if project:
+                _emit(flags, "PROJECT", project)
+
+            exp_name = st.text_input(
+                "Experiment Name", value=_get_preset_val("EXPERIMENT_NAME") or "",
+                help=_h("EXPERIMENT_NAME"),
+            )
+            if exp_name:
+                _emit(flags, "EXPERIMENT_NAME", exp_name)
+
+        save = st.checkbox("Save Model", value=bool(_get_preset_val("SAVE_MODEL")), help=_h("SAVE_MODEL"))
+        _emit(flags, "SAVE_MODEL", save)
+
+        if save:
+            mpath = st.text_input("Model Save Path", value=_get_preset_val("MODEL_PATH") or "", help=_h("MODEL_PATH"))
+            if mpath:
+                flags["MODEL_PATH"] = mpath
+
+    with col2:
+        plotting = st.checkbox("Enable Plotting", value=bool(_get_preset_val("PLOTTING")), help=_h("PLOTTING"))
+        _emit(flags, "PLOTTING", plotting)
+
+        edt = st.checkbox(
+            "Eval During Training", value=bool(_get_preset_val("EVAL_DURING_TRAINING")),
+            help=_h("EVAL_DURING_TRAINING"),
+        )
+        _emit(flags, "EVAL_DURING_TRAINING", edt)
+
+        data_out = st.text_input(
+            "Data Output File", value=_get_preset_val("DATA_OUTPUT_FILE") or "",
+            help=_h("DATA_OUTPUT_FILE"),
+        )
+        if data_out.strip():
+            flags["DATA_OUTPUT_FILE"] = data_out.strip()
+
+    return flags

@@ -1577,12 +1577,21 @@ def plot_metrics(
     plot_metric = moving_average(plot_metric, smoothing_factor)
     plot_metric_upper = moving_average(plot_metric_upper, smoothing_factor)
     plot_metric_lower = moving_average(plot_metric_lower, smoothing_factor)
-    plt.plot(jnp.arange(len(plot_metric)) * config.DOWNSAMPLE_FACTOR * step_factor, plot_metric)
-    plt.fill_between(range(len(plot_metric)), plot_metric_lower, plot_metric_upper, alpha=0.2)
-    plt.xlabel("Environment Step" if not config.incremental_loading else "Episode Count")
-    plt.ylabel(plot_metric_name)
-    plt.title(experiment_name)
-    plt.show()
+    fig, ax = plt.subplots()
+    ax.plot(jnp.arange(len(plot_metric)) * config.DOWNSAMPLE_FACTOR * step_factor, plot_metric)
+    ax.fill_between(range(len(plot_metric)), plot_metric_lower, plot_metric_upper, alpha=0.2)
+    ax.set_xlabel("Environment Step" if not config.incremental_loading else "Episode Count")
+    ax.set_ylabel(plot_metric_name)
+    ax.set_title(experiment_name)
+
+    # Save to file; show interactively only if backend supports it
+    save_dir = os.path.dirname(config.DATA_OUTPUT_FILE) if config.DATA_OUTPUT_FILE else "."
+    save_path = os.path.join(save_dir, f"{experiment_name}_plot.png")
+    fig.savefig(save_path, dpi=150, bbox_inches="tight")
+    print(f"Plot saved to {save_path}")
+    if plt.get_backend().lower() not in ("agg", "pdf", "svg", "ps", "cairo"):
+        plt.show()
+    plt.close(fig)
 
 
 def log_actions(merged_out, processed_data, config):

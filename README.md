@@ -53,6 +53,9 @@ cd XLRON
 # Install with uv (recommended)
 uv sync
 
+# Install with GUI
+uv sync --extra gui
+
 # If running on GPU
 uv sync --group gpu
 
@@ -61,13 +64,27 @@ uv sync --group tpu
 
 # Or with pip
 pip install -e .
+pip install -e ".[gui]"   # include GUI
 ```
 
 ---
 
 ## Quick Start
 
-### Training an RL Agent
+### GUI (recommended for new users)
+
+XLRON includes a browser-based GUI for configuring and launching experiments without memorising CLI flags. Install with the `gui` extra, then run:
+
+```bash
+uv sync --extra gui
+xlron
+```
+
+This opens a Streamlit app where you can select environment type, topology, traffic parameters, model architecture, PPO hyperparameters, and more — then launch runs directly from the browser. Output streams live in the right-hand pane.
+
+**Remote server?** Use SSH port forwarding (`ssh -L <port>:localhost:<port> user@remote-host`) and open the URL in your local browser.
+
+### Training an RL Agent (CLI)
 
 Train a PPO agent on the RMSA problem with the NSFNET topology:
 
@@ -219,6 +236,7 @@ xlron/
 ├── heuristics/            # Classical algorithms (KSP-FF, etc.)
 ├── bounds/                # Capacity bound estimation (cut-sets, reconfigurable routing)
 ├── models/                # Neural network architectures (MLP, GNN, Transformer)
+├── gui/                   # Streamlit GUI (optional, install with `xlron[gui]`)
 ├── dtype_config.py        # Device-aware dtype configuration
 └── parameter_flags.py     # Command-line flags
 ```
