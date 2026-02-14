@@ -1421,10 +1421,12 @@ def remove_expired_services_rsa_gn_model(state: EnvState, params: Optional[EnvPa
         + jnp.array(-1, dtype=state.path_index_array.dtype) * mask_remove_i,
         channel_centre_bw_array=state.channel_centre_bw_array * keep_f,
         channel_power_array=state.channel_power_array * keep_f,
+        channel_centre_freq_array=state.channel_centre_freq_array * keep_f,
         path_index_array_prev=state.path_index_array_prev * keep_i
         + jnp.array(-1, dtype=state.path_index_array_prev.dtype) * mask_remove_i,
         channel_centre_bw_array_prev=state.channel_centre_bw_array_prev * keep_f,
         channel_power_array_prev=state.channel_power_array_prev * keep_f,
+        channel_centre_freq_array_prev=state.channel_centre_freq_array_prev * keep_f,
     )
 
     if params.monitor_active_lightpaths:
@@ -1478,11 +1480,13 @@ def remove_expired_services_rmsa_gn_model(state: EnvState, params: Optional[EnvP
         path_index_array=state.path_index_array * keep_i + neg_one_i * mask_remove_i,
         channel_centre_bw_array=state.channel_centre_bw_array * keep_f,
         channel_power_array=state.channel_power_array * keep_f,
+        channel_centre_freq_array=state.channel_centre_freq_array * keep_f,
         modulation_format_index_array=state.modulation_format_index_array * keep_i
         + neg_one_i * mask_remove_i,
         path_index_array_prev=state.path_index_array_prev * keep_i + neg_one_i * mask_remove_i,
         channel_centre_bw_array_prev=state.channel_centre_bw_array_prev * keep_f,
         channel_power_array_prev=state.channel_power_array_prev * keep_f,
+        channel_centre_freq_array_prev=state.channel_centre_freq_array_prev * keep_f,
         modulation_format_index_array_prev=state.modulation_format_index_array_prev * keep_i
         + neg_one_i * mask_remove_i,
     )
@@ -1525,6 +1529,8 @@ def complete_step_rsa_gn_model(
         + state.channel_centre_bw_array_prev * fail.astype(state.channel_centre_bw_array.dtype),
         channel_power_array=state.channel_power_array * one_m_fail_f
         + state.channel_power_array_prev * fail.astype(state.channel_power_array.dtype),
+        channel_centre_freq_array=state.channel_centre_freq_array * one_m_fail_f
+        + state.channel_centre_freq_array_prev * fail.astype(state.channel_centre_freq_array.dtype),
         path_index_array=state.path_index_array * one_m_fail.astype(state.path_index_array.dtype)
         + state.path_index_array_prev * fail.astype(state.path_index_array.dtype),
     )
@@ -1588,6 +1594,8 @@ def complete_step_rmsa_gn_model(
         + state.channel_centre_bw_array_prev * fail.astype(state.channel_centre_bw_array.dtype),
         channel_power_array=state.channel_power_array * one_m_fail_f
         + state.channel_power_array_prev * fail.astype(state.channel_power_array.dtype),
+        channel_centre_freq_array=state.channel_centre_freq_array * one_m_fail_f
+        + state.channel_centre_freq_array_prev * fail.astype(state.channel_centre_freq_array.dtype),
         path_index_array=state.path_index_array * one_m_fail.astype(state.path_index_array.dtype)
         + state.path_index_array_prev * fail.astype(state.path_index_array.dtype),
         modulation_format_index_array=state.modulation_format_index_array
@@ -2772,6 +2780,18 @@ def init_channel_centre_bw_array(params: EnvParams):
     )
 
 
+def init_channel_centre_freq_array(params: EnvParams):
+    """Initialise channel centre frequency array.
+    Args:
+        params (EnvParams): Environment parameters
+    Returns:
+        jnp.array: Channel centre frequency array (GHz)
+    """
+    return jnp.full(
+        (params.num_links, params.link_resources), 0.0, dtype=dtype_config.LARGE_FLOAT_DTYPE
+    )
+
+
 def init_modulation_format_index_array(params: EnvParams):
     """Initialise modulation format index array.
     Args:
@@ -3370,17 +3390,8 @@ def get_snr_for_path(path, link_snr_array, params, state=None):
         ch_power = state.channel_power_array[first_link_idx]  # (link_resources,)
         ch_bw_hz = state.channel_centre_bw_array[first_link_idx] * 1e9  # GHz -> Hz
 
-        # Compute per-slot centre frequencies for ROADM ASE
-        se = jnp.ones(params.link_resources, dtype=dtype_config.LARGE_FLOAT_DTYPE)
-        # `se=1` is used because `channel_centre_bw_array` already stores bandwidth (not bitrate),
-        # so the `bitrate / se` step in `required_slots` becomes a no-op,
-        # giving the correct slot count directly from the bandwidth value.
-        req_slots = get_required_slots_on_link(
-            state.channel_centre_bw_array[first_link_idx], se, params
-        )
-        ch_centres_hz = (
-            get_centre_freq_on_link(jnp.arange(params.link_resources), req_slots, params) * 1e9
-        )  # GHz -> Hz
+        # Use cached centre frequencies for ROADM ASE
+        ch_centres_hz = state.channel_centre_freq_array[first_link_idx] * 1e9  # GHz -> Hz
 
         roadm_ase = isrs_gn_model.calculate_roadm_ase(
             roadm_express_loss=params.roadm_express_loss.val,
@@ -3492,10 +3503,7 @@ def get_snr_link_array(state: EnvState, params: EnvParams) -> chex.Array:
             se_link = jnp.ones(params.link_resources, dtype=jnp.float32)
         bw_link = state.channel_centre_bw_array[link_index, :]
         ch_power_link = state.channel_power_array[link_index, :]
-        required_slots_link = get_required_slots_on_link(bw_link, se_link, params)
-        ch_centres_link = get_centre_freq_on_link(
-            jnp.arange(params.link_resources), required_slots_link, params
-        )
+        ch_centres_link = state.channel_centre_freq_array[link_index, :]
 
         # Calculate SNR
         P = dict(
@@ -3521,6 +3529,7 @@ def get_snr_link_array(state: EnvState, params: EnvParams) -> chex.Array:
             ch_bandwidth_i=bw_link * 1e9,
             excess_kurtosis_i=kurtosis_link,
             uniform_spans=params.uniform_spans,
+            num_subchannels=params.num_subchannels,
         )
         snr = isrs_gn_model.get_snr(**P)[0]
 
@@ -3556,19 +3565,8 @@ def get_snr_link_array_fused(state: EnvState, params: EnvParams) -> chex.Array:
     ch_power_all = state.channel_power_array  # (L, N)
     bw_all = state.channel_centre_bw_array  # (L, N) in GHz
 
-    # Compute centre frequencies for all links: (L, N)
-    # When mod_format_correction=False, se=1 everywhere
-    se_all = jnp.ones_like(bw_all)
-    required_slots_all = jax.vmap(get_required_slots_on_link, in_axes=(0, 0, None))(
-        bw_all, se_all, params
-    )  # (L, N)
-    slot_indices = jnp.arange(params.link_resources)
-    ch_centres_all = jax.vmap(get_centre_freq_on_link, in_axes=(None, 0, None))(
-        slot_indices, required_slots_all, params
-    )  # (L, N) in GHz
-
-    # Convert to Hz for the GN model
-    ch_centres_hz = ch_centres_all * 1e9  # (L, N)
+    # Use cached centre frequencies from state
+    ch_centres_hz = state.channel_centre_freq_array * 1e9  # (L, N) GHz -> Hz
     bw_hz = bw_all * 1e9  # (L, N)
 
     # Tile amplifier noise figure and transceiver SNR to (L, N) for vmap
@@ -3595,6 +3593,7 @@ def get_snr_link_array_fused(state: EnvState, params: EnvParams) -> chex.Array:
             roadm_loss=params.roadm_loss,
             num_roadms=params.num_roadms,
             coherent=params.coherent,
+            num_subchannels=params.num_subchannels,
         )
 
     link_snr_array = jax.vmap(_link_snr_fused)(
@@ -3643,6 +3642,11 @@ def get_best_modulation_format(
                 state.channel_centre_bw_array,
                 affected_slots_mask,
                 params.slot_size,
+            ),
+            channel_centre_freq_array=set_path_links(
+                state.channel_centre_freq_array,
+                affected_slots_mask,
+                get_centre_frequency(initial_slot_index, req_slots, params),
             ),
         )
         snr_value = get_minimum_snr_of_channels_on_path(
@@ -3777,13 +3781,15 @@ def implement_action_rsa_gn_model(
             action_info.affected_slots_mask,
             launch_power,
         ),
-        # TODO - update this to use separate arrays to track
-        # channel centres and bandwidths and update with bandwidth
-        # (that may or may not equal slot size)
         channel_centre_bw_array=set_path_links(
             state.channel_centre_bw_array,
             action_info.affected_slots_mask,
             params.slot_size,
+        ),
+        channel_centre_freq_array=set_path_links(
+            state.channel_centre_freq_array,
+            action_info.affected_slots_mask,
+            get_centre_frequency(action_info.initial_slot_index, action_info.num_slots, params),
         ),
     )
     if params.monitor_active_lightpaths:
@@ -3852,6 +3858,11 @@ def implement_action_rmsa_gn_model(
             state.channel_centre_bw_array,
             action_info.affected_slots_mask,
             params.slot_size,
+        ),
+        channel_centre_freq_array=set_path_links(
+            state.channel_centre_freq_array,
+            action_info.affected_slots_mask,
+            get_centre_frequency(action_info.initial_slot_index, action_info.num_slots, params),
         ),
     )
     # Update link_snr_array
@@ -4093,12 +4104,22 @@ def mask_slots_rmsa_gn_model(
         )
     )(all_masks, mod_idx_all)  # (2*k*M, num_links, link_resources)
 
+    # Compute centre frequencies for each candidate placement
+    all_centre_freqs = jax.vmap(
+        lambda mask, si, rs: set_path_links(
+            state.channel_centre_freq_array,
+            mask,
+            get_centre_frequency(si, rs, params),
+        )
+    )(all_masks, all_slot_indices, all_req_slots_flat)  # (2*k*M, num_links, link_resources)
+
     # --- Phase 3: Vmapped GN model evaluation ---
     def evaluate_one_candidate(
         ch_bw,
         ch_power,
         path_idx_arr,
         mod_fmt_arr,
+        centre_freq_arr,
         slot_idx,
         req_slots_val,
         req_snr_val,
@@ -4111,6 +4132,7 @@ def mask_slots_rmsa_gn_model(
             channel_power_array=ch_power,
             path_index_array=path_idx_arr,
             modulation_format_index_array=mod_fmt_arr,
+            channel_centre_freq_array=centre_freq_arr,
         )
 
         # Compute SNR for all links
@@ -4149,6 +4171,7 @@ def mask_slots_rmsa_gn_model(
         all_ch_power,
         all_path_idx_arrays,
         all_mod_fmt_arrays,
+        all_centre_freqs,
         all_slot_indices,
         all_req_slots_flat,
         all_req_snr_flat,

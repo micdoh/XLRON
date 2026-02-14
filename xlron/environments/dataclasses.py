@@ -321,6 +321,7 @@ class GNModelEnvParams(RSAEnvParams):
     slot_centre_freq_array: HashableArrayWrapper = struct.field(
         pytree_node=False
     )  # Per-slot centre frequencies in relative GHz offset from ref_lambda
+    num_subchannels: int = struct.field(pytree_node=False)  # Nyquist subchannels per slot for SPM
 
 
 @struct.dataclass
@@ -342,6 +343,8 @@ class GNModelEnvState(RSAEnvState):
     channel_power_array_prev: (
         chex.Array
     )  # Channel power for each active connection in previous timestep
+    channel_centre_freq_array: chex.Array  # Per-slot centre frequency in GHz
+    channel_centre_freq_array_prev: chex.Array  # Previous timestep centre frequency for undo
     launch_power_array: chex.Array  # Launch power array
 
 

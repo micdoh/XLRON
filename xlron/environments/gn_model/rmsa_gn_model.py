@@ -4,6 +4,7 @@ from xlron.environments.dataclasses import *
 from xlron.environments.env_funcs import (
     get_paths_obs_gn_model,
     init_channel_centre_bw_array,
+    init_channel_centre_freq_array,
     init_channel_power_array,
     init_graph_tuple,
     init_link_slot_array,
@@ -79,6 +80,8 @@ class RMSAGNModelEnv(RSAEnv):
             modulation_format_index_array=init_modulation_format_index_array(params),
             channel_centre_bw_array_prev=init_channel_centre_bw_array(params),
             channel_power_array_prev=init_channel_power_array(params),
+            channel_centre_freq_array=init_channel_centre_freq_array(params),
+            channel_centre_freq_array_prev=init_channel_centre_freq_array(params),
             modulation_format_index_array_prev=init_modulation_format_index_array(params),
             launch_power_array=launch_power_array,
             mod_format_mask=init_mod_format_mask(params),

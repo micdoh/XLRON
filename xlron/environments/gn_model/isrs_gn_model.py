@@ -39,6 +39,7 @@ def isrs_gn_model(
     coherent: bool = True,
     excess_kurtosis_i: chex.Array | None = None,
     mod_format_correction: bool = False,
+    num_subchannels: int = 1,
 ):
     """
     This function implements the ISRS GN model in closed-form from [1].
@@ -177,7 +178,9 @@ def isrs_gn_model(
     T_i = T_0
     T_k = T_i.T
 
-    spm_single = jnp.squeeze(_spm(phi_i, T_i, ch_bw, a, a_bar, gamma))
+    # Nyquist subchannels: use effective bandwidth B_eff = B / N_sub for SPM
+    B_eff = ch_bw / num_subchannels
+    spm_single = jnp.squeeze(_spm(phi_i, T_i, B_eff, a, a_bar, gamma)) / (num_subchannels**2)
     xpm_single = _xpm(ch_pow, ch_pow_k, phi_ik, T_k, ch_bw, ch_bw_k, a.T, a_bar.T, gamma)
 
     def scan_fun(carry, l_span):
@@ -203,7 +206,7 @@ def isrs_gn_model(
     init = (jnp.zeros(num_channels), jnp.zeros(num_channels), jnp.zeros(num_channels))
     final_state, _ = jax.lax.scan(scan_fun, init, length, length=max_spans)
 
-    eps = _eps(ch_bw, f, a, l_mean, beta2, beta3)
+    eps = _eps(B_eff, f, a, l_mean, beta2, beta3)
     eta_spm = final_state[0] * num_spans ** (eps * coherent)
     eta_xpm = final_state[1]
     eta_xpm_corr_asymp = final_state[2]
@@ -235,6 +238,7 @@ def isrs_gn_model_uniform(
     excess_kurtosis_i: chex.Array | None = None,
     mod_format_correction: bool = False,
     max_spans: int | None = None,
+    num_subchannels: int = 1,
 ):
     """
     Simplified ISRS GN model for uniform spans with identical parameters.
@@ -281,21 +285,25 @@ def isrs_gn_model_uniform(
     total_power = jnp.sum(ch_pow)
 
     # -- Fused SPM computation --
+    # Nyquist subchannels: use effective bandwidth B_eff = B / N_sub for SPM
+    B_eff = ch_bw / num_subchannels
     # phi_i for SPM
     phi_i = 3 / 2 * pi**2 * (beta2 + pi * beta3 * (f + f) + 2 * pi**2 * beta4 * f**2)
     # T term
     T = (a + a_bar - f * total_power * cr) ** 2
     # SPM (inlined _spm)
-    B2 = jnp.maximum(ch_bw**2, EPS)
+    B2 = jnp.maximum(B_eff**2, EPS)
     a_plus_abar = a + a_bar
     eta_spm = 4 / 9 * gamma**2 / B2 * pi / (phi_i * a_bar * (2 * a + a_bar)) * (
         T - a**2
     ) / a * jnp.arcsinh(phi_i * B2 / a / pi) + (a_plus_abar**2 - T) / a_plus_abar * jnp.arcsinh(
         phi_i * B2 / a_plus_abar / pi
     )
-    # Coherence scaling
-    eps = _eps(ch_bw, f, a, length, beta2, beta3) * coherent
+    # Coherence scaling (uses B_eff for subchannel coherence)
+    eps = _eps(B_eff, f, a, length, beta2, beta3) * coherent
     eta_spm = eta_spm * num_spans ** (1 + eps)
+    # Scale: total NLI = N_sub * (P/N_sub)^3 * eta(B_eff) = P^3 * eta(B_eff) / N_sub^2
+    eta_spm = eta_spm / (num_subchannels**2)
 
     # -- XPM computation --
     f_i = f[:, None]
@@ -639,6 +647,7 @@ def get_snr(
     amplifier_noise_figure: chex.Array = jnp.zeros((420, 1)),
     transceiver_snr: chex.Array = jnp.zeros((420, 1)),
     uniform_spans: bool = True,
+    num_subchannels: int = 1,
 ):
     """
     Compute the signal-to-noise ratio (SNR) of a WDM system.
@@ -683,6 +692,7 @@ def get_snr(
         coherent=coherent,
         mod_format_correction=mod_format_correction,
         excess_kurtosis_i=excess_kurtosis_i,
+        num_subchannels=num_subchannels,
     )
 
     # SNR
@@ -713,6 +723,7 @@ def get_snr_fused(
     roadm_loss: float = 6.0,
     num_roadms: int = 1,
     coherent: bool = True,
+    num_subchannels: int = 1,
 ):
     """Fully fused SNR computation for a single link (uniform spans, no mod_format_correction).
 
@@ -728,6 +739,8 @@ def get_snr_fused(
 
     Static inputs (same for all links, from params):
         Everything else.
+        num_subchannels: number of Nyquist subchannels per slot for SPM calculation.
+            Divides slot bandwidth into N subchannels with B_eff = B / N, reducing SPM.
 
     Returns:
         snr: shape (N,) — linear SNR per channel
@@ -760,18 +773,22 @@ def get_snr_fused(
     total_power = jnp.sum(ch_pow)
 
     # === SPM (inlined, no function call overhead) ===
+    # Nyquist subchannels: use effective bandwidth B_eff = B / N_sub for SPM
+    B_eff = ch_bw / num_subchannels
     phi_i = 3 / 2 * pi**2 * (beta2 + pi * beta3 * (f + f) + 2 * pi**2 * beta4 * f**2)
     T = (a + a_bar - f * total_power * cr) ** 2
-    B2 = jnp.maximum(ch_bw**2, EPS)
+    B2 = jnp.maximum(B_eff**2, EPS)
     a_plus_abar = a + a_bar
     eta_spm = 4 / 9 * gamma**2 / B2 * pi / (phi_i * a_bar * (2 * a + a_bar)) * (
         T - a**2
     ) / a * jnp.arcsinh(phi_i * B2 / a / pi) + (a_plus_abar**2 - T) / a_plus_abar * jnp.arcsinh(
         phi_i * B2 / a_plus_abar / pi
     )
-    # Coherence factor
-    eps = _eps(ch_bw, f, a, span_length, beta2, beta3) * coherent
+    # Coherence factor (uses B_eff for subchannel coherence)
+    eps = _eps(B_eff, f, a, span_length, beta2, beta3) * coherent
     eta_spm = eta_spm * num_spans ** (1 + eps)
+    # Scale: total NLI = N_sub * (P/N_sub)^3 * eta(B_eff) = P^3 * eta(B_eff) / N_sub^2
+    eta_spm = eta_spm / (num_subchannels**2)
 
     # === XPM (inlined, fused N x N computation) ===
     f_i = f[:, None]  # (N, 1)

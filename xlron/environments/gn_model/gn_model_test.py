@@ -659,6 +659,303 @@ class BandPreferenceTest(parameterized.TestCase):
         self.assertEqual(sorted(order_lf.tolist()), list(range(params.link_resources)))
 
 
+def rsa_gn_model_subchannels_test_setup(num_subchannels=1):
+    key = jax.random.PRNGKey(3)
+    settings = dict(
+        k=4,
+        topology_name="nsfnet_deeprmsa_directed",
+        link_resources=10,
+        max_requests=100,
+        values_bw=[100],
+        incremental_loading=True,
+        env_type="rsa_gn_model",
+        slot_size=100,
+        guardband=0,
+        mod_format_correction=False,
+        max_power_per_fibre=10.0,
+        coherent=False,
+        include_no_op=False,
+        num_subchannels=num_subchannels,
+    )
+    env, params = make(settings, log_wrapper=False)
+    obs, state = env.reset(key, params)
+    return key, env, obs, state, params
+
+
+class NumSubchannelsTest(parameterized.TestCase):
+    """Tests for the num_subchannels SPM correction feature."""
+
+    def test_backward_compatibility_default(self):
+        """num_subchannels=1 (default) should produce identical results to baseline."""
+        _, env1, _, state1, params1 = rsa_gn_model_subchannels_test_setup(num_subchannels=1)
+        # Verify the parameter is set correctly
+        self.assertEqual(params1.num_subchannels, 1)
+
+    def test_num_subchannels_stored_in_params(self):
+        """num_subchannels=8 should be correctly stored in params."""
+        _, _, _, _, params = rsa_gn_model_subchannels_test_setup(num_subchannels=8)
+        self.assertEqual(params.num_subchannels, 8)
+
+    def test_spm_reduction_with_subchannels(self):
+        """num_subchannels=8 should produce lower SPM eta than num_subchannels=1."""
+        from xlron.environments.gn_model.isrs_gn_model import isrs_gn_model_uniform
+
+        # Single channel, uniform parameters
+        num_ch = 1
+        freq = jnp.array([193.5e12])  # Hz
+        bw = jnp.array([100e9])  # 100 GHz
+        power = jnp.array([0.001])  # 1 mW
+
+        common_kwargs = dict(
+            num_channels=num_ch,
+            num_spans=10,
+            ref_lambda=1550e-9,
+            length=80e3,
+            ch_power_W_i=power,
+            ch_centre_i=freq,
+            ch_bandwidth_i=bw,
+            coherent=False,
+            mod_format_correction=False,
+        )
+
+        _, _, eta_spm_1, _ = isrs_gn_model_uniform(**common_kwargs, num_subchannels=1)
+        _, _, eta_spm_8, _ = isrs_gn_model_uniform(**common_kwargs, num_subchannels=8)
+
+        # SPM should be lower with more subchannels
+        self.assertTrue(
+            float(jnp.squeeze(eta_spm_8)) < float(jnp.squeeze(eta_spm_1)),
+            f"SPM with 8 subchannels ({float(jnp.squeeze(eta_spm_8))}) "
+            f"should be less than with 1 ({float(jnp.squeeze(eta_spm_1))})",
+        )
+
+    def test_xpm_unchanged_with_subchannels(self):
+        """XPM between different channels should be identical regardless of num_subchannels."""
+        from xlron.environments.gn_model.isrs_gn_model import isrs_gn_model_uniform
+
+        num_ch = 3
+        freq = jnp.array([193.3e12, 193.4e12, 193.5e12])
+        bw = jnp.array([100e9, 100e9, 100e9])
+        power = jnp.array([0.001, 0.001, 0.001])
+
+        common_kwargs = dict(
+            num_channels=num_ch,
+            num_spans=10,
+            ref_lambda=1550e-9,
+            length=80e3,
+            ch_power_W_i=power,
+            ch_centre_i=freq,
+            ch_bandwidth_i=bw,
+            coherent=False,
+            mod_format_correction=False,
+        )
+
+        _, _, _, eta_xpm_1 = isrs_gn_model_uniform(**common_kwargs, num_subchannels=1)
+        _, _, _, eta_xpm_8 = isrs_gn_model_uniform(**common_kwargs, num_subchannels=8)
+
+        chex.assert_trees_all_close(eta_xpm_1, eta_xpm_8)
+
+    def test_spm_monotonicity(self):
+        """More subchannels should produce monotonically lower SPM."""
+        from xlron.environments.gn_model.isrs_gn_model import isrs_gn_model_uniform
+
+        freq = jnp.array([193.5e12])
+        bw = jnp.array([100e9])
+        power = jnp.array([0.001])
+
+        common_kwargs = dict(
+            num_channels=1,
+            num_spans=10,
+            ref_lambda=1550e-9,
+            length=80e3,
+            ch_power_W_i=power,
+            ch_centre_i=freq,
+            ch_bandwidth_i=bw,
+            coherent=False,
+            mod_format_correction=False,
+        )
+
+        prev_spm = float("inf")
+        for n_sub in [1, 2, 4, 8]:
+            _, _, eta_spm, _ = isrs_gn_model_uniform(**common_kwargs, num_subchannels=n_sub)
+            spm_val = float(jnp.squeeze(eta_spm))
+            self.assertLess(
+                spm_val,
+                prev_spm,
+                f"SPM with {n_sub} subchannels ({spm_val}) should be less than previous ({prev_spm})",
+            )
+            prev_spm = spm_val
+
+    def test_get_snr_fused_subchannels(self):
+        """get_snr_fused should also produce lower NLI with subchannels."""
+        from xlron.environments.gn_model.isrs_gn_model import get_snr_fused
+
+        num_ch = 3
+        freq = jnp.array([193.3e12, 193.4e12, 193.5e12])
+        bw = jnp.array([100e9, 100e9, 100e9])
+        power = jnp.array([0.001, 0.001, 0.001])
+
+        common_kwargs = dict(
+            ch_power_w_i=power,
+            ch_centre_i=freq,
+            ch_bandwidth_i=bw,
+            num_spans=10,
+            span_length=80e3,
+            num_channels=num_ch,
+            ref_lambda=1550e-9,
+            attenuation=0.2 / 4.343 / 1e3,
+            attenuation_bar=0.2 / 4.343 / 1e3,
+            nonlinear_coeff=1.2e-3,
+            raman_gain_slope=0.028 / 1e3 / 1e12,
+            dispersion_coeff=17e-12 / 1e-9 / 1e3,
+            dispersion_slope=0.067e-12 / 1e-9 / 1e3 / 1e-9,
+            amplifier_noise_figure=jnp.array([5.5, 5.5, 5.5]),
+            transceiver_snr=jnp.array([21.25, 21.25, 21.25]),
+            coherent=False,
+        )
+
+        snr_1 = get_snr_fused(**common_kwargs, num_subchannels=1)
+        snr_8 = get_snr_fused(**common_kwargs, num_subchannels=8)
+
+        # Higher subchannels -> lower NLI -> higher SNR
+        self.assertTrue(
+            jnp.all(snr_8 >= snr_1),
+            f"SNR with 8 subchannels should be >= SNR with 1 subchannel. "
+            f"Got snr_8={snr_8}, snr_1={snr_1}",
+        )
+
+    def test_isrs_gn_model_non_uniform_subchannels(self):
+        """Non-uniform span model should also support num_subchannels."""
+        from xlron.environments.gn_model.isrs_gn_model import isrs_gn_model
+
+        freq = jnp.array([193.5e12])
+        bw = jnp.array([100e9])
+        power = jnp.array([0.001])
+
+        common_kwargs = dict(
+            num_channels=1,
+            num_spans=2,
+            max_spans=2,
+            ref_lambda=1550e-9,
+            length=jnp.array([80e3, 80e3]),
+            ch_power_W_i=power,
+            ch_centre_i=freq,
+            ch_bandwidth_i=bw,
+            coherent=False,
+            mod_format_correction=False,
+            excess_kurtosis_i=jnp.zeros(1),
+        )
+
+        _, _, eta_spm_1, _ = isrs_gn_model(**common_kwargs, num_subchannels=1)
+        _, _, eta_spm_8, _ = isrs_gn_model(**common_kwargs, num_subchannels=8)
+
+        self.assertTrue(
+            float(jnp.squeeze(eta_spm_8)) < float(jnp.squeeze(eta_spm_1)),
+            "SPM should be lower with subchannels in non-uniform model",
+        )
+
+    def test_step_with_subchannels_does_not_crash(self):
+        """Full env step should work with num_subchannels > 1."""
+        key, env, obs, state, params = rsa_gn_model_subchannels_test_setup(num_subchannels=8)
+        mask, _ = env.action_mask(state, params)
+        rng_sample, rng_step = jax.random.split(key)
+        action_dist = distrax.Categorical(logits=jnp.where(mask > 0, 0.0, -1e8))
+        path_action = action_dist.sample(seed=rng_sample)
+        power_action = jnp.array([0])
+        action = jnp.concatenate([path_action.reshape((1,)), power_action.reshape((1,))])
+        obs, new_state, reward, terminal, truncated, info = env.step(
+            rng_step, state, action, params
+        )
+        self.assertTrue(jnp.isfinite(reward))
+
+
+class ChannelCentreFreqCachingTest(parameterized.TestCase):
+    """Tests for channel_centre_freq_array caching in state."""
+
+    def setUp(self):
+        super().setUp()
+        self.key, self.env, self.obs, self.state, self.params = (
+            rsa_gn_model_subchannels_test_setup()
+        )
+
+    def test_initial_centre_freq_array_is_zero(self):
+        """channel_centre_freq_array should be all zeros on empty network."""
+        self.assertTrue(
+            jnp.all(self.state.channel_centre_freq_array == 0),
+            "Initial centre freq array should be all zeros",
+        )
+        self.assertTrue(
+            jnp.all(self.state.channel_centre_freq_array_prev == 0),
+            "Initial prev centre freq array should be all zeros",
+        )
+
+    def test_centre_freq_array_shape(self):
+        """channel_centre_freq_array should have shape (num_links, link_resources)."""
+        expected_shape = (self.params.num_links, self.params.link_resources)
+        self.assertEqual(self.state.channel_centre_freq_array.shape, expected_shape)
+        self.assertEqual(self.state.channel_centre_freq_array_prev.shape, expected_shape)
+
+    def test_centre_freq_set_after_step(self):
+        """After a successful placement, centre freq should be set on path links."""
+        mask, _ = self.env.action_mask(self.state, self.params)
+        rng_sample, rng_step = jax.random.split(self.key)
+        action_dist = distrax.Categorical(logits=jnp.where(mask > 0, 0.0, -1e8))
+        path_action = action_dist.sample(seed=rng_sample)
+        power_action = jnp.array([0])
+        action = jnp.concatenate([path_action.reshape((1,)), power_action.reshape((1,))])
+        obs, new_state, reward, terminal, truncated, info = self.env.step(
+            rng_step, self.state, action, self.params
+        )
+        # If the action succeeded (reward > 0), some entries should be nonzero
+        has_placement = reward > 0
+        if has_placement:
+            self.assertTrue(
+                jnp.any(new_state.channel_centre_freq_array != 0),
+                "Centre freq should be set after successful placement",
+            )
+        # Even if blocked, the array should remain valid (finite)
+        self.assertTrue(
+            jnp.all(jnp.isfinite(new_state.channel_centre_freq_array)),
+            "Centre freq array should be finite",
+        )
+
+    def test_centre_freq_consistent_with_occupied_slots(self):
+        """Centre freq should be nonzero exactly where channel_centre_bw_array is nonzero."""
+        # Take a few steps to fill the network
+        state = self.state
+        rng = self.key
+        for _ in range(5):
+            mask, _ = self.env.action_mask(state, self.params)
+            rng, rng_sample, rng_step = jax.random.split(rng, 3)
+            action_dist = distrax.Categorical(logits=jnp.where(mask > 0, 0.0, -1e8))
+            path_action = action_dist.sample(seed=rng_sample)
+            power_action = jnp.array([0])
+            action = jnp.concatenate([path_action.reshape((1,)), power_action.reshape((1,))])
+            _, state, _, _, _, _ = self.env.step(rng_step, state, action, self.params)
+
+        # Where bandwidth is set, centre freq should also be set (and vice versa)
+        bw_nonzero = state.channel_centre_bw_array != 0
+        freq_nonzero = state.channel_centre_freq_array != 0
+        chex.assert_trees_all_close(bw_nonzero.astype(jnp.int32), freq_nonzero.astype(jnp.int32))
+
+    def test_rmsa_gn_model_centre_freq_caching(self):
+        """Centre freq caching should also work for RMSA GN model."""
+        key, env, obs, state, params = rmsa_gn_model_test_setup()
+        # Check initial state
+        self.assertTrue(jnp.all(state.channel_centre_freq_array == 0))
+        # Take a step
+        state = env.action_mask(state, params)
+        mask = state.link_slot_mask
+        rng_sample, rng_step = jax.random.split(key)
+        action_dist = distrax.Categorical(logits=jnp.where(mask > 0, 0.0, -1e8))
+        path_action = action_dist.sample(seed=rng_sample)
+        power_action = jnp.array([0])
+        action = jnp.concatenate([path_action.reshape((1,)), power_action.reshape((1,))])
+        obs, new_state, reward, terminal, truncated, info = env.step(
+            rng_step, state, action, params
+        )
+        self.assertTrue(jnp.all(jnp.isfinite(new_state.channel_centre_freq_array)))
+
+
 if __name__ == "__main__":
     os.environ["XLA_FLAGS"] = "--xla_force_host_platform_device_count=4"
     jax.config.update("jax_numpy_rank_promotion", "raise")

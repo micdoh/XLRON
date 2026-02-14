@@ -600,6 +600,15 @@ flags.DEFINE_float(
 flags.DEFINE_boolean(
     "uniform_spans", True, "Use uniform spans (on by default: simplifies calculations)"
 )
+flags.DEFINE_integer(
+    "num_subchannels",
+    1,
+    "Number of Nyquist subchannels per frequency slot for GN model NLI calculation. "
+    "Divides each slot's bandwidth into N subchannels with effective baud rate "
+    "B_eff = slot_size / num_subchannels, reducing SPM. XPM and ASE are unchanged. "
+    "Best used with slot_size equal to the desired channel bandwidth "
+    "(e.g. slot_size=100, num_subchannels=8 models 8x12.5 GHz subcarriers).",
+)
 # Flags for optimize_launch_power.py
 flags.DEFINE_boolean(
     "optimise_launch_power",

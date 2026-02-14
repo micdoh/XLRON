@@ -210,6 +210,7 @@ DEFAULTS = {
     "max_power_per_fibre": 13.0,
     "power_per_channel": None,
     "inter_band_gap_ghz": 25.0,
+    "num_subchannels": 1,
     # Differentiable
     "differentiable": False,
     "temperature": 1.0,
@@ -1072,6 +1073,16 @@ def physical_layer_section() -> dict:
             help=_h("inter_band_gap_ghz"),
         )
         _emit(flags, "inter_band_gap_ghz", gap_ghz)
+
+    num_sub = st.number_input(
+        "Nyquist Subchannels per Slot",
+        min_value=1,
+        max_value=64,
+        value=int(_get_preset_val("num_subchannels")),
+        step=1,
+        help=_h("num_subchannels"),
+    )
+    _emit(flags, "num_subchannels", num_sub)
 
     st.subheader("Launch Power")
     power_types = ["fixed", "tabular", "rl", "scaled"]

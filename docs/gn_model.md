@@ -264,6 +264,76 @@ The per-link SNR values (computed as described above) are combined into a path-l
 
 This path-level SNR is what gets compared against modulation format thresholds.
 
+## Nyquist Subchannel Modelling (`num_subchannels`)
+
+### Motivation
+
+A wideband optical channel (e.g. 100 GHz / 100 GBd) can be implemented as multiple narrower Nyquist subchannels (e.g. 8 x 12.5 GHz / 12.5 GBd subcarriers). The lower effective baud rate per subchannel reduces the self-phase modulation (SPM) nonlinear interference, because SPM depends on the square of the channel bandwidth through the `arcsinh` term in the GN model formula.
+
+Without `num_subchannels`, the only way to model this effect would be to set `slot_size=12.5` and use 8 slots per channel. But this inflates the number of frequency slots per link, the action space, and the O(N^2) XPM computation. The `--num_subchannels` parameter avoids this cost by analytically correcting the SPM term.
+
+### How It Works
+
+The `--num_subchannels` flag (default 1) divides each slot's bandwidth into N Nyquist subchannels for the purpose of SPM calculation only:
+
+- **Effective bandwidth**: `B_eff = slot_size / num_subchannels`
+- **SPM eta** is computed using `B_eff` in place of `slot_size` in the GN model formula (both in the main `arcsinh` terms and in the coherence factor epsilon)
+- **Power scaling**: Each subchannel carries `P/N` power, so total NLI from N subchannels is `N * (P/N)^3 * eta(B_eff) = P^3 * eta(B_eff) / N^2`. The SPM efficiency is therefore divided by `num_subchannels^2`.
+- **XPM**: Unchanged. Cross-phase modulation between different frequency slots uses the physical slot bandwidth.
+- **ASE**: Unchanged. The noise bandwidth is the physical slot bandwidth.
+- **Backward compatible**: `num_subchannels=1` gives `B_eff = slot_size` and scaling = 1, producing identical results to the default.
+
+### Best Practice
+
+For Nyquist subchannel modelling, set `slot_size` equal to the desired channel bandwidth and `num_subchannels` equal to the number of subcarriers. For example, to model 100 GBd channels with 8 x 12.5 GBd subcarriers:
+
+```bash
+python -m xlron.train.train \
+  --env_type=rsa_gn_model \
+  --topology_name=nsfnet_deeprmsa_directed \
+  --slot_size=100 --num_subchannels=8 \
+  --link_resources=50 --k=5 --load=250 \
+  --continuous_operation --ENV_WARMUP_STEPS=3000 \
+  --TOTAL_TIMESTEPS=100000 --NUM_ENVS=1 \
+  --EVAL_HEURISTIC --path_heuristic=ksp_ff
+```
+
+### Worked Example: Per-Slot State Arrays
+
+Consider a 400 Gbps request with spectral efficiency 2 b/s/Hz, `slot_size=100` GHz, `guardband=1`, and `num_subchannels=8`.
+
+The number of required slots is `ceil(400 / (2 * 100)) + guardband = 2 + 1 = 3`. Suppose the request is placed at initial slot index 5 on a link, occupying slots 5, 6, and 7.
+
+The per-slot state arrays on that link are updated as follows:
+
+| Array | Slot 5 | Slot 6 | Slot 7 | Notes |
+|---|---|---|---|---|
+| `link_slot_array` | 1 | 1 | 1 | Occupied (was 0) |
+| `channel_centre_bw_array` | 100 | 100 | 100 | Always `slot_size` in GHz |
+| `channel_power_array` | P | P | P | Launch power in watts (same for all slots in the channel) |
+| `channel_centre_freq_array` | f_c | f_c | f_c | Centre frequency of the 3-slot block in GHz (midpoint of slot 5 and slot 7) |
+| `path_index_array` | idx | idx | idx | Lightpath index identifying the path |
+
+Key observations:
+
+- **`channel_centre_bw_array`** stores `slot_size` (100 GHz) for every occupied slot, not the total channel bandwidth (300 GHz). The GN model sees 3 independent 100 GHz channels.
+- **`channel_centre_freq_array`** stores the same centre frequency for all 3 slots -- the midpoint of the block. This is used for XPM calculations between different channels.
+- **`channel_power_array`** stores the per-channel launch power. Each slot is treated as an independent channel with full launch power.
+
+With `num_subchannels=8`, the GN model computes SPM for each slot as if its 100 GHz bandwidth were divided into 8 x 12.5 GHz subchannels (`B_eff = 12.5 GHz`), with `eta_spm` scaled by `1/64`. XPM between the three slots (and between these slots and other channels on the link) is computed using the physical 100 GHz bandwidth, unchanged.
+
+### Centre Frequency Caching
+
+The `channel_centre_freq_array` is maintained as part of the environment state to avoid recomputing centre frequencies on every SNR calculation. It is:
+
+- **Initialised** to zeros on environment reset
+- **Set** when a lightpath is placed (same value written to all slots in the channel)
+- **Cleared** when a lightpath expires (multiplied by the expiry mask, same pattern as other per-slot arrays)
+- **Restored** from a previous snapshot (`channel_centre_freq_array_prev`) if an action is rolled back due to a failed SNR or power check
+
+This caching is especially beneficial in `rmsa_gn_model`, where the masking step evaluates the GN model for many candidate placements.
+
+
 ---
 
 ## `rsa_gn_model` Environment
@@ -408,6 +478,7 @@ It does not compute Shannon throughput (unlike `rsa_gn_model` with `--monitor_ac
 | `--beta_fec` | 1.5e-2 | -- | Pre-FEC BER target for GSNR threshold calculation (used with `--calc_minimum_osnr`) |
 | `--fec_rate` | 0.8 | -- | FEC code rate applied to accepted bitrate in `rmsa_gn_model` (`effective_bitrate = requested * fec_rate`) |
 | `--fec_threshold` | 0.28 | -- | FEC overhead fraction (28%) for throughput calculation in `rsa_gn_model` |
+| `--num_subchannels` | 1 | -- | Nyquist subchannels per slot. Divides slot bandwidth by N for SPM; XPM and ASE unchanged. See [Nyquist Subchannel Modelling](#nyquist-subchannel-modelling-num_subchannels). |
 | `--max_snr` | 50.0 | dB | Upper SNR clamp for observations |
 | `--min_snr` | 7.0 | dB | Lower SNR limit for throughput calculation |
 

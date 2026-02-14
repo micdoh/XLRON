@@ -745,6 +745,7 @@ def make(
             transceiver_snr=transceiver_snr,
             amplifier_noise_figure=amplifier_noise_figure,
             uniform_spans=uniform_spans,
+            num_subchannels=config.get("num_subchannels", 1),
             band_slot_order_ff=band_slot_order_ff,
             band_slot_order_lf=band_slot_order_lf,
             slot_centre_freq_array=slot_centre_freq_array,
