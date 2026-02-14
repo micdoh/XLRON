@@ -512,7 +512,7 @@ flags.DEFINE_boolean(
 
 # GN model parameters
 flags.DEFINE_float("ref_lambda", 1564e-9, "Reference wavelength [m]")
-flags.DEFINE_float("max_power_per_fibre", 21.0, "Max launch power per fibre [dBm]")
+flags.DEFINE_float("max_power_per_fibre", 13.0, "Max launch power per fibre [dBm]")
 flags.DEFINE_float(
     "power_per_channel",
     None,
@@ -538,8 +538,9 @@ flags.DEFINE_multi_integer("interband_gap_width", None, "Gap between bands [GHz]
 flags.DEFINE_multi_integer("interband_gap_start", None, "Start index of gap between bands [GHz]")
 flags.DEFINE_boolean(
     "enforce_band_gaps",
-    False,
-    "Compute and enforce band boundary gaps from CSV data (RMSA GN Model only)",
+    True,
+    "Compute and enforce band boundary gaps from CSV data (non-GN-model multiband envs). "
+    "GN model envs always enforce band gaps when band_preference is set.",
 )
 flags.DEFINE_float(
     "snr_margin",
@@ -586,9 +587,15 @@ flags.DEFINE_string(
 )
 flags.DEFINE_string(
     "band_preference",
-    None,
+    "C,L,S",
     "Comma-separated band preference order for first-fit/last-fit heuristics in GN model "
     "environments (e.g. 'C,L,S,U,E,O'). First-fit exhausts slots in preferred band order.",
+)
+flags.DEFINE_float(
+    "inter_band_gap_ghz",
+    25.0,
+    "Spectral width of inter-band gap in GHz (~0.2nm at 1550nm). "
+    "Used in GN model envs to set the physical gap width between bands.",
 )
 flags.DEFINE_boolean(
     "uniform_spans", True, "Use uniform spans (on by default: simplifies calculations)"

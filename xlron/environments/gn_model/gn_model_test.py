@@ -329,19 +329,23 @@ class TransceiverAmplifierNoiseTest(parameterized.TestCase):
         chex.assert_trees_all_close(transceiver_snr_array, expected_transceiver_snr)
         chex.assert_trees_all_close(amplifier_noise_figure_array, expected_amplifier_nf)
 
-    def test_frequency_outside_bands_raises_error(self):
-        """Test that frequencies outside all bands raise an error"""
-        with self.assertRaises(ValueError) as context:
-            # Use a wavelength that results in frequency outside all bands
-            # Band 5 max is ~186.5 THz, so wavelength < ~1608 nm gives higher freq
-            init_transceiver_amplifier_noise_arrays(
-                link_resources=1,
-                ref_lambda=1450.0e-9,  # Results in ~206.7 THz, outside all bands
-                slot_size=50.0,
-                noise_data_filepath=self.noise_data_filepath,
-            )
-
-        self.assertIn("outside the defined bands", str(context.exception))
+    def test_frequency_outside_bands_returns_zeros(self):
+        """Test that frequencies outside all bands get zero noise values (gap slots)."""
+        (
+            transceiver_snr,
+            amplifier_nf,
+            roadm_express,
+            roadm_add_drop,
+            roadm_nf,
+        ) = init_transceiver_amplifier_noise_arrays(
+            link_resources=1,
+            ref_lambda=1450.0e-9,  # Results in ~206.7 THz, outside all bands
+            slot_size=50.0,
+            noise_data_filepath=self.noise_data_filepath,
+        )
+        # Gap slots should have zero values
+        self.assertEqual(float(transceiver_snr[0]), 0.0)
+        self.assertEqual(float(amplifier_nf[0]), 0.0)
 
     @chex.variants(without_jit=True)
     def test_slot_frequency_calculation(self):
@@ -467,7 +471,6 @@ def rmsa_gn_model_enforce_band_gaps_test_setup():
     settings = dict(
         k=4,
         topology_name="nsfnet_deeprmsa_directed",
-        link_resources=100,
         max_requests=100,
         values_bw=[100],
         incremental_loading=True,
@@ -478,7 +481,7 @@ def rmsa_gn_model_enforce_band_gaps_test_setup():
         max_power_per_fibre=10.0,
         coherent=False,
         include_no_op=False,
-        enforce_band_gaps=True,
+        band_preference="A,B",
         band_data_filepath=band_file.name,
     )
     env, params = make(settings, log_wrapper=False)

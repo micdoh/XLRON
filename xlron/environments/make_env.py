@@ -9,6 +9,7 @@ import networkx as nx
 import numpy as np
 from absl.flags import FlagValues
 from box import Box
+from scipy.constants import c as speed_of_light
 from scipy.special import erfcinv
 
 from xlron import dtype_config
@@ -34,6 +35,7 @@ from xlron.environments.dataclasses import (
 )
 from xlron.environments.env_funcs import (
     compute_band_gaps_from_csv,
+    compute_band_layout,
     compute_band_slot_order,
     convert_node_probs_to_traffic_matrix,
     generate_source_dest_pairs,
@@ -256,8 +258,31 @@ def make(
     coherent = config.get("coherent", False)
     config.get("noise_figure", 4)
     uniform_spans = config.get("uniform_spans", True)
-    enforce_band_gaps = config.get("enforce_band_gaps", False)
-    if enforce_band_gaps:
+    band_preference = config.get("band_preference", None)
+    inter_band_gap_ghz = config.get("inter_band_gap_ghz", 25.0)
+    _band_layout = None  # set when compute_band_layout is used
+    if band_preference is not None and env_type in ("rsa_gn_model", "rmsa_gn_model"):
+        # GN model envs always enforce band gaps via compute_band_layout
+        _band_layout = compute_band_layout(
+            slot_size,
+            band_preference,
+            inter_band_gap_ghz,
+            config.get("band_data_filepath", None),
+        )
+        user_link_resources = config.get("link_resources", None)
+        if (
+            user_link_resources is not None
+            and user_link_resources != _band_layout["link_resources"]
+        ):
+            print(
+                f"WARNING: --link_resources={user_link_resources} overridden to "
+                f"{_band_layout['link_resources']} (auto-computed from bands: {band_preference})"
+            )
+        link_resources = _band_layout["link_resources"]
+        ref_lambda = _band_layout["ref_lambda"]
+        gap_start_slots = _band_layout["gap_start_slots"]
+        gap_width_slots = _band_layout["gap_width_slots"]
+    elif config.get("enforce_band_gaps", False):
         gap_start_slots, gap_width_slots = compute_band_gaps_from_csv(
             link_resources, ref_lambda, slot_size, config.get("band_data_filepath", None)
         )
@@ -593,7 +618,7 @@ def make(
     gap_widths = (
         HashableArrayWrapper(jnp.array(gap_width_slots))
         if not remove_array_wrappers
-        else jnp.array(gap_start_slots)
+        else jnp.array(gap_width_slots)
     )
 
     if env_type == "vone":
@@ -613,33 +638,13 @@ def make(
         params_dict.update(gap_starts=gap_starts, gap_widths=gap_widths)
     elif "gn_model" in env_type:
         env_params = RSAGNModelEnvParams
-        (
-            transceiver_snr,
-            amplifier_noise_figure,
-            roadm_express_loss,
-            roadm_add_drop_loss,
-            roadm_noise_figure,
-        ) = init_transceiver_amplifier_noise_arrays(
-            link_resources,
-            ref_lambda,
-            slot_size,
-            config.get("noise_data_filepath", None),
-        )
-        if not remove_array_wrappers:
-            transceiver_snr = HashableArrayWrapper(transceiver_snr)
-            amplifier_noise_figure = HashableArrayWrapper(amplifier_noise_figure)
-            roadm_express_loss = HashableArrayWrapper(roadm_express_loss)
-            roadm_add_drop_loss = HashableArrayWrapper(roadm_add_drop_loss)
-            roadm_noise_figure = HashableArrayWrapper(roadm_noise_figure)
-        band_preference = config.get("band_preference", None)
-        if band_preference is not None:
-            bso_ff, bso_lf = compute_band_slot_order(
-                link_resources,
-                ref_lambda,
-                slot_size,
-                band_preference,
-                config.get("band_data_filepath", None),
-            )
+
+        # Build slot_centre_freq_array and band orderings
+        if _band_layout is not None:
+            # Auto-computed from compute_band_layout
+            slot_centre_freq_arr = jnp.array(_band_layout["slot_centre_freq_array"])
+            bso_ff = _band_layout["band_slot_order_ff"]
+            bso_lf = _band_layout["band_slot_order_lf"]
             band_slot_order_ff = (
                 HashableArrayWrapper(jnp.array(bso_ff))
                 if not remove_array_wrappers
@@ -651,9 +656,68 @@ def make(
                 else jnp.array(bso_lf)
             )
         else:
-            empty = jnp.array([], dtype=jnp.int32)
-            band_slot_order_ff = HashableArrayWrapper(empty) if not remove_array_wrappers else empty
-            band_slot_order_lf = HashableArrayWrapper(empty) if not remove_array_wrappers else empty
+            # Legacy uniform formula
+            slot_centre_freq_arr = jnp.array(
+                (np.arange(link_resources) - (link_resources - 1) / 2) * slot_size,
+                dtype=jnp.float32,
+            )
+            if band_preference is not None:
+                bso_ff, bso_lf = compute_band_slot_order(
+                    link_resources,
+                    ref_lambda,
+                    slot_size,
+                    band_preference,
+                    config.get("band_data_filepath", None),
+                )
+                band_slot_order_ff = (
+                    HashableArrayWrapper(jnp.array(bso_ff))
+                    if not remove_array_wrappers
+                    else jnp.array(bso_ff)
+                )
+                band_slot_order_lf = (
+                    HashableArrayWrapper(jnp.array(bso_lf))
+                    if not remove_array_wrappers
+                    else jnp.array(bso_lf)
+                )
+            else:
+                empty = jnp.array([], dtype=jnp.int32)
+                band_slot_order_ff = (
+                    HashableArrayWrapper(empty) if not remove_array_wrappers else empty
+                )
+                band_slot_order_lf = (
+                    HashableArrayWrapper(empty) if not remove_array_wrappers else empty
+                )
+
+        slot_centre_freq_array = (
+            HashableArrayWrapper(slot_centre_freq_arr)
+            if not remove_array_wrappers
+            else slot_centre_freq_arr
+        )
+
+        # Compute absolute slot frequencies for transceiver/amplifier noise mapping
+        ref_freq_ghz = speed_of_light / ref_lambda / 1e9
+        slot_abs_freq_ghz = ref_freq_ghz + np.array(slot_centre_freq_arr)
+
+        (
+            transceiver_snr,
+            amplifier_noise_figure,
+            roadm_express_loss,
+            roadm_add_drop_loss,
+            roadm_noise_figure,
+        ) = init_transceiver_amplifier_noise_arrays(
+            link_resources,
+            ref_lambda,
+            slot_size,
+            config.get("noise_data_filepath", None),
+            slot_frequencies_ghz=slot_abs_freq_ghz,
+        )
+        if not remove_array_wrappers:
+            transceiver_snr = HashableArrayWrapper(transceiver_snr)
+            amplifier_noise_figure = HashableArrayWrapper(amplifier_noise_figure)
+            roadm_express_loss = HashableArrayWrapper(roadm_express_loss)
+            roadm_add_drop_loss = HashableArrayWrapper(roadm_add_drop_loss)
+            roadm_noise_figure = HashableArrayWrapper(roadm_noise_figure)
+
         params_dict.update(
             ref_lambda=ref_lambda,
             max_spans=max_spans,
@@ -692,6 +756,7 @@ def make(
             uniform_spans=uniform_spans,
             band_slot_order_ff=band_slot_order_ff,
             band_slot_order_lf=band_slot_order_lf,
+            slot_centre_freq_array=slot_centre_freq_array,
         )
         if env_type == "rmsa_gn_model":
             env_params = RMSAGNModelEnvParams

@@ -318,6 +318,9 @@ class GNModelEnvParams(RSAEnvParams):
     band_slot_order_lf: HashableArrayWrapper = struct.field(
         pytree_node=False
     )  # Slot permutation for band-preference last-fit (empty if unused)
+    slot_centre_freq_array: HashableArrayWrapper = struct.field(
+        pytree_node=False
+    )  # Per-slot centre frequencies in relative GHz offset from ref_lambda
 
 
 @struct.dataclass

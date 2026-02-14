@@ -1489,124 +1489,6 @@ def remove_expired_services_rmsa_gn_model(state: EnvState, params: Optional[EnvP
     return state
 
 
-# @partial(jax.jit, static_argnums=(1,))
-# def remove_expired_services_rsa_gn_model(state: EnvState, params: Optional[EnvParams]) -> EnvState:
-#     """
-
-#     Args:
-#         state: Environment state
-#         params: Environment parameters
-
-#     Returns:
-#         Updated environment state
-#     """
-#     # Set one where link_slot_departure_array is >= zero and <= current time
-#     current_time = state.current_time if not params.relative_arrival_times else state.arrival_time
-#     mask_remove = jnp.where(
-#         (zero <= state.link_slot_departure_array)
-#         & (state.link_slot_departure_array <= jnp.squeeze(current_time)),
-#         one,
-#         zero,
-#     )
-#     updated_link_slot_departure_array = jnp.where(
-#         mask_remove == one, zero, state.link_slot_departure_array
-#     )
-#     if params.relative_arrival_times:
-#         mask_subtract = jnp.where(updated_link_slot_departure_array <= zero, zero, one)
-#         updated_link_slot_departure_array = jnp.where(
-#             mask_subtract == one,
-#             state.link_slot_departure_array - jnp.squeeze(current_time),
-#             updated_link_slot_departure_array,
-#         )
-#     state = state.replace(
-#         link_slot_array=jnp.where(mask_remove == one, zero, state.link_slot_array),
-#         link_slot_departure_array=updated_link_slot_departure_array,
-#         link_snr_array=jnp.where(mask_remove == one, zero, state.link_snr_array),
-#         path_index_array=jnp.where(mask_remove == one, -one, state.path_index_array),
-#         channel_centre_bw_array=jnp.where(mask_remove == one, zero, state.channel_centre_bw_array),
-#         channel_power_array=jnp.where(mask_remove == one, zero, state.channel_power_array),
-#         path_index_array_prev=jnp.where(mask_remove == one, -one, state.path_index_array_prev),
-#         channel_centre_bw_array_prev=jnp.where(
-#             mask_remove == one, zero, state.channel_centre_bw_array_prev
-#         ),
-#         channel_power_array_prev=jnp.where(
-#             mask_remove == one, zero, state.channel_power_array_prev
-#         ),
-#     )
-#     if params.monitor_active_lightpaths:
-#         # The active_lightpaths_array is set to -1 when the lightpath is not active
-#         # The active_lightpaths_array_departure is set to 0 when the lightpath is not active
-#         # (active_lightpaths_array is used to calculate the total throughput)
-#         mask_remove = jnp.where(
-#             (zero <= state.active_lightpaths_array_departure)
-#             & (state.active_lightpaths_array_departure <= jnp.squeeze(current_time)),
-#             one,
-#             zero,
-#         )
-#         state = state.replace(
-#             active_lightpaths_array=jnp.where(
-#                 mask_remove == one, -one, state.active_lightpaths_array
-#             ),
-#             active_lightpaths_array_departure=jnp.where(
-#                 mask_remove == one, zero, state.active_lightpaths_array_departure
-#             ),
-#         )
-# return state
-
-
-# @partial(jax.jit, static_argnums=(1,))
-# def remove_expired_services_rmsa_gn_model(state: EnvState, params: Optional[EnvParams]) -> EnvState:
-#     """
-
-#     Args:
-#         state: Environment state
-#         params: Environment parameters
-
-#     Returns:
-#         Updated environment state
-#     """
-#     # Set one where link_slot_departure_array is >= zero and <= current time
-#     current_time = state.current_time if not params.relative_arrival_times else state.arrival_time
-#     mask_remove = jnp.where(
-#         (zero <= state.link_slot_departure_array)
-#         & (state.link_slot_departure_array <= jnp.squeeze(current_time)),
-#         one,
-#         zero,
-#     )
-#     updated_link_slot_departure_array = jnp.where(
-#         mask_remove == one, zero, state.link_slot_departure_array
-#     )
-#     if params.relative_arrival_times:
-#         mask_subtract = jnp.where(updated_link_slot_departure_array <= zero, zero, one)
-#         updated_link_slot_departure_array = jnp.where(
-#             mask_subtract == one,
-#             state.link_slot_departure_array - jnp.squeeze(current_time),
-#             updated_link_slot_departure_array,
-#         )
-#     state = state.replace(
-#         link_slot_array=jnp.where(mask_remove == one, zero, state.link_slot_array),
-#         link_slot_departure_array=updated_link_slot_departure_array,
-#         link_snr_array=jnp.where(mask_remove == one, zero, state.link_snr_array),
-#         path_index_array=jnp.where(mask_remove == one, -one, state.path_index_array),
-#         channel_centre_bw_array=jnp.where(mask_remove == one, zero, state.channel_centre_bw_array),
-#         channel_power_array=jnp.where(mask_remove == one, zero, state.channel_power_array),
-#         modulation_format_index_array=jnp.where(
-#             mask_remove == one, -one, state.modulation_format_index_array
-#         ),
-#         path_index_array_prev=jnp.where(mask_remove == one, -one, state.path_index_array_prev),
-#         channel_centre_bw_array_prev=jnp.where(
-#             mask_remove == one, zero, state.channel_centre_bw_array_prev
-#         ),
-#         channel_power_array_prev=jnp.where(
-#             mask_remove == one, zero, state.channel_power_array_prev
-#         ),
-#         modulation_format_index_array_prev=jnp.where(
-#             mask_remove == one, -one, state.modulation_format_index_array_prev
-#         ),
-#     )
-#     return state
-
-
 def complete_step_rsa_gn_model(
     state: RSAGNModelEnvState,
     action_info: ActionInfo,
@@ -2921,13 +2803,19 @@ def init_transceiver_amplifier_noise_arrays(
     ref_lambda: float,
     slot_size: float,
     noise_data_filepath: str | None = None,
+    slot_frequencies_ghz: np.ndarray | None = None,
 ) -> Tuple[chex.Array, chex.Array, chex.Array, chex.Array, chex.Array]:
     """Initialise transceiver, amplifier, and ROADM noise arrays from per-band CSV data.
+
     Args:
-        link_resources (int): Number of link resources
-        ref_lambda (float): Reference wavelength
-        slot_size (float): Slot size
-        noise_data_filepath (str, optional): Path to CSV file containing modulation formats. Defaults to None.
+        link_resources (int): Number of link resources.
+        ref_lambda (float): Reference wavelength.
+        slot_size (float): Slot size in GHz.
+        noise_data_filepath (str, optional): Path to CSV file. Defaults to None.
+        slot_frequencies_ghz (np.ndarray, optional): Pre-computed absolute slot
+            centre frequencies in GHz.  When provided, these are used directly
+            instead of computing from the uniform formula.
+
     Returns:
         Tuple of per-slot arrays: (transceiver_snr, amplifier_noise_figure,
             roadm_express_loss, roadm_add_drop_loss, roadm_noise_figure)
@@ -2955,12 +2843,11 @@ def init_transceiver_amplifier_noise_arrays(
     roadm_add_drop_loss_db = noise_data[:, 7]  # roadm_add_drop_loss_dB
     roadm_nf_db = noise_data[:, 8]  # roadm_NF_dB
 
-    # Define slot centres in GHz relative to central wavelength
-    slot_centres = (jnp.arange(link_resources) - (link_resources - 1) / 2) * slot_size
-
-    # Transform relative slot centres to absolute frequencies in GHz
-    ref_frequency_ghz = c / ref_lambda / 1e9
-    slot_frequencies_ghz = ref_frequency_ghz + slot_centres
+    if slot_frequencies_ghz is None:
+        # Legacy uniform formula
+        slot_centres = (jnp.arange(link_resources) - (link_resources - 1) / 2) * slot_size
+        ref_frequency_ghz = c / ref_lambda / 1e9
+        slot_frequencies_ghz = ref_frequency_ghz + slot_centres
 
     # Initialize output arrays
     transceiver_snr_array = jnp.zeros(link_resources)
@@ -2972,6 +2859,7 @@ def init_transceiver_amplifier_noise_arrays(
     # For each slot, find which band it belongs to
     for i, freq in enumerate(slot_frequencies_ghz):
         # Find the band this frequency falls into
+        found = False
         for j in range(len(frequency_min_ghz)):
             if frequency_min_ghz[j] <= freq <= frequency_max_ghz[j]:
                 transceiver_snr_array = transceiver_snr_array.at[i].set(transceiver_snr_db[j])
@@ -2985,10 +2873,11 @@ def init_transceiver_amplifier_noise_arrays(
                     roadm_add_drop_loss_db[j]
                 )
                 roadm_noise_figure_array = roadm_noise_figure_array.at[i].set(roadm_nf_db[j])
+                found = True
                 break
-        else:
-            # If frequency is outside all bands, could raise error or use default
-            raise ValueError(f"Frequency {freq} GHz is outside the defined bands")
+        if not found:
+            # Gap slots fall between bands — leave at zero (they are never occupied)
+            pass
 
     return (
         transceiver_snr_array,
@@ -3142,6 +3031,134 @@ def compute_band_slot_order(
     return np.array(order_ff, dtype=np.int32), np.array(order_lf, dtype=np.int32)
 
 
+def compute_band_layout(
+    slot_size: float,
+    band_preference: str,
+    inter_band_gap_ghz: float = 25.0,
+    band_data_filepath: str | None = None,
+) -> dict:
+    """Compute band layout: link_resources, ref_lambda, slot centre frequencies, gaps, and orderings.
+
+    Given a slot size and selected bands, this function:
+    1. Determines how many slots fit in each band
+    2. Inserts 1 gap slot per inter-band boundary (representing ``inter_band_gap_ghz``)
+    3. Computes absolute centre frequencies for every slot
+    4. Returns all derived quantities needed by make_env
+
+    Args:
+        slot_size: Spectral width of a frequency slot in GHz.
+        band_preference: Comma-separated band names in preference order (e.g. "C,L,S").
+        inter_band_gap_ghz: Physical spectral width of inter-band gap in GHz (~0.2 nm).
+        band_data_filepath: Optional path to band data CSV. Defaults to built-in.
+
+    Returns:
+        Dict with keys: link_resources, ref_lambda, slot_centre_freq_array (relative GHz),
+        gap_start_slots, gap_width_slots, band_slot_order_ff, band_slot_order_lf.
+    """
+    f = (
+        pathlib.Path(band_data_filepath)
+        if band_data_filepath
+        else (pathlib.Path(__file__).parents[1].absolute() / "data" / "gn_model" / "band_data.csv")
+    )
+    band_names_raw = np.genfromtxt(f, delimiter=",", skip_header=1, usecols=(0,), dtype=str)
+    band_data_num = np.genfromtxt(f, delimiter=",", skip_header=1, usecols=(1, 2, 3, 4))
+    band_freq_lo = band_data_num[:, 2]  # frequency_min_ghz
+    band_freq_hi = band_data_num[:, 3]  # frequency_max_ghz
+
+    # Build lookup: band_name -> (freq_lo, freq_hi)
+    band_info = {}
+    for i, name in enumerate(band_names_raw):
+        band_info[name.upper()] = (band_freq_lo[i], band_freq_hi[i])
+
+    # Parse preference list and filter to selected bands
+    preference_list = [b.strip().upper() for b in band_preference.split(",")]
+    selected = []
+    for name in preference_list:
+        if name not in band_info:
+            raise ValueError(
+                f"Band '{name}' not found in band data CSV. Available: {list(band_info.keys())}"
+            )
+        selected.append((name, band_info[name][0], band_info[name][1]))
+
+    # Sort selected bands by frequency (ascending)
+    selected.sort(key=lambda x: x[1])
+
+    # Compute slots per band and build the layout
+    slot_centres_abs_ghz = []  # absolute centre frequencies in GHz
+    gap_start_slots = []
+    gap_width_slots = []
+    band_slot_ranges = {}  # band_name -> list of slot indices (for ordering)
+
+    slot_idx = 0
+    for i, (name, freq_lo, freq_hi) in enumerate(selected):
+        band_width = freq_hi - freq_lo
+        num_slots_in_band = int(math.floor(band_width / slot_size))
+
+        # Slot centres within this band: start half a slot_size from the low edge
+        band_start = freq_lo + slot_size / 2
+        band_slots_indices = list(range(slot_idx, slot_idx + num_slots_in_band))
+        band_slot_ranges[name] = band_slots_indices
+
+        for j in range(num_slots_in_band):
+            slot_centres_abs_ghz.append(band_start + j * slot_size)
+
+        slot_idx += num_slots_in_band
+
+        # Insert gap slot between this band and the next (if not the last band)
+        if i < len(selected) - 1:
+            next_freq_lo = selected[i + 1][1]
+            gap_centre = (freq_hi + next_freq_lo) / 2
+            gap_start_slots.append(slot_idx)
+            gap_width_slots.append(1)
+            slot_centres_abs_ghz.append(gap_centre)
+            slot_idx += 1
+
+    link_resources = slot_idx
+    slot_centres_abs_ghz = np.array(slot_centres_abs_ghz, dtype=np.float64)
+
+    # Compute ref_lambda as centre of the total frequency range
+    total_freq_min = slot_centres_abs_ghz[0] - slot_size / 2
+    total_freq_max = slot_centres_abs_ghz[-1] + slot_size / 2
+    centre_freq_ghz = (total_freq_min + total_freq_max) / 2
+    ref_lambda = c / (centre_freq_ghz * 1e9)
+
+    # Convert to relative GHz offsets from ref_lambda
+    ref_freq_ghz = c / ref_lambda / 1e9
+    slot_centre_freq_rel_ghz = slot_centres_abs_ghz - ref_freq_ghz
+
+    # Build band-preference slot orderings
+    order_ff = []
+    order_lf = []
+    for name in preference_list:
+        slots = band_slot_ranges.get(name, [])
+        order_ff.extend(slots)
+        order_lf.extend(reversed(slots))
+    # Add any bands not in preference list (shouldn't happen, but for safety)
+    for name, _, _ in selected:
+        if name not in preference_list:
+            slots = band_slot_ranges.get(name, [])
+            order_ff.extend(slots)
+            order_lf.extend(reversed(slots))
+    # Gap slots last
+    for gs in gap_start_slots:
+        order_ff.append(gs)
+        order_lf.append(gs)
+
+    assert len(order_ff) == link_resources, (
+        f"band_slot_order length {len(order_ff)} != link_resources {link_resources}"
+    )
+
+    return {
+        "link_resources": link_resources,
+        "ref_lambda": ref_lambda,
+        "slot_centre_freq_array": slot_centre_freq_rel_ghz.astype(np.float32),
+        "gap_start_slots": gap_start_slots,
+        "gap_width_slots": gap_width_slots,
+        "band_slot_order_ff": np.array(order_ff, dtype=np.int32),
+        "band_slot_order_lf": np.array(order_lf, dtype=np.int32),
+    }
+
+
 @partial(jax.jit, static_argnums=(1, 2))
 def get_required_snr_se_kurtosis_from_mod_format(mod_format_index, col_index, params):
     return params.modulations_array[mod_format_index][
@@ -3189,20 +3206,27 @@ def get_required_snr_se_kurtosis_array(
 def get_centre_frequency(
     initial_slot_index: int, num_slots: int, params: RSAGNModelEnvParams
 ) -> chex.Array:
-    """Get centre frequency for new lightpath
+    """Get centre frequency for new lightpath.
+
+    Looks up pre-computed per-slot centre frequencies from
+    ``params.slot_centre_freq_array`` and returns the midpoint of the first
+    and last slot in the channel.  This correctly handles non-uniform slot
+    spacing (e.g. inter-band gap slots).
 
     Args:
-        initial_slot_index (chex.Array): Centre frequency of first slot
-        num_slots (float): Number of slots
-        params (RSAGNModelEnvParams): Environment parameters
+        initial_slot_index (chex.Array): Index of the first slot of the channel.
+        num_slots (float): Number of slots occupied by the channel.
+        params (RSAGNModelEnvParams): Environment parameters.
 
     Returns:
-        chex.Array: Centre frequency for new lightpath
+        chex.Array: Centre frequency for new lightpath (relative GHz offset
+        from ref_lambda).
     """
-    slot_centres = (
-        jnp.arange(params.link_resources) - (params.link_resources - 1) / 2
-    ) * params.slot_size
-    return slot_centres[initial_slot_index] + ((params.slot_size * (num_slots - 1)) / 2)
+    slot_centres = params.slot_centre_freq_array.val  # (link_resources,) relative GHz
+    first_slot_centre = slot_centres[initial_slot_index]
+    last_slot_idx = jnp.minimum(initial_slot_index + num_slots - 1, params.link_resources - 1)
+    last_slot_centre = slot_centres[last_slot_idx]
+    return (first_slot_centre + last_slot_centre) / 2
 
 
 @partial(jax.jit, static_argnums=(2,))
@@ -3348,6 +3372,9 @@ def get_snr_for_path(path, link_snr_array, params, state=None):
 
         # Compute per-slot centre frequencies for ROADM ASE
         se = jnp.ones(params.link_resources, dtype=dtype_config.LARGE_FLOAT_DTYPE)
+        # `se=1` is used because `channel_centre_bw_array` already stores bandwidth (not bitrate),
+        # so the `bitrate / se` step in `required_slots` becomes a no-op,
+        # giving the correct slot count directly from the bandwidth value.
         req_slots = get_required_slots_on_link(
             state.channel_centre_bw_array[first_link_idx], se, params
         )
