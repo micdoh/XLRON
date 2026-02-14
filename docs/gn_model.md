@@ -174,6 +174,27 @@ The default data covers five bands spanning the partial S-band, C-band, and L-ba
 
 The C-band has the best amplifier performance (lowest NF) and transceiver performance (highest SNR), reflecting the maturity of C-band EDFA technology.
 
+Band boundaries for inter-band gap enforcement (`--enforce_band_gaps`) are defined in a separate file (`band_data.csv`), which specifies the standard optical bands (O, E, S, C, L, U) and their frequency ranges. This can be overridden with `--band_data_filepath`.
+
+### Band Preference for Heuristic Slot Allocation
+
+When using first-fit or last-fit heuristics with a GN model environment, the `--band_preference` flag controls the order in which optical bands are filled. By default, slots are allocated in raw index order (i.e. by frequency). With `--band_preference`, slots in the most-preferred band are exhausted before moving to the next band.
+
+For example, `--band_preference=C,L` will fill C-band slots first, then L-band slots. This is useful for multi-band scenarios where operators want to prioritise certain bands (e.g. fill C-band before spilling into L-band).
+
+```bash
+python -m xlron.train.train \
+  --env_type=rsa_gn_model \
+  --topology_name=nsfnet_deeprmsa_directed \
+  --link_resources=100 --k=5 --load=250 \
+  --continuous_operation --ENV_WARMUP_STEPS=3000 \
+  --TOTAL_TIMESTEPS=100000 --NUM_ENVS=1 \
+  --EVAL_HEURISTIC --path_heuristic=ksp_ff \
+  --band_preference=C,L
+```
+
+The preference string is a comma-separated list of band names (matching the `band_name` column in `band_data.csv`). Bands not listed are appended in CSV order after the specified ones. The flag affects both first-fit and last-fit heuristics; for last-fit, slots within each band are filled from the high end first, but bands are still tried in preference order.
+
 
 ## Modulation Formats
 
@@ -397,6 +418,9 @@ It does not compute Shannon throughput (unlike `rsa_gn_model` with `--monitor_ac
 | `--slot_size` | 12.5 | GHz | Spectral width of each frequency slot |
 | `--link_resources` | -- | -- | Number of frequency slots per link |
 | `--guardband` | 1 | slots | Guard band between adjacent channels |
+| `--enforce_band_gaps` | False | -- | Mark inter-band gap slots as unusable (from `band_data.csv`) |
+| `--band_data_filepath` | None | -- | Path to band definition CSV (defaults to built-in `band_data.csv`) |
+| `--band_preference` | None | -- | Comma-separated band fill order for first-fit/last-fit (e.g. `C,L,S`) |
 
 
 ## Summary: `rsa_gn_model` vs `rmsa_gn_model`

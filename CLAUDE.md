@@ -202,6 +202,8 @@ Functions available:
 2. Add field to appropriate dataclass in `dataclasses.py`
 3. Wire config to params in `make_env.py`
 4. Use `params.field_name` in environment functions
+5. Add to the GUI: add default to `DEFAULTS` dict in `xlron/gui/widgets.py` and add a widget in the appropriate section function (e.g. `physical_layer_section()` for GN model params, `environment_section()` for env params)
+6. Document in the relevant `docs/*.md` file and add to the appropriate configuration table
 
 ### Adding New Loss/Diagnostic Metrics
 

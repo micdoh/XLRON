@@ -3003,44 +3003,32 @@ def compute_band_gaps_from_csv(
     link_resources: int,
     ref_lambda: float,
     slot_size: float,
-    noise_data_filepath: str | None = None,
+    band_data_filepath: str | None = None,
 ) -> Tuple[list, list]:
-    """Compute band gap slot positions from per-band CSV data.
+    """Compute band gap slot positions from band definition CSV data.
 
-    Reads the transceiver/amplifier CSV and derives actual band frequency ranges
-    from the wavelength columns (the CSV frequency columns contain sentinel values
-    that paper over the physical gaps). Any slot whose centre frequency falls
-    between bands is marked as a gap slot.
+    Reads the band data CSV which defines frequency ranges for each optical band.
+    Any slot whose centre frequency falls between bands is marked as a gap slot.
 
     Args:
         link_resources: Number of frequency slots per link.
         ref_lambda: Reference wavelength (m).
         slot_size: Slot width in GHz.
-        noise_data_filepath: Optional path to CSV file. Defaults to built-in data.
+        band_data_filepath: Optional path to band data CSV file. Defaults to
+            built-in ``band_data.csv``.
 
     Returns:
         Tuple of (gap_start_slots, gap_width_slots) as Python lists of ints.
     """
     f = (
-        pathlib.Path(noise_data_filepath)
-        if noise_data_filepath
-        else (
-            pathlib.Path(__file__).parents[1].absolute()
-            / "data"
-            / "gn_model"
-            / "transceiver_amplifier_data.csv"
-        )
+        pathlib.Path(band_data_filepath)
+        if band_data_filepath
+        else (pathlib.Path(__file__).parents[1].absolute() / "data" / "gn_model" / "band_data.csv")
     )
-    noise_data = np.genfromtxt(f, delimiter=",")
-    noise_data = noise_data[1:, 1:]  # Drop headers and name column
-    # Columns: wavelength_min_nm, wavelength_max_nm, frequency_min_ghz, frequency_max_ghz, ...
-    wavelength_min_nm = noise_data[:, 0]
-    wavelength_max_nm = noise_data[:, 1]
-
-    # Derive frequency ranges from wavelength columns (higher wavelength = lower frequency)
-    # freq_lo corresponds to wavelength_max, freq_hi corresponds to wavelength_min
-    band_freq_lo = c / (wavelength_max_nm * 1e-9) / 1e9  # GHz
-    band_freq_hi = c / (wavelength_min_nm * 1e-9) / 1e9  # GHz
+    band_data = np.genfromtxt(f, delimiter=",", skip_header=1, usecols=(1, 2, 3, 4))
+    # Columns: wavelength_min_nm, wavelength_max_nm, frequency_min_ghz, frequency_max_ghz
+    band_freq_lo = band_data[:, 2]  # frequency_min_ghz
+    band_freq_hi = band_data[:, 3]  # frequency_max_ghz
 
     # Compute per-slot absolute frequencies in GHz
     slot_centres = (np.arange(link_resources) - (link_resources - 1) / 2) * slot_size
@@ -3059,6 +3047,7 @@ def compute_band_gaps_from_csv(
     gap_start_slots = []
     gap_width_slots = []
     in_gap = False
+    gap_start = 0
     for i in range(link_resources):
         if not covered[i] and not in_gap:
             gap_start = i
@@ -3072,6 +3061,85 @@ def compute_band_gaps_from_csv(
         gap_width_slots.append(link_resources - gap_start)
 
     return gap_start_slots, gap_width_slots
+
+
+def compute_band_slot_order(
+    link_resources: int,
+    ref_lambda: float,
+    slot_size: float,
+    band_preference: str,
+    band_data_filepath: str | None = None,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Compute band-preference-ordered slot index arrays for first-fit and last-fit.
+
+    Args:
+        link_resources: Number of frequency slots per link.
+        ref_lambda: Reference wavelength (m).
+        slot_size: Slot width in GHz.
+        band_preference: Comma-separated band names in preference order (e.g. "C,L,S").
+        band_data_filepath: Optional path to band data CSV. Defaults to built-in.
+
+    Returns:
+        Tuple of (band_slot_order_ff, band_slot_order_lf) as numpy int32 arrays
+        of shape (link_resources,).
+        band_slot_order_ff has slots ascending within each band, bands in preference order.
+        band_slot_order_lf has slots descending within each band, bands in preference order.
+    """
+    f = (
+        pathlib.Path(band_data_filepath)
+        if band_data_filepath
+        else (pathlib.Path(__file__).parents[1].absolute() / "data" / "gn_model" / "band_data.csv")
+    )
+    # Read band names (string column)
+    band_names_raw = np.genfromtxt(f, delimiter=",", skip_header=1, usecols=(0,), dtype=str)
+    band_names = list(band_names_raw)
+    # Read numeric columns
+    band_data_num = np.genfromtxt(f, delimiter=",", skip_header=1, usecols=(1, 2, 3, 4))
+    band_freq_lo = band_data_num[:, 2]  # frequency_min_ghz
+    band_freq_hi = band_data_num[:, 3]  # frequency_max_ghz
+
+    # Compute per-slot frequencies
+    slot_centres = (np.arange(link_resources) - (link_resources - 1) / 2) * slot_size
+    ref_freq_ghz = c / ref_lambda / 1e9
+    slot_freq_ghz = ref_freq_ghz + slot_centres
+
+    # Assign each slot to a band
+    band_slots = {name: [] for name in band_names}
+    uncovered = []
+    for i, freq in enumerate(slot_freq_ghz):
+        assigned = False
+        for j, name in enumerate(band_names):
+            if band_freq_lo[j] <= freq <= band_freq_hi[j]:
+                band_slots[name].append(i)
+                assigned = True
+                break
+        if not assigned:
+            uncovered.append(i)
+
+    preference_list = [b.strip().upper() for b in band_preference.split(",")]
+
+    order_ff = []
+    order_lf = []
+    # Preferred bands first
+    for band_name in preference_list:
+        slots = sorted(band_slots.get(band_name, []))
+        order_ff.extend(slots)
+        order_lf.extend(reversed(slots))
+    # Then any bands not in the preference list (in CSV order)
+    for name in band_names:
+        if name not in preference_list:
+            slots = sorted(band_slots.get(name, []))
+            order_ff.extend(slots)
+            order_lf.extend(reversed(slots))
+    # Finally uncovered/gap slots
+    order_ff.extend(uncovered)
+    order_lf.extend(uncovered)
+
+    assert len(order_ff) == link_resources, (
+        f"band_slot_order length {len(order_ff)} != link_resources {link_resources}"
+    )
+
+    return np.array(order_ff, dtype=np.int32), np.array(order_lf, dtype=np.int32)
 
 
 @partial(jax.jit, static_argnums=(1, 2))
@@ -3513,75 +3581,6 @@ def get_snr_link_array_fused(state: EnvState, params: EnvParams) -> chex.Array:
     )
     link_snr_array = jnp.nan_to_num(link_snr_array, nan=1e-5)
     return link_snr_array
-
-
-# @partial(jax.jit, static_argnums=(3,))
-# def get_best_modulation_format(
-#     state: EnvState,
-#     path: chex.Array,
-#     initial_slot_index: int,
-#     launch_power: chex.Array,
-#     params: EnvParams,
-# ) -> chex.Array:
-#     """Get best modulation format for lightpath. "Best" is the highest order that has SNR requirements below available.
-#     Try each modulation format, calculate SNR for each, then return the highest order possible.
-#     Args:
-#         state (EnvState): Environment state
-#         path (chex.Array): Path array
-#         initial_slot_index (int): Initial slot index
-#         params (EnvParams): Environment parameters
-#     Returns:
-#         jnp.array: Acceptable modulation format indices
-#     """
-#     _, requested_datarate = read_rsa_request(state.request_array)
-#     mod_format_count = params.modulations_array.val.shape[0]
-#     acceptable_mod_format_indices = jnp.full((mod_format_count,), -2)
-
-#     def acceptable_modulation_format(i, acceptable_format_indices):
-#         req_snr = params.modulations_array.val[i][2] + params.snr_margin
-#         se = params.modulations_array.val[i][1]
-#         req_slots = required_slots(
-#             requested_datarate,
-#             se,
-#             params.slot_size,
-#             params.guardband,
-#             temperature=params.temperature,
-#         )
-#         # TODO - need to check we don't overwrite values in already occupied slots
-#         # Possible approaches:
-#         # Check slot occupancy? Probably would need to iterate through for num_slots, but that's an issue
-#         # What about we allocate and then fix up later, e.g. could it be possible to just add the modulation format on top without
-#         # check sum of path links prior to assigning?
-#         #
-#         affected_slots_mask = get_affected_slots_mask(initial_slot_index, req_slots, path, params)
-#         new_state = state.replace(
-#             channel_power_array=set_path_links(
-#                 state.channel_power_array,
-#                 affected_slots_mask,
-#                 launch_power,
-#             ),
-#             channel_centre_bw_array=set_path_links(
-#                 state.channel_centre_bw_array,
-#                 affected_slots_mask,
-#                 params.slot_size,
-#             ),
-#         )
-#         snr_value = get_minimum_snr_of_channels_on_path(
-#             new_state, path, initial_slot_index, req_slots, params
-#         )
-#         # jax.debug.print("snr_value {}", snr_value, ordered=True)
-#         # jax.debug.print("req_snr {}", req_snr, ordered=True)
-#         acceptable_format_index = jnp.where(snr_value >= req_snr, i, -1).reshape((1,))
-#         acceptable_format_indices = jax.lax.dynamic_update_slice(
-#             acceptable_format_indices, acceptable_format_index, (i,)
-#         )
-#         # jax.debug.print("acceptable_format_indices {}", acceptable_format_indices, ordered=True)
-#         return acceptable_format_indices
-
-#     acceptable_mod_format_indices = jax.lax.fori_loop(
-#         0, mod_format_count, acceptable_modulation_format, acceptable_mod_format_indices
-#     )
-#     return acceptable_mod_format_indices
 
 
 @partial(jax.jit, static_argnums=(3,))

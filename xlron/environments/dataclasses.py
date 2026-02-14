@@ -312,6 +312,12 @@ class GNModelEnvParams(RSAEnvParams):
     uniform_spans: bool = struct.field(pytree_node=False)
     min_snr: chex.Scalar = struct.field(pytree_node=False)
     fec_threshold: chex.Scalar = struct.field(pytree_node=False)
+    band_slot_order_ff: HashableArrayWrapper = struct.field(
+        pytree_node=False
+    )  # Slot permutation for band-preference first-fit (empty if unused)
+    band_slot_order_lf: HashableArrayWrapper = struct.field(
+        pytree_node=False
+    )  # Slot permutation for band-preference last-fit (empty if unused)
 
 
 @struct.dataclass

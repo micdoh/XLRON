@@ -404,7 +404,6 @@ flags.DEFINE_string(
     "custom_traffic_matrix_csv_filepath", None, "Path to custom traffic matrix CSV file"
 )
 flags.DEFINE_float("alpha", 0.2, "Fibre attenuation coefficient, alpha [dB/km]")
-flags.DEFINE_float("amplifier_noise_figure", 4.5, "Amplifier noise figure [dB]")
 flags.DEFINE_float("beta_2", -21.7, "Dispersion parameter [ps^2/km]")
 flags.DEFINE_float("gamma", 1.2, "Nonlinear coefficient")
 flags.DEFINE_float("span_length", 100, "Span length [km]")
@@ -579,6 +578,17 @@ flags.DEFINE_string(
     "noise_data_filepath",
     None,
     "Path to transceiver and amplifier noise data file for GN model",
+)
+flags.DEFINE_string(
+    "band_data_filepath",
+    None,
+    "Path to band definition CSV file for computing band gaps in GN model",
+)
+flags.DEFINE_string(
+    "band_preference",
+    None,
+    "Comma-separated band preference order for first-fit/last-fit heuristics in GN model "
+    "environments (e.g. 'C,L,S,U,E,O'). First-fit exhausts slots in preferred band order.",
 )
 flags.DEFINE_boolean(
     "uniform_spans", True, "Use uniform spans (on by default: simplifies calculations)"

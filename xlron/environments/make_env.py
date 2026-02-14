@@ -34,6 +34,7 @@ from xlron.environments.dataclasses import (
 )
 from xlron.environments.env_funcs import (
     compute_band_gaps_from_csv,
+    compute_band_slot_order,
     convert_node_probs_to_traffic_matrix,
     generate_source_dest_pairs,
     get_line_graph_spectral_features,
@@ -258,7 +259,7 @@ def make(
     enforce_band_gaps = config.get("enforce_band_gaps", False)
     if enforce_band_gaps:
         gap_start_slots, gap_width_slots = compute_band_gaps_from_csv(
-            link_resources, ref_lambda, slot_size, config.get("noise_data_filepath", None)
+            link_resources, ref_lambda, slot_size, config.get("band_data_filepath", None)
         )
     else:
         interband_gap_width = [200, 200] if config.get("interband_gap_width", None) is None else []
@@ -630,6 +631,29 @@ def make(
             roadm_express_loss = HashableArrayWrapper(roadm_express_loss)
             roadm_add_drop_loss = HashableArrayWrapper(roadm_add_drop_loss)
             roadm_noise_figure = HashableArrayWrapper(roadm_noise_figure)
+        band_preference = config.get("band_preference", None)
+        if band_preference is not None:
+            bso_ff, bso_lf = compute_band_slot_order(
+                link_resources,
+                ref_lambda,
+                slot_size,
+                band_preference,
+                config.get("band_data_filepath", None),
+            )
+            band_slot_order_ff = (
+                HashableArrayWrapper(jnp.array(bso_ff))
+                if not remove_array_wrappers
+                else jnp.array(bso_ff)
+            )
+            band_slot_order_lf = (
+                HashableArrayWrapper(jnp.array(bso_lf))
+                if not remove_array_wrappers
+                else jnp.array(bso_lf)
+            )
+        else:
+            empty = jnp.array([], dtype=jnp.int32)
+            band_slot_order_ff = HashableArrayWrapper(empty) if not remove_array_wrappers else empty
+            band_slot_order_lf = HashableArrayWrapper(empty) if not remove_array_wrappers else empty
         params_dict.update(
             ref_lambda=ref_lambda,
             max_spans=max_spans,
@@ -666,6 +690,8 @@ def make(
             transceiver_snr=transceiver_snr,
             amplifier_noise_figure=amplifier_noise_figure,
             uniform_spans=uniform_spans,
+            band_slot_order_ff=band_slot_order_ff,
+            band_slot_order_lf=band_slot_order_lf,
         )
         if env_type == "rmsa_gn_model":
             env_params = RMSAGNModelEnvParams

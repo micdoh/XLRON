@@ -7,6 +7,7 @@ import jax.numpy as jnp
 
 from xlron.environments.dataclasses import (
     EnvState,
+    GNModelEnvParams,
     RMSAGNModelEnvParams,
     RSAEnvParams,
     RSAEnvState,
@@ -563,24 +564,45 @@ def best_fit(state: EnvState, params: RSAEnvParams) -> Tuple[chex.Array, chex.Ar
 
 
 def first_fit(state: EnvState, params: RSAEnvParams) -> chex.Array:
-    """First-Fit Spectrum Allocation. Returns the first fit slot for each path."""
+    """First-Fit Spectrum Allocation. Returns the first fit slot for each path.
+
+    When band_slot_order_ff is set (GN model envs with --band_preference),
+    slots are searched in band preference order rather than raw index order.
+    """
     mask = get_action_mask(state, params)
-    # Add a column of ones to the mask to make sure that occupied paths have non-zero index in "first_slots"
-    mask = jnp.concatenate((mask, jnp.full((mask.shape[0], 1), 1)), axis=1)
-    # Get index of first available slots for each path
-    first_slots = jnp.argmax(mask, axis=1)
+    if isinstance(params, GNModelEnvParams) and len(params.band_slot_order_ff.val) > 0:
+        order = params.band_slot_order_ff.val
+        reordered = mask[:, order]
+        reordered = jnp.concatenate((reordered, jnp.full((reordered.shape[0], 1), 1)), axis=1)
+        idx = jnp.argmax(reordered, axis=1)
+        safe_idx = jnp.clip(idx, 0, params.link_resources - 1)
+        first_slots = jnp.where(idx < params.link_resources, order[safe_idx], params.link_resources)
+    else:
+        # Add a column of ones to make sure occupied paths have non-zero index in "first_slots"
+        mask = jnp.concatenate((mask, jnp.full((mask.shape[0], 1), 1)), axis=1)
+        first_slots = jnp.argmax(mask, axis=1)
     return first_slots
 
 
 def last_fit(state: EnvState, params: RSAEnvParams) -> chex.Array:
-    """Last-Fit Spectrum Allocation. Returns the last fit slot for each path."""
+    """Last-Fit Spectrum Allocation. Returns the last fit slot for each path.
+
+    When band_slot_order_lf is set (GN model envs with --band_preference),
+    slots are searched in band preference order (descending within each band).
+    """
     mask = get_action_mask(state, params)
-    # Add a column of ones to the mask to make sure that occupied paths have non-zero index in "last_slots"
-    mask = jnp.concatenate((jnp.full((mask.shape[0], 1), 1), mask), axis=1)
-    # Get index of last available slots for each path
-    last_slots = jnp.argmax(mask[:, ::-1], axis=1)
-    # Convert to index from the left
-    last_slots = params.link_resources - last_slots - 1
+    if isinstance(params, GNModelEnvParams) and len(params.band_slot_order_lf.val) > 0:
+        order = params.band_slot_order_lf.val
+        reordered = mask[:, order]
+        reordered = jnp.concatenate((reordered, jnp.full((reordered.shape[0], 1), 1)), axis=1)
+        idx = jnp.argmax(reordered, axis=1)
+        safe_idx = jnp.clip(idx, 0, params.link_resources - 1)
+        last_slots = jnp.where(idx < params.link_resources, order[safe_idx], params.link_resources)
+    else:
+        # Add a column of ones to make sure occupied paths have non-zero index in "last_slots"
+        mask = jnp.concatenate((jnp.full((mask.shape[0], 1), 1), mask), axis=1)
+        last_slots = jnp.argmax(mask[:, ::-1], axis=1)
+        last_slots = params.link_resources - last_slots - 1
     return last_slots
 
 

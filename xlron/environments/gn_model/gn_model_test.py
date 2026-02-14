@@ -450,6 +450,19 @@ class RMSAGNModelMaskTest(parameterized.TestCase):
 
 
 def rmsa_gn_model_enforce_band_gaps_test_setup():
+    # Create a temp band data CSV with two non-contiguous bands so that a gap
+    # appears in the middle of the 100-slot range (ref_lambda=1564nm default).
+    # Slot freq range at defaults: ~191064 - 192302 GHz.
+    # Band A covers slots 0-39, Band B covers slots 60-99, leaving a 20-slot gap.
+    band_csv = (
+        "band_name,wavelength_min_nm,wavelength_max_nm,frequency_min_ghz,frequency_max_ghz\n"
+        "A,1560,1570,191060,191555\n"
+        "B,1555,1560,191810,192305\n"
+    )
+    band_file = tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False)
+    band_file.write(band_csv)
+    band_file.close()
+
     key = jax.random.PRNGKey(3)
     settings = dict(
         k=4,
@@ -466,9 +479,12 @@ def rmsa_gn_model_enforce_band_gaps_test_setup():
         coherent=False,
         include_no_op=False,
         enforce_band_gaps=True,
+        band_data_filepath=band_file.name,
     )
     env, params = make(settings, log_wrapper=False)
     obs, state = env.reset(key, params)
+    # Clean up temp file
+    pathlib.Path(band_file.name).unlink()
     return key, env, obs, state, params
 
 
@@ -539,6 +555,105 @@ class EnforceBandGapsTest(parameterized.TestCase):
                 jnp.all(gap_slots == -1),
                 f"Gap at slot {start} should still be -1 after step",
             )
+
+
+def rsa_gn_model_band_preference_test_setup(band_preference):
+    key = jax.random.PRNGKey(3)
+    settings = dict(
+        k=4,
+        topology_name="nsfnet_deeprmsa_directed",
+        link_resources=100,
+        max_requests=100,
+        values_bw=[100],
+        incremental_loading=True,
+        env_type="rsa_gn_model",
+        slot_size=12.5,
+        guardband=0,
+        mod_format_correction=False,
+        max_power_per_fibre=10.0,
+        coherent=False,
+        include_no_op=False,
+        band_preference=band_preference,
+    )
+    env, params = make(settings, log_wrapper=False)
+    obs, state = env.reset(key, params)
+    return key, env, obs, state, params
+
+
+class BandPreferenceTest(parameterized.TestCase):
+    """Test that --band_preference controls first-fit/last-fit slot ordering."""
+
+    def test_c_band_first_fit_prefers_c_band(self):
+        """With C,L preference, first-fit should pick a C-band slot (>= 43)."""
+        from xlron.heuristics.heuristics import first_fit
+
+        _, env, _, state, params = rsa_gn_model_band_preference_test_setup("C,L")
+        ff = first_fit(state, params)
+        # C-band starts at slot 43 for default ref_lambda=1564nm, 100 slots, 12.5 GHz
+        self.assertTrue(
+            jnp.all(ff[ff < params.link_resources] >= 43),
+            f"Expected C-band slots (>= 43) but got {ff}",
+        )
+
+    def test_l_band_first_fit_prefers_l_band(self):
+        """With L,C preference, first-fit should pick an L-band slot (< 43)."""
+        from xlron.heuristics.heuristics import first_fit
+
+        _, env, _, state, params = rsa_gn_model_band_preference_test_setup("L,C")
+        ff = first_fit(state, params)
+        self.assertTrue(
+            jnp.all(ff[ff < params.link_resources] < 43),
+            f"Expected L-band slots (< 43) but got {ff}",
+        )
+
+    def test_no_preference_starts_at_slot_zero(self):
+        """Without band_preference, first-fit should start from slot 0."""
+        from xlron.heuristics.heuristics import first_fit
+
+        key = jax.random.PRNGKey(3)
+        settings = dict(
+            k=4,
+            topology_name="nsfnet_deeprmsa_directed",
+            link_resources=100,
+            max_requests=100,
+            values_bw=[100],
+            incremental_loading=True,
+            env_type="rsa_gn_model",
+            slot_size=12.5,
+            guardband=0,
+            mod_format_correction=False,
+            max_power_per_fibre=10.0,
+            coherent=False,
+            include_no_op=False,
+        )
+        env, params = make(settings, log_wrapper=False)
+        _, state = env.reset(key, params)
+        ff = first_fit(state, params)
+        # Without preference, first available slot is 0
+        self.assertEqual(int(ff[0]), 0)
+
+    def test_last_fit_with_c_preference(self):
+        """With C,L preference, last-fit should pick a C-band slot."""
+        from xlron.heuristics.heuristics import last_fit
+
+        _, env, _, state, params = rsa_gn_model_band_preference_test_setup("C,L")
+        lf = last_fit(state, params)
+        # Last-fit in C-band (slots 43-99) should return a high C-band slot
+        valid = lf[lf < params.link_resources]
+        self.assertTrue(
+            jnp.all(valid >= 43),
+            f"Expected C-band slots (>= 43) but got {lf}",
+        )
+
+    def test_band_slot_order_is_valid_permutation(self):
+        """band_slot_order arrays should be permutations of [0, link_resources)."""
+        _, _, _, _, params = rsa_gn_model_band_preference_test_setup("C,L")
+        order_ff = params.band_slot_order_ff.val
+        order_lf = params.band_slot_order_lf.val
+        self.assertEqual(len(order_ff), params.link_resources)
+        self.assertEqual(len(order_lf), params.link_resources)
+        self.assertEqual(sorted(order_ff.tolist()), list(range(params.link_resources)))
+        self.assertEqual(sorted(order_lf.tolist()), list(range(params.link_resources)))
 
 
 if __name__ == "__main__":

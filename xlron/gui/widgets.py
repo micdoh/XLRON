@@ -198,11 +198,13 @@ DEFAULTS = {
     "calc_minimum_osnr": False,
     "beta_fec": 1.5e-2,
     "fec_rate": 0.8,
+    "enforce_band_gaps": False,
+    "band_data_filepath": None,
+    "band_preference": None,
     "alpha": 0.2,
     "beta_2": -21.7,
     "gamma": 1.2,
     "span_length": 100,
-    "amplifier_noise_figure": 4.5,
     "snr_margin": 0.5,
     # Differentiable
     "differentiable": False,
@@ -417,6 +419,15 @@ def traffic_section() -> dict:
         )
         if values_bw.strip():
             flags["values_bw"] = values_bw.strip()
+
+        max_req = st.number_input(
+            "Max Requests",
+            min_value=1,
+            value=int(_get_preset_val("max_requests")),
+            step=1,
+            help=_h("max_requests"),
+        )
+        _emit(flags, "max_requests", int(max_req))
 
     with col2:
         cont_op = st.checkbox(
@@ -971,6 +982,40 @@ def physical_layer_section() -> dict:
         )
         _emit(flags, "fec_rate", fec_rate)
 
+    st.subheader("Band Configuration")
+    enforce_gaps = st.checkbox(
+        "Enforce Band Gaps",
+        value=bool(_get_preset_val("enforce_band_gaps")),
+        help=_h("enforce_band_gaps"),
+    )
+    _emit(flags, "enforce_band_gaps", enforce_gaps)
+
+    if enforce_gaps:
+        band_data = st.text_input(
+            "Band Data CSV (leave blank for default)",
+            value=_get_preset_val("band_data_filepath") or "",
+            help=_h("band_data_filepath"),
+        )
+        if band_data.strip():
+            flags["band_data_filepath"] = band_data.strip()
+
+    available_bands = ["C", "L", "S", "U", "E", "O"]
+    preset_pref = _get_preset_val("band_preference")
+    default_selection = [b.strip().upper() for b in preset_pref.split(",")] if preset_pref else []
+    band_prefs = st.multiselect(
+        "Band Preference Order (drag to reorder)",
+        available_bands,
+        default=[b for b in default_selection if b in available_bands],
+        help=(
+            "Order in which first-fit/last-fit heuristics fill bands. "
+            "Selected bands are tried first (in listed order); "
+            "unselected bands are appended afterwards. "
+            "Leave empty for default frequency-order allocation."
+        ),
+    )
+    if band_prefs:
+        flags["band_preference"] = ",".join(band_prefs)
+
     col1, col2 = st.columns(2)
     with col1:
         alpha = st.number_input(
@@ -1006,14 +1051,6 @@ def physical_layer_section() -> dict:
             help=_h("span_length"),
         )
         _emit(flags, "span_length", span)
-
-        nf = st.number_input(
-            "Amplifier Noise Figure (dB)",
-            value=float(_get_preset_val("amplifier_noise_figure")),
-            step=0.5,
-            help=_h("amplifier_noise_figure"),
-        )
-        _emit(flags, "amplifier_noise_figure", nf)
 
         snr_m = st.number_input(
             "SNR Margin (dB)",
