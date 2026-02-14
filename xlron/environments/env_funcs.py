@@ -4046,8 +4046,8 @@ def mask_slots_rmsa_gn_model(
         path_idx_all
     )  # (2*k*M,)
 
-    # Launch power per path (fixed for launch_power_type == 1)
-    if params.launch_power_type == 1:
+    # Launch power per path
+    if params.launch_power_type == "fixed":
         all_launch_powers = jnp.broadcast_to(
             state.launch_power_array[0], (2 * params.k_paths * num_mods,)
         )
@@ -4228,9 +4228,9 @@ def get_launch_power(
         chex.Array: Launch power for new lightpath
     """
     k_path_index, _ = process_path_action(state, params, path_action)
-    if params.launch_power_type == 1:  # Fixed
+    if params.launch_power_type == "fixed":
         return state.launch_power_array[0]
-    elif params.launch_power_type == 2:  # Tabular (one row per path)
+    elif params.launch_power_type == "tabular":
         nodes_sd, requested_datarate = read_rsa_request(state.request_array)
         source, dest = nodes_sd
         i = get_path_indices(
@@ -4242,9 +4242,9 @@ def get_launch_power(
             directed=params.directed_graph,
         ).astype(jnp.int32)
         return state.launch_power_array[i + k_path_index]
-    elif params.launch_power_type == 3:  # RL
+    elif params.launch_power_type == "rl":
         return power_action
-    elif params.launch_power_type == 4:  # Scaled
+    elif params.launch_power_type == "scaled":
         nodes_sd, requested_datarate = read_rsa_request(state.request_array)
         source, dest = nodes_sd
         i = get_path_indices(
@@ -4266,7 +4266,10 @@ def get_launch_power(
         maximum_path_length = jnp.max(jnp.dot(path_link_array, params.link_length_array.val))
         return state.launch_power_array[0] * (path_length / maximum_path_length)
     else:
-        raise ValueError("Invalid launch power type. Check params.launch_power_type")
+        raise ValueError(
+            f"Invalid launch_power_type '{params.launch_power_type}'. "
+            "Must be 'fixed', 'tabular', 'rl', or 'scaled'."
+        )
 
 
 @partial(jax.jit, static_argnums=(1,))

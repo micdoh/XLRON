@@ -360,39 +360,30 @@ def make(
 
     launch_power_type = config.get("launch_power_type", "fixed")
     # The launch power type determines whether to use:
-    # 1. Fixed power for all channels.
-    # 2. Tabulated values of power for each path.
-    # 3. RL to determine power for each channel.
-    # 4. Fixed power scaled by path length.
+    # "fixed"   - Same power for all channels
+    # "tabular" - Power depends on the path taken
+    # "rl"      - RL agent selects power per channel
+    # "scaled"  - Fixed power scaled by path length
     if env_type in ["rmsa_gn_model", "rsa_gn_model"]:
-        # default_launch_power_array = jnp.array([default_launch_power,])
         default_launch_power_array = jnp.full(
             (k,), default_launch_power, dtype=dtype_config.LARGE_FLOAT_DTYPE
         )
         if launch_power_type == "fixed":
-            # Same power for all channels
             launch_power_array = (
                 default_launch_power_array if launch_power_array is None else launch_power_array
             )
-            launch_power_type = 1
         elif launch_power_type == "tabular":
-            # The power of a channel is determined by the path it takes
             launch_power_array = (
                 jnp.zeros(path_link_array.shape[0], dtype=dtype_config.LARGE_FLOAT_DTYPE)
                 if launch_power_array is None
                 else launch_power_array
             )
-            launch_power_type = 2
         elif launch_power_type == "rl":
-            # RL sets power per channel
             launch_power_array = default_launch_power_array
-            launch_power_type = 3
         elif launch_power_type == "scaled":
-            # Power scaled by path length
             launch_power_array = (
                 default_launch_power_array if launch_power_array is None else launch_power_array
             )
-            launch_power_type = 4
         else:
             pass
 

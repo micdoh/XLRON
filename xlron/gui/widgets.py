@@ -206,6 +206,10 @@ DEFAULTS = {
     "gamma": 1.2,
     "span_length": 100,
     "snr_margin": 0.5,
+    "launch_power_type": "fixed",
+    "max_power_per_fibre": 13.0,
+    "power_per_channel": None,
+    "inter_band_gap_ghz": 25.0,
     # Differentiable
     "differentiable": False,
     "temperature": 1.0,
@@ -1059,6 +1063,50 @@ def physical_layer_section() -> dict:
             help=_h("snr_margin"),
         )
         _emit(flags, "snr_margin", snr_m)
+
+        gap_ghz = st.number_input(
+            "Inter-Band Gap (GHz)",
+            value=float(_get_preset_val("inter_band_gap_ghz")),
+            step=1.0,
+            format="%.1f",
+            help=_h("inter_band_gap_ghz"),
+        )
+        _emit(flags, "inter_band_gap_ghz", gap_ghz)
+
+    st.subheader("Launch Power")
+    power_types = ["fixed", "tabular", "rl", "scaled"]
+    preset_pt = _get_preset_val("launch_power_type")
+    pt_idx = power_types.index(preset_pt) if preset_pt in power_types else 0
+    lp_type = st.selectbox(
+        "Launch Power Type",
+        power_types,
+        index=pt_idx,
+        help=_h("launch_power_type"),
+    )
+    _emit(flags, "launch_power_type", lp_type)
+
+    col_a, col_b = st.columns(2)
+    with col_a:
+        max_pf = st.number_input(
+            "Max Power per Fibre (dBm)",
+            value=float(_get_preset_val("max_power_per_fibre")),
+            step=0.5,
+            format="%.1f",
+            help=_h("max_power_per_fibre"),
+        )
+        _emit(flags, "max_power_per_fibre", max_pf)
+
+    with col_b:
+        preset_ppc = _get_preset_val("power_per_channel")
+        ppc = st.number_input(
+            "Power per Channel (dBm, blank = auto)",
+            value=float(preset_ppc) if preset_ppc is not None else 0.0,
+            step=0.5,
+            format="%.1f",
+            help=_h("power_per_channel"),
+        )
+        if preset_ppc is not None or ppc != 0.0:
+            _emit(flags, "power_per_channel", ppc)
 
     return flags
 

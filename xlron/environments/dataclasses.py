@@ -293,7 +293,7 @@ class GNModelEnvParams(RSAEnvParams):
     roadm_add_drop_loss: HashableArrayWrapper = struct.field(pytree_node=False)
     roadm_noise_figure: HashableArrayWrapper = struct.field(pytree_node=False)
     num_spans: chex.Scalar = struct.field(pytree_node=False)
-    launch_power_type: chex.Scalar = struct.field(pytree_node=False)
+    launch_power_type: str = struct.field(pytree_node=False)
     snr_margin: chex.Scalar = struct.field(pytree_node=False)
     max_snr: chex.Scalar = struct.field(pytree_node=False)
     max_power: chex.Scalar = struct.field(pytree_node=False)
