@@ -1,6 +1,6 @@
 """
 Example command:
-    uv run python -m xlron.bounds.cutsets_bounds --topology_name=nsfnet_deeprmsa_directed --env_type=rmsa --truncate_holding_time --load=250 --link_resources=100 --k=5 --min_bw=25 --max_bw=100 --step_bw=1 --slot_size=12.5 --continuous_operation --num_sim_requests=100000 --num_trials=10 --sim_min_load=250 --sim_max_load=250 --sim_step_load=10 --CUTSET_EXHAUSTIVE --CUTSET_BATCH_SIZE=512 --CUTSET_ITERATIONS=32 --CUTSET_TOP_K=256 --link_selection_mode=least_congested
+    uv run python -m xlron.bounds.cutsets_bounds --topology_name=nsfnet_deeprmsa_directed --env_type=rmsa --truncate_holding_time --load=250 --link_resources=100 --k=5 --min_bw=25 --max_bw=100 --step_bw=1 --slot_size=12.5 --continuous_operation --max_requests=100000 --num_trials=10 --CUTSET_EXHAUSTIVE --CUTSET_BATCH_SIZE=512 --CUTSET_ITERATIONS=32 --CUTSET_TOP_K=256 --cutset_link_selection_mode=least_congested
 """
 
 import math
@@ -30,46 +30,6 @@ from xlron.environments.make_env import make
 from xlron.environments.wrappers import Profiler, TimeIt
 
 FLAGS = flags.FLAGS
-
-# ---------------------------------------------------------------------------
-# Flags specific to capacity-bound simulation
-# (registered at module level so they're available via FLAGS after flag parsing)
-# ---------------------------------------------------------------------------
-_CUTSET_SIM_FLAGS_REGISTERED = False
-if not _CUTSET_SIM_FLAGS_REGISTERED:
-    for name, defn in [
-        ("num_sim_requests", (flags.DEFINE_integer, 100000, "Number of requests per trial")),
-        (
-            "num_trials",
-            (flags.DEFINE_integer, 10, "Number of random-seed trials per traffic intensity"),
-        ),
-        ("sim_min_load", (flags.DEFINE_float, 10.0, "Minimum traffic load (Erlangs) for sweep")),
-        ("sim_max_load", (flags.DEFINE_float, 200.0, "Maximum traffic load (Erlangs) for sweep")),
-        ("sim_step_load", (flags.DEFINE_float, 10.0, "Step size for traffic load sweep")),
-        (
-            "max_concurrent_requests",
-            (flags.DEFINE_integer, 5000, "Max concurrent connections for departure tracking"),
-        ),
-        (
-            "USE_MEAN_CONGESTION_THRESHOLD",
-            (
-                flags.DEFINE_bool,
-                False,
-                "Filter cutsets to keep only those with congestion above the mean",
-            ),
-        ),
-        (
-            "link_selection_mode",
-            (
-                flags.DEFINE_string,
-                "least_congested",
-                "Secondary link selection heuristic: least_congested, most_congested, best_fit, random",
-            ),
-        ),
-    ]:
-        if not hasattr(FLAGS, name):
-            defn[0](name, defn[1], defn[2])
-    _CUTSET_SIM_FLAGS_REGISTERED = True
 
 # =====================================================================
 #  Cut-set discovery helpers (unchanged from original)
@@ -1013,7 +973,7 @@ def main(argv):
         use_exhaustive = False
     if use_exhaustive:
         total_combinations = 2**params.num_nodes
-        parallel_processes = FLAGS.NUM_ENVS
+        parallel_processes = FLAGS.CUTSET_PARALLEL_PROCESSES
         batch_size = min(FLAGS.CUTSET_BATCH_SIZE, total_combinations)
         batches_per_process = math.ceil(total_combinations / parallel_processes / batch_size)
         iterations_per_process = min(FLAGS.CUTSET_ITERATIONS, batches_per_process)
@@ -1133,17 +1093,6 @@ def main(argv):
     partition2 = partition2[top_k_indices]
     print(f"Cutsets after top-{top_k} selection: {len(congestions)}")
 
-    # Optionally filter by mean congestion threshold
-    if FLAGS.USE_MEAN_CONGESTION_THRESHOLD:
-        threshold = float(jnp.mean(congestions))
-        above_threshold = congestions >= threshold
-        cutset_edges = cutset_edges[above_threshold]
-        congestions = congestions[above_threshold]
-        partition1 = partition1[above_threshold]
-        partition2 = partition2[above_threshold]
-        print(f"Mean congestion threshold: {threshold:.6f}")
-        print(f"Cutsets after mean filtering: {len(congestions)}")
-
     heavy_cut_sets = {
         "congestion": congestions,
         "partition1": partition1,
@@ -1172,11 +1121,7 @@ def main(argv):
     raw_env = env._env if hasattr(env, "_env") else env
 
     # --- Run capacity bound simulation ---
-    loads = np.arange(
-        FLAGS.sim_min_load,
-        FLAGS.sim_max_load + FLAGS.sim_step_load / 2,
-        FLAGS.sim_step_load,
-    )
+    loads = np.array([FLAGS.load])
 
     results = run_capacity_bound_simulation(
         heavy_cut_sets=heavy_cut_sets,
@@ -1184,10 +1129,10 @@ def main(argv):
         params=params,
         best_se_matrix=best_se_matrix,
         loads=loads,
-        num_requests=FLAGS.num_sim_requests,
+        num_requests=int(FLAGS.max_requests),
         num_trials=FLAGS.num_trials,
         seed=FLAGS.SEED,
-        link_selection_mode=FLAGS.link_selection_mode,
+        link_selection_mode=FLAGS.cutset_link_selection_mode,
     )
 
     print_results_table(results)

@@ -9,7 +9,7 @@ import jax.numpy as jnp
 from absl import flags
 from tqdm import tqdm
 
-from xlron.environments.dataclasses import EnvState, EnvParams
+from xlron.environments.dataclasses import EnvParams, EnvState
 from xlron.environments.env_funcs import (
     generate_request_rsa,
     get_paths,
@@ -319,7 +319,7 @@ def get_eval_fn(config, env, env_params, compile_defrag=False) -> Callable:
                 jax.lax.scan(scan_body, init_carry, sort_indices)
             )
             return final_env_state, final_sorted_requests, blocking_events, block_count, fix_count
-            
+
         return compiled_main_loop, run_defrag_trimmed
 
     else:
@@ -412,7 +412,7 @@ def main(argv):
     all_block_counts = []
     all_fix_counts = []
 
-    num_seeds = 1 if profile else 10
+    num_seeds = 1 if profile else FLAGS.num_trials
     for seed in range(num_seeds):
         print(f"  Seed {seed + 1}/{num_seeds}: setting up environment...", flush=True)
 

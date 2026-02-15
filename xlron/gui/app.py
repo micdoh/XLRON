@@ -8,6 +8,10 @@ import streamlit as st
 from xlron.gui.presets import PRESETS
 from xlron.gui.process import get_active_runs, get_all_runs, launch_run, stop_run, tail_log
 from xlron.gui.widgets import (
+    DEFAULTS,
+    _emit,
+    _get_preset_val,
+    _h,
     advanced_training_section,
     architecture_section,
     environment_section,
@@ -20,7 +24,9 @@ from xlron.gui.widgets import (
     traffic_section,
 )
 
-_LOGO_PATH = Path(__file__).resolve().parent.parent.parent / "docs" / "images" / "xlron_nobackground.png"
+_LOGO_PATH = (
+    Path(__file__).resolve().parent.parent.parent / "docs" / "images" / "xlron_nobackground.png"
+)
 _DOCS_URL = "https://micdoh.github.io/XLRON/"
 _PRESETS_PATH = Path(__file__).resolve().parent / "presets.py"
 
@@ -82,7 +88,13 @@ st.set_page_config(page_title="XLRON", page_icon="🔬", layout="wide")
 
 def build_command(all_flags: dict) -> str:
     """Build a CLI command string from the collected flags, omitting defaults."""
-    parts = ["python", "-m", "xlron.train.train"]
+    bounds_method = st.session_state.get("_bounds_method")
+    if bounds_method == "cutsets":
+        parts = ["python", "-m", "xlron.bounds.cutsets_bounds"]
+    elif bounds_method == "reconfigurable":
+        parts = ["python", "xlron/bounds/reconfigurable_routing_bounds.py"]
+    else:
+        parts = ["python", "-m", "xlron.train.train"]
     for key, value in sorted(all_flags.items()):
         if value is None or value is False:
             continue
@@ -183,11 +195,48 @@ with col_widgets:
         traffic_flags = traffic_section()
         all_flags.update(traffic_flags)
 
-        st.header("Execution")
-        exec_flags = execution_section()
-        all_flags.update(exec_flags)
+        if not st.session_state.get("_bounds_mode", False):
+            st.header("Execution")
+            exec_flags = execution_section()
+            all_flags.update(exec_flags)
+        else:
+            st.header("Execution")
+            bounds_method = st.session_state.get("_bounds_method")
+            exec_flags = {}
+            if bounds_method == "reconfigurable":
+                total = st.number_input(
+                    "Total Timesteps (requests per trial)",
+                    min_value=1,
+                    value=int(_get_preset_val("TOTAL_TIMESTEPS")),
+                    step=10000,
+                    format="%d",
+                    help=_h("TOTAL_TIMESTEPS"),
+                )
+                _emit(exec_flags, "TOTAL_TIMESTEPS", int(total))
+            elif bounds_method == "cutsets":
+                max_req = st.number_input(
+                    "Requests per Trial",
+                    min_value=1,
+                    value=int(_get_preset_val("max_requests")),
+                    step=10000,
+                    format="%d",
+                    help=_h("max_requests"),
+                )
+                _emit(exec_flags, "max_requests", int(max_req))
 
-    is_rl_mode = "EVAL_HEURISTIC" not in all_flags and "EVAL_MODEL" not in all_flags
+            seed = st.number_input(
+                "Seed",
+                min_value=0,
+                value=int(_get_preset_val("SEED")),
+                help=_h("SEED"),
+            )
+            _emit(exec_flags, "SEED", int(seed))
+            all_flags.update(exec_flags)
+
+    is_bounds_mode = st.session_state.get("_bounds_mode", False)
+    is_rl_mode = (
+        "EVAL_HEURISTIC" not in all_flags and "EVAL_MODEL" not in all_flags and not is_bounds_mode
+    )
     env_type = st.session_state.get("_env_type", "rmsa")
 
     with tab_model:

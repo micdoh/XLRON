@@ -21,7 +21,7 @@ python -m xlron.train.train --env_type=rmsa --topology_name=nsfnet_deeprmsa_dire
 python -m xlron.train.train --env_type=rmsa --topology_name=nsfnet_deeprmsa_directed --link_resources=100 --k=50 --load=250 --continuous_operation --ENV_WARMUP_STEPS=3000 --TOTAL_TIMESTEPS=20000000 --NUM_ENVS=2000 --EVAL_HEURISTIC --path_heuristic=ksp_ff
 
 # Run capacity bound estimation
-python -m xlron.bounds.cutsets_bounds --topology_name=nsfnet_deeprmsa_directed --env_type=rmsa --link_resources=100 --k=50 --load=250 --continuous_operation --num_sim_requests=100000 --num_trials=10 --sim_min_load=250 --sim_max_load=250 --sim_step_load=10 --CUTSET_EXHAUSTIVE --CUTSET_TOP_K=256
+python -m xlron.bounds.cutsets_bounds --topology_name=nsfnet_deeprmsa_directed --env_type=rmsa --link_resources=100 --k=50 --load=250 --continuous_operation --max_requests=100000 --num_trials=10 --CUTSET_EXHAUSTIVE --CUTSET_TOP_K=256
 python xlron/bounds/reconfigurable_routing_bounds.py --topology_name=nsfnet_deeprmsa_directed --env_type=rmsa --link_resources=100 --k=50 --load=250 --continuous_operation --path_heuristic=ksp_ff --TOTAL_TIMESTEPS=13000 --NUM_ENVS=1 --COMPILE_RR_BOUNDS
 
 # Run tests
@@ -150,7 +150,7 @@ Uses `get_eval_fn` with a loaded model (`--MODEL_PATH`). Runs the trained policy
 - `--path_heuristic` - Algorithm: `ksp_ff`, `ksp_lf`, `ksp_bf`, `ksp_mu`, `ff_ksp`, `lf_ksp`, `bf_ksp`, `mu_ksp`, `kmc_ff`, `kmf_ff`, `kme_ff`, `kca_ff`
 
 ### Capacity Bounds (standalone scripts, not through train.py)
-- Cut-sets (`python -m xlron.bounds.cutsets_bounds`): `--num_sim_requests`, `--num_trials`, `--sim_min_load`/`max`/`step`, `--CUTSET_EXHAUSTIVE`, `--CUTSET_TOP_K`, `--link_selection_mode`
+- Cut-sets (`python -m xlron.bounds.cutsets_bounds`): `--max_requests` (requests per trial), `--num_trials`, `--CUTSET_EXHAUSTIVE`, `--CUTSET_TOP_K`, `--cutset_link_selection_mode`
 - Reconfigurable routing (`python xlron/bounds/reconfigurable_routing_bounds.py`): `--COMPILE_RR_BOUNDS`, `--path_heuristic`. Forces `relative_arrival_times=False` and `max_requests=TOTAL_TIMESTEPS` internally.
 
 ### Differentiable Mode

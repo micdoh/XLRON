@@ -20,7 +20,11 @@ flags.DEFINE_integer(
     "but included here so that it can be passed to the model)",
 )
 flags.DEFINE_integer("MINIBATCH_SIZE", 1, "Minibatch size")
-flags.DEFINE_float("TOTAL_TIMESTEPS", 1e6, "Total number of timesteps")
+flags.DEFINE_float(
+    "TOTAL_TIMESTEPS",
+    1e6,
+    "Total number of timesteps. For reconfigurable routing bounds: total requests per trial.",
+)
 flags.DEFINE_integer("STEPS_PER_INCREMENT", 100000, "Number of steps per logging increment")
 flags.DEFINE_integer("NUM_INCREMENTS", 1, "Number of increments to log")
 flags.DEFINE_integer("UPDATE_EPOCHS", 1, "Number of epochs per update")
@@ -294,12 +298,22 @@ flags.DEFINE_string("action_dtype", None, "Action dtype (int32)")
 
 # Environment parameters
 flags.DEFINE_string("env_type", "rmsa", "Environment type")
-flags.DEFINE_float("load", 250, "Load")
+flags.DEFINE_float(
+    "load",
+    250,
+    "Traffic load in Erlangs (arrival_rate = load / mean_service_holding_time). "
+    "Also used as the single traffic load point for capacity bound estimation.",
+)
 flags.DEFINE_float("mean_service_holding_time", 25, "Mean service holding time")
 flags.DEFINE_integer("k", 5, "Number of paths")
 flags.DEFINE_string("topology_name", "4node", "Topology name")
 flags.DEFINE_integer("link_resources", 5, "Number of link resources")
-flags.DEFINE_float("max_requests", 4, "Maximum number of requests in an episode")
+flags.DEFINE_float(
+    "max_requests",
+    4,
+    "Maximum number of requests in an episode. "
+    "For cut-set capacity bounds: number of requests per trial.",
+)
 flags.DEFINE_integer("min_bw", 25, "Minimum requested bandwidth")
 flags.DEFINE_integer("max_bw", 100, "Maximum requested bandwidth")
 flags.DEFINE_integer("step_bw", 1, "Step size for requested bandwidth values between min and max")
@@ -620,15 +634,41 @@ flags.DEFINE_integer("OPTIMIZATION_ITERATIONS", 1000, "Number of optimization it
 flags.DEFINE_boolean("traffic_array", False, "Use traffic array")
 flags.DEFINE_list("list_of_requests", None, "Traffic request list")
 # Flags for finding cut-sets only
-flags.DEFINE_integer("CUTSET_BATCH_SIZE", 1, "Batch size for cut-set generation")
-flags.DEFINE_integer("CUTSET_ITERATIONS", 1, "Number of iterations per parallel process")
 flags.DEFINE_boolean(
     "CUTSET_EXHAUSTIVE",
     False,
-    "Use exhaustive search method to find cut-sets (else shortest paths method)",
+    "Use exhaustive search method to find cut-sets (else shortest paths method). The exhaustive method is recommended unless the graph is large (40+ nodes), which requires either parallelization of the search on GPU or use the approximate shortest paths method.",
 )
-flags.DEFINE_integer("CUTSET_TOP_K", 50, "Number of top congested cutsets to return")
-# Flags for capacity estimation with Baroni method
+flags.DEFINE_integer(
+    "CUTSET_PARALLEL_PROCESSES",
+    1,
+    "How many parallel processes to launch in exhaustive cut-sets search.",
+)
+flags.DEFINE_integer(
+    "CUTSET_BATCH_SIZE",
+    512,
+    "Batch size for cut-set generation (only relevant when finding cutsets exhaustively for larger networks (40+ nodes) on GPU)",
+)
+flags.DEFINE_integer(
+    "CUTSET_ITERATIONS",
+    32,
+    "Number of iterations per parallel process (only relevant when finding cutsets exhaustively for larger networks (40+ nodes) on GPU)",
+)
+flags.DEFINE_integer("CUTSET_TOP_K", 256, "Number of top congested cutsets to return")
+# Shared capacity bound estimation flags
+flags.DEFINE_integer(
+    "num_trials",
+    10,
+    "Number of independent random-seed trials for capacity bound estimation "
+    "(used by both cut-set and reconfigurable routing bounds)",
+)
+flags.DEFINE_string(
+    "cutset_link_selection_mode",
+    "least_congested",
+    "Link selection heuristic for cut-set capacity bound simulation: "
+    "least_congested, most_congested, best_fit, random",
+)
+# Flags for capacity estimation with Baroni (reconfigurable routing / resource-prioritized defragmentation) method
 flags.DEFINE_boolean("deterministic_requests", False, "Use deterministic requests")
 flags.DEFINE_boolean(
     "sort_requests", True, "Sort requests in descending order of required resources"

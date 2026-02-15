@@ -215,6 +215,15 @@ DEFAULTS = {
     "temperature": 1.0,
     # Aggregate
     "aggregate_slots": 1,
+    # Capacity bounds
+    "num_trials": 10,
+    "cutset_link_selection_mode": "least_congested",
+    "CUTSET_EXHAUSTIVE": False,
+    "CUTSET_TOP_K": 256,
+    "CUTSET_BATCH_SIZE": 512,
+    "CUTSET_ITERATIONS": 32,
+    "CUTSET_PARALLEL_PROCESSES": 1,
+    "COMPILE_RR_BOUNDS": True,
 }
 
 ENV_TYPES = [
@@ -262,13 +271,28 @@ def _get_preset_val(key):
 # ---------------------------------------------------------------------------
 
 
+CUTSET_LINK_SELECTION_MODES = [
+    "least_congested",
+    "most_congested",
+    "best_fit",
+    "random",
+]
+
+
 def execution_mode_section() -> dict:
-    """Radio selector for RL / Heuristic / Model Eval."""
+    """Radio selector for RL / Heuristic / Model Eval / Capacity Bounds."""
     flags = {}
-    modes = ["RL Training", "Heuristic Evaluation", "Model Evaluation"]
+    modes = [
+        "RL Training",
+        "Heuristic Evaluation",
+        "Model Evaluation",
+        "Capacity Bound Estimation",
+    ]
     preset = st.session_state.get("_loaded_preset", {})
 
-    if preset.get("EVAL_HEURISTIC"):
+    if preset.get("_bounds_method"):
+        default_idx = 3
+    elif preset.get("EVAL_HEURISTIC"):
         default_idx = 1
     elif preset.get("EVAL_MODEL"):
         default_idx = 2
@@ -276,6 +300,11 @@ def execution_mode_section() -> dict:
         default_idx = 0
 
     mode = st.radio("Execution Mode", modes, index=default_idx, horizontal=True)
+
+    # Clear bounds session state when not in bounds mode
+    if mode != "Capacity Bound Estimation":
+        st.session_state["_bounds_mode"] = False
+        st.session_state.pop("_bounds_method", None)
 
     if mode == "RL Training":
         retrain = st.checkbox(
@@ -317,6 +346,98 @@ def execution_mode_section() -> dict:
         )
         if model_path:
             flags["MODEL_PATH"] = model_path
+
+    elif mode == "Capacity Bound Estimation":
+        st.session_state["_bounds_mode"] = True
+
+        preset_method = _get_preset_val("_bounds_method") or "cutsets"
+        methods = ["Cut-Sets Method", "Reconfigurable Routing (Defragmentation)"]
+        method_idx = 1 if preset_method == "reconfigurable" else 0
+        method = st.radio("Bounds Method", methods, index=method_idx, horizontal=True)
+        bounds_method = "cutsets" if method == methods[0] else "reconfigurable"
+        st.session_state["_bounds_method"] = bounds_method
+
+        # Shared control
+        num_trials = st.number_input(
+            "Number of Trials",
+            min_value=1,
+            value=int(_get_preset_val("num_trials")),
+            help=_h("num_trials"),
+        )
+        _emit(flags, "num_trials", int(num_trials))
+
+        if bounds_method == "cutsets":
+            st.markdown("**Cut-Set Discovery**")
+            col1, col2 = st.columns(2)
+            with col1:
+                exhaustive = st.checkbox(
+                    "Exhaustive Search",
+                    value=bool(_get_preset_val("CUTSET_EXHAUSTIVE")),
+                    help=_h("CUTSET_EXHAUSTIVE"),
+                )
+                _emit(flags, "CUTSET_EXHAUSTIVE", exhaustive)
+
+                top_k = st.number_input(
+                    "Top K Cut-Sets",
+                    min_value=1,
+                    value=int(_get_preset_val("CUTSET_TOP_K")),
+                    help=_h("CUTSET_TOP_K"),
+                )
+                _emit(flags, "CUTSET_TOP_K", int(top_k))
+
+            with col2:
+                if exhaustive:
+                    batch_size = st.number_input(
+                        "Batch Size",
+                        min_value=1,
+                        value=int(_get_preset_val("CUTSET_BATCH_SIZE")),
+                        help=_h("CUTSET_BATCH_SIZE"),
+                    )
+                    _emit(flags, "CUTSET_BATCH_SIZE", int(batch_size))
+
+                    iterations = st.number_input(
+                        "Iterations",
+                        min_value=1,
+                        value=int(_get_preset_val("CUTSET_ITERATIONS")),
+                        help=_h("CUTSET_ITERATIONS"),
+                    )
+                    _emit(flags, "CUTSET_ITERATIONS", int(iterations))
+
+                    parallel = st.number_input(
+                        "Parallel Processes",
+                        min_value=1,
+                        value=int(_get_preset_val("CUTSET_PARALLEL_PROCESSES")),
+                        help=_h("CUTSET_PARALLEL_PROCESSES"),
+                    )
+                    _emit(flags, "CUTSET_PARALLEL_PROCESSES", int(parallel))
+
+            st.markdown("**Simulation**")
+            link_modes = CUTSET_LINK_SELECTION_MODES
+            default_lsm = _get_preset_val("cutset_link_selection_mode")
+            lsm_idx = link_modes.index(default_lsm) if default_lsm in link_modes else 0
+            link_sel = st.selectbox(
+                "Link Selection Mode",
+                link_modes,
+                index=lsm_idx,
+                help=_h("cutset_link_selection_mode"),
+            )
+            _emit(flags, "cutset_link_selection_mode", link_sel)
+
+        else:  # reconfigurable
+            heuristic = st.selectbox(
+                "Path Heuristic",
+                PATH_HEURISTICS,
+                index=PATH_HEURISTICS.index(_get_preset_val("path_heuristic")),
+                help=_h("path_heuristic"),
+            )
+            _emit(flags, "path_heuristic", heuristic)
+
+            compile_rr = st.checkbox(
+                "Compile Main Loop (AOT)",
+                value=bool(_get_preset_val("COMPILE_RR_BOUNDS")),
+                help=_h("COMPILE_RR_BOUNDS"),
+            )
+            _emit(flags, "COMPILE_RR_BOUNDS", compile_rr)
 
     return flags
 

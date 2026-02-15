@@ -28,37 +28,30 @@ python -m xlron.bounds.cutsets_bounds \
     --truncate_holding_time \
     --mean_service_holding_time=20 \
     --modulations_csv_filepath="./xlron/data/modulations/modulations_deeprmsa.csv" \
-    --num_sim_requests=100000 \
+    --max_requests=100000 \
     --num_trials=10 \
-    --sim_min_load=250 \
-    --sim_max_load=250 \
-    --sim_step_load=10 \
     --CUTSET_EXHAUSTIVE \
     --CUTSET_BATCH_SIZE=512 \
     --CUTSET_ITERATIONS=32 \
     --CUTSET_TOP_K=256 \
-    --link_selection_mode=least_congested
+    --cutset_link_selection_mode=least_congested
 ```
 
 ### Cut-Set Specific Flags
 
 #### Simulation Flags
 
-##### `--num_sim_requests`
+##### `--load`
 
-Number of connection requests to simulate per trial. Higher values give more precise blocking probability estimates. Default: `100000`.
+Traffic load in Erlangs. The cut-set simulation runs at this single load point. Use a shell loop to sweep multiple loads. Default: `250`.
+
+##### `--max_requests`
+
+Number of connection requests to simulate per trial. Higher values give more precise blocking probability estimates. Default: `4` (override for bounds, e.g. `100000`).
 
 ##### `--num_trials`
 
-Number of independent random-seed trials per traffic load value. Statistics (mean, std, IQR) are computed across trials. Default: `10`.
-
-##### `--sim_min_load` / `--sim_max_load` / `--sim_step_load`
-
-Define a sweep over traffic loads in Erlangs. The simulation runs for each load value from `sim_min_load` to `sim_max_load` in steps of `sim_step_load`. To evaluate a single load point, set `sim_min_load` and `sim_max_load` to the same value. Defaults: `10.0`, `200.0`, `10.0`.
-
-##### `--max_concurrent_requests`
-
-Maximum number of concurrent active connections tracked for departure management. Default: `5000`. Increase if you expect very high network occupancy.
+Number of independent random-seed trials. Statistics (mean, std, IQR) are computed across trials. Shared with reconfigurable routing bounds. Default: `10`.
 
 #### Cut-Set Discovery Flags
 
@@ -84,7 +77,7 @@ When enabled, additionally filter cut-sets by removing those with congestion bel
 
 #### Link Selection Flag
 
-##### `--link_selection_mode`
+##### `--cutset_link_selection_mode`
 
 When multiple links could satisfy a cut-set constraint, this controls which link is preferred during greedy assignment:
 
@@ -107,7 +100,7 @@ The cut-set method reports per-load statistics across trials:
 
 ### Examples
 
-#### DeepRMSA-Style on NSFNET (Single Load)
+#### DeepRMSA-Style on NSFNET
 
 ```bash
 python -m xlron.bounds.cutsets_bounds \
@@ -120,41 +113,39 @@ python -m xlron.bounds.cutsets_bounds \
     --truncate_holding_time \
     --mean_service_holding_time=20 \
     --modulations_csv_filepath="./xlron/data/modulations/modulations_deeprmsa.csv" \
-    --num_sim_requests=100000 \
+    --max_requests=100000 \
     --num_trials=10 \
-    --sim_min_load=250 \
-    --sim_max_load=250 \
-    --sim_step_load=10 \
     --CUTSET_EXHAUSTIVE \
     --CUTSET_BATCH_SIZE=512 \
     --CUTSET_ITERATIONS=32 \
     --CUTSET_TOP_K=256 \
-    --link_selection_mode=least_congested
+    --cutset_link_selection_mode=least_congested
 ```
 
 #### Load Sweep on NSFNET
 
+Since the cut-set script processes a single load per invocation, sweep loads with a shell loop:
+
 ```bash
-python -m xlron.bounds.cutsets_bounds \
-    --topology_name=nsfnet_deeprmsa_directed \
-    --env_type=rmsa \
-    --link_resources=100 \
-    --k=50 \
-    --load=250 \
-    --continuous_operation \
-    --truncate_holding_time \
-    --mean_service_holding_time=20 \
-    --modulations_csv_filepath="./xlron/data/modulations/modulations_deeprmsa.csv" \
-    --num_sim_requests=100000 \
-    --num_trials=10 \
-    --sim_min_load=150 \
-    --sim_max_load=300 \
-    --sim_step_load=10 \
-    --CUTSET_EXHAUSTIVE \
-    --CUTSET_BATCH_SIZE=512 \
-    --CUTSET_ITERATIONS=32 \
-    --CUTSET_TOP_K=256 \
-    --link_selection_mode=least_congested
+for load in 150 160 170 180 190 200 210 220 230 240 250 260 270 280 290 300; do
+    python -m xlron.bounds.cutsets_bounds \
+        --topology_name=nsfnet_deeprmsa_directed \
+        --env_type=rmsa \
+        --link_resources=100 \
+        --k=50 \
+        --load=$load \
+        --continuous_operation \
+        --truncate_holding_time \
+        --mean_service_holding_time=20 \
+        --modulations_csv_filepath="./xlron/data/modulations/modulations_deeprmsa.csv" \
+        --max_requests=100000 \
+        --num_trials=10 \
+        --CUTSET_EXHAUSTIVE \
+        --CUTSET_BATCH_SIZE=512 \
+        --CUTSET_ITERATIONS=32 \
+        --CUTSET_TOP_K=256 \
+        --cutset_link_selection_mode=least_congested
+done
 ```
 
 #### Large Network (JPN48) Without Exhaustive Search
@@ -174,13 +165,10 @@ python -m xlron.bounds.cutsets_bounds \
     --mean_service_holding_time=12 \
     --continuous_operation \
     --modulations_csv_filepath="./xlron/data/modulations/modulations_deeprmsa.csv" \
-    --num_sim_requests=100000 \
+    --max_requests=100000 \
     --num_trials=10 \
-    --sim_min_load=160 \
-    --sim_max_load=260 \
-    --sim_step_load=10 \
     --CUTSET_TOP_K=256 \
-    --link_selection_mode=least_congested
+    --cutset_link_selection_mode=least_congested
 ```
 
 

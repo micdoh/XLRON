@@ -5,7 +5,7 @@ SCRIPT_PATH="-m xlron.bounds.cutsets_bounds"
 OUTPUT_FILE="experiment_results_cutsets_bounds.csv"
 
 # Fixed cutset flags
-CUTSET_FLAGS="--CUTSET_EXHAUSTIVE --CUTSET_BATCH_SIZE=512 --CUTSET_ITERATIONS=32 --CUTSET_TOP_K=256 --link_selection_mode=least_congested"
+CUTSET_FLAGS="--CUTSET_EXHAUSTIVE --CUTSET_BATCH_SIZE=512 --CUTSET_ITERATIONS=32 --CUTSET_TOP_K=256 --cutset_link_selection_mode=least_congested"
 
 echo "experiment,topology,load,k,blocking_prob_mean,blocking_prob_std,blocking_prob_iqr_lower,blocking_prob_iqr_upper,bitrate_blocking_prob_mean,bitrate_blocking_prob_std,bitrate_blocking_prob_iqr_lower,bitrate_blocking_prob_iqr_upper,accepted_count_mean,accepted_count_std,accepted_count_iqr_lower,accepted_count_iqr_upper,blocked_count_mean,blocked_count_std,blocked_count_iqr_lower,blocked_count_iqr_upper,always_accepted_count_mean,always_accepted_count_std,always_accepted_count_iqr_lower,always_accepted_count_iqr_upper" > $OUTPUT_FILE
 
@@ -24,10 +24,7 @@ run_experiment() {
         --topology_name "$topology" \
         --load "$traffic_load" \
         --k "$k" \
-        --sim_min_load "$traffic_load" \
-        --sim_max_load "$traffic_load" \
-        --sim_step_load 10 \
-        --num_sim_requests 13000 \
+        --max_requests 13000 \
         --num_trials 10 \
         --modulations_csv_filepath "./xlron/data/modulations/modulations_deeprmsa.csv" \
         $cutset_flags \
@@ -75,7 +72,7 @@ for traffic_load in 90 95 100 105 110 115 120 125 130 135 140 145 150 155 160 16
   run_experiment "MaskRSA" "nsfnet_deeprmsa_undirected" "$traffic_load" "50" "$args"
 done
 # MaskRSA JPN48 (too many nodes for exhaustive search, use shortest-paths method)
-JPN48_CUTSET_FLAGS="--CUTSET_TOP_K=256 --link_selection_mode=least_congested"
+JPN48_CUTSET_FLAGS="--CUTSET_TOP_K=256 --cutset_link_selection_mode=least_congested"
 for traffic_load in 160 170 180 190 200 210 220 230 240 250 260 270 280 290 300; do
   run_experiment "MaskRSA" "jpn48_undirected" "$traffic_load" "50" "$args" "$JPN48_CUTSET_FLAGS"
 done
