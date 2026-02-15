@@ -200,6 +200,7 @@ DEFAULTS = {
     "fec_rate": 0.8,
     "band_data_filepath": None,
     "band_preference": None,
+    "slots_per_band": None,
     "alpha": 0.2,
     "beta_2": -21.7,
     "gamma": 1.2,
@@ -210,6 +211,12 @@ DEFAULTS = {
     "power_per_channel": None,
     "inter_band_gap_ghz": 25.0,
     "num_subchannels": 1,
+    "dra": False,
+    "raman_pump_power_fw": None,
+    "raman_pump_power_bw": None,
+    "raman_pump_freq_fw": None,
+    "raman_pump_freq_bw": None,
+    "dra_max_bandwidth_thz": 15.0,
     # Differentiable
     "differentiable": False,
     "temperature": 1.0,
@@ -1133,6 +1140,19 @@ def physical_layer_section() -> dict:
     if band_prefs:
         flags["band_preference"] = ",".join(band_prefs)
 
+    preset_spb = _get_preset_val("slots_per_band")
+    slots_per_band = st.text_input(
+        "Slots Per Band",
+        value=preset_spb if preset_spb else "",
+        help=(
+            "Comma-separated number of slots per band (e.g. '45,45'). "
+            "Must match the number of selected bands. Leave blank to fill "
+            "each band's full spectral width."
+        ),
+    )
+    if slots_per_band.strip():
+        flags["slots_per_band"] = slots_per_band.strip()
+
     st.subheader("Physical Parameters")
     col1, col2 = st.columns(2)
     with col1:
@@ -1231,6 +1251,69 @@ def physical_layer_section() -> dict:
         )
         if preset_ppc is not None or ppc != 0.0:
             _emit(flags, "power_per_channel", ppc)
+
+    st.subheader("Distributed Raman Amplification")
+    raman_enabled = st.checkbox(
+        "Enable Raman Amplification",
+        value=bool(_get_preset_val("use_raman_amp")),
+        help="Enable Distributed Raman Amplification model for NLI calculation. "
+        "Uses triangular Raman gain approximation to derive fit parameters.",
+    )
+    _emit(flags, "use_raman_amp", raman_enabled)
+
+    if raman_enabled:
+        raman_max_bw = st.number_input(
+            "Max Modulated Bandwidth (THz)",
+            min_value=1.0,
+            max_value=100.0,
+            value=float(_get_preset_val("dra_max_bandwidth_thz")),
+            step=1.0,
+            format="%.1f",
+            help="Maximum modulated bandwidth for triangular Raman approximation validity. "
+            "Bands are trimmed to fit within this limit when band_preference is set.",
+        )
+        _emit(flags, "dra_max_bandwidth_thz", raman_max_bw)
+
+        col_fw, col_bw = st.columns(2)
+        with col_fw:
+            st.markdown("**Forward Pumps**")
+            fw_pow = st.text_input(
+                "Pump Powers (W, comma-sep)",
+                value=",".join(_get_preset_val("raman_pump_power_fw") or []),
+                help="Forward Raman pump powers in Watts, comma-separated.",
+                key="dra_fw_pow",
+            )
+            if fw_pow.strip():
+                flags["raman_pump_power_fw"] = [x.strip() for x in fw_pow.split(",")]
+
+            fw_freq = st.text_input(
+                "Pump Frequencies (Hz, comma-sep)",
+                value=",".join(_get_preset_val("raman_pump_freq_fw") or []),
+                help="Forward Raman pump frequencies in Hz, comma-separated.",
+                key="dra_fw_freq",
+            )
+            if fw_freq.strip():
+                flags["raman_pump_freq_fw"] = [x.strip() for x in fw_freq.split(",")]
+
+        with col_bw:
+            st.markdown("**Backward Pumps**")
+            bw_pow = st.text_input(
+                "Pump Powers (W, comma-sep)",
+                value=",".join(_get_preset_val("raman_pump_power_bw") or []),
+                help="Backward Raman pump powers in Watts, comma-separated.",
+                key="dra_bw_pow",
+            )
+            if bw_pow.strip():
+                flags["raman_pump_power_bw"] = [x.strip() for x in bw_pow.split(",")]
+
+            bw_freq = st.text_input(
+                "Pump Frequencies (Hz, comma-sep)",
+                value=",".join(_get_preset_val("raman_pump_freq_bw") or []),
+                help="Backward Raman pump frequencies in Hz, comma-separated.",
+                key="dra_bw_freq",
+            )
+            if bw_freq.strip():
+                flags["raman_pump_freq_bw"] = [x.strip() for x in bw_freq.split(",")]
 
     return flags
 

@@ -11,6 +11,8 @@ parameterized.named_parameters() decorator runs the test once for each set of pa
 import os
 
 os.environ["XLA_FLAGS"] = "--xla_force_host_platform_device_count=4"
+import pathlib
+
 import chex
 import jax
 import jax.numpy as jnp
@@ -636,18 +638,22 @@ class InitModulationsArrayTest(parameterized.TestCase):
             "case_base",
             jnp.array(
                 [
-                    [100000.0, 1.0, 12.6, -14.0],
-                    [2000.0, 2.0, 12.6, -17.0],
-                    [1000.0, 3.0, 18.6, -20.0],
-                    [500.0, 4.0, 22.4, -23.0],
-                    [250.0, 5.0, 26.4, -26.0],
-                    [125.0, 6.0, 30.4, -29.0],
+                    [100000.0, 1.0, 12.6, -14.0, -1.0],
+                    [2500.0, 2.0, 12.6, -17.0, -1.0],
+                    [1250.0, 3.0, 18.6, -20.0, -0.82],
+                    [625.0, 4.0, 22.4, -23.0, -0.68],
                 ]
             ),
         ),
     )
     def test_init_modulations_array(self, expected):
-        modulations_array = self.variant(init_modulations_array)()
+        modulations_filepath = str(
+            pathlib.Path(__file__).parents[1].absolute()
+            / "data"
+            / "modulations"
+            / "modulations_deeprmsa.csv"
+        )
+        modulations_array = self.variant(init_modulations_array)(modulations_filepath)
         chex.assert_trees_all_close(modulations_array, expected)
 
 
@@ -657,14 +663,20 @@ class InitPathSEArrayTest(parameterized.TestCase):
 
     @chex.variants(without_jit=True)
     @parameterized.named_parameters(
-        ("case_nsfnet", "nsfnet_deeprmsa_undirected", 1, jnp.array([2.0, 2.0, 2.0, 1.0])),
-        ("case_4node", "4node", 1, jnp.array([6.0, 6.0, 6.0, 6.0])),
+        ("case_nsfnet", "nsfnet_deeprmsa_undirected", 1, jnp.array([3.0, 2.0, 2.0, 2.0])),
+        ("case_4node", "4node", 1, jnp.array([4.0, 4.0, 4.0, 4.0])),
     )
     def test_init_path_se_array(self, topology_name, k, expected):
         graph = make_graph(topology_name)
         path_link_array = init_path_link_array(graph, k, path_sort_criteria="hops")
         path_length_array = init_path_length_array(path_link_array, graph)
-        modulations_array = init_modulations_array()
+        modulations_filepath = str(
+            pathlib.Path(__file__).parents[1].absolute()
+            / "data"
+            / "modulations"
+            / "modulations_deeprmsa.csv"
+        )
+        modulations_array = init_modulations_array(modulations_filepath)
         path_se_array = self.variant(init_path_se_array)(path_length_array, modulations_array)
         chex.assert_trees_all_close(path_se_array[:4], expected)
 

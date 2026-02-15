@@ -41,7 +41,7 @@ from xlron.environments.diff_utils import (
     differentiable_where,
     straight_through,
 )
-from xlron.environments.gn_model import isrs_gn_model
+from xlron.environments.gn_model import isrs_gn_model_dra, isrs_gn_model
 from xlron.environments.gn_model.isrs_gn_model import from_db
 
 Shape = Sequence[int]
@@ -1429,23 +1429,22 @@ def remove_expired_services_rsa_gn_model(state: EnvState, params: Optional[EnvPa
         channel_centre_freq_array_prev=state.channel_centre_freq_array_prev * keep_f,
     )
 
-    if params.monitor_active_lightpaths:
-        dep_lp = state.active_lightpaths_array_departure
+    dep_lp = state.active_lightpaths_array_departure
 
-        mask_remove_lp = differentiable_compare(
-            dep_lp, zero, ">=", params.differentiable, params.temperature
-        ) * differentiable_compare(dep_lp, t, "<=", params.differentiable, params.temperature)
+    mask_remove_lp = differentiable_compare(
+        dep_lp, zero, ">=", params.differentiable, params.temperature
+    ) * differentiable_compare(dep_lp, t, "<=", params.differentiable, params.temperature)
 
-        keep_lp = 1 - mask_remove_lp
-        keep_lp_f = keep_lp.astype(dep_lp.dtype)
-        keep_lp_i = keep_lp.astype(state.active_lightpaths_array.dtype)
-        mask_remove_lp_i = mask_remove_lp.astype(state.active_lightpaths_array.dtype)
+    keep_lp = 1 - mask_remove_lp
+    keep_lp_f = keep_lp.astype(dep_lp.dtype)
+    keep_lp_i = keep_lp.astype(state.active_lightpaths_array.dtype)
+    mask_remove_lp_i = mask_remove_lp.astype(state.active_lightpaths_array.dtype)
 
-        state = state.replace(
-            active_lightpaths_array=state.active_lightpaths_array * keep_lp_i
-            + jnp.array(-1, dtype=state.active_lightpaths_array.dtype) * mask_remove_lp_i,
-            active_lightpaths_array_departure=dep_lp * keep_lp_f,
-        )
+    state = state.replace(
+        active_lightpaths_array=state.active_lightpaths_array * keep_lp_i
+        + jnp.array(-1, dtype=state.active_lightpaths_array.dtype) * mask_remove_lp_i,
+        active_lightpaths_array_departure=dep_lp * keep_lp_f,
+    )
 
     return state
 
@@ -1535,20 +1534,19 @@ def complete_step_rsa_gn_model(
         + state.path_index_array_prev * fail.astype(state.path_index_array.dtype),
     )
 
-    if params.monitor_active_lightpaths:
-        # Only undo partially-added lightpaths (negative departure), and only if fail==1
-        neg = (state.active_lightpaths_array_departure < zero).astype(
-            state.active_lightpaths_array_departure.dtype
-        )
-        do_undo_dep = neg * fail.astype(state.active_lightpaths_array_departure.dtype)
-        do_undo_lp = do_undo_dep.astype(state.active_lightpaths_array.dtype)
+    # Only undo partially-added lightpaths (negative departure), and only if fail==1
+    neg = (state.active_lightpaths_array_departure < zero).astype(
+        state.active_lightpaths_array_departure.dtype
+    )
+    do_undo_dep = neg * fail.astype(state.active_lightpaths_array_departure.dtype)
+    do_undo_lp = do_undo_dep.astype(state.active_lightpaths_array.dtype)
 
-        state = state.replace(
-            active_lightpaths_array=state.active_lightpaths_array * (1 - do_undo_lp)
-            + jnp.array(-1, dtype=state.active_lightpaths_array.dtype) * do_undo_lp,
-            active_lightpaths_array_departure=state.active_lightpaths_array_departure
-            + do_undo_dep * (state.current_time + state.holding_time),
-        )
+    state = state.replace(
+        active_lightpaths_array=state.active_lightpaths_array * (1 - do_undo_lp)
+        + jnp.array(-1, dtype=state.active_lightpaths_array.dtype) * do_undo_lp,
+        active_lightpaths_array_departure=state.active_lightpaths_array_departure
+        + do_undo_dep * (state.current_time + state.holding_time),
+    )
 
     # --- Book-keeping (always) ---
     state = state.replace(
@@ -3056,6 +3054,8 @@ def compute_band_layout(
     band_preference: str,
     inter_band_gap_ghz: float = 25.0,
     band_data_filepath: str | None = None,
+    max_bandwidth_ghz: float | None = None,
+    slots_per_band: str | None = None,
 ) -> dict:
     """Compute band layout: link_resources, ref_lambda, slot centre frequencies, gaps, and orderings.
 
@@ -3063,13 +3063,18 @@ def compute_band_layout(
     1. Determines how many slots fit in each band
     2. Inserts 1 gap slot per inter-band boundary (representing ``inter_band_gap_ghz``)
     3. Computes absolute centre frequencies for every slot
-    4. Returns all derived quantities needed by make_env
+    4. Optionally trims bands to fit within a maximum bandwidth (e.g. for DRA)
+    5. Returns all derived quantities needed by make_env
 
     Args:
         slot_size: Spectral width of a frequency slot in GHz.
         band_preference: Comma-separated band names in preference order (e.g. "C,L,S").
         inter_band_gap_ghz: Physical spectral width of inter-band gap in GHz (~0.2 nm).
         band_data_filepath: Optional path to band data CSV. Defaults to built-in.
+        max_bandwidth_ghz: If set, trim lowest-priority bands from the high-frequency end
+            to keep total modulated bandwidth within this limit (e.g. 15000 for DRA).
+        slots_per_band: If set, comma-separated slot counts per band (e.g. "45,45").
+            Overrides the default of filling each band's full spectral width.
 
     Returns:
         Dict with keys: link_resources, ref_lambda, slot_centre_freq_array (relative GHz),
@@ -3100,6 +3105,18 @@ def compute_band_layout(
             )
         selected.append((name, band_info[name][0], band_info[name][1]))
 
+    # Parse slots_per_band override
+    slots_per_band_list = None
+    if slots_per_band is not None:
+        slots_per_band_list = [int(x.strip()) for x in slots_per_band.split(",")]
+        if len(slots_per_band_list) != len(preference_list):
+            raise ValueError(
+                f"slots_per_band has {len(slots_per_band_list)} entries but "
+                f"band_preference has {len(preference_list)} bands"
+            )
+        # Map band name -> requested slot count (before frequency sorting)
+        slots_override = dict(zip(preference_list, slots_per_band_list))
+
     # Sort selected bands by frequency (ascending)
     selected.sort(key=lambda x: x[1])
 
@@ -3112,7 +3129,17 @@ def compute_band_layout(
     slot_idx = 0
     for i, (name, freq_lo, freq_hi) in enumerate(selected):
         band_width = freq_hi - freq_lo
-        num_slots_in_band = int(math.floor(band_width / slot_size))
+        max_slots_in_band = int(math.floor(band_width / slot_size))
+        if slots_per_band_list is not None:
+            num_slots_in_band = slots_override[name]
+            if num_slots_in_band > max_slots_in_band:
+                raise ValueError(
+                    f"slots_per_band requests {num_slots_in_band} slots for {name}-band "
+                    f"but only {max_slots_in_band} fit ({band_width:.0f} GHz / "
+                    f"{slot_size:.1f} GHz)"
+                )
+        else:
+            num_slots_in_band = max_slots_in_band
 
         # Slot centres within this band: start half a slot_size from the low edge
         band_start = freq_lo + slot_size / 2
@@ -3132,6 +3159,75 @@ def compute_band_layout(
             gap_width_slots.append(1)
             slot_centres_abs_ghz.append(gap_centre)
             slot_idx += 1
+
+    # Trim bands if total bandwidth exceeds max_bandwidth_ghz (e.g. for DRA)
+    if max_bandwidth_ghz is not None:
+        total_bw = (
+            slot_centres_abs_ghz[-1] + slot_size / 2 - (slot_centres_abs_ghz[0] - slot_size / 2)
+        )
+        if total_bw > max_bandwidth_ghz:
+            # Walk preference list in reverse (lowest priority first), trim from high-freq end
+            reverse_pref = list(reversed(preference_list))
+            for trim_band in reverse_pref:
+                if total_bw <= max_bandwidth_ghz:
+                    break
+                band_slots = band_slot_ranges.get(trim_band, [])
+                if not band_slots:
+                    continue
+                # How many slots to remove from this band?
+                excess_ghz = total_bw - max_bandwidth_ghz
+                slots_to_remove = min(len(band_slots), int(math.ceil(excess_ghz / slot_size)))
+                if slots_to_remove >= len(band_slots):
+                    slots_to_remove = len(band_slots)
+                removed = slots_to_remove
+                # Remove from high-frequency end of this band
+                band_slot_ranges[trim_band] = (
+                    band_slots[:-slots_to_remove] if slots_to_remove < len(band_slots) else []
+                )
+                print(
+                    f"DRA bandwidth limit: trimmed {removed} slots "
+                    f"({removed * slot_size:.0f} GHz) from high-frequency end of {trim_band}-band"
+                )
+                total_bw -= removed * slot_size
+
+            # Rebuild slot_centres_abs_ghz and gaps from the trimmed band_slot_ranges
+            # Determine which original slot indices to keep (band data slots only)
+            kept_band_indices = set()
+            for slots in band_slot_ranges.values():
+                kept_band_indices.update(slots)
+            # Rebuild layout: iterate selected bands in frequency order
+            new_slot_centres = []
+            new_gap_starts = []
+            new_gap_widths = []
+            new_band_slot_ranges = {}
+            new_slot_idx = 0
+            for i, (name, freq_lo, freq_hi) in enumerate(selected):
+                old_slots = band_slot_ranges.get(name, [])
+                if not old_slots:
+                    continue
+                num_kept = len(old_slots)
+                band_start = freq_lo + slot_size / 2
+                new_band_slot_ranges[name] = list(range(new_slot_idx, new_slot_idx + num_kept))
+                for j in range(num_kept):
+                    new_slot_centres.append(band_start + j * slot_size)
+                new_slot_idx += num_kept
+                # Insert gap if there's a next band with slots
+                remaining_bands = [
+                    (n, fl, fh) for n, fl, fh in selected[i + 1 :] if band_slot_ranges.get(n)
+                ]
+                if remaining_bands:
+                    next_freq_lo = remaining_bands[0][1]
+                    gap_centre = (freq_hi + next_freq_lo) / 2
+                    new_gap_starts.append(new_slot_idx)
+                    new_gap_widths.append(1)
+                    new_slot_centres.append(gap_centre)
+                    new_slot_idx += 1
+
+            slot_centres_abs_ghz = new_slot_centres
+            gap_start_slots = new_gap_starts
+            gap_width_slots = new_gap_widths
+            band_slot_ranges = new_band_slot_ranges
+            slot_idx = new_slot_idx
 
     link_resources = slot_idx
     slot_centres_abs_ghz = np.array(slot_centres_abs_ghz, dtype=np.float64)
@@ -3521,11 +3617,8 @@ def get_snr_link_array(state: EnvState, params: EnvParams) -> chex.Array:
             dispersion_coeff=jnp.array(params.dispersion_coeff),
             dispersion_slope=jnp.array(params.dispersion_slope),
             coherent=params.coherent,
-            num_roadms=params.num_roadms,
-            roadm_loss=params.roadm_loss,
             amplifier_noise_figure=params.amplifier_noise_figure.val,
             transceiver_snr=params.transceiver_snr.val,
-            mod_format_correction=params.mod_format_correction,
             ch_power_w_i=ch_power_link,
             ch_centre_i=ch_centres_link * 1e9,
             ch_bandwidth_i=bw_link * 1e9,
@@ -3533,7 +3626,22 @@ def get_snr_link_array(state: EnvState, params: EnvParams) -> chex.Array:
             uniform_spans=params.uniform_spans,
             num_subchannels=params.num_subchannels,
         )
-        snr = isrs_gn_model.get_snr(**P)[0]
+        if params.use_raman_amp:
+            snr = isrs_gn_model_dra.get_snr_dra(
+                **P,
+                fit_params_ij=params.raman_fit_params.val,
+                raman_pump_power_fw=params.raman_pump_power_fw.val,
+                raman_pump_power_bw=params.raman_pump_power_bw.val,
+                raman_pump_freq_fw=params.raman_pump_freq_fw.val,
+                raman_pump_freq_bw=params.raman_pump_freq_bw.val,
+            )[0]
+        else:
+            snr = isrs_gn_model.get_snr(
+                **P,
+                num_roadms=params.num_roadms,
+                roadm_loss=params.roadm_loss,
+                mod_format_correction=params.mod_format_correction,
+            )[0]
 
         return snr
 
@@ -3551,6 +3659,10 @@ def get_snr_link_array_fused(state: EnvState, params: EnvParams) -> chex.Array:
     Drop-in replacement for get_snr_link_array that uses get_snr_fused to
     reduce XLA op count and kernel launch overhead on GPU.
     """
+    # Raman amplification has per-span varying fit_params — fused uniform-span path doesn't apply
+    if params.use_raman_amp:
+        return get_snr_link_array(state, params)
+
     # Precompute per-link num_spans and span_length from static link_length_array
     # link_length_array is (L, max_spans) in metres
     link_lengths_m = params.link_length_array.val  # (L, max_spans)
@@ -3794,22 +3906,18 @@ def implement_action_rsa_gn_model(
             get_centre_frequency(action_info.initial_slot_index, action_info.num_slots, params),
         ),
     )
-    if params.monitor_active_lightpaths:
-        state = state.replace(
-            active_lightpaths_array=update_active_lightpaths_array(
-                state,
-                lightpath_index,
-                action_info.initial_slot_index,
-                action_info.num_slots - params.guardband,
-            ),
-            active_lightpaths_array_departure=update_active_lightpaths_array_departure(
-                state, -state.current_time - state.holding_time
-            ),
-        )
-        # No need to check SNR until end of episode
-        return state
-    # Update link_snr_array
-    state = state.replace(link_snr_array=get_snr_link_array(state, params))
+    state = state.replace(
+        active_lightpaths_array=update_active_lightpaths_array(
+            state,
+            lightpath_index,
+            action_info.initial_slot_index,
+            action_info.num_slots - params.guardband,
+        ),
+        active_lightpaths_array_departure=update_active_lightpaths_array_departure(
+            state, -state.current_time - state.holding_time
+        ),
+    )
+    # No need to check SNR until end of episode
     return state
 
 

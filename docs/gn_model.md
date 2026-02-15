@@ -352,7 +352,7 @@ The `rsa_gn_model` environment performs Routing and Spectrum Assignment with the
 2. **Action execution**: places the lightpath and updates `channel_power_array`, `channel_centre_bw_array`, and `path_index_array` on the affected links.
 3. **SNR update**: after each step, `link_snr_array` is recomputed for all links using the GN model.
 4. **Action check**: `check_action_rmsa_gn_model` verifies that all active lightpaths still meet a basic SNR threshold and that the power budget is not exceeded. If the check fails, the placement is rolled back.
-5. **Throughput measurement** (optional, with `--monitor_active_lightpaths`): at episode end, computes Shannon-Hartley throughput for all active lightpaths:
+5. **Throughput measurement**: at episode end, in the RSA GN Model env (RMSA GN env already tracks bitrate), computes Shannon-Hartley throughput for all active lightpaths:
 
 ```
 throughput_per_LP = log2(1 + SNR_linear) * slot_size_GHz * 2 * (1 - FEC_overhead)
@@ -430,7 +430,118 @@ The `rmsa_gn_model` environment tracks:
 - `accepted_bitrate`: cumulative effective bandwidth of accepted requests (scaled by `fec_rate`)
 - Blocking probability: fraction of requests that could not be served
 
-It does not compute Shannon throughput (unlike `rsa_gn_model` with `--monitor_active_lightpaths`).
+It does not compute Shannon throughput (unlike `rsa_gn_model`).
+
+
+---
+
+## Distributed Raman Amplification (DRA)
+
+XLRON supports an optional Distributed Raman Amplification (DRA) model that replaces the EDFA-only ISRS NLI calculation with a Raman-pump-aware model. When enabled via `--dra`, the nonlinear interference is computed using a 9-mode combination approach that accounts for the frequency-dependent Raman gain profile created by co- and counter-propagating pump lasers.
+
+### Physics Model
+
+In a Raman-amplified span, pump lasers inject power into the fibre at frequencies offset from the signal band. Through stimulated Raman scattering, pump power is transferred to the signal channels, providing distributed gain along the fibre rather than lumped gain at span boundaries. This changes the signal power profile along the fibre, which in turn modifies the nonlinear interference.
+
+The DRA NLI model computes the effective power profile using fit parameters `[C_f, a_f, C_b, a_b, a]` that describe the forward pump contribution, backward pump contribution, and fibre attenuation. These parameters are used to evaluate 9 mode combinations `(l_1, l_2, l_1', l_2')` of forward/backward Raman directions, each contributing to the total NLI efficiency coefficient.
+
+The model supports both SPM and XPM contributions with coherent accumulation across spans, including correction terms for correlated inter-channel effects.
+
+### Triangular Raman Approximation
+
+The Raman gain spectrum g_R(delta_f) of silica fibre has a broad, irregular shape peaking around 13 THz offset. The **triangular Raman approximation** simplifies this to a linear function of frequency offset:
+
+```
+g_R(delta_f) = C_r * |delta_f|
+```
+
+where `C_r` is the **Raman gain slope** (`--raman_gain_slope`), a single parameter that captures the strength of the Raman interaction. `C_r` has units of 1/(W*m*Hz) and characterises how much power is transferred per unit frequency offset, per watt of pump power, per metre of fibre. It combines the intrinsic Raman scattering cross-section of the silica glass with the fibre effective area.
+
+Typical values:
+
+- **Standard single-mode fibre (SMF-28)**: `C_r ~ 2.8e-17` 1/(W*m*Hz) (the default)
+- **Higher-nonlinearity fibres** or effective values used for wideband models may be larger
+
+The triangular approximation is valid within approximately 15 THz of modulated bandwidth. When DRA is enabled, `compute_band_layout` automatically trims bands to fit within `--dra_max_bandwidth_thz` (default 15.0 THz), removing slots from the lowest-priority band first.
+
+### Fitting the DRA Parameters
+
+The DRA NLI model requires 5 fit parameters per channel: `[C_f, a_f, C_b, a_b, a]`. These parameterise the semi-analytical power profile formula (`rho_semi_solution`) from Semrau et al., which approximates the normalised signal power at position z along the fibre:
+
+```
+rho(z) = exp(-a * z) * (1 - delta_f * (C_f * P_f * L_eff_f(z) + C_b * P_b * L_eff_b(z)))
+```
+
+where `L_eff_f` and `L_eff_b` are effective lengths for forward and backward pump contributions, `delta_f` is the frequency offset from the average pump frequency, `P_f` and `P_b` are forward and backward pump powers, and `a` is the fitted attenuation. These 5 parameters then enter the NLI computation via the Raman tilt factors T, Tf, Tb (the Upsilon terms in the 9-mode eta functions).
+
+**Why offline fitting is valid**: The signal power profile along a Raman-amplified span depends only on the fibre properties (attenuation, Raman gain slope), span length, and pump configuration -- not on which signal channels are currently active. The Raman pump power dominates the interaction (pump power is typically 100-1000x larger than total signal power). Therefore the fit parameters can be computed once at environment creation time and reused for all subsequent NLI calculations during the simulation. This is the same approach used in the reference implementation.
+
+**Fitting procedure** (implemented in `fit_dra_params_triangular()` in `isrs_gn_model_dra.py`):
+
+1. **Solve the Raman ODE**: The coupled signal+pump propagation ODE is solved along the span using `jax.experimental.ode.odeint` (Dormand-Prince adaptive method). This gives the exact signal power profile P(z) for each channel, accounting for pump depletion (the pump losing power as it amplifies the signals). Signal-signal ISRS is excluded from the ODE because the GN model handles it separately via its perturbative tilt formula.
+
+2. **Fit the backward pump boundary condition**: The backward pump propagates from z=L to z=0, but the ODE integrates forward (z=0 to z=L). The initial BW pump power at z=0 is found via `scipy.optimize.minimize` (TNC method) so that the pump power at z=L matches the configured `--raman_pump_power_bw` values.
+
+3. **Fit rho_semi_solution per channel**: The normalised power profile from the ODE solution is fitted to the semi-analytical formula using `scipy.optimize.least_squares` (Levenberg-Marquardt). The fitting uses a **P_b=1 convention** where the backward pump power is absorbed into the fitted C_b coefficient, matching the reference implementation.
+
+4. **Validate tilt factors**: The fitted parameters are checked to ensure the Raman tilt factors T are within a reasonable range [0.1, 10]. A warning is printed if any channels fall outside this range.
+
+The entire fitting procedure runs once during `make_env.py` environment creation (outside JAX JIT compilation) and typically completes in a few seconds. The resulting fit parameters are stored as a static array of shape `(5, num_channels, max_spans)` that is uniform across spans (same pump configuration on every span).
+
+**Pump depletion**: With high Raman gain slopes or many signal channels, the backward pump can be substantially depleted within the first few kilometres of the span. For example, with `C_r = 2.37e-16` and 91 channels, the pump e-folding distance is approximately 4 km. This is physically expected -- most of the Raman energy transfer occurs in the initial portion of the span where pump power is highest (for a backward pump, this is near the span output end z=L). The net Raman gain after pump depletion may be modest (e.g. 0.5 dB for small pump powers), but the distributed nature of the gain still improves the signal power profile compared to EDFA-only amplification, reducing NLI and improving throughput.
+
+### Enabling DRA
+
+Enable DRA with the `--dra` flag and provide backward (and optionally forward) Raman pump parameters:
+
+```bash
+python -m xlron.train.train \
+  --env_type=rsa_gn_model \
+  --topology_name=nsfnet_deeprmsa_directed \
+  --link_resources=100 --k=5 --load=250 \
+  --continuous_operation --dra \
+  --raman_pump_power_bw=0.3,0.3 \
+  --raman_pump_freq_bw=205e12,210e12 \
+  --coherent \
+  --TOTAL_TIMESTEPS=1000000 --NUM_ENVS=100 \
+  --EVAL_HEURISTIC --path_heuristic=ksp_ff
+```
+
+Pump powers are specified in Watts and pump frequencies in Hz, as comma-separated lists. Each entry corresponds to one pump laser. The same pump configuration is applied uniformly to all spans on all links.
+
+### Bandwidth Limiting with `--slots_per_band`
+
+The `--slots_per_band` flag allows explicit control over how many frequency slots are allocated per band, overriding the default behaviour of filling each band's full spectral width. This is particularly useful with DRA to ensure the total modulated bandwidth stays within the triangular Raman validity range.
+
+```bash
+# C-band with 43 slots + L-band with 47 slots at 100 GHz slot size
+# Total: 43 + 47 = 90 data slots + 1 gap slot = 91 link_resources
+python -m xlron.train.train \
+  --env_type=rsa_gn_model \
+  --slot_size=100 --guardband=0 \
+  --band_preference=C,L --slots_per_band=43,47 \
+  --inter_band_gap_ghz=500 \
+  --link_resources=91 --dra \
+  ...
+```
+
+The number of entries in `--slots_per_band` must match the number of bands in `--band_preference`. Each value is capped at the maximum number of slots that physically fit in that band.
+
+### ASE Noise with DRA
+
+The current implementation reuses the existing EDFA-based ASE noise calculation when DRA is enabled. The inline amplifier ASE is computed assuming lumped EDFA gain at each span output, which provides a conservative (slightly pessimistic) noise estimate. A future enhancement may add Raman-aware ASE that accounts for the distributed gain profile.
+
+### DRA Configuration Parameters
+
+| Flag | Default | Units | Description |
+|---|---|---|---|
+| `--dra` | False | -- | Enable DRA model for NLI calculation |
+| `--raman_pump_power_fw` | None | W | Forward pump powers (comma-separated) |
+| `--raman_pump_power_bw` | None | W | Backward pump powers (comma-separated) |
+| `--raman_pump_freq_fw` | None | Hz | Forward pump frequencies (comma-separated) |
+| `--raman_pump_freq_bw` | None | Hz | Backward pump frequencies (comma-separated) |
+| `--dra_max_bandwidth_thz` | 15.0 | THz | Max modulated bandwidth for triangular Raman validity |
+| `--slots_per_band` | None | -- | Comma-separated slot count per band (e.g. `43,47`) |
 
 
 ---
@@ -492,6 +603,7 @@ It does not compute Shannon throughput (unlike `rsa_gn_model` with `--monitor_ac
 | `--enforce_band_gaps` | True | -- | Mark inter-band gap slots as unusable (from `band_data.csv`) |
 | `--band_data_filepath` | None | -- | Path to band definition CSV (defaults to built-in `band_data.csv`) |
 | `--band_preference` | None | -- | Comma-separated band fill order for first-fit/last-fit (e.g. `C,L,S`) |
+| `--slots_per_band` | None | -- | Comma-separated slot count per band (overrides auto-fill, e.g. `43,47`) |
 
 
 ## Summary: `rsa_gn_model` vs `rmsa_gn_model`

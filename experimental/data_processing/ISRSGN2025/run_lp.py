@@ -18,7 +18,7 @@ if __name__ == "__main__":
     base_command = (f"/home/uceedoh/git/XLRON/.venv/bin/python /home/uceedoh/git/XLRON/xlron/train/train.py "
                     f" --env_type={env_type} --DOWNSAMPLE_FACTOR 100 --guardband=0 --incremental_loading "
                     f" --end_first_blocking --NUM_ENVS {num_envs} "
-                    f" --EVAL_HEURISTIC --monitor_active_lightpaths --coherent --WANDB ")
+                    f" --EVAL_HEURISTIC --coherent --WANDB ")
 
     topology = "nsfnet_deeprmsa_directed"
     path_heuristics = ["ksp_ff", "ff_ksp"] if env_type == "rsa" else ["ksp_ff"] # ["ff_ksp"]

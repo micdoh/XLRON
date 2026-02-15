@@ -539,12 +539,16 @@ flags.DEFINE_string(
     "tabular (power depends on path), or rl (power selected by agent).",
 )
 flags.DEFINE_float("nonlinear_coefficient", 1.2e-3, "Nonlinear coefficient [1/W^2]")
-flags.DEFINE_float("raman_gain_slope", 2.8e-17, "Raman gain slope [1/m/W]")
+flags.DEFINE_float(
+    "raman_gain_slope",
+    2.8e-17,
+    "Raman gain slope [1/(W*m*Hz)]. Typical value ~0.028 1/(W*km*THz) = 2.8e-17 in SI.",
+)
 flags.DEFINE_float("attenuation", 4.605111673e-5, "Attenuation [1/m]")
 flags.DEFINE_float("attenuation_bar", 4.605111673e-5, "Attenuation [1/m]")
 flags.DEFINE_float("dispersion_coeff", 17e-6, "Dispersion [s/m^2]")
 flags.DEFINE_float("dispersion_slope", 60.7, "Dispersion slope [s/m^3]")
-flags.DEFINE_boolean("coherent", False, "Add NLI contribution coherently per span")
+flags.DEFINE_boolean("coherent", True, "Add NLI contribution coherently per span")
 flags.DEFINE_boolean(
     "mod_format_correction", False, "Apply non-Gaussian modulation format correction"
 )
@@ -584,11 +588,6 @@ flags.DEFINE_boolean(
     "Use GNN for launch power optimization in RSA GN Model environment",
 )
 flags.DEFINE_boolean("GNN_OUTPUT_RSA", False, "Use GNN for RSA in RSA GN Model environment")
-flags.DEFINE_boolean(
-    "monitor_active_lightpaths",
-    False,
-    "Monitor active lightpaths for use in throughput calculation",
-)
 flags.DEFINE_string(
     "noise_data_filepath",
     None,
@@ -604,6 +603,13 @@ flags.DEFINE_string(
     "C,L,S",
     "Comma-separated band preference order for first-fit/last-fit heuristics in GN model "
     "environments (e.g. 'C,L,S,U,E,O'). First-fit exhausts slots in preferred band order.",
+)
+flags.DEFINE_string(
+    "slots_per_band",
+    None,
+    "Comma-separated number of slots per band (e.g. '45,45'). Must match number of bands in "
+    "band_preference. Overrides the default behaviour of filling entire band width with slots. "
+    "Gap slots between bands are still added as normal.",
 )
 flags.DEFINE_float(
     "inter_band_gap_ghz",
@@ -623,6 +629,37 @@ flags.DEFINE_integer(
     "Best used with slot_size equal to the desired channel bandwidth "
     "(e.g. slot_size=100, num_subchannels=8 models 8x12.5 GHz subcarriers).",
 )
+# Distributed Raman Amplification parameters
+flags.DEFINE_boolean(
+    "use_raman_amp", False, "Enable Distributed Raman Amplification model for NLI calculation"
+)
+flags.DEFINE_list(
+    "raman_pump_power_fw",
+    None,
+    "Forward Raman pump powers in Watts (comma-separated, one per pump)",
+)
+flags.DEFINE_list(
+    "raman_pump_power_bw",
+    None,
+    "Backward Raman pump powers in Watts (comma-separated, one per pump)",
+)
+flags.DEFINE_list(
+    "raman_pump_freq_fw",
+    None,
+    "Forward Raman pump frequencies in Hz (comma-separated, one per pump)",
+)
+flags.DEFINE_list(
+    "raman_pump_freq_bw",
+    None,
+    "Backward Raman pump frequencies in Hz (comma-separated, one per pump)",
+)
+flags.DEFINE_float(
+    "dra_max_bandwidth_thz",
+    15.0,
+    "Maximum modulated bandwidth in THz for DRA triangular Raman approximation validity. "
+    "When DRA is enabled, bands are trimmed to fit within this limit.",
+)
+
 # Flags for optimize_launch_power.py
 flags.DEFINE_boolean(
     "optimise_launch_power",

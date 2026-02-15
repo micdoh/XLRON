@@ -269,10 +269,6 @@ When enabled, use KSP-LF (last-fit) instead of KSP-FF (first-fit) for the path a
 
 Path to transceiver and amplifier noise data file. Default: `None` (uses analytical noise model).
 
-### `--monitor_active_lightpaths`
-
-Track active lightpaths for throughput calculations. Default: `False`.
-
 ### `--max_power_per_fibre`
 
 Maximum total launch power per fibre in dBm. Default: `21.0`. The per-channel launch power is `max_power_per_fibre - 10*log10(link_resources)` in dBm. For `link_resources=150`, the default of 21 dBm gives approximately -0.76 dBm per channel, which is in the optimal range for C-band EDFA systems. If the GN model mask finds zero valid actions on an empty network, increase this value.

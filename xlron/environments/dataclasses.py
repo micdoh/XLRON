@@ -304,9 +304,6 @@ class GNModelEnvParams(RSAEnvParams):
     default_launch_power: chex.Scalar = struct.field(pytree_node=False)
     power_per_channel: chex.Scalar = struct.field(pytree_node=False)  # linear Watts
     mod_format_correction: bool = struct.field(pytree_node=False)
-    monitor_active_lightpaths: bool = struct.field(
-        pytree_node=False
-    )  # Monitor active lightpaths for throughput calculation
     gap_starts: HashableArrayWrapper = struct.field(pytree_node=False)
     gap_widths: HashableArrayWrapper = struct.field(pytree_node=False)
     uniform_spans: bool = struct.field(pytree_node=False)
@@ -322,6 +319,23 @@ class GNModelEnvParams(RSAEnvParams):
         pytree_node=False
     )  # Per-slot centre frequencies in relative GHz offset from ref_lambda
     num_subchannels: int = struct.field(pytree_node=False)  # Nyquist subchannels per slot for SPM
+    # Distributed Raman Amplification fields
+    use_raman_amp: bool = struct.field(pytree_node=False)
+    raman_fit_params: HashableArrayWrapper = struct.field(
+        pytree_node=False
+    )  # (5, num_channels, max_spans) — [C_f, a_f, C_b, a_b, a] Neper-scale
+    raman_pump_power_fw: HashableArrayWrapper = struct.field(
+        pytree_node=False
+    )  # (max_spans, num_pumps_fw) — forward pump powers [W]
+    raman_pump_power_bw: HashableArrayWrapper = struct.field(
+        pytree_node=False
+    )  # (max_spans, num_pumps_bw) — backward pump powers [W]
+    raman_pump_freq_fw: HashableArrayWrapper = struct.field(
+        pytree_node=False
+    )  # (max_spans, num_pumps_fw) — forward pump frequencies [Hz]
+    raman_pump_freq_bw: HashableArrayWrapper = struct.field(
+        pytree_node=False
+    )  # (max_spans, num_pumps_bw) — backward pump frequencies [Hz]
 
 
 @struct.dataclass

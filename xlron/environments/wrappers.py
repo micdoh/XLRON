@@ -68,22 +68,32 @@ class LogWrapper(GymnaxWrapper):
             key, log_state.env_state, action, params
         )
         done = jnp.logical_or(terminal, truncated)
+        # Use pre-reset metrics from info (stashed in step_env before auto-reset)
+        accepted_services = info.pop("_accepted_services")
+        accepted_bitrate = info.pop("_accepted_bitrate")
+        total_bitrate = info.pop("_total_bitrate")
+        utilisation = info.pop("_utilisation")
+        # Compute final episode length (for reporting) before resetting
+        episode_length = log_state.lengths + 1
+        cum_returns = log_state.cum_returns + reward
         log_state = LogEnvState(
             env_state=env_state,
-            lengths=log_state.lengths * (1 - done) + 1,
+            # Reset lengths for next episode on done, otherwise keep accumulating
+            lengths=episode_length * (1 - done),
             returns=jnp.asarray(reward, dtype=dtype_config.REWARD_DTYPE),
-            cum_returns=log_state.cum_returns * (1 - done) + reward,
-            accepted_services=env_state.accepted_services,
-            accepted_bitrate=env_state.accepted_bitrate,
-            total_bitrate=env_state.total_bitrate,
-            utilisation=jnp.count_nonzero(env_state.link_slot_array)
-            / env_state.link_slot_array.size,
+            cum_returns=cum_returns * (1 - done),
+            accepted_services=accepted_services,
+            accepted_bitrate=accepted_bitrate,
+            total_bitrate=total_bitrate,
+            utilisation=utilisation,
             terminal=terminal,
             truncated=truncated,
         )
-        info["lengths"] = log_state.lengths
+        # Report the pre-reset values so the done step carries the correct
+        # final episode metrics (no shift workaround needed in process_metrics)
+        info["lengths"] = episode_length
         info["returns"] = log_state.returns
-        info["cum_returns"] = log_state.cum_returns
+        info["cum_returns"] = cum_returns
         info["accepted_services"] = log_state.accepted_services
         info["accepted_bitrate"] = log_state.accepted_bitrate
         info["total_bitrate"] = log_state.total_bitrate
@@ -104,7 +114,12 @@ class LogWrapper(GymnaxWrapper):
             nodes_sd, dr_request = read_rsa_request(log_state.env_state.request_array)
             source, dest = nodes_sd
             i = get_path_indices(
-                params, source, dest, params.k_paths, params.num_nodes, directed=params.directed_graph
+                params,
+                source,
+                dest,
+                params.k_paths,
+                params.num_nodes,
+                directed=params.directed_graph,
             ).astype(jnp.int32)
             path_index, slot_index = process_path_action(log_state.env_state, params, action)
 
@@ -115,9 +130,9 @@ class LogWrapper(GymnaxWrapper):
             info["dest"] = dest
             info["data_rate"] = dr_request
 
-            # RSA-specific throughput info
+            # RSA-specific throughput info (use pre-reset value from step_env)
             if is_gn_params:
-                info["throughput"] = env_state.throughput
+                info["throughput"] = info.pop("_throughput")
 
             # Logging-specific info
             if params.log_actions:
@@ -260,7 +275,7 @@ class JitProfiler:
         • Measures compilation + first execution latency.
         • Fine-grained per-call timings are intentionally disabled
           to avoid misleading synchronization artifacts.
-    
+
     This profiler records host-side timestamps using `jax.debug.callback`,
     allowing coarse wall-clock profiling of sections inside JIT-compiled code.
     Profiling is designed to be gated by a *static* Python boolean (e.g.
@@ -355,7 +370,7 @@ class JitProfiler:
         self._assert_static_bool(enabled)
         if enabled:
             self.mark(f"{name}:start")
-    
+
     def end(self, enabled: bool, name: str):
         """Insert an end marker for a block."""
         self._assert_static_bool(enabled)
@@ -369,26 +384,26 @@ class JitProfiler:
     def _call_first_only(self, enabled: bool, fn, *args, name=None, **kwargs):
         """Record compile + first execution latency (GPU only)."""
         self._assert_static_bool(enabled)
-    
+
         section = name or fn.__name__
-    
+
         if section in self._seen_first_call or not enabled:
             return fn(*args, **kwargs)
-    
+
         self._seen_first_call.add(section)
-    
+
         start_time = time.time()
         out = fn(*args, **kwargs)
         out = jax.block_until_ready(out)
         elapsed = time.time() - start_time
-    
+
         # Append synthetic start/end entries so summary sees them
         self._timestamps.append((f"{section}:start", start_time))
         self._timestamps.append((f"{section}:end", start_time + elapsed))
-    
+
         # Also keep a :first entry for clarity
         self._timestamps.append((f"{section}:first", elapsed))
-    
+
         return out
 
     # -----------------------
@@ -485,7 +500,6 @@ class JitProfiler:
         print("-" * len(header))
         print(f"{'TOTAL':<30} {'':>8} {total_wall:>10.4f}")
         print("=" * len(header) + "\n")
-
 
 
 # Module-level singleton so rsa.py and train.py can share the same instance

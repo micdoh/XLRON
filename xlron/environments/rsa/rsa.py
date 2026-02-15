@@ -41,6 +41,7 @@ from xlron.environments.env_funcs import (
     required_slots,
     set_band_gaps,
     update_graph_tuple,
+    calculate_throughput_from_active_lightpaths
 )
 from xlron.environments.wrappers import *
 
@@ -276,6 +277,18 @@ class RSAEnv(environment.Environment):
         # Get observation
         obs = jit_profiler.call(params.profile, self.get_obs, state, params)
 
+        # Stash metrics so they survive the auto-reset in step().
+        # The outer step() may replace state with a reset state (accepted=0,
+        # empty link_slot_array, etc.), so LogWrapper reads these instead.
+        info["_accepted_services"] = state.accepted_services
+        info["_accepted_bitrate"] = state.accepted_bitrate
+        info["_total_bitrate"] = state.total_bitrate
+        info["_utilisation"] = jnp.count_nonzero(state.link_slot_array) / state.link_slot_array.size
+        if hasattr(state, "throughput"):
+            throughput = calculate_throughput_from_active_lightpaths(state, params)
+            state = state.replace(throughput=throughput)
+            info["_throughput"] = state.throughput
+
         return obs, state, reward, terminal, truncated, info
 
     @partial(jax.jit, static_argnums=(0, 2))
@@ -335,7 +348,18 @@ class RSAEnv(environment.Environment):
         path, path_se = jit_profiler.call(
             params.profile, get_path_and_se, params, nodes_sd, path_index
         )
-        path_se = path_se if params.consider_modulation_format else one
+
+        # For RMSA GN model, use the SE from the selected modulation format (from masking)
+        # rather than the static path_se_array value
+        if params.__class__.__name__ == "RMSAGNModelEnvParams":
+            path_action_int = path_action.astype(dtype_config.LARGE_INT_DTYPE)
+            mod_format_index = jax.lax.dynamic_slice(
+                state.mod_format_mask, (path_action_int,), (1,)
+            )[0].astype(dtype_config.LARGE_INT_DTYPE)
+            path_se = params.modulations_array.val[mod_format_index, 1]
+        else:
+            path_se = path_se if params.consider_modulation_format else one
+
         num_slots = jit_profiler.call(
             params.profile,
             required_slots,

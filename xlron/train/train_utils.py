@@ -265,7 +265,9 @@ def print_experiment_summary(config: Box, env_params=None) -> None:
     # --- Traffic ---
     load = env_params.load if env_params else config.get("load", "?")
     holding_time = (
-        env_params.mean_service_holding_time if env_params else config.get("mean_service_holding_time", "?")
+        env_params.mean_service_holding_time
+        if env_params
+        else config.get("mean_service_holding_time", "?")
     )
     if env_params:
         arrival_rate = env_params.arrival_rate
@@ -273,15 +275,23 @@ def print_experiment_summary(config: Box, env_params=None) -> None:
         arrival_rate = float(load) / float(holding_time)
     else:
         arrival_rate = "?"
-    continuous = env_params.continuous_operation if env_params else config.get("continuous_operation", False)
-    incremental = env_params.incremental_loading if env_params else config.get("incremental_loading", False)
+    continuous = (
+        env_params.continuous_operation if env_params else config.get("continuous_operation", False)
+    )
+    incremental = (
+        env_params.incremental_loading if env_params else config.get("incremental_loading", False)
+    )
     max_requests = env_params.max_requests if env_params else config.get("max_requests", "?")
     warmup = config.get("ENV_WARMUP_STEPS", 0)
     reward_type = env_params.reward_type if env_params else config.get("reward_type", "service")
     values_bw = env_params.values_bw if env_params else config.get("values_bw", None)
     if hasattr(values_bw, "val"):
         values_bw = values_bw.val
-    truncate_ht = env_params.truncate_holding_time if env_params else config.get("truncate_holding_time", False)
+    truncate_ht = (
+        env_params.truncate_holding_time
+        if env_params
+        else config.get("truncate_holding_time", False)
+    )
 
     # --- Training / Execution ---
     total_timesteps = config.get("TOTAL_TIMESTEPS", "?")
@@ -312,8 +322,7 @@ def print_experiment_summary(config: Box, env_params=None) -> None:
     else:
         arch = "MLP"
         arch_detail = (
-            f"{config.get('NUM_LAYERS', '?')} layers x "
-            f"{config.get('NUM_UNITS', '?')} units"
+            f"{config.get('NUM_LAYERS', '?')} layers x {config.get('NUM_UNITS', '?')} units"
         )
 
     # --- Print ---
@@ -329,7 +338,9 @@ def print_experiment_summary(config: Box, env_params=None) -> None:
     print(f"  Topology:                 {topology} ({'directed' if directed else 'undirected'})")
     print(f"  Nodes / Links:            {num_nodes} / {num_links}")
     print(f"  K-shortest paths:         {k}  (sort: {path_sort})")
-    print(f"  Slots per link:           {link_resources}  ({slot_size} GHz each, guardband={guardband})")
+    print(
+        f"  Slots per link:           {link_resources}  ({slot_size} GHz each, guardband={guardband})"
+    )
     if total_bw != "?":
         print(f"  Total spectrum per link:  {total_bw:.0f} GHz")
     consider_mod = env_params.consider_modulation_format if env_params else "?"
@@ -343,7 +354,11 @@ def print_experiment_summary(config: Box, env_params=None) -> None:
     print(f"  Arrival rate:             {arrival_rate}")
     print(f"  Mean holding time:        {holding_time}{' (truncated)' if truncate_ht else ''}")
     if values_bw is not None:
-        bw_str = ", ".join(str(int(v)) for v in np.asarray(values_bw).flatten()) if hasattr(values_bw, '__len__') else str(values_bw)
+        bw_str = (
+            ", ".join(str(int(v)) for v in np.asarray(values_bw).flatten())
+            if hasattr(values_bw, "__len__")
+            else str(values_bw)
+        )
         print(f"  Bandwidth values (Gbps):  [{bw_str}]")
     print(f"  Reward type:              {reward_type}")
     op_mode = "continuous" if continuous else ("incremental" if incremental else "episodic")
@@ -354,44 +369,68 @@ def print_experiment_summary(config: Box, env_params=None) -> None:
         print(f"  Warmup steps:             {warmup}")
 
     print(f"\n  {'--- Execution ---':^{W - 4}}")
-    print(f"  Total timesteps:          {total_timesteps:,}" if isinstance(total_timesteps, int) else f"  Total timesteps:          {total_timesteps}")
+    print(
+        f"  Total timesteps:          {total_timesteps:,}"
+        if isinstance(total_timesteps, int)
+        else f"  Total timesteps:          {total_timesteps}"
+    )
     print(f"  Parallel envs:            {num_envs}")
     if num_learners > 1:
         print(f"  Independent learners:     {num_learners}")
         print(f"  Grand total timesteps:    {total_timesteps * num_learners:,}")
-    print(f"  Increments:               {num_increments}  ({steps_per_inc:,} steps each)" if isinstance(steps_per_inc, int) else f"  Increments:               {num_increments}")
+    print(
+        f"  Increments:               {num_increments}  ({steps_per_inc:,} steps each)"
+        if isinstance(steps_per_inc, int)
+        else f"  Increments:               {num_increments}"
+    )
 
     if not config.get("EVAL_HEURISTIC", False):
         print(f"  Rollout length:           {rollout_length}")
         batch_total = num_envs * rollout_length if isinstance(rollout_length, int) else "?"
-        print(f"  Batch size:               {batch_total}  (= {num_envs} envs x {rollout_length} steps)")
+        print(
+            f"  Batch size:               {batch_total}  (= {num_envs} envs x {rollout_length} steps)"
+        )
         print(f"  Minibatches / epoch:      {num_minibatches}  (minibatch size: {batch_size})")
         print(f"  Update epochs:            {update_epochs}")
         total_updates = num_increments * num_updates * update_epochs * num_minibatches
-        print(f"  Total gradient steps:     {total_updates:,}" if isinstance(total_updates, int) else f"  Total gradient steps:     {total_updates}")
+        print(
+            f"  Total gradient steps:     {total_updates:,}"
+            if isinstance(total_updates, int)
+            else f"  Total gradient steps:     {total_updates}"
+        )
 
     if not (config.get("EVAL_HEURISTIC", False) or config.get("EVAL_MODEL", False)):
         print(f"\n  {'--- Model & Optimiser ---':^{W - 4}}")
         print(f"  Architecture:             {arch}  ({arch_detail})")
         print(f"  Activation:               {config.get('ACTIVATION', '?')}")
-        print(f"  Learning rate:            {config.get('LR', '?')}  (schedule: {config.get('LR_SCHEDULE', '?')})")
+        print(
+            f"  Learning rate:            {config.get('LR', '?')}  (schedule: {config.get('LR_SCHEDULE', '?')})"
+        )
         print(f"  Discount (gamma):         {config.get('GAMMA', '?')}")
         gae = config.get("GAE_LAMBDA", None)
         if gae is not None:
             print(f"  GAE lambda:               {gae}")
         else:
-            print(f"  GAE lambda:               annealed ({config.get('INITIAL_LAMBDA', '?')} -> {config.get('FINAL_LAMBDA', '?')})")
+            print(
+                f"  GAE lambda:               annealed ({config.get('INITIAL_LAMBDA', '?')} -> {config.get('FINAL_LAMBDA', '?')})"
+            )
         print(f"  PPO clip:                 {config.get('CLIP_EPS', '?')}")
-        print(f"  Entropy coef:             {config.get('ENT_COEF', '?')}  (schedule: {config.get('ENT_SCHEDULE', '?')})")
+        print(
+            f"  Entropy coef:             {config.get('ENT_COEF', '?')}  (schedule: {config.get('ENT_SCHEDULE', '?')})"
+        )
         print(f"  VF coef:                  {config.get('VF_COEF', '?')}")
         print(f"  Max grad norm:            {config.get('MAX_GRAD_NORM', '?')}")
         if config.get("REWARD_CENTERING", False):
-            print(f"  Reward centering:         enabled (stepsize={config.get('REWARD_STEPSIZE', '?')})")
+            print(
+                f"  Reward centering:         enabled (stepsize={config.get('REWARD_STEPSIZE', '?')})"
+            )
         if config.get("SEPARATE_VF_OPTIMIZER", False):
             print(f"  Separate VF optimizer:    enabled (VF_LR={config.get('VF_LR', 'auto')})")
 
     if config.get("EVAL_DURING_TRAINING", False):
-        print(f"\n  Eval during training:     every {config.get('EVAL_FREQUENCY', '?')} increment(s)")
+        print(
+            f"\n  Eval during training:     every {config.get('EVAL_FREQUENCY', '?')} increment(s)"
+        )
 
     if config.get("WANDB", False):
         print(f"  Logging:                  wandb ({config.get('PROJECT', '-')})")
@@ -1385,17 +1424,16 @@ def run_eval_during_training(
     )
 
     # Service BP: each step is one request, so denominator = steps after warmup
-    # # -2 index avoids reset at end of last episode
     post_warmup_requests = max(total_steps - warmup_idx, 1)
-    post_warmup_accepted = accepted_services[-2] - accepted_services[warmup_idx]
+    post_warmup_accepted = accepted_services[-1] - accepted_services[warmup_idx]
     service_bp_per_env = 1 - (post_warmup_accepted / post_warmup_requests)
     service_bp_mean = float(jnp.mean(service_bp_per_env))
     service_bp_std = float(jnp.std(service_bp_per_env))
 
     # Bitrate BP: denominator is cumulative total_bitrate delta
-    post_warmup_total_br = total_bitrate[-2] - total_bitrate[warmup_idx]
+    post_warmup_total_br = total_bitrate[-1] - total_bitrate[warmup_idx]
     post_warmup_total_br = jnp.where(post_warmup_total_br == 0, 1, post_warmup_total_br)
-    post_warmup_accepted_br = accepted_bitrate[-2] - accepted_bitrate[warmup_idx]
+    post_warmup_accepted_br = accepted_bitrate[-1] - accepted_bitrate[warmup_idx]
     bitrate_bp_per_env = 1 - (post_warmup_accepted_br / post_warmup_total_br)
     bitrate_bp_mean = float(jnp.mean(bitrate_bp_per_env))
     bitrate_bp_std = float(jnp.std(bitrate_bp_per_env))
@@ -1506,27 +1544,13 @@ def process_metrics(config, out, merge_func):
     # Calculate episode ends
     merged_out["done"] = jnp.logical_or(merged_out["terminal"], merged_out["truncated"])
     episode_ends = merged_out["done"]
-    # Instead of flattening, create a boolean mask of where episodes end
-    # This preserves the structure across environments
-    episode_ends = episode_ends.reshape(episode_ends.shape[0], -1)
-
-    episode_ends = jnp.hstack((episode_ends[:, 1:], jnp.full((episode_ends.shape[0], 1), False)))
-
-    # Reshape episode_ends to match the original shape
-    episode_ends = episode_ends.reshape(merged_out["done"].shape)
 
     print(f"Created episode end mask with {np.sum(episode_ends)} episode endings")
 
     processed_data = {}
     print("Processing output metrics")
     for metric in metrics:
-        if metric == "throughput":
-            # Shift values down one index position
-            ends = jnp.concatenate([jnp.array([False]), episode_ends.flatten()[:-1]]).reshape(
-                episode_ends.shape
-            )
-        else:
-            ends = episode_ends
+        ends = episode_ends
         try:
             episode_end_mean, episode_end_std, episode_end_iqr_upper, episode_end_iqr_lower = (
                 get_episode_end_mean_std_iqr(merged_out[metric], ends, config.NUM_ENVS)

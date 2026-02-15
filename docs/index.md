@@ -21,7 +21,7 @@ XLRON is a product of my PhD research, which is focused on the application of Re
 - Gym-style environments for optical network resource allocation problems (RWA, RSA, RMSA, RWA-LR, VONE, ...)
 - Powered by JAX for accelerated training on GPU and TPU. See the [Training with PPO guide](./training.md).
 - Command-line interface for running experiments with customisable hyperparameters
-- Advanced deep learning architectures (GNN, GAT) and physical layer models (ISRS GN model).
+- Advanced deep learning architectures (GNN, GAT) and physical layer models (ISRS GN model, Distributed Raman Amplification).
 - Implementations of heuristics (KSP-FF, etc.) for benchmarking and comparison. See the [Heuristic Evaluation guide](./heuristic_evaluation.md).
 - Capacity bound estimation via [cut-set and reconfigurable routing methods](./capacity_bounds.md).
 - Ideal for research and innovation in optical network optimization.

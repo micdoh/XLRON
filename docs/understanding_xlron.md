@@ -198,7 +198,7 @@ This environment is best suited for:
 - Faster simulations where per-step SNR-aware masking is not required
 - Scenarios where modulation format is predetermined by path distance
 
-Enable throughput measurement with `--monitor_active_lightpaths`. The throughput is computed at episode end using the Shannon-Hartley theorem with dual polarisation and FEC overhead: `datarate = log2(1 + SNR) * slot_size * 2 * (1 - fec_overhead)`, summed over all active lightpaths.
+The throughput is automatically computed at episode end using the Shannon-Hartley theorem with dual polarisation and FEC overhead: `datarate = log2(1 + SNR) * slot_size * 2 * (1 - fec_overhead)`, summed over all active lightpaths.
 
 #### `rmsa_gn_model` — RMSA with Per-Step SNR-Aware Masking
 

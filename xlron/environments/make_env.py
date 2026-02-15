@@ -1,5 +1,6 @@
 import math
 import pathlib
+import warnings
 from typing import Any, Optional, Tuple, Union
 
 import absl
@@ -55,6 +56,7 @@ from xlron.environments.env_funcs import (
     pad_array,
     required_slots,
 )
+from xlron.environments.gn_model.isrs_gn_model_dra import fit_dra_params_triangular
 from xlron.environments.gn_model.isrs_gn_model import from_dbm
 from xlron.environments.wrappers import LogWrapper
 
@@ -251,6 +253,15 @@ def make(
     # C-band is 1530-1565nm = 191.56 - 195.94THz = 4.24THz
     nonlinear_coeff = config.get("nonlinear_coeff", 1.2 / 1e3)
     raman_gain_slope = config.get("raman_gain_slope", 0.028 / 1e3 / 1e12)
+    if raman_gain_slope > 1e-10:
+        warnings.warn(
+            f"raman_gain_slope={raman_gain_slope:.2e} is unexpectedly large. "
+            f"Expected units are 1/(W*m*Hz); typical value is ~2.8e-17 "
+            f"(i.e. 0.028 1/(W*km*THz)). "
+            f"A value this large will cause numerical overflow (NaN/Inf) in the "
+            f"ISRS gain and ASE calculations, producing incorrect SNR and throughput.",
+            stacklevel=2,
+        )
     attenuation = config.get("attenuation", 0.2 / 4.343 / 1e3)
     attenuation_bar = config.get("attenuation_bar", 0.2 / 4.343 / 1e3)
     dispersion_coeff = config.get("dispersion_coeff", 17 * 1e-12 / 1e-9 / 1e3)
@@ -260,14 +271,20 @@ def make(
     uniform_spans = config.get("uniform_spans", True)
     band_preference = config.get("band_preference", None)
     inter_band_gap_ghz = config.get("inter_band_gap_ghz", 25.0)
+    use_raman_amp = config.get("use_raman_amp", False)
     _band_layout = None  # set when compute_band_layout is used
     if band_preference is not None and env_type in ("rsa_gn_model", "rmsa_gn_model"):
         # GN model envs always enforce band gaps via compute_band_layout
+        raman_max_bw_ghz = (
+            config.get("dra_max_bandwidth_thz", 15.0) * 1e3 if use_raman_amp else None
+        )
         _band_layout = compute_band_layout(
             slot_size,
             band_preference,
             inter_band_gap_ghz,
             config.get("band_data_filepath", None),
+            max_bandwidth_ghz=raman_max_bw_ghz,
+            slots_per_band=config.get("slots_per_band", None),
         )
         user_link_resources = config.get("link_resources", None)
         if (
@@ -293,7 +310,9 @@ def make(
             [4425, 8425] if config.get("interband_gap_start", None) is None else []
         )
         gap_start_slots = [int(math.ceil(start / slot_size)) for start in interband_gap_start]
-    mod_format_correction = config.get("mod_format_correction", True)
+    mod_format_correction = (
+        config.get("mod_format_correction", True) if env_type == "rmsa_gn_model" else False
+    )
     num_roadms = config.get("num_roadms", 1)
     roadm_loss = config.get("roadm_loss", 18)
     snr_margin = config.get("snr_margin", 1)
@@ -740,7 +759,6 @@ def make(
             max_snr=max_snr,
             min_snr=min_snr,
             mod_format_correction=mod_format_correction,
-            monitor_active_lightpaths=config.get("monitor_active_lightpaths", False),
             fec_threshold=config.get("fec_threshold", 0.28),
             transceiver_snr=transceiver_snr,
             amplifier_noise_figure=amplifier_noise_figure,
@@ -750,6 +768,95 @@ def make(
             band_slot_order_lf=band_slot_order_lf,
             slot_centre_freq_array=slot_centre_freq_array,
         )
+
+        # Distributed Raman Amplification configuration
+        if use_raman_amp:
+            # Parse pump power/frequency lists from CLI
+            raman_pump_power_fw = config.get("raman_pump_power_fw", None)
+            raman_pump_power_bw = config.get("raman_pump_power_bw", None)
+            raman_pump_freq_fw = config.get("raman_pump_freq_fw", None)
+            raman_pump_freq_bw = config.get("raman_pump_freq_bw", None)
+
+            pump_pow_fw = (
+                np.array([float(x) for x in raman_pump_power_fw])
+                if raman_pump_power_fw
+                else np.zeros(1)
+            )
+            pump_pow_bw = (
+                np.array([float(x) for x in raman_pump_power_bw])
+                if raman_pump_power_bw
+                else np.zeros(1)
+            )
+            pump_freq_fw = (
+                np.array([float(x) for x in raman_pump_freq_fw])
+                if raman_pump_freq_fw
+                else np.zeros(1)
+            )
+            pump_freq_bw = (
+                np.array([float(x) for x in raman_pump_freq_bw])
+                if raman_pump_freq_bw
+                else np.zeros(1)
+            )
+
+            # Tile to (max_spans, num_pumps) — uniform pumps per span
+            pump_pow_fw_arr = np.tile(pump_pow_fw, (max_spans, 1))
+            pump_pow_bw_arr = np.tile(pump_pow_bw, (max_spans, 1))
+            pump_freq_fw_arr = np.tile(pump_freq_fw, (max_spans, 1))
+            pump_freq_bw_arr = np.tile(pump_freq_bw, (max_spans, 1))
+
+            # Fit Raman params by matching semi-analytical model to exact Raman profile
+            raman_fit_params = fit_dra_params_triangular(
+                raman_gain_slope=raman_gain_slope,
+                attenuation=attenuation,
+                num_channels=link_resources,
+                max_spans=max_spans,
+                span_length=max_span_length,
+                ref_lambda=ref_lambda,
+                pump_pow_fw=pump_pow_fw,
+                pump_pow_bw=pump_pow_bw,
+                pump_freq_fw=pump_freq_fw,
+                pump_freq_bw=pump_freq_bw,
+                ch_centre_freq_ghz=np.array(slot_centre_freq_arr),
+            )
+
+            # Validate bandwidth when no band_preference is set
+            if band_preference is None:
+                total_bw_ghz = link_resources * slot_size
+                raman_max_bw_thz = config.get("dra_max_bandwidth_thz", 15.0)
+                if total_bw_ghz > raman_max_bw_thz * 1e3:
+                    print(
+                        f"WARNING: Raman amplification enabled but total bandwidth "
+                        f"({total_bw_ghz:.0f} GHz) exceeds "
+                        f"dra_max_bandwidth_thz ({raman_max_bw_thz} THz). "
+                        f"Triangular Raman approximation may be inaccurate."
+                    )
+        else:
+            # Sentinel defaults when Raman amplification is disabled
+            raman_fit_params = jnp.zeros((5, 1, 1))
+            pump_pow_fw_arr = np.zeros((1, 1))
+            pump_pow_bw_arr = np.zeros((1, 1))
+            pump_freq_fw_arr = np.zeros((1, 1))
+            pump_freq_bw_arr = np.zeros((1, 1))
+
+        params_dict.update(
+            use_raman_amp=use_raman_amp,
+            raman_fit_params=HashableArrayWrapper(jnp.array(raman_fit_params))
+            if not remove_array_wrappers
+            else jnp.array(raman_fit_params),
+            raman_pump_power_fw=HashableArrayWrapper(jnp.array(pump_pow_fw_arr))
+            if not remove_array_wrappers
+            else jnp.array(pump_pow_fw_arr),
+            raman_pump_power_bw=HashableArrayWrapper(jnp.array(pump_pow_bw_arr))
+            if not remove_array_wrappers
+            else jnp.array(pump_pow_bw_arr),
+            raman_pump_freq_fw=HashableArrayWrapper(jnp.array(pump_freq_fw_arr))
+            if not remove_array_wrappers
+            else jnp.array(pump_freq_fw_arr),
+            raman_pump_freq_bw=HashableArrayWrapper(jnp.array(pump_freq_bw_arr))
+            if not remove_array_wrappers
+            else jnp.array(pump_freq_bw_arr),
+        )
+
         if env_type == "rmsa_gn_model":
             env_params = RMSAGNModelEnvParams
             params_dict.update(
