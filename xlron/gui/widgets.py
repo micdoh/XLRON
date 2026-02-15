@@ -198,7 +198,6 @@ DEFAULTS = {
     "calc_minimum_osnr": False,
     "beta_fec": 1.5e-2,
     "fec_rate": 0.8,
-    "enforce_band_gaps": False,
     "band_data_filepath": None,
     "band_preference": None,
     "alpha": 0.2,
@@ -988,21 +987,13 @@ def physical_layer_section() -> dict:
         _emit(flags, "fec_rate", fec_rate)
 
     st.subheader("Band Configuration")
-    enforce_gaps = st.checkbox(
-        "Enforce Band Gaps",
-        value=bool(_get_preset_val("enforce_band_gaps")),
-        help=_h("enforce_band_gaps"),
+    band_data = st.text_input(
+        "Band Data CSV (leave blank for default)",
+        value=_get_preset_val("band_data_filepath") or "",
+        help=_h("band_data_filepath"),
     )
-    _emit(flags, "enforce_band_gaps", enforce_gaps)
-
-    if enforce_gaps:
-        band_data = st.text_input(
-            "Band Data CSV (leave blank for default)",
-            value=_get_preset_val("band_data_filepath") or "",
-            help=_h("band_data_filepath"),
-        )
-        if band_data.strip():
-            flags["band_data_filepath"] = band_data.strip()
+    if band_data.strip():
+        flags["band_data_filepath"] = band_data.strip()
 
     available_bands = ["C", "L", "S", "U", "E", "O"]
     preset_pref = _get_preset_val("band_preference")
@@ -1021,6 +1012,7 @@ def physical_layer_section() -> dict:
     if band_prefs:
         flags["band_preference"] = ",".join(band_prefs)
 
+    st.subheader("Physical Parameters")
     col1, col2 = st.columns(2)
     with col1:
         alpha = st.number_input(

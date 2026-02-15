@@ -22,6 +22,55 @@ from xlron.gui.widgets import (
 
 _LOGO_PATH = Path(__file__).resolve().parent.parent.parent / "docs" / "images" / "xlron_nobackground.png"
 _DOCS_URL = "https://micdoh.github.io/XLRON/"
+_PRESETS_PATH = Path(__file__).resolve().parent / "presets.py"
+
+
+# ---------------------------------------------------------------------------
+# Preset saving helpers
+# ---------------------------------------------------------------------------
+
+
+def _format_preset_value(v) -> str:
+    """Format a Python value for the presets source file."""
+    if v is None:
+        return "None"
+    if isinstance(v, bool):
+        return repr(v)
+    if isinstance(v, int):
+        return f"{v:_}" if abs(v) >= 10_000 else repr(v)
+    if isinstance(v, float):
+        if v != 0.0 and abs(v) < 0.01:
+            s = f"{v:e}"
+            mantissa, exp = s.split("e")
+            mantissa = mantissa.rstrip("0").rstrip(".")
+            return f"{mantissa}e{int(exp)}"
+        return repr(v)
+    if isinstance(v, str):
+        return f'"{v}"'
+    return repr(v)
+
+
+def _write_presets_file() -> None:
+    """Rewrite presets.py with the current in-memory PRESETS dict."""
+    lines = ['"""Named preset configurations for common XLRON experiments."""\n\n']
+    lines.append("PRESETS = {\n")
+    for name, config in PRESETS.items():
+        if not config:
+            lines.append(f'    "{name}": {{}},\n')
+        else:
+            lines.append(f'    "{name}": {{\n')
+            for k, v in config.items():
+                lines.append(f'        "{k}": {_format_preset_value(v)},\n')
+            lines.append("    },\n")
+    lines.append("}\n")
+    _PRESETS_PATH.write_text("".join(lines))
+
+
+def _save_preset(name: str, config: dict) -> None:
+    """Save a preset to presets.py and update the in-memory dict."""
+    PRESETS[name] = config
+    _write_presets_file()
+
 
 st.set_page_config(page_title="XLRON", page_icon="🔬", layout="wide")
 
@@ -81,6 +130,9 @@ with st.sidebar:
     if st.button("Load Preset", width="stretch"):
         st.session_state["_loaded_preset"] = PRESETS[preset_name]
         st.rerun()
+
+    if st.button("Save Current as Preset", width="stretch"):
+        st.session_state["_show_save_preset"] = True
 
     st.divider()
 
@@ -247,6 +299,34 @@ if st.session_state.get("_show_command"):
             st.rerun()
 
     _show_copy_dialog()
+
+
+# ---------------------------------------------------------------------------
+# Save preset dialog
+# ---------------------------------------------------------------------------
+
+if st.session_state.get("_show_save_preset"):
+
+    @st.dialog("Save as Preset")
+    def _show_save_preset_dialog():
+        name = st.text_input("Preset Name", placeholder="e.g., My Custom Config")
+        if name.strip() and name.strip() in PRESETS:
+            st.warning(f'A preset named "{name.strip()}" already exists and will be overwritten.')
+        col_save, col_cancel = st.columns(2)
+        with col_save:
+            if st.button("Save", type="primary", width="stretch"):
+                if not name.strip():
+                    st.error("Please enter a name.")
+                else:
+                    _save_preset(name.strip(), dict(all_flags))
+                    st.session_state["_show_save_preset"] = False
+                    st.rerun()
+        with col_cancel:
+            if st.button("Cancel", width="stretch"):
+                st.session_state["_show_save_preset"] = False
+                st.rerun()
+
+    _show_save_preset_dialog()
 
 
 # ---------------------------------------------------------------------------

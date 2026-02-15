@@ -174,7 +174,7 @@ The default data covers five bands spanning the partial S-band, C-band, and L-ba
 
 The C-band has the best amplifier performance (lowest NF) and transceiver performance (highest SNR), reflecting the maturity of C-band EDFA technology.
 
-Band boundaries for inter-band gap enforcement (`--enforce_band_gaps`) are defined in a separate file (`band_data.csv`), which specifies the standard optical bands (O, E, S, C, L, U) and their frequency ranges. This can be overridden with `--band_data_filepath`.
+Band boundaries for inter-band gap enforcement are set by default (`--enforce_band_gaps`) and are defined in a separate file (`band_data.csv`), which specifies the standard optical bands (O, E, S, C, L, U) and their frequency ranges. This can be overridden with `--band_data_filepath`.
 
 ### Band Preference for Heuristic Slot Allocation
 
@@ -489,7 +489,7 @@ It does not compute Shannon throughput (unlike `rsa_gn_model` with `--monitor_ac
 | `--slot_size` | 12.5 | GHz | Spectral width of each frequency slot |
 | `--link_resources` | -- | -- | Number of frequency slots per link |
 | `--guardband` | 1 | slots | Guard band between adjacent channels |
-| `--enforce_band_gaps` | False | -- | Mark inter-band gap slots as unusable (from `band_data.csv`) |
+| `--enforce_band_gaps` | True | -- | Mark inter-band gap slots as unusable (from `band_data.csv`) |
 | `--band_data_filepath` | None | -- | Path to band definition CSV (defaults to built-in `band_data.csv`) |
 | `--band_preference` | None | -- | Comma-separated band fill order for first-fit/last-fit (e.g. `C,L,S`) |
 
