@@ -3243,6 +3243,8 @@ def get_centre_frequency(
         from ref_lambda).
     """
     slot_centres = params.slot_centre_freq_array.val  # (link_resources,) relative GHz
+    initial_slot_index = jnp.asarray(initial_slot_index, dtype=dtype_config.INDEX_DTYPE)
+    num_slots = jnp.asarray(num_slots, dtype=dtype_config.INDEX_DTYPE)
     first_slot_centre = slot_centres[initial_slot_index]
     last_slot_idx = jnp.minimum(initial_slot_index + num_slots - 1, params.link_resources - 1)
     last_slot_centre = slot_centres[last_slot_idx]
