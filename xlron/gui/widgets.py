@@ -195,7 +195,7 @@ DEFAULTS = {
     "EVAL_DURING_TRAINING": False,
     # Physical layer (GN model)
     "modulations_csv_filepath": "./xlron/data/modulations/modulations_deeprmsa.csv",
-    "calc_minimum_osnr": False,
+    "calc_minimum_osnr": True,
     "beta_fec": 1.5e-2,
     "fec_rate": 0.8,
     "band_data_filepath": None,
