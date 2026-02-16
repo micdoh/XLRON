@@ -162,7 +162,7 @@ PRESETS = {
         "STEPS_PER_INCREMENT": 100,
         "path_heuristic": "ksp_ff",
         "num_subchannels": 8,
-        "max_power_per_fibre": 20.0,
+        "max_power_per_fibre": 20.1,
         "calc_minimum_osnr": True,
         "modulations_csv_filepath": "./xlron/data/modulations/modulations.csv",
         "band_data_filepath": "./xlron/data/gn_model/band_data_gerard2025.csv",

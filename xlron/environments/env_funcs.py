@@ -3408,7 +3408,8 @@ def init_active_lightpaths_array(params: RSAGNModelEnvParams):
     min_slots = (
         jnp.max(params.values_bw.val) / params.slot_size
     )  # minimum number of slots required for lightpath
-    return jnp.full((int(total_slots / min_slots), 3), -1, dtype=dtype_config.LARGE_INT_DTYPE)
+    max_num_lightpaths = min(int(total_slots / min_slots), params.max_requests)
+    return jnp.full((max_num_lightpaths, 3), -1, dtype=dtype_config.LARGE_INT_DTYPE)
 
 
 def init_active_lightpaths_array_departure(params: RSAGNModelEnvParams):
@@ -3425,7 +3426,8 @@ def init_active_lightpaths_array_departure(params: RSAGNModelEnvParams):
     min_slots = (
         jnp.max(params.values_bw.val) / params.slot_size
     )  # minimum number of slots required for lightpath
-    return jnp.full((int(total_slots / min_slots), 3), 0.0, dtype=dtype_config.SMALL_FLOAT_DTYPE)
+    max_num_lightpaths = min(int(total_slots / min_slots), params.max_requests)
+    return jnp.full((max_num_lightpaths, 3), 0.0, dtype=dtype_config.SMALL_FLOAT_DTYPE)
 
 
 def update_active_lightpaths_array(

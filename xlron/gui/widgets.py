@@ -235,12 +235,11 @@ DEFAULTS = {
 }
 
 ENV_TYPES = [
+    "rwa",
     "rsa",
     "rmsa",
-    "rwa",
     "deeprmsa",
     "rwa_lightpath_reuse",
-    "vone",
     "rsa_gn_model",
     "rmsa_gn_model",
 ]
