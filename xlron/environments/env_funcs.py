@@ -41,7 +41,7 @@ from xlron.environments.diff_utils import (
     differentiable_where,
     straight_through,
 )
-from xlron.environments.gn_model import isrs_gn_model_dra, isrs_gn_model
+from xlron.environments.gn_model import isrs_gn_model, isrs_gn_model_dra
 from xlron.environments.gn_model.isrs_gn_model import from_db
 
 Shape = Sequence[int]
@@ -3821,15 +3821,18 @@ def set_band_gaps(link_slot_array: chex.Array, params: RSAGNModelEnvParams, val:
     mask = jnp.arange(params.link_resources)
     mask = jnp.tile(mask, (params.num_links, 1))
 
-    def set_band_gap(i, arr):
-        gap_start = params.gap_starts.val[i]
-        gap_end = gap_start + params.gap_widths.val[i]
-        condition = jnp.logical_and(arr >= gap_start, arr < gap_end)
-        arr = jnp.where(condition, -one, arr)
-        return arr
+    num_gaps = params.gap_widths.val.shape[0]
+    if num_gaps > 0:
 
-    mask = jax.lax.fori_loop(0, params.gap_widths.val.shape[0], set_band_gap, mask)
-    link_slot_array = jnp.where(mask == -one, val, link_slot_array)
+        def set_band_gap(i, arr):
+            gap_start = params.gap_starts.val[i]
+            gap_end = gap_start + params.gap_widths.val[i]
+            condition = jnp.logical_and(arr >= gap_start, arr < gap_end)
+            arr = jnp.where(condition, -one, arr)
+            return arr
+
+        mask = jax.lax.fori_loop(0, num_gaps, set_band_gap, mask)
+        link_slot_array = jnp.where(mask == -one, val, link_slot_array)
     return link_slot_array
 
 

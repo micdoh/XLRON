@@ -228,7 +228,7 @@ def train(argv: list[str], config: Dict[str, Any] = {}) -> None:
     # Print experiment summary (env_params not yet available; will print after setup)
     print_experiment_summary(config)
 
-    profiler = Profiler(enabled=config.PROFILE)
+    profiler = Profiler(enabled=True)
 
     with profiler.section("COMPILATION"):
         print("\n---BEGINNING COMPILATION---\n")
