@@ -437,7 +437,7 @@ It does not compute Shannon throughput (unlike `rsa_gn_model`).
 
 ## Distributed Raman Amplification (DRA)
 
-XLRON supports an optional Distributed Raman Amplification (DRA) model that replaces the EDFA-only ISRS NLI calculation with a Raman-pump-aware model. When enabled via `--dra`, the nonlinear interference is computed using a 9-mode combination approach that accounts for the frequency-dependent Raman gain profile created by co- and counter-propagating pump lasers.
+XLRON supports an optional Distributed Raman Amplification (DRA) model that replaces the EDFA-only ISRS NLI calculation with a Raman-pump-aware model. When enabled via `--use_raman_amp`, the nonlinear interference is computed using a 9-mode combination approach that accounts for the frequency-dependent Raman gain profile created by co- and counter-propagating pump lasers.
 
 ### Physics Model
 
@@ -462,7 +462,7 @@ Typical values:
 - **Standard single-mode fibre (SMF-28)**: `C_r ~ 2.8e-17` 1/(W*m*Hz) (the default)
 - **Higher-nonlinearity fibres** or effective values used for wideband models may be larger
 
-The triangular approximation is valid within approximately 15 THz of modulated bandwidth. When DRA is enabled, `compute_band_layout` automatically trims bands to fit within `--dra_max_bandwidth_thz` (default 15.0 THz), removing slots from the lowest-priority band first.
+The triangular approximation is valid within approximately 15 THz of modulated bandwidth. When DRA is enabled, `compute_band_layout` automatically trims bands to fit within `--raman_max_bandwidth_thz` (default 15.0 THz), removing slots from the lowest-priority band first.
 
 ### Fitting the DRA Parameters
 
@@ -492,14 +492,14 @@ The entire fitting procedure runs once during `make_env.py` environment creation
 
 ### Enabling DRA
 
-Enable DRA with the `--dra` flag and provide backward (and optionally forward) Raman pump parameters:
+Enable DRA with the `--use_raman_amp` flag and provide backward (and optionally forward) Raman pump parameters:
 
 ```bash
 python -m xlron.train.train \
   --env_type=rsa_gn_model \
   --topology_name=nsfnet_deeprmsa_directed \
   --link_resources=100 --k=5 --load=250 \
-  --continuous_operation --dra \
+  --continuous_operation --use_raman_amp \
   --raman_pump_power_bw=0.3,0.3 \
   --raman_pump_freq_bw=205e12,210e12 \
   --coherent \
@@ -521,7 +521,7 @@ python -m xlron.train.train \
   --slot_size=100 --guardband=0 \
   --band_preference=C,L --slots_per_band=43,47 \
   --inter_band_gap_ghz=500 \
-  --link_resources=91 --dra \
+  --link_resources=91 --use_raman_amp \
   ...
 ```
 
@@ -535,12 +535,12 @@ The current implementation reuses the existing EDFA-based ASE noise calculation 
 
 | Flag | Default | Units | Description |
 |---|---|---|---|
-| `--dra` | False | -- | Enable DRA model for NLI calculation |
+| `--use_raman_amp` | False | -- | Enable DRA model for NLI calculation |
 | `--raman_pump_power_fw` | None | W | Forward pump powers (comma-separated) |
 | `--raman_pump_power_bw` | None | W | Backward pump powers (comma-separated) |
 | `--raman_pump_freq_fw` | None | Hz | Forward pump frequencies (comma-separated) |
 | `--raman_pump_freq_bw` | None | Hz | Backward pump frequencies (comma-separated) |
-| `--dra_max_bandwidth_thz` | 15.0 | THz | Max modulated bandwidth for triangular Raman validity |
+| `--raman_max_bandwidth_thz` | 15.0 | THz | Max modulated bandwidth for triangular Raman validity |
 | `--slots_per_band` | None | -- | Comma-separated slot count per band (e.g. `43,47`) |
 
 

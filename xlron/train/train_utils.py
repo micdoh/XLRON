@@ -1828,11 +1828,20 @@ def get_user_flags(flags) -> dict:
         "alsologtostderr",
         "log_dir",
     }
-    return {
-        name: flags[name].value
-        for name in flags
-        if not flags[name].using_default_value and name not in _ABSL_INTERNAL
-    }
+    result = {}
+    for name in flags:
+        if flags[name].using_default_value or name in _ABSL_INTERNAL:
+            continue
+        val = flags[name].value
+        # Fix list flags that received a stringified Python list like "['0.35', '0.35']"
+        # absl DEFINE_list splits on commas producing fragments like ["['0.35'", " '0.35']"]
+        if isinstance(val, list) and val:
+            joined = ",".join(str(x) for x in val)
+            if "[" in joined or "'" in joined or '"' in joined:
+                cleaned = joined.replace("[", "").replace("]", "").replace("'", "").replace('"', '')
+                val = [p.strip() for p in cleaned.split(",") if p.strip()]
+        result[name] = val
+    return result
 
 
 def _to_python(val):

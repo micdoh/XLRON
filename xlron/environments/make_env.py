@@ -99,6 +99,13 @@ def _calc_modulations_osnr(modulations_array: np.ndarray, beta_fec: float) -> np
         m_prime = int(modulations_array[i, 1])
         modulations_array[i, 2] = _gsnr_threshold_db(beta_fec, m_prime)
     return modulations_array
+    
+
+def convert_str_to_list_of_numerics(flag_val, num_type='float'):
+    if flag_val is not None:
+        return [float(x) if num_type=='float' else int(x) for x in flag_val.split(",")]
+    else:
+        return [0]
 
 
 def process_config(config: Optional[Union[dict, FlagValues]], **kwargs: Any) -> Box:
@@ -221,7 +228,7 @@ def make(
     values_bw = config.get("values_bw", None)
     node_probabilities = config.get("node_probabilities", None)
     if values_bw:
-        values_bw = [int(val) for val in values_bw]
+        values_bw = convert_str_to_list_of_numerics(values_bw, num_type='int')
     slot_size = config.get("slot_size", 12.5)
     min_bw = config.get("min_bw", 25)
     max_bw = config.get("max_bw", 100)
@@ -254,7 +261,8 @@ def make(
     node_resources = config.get("node_resources", 30)
     min_node_resources = config.get("min_node_resources", 1)
     max_node_resources = config.get("max_node_resources", 2)
-    virtual_topologies = config.get("virtual_topologies", ["3_ring"])
+    virtual_topologies = config.get("virtual_topologies", "3_ring")
+    virtual_topologies = virtual_topologies.split(",")
     # Automated calculation of max edges in virtual topologies
     max_edges = 0
     for topology in virtual_topologies:
@@ -268,7 +276,7 @@ def make(
     # 1447.5nm for centre of C-band (1530-1565nm)
     # Partial S-band is 1503-1530nm = 195.94 - 199.46THz = 3.52THz
     # C-band is 1530-1565nm = 191.56 - 195.94THz = 4.24THz
-    nonlinear_coeff = config.get("nonlinear_coeff", 1.2 / 1e3)
+    nonlinear_coeff = config.get("nonlinear_coefficient", 1.2 / 1e3)
     raman_gain_slope = config.get("raman_gain_slope", 0.028 / 1e3 / 1e12)
     if raman_gain_slope > 1e-10:
         warnings.warn(
@@ -293,7 +301,7 @@ def make(
     if band_preference is not None and env_type in ("rsa_gn_model", "rmsa_gn_model"):
         # GN model envs always enforce band gaps via compute_band_layout
         raman_max_bw_ghz = (
-            config.get("dra_max_bandwidth_thz", 15.0) * 1e3 if use_raman_amp else None
+            config.get("raman_max_bandwidth_thz", 15.0) * 1e3 if use_raman_amp else None
         )
         _band_layout = compute_band_layout(
             slot_size,
@@ -429,7 +437,7 @@ def make(
         traffic_matrix = normalise_traffic_matrix(traffic_matrix)
     elif node_probabilities:
         random_traffic = False  # Set this False so that traffic matrix isn't replaced on reset
-        node_probabilities = [float(prob) for prob in config.get("node_probs")]
+        node_probabilities = convert_str_to_list_of_numerics(config.get("node_probs"))
         traffic_matrix = convert_node_probs_to_traffic_matrix(node_probabilities)
     elif traffic_array:
         traffic_matrix = generate_source_dest_pairs(num_nodes, graph.is_directed())
@@ -789,32 +797,14 @@ def make(
         # Distributed Raman Amplification configuration
         if use_raman_amp:
             # Parse pump power/frequency lists from CLI
-            raman_pump_power_fw = config.get("raman_pump_power_fw", None)
-            raman_pump_power_bw = config.get("raman_pump_power_bw", None)
-            raman_pump_freq_fw = config.get("raman_pump_freq_fw", None)
-            raman_pump_freq_bw = config.get("raman_pump_freq_bw", None)
-
-            pump_pow_fw = (
-                np.array([float(x) for x in raman_pump_power_fw])
-                if raman_pump_power_fw
-                else np.zeros(1)
-            )
-            pump_pow_bw = (
-                np.array([float(x) for x in raman_pump_power_bw])
-                if raman_pump_power_bw
-                else np.zeros(1)
-            )
-            pump_freq_fw = (
-                np.array([float(x) for x in raman_pump_freq_fw])
-                if raman_pump_freq_fw
-                else np.zeros(1)
-            )
-            pump_freq_bw = (
-                np.array([float(x) for x in raman_pump_freq_bw])
-                if raman_pump_freq_bw
-                else np.zeros(1)
-            )
-
+            pump_pow_fw = config.get("raman_pump_power_fw", None)
+            pump_pow_bw = config.get("raman_pump_power_bw", None)
+            pump_freq_fw = config.get("raman_pump_freq_fw", None)
+            pump_freq_bw = config.get("raman_pump_freq_bw", None)
+            pump_pow_fw = np.array(convert_str_to_list_of_numerics(pump_pow_fw))
+            pump_pow_bw = np.array(convert_str_to_list_of_numerics(pump_pow_bw))
+            pump_freq_fw = np.array(convert_str_to_list_of_numerics(pump_freq_fw))
+            pump_freq_bw = np.array(convert_str_to_list_of_numerics(pump_freq_bw))
             # Tile to (max_spans, num_pumps) — uniform pumps per span
             pump_pow_fw_arr = np.tile(pump_pow_fw, (max_spans, 1))
             pump_pow_bw_arr = np.tile(pump_pow_bw, (max_spans, 1))
@@ -839,12 +829,12 @@ def make(
             # Validate bandwidth when no band_preference is set
             if band_preference is None:
                 total_bw_ghz = link_resources * slot_size
-                raman_max_bw_thz = config.get("dra_max_bandwidth_thz", 15.0)
+                raman_max_bw_thz = config.get("raman_max_bandwidth_thz", 15.0)
                 if total_bw_ghz > raman_max_bw_thz * 1e3:
                     print(
                         f"WARNING: Raman amplification enabled but total bandwidth "
                         f"({total_bw_ghz:.0f} GHz) exceeds "
-                        f"dra_max_bandwidth_thz ({raman_max_bw_thz} THz). "
+                        f"raman_max_bandwidth_thz ({raman_max_bw_thz} THz). "
                         f"Triangular Raman approximation may be inaccurate."
                     )
         else:

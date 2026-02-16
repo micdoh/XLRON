@@ -212,12 +212,12 @@ DEFAULTS = {
     "power_per_channel": None,
     "inter_band_gap_ghz": 25.0,
     "num_subchannels": 1,
-    "dra": False,
+    "use_raman_amp": False,
     "raman_pump_power_fw": None,
     "raman_pump_power_bw": None,
     "raman_pump_freq_fw": None,
     "raman_pump_freq_bw": None,
-    "dra_max_bandwidth_thz": 15.0,
+    "raman_max_bandwidth_thz": 15.0,
     # Differentiable
     "differentiable": False,
     "temperature": 1.0,
@@ -547,7 +547,7 @@ def traffic_section() -> dict:
 
         values_bw = st.text_input(
             "Bandwidth Values (comma-separated, leave blank for default)",
-            value="",
+            value=str(_get_preset_val("values_bw") or ""),
             help=_h("values_bw"),
         )
         if values_bw.strip():
@@ -1267,54 +1267,63 @@ def physical_layer_section() -> dict:
             "Max Modulated Bandwidth (THz)",
             min_value=1.0,
             max_value=100.0,
-            value=float(_get_preset_val("dra_max_bandwidth_thz")),
+            value=float(_get_preset_val("raman_max_bandwidth_thz")),
             step=1.0,
             format="%.1f",
             help="Maximum modulated bandwidth for triangular Raman approximation validity. "
             "Bands are trimmed to fit within this limit when band_preference is set.",
         )
-        _emit(flags, "dra_max_bandwidth_thz", raman_max_bw)
+        _emit(flags, "raman_max_bandwidth_thz", raman_max_bw)
+
+        def _list_val(key):
+            """Get preset value as a comma-separated string for text_input."""
+            v = _get_preset_val(key)
+            if v is None:
+                return ""
+            if isinstance(v, str):
+                return v
+            return ",".join(str(x) for x in v)
 
         col_fw, col_bw = st.columns(2)
         with col_fw:
             st.markdown("**Forward Pumps**")
             fw_pow = st.text_input(
                 "Pump Powers (W, comma-sep)",
-                value=",".join(_get_preset_val("raman_pump_power_fw") or []),
+                value=_list_val("raman_pump_power_fw"),
                 help="Forward Raman pump powers in Watts, comma-separated.",
                 key="dra_fw_pow",
             )
             if fw_pow.strip():
-                flags["raman_pump_power_fw"] = [x.strip() for x in fw_pow.split(",")]
+                flags["raman_pump_power_fw"] = fw_pow.strip()
 
             fw_freq = st.text_input(
                 "Pump Frequencies (Hz, comma-sep)",
-                value=",".join(_get_preset_val("raman_pump_freq_fw") or []),
+                value=_list_val("raman_pump_freq_fw"),
                 help="Forward Raman pump frequencies in Hz, comma-separated.",
                 key="dra_fw_freq",
             )
             if fw_freq.strip():
-                flags["raman_pump_freq_fw"] = [x.strip() for x in fw_freq.split(",")]
+                flags["raman_pump_freq_fw"] = fw_freq.strip()
 
         with col_bw:
             st.markdown("**Backward Pumps**")
             bw_pow = st.text_input(
                 "Pump Powers (W, comma-sep)",
-                value=",".join(_get_preset_val("raman_pump_power_bw") or []),
+                value=_list_val("raman_pump_power_bw"),
                 help="Backward Raman pump powers in Watts, comma-separated.",
                 key="dra_bw_pow",
             )
             if bw_pow.strip():
-                flags["raman_pump_power_bw"] = [x.strip() for x in bw_pow.split(",")]
+                flags["raman_pump_power_bw"] = bw_pow.strip()
 
             bw_freq = st.text_input(
                 "Pump Frequencies (Hz, comma-sep)",
-                value=",".join(_get_preset_val("raman_pump_freq_bw") or []),
+                value=_list_val("raman_pump_freq_bw"),
                 help="Backward Raman pump frequencies in Hz, comma-separated.",
                 key="dra_bw_freq",
             )
             if bw_freq.strip():
-                flags["raman_pump_freq_bw"] = [x.strip() for x in bw_freq.split(",")]
+                flags["raman_pump_freq_bw"] = bw_freq.strip()
 
     return flags
 

@@ -97,7 +97,7 @@ def compute_topology_stats(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Compute XLRON topology graph statistics")
-    parser.add_argument("--output", default="benchmarks/topology_stats.csv", help="Output CSV path")
+    parser.add_argument("--output", default="benchmarks/results/topology_stats.csv", help="Output CSV path")
     parser.add_argument(
         "--topologies", default=None, help="Comma-separated topology names (default: all)"
     )

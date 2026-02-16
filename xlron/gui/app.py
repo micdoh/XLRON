@@ -100,12 +100,15 @@ def build_command(all_flags: dict) -> str:
             continue
         if value is True:
             parts.append(f"--{key}")
+        elif isinstance(value, list):
+            parts.append(f"--{key}={','.join(str(v) for v in value)}")
         elif isinstance(value, float):
-            # Use scientific notation for large/small values
-            if abs(value) >= 1e6 or (0 < abs(value) < 1e-3):
-                parts.append(f"--{key}={value:.0e}")
-            elif value == int(value):
+            if value == int(value):
+                # Whole floats as integers for readability (100.0 → 100)
                 parts.append(f"--{key}={int(value)}")
+            elif abs(value) >= 1e6 or (0 < abs(value) < 1e-3):
+                # Scientific notation with enough precision (use g to trim trailing zeros)
+                parts.append(f"--{key}={value:.6g}")
             else:
                 parts.append(f"--{key}={value}")
         else:
@@ -173,6 +176,9 @@ all_flags: dict = {}
 # Initialize preset if not set
 if "_loaded_preset" not in st.session_state:
     st.session_state["_loaded_preset"] = {}
+
+# Seed with preset values so flags without widgets are still included in the command
+all_flags.update(st.session_state.get("_loaded_preset", {}))
 
 col_widgets, col_output = st.columns([3, 2])
 

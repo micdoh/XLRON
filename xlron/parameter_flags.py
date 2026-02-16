@@ -320,7 +320,7 @@ flags.DEFINE_float(
 flags.DEFINE_integer("min_bw", 25, "Minimum requested bandwidth")
 flags.DEFINE_integer("max_bw", 100, "Maximum requested bandwidth")
 flags.DEFINE_integer("step_bw", 1, "Step size for requested bandwidth values between min and max")
-flags.DEFINE_list("values_bw", None, "List of requested bandwidth values")
+flags.DEFINE_string("values_bw", None, "List of requested bandwidth values")
 flags.DEFINE_float("slot_size", 12.5, "Spectral width of frequency slot in GHz")
 flags.DEFINE_boolean(
     "incremental_loading",
@@ -427,10 +427,10 @@ flags.DEFINE_float("span_length", 100, "Span length [km]")
 flags.DEFINE_float("lambda0", 1550, "Wavelength [nm]")
 # VONE-specific environment parameters
 flags.DEFINE_integer("node_resources", 4, "Number of node resources")
-flags.DEFINE_list("virtual_topologies", "3_ring", "Virtual topologies")
+flags.DEFINE_string("virtual_topologies", "3_ring", "Virtual topologies")
 flags.DEFINE_integer("min_node_resources", 1, "Minimum number of node resources")
 flags.DEFINE_integer("max_node_resources", 1, "Maximum number of node resources")
-flags.DEFINE_list("node_probs", None, "List of node probabilities for selection")
+flags.DEFINE_string("node_probs", None, "List of node probabilities for selection")
 # Heuristic-specific parameters
 flags.DEFINE_boolean("EVAL_HEURISTIC", False, "Evaluate heuristic")
 flags.DEFINE_string("path_heuristic", "ksp_ff", "Path heuristic to be evaluated")
@@ -636,28 +636,28 @@ flags.DEFINE_integer(
 flags.DEFINE_boolean(
     "use_raman_amp", False, "Enable Distributed Raman Amplification model for NLI calculation"
 )
-flags.DEFINE_list(
+flags.DEFINE_string(
     "raman_pump_power_fw",
     None,
     "Forward Raman pump powers in Watts (comma-separated, one per pump)",
 )
-flags.DEFINE_list(
+flags.DEFINE_string(
     "raman_pump_power_bw",
     None,
     "Backward Raman pump powers in Watts (comma-separated, one per pump)",
 )
-flags.DEFINE_list(
+flags.DEFINE_string(
     "raman_pump_freq_fw",
     None,
     "Forward Raman pump frequencies in Hz (comma-separated, one per pump)",
 )
-flags.DEFINE_list(
+flags.DEFINE_string(
     "raman_pump_freq_bw",
     None,
     "Backward Raman pump frequencies in Hz (comma-separated, one per pump)",
 )
 flags.DEFINE_float(
-    "dra_max_bandwidth_thz",
+    "raman_max_bandwidth_thz",
     15.0,
     "Maximum modulated bandwidth in THz for DRA triangular Raman approximation validity. "
     "When DRA is enabled, bands are trimmed to fit within this limit.",
