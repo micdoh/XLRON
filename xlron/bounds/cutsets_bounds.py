@@ -28,6 +28,7 @@ from xlron.environments.env_funcs import (
 )
 from xlron.environments.make_env import make
 from xlron.environments.wrappers import Profiler, TimeIt
+from xlron.train.train_utils import build_run_summary, get_user_flags, write_run_summary
 
 FLAGS = flags.FLAGS
 
@@ -910,7 +911,7 @@ def run_capacity_bound_simulation(
         }
 
     profiler.summary()
-    return results
+    return results, profiler
 
 
 def print_results_table(results):
@@ -939,6 +940,7 @@ def print_results_table(results):
 
 
 def main(argv):
+    user_flags = get_user_flags(FLAGS)
     print(f"Available devices: {jax.devices()}")
     print(f"Local devices: {jax.local_devices()}")
 
@@ -1123,7 +1125,7 @@ def main(argv):
     # --- Run capacity bound simulation ---
     loads = np.array([FLAGS.load])
 
-    results = run_capacity_bound_simulation(
+    results, sim_profiler = run_capacity_bound_simulation(
         heavy_cut_sets=heavy_cut_sets,
         env=raw_env,
         params=params,
@@ -1137,58 +1139,64 @@ def main(argv):
 
     print_results_table(results)
 
-    # Print summary statistics for each load (parseable by shell scripts)
+    # Build and write standardized run summary for each load
     for load in sorted(results.keys()):
         r = results[load]
         bp = r["blocking_prob"]
         bbp = r["bitrate_blocking_prob"]
 
-        bp_mean = float(np.mean(bp))
-        bp_std = float(np.std(bp))
-        bp_iqr_lower = float(np.nanpercentile(bp, 25))
-        bp_iqr_upper = float(np.nanpercentile(bp, 75))
+        metrics_dict = {
+            "service_blocking_probability": {
+                "mean": float(np.mean(bp)),
+                "std": float(np.std(bp)),
+                "iqr_lower": float(np.nanpercentile(bp, 25)),
+                "iqr_upper": float(np.nanpercentile(bp, 75)),
+            },
+            "bitrate_blocking_probability": {
+                "mean": float(np.mean(bbp)),
+                "std": float(np.std(bbp)),
+                "iqr_lower": float(np.nanpercentile(bbp, 25)),
+                "iqr_upper": float(np.nanpercentile(bbp, 75)),
+            },
+            "accepted_count": {
+                "mean": float(np.mean(r["accepted"])),
+                "std": float(np.std(r["accepted"])),
+                "iqr_lower": float(np.nanpercentile(r["accepted"], 25)),
+                "iqr_upper": float(np.nanpercentile(r["accepted"], 75)),
+            },
+            "blocked_count": {
+                "mean": float(np.mean(r["blocked"])),
+                "std": float(np.std(r["blocked"])),
+                "iqr_lower": float(np.nanpercentile(r["blocked"], 25)),
+                "iqr_upper": float(np.nanpercentile(r["blocked"], 75)),
+            },
+            "always_accepted_count": {
+                "mean": float(np.mean(r["always_accepted"])),
+                "std": float(np.std(r["always_accepted"])),
+                "iqr_lower": float(np.nanpercentile(r["always_accepted"], 25)),
+                "iqr_upper": float(np.nanpercentile(r["always_accepted"], 75)),
+            },
+        }
 
-        bbp_mean = float(np.mean(bbp))
-        bbp_std = float(np.std(bbp))
-        bbp_iqr_lower = float(np.nanpercentile(bbp, 25))
-        bbp_iqr_upper = float(np.nanpercentile(bbp, 75))
+        # Extract timing from profiler for this load
+        timing = {}
+        comp_key = f"COMPILATION (load={load:.0f})"
+        exec_key = f"EXECUTION (load={load:.0f})"
+        if comp_key in sim_profiler._records:
+            timing["compilation_time_s"] = sum(e for e, _ in sim_profiler._records[comp_key])
+        if exec_key in sim_profiler._records:
+            exec_entries = sim_profiler._records[exec_key]
+            timing["execution_time_s"] = sum(e for e, _ in exec_entries)
+            total_frames = sum(f for _, f in exec_entries if f is not None)
+            if total_frames and timing["execution_time_s"] > 0:
+                timing["fps"] = total_frames / timing["execution_time_s"]
 
-        accepted_mean = float(np.mean(r["accepted"]))
-        accepted_std = float(np.std(r["accepted"]))
-        accepted_iqr_lower = float(np.nanpercentile(r["accepted"], 25))
-        accepted_iqr_upper = float(np.nanpercentile(r["accepted"], 75))
+        # Override load in config for this specific run
+        run_config = dict(user_flags)
+        run_config["load"] = load
 
-        blocked_mean = float(np.mean(r["blocked"]))
-        blocked_std = float(np.std(r["blocked"]))
-        blocked_iqr_lower = float(np.nanpercentile(r["blocked"], 25))
-        blocked_iqr_upper = float(np.nanpercentile(r["blocked"], 75))
-
-        always_accepted_mean = float(np.mean(r["always_accepted"]))
-        always_accepted_std = float(np.std(r["always_accepted"]))
-        always_accepted_iqr_lower = float(np.nanpercentile(r["always_accepted"], 25))
-        always_accepted_iqr_upper = float(np.nanpercentile(r["always_accepted"], 75))
-
-        print(f"\n=== SUMMARY load={load:.1f} ===")
-        print(f"Blocking Probability mean: {bp_mean:.8f}")
-        print(f"Blocking Probability std: {bp_std:.8f}")
-        print(f"Blocking Probability IQR lower: {bp_iqr_lower:.8f}")
-        print(f"Blocking Probability IQR upper: {bp_iqr_upper:.8f}")
-        print(f"Bitrate Blocking Probability mean: {bbp_mean:.8f}")
-        print(f"Bitrate Blocking Probability std: {bbp_std:.8f}")
-        print(f"Bitrate Blocking Probability IQR lower: {bbp_iqr_lower:.8f}")
-        print(f"Bitrate Blocking Probability IQR upper: {bbp_iqr_upper:.8f}")
-        print(f"Accepted Count mean: {accepted_mean:.5f}")
-        print(f"Accepted Count std: {accepted_std:.5f}")
-        print(f"Accepted Count IQR lower: {accepted_iqr_lower:.5f}")
-        print(f"Accepted Count IQR upper: {accepted_iqr_upper:.5f}")
-        print(f"Blocked Count mean: {blocked_mean:.5f}")
-        print(f"Blocked Count std: {blocked_std:.5f}")
-        print(f"Blocked Count IQR lower: {blocked_iqr_lower:.5f}")
-        print(f"Blocked Count IQR upper: {blocked_iqr_upper:.5f}")
-        print(f"Always Accepted Count mean: {always_accepted_mean:.5f}")
-        print(f"Always Accepted Count std: {always_accepted_std:.5f}")
-        print(f"Always Accepted Count IQR lower: {always_accepted_iqr_lower:.5f}")
-        print(f"Always Accepted Count IQR upper: {always_accepted_iqr_upper:.5f}")
+        summary = build_run_summary("cutset_bound", run_config, metrics_dict, timing=timing or None)
+        write_run_summary(summary, FLAGS.DATA_OUTPUT_FILE, print_to_console=True)
 
 
 if __name__ == "__main__":

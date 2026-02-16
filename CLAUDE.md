@@ -25,10 +25,10 @@ python -m xlron.bounds.cutsets_bounds --topology_name=nsfnet_deeprmsa_directed -
 python xlron/bounds/reconfigurable_routing_bounds.py --topology_name=nsfnet_deeprmsa_directed --env_type=rmsa --link_resources=100 --k=50 --load=250 --continuous_operation --path_heuristic=ksp_ff --TOTAL_TIMESTEPS=13000 --NUM_ENVS=1 --COMPILE_RR_BOUNDS
 
 # Run tests
-pytest tests/
+pytest .
 
 # Run single test file
-pytest tests/test_env_funcs.py -v
+pytest xlron/environments/env_funcs_test.py -v
 ```
 
 ## Architecture
@@ -160,7 +160,8 @@ Uses `get_eval_fn` with a loaded model (`--MODEL_PATH`). Runs the trained policy
 ### Logging
 - `--WANDB` - Log to Weights & Biases
 - `--SAVE_MODEL` / `--MODEL_PATH` - Save/load models
-- `--DATA_OUTPUT_FILE` - Save per-episode metrics to CSV
+- `--DATA_OUTPUT_FILE` - Save JSONL run summary (one JSON object per line with config, metrics, timing)
+- `--EPISODE_DATA_OUTPUT_FILE` - Save per-episode metrics to CSV (formerly `DATA_OUTPUT_FILE`)
 - `--DOWNSAMPLE_FACTOR` - Block-average N data points before uploading to W&B
 - `--ENHANCED_LOGGING` - Detailed PPO diagnostics (valid_frac, clip_frac, ratio stats, etc.)
 - `--LOG_LOSS_INFO` - Log loss metrics (default: True)

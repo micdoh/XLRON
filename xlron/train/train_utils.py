@@ -1,3 +1,4 @@
+import datetime
 import json
 import math
 import os
@@ -1609,7 +1610,8 @@ def plot_metrics(
     ax.set_title(experiment_name)
 
     # Save to file; show interactively only if backend supports it
-    save_dir = os.path.dirname(config.DATA_OUTPUT_FILE) if config.DATA_OUTPUT_FILE else "."
+    output_file = config.get("EPISODE_DATA_OUTPUT_FILE") or config.get("DATA_OUTPUT_FILE")
+    save_dir = os.path.dirname(output_file) if output_file else "."
     save_path = os.path.join(save_dir, f"{experiment_name}_plot.png")
     fig.savefig(save_path, dpi=150, bbox_inches="tight")
     print(f"Plot saved to {save_path}")
@@ -1793,35 +1795,188 @@ def log_actions(merged_out, processed_data, config):
         )
 
 
-def print_metrics(
-    processed_data: Dict[str, Dict[str, Array]], config: Union[Box, Dict[str, Any]]
+def get_user_flags(flags) -> dict:
+    """Extract only explicitly-set (non-default) flags from absl FlagValues.
+
+    Args:
+        flags: absl.flags.FlagValues instance.
+
+    Returns:
+        Dict of {flag_name: value} for flags that were set on the command line.
+    """
+    # Filter out absl internal flags (v, verbosity, etc.)
+    _ABSL_INTERNAL = {
+        "v",
+        "verbosity",
+        "logger_levels",
+        "stderrthreshold",
+        "showprefixforinfo",
+        "run_with_pdb",
+        "pdb_post_mortem",
+        "run_with_profiling",
+        "profile_file",
+        "use_cprofile_for_profiling",
+        "only_check_args",
+        "?",
+        "help",
+        "helpshort",
+        "helpfull",
+        "helpxml",
+        "flagfile",
+        "undefok",
+        "logtostderr",
+        "alsologtostderr",
+        "log_dir",
+    }
+    return {
+        name: flags[name].value
+        for name in flags
+        if not flags[name].using_default_value and name not in _ABSL_INTERNAL
+    }
+
+
+def _to_python(val):
+    """Convert JAX/numpy scalars and arrays to plain Python types for JSON serialization."""
+    if hasattr(val, "item"):
+        return val.item()
+    if isinstance(val, (np.floating, np.integer)):
+        return val.item()
+    return val
+
+
+def build_run_summary(
+    run_type: str,
+    config: dict,
+    metrics_dict: Dict[str, Dict[str, float]],
+    timing: Dict[str, float] | None = None,
+) -> dict:
+    """Build a standardized run summary dictionary.
+
+    Args:
+        run_type: One of "rl_training", "heuristic_eval", "model_eval",
+                  "cutset_bound", "reconfigurable_routing_bound".
+        config: Dict of user-specified flags (from get_user_flags).
+        metrics_dict: {metric_name: {"mean": ..., "std": ..., "iqr_lower": ..., "iqr_upper": ...}}.
+        timing: Optional dict with "compilation_time_s", "execution_time_s", "fps".
+
+    Returns:
+        A dictionary ready for json.dumps serialization.
+    """
+    # Convert all config values to JSON-safe types
+    safe_config = {}
+    for k, v in config.items():
+        try:
+            json.dumps(v)
+            safe_config[k] = v
+        except (TypeError, ValueError):
+            safe_config[k] = str(v)
+
+    # Convert all metric values to plain Python floats
+    safe_metrics = {}
+    for metric_name, stats in metrics_dict.items():
+        safe_metrics[metric_name] = {
+            stat_name: _to_python(stat_val) for stat_name, stat_val in stats.items()
+        }
+
+    summary = {
+        "run_type": run_type,
+        "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "config": safe_config,
+        "metrics": safe_metrics,
+    }
+
+    if timing:
+        summary["timing"] = {k: _to_python(v) for k, v in timing.items()}
+
+    return summary
+
+
+def write_run_summary(
+    summary: dict,
+    output_file: str | None = None,
+    print_to_console: bool = True,
 ) -> None:
-    # Print the final metrics to console
+    """Print and/or write a run summary.
+
+    Args:
+        summary: The dict returned by build_run_summary().
+        output_file: If not None, append as one JSON line to this file.
+        print_to_console: If True, print a human-readable summary to stdout.
+    """
+    if print_to_console:
+        print("\n" + "=" * 70)
+        print("XLRON Run Summary")
+        print("=" * 70)
+        print(f"{'Run type:':<22s} {summary['run_type']}")
+        print(f"{'Timestamp:':<22s} {summary['timestamp']}")
+        if summary.get("timing"):
+            t = summary["timing"]
+            if t.get("compilation_time_s") is not None:
+                print(f"{'Compilation time:':<22s} {t['compilation_time_s']:.2f}s")
+            if t.get("execution_time_s") is not None:
+                print(f"{'Execution time:':<22s} {t['execution_time_s']:.2f}s")
+            if t.get("fps") is not None:
+                print(f"{'FPS:':<22s} {t['fps']:.2f}")
+        print("-" * 70)
+        print("Config:")
+        for k, v in summary["config"].items():
+            print(f"  {k:<28s} {v}")
+        print("-" * 70)
+        print(f"{'Metric':<40s} {'Mean':>12s} {'Std':>12s} {'IQR Lower':>12s} {'IQR Upper':>12s}")
+        print("-" * 70)
+        for metric_name, stats in summary["metrics"].items():
+            mean = stats.get("mean", float("nan"))
+            std = stats.get("std", float("nan"))
+            iqr_lower = stats.get("iqr_lower", float("nan"))
+            iqr_upper = stats.get("iqr_upper", float("nan"))
+            print(
+                f"{metric_name:<40s} {mean:>12.5f} {std:>12.5f} {iqr_lower:>12.5f} {iqr_upper:>12.5f}"
+            )
+        print("=" * 70)
+
+    if output_file:
+        os.makedirs(os.path.dirname(output_file) or ".", exist_ok=True)
+        with open(output_file, "a") as f:
+            f.write(json.dumps(summary) + "\n")
+        print(f"Run summary appended to {output_file}")
+
+
+def print_metrics(
+    processed_data: Dict[str, Dict[str, Array]],
+    config: Union[Box, Dict[str, Any]],
+    user_flags: dict | None = None,
+    timing: Dict[str, float] | None = None,
+) -> None:
+    """Print final metrics as a standardized run summary and optionally write JSONL."""
+    # Determine run type
+    if config.get("EVAL_HEURISTIC"):
+        run_type = "heuristic_eval"
+    elif config.get("EVAL_MODEL"):
+        run_type = "model_eval"
+    else:
+        run_type = "rl_training"
+
+    # Extract final scalar stats from processed_data
+    metrics_dict = {}
     for metric in processed_data.keys():
         if config.get("continuous_operation", False):
-            print(
-                f"{metric}: {processed_data[metric]['mean'][-1].astype(np.float32):.5f} ± {processed_data[metric]['std'][-1].astype(np.float32):.5f}"
-            )
-            print(f"{metric} mean: {processed_data[metric]['mean'][-1].astype(np.float32):.5f}")
-            print(f"{metric} std: {processed_data[metric]['std'][-1].astype(np.float32):.5f}")
-            print(
-                f"{metric} IQR lower: {processed_data[metric]['iqr_lower'][-1].astype(np.float32):.5f}"
-            )
-            print(
-                f"{metric} IQR upper: {processed_data[metric]['iqr_upper'][-1].astype(np.float32):.5f}"
-            )
+            metrics_dict[metric] = {
+                "mean": float(processed_data[metric]["mean"][-1]),
+                "std": float(processed_data[metric]["std"][-1]),
+                "iqr_lower": float(processed_data[metric]["iqr_lower"][-1]),
+                "iqr_upper": float(processed_data[metric]["iqr_upper"][-1]),
+            }
         else:
-            print(
-                f"{metric}: {processed_data[metric]['episode_end_mean'].mean():.5f} ± {processed_data[metric]['episode_end_std'].mean():.5f}"
-            )
-            print(f"{metric} mean: {processed_data[metric]['episode_end_mean'].mean():.5f}")
-            print(f"{metric} std: {processed_data[metric]['episode_end_std'].mean():.5f}")
-            print(
-                f"{metric} IQR lower: {processed_data[metric]['episode_end_iqr_lower'].mean():.5f}"
-            )
-            print(
-                f"{metric} IQR upper: {processed_data[metric]['episode_end_iqr_upper'].mean():.5f}"
-            )
+            metrics_dict[metric] = {
+                "mean": float(processed_data[metric]["episode_end_mean"].mean()),
+                "std": float(processed_data[metric]["episode_end_std"].mean()),
+                "iqr_lower": float(processed_data[metric]["episode_end_iqr_lower"].mean()),
+                "iqr_upper": float(processed_data[metric]["episode_end_iqr_upper"].mean()),
+            }
+
+    run_config = user_flags if user_flags is not None else {}
+    summary = build_run_summary(run_type, run_config, metrics_dict, timing=timing)
+    write_run_summary(summary, config.get("DATA_OUTPUT_FILE"), print_to_console=True)
 
 
 def log_metrics(
@@ -1851,8 +2006,8 @@ def log_metrics(
         ]
 
     with TimeIt("Logging metrics"):
-        if config.DATA_OUTPUT_FILE:
-            print("Saving metrics to file")
+        if config.get("EPISODE_DATA_OUTPUT_FILE"):
+            print("Saving episode metrics to file")
             # Save episode end metrics to file
             episode_end_df = pd.DataFrame(
                 {
@@ -1867,12 +2022,12 @@ def log_metrics(
                 }
             )
             # Check if data output file exists
-            write_headers = not os.path.exists(config.DATA_OUTPUT_FILE)
+            write_headers = not os.path.exists(config.EPISODE_DATA_OUTPUT_FILE)
             episode_end_df.to_csv(
-                config.DATA_OUTPUT_FILE, mode="a", header=write_headers, index=False
+                config.EPISODE_DATA_OUTPUT_FILE, mode="a", header=write_headers, index=False
             )
             # Pickle merged_out for further analysis
-            with open(config.DATA_OUTPUT_FILE.replace(".csv", ".pkl"), "wb") as f:
+            with open(config.EPISODE_DATA_OUTPUT_FILE.replace(".csv", ".pkl"), "wb") as f:
                 pickle.dump(merged_out, f)
 
         if config.WANDB:

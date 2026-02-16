@@ -32,6 +32,7 @@ from xlron.parameter_flags import *  # noqa: F403,F401  # Ignore linter warnings
 from xlron.train.ppo import get_learner_fn
 from xlron.train.train_utils import (
     experiment_data_setup,
+    get_user_flags,
     load_model,
     log_actions,
     log_metrics,
@@ -138,6 +139,8 @@ def identify_default_device(
 
 def train(argv: list[str], config: Dict[str, Any] = {}) -> None:
     flags = FLAGS if not config else config
+    # Capture explicitly-set flags before process_config converts them
+    user_flags = get_user_flags(FLAGS) if flags is FLAGS else dict(config)
     config = process_config(flags)
     config.log_wrapper = True  # Always use log wrapper for training
     # Initialize dtypes based on flags
@@ -416,7 +419,23 @@ def train(argv: list[str], config: Dict[str, Any] = {}) -> None:
     if config.PROFILE:
         jit_profiler.summary()
 
-    print_metrics(processed_data_all, config)
+    # Build timing info from profiler records
+    timing = {}
+    if "COMPILATION" in profiler._records:
+        timing["compilation_time_s"] = sum(e for e, _ in profiler._records["COMPILATION"])
+    execution_entries = [
+        (e, f)
+        for tag, entries in profiler._records.items()
+        if tag.startswith("EXECUTION")
+        for e, f in entries
+    ]
+    if execution_entries:
+        timing["execution_time_s"] = sum(e for e, _ in execution_entries)
+        total_frames = sum(f for _, f in execution_entries if f is not None)
+        if total_frames and timing["execution_time_s"] > 0:
+            timing["fps"] = total_frames / timing["execution_time_s"]
+
+    print_metrics(processed_data_all, config, user_flags=user_flags, timing=timing or None)
     if config.PLOTTING:
         plot_metrics(experiment_name, processed_data_all, config)
     if config.log_actions:

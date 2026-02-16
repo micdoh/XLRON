@@ -56,8 +56,8 @@ from xlron.environments.env_funcs import (
     pad_array,
     required_slots,
 )
-from xlron.environments.gn_model.isrs_gn_model_dra import fit_dra_params_triangular
 from xlron.environments.gn_model.isrs_gn_model import from_dbm
+from xlron.environments.gn_model.isrs_gn_model_dra import fit_dra_params_triangular
 from xlron.environments.wrappers import LogWrapper
 
 
@@ -112,6 +112,23 @@ def process_config(config: Optional[Union[dict, FlagValues]], **kwargs: Any) -> 
     # if kwargs are passed, then include them in config
     config.update(kwargs)
     config = Box(config)
+    # Backward compatibility: if EPISODE_DATA_OUTPUT_FILE is not set but DATA_OUTPUT_FILE
+    # points to a .csv file, treat it as the old per-episode CSV output path.
+    if (
+        not config.get("EPISODE_DATA_OUTPUT_FILE")
+        and config.get("DATA_OUTPUT_FILE")
+        and config.DATA_OUTPUT_FILE.endswith(".csv")
+    ):
+        import warnings
+
+        warnings.warn(
+            "--DATA_OUTPUT_FILE with .csv extension is deprecated for per-episode CSV output. "
+            "Use --EPISODE_DATA_OUTPUT_FILE instead. --DATA_OUTPUT_FILE now writes JSONL run summaries.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        config.EPISODE_DATA_OUTPUT_FILE = config.DATA_OUTPUT_FILE
+        config.DATA_OUTPUT_FILE = None
     # This if statement is just to ensure compatibility with some tests that don't define all config options
     if config.get("TOTAL_TIMESTEPS", False):
         config.TOTAL_TIMESTEPS = int(config.TOTAL_TIMESTEPS)

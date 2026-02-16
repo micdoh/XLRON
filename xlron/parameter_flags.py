@@ -126,7 +126,10 @@ flags.DEFINE_integer("DOWNSAMPLE_FACTOR", 1, "Downsample factor to reduce data u
 flags.DEFINE_boolean("DISABLE_JIT", False, "Disable JIT compilation")
 flags.DEFINE_boolean("ENABLE_X64", False, "Enable x64 floating point precision")
 flags.DEFINE_boolean("ACTION_MASKING", True, "Use invalid action masking")
-flags.DEFINE_string("DATA_OUTPUT_FILE", None, "Path to save data output")
+flags.DEFINE_string(
+    "DATA_OUTPUT_FILE", None, "Path to save JSONL run summary (one JSON object per line)"
+)
+flags.DEFINE_string("EPISODE_DATA_OUTPUT_FILE", None, "Path to save per-episode CSV data output")
 flags.DEFINE_string(
     "TRAJ_DATA_OUTPUT_FILE", None, "Path to save trajectory (actions, etc.) data output"
 )

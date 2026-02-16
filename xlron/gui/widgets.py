@@ -191,6 +191,7 @@ DEFAULTS = {
     "SAVE_MODEL": False,
     "MODEL_PATH": None,
     "DATA_OUTPUT_FILE": None,
+    "EPISODE_DATA_OUTPUT_FILE": None,
     "PLOTTING": False,
     "EVAL_DURING_TRAINING": False,
     # Physical layer (GN model)
@@ -1370,11 +1371,19 @@ def logging_section() -> dict:
         _emit(flags, "EVAL_DURING_TRAINING", edt)
 
         data_out = st.text_input(
-            "Data Output File",
+            "Run Summary Output File (JSONL)",
             value=_get_preset_val("DATA_OUTPUT_FILE") or "",
             help=_h("DATA_OUTPUT_FILE"),
         )
         if data_out.strip():
             flags["DATA_OUTPUT_FILE"] = data_out.strip()
+
+        episode_data_out = st.text_input(
+            "Episode Data Output File (CSV)",
+            value=_get_preset_val("EPISODE_DATA_OUTPUT_FILE") or "",
+            help=_h("EPISODE_DATA_OUTPUT_FILE"),
+        )
+        if episode_data_out.strip():
+            flags["EPISODE_DATA_OUTPUT_FILE"] = episode_data_out.strip()
 
     return flags

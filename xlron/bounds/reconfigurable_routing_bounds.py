@@ -20,6 +20,7 @@ from xlron.environments.make_env import make
 from xlron.environments.wrappers import JitProfiler, TimeIt
 from xlron.heuristics.heuristics import ff_ksp, ksp_ff
 from xlron.train.train import identify_default_device
+from xlron.train.train_utils import build_run_summary, get_user_flags, write_run_summary
 
 FLAGS = flags.FLAGS
 
@@ -395,6 +396,7 @@ def step_env(rng, raw_env, env_state, env_params, profile=False):
 
 
 def main(argv):
+    user_flags = get_user_flags(FLAGS)
     # Bounds code requires absolute arrival times to track request lifetimes
     FLAGS.__setattr__("relative_arrival_times", False)
     FLAGS.__setattr__("max_requests", FLAGS.TOTAL_TIMESTEPS)
@@ -411,6 +413,8 @@ def main(argv):
     all_blocking_probs = []
     all_block_counts = []
     all_fix_counts = []
+    total_compilation_time = 0.0
+    total_execution_time = 0.0
 
     num_seeds = 1 if profile else FLAGS.num_trials
     for seed in range(num_seeds):
@@ -453,7 +457,7 @@ def main(argv):
             defrag_initial_state = initial_state.replace(
                 env_state=initial_state.env_state.replace(list_of_requests=defrag_list)
             )
-            with TimeIt(tag="MAIN LOOP COMPILATION"):
+            with TimeIt(tag="MAIN LOOP COMPILATION") as comp_timer:
                 compiled_main = (
                     jax.jit(main_loop_fn)
                     .lower(
@@ -467,12 +471,13 @@ def main(argv):
                     )
                     .compile()
                 )
+            total_compilation_time += comp_timer.elapsed_secs
 
             print(
                 f"  Seed {seed + 1}/{num_seeds}: running {int(FLAGS.TOTAL_TIMESTEPS)} timesteps (compiled)...",
                 flush=True,
             )
-            with TimeIt(tag="EXECUTION", frames=FLAGS.TOTAL_TIMESTEPS):
+            with TimeIt(tag="EXECUTION", frames=FLAGS.TOTAL_TIMESTEPS) as exec_timer:
                 _, _, blocking_events_arr, block_count_arr, fix_count_arr = compiled_main(
                     env_key,
                     env_state,
@@ -483,6 +488,7 @@ def main(argv):
                     sort_indices,
                 )
                 jax.block_until_ready(blocking_events_arr)
+            total_execution_time += exec_timer.elapsed_secs
 
             blocking_events = blocking_events_arr.tolist()
             block_count = int(block_count_arr)
@@ -497,8 +503,9 @@ def main(argv):
             all_fix_counts.append(fix_count)
         else:
             run_defrag = defrag_fn
-            with TimeIt(tag="STEP ENV COMPILATION"):
+            with TimeIt(tag="STEP ENV COMPILATION") as comp_timer:
                 step_env.lower(env_key, raw_env, env_state, env_params, profile).compile()
+            total_compilation_time += comp_timer.elapsed_secs
 
             jit_profiler.reset()
             import time as _time
@@ -507,7 +514,7 @@ def main(argv):
             defrag_time_total = 0.0
             defrag_call_count = 0
 
-            with TimeIt(tag="EXECUTION", frames=FLAGS.TOTAL_TIMESTEPS):
+            with TimeIt(tag="EXECUTION", frames=FLAGS.TOTAL_TIMESTEPS) as exec_timer:
                 blocking_events = []
                 block_count = 0
                 fix_count = 0
@@ -560,6 +567,8 @@ def main(argv):
                 all_block_counts.append(block_count)
                 all_fix_counts.append(fix_count)
 
+            total_execution_time += exec_timer.elapsed_secs
+
             # Python-level timing summary
             print(f"\n--- Python-level timing (seed {seed}) ---")
             print(
@@ -588,43 +597,50 @@ def main(argv):
     blocking_probs = jnp.array(all_blocking_probs)
     block_counts = jnp.array(all_block_counts)
     fix_counts = jnp.array(all_fix_counts)
-    blocking_prob_mean = jnp.mean(blocking_probs)
-    blocking_prob_std = jnp.std(blocking_probs)
-    blocking_prob_iqr_lower = jnp.percentile(blocking_probs, 25)
-    blocking_prob_iqr_upper = jnp.percentile(blocking_probs, 75)
-    block_count_mean = jnp.mean(block_counts)
-    block_count_std = jnp.std(block_counts)
-    block_count_iqr_lower = jnp.percentile(block_counts, 25)
-    block_count_iqr_upper = jnp.percentile(block_counts, 75)
-    fix_count_mean = jnp.mean(fix_counts)
-    fix_count_std = jnp.std(fix_counts)
-    fix_count_iqr_lower = jnp.percentile(fix_counts, 25)
-    fix_count_iqr_upper = jnp.percentile(fix_counts, 75)
-    fix_ratio_mean = jnp.nan_to_num(fix_count_mean / block_count_mean, nan=1)
-    fix_ratio_std = jnp.nan_to_num(jnp.std(fix_counts / block_counts), nan=0)
-    fix_ratio_iqr_lower = jnp.nan_to_num(
-        jnp.percentile(fix_counts / block_counts, 25), nan=fix_ratio_mean
+
+    metrics_dict = {
+        "service_blocking_probability": {
+            "mean": float(jnp.mean(blocking_probs)),
+            "std": float(jnp.std(blocking_probs)),
+            "iqr_lower": float(jnp.percentile(blocking_probs, 25)),
+            "iqr_upper": float(jnp.percentile(blocking_probs, 75)),
+        },
+        "block_count": {
+            "mean": float(jnp.mean(block_counts)),
+            "std": float(jnp.std(block_counts)),
+            "iqr_lower": float(jnp.percentile(block_counts, 25)),
+            "iqr_upper": float(jnp.percentile(block_counts, 75)),
+        },
+        "fix_count": {
+            "mean": float(jnp.mean(fix_counts)),
+            "std": float(jnp.std(fix_counts)),
+            "iqr_lower": float(jnp.percentile(fix_counts, 25)),
+            "iqr_upper": float(jnp.percentile(fix_counts, 75)),
+        },
+        "fix_ratio": {
+            "mean": float(jnp.nan_to_num(jnp.mean(fix_counts) / jnp.mean(block_counts), nan=1)),
+            "std": float(jnp.nan_to_num(jnp.std(fix_counts / block_counts), nan=0)),
+            "iqr_lower": float(
+                jnp.nan_to_num(jnp.percentile(fix_counts / block_counts, 25), nan=0)
+            ),
+            "iqr_upper": float(
+                jnp.nan_to_num(jnp.percentile(fix_counts / block_counts, 75), nan=0)
+            ),
+        },
+    }
+
+    timing = {
+        "compilation_time_s": total_compilation_time,
+        "execution_time_s": total_execution_time,
+    }
+    total_frames = num_seeds * FLAGS.TOTAL_TIMESTEPS
+    if total_execution_time > 0:
+        timing["fps"] = total_frames / total_execution_time
+
+    summary = build_run_summary(
+        "reconfigurable_routing_bound", user_flags, metrics_dict, timing=timing
     )
-    fix_ratio_iqr_upper = jnp.nan_to_num(
-        jnp.percentile(fix_counts / block_counts, 75), nan=fix_ratio_mean
-    )
-    print(f"Blocking Probability: {blocking_prob_mean:.5f} ± {blocking_prob_std:.5f}")
-    print(f"Blocking Probability mean: {blocking_prob_mean:.5f}")
-    print(f"Blocking Probability std: {blocking_prob_std:.5f}")
-    print(f"Blocking Probability IQR lower: {blocking_prob_iqr_lower:.5f}")
-    print(f"Blocking Probability IQR upper: {blocking_prob_iqr_upper:.5f}")
-    print(f"Block Count mean: {block_count_mean:.5f}")
-    print(f"Block Count std: {block_count_std:.5f}")
-    print(f"Block Count IQR lower: {block_count_iqr_lower:.5f}")
-    print(f"Block Count IQR upper: {block_count_iqr_upper:.5f}")
-    print(f"Fix Count mean: {fix_count_mean:.5f}")
-    print(f"Fix Count std: {fix_count_std:.5f}")
-    print(f"Fix Count IQR lower: {fix_count_iqr_lower:.5f}")
-    print(f"Fix Count IQR upper: {fix_count_iqr_upper:.5f}")
-    print(f"Fix Ratio mean: {fix_ratio_mean:.5f}")
-    print(f"Fix Ratio std: {fix_ratio_std:.5f}")
-    print(f"Fix Ratio IQR lower: {fix_ratio_iqr_lower:.5f}")
-    print(f"Fix Ratio IQR upper: {fix_ratio_iqr_upper:.5f}")
+    write_run_summary(summary, FLAGS.DATA_OUTPUT_FILE, print_to_console=True)
 
 
 if __name__ == "__main__":
