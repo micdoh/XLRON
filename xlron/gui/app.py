@@ -268,6 +268,8 @@ with col_widgets:
     with tab_physical:
         if "gn_model" in env_type:
             st.header("GN Model Physical Layer")
+            # GN-model physical params use attenuation/attenuation_bar; drop legacy alpha if loaded from old presets.
+            all_flags.pop("alpha", None)
             phys_flags = physical_layer_section()
             all_flags.update(phys_flags)
         else:

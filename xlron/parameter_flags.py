@@ -420,10 +420,31 @@ flags.DEFINE_boolean(
 flags.DEFINE_string(
     "custom_traffic_matrix_csv_filepath", None, "Path to custom traffic matrix CSV file"
 )
-flags.DEFINE_float("alpha", 0.2, "Fibre attenuation coefficient, alpha [dB/km]")
-flags.DEFINE_float("beta_2", -21.7, "Dispersion parameter [ps^2/km]")
-flags.DEFINE_float("gamma", 1.2, "Nonlinear coefficient")
+flags.DEFINE_float(
+    "alpha",
+    0.2,
+    "Legacy fibre attenuation alpha [dB/km] used by the path-capacity approximation "
+    "(e.g., rwa_lightpath_reuse). GN-model environments use attenuation/attenuation_bar in [1/m].",
+)
+flags.DEFINE_float(
+    "beta_2",
+    -21.7,
+    "Second-order dispersion parameter [ps^2/km] for the legacy path-capacity calculation "
+    "(e.g., rwa_lightpath_reuse). GN-model environments use dispersion_coeff/dispersion_slope instead.",
+)
+flags.DEFINE_float(
+    "gamma",
+    1.2,
+    "Legacy nonlinear coefficient used by the path-capacity approximation "
+    "(e.g., rwa_lightpath_reuse). GN-model environments use nonlinear_coefficient instead.",
+)
 flags.DEFINE_float("span_length", 100, "Span length [km]")
+flags.DEFINE_float(
+    "span_lumped_loss_db",
+    None,
+    "Optional per-span lumped loss [dB] compensated by inline EDFAs in GN model ASE calculations. "
+    "If unset, no additional lumped span loss is applied.",
+)
 flags.DEFINE_float("lambda0", 1550, "Wavelength [nm]")
 # VONE-specific environment parameters
 flags.DEFINE_integer("node_resources", 4, "Number of node resources")
@@ -529,11 +550,25 @@ flags.DEFINE_boolean(
 
 # GN model parameters
 flags.DEFINE_float("ref_lambda", 1564e-9, "Reference wavelength [m]")
-flags.DEFINE_float("max_power_per_fibre", 13.0, "Max launch power per fibre [dBm]")
+flags.DEFINE_float("max_power_per_fibre", 23.0, "Max launch power per fibre [dBm]")
 flags.DEFINE_float(
     "power_per_channel",
     None,
     "Per-channel launch power [dBm]. If None, defaults to max_power_per_fibre divided equally among slots.",
+)
+flags.DEFINE_string(
+    "power_per_channel_per_band",
+    None,
+    "Comma-separated per-channel launch power values [dBm], one per band in "
+    "band_preference order (e.g. '2.3,2.5' for C,L). Overrides --power_per_channel.",
+)
+flags.DEFINE_string(
+    "launch_power_csv",
+    None,
+    "Path to a CSV file specifying per-slot launch power. "
+    "Expected columns: slot_index (int), freq_ghz (float), power_dbm (float). "
+    "Slots not present in the file keep the default launch power. "
+    "Overrides --power_per_channel and --power_per_channel_per_band.",
 )
 flags.DEFINE_string(
     "launch_power_type",
@@ -541,16 +576,39 @@ flags.DEFINE_string(
     "Can be fixed (same power per transceiver), "
     "tabular (power depends on path), or rl (power selected by agent).",
 )
-flags.DEFINE_float("nonlinear_coefficient", 1.2e-3, "Nonlinear coefficient [1/W^2]")
+flags.DEFINE_float(
+    "nonlinear_coefficient",
+    1.2e-3,
+    "GN-model nonlinear coefficient [1/W^2] used in ISRS/GN NLI calculations "
+    "(rsa_gn_model, rmsa_gn_model).",
+)
 flags.DEFINE_float(
     "raman_gain_slope",
     2.8e-17,
     "Raman gain slope [1/(W*m*Hz)]. Typical value ~0.028 1/(W*km*THz) = 2.8e-17 in SI.",
 )
-flags.DEFINE_float("attenuation", 4.605111673e-5, "Attenuation [1/m]")
-flags.DEFINE_float("attenuation_bar", 4.605111673e-5, "Attenuation [1/m]")
-flags.DEFINE_float("dispersion_coeff", 17e-6, "Dispersion [s/m^2]")
-flags.DEFINE_float("dispersion_slope", 60.7, "Dispersion slope [s/m^3]")
+flags.DEFINE_float(
+    "attenuation",
+    4.605111673e-5,
+    "GN-model attenuation coefficient a [1/m] used in ISRS/GN NLI and ASE calculations.",
+)
+flags.DEFINE_float(
+    "attenuation_bar",
+    4.605111673e-5,
+    "GN-model attenuation coefficient a_bar [1/m] used alongside attenuation in ISRS/GN calculations.",
+)
+flags.DEFINE_float(
+    "dispersion_coeff",
+    17e-6,
+    "Dispersion coefficient D [s/m^2] for GN-model/ISRS calculations; used to derive beta2 "
+    "as a function of wavelength.",
+)
+flags.DEFINE_float(
+    "dispersion_slope",
+    60.7,
+    "Dispersion slope dD/dlambda [s/m^3] for GN-model/ISRS calculations; used with dispersion_coeff "
+    "for frequency-dependent beta2/beta3 terms.",
+)
 flags.DEFINE_boolean("coherent", True, "Add NLI contribution coherently per span")
 flags.DEFINE_boolean(
     "mod_format_correction", False, "Apply non-Gaussian modulation format correction"
@@ -594,7 +652,10 @@ flags.DEFINE_boolean("GNN_OUTPUT_RSA", False, "Use GNN for RSA in RSA GN Model e
 flags.DEFINE_string(
     "noise_data_filepath",
     None,
-    "Path to transceiver and amplifier noise data file for GN model",
+    "Path to GN-model noise CSV. This file provides transceiver back-to-back SNR and "
+    "EDFA noise figure values, and can specify them per band or per sub-band. During "
+    "GN-model calculations these values set the transceiver B2B SNR and amplifier noise "
+    "figure used for each selected band/sub-band; if omitted, built-in defaults are used.",
 )
 flags.DEFINE_string(
     "band_data_filepath",

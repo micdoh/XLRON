@@ -511,11 +511,14 @@ def _calculate_ase_with_isrs_gain(
     ch_bandwidth,
     ch_power_i,
     raman_gain_slope_i,
+    span_lumped_loss_db: float | None = None,
 ):
     """Compute ASE power using ISRS-aware gain. Fused for fewer XLA ops."""
     a_mean = jnp.mean(attenuation_i)
     cr_mean = jnp.mean(raman_gain_slope_i)
     gain = calculate_amplifier_gain_isrs(a_mean, length, cr_mean, ch_power_i, ch_centre_i)
+    if span_lumped_loss_db is not None:
+        gain = gain * (10 ** (span_lumped_loss_db / 10))
     gain = jnp.squeeze(gain)
     gain_minus_1 = gain - 1
     N_sp = (10 ** (noise_figure / 10) * gain) / (2.0 * gain_minus_1)
@@ -648,6 +651,7 @@ def get_snr(
     transceiver_snr: chex.Array = jnp.zeros((420, 1)),
     uniform_spans: bool = True,
     num_subchannels: int = 1,
+    span_lumped_loss_db: float | None = None,
 ):
     """
     Compute the signal-to-noise ratio (SNR) of a WDM system.
@@ -668,6 +672,7 @@ def get_snr(
         ch_bandwidth_i,
         ch_power_w_i,
         raman_gain_slope_i,
+        span_lumped_loss_db,
     )
 
     # ROADM ASE is now computed at path level (see calculate_roadm_ase)
@@ -724,6 +729,7 @@ def get_snr_fused(
     num_roadms: int = 1,
     coherent: bool = True,
     num_subchannels: int = 1,
+    span_lumped_loss_db: float | None = None,
 ):
     """Fully fused SNR computation for a single link (uniform spans, no mod_format_correction).
 
@@ -845,6 +851,8 @@ def get_snr_fused(
     psd_sum = jnp.maximum(jnp.sum(P_flat[None, :] * raman_transfer, axis=1), EPS)
     gsrs_tilt = Ptot * jnp.exp(-f_THz * cr_Leff_Ptot) / psd_sum
     total_loss = jnp.exp(L_km * a_si)
+    if span_lumped_loss_db is not None:
+        total_loss = total_loss * (10 ** (span_lumped_loss_db / 10))
     gain_inline = jnp.where(P_flat > 0, total_loss / gsrs_tilt, total_loss)
     gain_inline = jnp.squeeze(gain_inline)
 

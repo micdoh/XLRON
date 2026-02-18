@@ -478,15 +478,15 @@ where `L_eff_f` and `L_eff_b` are effective lengths for forward and backward pum
 
 **Fitting procedure** (implemented in `fit_dra_params_triangular()` in `isrs_gn_model_dra.py`):
 
-1. **Solve the Raman ODE**: The coupled signal+pump propagation ODE is solved along the span using `jax.experimental.ode.odeint` (Dormand-Prince adaptive method). This gives the exact signal power profile P(z) for each channel, accounting for pump depletion (the pump losing power as it amplifies the signals). Signal-signal ISRS is excluded from the ODE because the GN model handles it separately via its perturbative tilt formula.
+1. **Solve the Raman ODE**: The coupled signal+pump propagation ODE is solved along the span using `jax.experimental.ode.odeint` (Dormand-Prince adaptive method). This gives the exact signal power profile P(z) for each channel, accounting for pump depletion (the pump losing power as it amplifies the signals). Signal-signal ISRS is excluded from the ODE (by zeroing `g_R[:num_channels, :num_channels]`) because the GN model handles it separately via its perturbative tilt formula.
 
 2. **Fit the backward pump boundary condition**: The backward pump propagates from z=L to z=0, but the ODE integrates forward (z=0 to z=L). The initial BW pump power at z=0 is found via `scipy.optimize.minimize` (TNC method) so that the pump power at z=L matches the configured `--raman_pump_power_bw` values.
 
-3. **Fit rho_semi_solution per channel**: The normalised power profile from the ODE solution is fitted to the semi-analytical formula using `scipy.optimize.least_squares` (Levenberg-Marquardt). The fitting uses a **P_b=1 convention** where the backward pump power is absorbed into the fitted C_b coefficient, matching the reference implementation.
+3. **Fit rho_semi_solution per channel**: The normalised power profile from the ODE solution is fitted to the semi-analytical formula using `jaxopt.LevenbergMarquardt`. All 5 parameters `[C_f, a_f, C_b, a_b, a]` are fitted freely as multipliers of physically-motivated initial values `[Cr, att, Cr, att, att]`. The fitting uses a **P_b=1 convention** where the backward pump power is absorbed into the fitted C_b coefficient. Channels where the vectorised (vmap'd) fit produces NaN are individually re-fitted with multiple starting points including the nearest successful channel's result.
 
-4. **Validate tilt factors**: The fitted parameters are checked to ensure the Raman tilt factors T are within a reasonable range [0.1, 10]. A warning is printed if any channels fall outside this range.
+4. **Store per-channel Raman gain**: The ODE-derived Raman gain per channel is stored alongside the 5 fit parameters. This is computed as `P(L) / (P(0) * exp(-a*L))` — the ratio of actual signal power at the span output to what it would be with pure attenuation. This gain is used for the ASE noise calculation (see below).
 
-The entire fitting procedure runs once during `make_env.py` environment creation (outside JAX JIT compilation) and typically completes in a few seconds. The resulting fit parameters are stored as a static array of shape `(5, num_channels, max_spans)` that is uniform across spans (same pump configuration on every span).
+The entire fitting procedure runs once during `make_env.py` environment creation (outside JAX JIT compilation) and typically completes in a few seconds. The resulting fit parameters are stored as a static array of shape `(6, num_channels, max_spans)` that is uniform across spans (same pump configuration on every span). Indices 0-4 hold `[C_f, a_f, C_b, a_b, a]` and index 5 holds the per-channel Raman gain (linear).
 
 **Pump depletion**: With high Raman gain slopes or many signal channels, the backward pump can be substantially depleted within the first few kilometres of the span. For example, with `C_r = 2.37e-16` and 91 channels, the pump e-folding distance is approximately 4 km. This is physically expected -- most of the Raman energy transfer occurs in the initial portion of the span where pump power is highest (for a backward pump, this is near the span output end z=L). The net Raman gain after pump depletion may be modest (e.g. 0.5 dB for small pump powers), but the distributed nature of the gain still improves the signal power profile compared to EDFA-only amplification, reducing NLI and improving throughput.
 
@@ -529,7 +529,21 @@ The number of entries in `--slots_per_band` must match the number of bands in `-
 
 ### ASE Noise with DRA
 
-The current implementation reuses the existing EDFA-based ASE noise calculation when DRA is enabled. The inline amplifier ASE is computed assuming lumped EDFA gain at each span output, which provides a conservative (slightly pessimistic) noise estimate. A future enhancement may add Raman-aware ASE that accounts for the distributed gain profile.
+When DRA is enabled, the ASE noise per span has two contributions:
+
+1. **EDFA ASE**: The EDFA at each span output only needs to compensate the residual loss after Raman amplification. The EDFA gain is computed as `G_EDFA = G_ISRS / G_Raman`, where `G_ISRS` is the ISRS-aware span loss (from `calculate_amplifier_gain_isrs`) and `G_Raman` is the per-channel ODE Raman gain stored in fit_params index 5. The reduced EDFA gain produces less ASE noise than a non-Raman span.
+
+2. **DRA spontaneous Raman emission**: The Raman amplification process itself generates noise through spontaneous Raman scattering. This is modelled using the lumped-amplifier approximation (valid for backward-pumped DRA where most gain occurs near the fibre output):
+
+    ```
+    P_ASE_DRA = 2 * n_sp * (G_Raman - 1) * h * f * B
+    ```
+
+    where `n_sp ≈ 1.13` is the phonon population factor at room temperature (300 K) for silica's dominant Raman shift of ~13.2 THz, `h` is Planck's constant, `f` is the channel absolute frequency, and `B` is the channel bandwidth.
+
+The total inline ASE per span is the sum of both contributions, accumulated across all spans in the path. At high Raman gains (>10 dB), the DRA ASE term dominates over the EDFA ASE, which limits the net OSNR improvement from increasing Raman pump power. This is consistent with standard DRA system design where the optimal Raman gain balances EDFA noise reduction against DRA spontaneous emission.
+
+The per-channel Raman gain varies across the spectrum (typically higher for L-band than C-band with standard pump configurations), which introduces a frequency-dependent tilt in the OSNR_ASE profile. This tilt can be managed through pump power distribution and per-band amplifier noise figure settings in the transceiver/amplifier CSV data file.
 
 ### DRA Configuration Parameters
 

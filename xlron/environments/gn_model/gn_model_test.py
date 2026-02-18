@@ -956,6 +956,105 @@ class ChannelCentreFreqCachingTest(parameterized.TestCase):
         self.assertTrue(jnp.all(jnp.isfinite(new_state.channel_centre_freq_array)))
 
 
+# ---------------------------------------------------------------------------
+# Gerard 2025 regression test
+# ---------------------------------------------------------------------------
+
+# Static copy of the Gerard 2025 preset (copied from xlron/gui/presets.py).
+# This is intentionally kept static so it doesn't silently inherit future
+# preset changes that would mask model regressions.
+_GERARD_2025_PRESET = {
+    "env_type": "rsa_gn_model",
+    "topology_name": "three_node_chain_undirected",
+    "link_resources": 91,
+    "k": 2,
+    "slot_size": 100.0,
+    "guardband": 0,
+    "values_bw": "100",
+    "band_preference": "C,L",
+    "inter_band_gap_ghz": 275.0,
+    "slots_per_band": "45,45",
+    "span_length": 100.0,
+    "nonlinear_coefficient": 0.843e-3,
+    "dispersion_coeff": 21e-6,
+    "dispersion_slope": 70,
+    "raman_gain_slope": 1.8e-17,
+    "attenuation": 3.91e-5,
+    "use_raman_amp": True,
+    "raman_pump_power_bw": "0.16,0.04,0.03,0.03,0.05",
+    "raman_pump_freq_bw": "200.5e12,203.1e12,205.7e12,208.4e12,211.1e12",
+    "coherent": True,
+    "custom_traffic_matrix_csv_filepath": "xlron/data/topologies/three_node_chain_traffic_0to2.csv",
+    "incremental_loading": True,
+    "max_requests": 90,
+    "TOTAL_TIMESTEPS": 90,
+    "NUM_ENVS": 1,
+    "STEPS_PER_INCREMENT": 100,
+    "path_heuristic": "ksp_ff",
+    "num_subchannels": 8,
+    "power_per_channel_per_band": "1.8,2.3",
+    "calc_minimum_osnr": True,
+    "modulations_csv_filepath": "./xlron/data/modulations/modulations.csv",
+    "band_data_filepath": "./xlron/data/gn_model/band_data_gerard2025.csv",
+    "noise_data_filepath": "./xlron/data/gn_model/transceiver_amplifier_data_gerard2025.csv",
+    # Required by process_config
+    "ROLLOUT_LENGTH": 90,
+    "NUM_MINIBATCHES": 1,
+    "seed": 0,
+    "load": 250,
+    "mean_service_holding_time": 25,
+}
+
+
+class Gerard2025RegressionTest(absltest.TestCase):
+    """Regression test: Gerard 2025 preset with KSP-FF should produce a
+    stable Shannon-Hartley throughput.  If this value changes, it means
+    the GN/DRA model, pump fitting, or env step logic has changed."""
+
+    def test_throughput_regression(self):
+        from xlron.environments.env_funcs import (
+            calculate_throughput_from_active_lightpaths,
+            get_launch_power,
+            process_path_action,
+        )
+        from xlron.environments.make_env import process_config
+        from xlron.heuristics.heuristics import ksp_ff
+
+        processed = process_config(_GERARD_2025_PRESET)
+        env_wrapped, params = make(processed)
+        raw_env = env_wrapped._env
+
+        rng = jax.random.PRNGKey(0)
+        rng, reset_key = jax.random.split(rng)
+        obs, state = raw_env.reset(reset_key, params)
+
+        for _ in range(90):
+            rng, _, step_key = jax.random.split(rng, 3)
+            action = ksp_ff(state, params)
+            _, initial_slot_index = process_path_action(state, params, action)
+            launch_power = get_launch_power(state, action, action, initial_slot_index, params)
+            full_action = jnp.concatenate(
+                [action.reshape((1,)), launch_power.reshape((1,))], axis=0
+            )
+            obs, state, reward, terminal, truncated, info = raw_env.step_env(
+                step_key, state, full_action, params
+            )
+
+        throughput_gbps = float(calculate_throughput_from_active_lightpaths(state, params))
+
+        # Regression value: 63998.05 Gb/s (~64.0 Tb/s) measured 2026-02-18.
+        # Changed from 77147.94 after replacing lumped DRA ASE with distributed
+        # ASE (Green's function integral, Buglia et al. arXiv:2311.08964v1).
+        # Tolerance of 5 Gb/s accounts for floating-point platform differences and
+        # minor fitting variation across platforms/jaxopt versions.
+        self.assertAlmostEqual(
+            throughput_gbps,
+            63998.05,
+            delta=5.0,
+            msg="Gerard 2025 throughput regression: model output changed",
+        )
+
+
 if __name__ == "__main__":
     os.environ["XLA_FLAGS"] = "--xla_force_host_platform_device_count=4"
     jax.config.update("jax_numpy_rank_promotion", "raise")

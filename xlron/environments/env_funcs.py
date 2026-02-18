@@ -3264,6 +3264,13 @@ def compute_band_layout(
         f"band_slot_order length {len(order_ff)} != link_resources {link_resources}"
     )
 
+    # Build slot_to_band_index: maps each slot to its band index in preference_list order
+    # Gap slots get -1
+    slot_to_band_index = np.full(link_resources, -1, dtype=np.int32)
+    for band_idx, name in enumerate(preference_list):
+        for slot_idx_val in band_slot_ranges.get(name, []):
+            slot_to_band_index[slot_idx_val] = band_idx
+
     return {
         "link_resources": link_resources,
         "ref_lambda": ref_lambda,
@@ -3272,6 +3279,7 @@ def compute_band_layout(
         "gap_width_slots": gap_width_slots,
         "band_slot_order_ff": np.array(order_ff, dtype=np.int32),
         "band_slot_order_lf": np.array(order_lf, dtype=np.int32),
+        "slot_to_band_index": slot_to_band_index,
     }
 
 
@@ -3408,7 +3416,7 @@ def init_active_lightpaths_array(params: RSAGNModelEnvParams):
     min_slots = (
         jnp.max(params.values_bw.val) / params.slot_size
     )  # minimum number of slots required for lightpath
-    max_num_lightpaths = min(int(total_slots / min_slots), params.max_requests)
+    max_num_lightpaths = int(min(total_slots / min_slots, params.max_requests))
     return jnp.full((max_num_lightpaths, 3), -1, dtype=dtype_config.LARGE_INT_DTYPE)
 
 
@@ -3426,7 +3434,7 @@ def init_active_lightpaths_array_departure(params: RSAGNModelEnvParams):
     min_slots = (
         jnp.max(params.values_bw.val) / params.slot_size
     )  # minimum number of slots required for lightpath
-    max_num_lightpaths = min(int(total_slots / min_slots), params.max_requests)
+    max_num_lightpaths = int(min(total_slots / min_slots, params.max_requests))
     return jnp.full((max_num_lightpaths, 3), 0.0, dtype=dtype_config.SMALL_FLOAT_DTYPE)
 
 
@@ -3627,6 +3635,7 @@ def get_snr_link_array(state: EnvState, params: EnvParams) -> chex.Array:
             excess_kurtosis_i=kurtosis_link,
             uniform_spans=params.uniform_spans,
             num_subchannels=params.num_subchannels,
+            span_lumped_loss_db=params.span_lumped_loss_db,
         )
         if params.use_raman_amp:
             snr = isrs_gn_model_dra.get_snr_dra(
@@ -3710,6 +3719,7 @@ def get_snr_link_array_fused(state: EnvState, params: EnvParams) -> chex.Array:
             num_roadms=params.num_roadms,
             coherent=params.coherent,
             num_subchannels=params.num_subchannels,
+            span_lumped_loss_db=params.span_lumped_loss_db,
         )
 
     link_snr_array = jax.vmap(_link_snr_fused)(
@@ -3886,7 +3896,9 @@ def implement_action_rsa_gn_model(
     """
     path_action = action_info.action.astype(dtype_config.LARGE_INT_DTYPE)
     lightpath_index = get_lightpath_index(params, action_info.nodes_sd, action_info.path_index)
-    launch_power = get_launch_power(state, path_action, action_info.power_action, params)
+    launch_power = get_launch_power(
+        state, path_action, action_info.power_action, action_info.initial_slot_index, params
+    )
     # Update link_slot_array and link_slot_departure_array, then other arrays
     state = implement_path_action(state, action_info, params)
     state = state.replace(
@@ -3946,7 +3958,9 @@ def implement_action_rmsa_gn_model(
     """
     path_action = action_info.action.astype(dtype_config.LARGE_INT_DTYPE)
     lightpath_index = get_lightpath_index(params, action_info.nodes_sd, action_info.path_index)
-    launch_power = get_launch_power(state, path_action, action_info.power_action, params)
+    launch_power = get_launch_power(
+        state, path_action, action_info.power_action, action_info.initial_slot_index, params
+    )
     # TODO(GN MODEL) - get mod. format based on maximum reach
     mod_format_index = jax.lax.dynamic_slice(state.mod_format_mask, (path_action,), (1,)).astype(
         dtype_config.LARGE_INT_DTYPE
@@ -4174,18 +4188,19 @@ def mask_slots_rmsa_gn_model(
 
     # Launch power per path
     if params.launch_power_type == "fixed":
-        all_launch_powers = jnp.broadcast_to(
-            state.launch_power_array[0], (2 * params.k_paths * num_mods,)
-        )
+        all_launch_powers = params.slot_launch_power_array.val[all_slot_indices]
     else:
         per_path_launch_powers = jax.vmap(
-            lambda i: get_launch_power(
+            lambda i, si: get_launch_power(
                 state,
                 i * (params.link_resources // params.aggregate_slots),
                 state.launch_power_array[i],
+                si,
                 params,
             )
-        )(jnp.arange(params.k_paths))  # (k,)
+        )(
+            jnp.arange(params.k_paths), flat_ff_indices[: params.k_paths * num_mods : num_mods]
+        )  # (k,)
         all_launch_powers = per_path_launch_powers[path_idx_all]  # (2*k*M,)
 
     # Validity flags: FF candidates use has_candidate, LF also requires FF != LF
@@ -4345,11 +4360,12 @@ def mask_slots_rmsa_gn_model(
     return state
 
 
-@partial(jax.jit, static_argnums=(3,))
+@partial(jax.jit, static_argnums=(4,))
 def get_launch_power(
     state: EnvState,
     path_action: chex.Array,
     power_action: chex.Array,
+    initial_slot_index: chex.Array,
     params: EnvParams,
 ) -> chex.Array:
     """Get launch power for new lightpath. N.B. launch power is specified in dBm but is converted to linear units
@@ -4361,13 +4377,15 @@ def get_launch_power(
         state (EnvState): Environment state
         path_action (chex.Array): Action specifying path index (0 to k_paths-1)
         power_action (chex.Array): Action specifying launch power in dBm
+        initial_slot_index (chex.Array): Initial slot index of the placement
         params (EnvParams): Environment parameters
     Returns:
         chex.Array: Launch power for new lightpath
     """
     k_path_index, _ = process_path_action(state, params, path_action)
+    initial_slot_index = jnp.asarray(initial_slot_index, dtype=jnp.int32)
     if params.launch_power_type == "fixed":
-        return state.launch_power_array[0]
+        return params.slot_launch_power_array.val[initial_slot_index]
     elif params.launch_power_type == "tabular":
         nodes_sd, requested_datarate = read_rsa_request(state.request_array)
         source, dest = nodes_sd
@@ -4402,7 +4420,9 @@ def get_launch_power(
             else params.path_link_array.val
         )
         maximum_path_length = jnp.max(jnp.dot(path_link_array, params.link_length_array.val))
-        return state.launch_power_array[0] * (path_length / maximum_path_length)
+        return params.slot_launch_power_array.val[initial_slot_index] * (
+            path_length / maximum_path_length
+        )
     else:
         raise ValueError(
             f"Invalid launch_power_type '{params.launch_power_type}'. "

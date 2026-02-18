@@ -1040,7 +1040,10 @@ def select_action_eval(select_action_state, env, env_params, eval_state, config)
                     raise ValueError(
                         "launch_power_type cannot be 'rl' when --EVAL_HEURISTIC flag is True"
                     )
-                launch_power = get_launch_power(env_state.env_state, action, action, env_params)
+                _, initial_slot_index = process_path_action(env_state.env_state, env_params, action)
+                launch_power = get_launch_power(
+                    env_state.env_state, action, action, initial_slot_index, env_params
+                )
                 action = jnp.concatenate([action.reshape((1,)), launch_power.reshape((1,))], axis=0)
         else:
             raise ValueError(f"Invalid environment type {config.env_type}")
@@ -1838,7 +1841,7 @@ def get_user_flags(flags) -> dict:
         if isinstance(val, list) and val:
             joined = ",".join(str(x) for x in val)
             if "[" in joined or "'" in joined or '"' in joined:
-                cleaned = joined.replace("[", "").replace("]", "").replace("'", "").replace('"', '')
+                cleaned = joined.replace("[", "").replace("]", "").replace("'", "").replace('"', "")
                 val = [p.strip() for p in cleaned.split(",") if p.strip()]
         result[name] = val
     return result

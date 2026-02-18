@@ -289,6 +289,7 @@ class GNModelEnvParams(RSAEnvParams):
     coherent: bool = struct.field(pytree_node=False)
     num_roadms: chex.Scalar = struct.field(pytree_node=False)
     roadm_loss: chex.Scalar = struct.field(pytree_node=False)
+    span_lumped_loss_db: chex.Scalar | None = struct.field(pytree_node=False)
     roadm_express_loss: HashableArrayWrapper = struct.field(pytree_node=False)
     roadm_add_drop_loss: HashableArrayWrapper = struct.field(pytree_node=False)
     roadm_noise_figure: HashableArrayWrapper = struct.field(pytree_node=False)
@@ -303,6 +304,9 @@ class GNModelEnvParams(RSAEnvParams):
     max_power_per_fibre: chex.Scalar = struct.field(pytree_node=False)
     default_launch_power: chex.Scalar = struct.field(pytree_node=False)
     power_per_channel: chex.Scalar = struct.field(pytree_node=False)  # linear Watts
+    slot_launch_power_array: HashableArrayWrapper = struct.field(
+        pytree_node=False
+    )  # (link_resources,): per-slot launch power in linear Watts
     mod_format_correction: bool = struct.field(pytree_node=False)
     gap_starts: HashableArrayWrapper = struct.field(pytree_node=False)
     gap_widths: HashableArrayWrapper = struct.field(pytree_node=False)
@@ -323,7 +327,7 @@ class GNModelEnvParams(RSAEnvParams):
     use_raman_amp: bool = struct.field(pytree_node=False)
     raman_fit_params: HashableArrayWrapper = struct.field(
         pytree_node=False
-    )  # (5, num_channels, max_spans) — [C_f, a_f, C_b, a_b, a] Neper-scale
+    )  # (7, num_channels, max_spans) — [C_f, a_f, C_b, a_b, a, raman_gain, dra_ase_density] Neper-scale + linear + W/Hz
     raman_pump_power_fw: HashableArrayWrapper = struct.field(
         pytree_node=False
     )  # (max_spans, num_pumps_fw) — forward pump powers [W]

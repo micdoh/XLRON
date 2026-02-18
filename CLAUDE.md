@@ -10,25 +10,27 @@ XLRON ("ex-el-er-on") is a JAX-based library for simulating optical network reso
 
 ## Build and Run Commands
 
+Run Python entrypoints with `uv run` in this repo to use the project interpreter with all dependencies.
+
 ```bash
 # Install dependencies
 uv sync
 
 # Run training
-python -m xlron.train.train --env_type=rmsa --topology_name=nsfnet_deeprmsa_directed --link_resources=100 --continuous_operation --ENV_WARMUP_STEPS=3000 --truncate_holding_time --k=50 --ROLLOUT_LENGTH=128 --TOTAL_TIMESTEPS=1280 --STEPS_PER_INCREMENT=128 --NUM_ENVS=1
+uv run python -m xlron.train.train --env_type=rmsa --topology_name=nsfnet_deeprmsa_directed --link_resources=100 --continuous_operation --ENV_WARMUP_STEPS=3000 --truncate_holding_time --k=50 --ROLLOUT_LENGTH=128 --TOTAL_TIMESTEPS=1280 --STEPS_PER_INCREMENT=128 --NUM_ENVS=1
 
 # Run with heuristic evaluation
-python -m xlron.train.train --env_type=rmsa --topology_name=nsfnet_deeprmsa_directed --link_resources=100 --k=50 --load=250 --continuous_operation --ENV_WARMUP_STEPS=3000 --TOTAL_TIMESTEPS=20000000 --NUM_ENVS=2000 --EVAL_HEURISTIC --path_heuristic=ksp_ff
+uv run python -m xlron.train.train --env_type=rmsa --topology_name=nsfnet_deeprmsa_directed --link_resources=100 --k=50 --load=250 --continuous_operation --ENV_WARMUP_STEPS=3000 --TOTAL_TIMESTEPS=20000000 --NUM_ENVS=2000 --EVAL_HEURISTIC --path_heuristic=ksp_ff
 
 # Run capacity bound estimation
-python -m xlron.bounds.cutsets_bounds --topology_name=nsfnet_deeprmsa_directed --env_type=rmsa --link_resources=100 --k=50 --load=250 --continuous_operation --max_requests=100000 --num_trials=10 --CUTSET_EXHAUSTIVE --CUTSET_TOP_K=256
-python xlron/bounds/reconfigurable_routing_bounds.py --topology_name=nsfnet_deeprmsa_directed --env_type=rmsa --link_resources=100 --k=50 --load=250 --continuous_operation --path_heuristic=ksp_ff --TOTAL_TIMESTEPS=13000 --NUM_ENVS=1 --COMPILE_RR_BOUNDS
+uv run python -m xlron.bounds.cutsets_bounds --topology_name=nsfnet_deeprmsa_directed --env_type=rmsa --link_resources=100 --k=50 --load=250 --continuous_operation --max_requests=100000 --num_trials=10 --CUTSET_EXHAUSTIVE --CUTSET_TOP_K=256
+uv run python xlron/bounds/reconfigurable_routing_bounds.py --topology_name=nsfnet_deeprmsa_directed --env_type=rmsa --link_resources=100 --k=50 --load=250 --continuous_operation --path_heuristic=ksp_ff --TOTAL_TIMESTEPS=13000 --NUM_ENVS=1 --COMPILE_RR_BOUNDS
 
 # Run tests
-pytest .
+uv run pytest .
 
 # Run single test file
-pytest xlron/environments/env_funcs_test.py -v
+uv run pytest xlron/environments/env_funcs_test.py -v
 ```
 
 ## Architecture
@@ -60,6 +62,16 @@ xlron/
 ├── dtype_config.py        # Device-aware dtype configuration
 └── parameter_flags.py     # Command-line flags (absl)
 ```
+
+### GN Model with DRA (`isrs_gn_model_dra.py`)
+
+The DRA (Distributed Raman Amplification) module extends the ISRS GN model with Raman-pump-aware NLI and ASE calculations. Key files: `environments/gn_model/isrs_gn_model_dra.py` (DRA model), `environments/gn_model/isrs_gn_model.py` (base ISRS model).
+
+- **Fit parameters**: Shape `(7, num_channels, max_spans)`. Indices 0-4: `[C_f, a_f, C_b, a_b, a]` for the semi-analytical power profile. Index 5: per-channel ODE Raman gain (linear). Index 6: distributed DRA ASE spectral density (W/Hz).
+- **Fitting**: `fit_dra_params_triangular()` runs at env creation time: solves Raman ODE via `jax.experimental.ode.odeint`, fits profiles via `jaxopt.LevenbergMarquardt`, stores ODE Raman gain.
+- **NLI**: `gn_model_dra()` computes NLI using 9 Raman mode combinations (forward/backward pump interactions) via the eta helper functions.
+- **ASE noise**: `get_snr_dra()` computes two ASE contributions per span: (1) EDFA ASE with reduced gain `G_EDFA = max(G_ISRS / G_Raman, 1.0)`, and (2) distributed DRA ASE computed by integrating the spontaneous Raman emission along the fibre using ODE pump profiles (pre-computed at env creation time, stored in fit_params row 6 as W/Hz spectral density). The hybrid amplifier model `P_ASE_span = G_EDFA * P_ASE_DRA + P_ASE_EDFA` accumulates across spans via geometric series.
+- **Signal-signal ISRS**: Excluded from the Raman ODE (`g_R[:num_channels, :num_channels] = 0`) to avoid double-counting with the GN model's perturbative ISRS tilt.
 
 ### Key Design Patterns
 
@@ -249,7 +261,7 @@ Forgetting step 3 will cause metrics to not appear in wandb dashboards.
 ### Environment Step Flow (RSA/RMSA)
 
 1. `implement_path_action` → tentatively places the request on `link_slot_array` (`+= affected_slots_mask`)
-2. `check_action_rsa` → validates (any slot at -2 means collision)
+2. `check_action_rsa` → validates (any slot at +2 means collision)
 3. `complete_step_rsa` → if invalid, undoes the placement; if valid, finalises departure times
 4. `generate_request_rsa` → generates next request (source, dest, datarate) and removes expired services
 

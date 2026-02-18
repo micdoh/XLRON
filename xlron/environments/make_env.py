@@ -57,7 +57,10 @@ from xlron.environments.env_funcs import (
     required_slots,
 )
 from xlron.environments.gn_model.isrs_gn_model import from_dbm
-from xlron.environments.gn_model.isrs_gn_model_dra import fit_dra_params_triangular
+from xlron.environments.gn_model.isrs_gn_model_dra import (
+    fit_dra_params_jax,
+    fit_dra_params_triangular,
+)
 from xlron.environments.wrappers import LogWrapper
 
 
@@ -99,11 +102,15 @@ def _calc_modulations_osnr(modulations_array: np.ndarray, beta_fec: float) -> np
         m_prime = int(modulations_array[i, 1])
         modulations_array[i, 2] = _gsnr_threshold_db(beta_fec, m_prime)
     return modulations_array
-    
 
-def convert_str_to_list_of_numerics(flag_val, num_type='float'):
+
+def convert_str_to_list_of_numerics(flag_val, num_type="float"):
     if flag_val is not None:
-        return [float(x) if num_type=='float' else int(x) for x in flag_val.split(",")]
+        if isinstance(flag_val, str):
+            items = flag_val.split(",")
+        else:
+            items = flag_val
+        return [float(x) if num_type == "float" else int(x) for x in items]
     else:
         return [0]
 
@@ -228,7 +235,7 @@ def make(
     values_bw = config.get("values_bw", None)
     node_probabilities = config.get("node_probabilities", None)
     if values_bw:
-        values_bw = convert_str_to_list_of_numerics(values_bw, num_type='int')
+        values_bw = convert_str_to_list_of_numerics(values_bw, num_type="int")
     slot_size = config.get("slot_size", 12.5)
     min_bw = config.get("min_bw", 25)
     max_bw = config.get("max_bw", 100)
@@ -270,7 +277,7 @@ def make(
         max_edges = max(max_edges, int(num) - (0 if shape == "ring" else 1))
 
     # GN model parameters
-    max_span_length = config.get("max_span_length", 100e3)
+    max_span_length = config.get("span_length", 100) * 1e3
     ref_lambda = config.get("ref_lambda", 1564e-9)  # 1577.5nm centre of C+L bands (1530-1625nm) or
     # 1564nm for centre of 15THz of L,C,partial-S (1503-1625nm)
     # 1447.5nm for centre of C-band (1530-1565nm)
@@ -297,6 +304,7 @@ def make(
     band_preference = config.get("band_preference", None)
     inter_band_gap_ghz = config.get("inter_band_gap_ghz", 25.0)
     use_raman_amp = config.get("use_raman_amp", False)
+    raman_fit_method = config.get("raman_fit_method", "jax")
     _band_layout = None  # set when compute_band_layout is used
     if band_preference is not None and env_type in ("rsa_gn_model", "rmsa_gn_model"):
         # GN model envs always enforce band gaps via compute_band_layout
@@ -340,6 +348,7 @@ def make(
     )
     num_roadms = config.get("num_roadms", 1)
     roadm_loss = config.get("roadm_loss", 18)
+    span_lumped_loss_db = config.get("span_lumped_loss_db", None)
     snr_margin = config.get("snr_margin", 1)
     path_snr = True if env_type in ["rsa_gn_model", "rmsa_gn_model"] else False
     max_snr = config.get("max_snr", 50.0)
@@ -753,12 +762,71 @@ def make(
             roadm_add_drop_loss = HashableArrayWrapper(roadm_add_drop_loss)
             roadm_noise_figure = HashableArrayWrapper(roadm_noise_figure)
 
+        # Build per-slot launch power array
+        # Priority (highest first): --launch_power_csv > --power_per_channel_per_band > --power_per_channel > default
+        launch_power_csv_path = config.get("launch_power_csv", None)
+        power_per_channel_per_band_str = config.get("power_per_channel_per_band", None)
+        if launch_power_csv_path is not None:
+            import csv as _csv
+
+            slot_lp_np = np.full(link_resources, default_launch_power, dtype=np.float32)
+            with open(launch_power_csv_path, newline="") as _f:
+                reader = _csv.DictReader(_f)
+                if (
+                    reader.fieldnames is None
+                    or "slot_index" not in reader.fieldnames
+                    or "power_dbm" not in reader.fieldnames
+                ):
+                    raise ValueError(
+                        f"--launch_power_csv file must have at minimum columns 'slot_index' and 'power_dbm'. "
+                        f"Found: {reader.fieldnames}"
+                    )
+                for row in reader:
+                    idx = int(row["slot_index"])
+                    if 0 <= idx < link_resources:
+                        slot_lp_np[idx] = float(from_dbm(float(row["power_dbm"])))
+            slot_launch_power_array = jnp.array(slot_lp_np, dtype=dtype_config.LARGE_FLOAT_DTYPE)
+            print(
+                f"Loaded per-slot launch power from {launch_power_csv_path} ({link_resources} slots)"
+            )
+        elif power_per_channel_per_band_str is not None:
+            if _band_layout is None:
+                raise ValueError(
+                    "--power_per_channel_per_band requires --band_preference with a "
+                    "GN model environment (rsa_gn_model or rmsa_gn_model)"
+                )
+            per_band_dbm = convert_str_to_list_of_numerics(power_per_channel_per_band_str)
+            preference_list = [b.strip().upper() for b in band_preference.split(",")]
+            if len(per_band_dbm) != len(preference_list):
+                raise ValueError(
+                    f"power_per_channel_per_band has {len(per_band_dbm)} values but "
+                    f"band_preference has {len(preference_list)} bands"
+                )
+            per_band_watts = [float(from_dbm(dbm_val)) for dbm_val in per_band_dbm]
+            slot_to_band_index = _band_layout["slot_to_band_index"]
+            slot_lp_np = np.zeros(link_resources, dtype=np.float32)
+            for i in range(link_resources):
+                band_idx = slot_to_band_index[i]
+                if band_idx >= 0:
+                    slot_lp_np[i] = per_band_watts[band_idx]
+            slot_launch_power_array = jnp.array(slot_lp_np, dtype=dtype_config.LARGE_FLOAT_DTYPE)
+        else:
+            slot_launch_power_array = jnp.full(
+                (link_resources,), default_launch_power, dtype=dtype_config.LARGE_FLOAT_DTYPE
+            )
+        slot_launch_power_array = (
+            HashableArrayWrapper(slot_launch_power_array)
+            if not remove_array_wrappers
+            else slot_launch_power_array
+        )
+
         params_dict.update(
             ref_lambda=ref_lambda,
             max_spans=max_spans,
             max_span_length=max_span_length,
             default_launch_power=default_launch_power,
             power_per_channel=power_per_channel,
+            slot_launch_power_array=slot_launch_power_array,
             max_power_per_fibre=max_power_per_fibre,
             nonlinear_coeff=nonlinear_coeff,
             raman_gain_slope=raman_gain_slope,
@@ -770,6 +838,7 @@ def make(
             gap_starts=gap_starts,
             gap_widths=gap_widths,
             roadm_loss=roadm_loss,
+            span_lumped_loss_db=span_lumped_loss_db,
             num_roadms=num_roadms,
             roadm_express_loss=roadm_express_loss,
             roadm_add_drop_loss=roadm_add_drop_loss,
@@ -811,8 +880,19 @@ def make(
             pump_freq_fw_arr = np.tile(pump_freq_fw, (max_spans, 1))
             pump_freq_bw_arr = np.tile(pump_freq_bw, (max_spans, 1))
 
-            # Fit Raman params by matching semi-analytical model to exact Raman profile
-            raman_fit_params = fit_dra_params_triangular(
+            # Fit Raman params by matching semi-analytical model to exact Raman profile.
+            # Default is the historical scipy-based fitter; optional JAX fitter keeps
+            # the triangular model's 15 THz cutoff consistent with the DRA equations.
+            if raman_fit_method == "jax":
+                fit_fn = fit_dra_params_jax
+            elif raman_fit_method == "triangular":
+                fit_fn = fit_dra_params_triangular
+            else:
+                raise ValueError(
+                    f"Invalid raman_fit_method '{raman_fit_method}'. Must be 'triangular' or 'jax'."
+                )
+
+            raman_fit_params = fit_fn(
                 raman_gain_slope=raman_gain_slope,
                 attenuation=attenuation,
                 num_channels=link_resources,
@@ -824,6 +904,7 @@ def make(
                 pump_freq_fw=pump_freq_fw,
                 pump_freq_bw=pump_freq_bw,
                 ch_centre_freq_ghz=np.array(slot_centre_freq_arr),
+                ch_power_w_i=np.array(slot_launch_power_array),
             )
 
             # Validate bandwidth when no band_preference is set
@@ -839,7 +920,7 @@ def make(
                     )
         else:
             # Sentinel defaults when Raman amplification is disabled
-            raman_fit_params = jnp.zeros((5, 1, 1))
+            raman_fit_params = jnp.zeros((7, 1, 1))
             pump_pow_fw_arr = np.zeros((1, 1))
             pump_pow_bw_arr = np.zeros((1, 1))
             pump_freq_fw_arr = np.zeros((1, 1))

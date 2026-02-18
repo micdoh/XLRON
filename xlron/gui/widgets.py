@@ -86,6 +86,16 @@ def _h(flag_name: str) -> str | None:
     return _parse_flag_help().get(flag_name)
 
 
+def _none_or_float(text: str | None) -> float | None:
+    """Parse optional float text input. Empty string -> None."""
+    if text is None:
+        return None
+    stripped = text.strip()
+    if stripped == "":
+        return None
+    return float(stripped)
+
+
 def _scan_topologies() -> list[str]:
     """Scan topology JSON files and return sorted list of names."""
     topo_dir = _DATA_DIR / "topologies"
@@ -200,19 +210,29 @@ DEFAULTS = {
     "beta_fec": 1.5e-2,
     "fec_rate": 0.8,
     "band_data_filepath": None,
+    "noise_data_filepath": None,
     "band_preference": None,
     "slots_per_band": None,
     "alpha": 0.2,
+    "attenuation": 4.605111673e-5,
+    "attenuation_bar": 4.605111673e-5,
     "beta_2": -21.7,
+    "dispersion_coeff": 17e-6,
+    "dispersion_slope": 60.7,
+    "nonlinear_coefficient": 1.2e-3,
     "gamma": 1.2,
     "span_length": 100,
+    "span_lumped_loss_db": None,
     "snr_margin": 0.5,
     "launch_power_type": "fixed",
     "max_power_per_fibre": 13.0,
     "power_per_channel": None,
+    "power_per_channel_per_band": None,
+    "launch_power_csv": None,
     "inter_band_gap_ghz": 25.0,
     "num_subchannels": 1,
     "use_raman_amp": False,
+    "raman_gain_slope": 2.8e-17,
     "raman_pump_power_fw": None,
     "raman_pump_power_bw": None,
     "raman_pump_freq_fw": None,
@@ -1114,6 +1134,14 @@ def physical_layer_section() -> dict:
         )
         _emit(flags, "fec_rate", fec_rate)
 
+    noise_data = st.text_input(
+        "Noise Data CSV (leave blank for default)",
+        value=_get_preset_val("noise_data_filepath") or "",
+        help=_h("noise_data_filepath"),
+    )
+    if noise_data.strip():
+        flags["noise_data_filepath"] = noise_data.strip()
+
     st.subheader("Band Configuration")
     band_data = st.text_input(
         "Band Data CSV (leave blank for default)",
@@ -1156,39 +1184,81 @@ def physical_layer_section() -> dict:
     st.subheader("Physical Parameters")
     col1, col2 = st.columns(2)
     with col1:
-        alpha = st.number_input(
-            "Fibre Attenuation (dB/km)",
-            value=float(_get_preset_val("alpha")),
-            step=0.01,
-            format="%.3f",
-            help=_h("alpha"),
+        attenuation = st.number_input(
+            "Attenuation [1/m]",
+            min_value=0.0,
+            value=float(_get_preset_val("attenuation")),
+            step=1e-6,
+            format="%.3e",
+            help=_h("attenuation"),
         )
-        _emit(flags, "alpha", alpha)
+        _emit(flags, "attenuation", attenuation)
 
-        beta2 = st.number_input(
-            "Dispersion (ps^2/km)",
-            value=float(_get_preset_val("beta_2")),
-            step=0.1,
-            help=_h("beta_2"),
+        attenuation_bar = st.number_input(
+            "Attenuation Bar [1/m]",
+            min_value=0.0,
+            value=float(_get_preset_val("attenuation_bar")),
+            step=1e-6,
+            format="%.3e",
+            help=_h("attenuation_bar"),
         )
-        _emit(flags, "beta_2", beta2)
+        _emit(flags, "attenuation_bar", attenuation_bar)
 
-        gam = st.number_input(
-            "Nonlinear Coefficient",
-            value=float(_get_preset_val("gamma")),
-            step=0.1,
-            help=_h("gamma"),
+        dispersion_coeff = st.number_input(
+            "Dispersion Coefficient [s/m^2]",
+            value=float(_get_preset_val("dispersion_coeff")),
+            step=1e-6,
+            format="%.3e",
+            help=_h("dispersion_coeff"),
         )
-        _emit(flags, "gamma", gam)
+        _emit(flags, "dispersion_coeff", dispersion_coeff)
+
+        dispersion_slope = st.number_input(
+            "Dispersion Slope [s/m^3]",
+            value=float(_get_preset_val("dispersion_slope")),
+            step=0.1,
+            help=_h("dispersion_slope"),
+        )
+        _emit(flags, "dispersion_slope", dispersion_slope)
+
+        nonlinear_coeff = st.number_input(
+            "Nonlinear Coefficient [1/W^2]",
+            value=float(_get_preset_val("nonlinear_coefficient")),
+            step=1e-4,
+            format="%.3e",
+            help=_h("nonlinear_coefficient"),
+        )
+        _emit(flags, "nonlinear_coefficient", nonlinear_coeff)
+
+        raman_gain_slope = st.number_input(
+            "Raman Gain Slope [1/(W*m*Hz)]",
+            min_value=0.0,
+            value=float(_get_preset_val("raman_gain_slope")),
+            step=1e-18,
+            format="%.2e",
+            help=_h("raman_gain_slope"),
+        )
+        _emit(flags, "raman_gain_slope", raman_gain_slope)
 
     with col2:
         span = st.number_input(
             "Span Length (km)",
             value=float(_get_preset_val("span_length")),
-            step=10.0,
+            step=1.0,
             help=_h("span_length"),
         )
         _emit(flags, "span_length", span)
+
+        span_lumped = st.text_input(
+            "Span Lumped Loss (dB, optional)",
+            value=(
+                ""
+                if _get_preset_val("span_lumped_loss_db") is None
+                else str(_get_preset_val("span_lumped_loss_db"))
+            ),
+            help=_h("span_lumped_loss_db"),
+        )
+        _emit(flags, "span_lumped_loss_db", _none_or_float(span_lumped))
 
         snr_m = st.number_input(
             "SNR Margin (dB)",
@@ -1251,6 +1321,29 @@ def physical_layer_section() -> dict:
         )
         if preset_ppc is not None or ppc != 0.0:
             _emit(flags, "power_per_channel", ppc)
+
+    preset_ppc_band = _get_preset_val("power_per_channel_per_band")
+    ppc_band = st.text_input(
+        "Power per Channel per Band (dBm, comma-separated)",
+        value=str(preset_ppc_band) if preset_ppc_band is not None else "",
+        help="Comma-separated per-channel launch power values in dBm, one per band "
+        "in band_preference order (e.g. '2.3,2.5' for C,L). "
+        "Overrides Power per Channel when set.",
+    )
+    if ppc_band.strip():
+        _emit(flags, "power_per_channel_per_band", ppc_band.strip())
+
+    preset_lp_csv = _get_preset_val("launch_power_csv")
+    lp_csv = st.text_input(
+        "Launch Power CSV (path)",
+        value=str(preset_lp_csv) if preset_lp_csv is not None else "",
+        help="Path to a CSV file with columns 'slot_index', 'freq_ghz', 'power_dbm' "
+        "specifying per-slot launch power in dBm. "
+        "Slots absent from the file keep the default power. "
+        "Overrides Power per Channel and Power per Channel per Band when set.",
+    )
+    if lp_csv.strip():
+        _emit(flags, "launch_power_csv", lp_csv.strip())
 
     st.subheader("Distributed Raman Amplification")
     raman_enabled = st.checkbox(

@@ -4,8 +4,8 @@ theme:
   name: material
   logo: images/xlron_nobackground.png
   palette:
-    accent: green
-    primary: yellow
+    accent: deep purple
+    primary: red
   features:
     - content.tabs.link
     - search.suggest

@@ -12,8 +12,7 @@ on a 3-node chain (node 0 -> node 1 -> node 2) matching the paper's
 link configuration (700 km + 800 km = 1500 km).
 
 Produces:
-  Plot 1: Per-channel GOSNR vs frequency with QAM FEC thresholds
-  Plot 2: OSNR_ASE and OSNR_NL vs frequency
+  Plot 1+2: Combined per-channel SNR metrics vs frequency
   Plot 3: Band-averaged metrics vs Gerard Table I
   Plot 4: Launch power sweep vs average GOSNR
   Plot 5: Ablation study (power sweeps with different model configurations)
@@ -40,7 +39,7 @@ from scipy.constants import c as speed_of_light
 
 # Import plot_style from benchmarks/ (not a package, so use importlib)
 _ps_spec = importlib.util.spec_from_file_location(
-    "plot_style", os.path.join(_project_root, "benchmarks", "plot_style.py")
+    "plot_style", os.path.join(_project_root, "experimental", "plot_style.py")
 )
 _plot_style = importlib.util.module_from_spec(_ps_spec)
 _ps_spec.loader.exec_module(_plot_style)
@@ -50,6 +49,7 @@ from xlron import dtype_config
 from xlron.environments.env_funcs import (
     calculate_throughput_from_active_lightpaths,
     get_launch_power,
+    process_path_action,
 )
 from xlron.environments.gn_model import isrs_gn_model, isrs_gn_model_dra
 from xlron.environments.make_env import _gsnr_threshold_db, make, process_config
@@ -78,6 +78,10 @@ def save_baseline_data(data_dir, freqs, path_d, occ, c_mask, l_mask, throughput_
         osnr_nl_db=np.array(path_d["osnr_nl_db"]),
         occupied=np.array(path_d["occupied"]),
         ch_power=np.array(path_d["ch_power"]),
+        gosnr_signalbw_db=np.array(path_d["gosnr_signalbw_db"]),
+        osnr_ase_signalbw_db=np.array(path_d["osnr_ase_signalbw_db"]),
+        osnr_nl_signalbw_db=np.array(path_d["osnr_nl_signalbw_db"]),
+        metric_norm=np.array(["0p1nm"]),
         occ=occ,
         c_mask=c_mask,
         l_mask=l_mask,
@@ -92,12 +96,17 @@ def load_baseline_data(data_dir):
     if not os.path.exists(path):
         return None
     d = np.load(path)
+    if "metric_norm" not in d.files:
+        return None
     path_d = {
         "gosnr_db": d["gosnr_db"],
         "osnr_ase_db": d["osnr_ase_db"],
         "osnr_nl_db": d["osnr_nl_db"],
         "occupied": d["occupied"],
         "ch_power": d["ch_power"],
+        "gosnr_signalbw_db": d["gosnr_signalbw_db"],
+        "osnr_ase_signalbw_db": d["osnr_ase_signalbw_db"],
+        "osnr_nl_signalbw_db": d["osnr_nl_signalbw_db"],
     }
     return d["freqs"], path_d, d["occ"], d["c_mask"], d["l_mask"], float(d["throughput_gbps"])
 
@@ -134,16 +143,17 @@ GERARD_MARKER = "D"
 # ---------------------------------------------------------------------------
 GERARD_REF = {
     "C_band": {
-        "GOSNR_dB": 20.0,
-        "OSNR_ASE_dB": 21.5,
-        "OSNR_NL_dB": 27.0,
+        "GOSNR_dB": 25.9,
+        "OSNR_ASE_dB": 27.2,
+        "OSNR_NL_dB": 31.8,
     },
     "L_band": {
-        "GOSNR_dB": 19.7,
-        "OSNR_ASE_dB": 21.2,
-        "OSNR_NL_dB": 26.5,
+        "GOSNR_dB": 25.7,
+        "OSNR_ASE_dB": 26.9,
+        "OSNR_NL_dB": 31.7,
     },
     "total_capacity_tbps": 72.0,
+    "shannon_capacity_tbps": 85.0,
     "spectral_efficiency_bps_hz": 7.29,
     "distance_km": 1504,
     "num_channels": 90,
@@ -162,6 +172,9 @@ def run_simulation(config_overrides=None, quiet=False):
     """
     config = {
         **PRESETS["Gerard 2025 recreation"],
+        # Use the JAX Raman fitter for validation so the triangular model
+        # cutoff is consistent with the DRA GN equations.
+        "raman_fit_method": "jax",
         # Defaults required by process_config
         "ROLLOUT_LENGTH": 90,
         "NUM_MINIBATCHES": 1,
@@ -186,7 +199,8 @@ def run_simulation(config_overrides=None, quiet=False):
         rng, action_key, step_key = jax.random.split(rng, 3)
 
         action = ksp_ff(state, env_params)
-        launch_power = get_launch_power(state, action, action, env_params)
+        _, initial_slot_index = process_path_action(state, env_params, action)
+        launch_power = get_launch_power(state, action, action, initial_slot_index, env_params)
         full_action = jnp.concatenate([action.reshape((1,)), launch_power.reshape((1,))], axis=0)
 
         obs, state, reward, terminal, truncated, info = raw_env.step_env(
@@ -241,6 +255,7 @@ def compute_snr_diagnostics(state, params):
             excess_kurtosis_i=jnp.zeros(params.link_resources, dtype=jnp.float32),
             uniform_spans=params.uniform_spans,
             num_subchannels=params.num_subchannels,
+            span_lumped_loss_db=getattr(params, "span_lumped_loss_db", None),
         )
 
         if params.use_raman_amp:
@@ -301,19 +316,49 @@ def compute_path_diagnostics(diag, state, params):
         roadm_ase = jnp.zeros_like(p_ase_path)
 
     total_ase = p_ase_path + roadm_ase
-    total_noise = total_ase + p_nli_path + trx_path
+    total_noise_with_trx = total_ase + p_nli_path + trx_path
+    total_noise_no_trx = total_ase + p_nli_path
 
     def safe_db(x):
         return 10 * jnp.log10(jnp.maximum(x, 1e-30))
 
-    gosnr = jnp.where(occupied, ch_power / total_noise, jnp.nan)
+    # Gerard reports OSNR values in 0.1 nm reference noise bandwidth.
+    # Convert model SNR/OSNR values (signal-bandwidth referenced) using:
+    #   OSNR_0.1nm = SNR_signalBW + 10*log10(B_signal / B_ref_0.1nm)
+    ch_centres_hz = state.channel_centre_freq_array[0] * 1e9
+    ch_bw_hz = state.channel_centre_bw_array[0] * 1e9
+    abs_freq_hz = speed_of_light / float(params.ref_lambda) + ch_centres_hz
+    b_ref_0p1nm_hz = (abs_freq_hz**2 / speed_of_light) * 0.1e-9
+    bw_corr_db = safe_db(ch_bw_hz / jnp.maximum(b_ref_0p1nm_hz, 1e-30))
+
+    # GOSNR including transceiver noise (used for actual throughput / Shannon capacity)
+    gosnr_with_trx = jnp.where(occupied, ch_power / total_noise_with_trx, jnp.nan)
+    # GOSNR excluding transceiver noise (optical-domain metric, matches Gerard Table I)
+    gosnr_no_trx = jnp.where(occupied, ch_power / jnp.maximum(total_noise_no_trx, 1e-30), jnp.nan)
     osnr_ase = jnp.where(occupied, ch_power / jnp.maximum(total_ase, 1e-30), jnp.nan)
     osnr_nl = jnp.where(occupied, ch_power / jnp.maximum(p_nli_path, 1e-30), jnp.nan)
 
+    gosnr_signalbw_db = jnp.where(occupied, safe_db(gosnr_no_trx), jnp.nan)
+    gosnr_with_trx_signalbw_db = jnp.where(occupied, safe_db(gosnr_with_trx), jnp.nan)
+    osnr_ase_signalbw_db = jnp.where(occupied, safe_db(osnr_ase), jnp.nan)
+    osnr_nl_signalbw_db = jnp.where(occupied, safe_db(osnr_nl), jnp.nan)
+
+    gosnr_0p1nm_db = jnp.where(occupied, gosnr_signalbw_db + bw_corr_db, jnp.nan)
+    gosnr_with_trx_0p1nm_db = jnp.where(occupied, gosnr_with_trx_signalbw_db + bw_corr_db, jnp.nan)
+    osnr_ase_0p1nm_db = jnp.where(occupied, osnr_ase_signalbw_db + bw_corr_db, jnp.nan)
+    osnr_nl_0p1nm_db = jnp.where(occupied, osnr_nl_signalbw_db + bw_corr_db, jnp.nan)
+
     return {
-        "gosnr_db": jnp.where(occupied, safe_db(gosnr), jnp.nan),
-        "osnr_ase_db": jnp.where(occupied, safe_db(osnr_ase), jnp.nan),
-        "osnr_nl_db": jnp.where(occupied, safe_db(osnr_nl), jnp.nan),
+        # Primary metrics used for Gerard comparison (0.1 nm referenced).
+        "gosnr_db": gosnr_0p1nm_db,  # optical GOSNR (no TRX), 0.1 nm
+        "gosnr_with_trx_db": gosnr_with_trx_0p1nm_db,  # full GOSNR, 0.1 nm
+        "osnr_ase_db": osnr_ase_0p1nm_db,
+        "osnr_nl_db": osnr_nl_0p1nm_db,
+        # Raw signal-bandwidth-referenced metrics kept for diagnostics.
+        "gosnr_signalbw_db": gosnr_signalbw_db,
+        "gosnr_with_trx_signalbw_db": gosnr_with_trx_signalbw_db,
+        "osnr_ase_signalbw_db": osnr_ase_signalbw_db,
+        "osnr_nl_signalbw_db": osnr_nl_signalbw_db,
         "occupied": occupied,
         "ch_power": ch_power,
     }
@@ -399,145 +444,78 @@ QAM_COLORS = {
 }
 
 
-def plot1_gosnr_vs_frequency(freqs, path_d, c_mask, l_mask, occ, out_dir):
-    """Per-channel GOSNR vs frequency with Gerard reference and QAM FEC lines."""
+def plot1_2_combined_snr_metrics(freqs, path_d, c_mask, l_mask, occ, out_dir):
+    """Combined Plot 1+2: GOSNR (optical, no TRX), OSNR_ASE, OSNR_NL vs frequency."""
+    # gosnr_db is optical GOSNR (ASE + NLI only, no transceiver noise)
     gosnr = np.array(path_d["gosnr_db"])
-
-    qam_thresholds = _qam_fec_thresholds()
+    osnr_ase = np.array(path_d["osnr_ase_db"])
+    osnr_nl = np.array(path_d["osnr_nl_db"])
 
     fig, ax = plt.subplots(figsize=(14, 7))
 
-    _band_scatter(ax, freqs, gosnr, c_mask, l_mask, occ)
-    ax.axhline(
-        GERARD_REF["C_band"]["GOSNR_dB"],
-        color=C_COLOR,
-        ls="-",
-        alpha=0.6,
-        label=f"Gerard C avg ({GERARD_REF['C_band']['GOSNR_dB']:.1f} dB)",
-    )
-    ax.axhline(
-        GERARD_REF["L_band"]["GOSNR_dB"],
-        color=L_COLOR,
-        ls="-",
-        alpha=0.6,
-        label=f"Gerard L avg ({GERARD_REF['L_band']['GOSNR_dB']:.1f} dB)",
-    )
+    metric_defs = [
+        ("GOSNR (optical)", "GOSNR_dB", gosnr, "#1f77b4", "o"),
+        ("OSNR$_{ASE}$", "OSNR_ASE_dB", osnr_ase, "#d62728", "s"),
+        ("OSNR$_{NL}$", "OSNR_NL_dB", osnr_nl, "#2ca02c", "^"),
+    ]
 
-    fec_dash_styles = ["--", "-.", ":", (0, (3, 1, 1, 1, 1, 1))]
-    for (qam, thresh), ds in zip(qam_thresholds.items(), fec_dash_styles):
-        ax.axhline(
-            thresh,
-            color="0.5",
-            ls=ds,
+    metric_handles = {}
+    gerard_l_handles = {}
+    gerard_c_handles = {}
+    for metric_label, metric_key, values, color, marker in metric_defs:
+        metric_handles[metric_label] = ax.scatter(
+            freqs[occ],
+            values[occ],
+            c=color,
+            s=50,
+            marker=marker,
+            label=metric_label,
+            zorder=3,
+            edgecolors="k",
+            linewidths=0.3,
+        )
+        gerard_l_handles[metric_label] = ax.axhline(
+            GERARD_REF["L_band"][metric_key],
+            color=color,
+            ls=":",
             alpha=0.7,
-            label=f"{qam} FEC ({thresh:.1f} dB)",
+            label=f"Gerard {metric_label} L ({GERARD_REF['L_band'][metric_key]:.1f} dB)",
+        )
+        gerard_c_handles[metric_label] = ax.axhline(
+            GERARD_REF["C_band"][metric_key],
+            color=color,
+            ls="--",
+            alpha=0.7,
+            label=f"Gerard {metric_label} C ({GERARD_REF['C_band'][metric_key]:.1f} dB)",
         )
 
     ax.set_xlabel("Frequency (THz)")
-    ax.set_ylabel("GOSNR (dB)")
+    ax.set_ylabel("SNR Metric (dB)")
 
-    ax.legend(loc="best")
-
-    plt.tight_layout()
-    plt.savefig(os.path.join(out_dir, "plot1_gosnr_vs_frequency.png"))
-    plt.close()
-    print("  Saved plot1_gosnr_vs_frequency.png")
-
-
-def plot2_osnr_components(freqs, path_d, c_mask, l_mask, occ, out_dir):
-    """OSNR_ASE and OSNR_NL vs frequency on a single axis."""
-    osnr_ase = np.array(path_d["osnr_ase_db"])
-    osnr_nl = np.array(path_d["osnr_nl_db"])
-    c_occ, l_occ = occ & c_mask, occ & l_mask
-
-    fig, ax = plt.subplots(figsize=(14, 7))
-
-    # ASE: circles
-    ax.scatter(
-        freqs[c_occ],
-        osnr_ase[c_occ],
-        c=C_COLOR,
-        s=50,
-        marker="o",
-        label="OSNR$_{ASE}$ C-band",
-        zorder=3,
-        edgecolors="k",
-        linewidths=0.3,
-    )
-    ax.scatter(
-        freqs[l_occ],
-        osnr_ase[l_occ],
-        c=L_COLOR,
-        s=50,
-        marker="o",
-        label="OSNR$_{ASE}$ L-band",
-        zorder=3,
-        edgecolors="k",
-        linewidths=0.3,
-    )
-    # NL: triangles
-    ax.scatter(
-        freqs[c_occ],
-        osnr_nl[c_occ],
-        c=C_COLOR,
-        s=50,
-        marker="^",
-        label="OSNR$_{NL}$ C-band",
-        zorder=3,
-        edgecolors="k",
-        linewidths=0.3,
-    )
-    ax.scatter(
-        freqs[l_occ],
-        osnr_nl[l_occ],
-        c=L_COLOR,
-        s=50,
-        marker="^",
-        label="OSNR$_{NL}$ L-band",
-        zorder=3,
-        edgecolors="k",
-        linewidths=0.3,
-    )
-
-    # Gerard reference lines
-    ax.axhline(
-        GERARD_REF["C_band"]["OSNR_ASE_dB"],
-        color=C_COLOR,
-        ls="--",
-        alpha=0.5,
-        label=f"Gerard OSNR$_{{ASE}}$ C ({GERARD_REF['C_band']['OSNR_ASE_dB']:.1f} dB)",
-    )
-    ax.axhline(
-        GERARD_REF["L_band"]["OSNR_ASE_dB"],
-        color=L_COLOR,
-        ls="--",
-        alpha=0.5,
-        label=f"Gerard OSNR$_{{ASE}}$ L ({GERARD_REF['L_band']['OSNR_ASE_dB']:.1f} dB)",
-    )
-    ax.axhline(
-        GERARD_REF["C_band"]["OSNR_NL_dB"],
-        color=C_COLOR,
-        ls=":",
-        alpha=0.5,
-        label=f"Gerard OSNR$_{{NL}}$ C ({GERARD_REF['C_band']['OSNR_NL_dB']:.1f} dB)",
-    )
-    ax.axhline(
-        GERARD_REF["L_band"]["OSNR_NL_dB"],
-        color=L_COLOR,
-        ls=":",
-        alpha=0.5,
-        label=f"Gerard OSNR$_{{NL}}$ L ({GERARD_REF['L_band']['OSNR_NL_dB']:.1f} dB)",
-    )
-
-    ax.set_xlabel("Frequency (THz)")
-    ax.set_ylabel("OSNR (dB)")
-
-    ax.legend(loc="lower right", ncol=2)
+    # Order rows as: metric dots | Gerard L | Gerard C (3 columns).
+    ordered_labels = []
+    ordered_handles = []
+    for metric_label, _, _, _, _ in metric_defs:
+        ordered_labels.extend(
+            [
+                metric_label,
+                gerard_l_handles[metric_label].get_label(),
+                gerard_c_handles[metric_label].get_label(),
+            ]
+        )
+        ordered_handles.extend(
+            [
+                metric_handles[metric_label],
+                gerard_l_handles[metric_label],
+                gerard_c_handles[metric_label],
+            ]
+        )
+    ax.legend(ordered_handles, ordered_labels, loc="best", ncol=3)
 
     plt.tight_layout()
-    plt.savefig(os.path.join(out_dir, "plot2_osnr_components.png"))
+    plt.savefig(os.path.join(out_dir, "plot1_2_combined_snr_metrics.png"))
     plt.close()
-    print("  Saved plot2_osnr_components.png")
+    print("  Saved plot1_2_combined_snr_metrics.png")
 
 
 def plot3_band_comparison(path_d, c_mask, l_mask, occ, out_dir):
@@ -840,7 +818,7 @@ def plot_summary(freqs, path_d, c_mask, l_mask, occ, out_dir):
         alpha=0.6,
         label=f"Gerard L avg ({GERARD_REF['L_band']['GOSNR_dB']:.1f} dB)",
     )
-    ax1.set_ylabel("GOSNR (dB)")
+    ax1.set_ylabel("GOSNR optical (dB)")
 
     ax1.legend(loc="best")
 
@@ -926,6 +904,93 @@ def plot_summary(freqs, path_d, c_mask, l_mask, occ, out_dir):
     print("  Saved validation_summary.png")
 
 
+def plot_raman_gain_profile(freqs, c_mask, l_mask, occ, params, out_dir):
+    """Plot per-channel Raman gain profile vs frequency (ODE target and fitted)."""
+    if params is None:
+        print("  Skipping Raman gain profile plot (params unavailable).")
+        return
+    if not getattr(params, "use_raman_amp", False):
+        print("  Skipping Raman gain profile plot (Raman amplification disabled).")
+        return
+
+    fit_params = np.array(params.raman_fit_params.val)
+    if fit_params.ndim != 3 or fit_params.shape[0] < 6:
+        print("  Skipping Raman gain profile plot (invalid Raman fit parameters).")
+        return
+
+    # Row 5 stores the per-channel ODE-derived Raman gain (linear, first span).
+    raman_gain_ode_linear = np.array(fit_params[5, :, 0])
+    raman_gain_ode_linear = np.maximum(raman_gain_ode_linear, 1e-30)
+    raman_gain_ode_db = 10.0 * np.log10(raman_gain_ode_linear)
+
+    # Reconstruct fitted semi-analytical Raman gain at z=L from rows 0-4:
+    # rho(L) = exp(-aL) * (1 - x_i * delta_f)  => gain = rho(L)/exp(-aL) = 1 - x_i * delta_f
+    C_f = np.array(fit_params[0, :, 0])
+    a_f = np.array(fit_params[1, :, 0])
+    C_b = np.array(fit_params[2, :, 0])
+    a_b = np.array(fit_params[3, :, 0])
+
+    span_length = float(params.max_span_length)
+    l_eff_f = (1.0 - np.exp(-a_f * span_length)) / np.maximum(a_f, 1e-30)
+    l_eff_b = (1.0 - np.exp(-a_b * span_length)) / np.maximum(a_b, 1e-30)
+
+    ref_freq_hz = speed_of_light / float(params.ref_lambda)
+    rel_ch_freq_hz = np.array(freqs) * 1e12 - ref_freq_hz
+
+    pump_fw = np.array(params.raman_pump_freq_fw.val).reshape(-1)
+    pump_bw = np.array(params.raman_pump_freq_bw.val).reshape(-1)
+    pump_fw_pow = np.array(params.raman_pump_power_fw.val).reshape(-1)
+    active_fw = pump_fw[pump_fw > 0.0]
+    active_bw = pump_bw[pump_bw > 0.0]
+    all_active = (
+        np.concatenate([active_fw, active_bw]) if (active_fw.size + active_bw.size) > 0 else np.array([ref_freq_hz])
+    )
+    f_hat_hz = float(np.mean(all_active) - ref_freq_hz)
+    delta_f = rel_ch_freq_hz - f_hat_hz
+
+    # P_f convention used during fit generation in fit_dra_params_triangular.
+    P_f = fit_params.shape[1] * 1e-3 + float(np.sum(pump_fw_pow[pump_fw > 0.0]))
+    x_i = C_f * P_f * l_eff_f + C_b * l_eff_b
+    raman_gain_fit_linear = np.maximum(1.0 - x_i * delta_f, 1e-30)
+    raman_gain_fit_db = 10.0 * np.log10(raman_gain_fit_linear)
+
+    f_occ = np.array(freqs[occ])
+    g_ode_occ = np.array(raman_gain_ode_db[occ])
+    g_fit_occ = np.array(raman_gain_fit_db[occ])
+    if f_occ.size == 0:
+        print("  Skipping Raman gain profile plot (no occupied channels).")
+        return
+
+    order = np.argsort(f_occ)
+    fig, ax = plt.subplots(figsize=(12, 7))
+    ax.plot(
+        f_occ[order],
+        g_ode_occ[order],
+        color="0.4",
+        lw=1.2,
+        alpha=0.8,
+        label="ODE-based Raman gain",
+    )
+    ax.plot(
+        f_occ[order],
+        g_fit_occ[order],
+        color="#2ca02c",
+        lw=1.6,
+        alpha=0.95,
+        label="Fitted semi-analytical Raman gain",
+    )
+    ax.axhline(0.0, color="k", ls="--", alpha=0.4, linewidth=1.0)
+    ax.set_xlabel("Frequency (THz)")
+    ax.set_ylabel("Raman Gain (dB)")
+    ax.set_ylim(bottom=-1.0)
+    ax.legend(loc="best")
+
+    plt.tight_layout()
+    plt.savefig(os.path.join(out_dir, "plot_raman_gain_profile.png"))
+    plt.close()
+    print("  Saved plot_raman_gain_profile.png")
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -940,6 +1005,7 @@ def main():
 
     # --- Baseline: load cached or run simulation ---
     cached = load_baseline_data(data_dir)
+    params = None
     if cached is not None:
         print("\nLoaded cached baseline data.")
         freqs, path_d, occ, c_mask, l_mask, throughput_gbps = cached
@@ -960,7 +1026,7 @@ def main():
         occ = get_occupied_mask(state)
         c_mask, l_mask = identify_bands(freqs, occ)
 
-        save_baseline_data(data_dir, freqs, path_d, occ, c_mask, l_mask, throughput_gbps)
+        # save_baseline_data(data_dir, freqs, path_d, occ, c_mask, l_mask, throughput_gbps)
 
     throughput_tbps = throughput_gbps / 1000.0
     gosnr_db = np.array(path_d["gosnr_db"])
@@ -970,7 +1036,7 @@ def main():
     print(f"L-band channels: {int(np.sum(occ & l_mask))}")
     print(
         f"Shannon-Hartley throughput: {throughput_tbps:.1f} Tb/s "
-        f"(Gerard: {GERARD_REF['total_capacity_tbps']} Tb/s)"
+        f"(Gerard: {GERARD_REF['shannon_capacity_tbps']} Tb/s)"
     )
     if num_ch > 0:
         print(f"GOSNR range: {np.nanmin(gosnr_db[occ]):.2f} - {np.nanmax(gosnr_db[occ]):.2f} dB")
@@ -978,10 +1044,12 @@ def main():
 
     # --- Generate core plots ---
     print("\nGenerating plots...")
-    plot1_gosnr_vs_frequency(freqs, path_d, c_mask, l_mask, occ, out_dir)
-    plot2_osnr_components(freqs, path_d, c_mask, l_mask, occ, out_dir)
+    plot1_2_combined_snr_metrics(freqs, path_d, c_mask, l_mask, occ, out_dir)
     plot3_band_comparison(path_d, c_mask, l_mask, occ, out_dir)
     plot_summary(freqs, path_d, c_mask, l_mask, occ, out_dir)
+    plot_raman_gain_profile(freqs, c_mask, l_mask, occ, params, out_dir)
+
+    sys.exit()
 
     # --- Sweep: load cached or run ---
     sweep_cached = load_sweep_data(data_dir)
@@ -1078,7 +1146,7 @@ def main():
     print(f"{'  C-band channels':<35} {int(np.sum(c_occ)):>12d}")
     print(f"{'  L-band channels':<35} {int(np.sum(l_occ)):>12d}")
     print(
-        f"{'Total capacity (Tb/s)':<35} {throughput_tbps:>12.1f} {GERARD_REF['total_capacity_tbps']:>12.1f} {throughput_tbps - GERARD_REF['total_capacity_tbps']:>+10.1f}"
+        f"{'Total capacity (Tb/s)':<35} {throughput_tbps:>12.1f} {GERARD_REF['shannon_capacity_tbps']:>12.1f} {throughput_tbps - GERARD_REF['shannon_capacity_tbps']:>+10.1f}"
     )
     print(
         f"{'Spectral efficiency (b/s/Hz)':<35} {se:>12.2f} {GERARD_REF['spectral_efficiency_bps_hz']:>12.2f} {se - GERARD_REF['spectral_efficiency_bps_hz']:>+10.2f}"
