@@ -396,11 +396,10 @@ def _spm(phi_i, t_i, B_i, a_i, a_bar_i, gamma):
 
 def _xpm(p_i, p_k, phi_ik, T_k, B_i, B_k, a_k, a_bar_k, gamma):
     """XPM contribution, see Ref. [1, Eq. (11)]"""
-    p_i_safe = jnp.where(p_i != 0.0, p_i, 1.0)
+    p_i_safe = jnp.maximum(p_i, EPS)
     power_ratio_sq = (p_k / p_i_safe) ** 2
     denom = B_k * phi_ik * a_bar_k * (2 * a_k + a_bar_k)
-    denom_mask = denom != 0
-    denom_safe = jnp.where(denom_mask, denom, 1.0)
+    denom_safe = jnp.where(denom != 0, denom, 1.0)
     a_k_plus_abar_k = a_k + a_bar_k
     xpm_ik = (
         32
@@ -415,7 +414,7 @@ def _xpm(p_i, p_k, phi_ik, T_k, B_i, B_k, a_k, a_bar_k, gamma):
             * jnp.arctan(phi_ik * B_i / a_k_plus_abar_k)
         )
     )
-    return jnp.sum(xpm_ik * denom_mask, axis=1)
+    return jnp.sum(jnp.where(denom != 0, xpm_ik, 0.0), axis=1)
 
 
 def _xpm_corr(p_i, p_k, phi_ik, T_k, B_i, B_k, a_k, a_bar_k, gamma, Phi, TX1):
@@ -675,9 +674,6 @@ def get_snr(
         span_lumped_loss_db,
     )
 
-    # ROADM ASE is now computed at path level (see calculate_roadm_ase)
-    p_ase_roadm = jnp.zeros_like(p_ase_inline)
-
     # NLI
     p_nli, eta_nli, eta_spm, eta_xpm = gn_model(
         num_channels=num_channels,
@@ -702,10 +698,13 @@ def get_snr(
 
     # SNR (optical only — transceiver noise is added once at path level in get_snr_for_path)
     transceiver_noise = ch_power_w_i / from_db(transceiver_snr)
-    noise_power = p_ase_inline + p_ase_roadm + p_nli
-    noise_power = jnp.where(noise_power > 0, noise_power, EPS)
+    noise_power = p_ase_inline + p_nli
+    noise_power = jnp.maximum(noise_power, EPS)
     ch_power_squeezed = jnp.squeeze(ch_power_w_i)
     snr = jnp.where(ch_power_squeezed > 0, ch_power_squeezed / noise_power, -1e5)
+    # ROADM ASE is computed at path level (see calculate_roadm_ase); zero placeholder
+    # kept in return tuple for API compatibility.
+    p_ase_roadm = jnp.zeros_like(p_ase_inline)
     return snr, (eta_nli, eta_spm, eta_xpm, p_ase_inline, p_ase_roadm, p_nli, transceiver_noise)
 
 
@@ -811,11 +810,10 @@ def get_snr_fused(
     a_bar_k = a_bar  # scalar
     a_k_plus_abar_k = a_k + a_bar_k
 
-    p_i_safe = jnp.where(ch_pow[:, None] != 0.0, ch_pow[:, None], 1.0)
+    p_i_safe = jnp.maximum(ch_pow[:, None], EPS)
     power_ratio_sq = (ch_pow[None, :] / p_i_safe) ** 2
     denom = ch_bw[None, :] * phi_ik * a_bar_k * (2 * a_k + a_bar_k)
-    denom_mask = denom != 0
-    denom_safe = jnp.where(denom_mask, denom, 1.0)
+    denom_safe = jnp.where(denom != 0, denom, 1.0)
 
     xpm_ik = (
         32
@@ -830,47 +828,39 @@ def get_snr_fused(
             * jnp.arctan(phi_ik * ch_bw[:, None] / a_k_plus_abar_k)
         )
     )
-    eta_xpm = jnp.sum(xpm_ik * denom_mask, axis=1) * num_spans
+    eta_xpm = jnp.sum(jnp.where(denom != 0, xpm_ik, 0.0), axis=1) * num_spans
 
     # === NLI power ===
-    eta_n = jnp.squeeze(eta_spm + eta_xpm)
-    p_nli = jnp.squeeze(ch_pow) ** 3 * eta_n
+    eta_n = eta_spm + eta_xpm
+    p_nli = ch_pow ** 3 * eta_n
 
     # === ASE inline (ISRS-aware gain) ===
-    a_si = a * 1000  # convert to 1/km
-    L_km = span_length / 1000
-    cr_scaled = cr * 1e12
-    f_THz = jnp.squeeze(ch_centre_i).flatten() / 1e12
-    P_flat = jnp.squeeze(ch_pow).flatten()
+    # Replicate calculate_amplifier_gain_isrs logic with mixed THz/km units
+    a_si = a * 1000  # Np/m -> Np/km
+    L_km = span_length / 1000  # m -> km
+    cr_scaled = cr * 1e12  # 1/(W*m*Hz) -> 1/(W*m*THz)
+    f_THz = f / 1e12  # Hz -> THz
 
     Leff = (1 - jnp.exp(-a_si * L_km)) / a_si
-    Ptot = jnp.sum(P_flat)
+    Ptot = jnp.sum(ch_pow)
     cr_Leff_Ptot = cr_scaled * Leff * Ptot
 
     raman_transfer = jnp.exp(-(f_THz[:, None] - f_THz[None, :]) * cr_Leff_Ptot)
-    psd_sum = jnp.maximum(jnp.sum(P_flat[None, :] * raman_transfer, axis=1), EPS)
+    psd_sum = jnp.maximum(jnp.sum(ch_pow[None, :] * raman_transfer, axis=1), EPS)
     gsrs_tilt = Ptot * jnp.exp(-f_THz * cr_Leff_Ptot) / psd_sum
     total_loss = jnp.exp(L_km * a_si)
     if span_lumped_loss_db is not None:
         total_loss = total_loss * (10 ** (span_lumped_loss_db / 10))
-    gain_inline = jnp.where(P_flat > 0, total_loss / gsrs_tilt, total_loss)
-    gain_inline = jnp.squeeze(gain_inline)
+    gain_inline = jnp.where(ch_pow > 0, total_loss / gsrs_tilt, total_loss)
 
     gain_m1 = gain_inline - 1
     N_sp_inline = (10 ** (amplifier_noise_figure / 10) * gain_inline) / (2.0 * gain_m1)
-    freq_abs = c / ref_lambda + ch_centre_i
-    p_ase_inline = num_spans * jnp.squeeze(
-        2 * N_sp_inline * gain_m1 * h * freq_abs * ch_bandwidth_i
-    )
-
-    # ROADM ASE is now computed at path level (see calculate_roadm_ase)
-    p_ase_roadm = jnp.zeros_like(p_ase_inline)
+    freq_abs = c / ref_lambda + f
+    p_ase_inline = num_spans * (2 * N_sp_inline * gain_m1 * h * freq_abs * ch_bw)
 
     # === Final SNR (optical only — TRX noise added at path level) ===
-    noise_power = p_ase_inline + p_ase_roadm + p_nli
-    noise_power = jnp.where(noise_power > 0, noise_power, EPS)
-    ch_pow_sq = jnp.squeeze(ch_pow)
-    snr = jnp.where(ch_pow_sq > 0, ch_pow_sq / noise_power, -1e5)
+    noise_power = jnp.maximum(p_ase_inline + p_nli, EPS)
+    snr = jnp.where(ch_pow > 0, ch_pow / noise_power, -1e5)
 
     return snr
 

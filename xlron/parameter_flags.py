@@ -138,7 +138,14 @@ flags.DEFINE_integer("EMULATED_DEVICES", None, "Number of devices to emulate")
 flags.DEFINE_boolean("log_actions", False, "Log actions taken and other details")
 flags.DEFINE_boolean("log_path_lengths", False, "Log path length statistics")
 flags.DEFINE_boolean("log_wrapper", True, "Wrap Env in LogEnvWrapper")
-flags.DEFINE_boolean("PROFILE", False, "Profile programme with perfetto")
+flags.DEFINE_boolean(
+    "PROFILE",
+    False,
+    "Enable wall-clock profiling of environment and training components. "
+    "On CPU, records fine-grained per-call section timings via host callbacks. "
+    "On GPU, records first-call (compilation + first execution) latency per section. "
+    "Prints a summary table of call counts, total/mean time, and percentage breakdown.",
+)
 flags.DEFINE_boolean(
     "COMPILE_RR_BOUNDS",
     False,

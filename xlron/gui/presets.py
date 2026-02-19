@@ -15,8 +15,8 @@ PRESETS = {
         "NUM_ENVS": 100,
         "path_heuristic": "ksp_ff",
     },
-    "RL Training: NSFNET RMSA": {
-        "env_type": "rmsa",
+    "RL Training: DeepRMSA": {
+        "env_type": "deeprmsa",
         "topology_name": "nsfnet_deeprmsa_directed",
         "link_resources": 100,
         "k": 5,
@@ -28,6 +28,10 @@ PRESETS = {
         "NUM_ENVS": 2000,
         "ROLLOUT_LENGTH": 150,
         "LR": 5e-4,
+        "modulations_csv_filepath": "./xlron/data/modulations/modulations_deeprmsa.csv",
+        "NUM_LAYERS": 5,
+        "NUM_UNITS": 128,
+        "LR_SCHEDULE": "constant",
     },
     "RL Training: COST239 RMSA": {
         "env_type": "rmsa",

@@ -2998,7 +2998,7 @@ def compute_band_slot_order(
     f = (
         pathlib.Path(band_data_filepath)
         if band_data_filepath
-        else (pathlib.Path(__file__).parents[1].absolute() / "data" / "gn_model" / "band_data.csv")
+        else (pathlib.Path(__file__).parents[1].absolute() / "data" / "gn_model" / "band_data" / "band_data.csv")
     )
     # Read band names (string column)
     band_names_raw = np.genfromtxt(f, delimiter=",", skip_header=1, usecols=(0,), dtype=str)
@@ -3086,7 +3086,7 @@ def compute_band_layout(
     f = (
         pathlib.Path(band_data_filepath)
         if band_data_filepath
-        else (pathlib.Path(__file__).parents[1].absolute() / "data" / "gn_model" / "band_data.csv")
+        else (pathlib.Path(__file__).parents[1].absolute() / "data" / "gn_model" / "band_data" / "band_data.csv")
     )
     band_names_raw = np.genfromtxt(f, delimiter=",", skip_header=1, usecols=(0,), dtype=str)
     band_data_num = np.genfromtxt(f, delimiter=",", skip_header=1, usecols=(1, 2, 3, 4))
@@ -4021,48 +4021,100 @@ def calculate_throughput_from_active_lightpaths(
 ) -> chex.Array:
     # Update the SNR
     state = state.replace(link_snr_array=get_snr_link_array(state, params))
-    slot_indices = jnp.arange(params.link_resources, dtype=dtype_config.LARGE_INT_DTYPE)
 
-    def get_throughput_iter(i, throughput):
-        # Get path index from active lightpaths array
-        path_index, initial_slot_index, num_slots = state.active_lightpaths_array[i]
-        path_packed = params.path_link_array.val[path_index]
-        path_snr = get_snr_for_path(path_packed, state.link_snr_array, params, state)
-        path = (
-            jnp.unpackbits(path_packed)[: params.num_links]
-            if params.pack_path_bits
-            else path_packed
-        )
-        path = path.reshape((params.num_links, 1))
-        # Get slots on path that use this path index
-        path_indices_on_slots = jnp.where(
-            path, state.path_index_array, jnp.full(state.path_index_array.shape, -1)
-        )
-        path_indices_on_slots = jnp.max(path_indices_on_slots, axis=0)
-        mask = jnp.where(path_indices_on_slots == path_index, one, zero)
-        # Update mask to be 1 for slots used by this lightpath
-        condition = jnp.logical_and(
-            slot_indices >= initial_slot_index,
-            slot_indices < initial_slot_index + num_slots,
-        )
-        mask = jnp.where(condition, mask, zero)
-        # Mask SNR below minimum required
-        path_snr = jnp.where(path_snr < params.min_snr, -50, path_snr)
-        # Get SNR for this lightpath (need to convert to linear units for throughput calc)
-        snr = from_db(path_snr) * mask
-        # Calculate throughput from Shannon-Hartley, with 2 for polarisation, symbol rate = bandwidth, 28% FEC
-        datarate_per_channel = jnp.log2(1 + snr) * params.slot_size * 2 * (1 - params.fec_threshold)
-        throughput += jnp.sum(datarate_per_channel)
-        # jax.debug.print("datarate {} throughput {}", jnp.sum(datarate_per_channel), throughput, ordered=True)
-        return throughput
+    # --- Vectorised throughput: replace fori_loop with batched ops ---
+    M = state.active_lightpaths_array.shape[0]  # max lightpaths
+    S = params.link_resources                    # slots per link
 
-    total_throughput = jax.lax.fori_loop(
-        0,
-        state.active_lightpaths_array.shape[0],
-        get_throughput_iter,
-        jnp.zeros((1,), dtype=state.link_snr_array.dtype),
+    # Extract per-lightpath metadata  (M,)
+    path_indices = state.active_lightpaths_array[:, 0]       # (M,)
+    initial_slots = state.active_lightpaths_array[:, 1]      # (M,)
+    num_slots = state.active_lightpaths_array[:, 2]          # (M,)
+    active = path_indices >= 0                                # (M,) bool
+
+    # Clamp -1 indices to 0 for safe gather (masked out later)
+    safe_path_indices = jnp.maximum(path_indices, 0)
+
+    # Gather path vectors for all lightpaths: (M, num_links)
+    paths_packed = params.path_link_array.val[safe_path_indices]
+    if params.pack_path_bits:
+        paths = jax.vmap(lambda p: jnp.unpackbits(p)[:params.num_links])(paths_packed)
+    else:
+        paths = paths_packed
+    paths_float = paths.astype(state.link_snr_array.dtype)   # (M, num_links)
+
+    # --- Batch path-level SNR (replaces M calls to get_snr_for_path) ---
+    # NSR accumulation: for each lightpath, sum 1/link_snr over on-path links
+    #   nsr_all[m, s] = sum_over_links( path[m, l] * (1/link_snr[l, s]) )
+    inv_snr = 1.0 / state.link_snr_array                    # (num_links, S)
+    nsr_all = paths_float @ inv_snr                          # (M, S)  matmul
+
+    # Add ROADM ASE noise (vectorised over lightpaths)
+    if hasattr(params, "roadm_express_loss"):
+        num_links_on_path = jnp.sum(paths_float, axis=1)    # (M,)
+        num_express = jnp.maximum(num_links_on_path - 1, 0)  # (M,)
+        first_link_idx = jnp.argmax(paths, axis=1)           # (M,)
+        ch_power = state.channel_power_array[first_link_idx]  # (M, S)
+        ch_bw_hz = state.channel_centre_bw_array[first_link_idx] * 1e9   # (M, S)
+        ch_centres_hz = state.channel_centre_freq_array[first_link_idx] * 1e9  # (M, S)
+        # Vectorise ROADM ASE over lightpaths
+        roadm_ase = jax.vmap(
+            lambda ne, cc, cb: isrs_gn_model.calculate_roadm_ase(
+                roadm_express_loss=params.roadm_express_loss.val,
+                roadm_add_drop_loss=params.roadm_add_drop_loss.val,
+                roadm_noise_figure=params.roadm_noise_figure.val,
+                num_roadm_express=ne,
+                ref_lambda=params.ref_lambda,
+                ch_centre_i=cc,
+                ch_bandwidth_i=cb,
+            )
+        )(num_express, ch_centres_hz, ch_bw_hz)              # (M, S)
+        nsr_roadm = jnp.where(ch_power > 0, roadm_ase / ch_power, 0.0)
+        nsr_all = nsr_all + nsr_roadm
+
+    # Add transceiver noise
+    if hasattr(params, "transceiver_snr"):
+        trx_snr_linear = isrs_gn_model.from_db(params.transceiver_snr.val)
+        nsr_trx = jnp.where(trx_snr_linear > 1.0, 1.0 / trx_snr_linear, 0.0)
+        nsr_all = nsr_all + nsr_trx
+
+    # Convert to dB SNR: (M, S)
+    path_snr_db = jnp.nan_to_num(
+        isrs_gn_model.to_db(1.0 / nsr_all), nan=-50.0, neginf=-50.0, posinf=50.0
     )
-    return total_throughput[0]
+
+    # --- Build per-lightpath slot masks (vectorised) ---
+    slot_indices = jnp.arange(S, dtype=dtype_config.LARGE_INT_DTYPE)  # (S,)
+
+    # Slot range mask: slot in [initial_slot, initial_slot + num_slots)  → (M, S)
+    slot_in_range = (
+        (slot_indices[None, :] >= initial_slots[:, None])
+        & (slot_indices[None, :] < (initial_slots + num_slots)[:, None])
+    )
+
+    # Path-index ownership mask: for each lightpath m, check which slots on its
+    # path links are owned by path_indices[m].  Vectorise the per-lightpath
+    # reduce-max-over-links operation.
+    #   For lightpath m: max over on-path links of path_index_array → (S,)
+    #   Then compare to path_indices[m].
+    #   paths[:, :, None] broadcasts to (M, num_links, 1) against
+    #   path_index_array (num_links, S) → (M, num_links, S)
+    path_idx_on_slots = jnp.where(
+        paths[:, :, None].astype(bool),
+        state.path_index_array[None, :, :],     # (1, num_links, S)
+        -1,
+    )  # (M, num_links, S)
+    path_idx_max = jnp.max(path_idx_on_slots, axis=1)       # (M, S)
+    owns_slot = path_idx_max == path_indices[:, None]        # (M, S)
+
+    mask = slot_in_range & owns_slot & active[:, None]       # (M, S) bool
+    mask_f = mask.astype(state.link_snr_array.dtype)
+
+    # --- Shannon-Hartley capacity ---
+    path_snr_db = jnp.where(path_snr_db < params.min_snr, -50.0, path_snr_db)
+    snr_linear = isrs_gn_model.from_db(path_snr_db) * mask_f
+    datarate = jnp.log2(1 + snr_linear) * params.slot_size * 2 * (1 - params.fec_threshold)
+    return jnp.sum(datarate)
 
 
 @partial(jax.jit, static_argnums=(2,))

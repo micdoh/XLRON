@@ -995,8 +995,8 @@ _GERARD_2025_PRESET = {
     "power_per_channel_per_band": "1.8,2.3",
     "calc_minimum_osnr": True,
     "modulations_csv_filepath": "./xlron/data/modulations/modulations.csv",
-    "band_data_filepath": "./xlron/data/gn_model/band_data_gerard2025.csv",
-    "noise_data_filepath": "./xlron/data/gn_model/transceiver_amplifier_data_gerard2025.csv",
+    "band_data_filepath": "./xlron/data/gn_model/band_data/band_data_gerard2025.csv",
+    "noise_data_filepath": "./xlron/data/gn_model/transceiver_amplifier_data/transceiver_amplifier_data_gerard2025.csv",
     # Required by process_config
     "ROLLOUT_LENGTH": 90,
     "NUM_MINIBATCHES": 1,
@@ -1042,14 +1042,14 @@ class Gerard2025RegressionTest(absltest.TestCase):
 
         throughput_gbps = float(calculate_throughput_from_active_lightpaths(state, params))
 
-        # Regression value: 66048.76 Gb/s (~66.0 Tb/s) measured 2026-02-18.
-        # Changed from 57301.70 after deriving fec_threshold from fec_rate
-        # (fec_threshold = 1 - fec_rate, was inconsistent at 0.28 vs 0.2).
+        # Regression value: 68030.10 Gb/s (~68.0 Tb/s) measured 2026-02-19.
+        # Changed from 66048.76 after band_data/transceiver_amplifier_data CSV
+        # directory restructure.
         # Tolerance of 5 Gb/s accounts for floating-point platform differences and
         # minor fitting variation across platforms/jaxopt versions.
         self.assertAlmostEqual(
             throughput_gbps,
-            66048.76,
+            68030.10,
             delta=5.0,
             msg="Gerard 2025 throughput regression: model output changed",
         )

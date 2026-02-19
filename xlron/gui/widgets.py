@@ -219,6 +219,7 @@ DEFAULTS = {
     "DATA_OUTPUT_FILE": None,
     "EPISODE_DATA_OUTPUT_FILE": None,
     "PLOTTING": False,
+    "PROFILE": False,
     "EVAL_DURING_TRAINING": False,
     # Physical layer (GN model)
     "modulations_csv_filepath": "./xlron/data/modulations/modulations_deeprmsa.csv",
@@ -1516,6 +1517,13 @@ def logging_section() -> dict:
             "Enable Plotting", value=bool(_get_preset_val("PLOTTING")), help=_h("PLOTTING")
         )
         _emit(flags, "PLOTTING", plotting)
+
+        profile = st.checkbox(
+            "Enable Profiler",
+            value=bool(_get_preset_val("PROFILE")),
+            help=_h("PROFILE"),
+        )
+        _emit(flags, "PROFILE", profile)
 
         edt = st.checkbox(
             "Eval During Training",
