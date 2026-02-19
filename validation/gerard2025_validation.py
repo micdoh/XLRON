@@ -153,7 +153,7 @@ GERARD_REF = {
         "OSNR_NL_dB": 31.7,
     },
     "total_capacity_tbps": 72.0,
-    "shannon_capacity_tbps": 85.0,
+    "shannon_capacity_tbps": 85.8,
     "spectral_efficiency_bps_hz": 7.29,
     "distance_km": 1504,
     "num_channels": 90,
@@ -445,14 +445,16 @@ QAM_COLORS = {
 
 
 def plot1_2_combined_snr_metrics(freqs, path_d, c_mask, l_mask, occ, out_dir):
-    """Combined Plot 1+2: GOSNR (optical, no TRX), OSNR_ASE, OSNR_NL vs frequency."""
+    """Combined Plot 1+2: GOSNR (optical, no TRX), OSNR_ASE, OSNR_NL, and received SNR vs frequency."""
     # gosnr_db is optical GOSNR (ASE + NLI only, no transceiver noise)
     gosnr = np.array(path_d["gosnr_db"])
     osnr_ase = np.array(path_d["osnr_ase_db"])
     osnr_nl = np.array(path_d["osnr_nl_db"])
+    gosnr_with_trx = np.array(path_d["gosnr_with_trx_db"])
 
     fig, ax = plt.subplots(figsize=(14, 7))
 
+    # Metrics with Gerard reference lines (3 original metrics)
     metric_defs = [
         ("GOSNR (optical)", "GOSNR_dB", gosnr, "#1f77b4", "o"),
         ("OSNR$_{ASE}$", "OSNR_ASE_dB", osnr_ase, "#d62728", "s"),
@@ -489,10 +491,25 @@ def plot1_2_combined_snr_metrics(freqs, path_d, c_mask, l_mask, occ, out_dir):
             label=f"Gerard {metric_label} C ({GERARD_REF['C_band'][metric_key]:.1f} dB)",
         )
 
+    # Received SNR (includes transceiver noise) — no Gerard reference lines
+    rcv_label = "Received SNR"
+    metric_handles[rcv_label] = ax.scatter(
+        freqs[occ],
+        gosnr_with_trx[occ],
+        c="black",
+        s=50,
+        marker="D",
+        label=rcv_label,
+        zorder=3,
+        edgecolors="k",
+        linewidths=0.3,
+    )
+
     ax.set_xlabel("Frequency (THz)")
     ax.set_ylabel("SNR Metric (dB)")
 
-    # Order rows as: metric dots | Gerard L | Gerard C (3 columns).
+    # Order rows as: metric dots | Gerard L | Gerard C | Received SNR (4 columns).
+    # Each original metric fills 3 columns; Received SNR sits in column 4.
     ordered_labels = []
     ordered_handles = []
     for metric_label, _, _, _, _ in metric_defs:
@@ -510,9 +527,28 @@ def plot1_2_combined_snr_metrics(freqs, path_d, c_mask, l_mask, occ, out_dir):
                 gerard_c_handles[metric_label],
             ]
         )
-    ax.legend(ordered_handles, ordered_labels, loc="best", ncol=3)
+    # Received SNR in a 4th column — pad rows 2 and 3 with invisible entries
+    # so the label appears only once, aligned with row 1.
+    from matplotlib.patches import Patch
+    blank = Patch(facecolor="none", edgecolor="none", label="")
+    ordered_labels.insert(3, rcv_label)
+    ordered_handles.insert(3, metric_handles[rcv_label])
+    ordered_labels.insert(7, " ")
+    ordered_handles.insert(7, blank)
+    ordered_labels.insert(11, " ")
+    ordered_handles.insert(11, blank)
 
-    plt.tight_layout()
+    ax.legend(
+        ordered_handles,
+        ordered_labels,
+        ncol=4,
+        loc="lower center",
+        bbox_to_anchor=(0.5, 1.0),
+        frameon=True,
+        borderaxespad=0.3,
+    )
+
+    plt.tight_layout(rect=[0, 0, 1, 0.85])
     plt.savefig(os.path.join(out_dir, "plot1_2_combined_snr_metrics.png"))
     plt.close()
     print("  Saved plot1_2_combined_snr_metrics.png")
@@ -622,15 +658,26 @@ def plot3_band_comparison(path_d, c_mask, l_mask, occ, out_dir):
 
 
 def run_launch_power_sweep():
-    """Run sweep of total fibre launch power. Returns (power_dbm_values, avg_gosnr_values)."""
+    """Run sweep of total fibre launch power with uniform per-channel power.
+
+    For each sweep point, per-channel power = max_power_per_fibre / num_channels.
+    CSV and per-band launch power overrides are disabled so all channels get equal power.
+
+    Returns (power_dbm_values, avg_gosnr_values).
+    """
     print("\n--- Launch Power Sweep ---")
-    power_dbm_values = np.arange(14.0, 26.0, 0.1)
+    power_dbm_values = np.arange(14.0, 26.0, 0.25)
     avg_gosnr_values = []
 
     for pdbm in power_dbm_values:
-        print(f"  Power = {pdbm:.1f} dBm...", end="", flush=True)
+        print(f"  Power = {pdbm:.2f} dBm...", end="", flush=True)
         try:
-            state, params, _, _ = run_simulation({"max_power_per_fibre": float(pdbm)}, quiet=True)
+            cfg = {
+                "max_power_per_fibre": float(pdbm),
+                "launch_power_csv": None,
+                "power_per_channel_per_band": None,
+            }
+            state, params, _, _ = run_simulation(cfg, quiet=True)
             diag = compute_snr_diagnostics(state, params)
             pd_ = compute_path_diagnostics(diag, state, params)
             occ = np.array(pd_["occupied"])
@@ -694,6 +741,9 @@ ABLATION_DATA_FILE = "ablation_data.npz"
 def run_ablation_sweeps():
     """Run power sweeps for each ablation configuration.
 
+    Uses uniform per-channel power (max_power_per_fibre / num_channels) with
+    CSV and per-band overrides disabled, so all channels get equal power.
+
     Returns dict: {config_name: (power_dbm_values, avg_gosnr_values)}.
     """
     power_dbm_values = np.arange(14.0, 26.0, 0.25)
@@ -706,7 +756,11 @@ def run_ablation_sweeps():
         for pdbm in power_dbm_values:
             print(f"  Power = {pdbm:.2f} dBm...", end="", flush=True)
             try:
-                cfg = {"max_power_per_fibre": float(pdbm)}
+                cfg = {
+                    "max_power_per_fibre": float(pdbm),
+                    "launch_power_csv": None,
+                    "power_per_channel_per_band": None,
+                }
                 cfg.update(overrides)
                 state, params, _, _ = run_simulation(cfg, quiet=True)
                 diag = compute_snr_diagnostics(state, params)
@@ -924,11 +978,17 @@ def plot_raman_gain_profile(freqs, c_mask, l_mask, occ, params, out_dir):
     raman_gain_ode_db = 10.0 * np.log10(raman_gain_ode_linear)
 
     # Reconstruct fitted semi-analytical Raman gain at z=L from rows 0-4:
-    # rho(L) = exp(-aL) * (1 - x_i * delta_f)  => gain = rho(L)/exp(-aL) = 1 - x_i * delta_f
+    # rho(L) = exp(-a_fit*L) * (1 - x_i * delta_f)
+    # Raman gain = rho(L) / exp(-a_physical*L)
+    #            = exp(-(a_fit - a_physical)*L) * (1 - x_i * delta_f)
+    # Note: a_fit (row 4) differs from physical attenuation because the LM fit
+    # absorbs part of the Raman gain into the exponential decay term.
     C_f = np.array(fit_params[0, :, 0])
     a_f = np.array(fit_params[1, :, 0])
     C_b = np.array(fit_params[2, :, 0])
     a_b = np.array(fit_params[3, :, 0])
+    a_fit = np.array(fit_params[4, :, 0])
+    a_physical = float(params.attenuation)
 
     span_length = float(params.max_span_length)
     l_eff_f = (1.0 - np.exp(-a_f * span_length)) / np.maximum(a_f, 1e-30)
@@ -943,15 +1003,22 @@ def plot_raman_gain_profile(freqs, c_mask, l_mask, occ, params, out_dir):
     active_fw = pump_fw[pump_fw > 0.0]
     active_bw = pump_bw[pump_bw > 0.0]
     all_active = (
-        np.concatenate([active_fw, active_bw]) if (active_fw.size + active_bw.size) > 0 else np.array([ref_freq_hz])
+        np.concatenate([active_fw, active_bw])
+        if (active_fw.size + active_bw.size) > 0
+        else np.array([ref_freq_hz])
     )
     f_hat_hz = float(np.mean(all_active) - ref_freq_hz)
     delta_f = rel_ch_freq_hz - f_hat_hz
 
-    # P_f convention used during fit generation in fit_dra_params_triangular.
-    P_f = fit_params.shape[1] * 1e-3 + float(np.sum(pump_fw_pow[pump_fw > 0.0]))
+    # P_f matches the convention used during fitting (sum of channel powers + FW pumps).
+    slot_launch_powers = np.array(params.slot_launch_power_array.val).reshape(-1)
+    P_f = float(np.sum(slot_launch_powers)) + float(np.sum(pump_fw_pow[pump_fw > 0.0]))
     x_i = C_f * P_f * l_eff_f + C_b * l_eff_b
-    raman_gain_fit_linear = np.maximum(1.0 - x_i * delta_f, 1e-30)
+    # Full rho(L) divided by exp(-a_physical*L) to get Raman gain.
+    # a_fit (row 4) differs from a_physical because the LM fit absorbs some of
+    # the Raman gain into the exponential decay term.
+    rho_at_L = np.exp(-a_fit * span_length) * (1.0 - x_i * delta_f)
+    raman_gain_fit_linear = np.maximum(rho_at_L / np.exp(-a_physical * span_length), 1e-30)
     raman_gain_fit_db = 10.0 * np.log10(raman_gain_fit_linear)
 
     f_occ = np.array(freqs[occ])
@@ -969,7 +1036,7 @@ def plot_raman_gain_profile(freqs, c_mask, l_mask, occ, params, out_dir):
         color="0.4",
         lw=1.2,
         alpha=0.8,
-        label="ODE-based Raman gain",
+        label=r"ODE Raman gain  $G_\mathrm{ODE} = P(L)\,/\,[P(0)\,e^{-\alpha L}]$",
     )
     ax.plot(
         f_occ[order],
@@ -977,7 +1044,7 @@ def plot_raman_gain_profile(freqs, c_mask, l_mask, occ, params, out_dir):
         color="#2ca02c",
         lw=1.6,
         alpha=0.95,
-        label="Fitted semi-analytical Raman gain",
+        label=r"Semi-analytical  $\rho(L)\,/\,e^{-\alpha L}$  (rows 0-4)",
     )
     ax.axhline(0.0, color="k", ls="--", alpha=0.4, linewidth=1.0)
     ax.set_xlabel("Frequency (THz)")
@@ -989,6 +1056,514 @@ def plot_raman_gain_profile(freqs, c_mask, l_mask, occ, params, out_dir):
     plt.savefig(os.path.join(out_dir, "plot_raman_gain_profile.png"))
     plt.close()
     print("  Saved plot_raman_gain_profile.png")
+
+
+def plot_gain_budget(freqs, state, c_mask, l_mask, occ, params, out_dir):
+    """Plot per-channel Raman gain, EDFA gain, and total gain vs frequency.
+
+    The total gain (Raman * EDFA) should restore the transmitted power,
+    i.e. equal the fibre span loss (including lumped loss if present).
+    """
+    if params is None or not getattr(params, "use_raman_amp", False):
+        print("  Skipping gain budget plot (Raman amplification unavailable).")
+        return
+
+    fit_params = np.array(params.raman_fit_params.val)
+    if fit_params.ndim != 3 or fit_params.shape[0] < 6:
+        print("  Skipping gain budget plot (invalid fit parameters).")
+        return
+
+    # Raman gain from fit_params row 5 (pump-only, linear)
+    raman_gain_linear = np.array(fit_params[5, :, 0])
+    raman_gain_linear = np.maximum(raman_gain_linear, 1.0)
+
+    # EDFA gain: recompute the same way get_snr_dra does
+    span_length = float(params.max_span_length)
+    ch_centres_hz = np.array(state.channel_centre_freq_array[0]) * 1e9
+    ch_power = np.array(state.channel_power_array[0])
+
+    edfa_gain_no_raman = np.array(
+        isrs_gn_model.calculate_amplifier_gain_isrs(
+            jnp.array(params.attenuation),
+            jnp.array(span_length),
+            jnp.array(params.raman_gain_slope),
+            jnp.array(ch_power),
+            jnp.array(ch_centres_hz),
+        )
+    )
+    lumped_loss_db = getattr(params, "span_lumped_loss_db", None)
+    if lumped_loss_db is not None:
+        edfa_gain_no_raman = edfa_gain_no_raman * (10 ** (lumped_loss_db / 10))
+    edfa_gain_linear = np.maximum(edfa_gain_no_raman / raman_gain_linear, 1.0)
+
+    total_gain_linear = raman_gain_linear * edfa_gain_linear
+
+    # Convert to dB
+    raman_gain_db = 10 * np.log10(raman_gain_linear)
+    edfa_gain_db = 10 * np.log10(edfa_gain_linear)
+    total_gain_db = 10 * np.log10(total_gain_linear)
+
+    # Fibre loss (the target that total gain should match)
+    fibre_loss_db = 10 * np.log10(np.exp(float(params.attenuation) * span_length))
+    total_target_db = fibre_loss_db
+    if lumped_loss_db is not None:
+        total_target_db += lumped_loss_db
+
+    # Plot occupied channels only
+    f_occ = np.array(freqs[occ])
+    if f_occ.size == 0:
+        print("  Skipping gain budget plot (no occupied channels).")
+        return
+    order = np.argsort(f_occ)
+
+    fig, ax = plt.subplots(figsize=(12, 7))
+
+    ax.plot(
+        f_occ[order],
+        raman_gain_db[occ][order],
+        color="#2ca02c",
+        lw=1.8,
+        label=f"Raman gain (mean {np.mean(raman_gain_db[occ]):.1f} dB)",
+    )
+    ax.plot(
+        f_occ[order],
+        edfa_gain_db[occ][order],
+        color="#1f77b4",
+        lw=1.8,
+        label=f"EDFA gain (mean {np.mean(edfa_gain_db[occ]):.1f} dB)",
+    )
+    ax.plot(
+        f_occ[order],
+        total_gain_db[occ][order],
+        color="#d62728",
+        lw=2.0,
+        label=f"Total gain (mean {np.mean(total_gain_db[occ]):.1f} dB)",
+    )
+
+    ax.axhline(
+        total_target_db,
+        color="k",
+        ls="--",
+        lw=1.2,
+        alpha=0.6,
+        label=f"Span loss = {total_target_db:.1f} dB"
+        f" (fibre {fibre_loss_db:.1f}"
+        + (f" + lumped {lumped_loss_db:.1f}" if lumped_loss_db else "")
+        + ")",
+    )
+
+    # Band shading
+    if np.any(c_mask & occ):
+        c_f = freqs[c_mask & occ]
+        ax.axvspan(c_f.min(), c_f.max(), alpha=0.06, color=C_COLOR, zorder=0)
+        ax.text(
+            np.mean(c_f),
+            ax.get_ylim()[1] * 0.97,
+            "C",
+            ha="center",
+            fontsize=14,
+            color=C_COLOR,
+            alpha=0.7,
+            fontweight="bold",
+        )
+    if np.any(l_mask & occ):
+        l_f = freqs[l_mask & occ]
+        ax.axvspan(l_f.min(), l_f.max(), alpha=0.06, color=L_COLOR, zorder=0)
+        ax.text(
+            np.mean(l_f),
+            ax.get_ylim()[1] * 0.97,
+            "L",
+            ha="center",
+            fontsize=14,
+            color=L_COLOR,
+            alpha=0.7,
+            fontweight="bold",
+        )
+
+    ax.set_xlabel("Frequency (THz)")
+    ax.set_ylabel("Gain (dB)")
+    ax.legend(loc="best")
+    ax.set_ylim(bottom=0)
+
+    plt.tight_layout()
+    plt.savefig(os.path.join(out_dir, "plot_gain_budget.png"))
+    plt.close()
+    print("  Saved plot_gain_budget.png")
+
+
+def plot_power_evolution(freqs, state, c_mask, l_mask, occ, params, out_dir):
+    """Plot per-channel power evolution in dBm along the span.
+
+    Uses the stored semi-analytical fit parameters (rho(z) from
+    ``raman_fit_params[0:5]``) multiplied by each channel's launch power to
+    give actual power in dBm vs position.  All occupied channels are shown as
+    a bundle, coloured by C/L band, with a pure-attenuation reference.
+    """
+    if params is None or not getattr(params, "use_raman_amp", False):
+        print("  Skipping power evolution plot (Raman amplification unavailable).")
+        return
+
+    fit_params_full = np.array(params.raman_fit_params.val)  # (6+, num_ch, max_spans)
+    if fit_params_full.ndim != 3 or fit_params_full.shape[0] < 6:
+        print("  Skipping power evolution plot (invalid fit parameters shape).")
+        return
+
+    # --- Physical parameters for span 0 ---
+    L = float(params.max_span_length)
+    a = float(params.attenuation)
+    ref_freq = speed_of_light / float(params.ref_lambda)
+
+    # Channel data from state (link 0) — occupied channels only
+    ch_freq_rel_ghz = np.array(state.channel_centre_freq_array[0])  # GHz, relative
+    ch_freq_abs_hz = ref_freq + ch_freq_rel_ghz * 1e9  # Hz, absolute
+    ch_power_w = np.array(state.channel_power_array[0])  # W
+
+    # Pump arrays (filter sentinel zeros)
+    pump_pow_fw = np.array(params.raman_pump_power_fw.val).reshape(-1)
+    pump_freq_bw = np.array(params.raman_pump_freq_bw.val).reshape(-1)
+    pump_freq_fw = np.array(params.raman_pump_freq_fw.val).reshape(-1)
+
+    active_bw = pump_freq_bw[pump_freq_bw > 0.0]
+    active_fw = pump_freq_fw[pump_freq_fw > 0.0]
+    active_fw_pow = pump_pow_fw[pump_freq_fw > 0.0]
+
+    # P_f and f_hat for the semi-analytical formula (same convention as fitting)
+    P_signal = float(np.sum(ch_power_w[occ]))
+    P_f = P_signal + float(np.sum(active_fw_pow))
+    all_pumps = (
+        np.concatenate([active_fw, active_bw])
+        if (active_fw.size + active_bw.size) > 0
+        else np.array([ref_freq])
+    )
+    f_hat = float(np.mean(all_pumps)) - ref_freq
+
+    # Per-channel frequency offset from mean pump frequency
+    delta_f = ch_freq_abs_hz - ref_freq - f_hat  # Hz
+
+    # Fit params for first span (rows 0-4: C_f, a_f, C_b, a_b, a)
+    C_f = fit_params_full[0, :, 0]
+    a_f = fit_params_full[1, :, 0]
+    C_b = fit_params_full[2, :, 0]
+    a_b = fit_params_full[3, :, 0]
+    a_fit = fit_params_full[4, :, 0]
+
+    n_z = 501
+    z_np = np.linspace(0.0, L, n_z)
+    z_km = z_np / 1e3
+
+    def _rho(ch_idx):
+        """Semi-analytical normalised power profile rho(z) for channel ch_idx."""
+        cf, af, cb, ab, af2 = C_f[ch_idx], a_f[ch_idx], C_b[ch_idx], a_b[ch_idx], a_fit[ch_idx]
+        l_eff = (1.0 - np.exp(-af * z_np)) / np.maximum(af, 1e-30)
+        l_eff_b = (np.exp(-ab * (L - z_np)) - np.exp(-ab * L)) / np.maximum(ab, 1e-30)
+        x_i = cf * P_f * l_eff + cb * l_eff_b  # P_b = 1 convention
+        return np.exp(-af2 * z_np) * (1.0 - x_i * delta_f[ch_idx])
+
+    occ_idx = np.where(occ)[0]
+    if len(occ_idx) == 0:
+        print("  Skipping power evolution plot (no occupied channels).")
+        return
+
+    c_occ_idx = occ_idx[c_mask[occ_idx]]
+    l_occ_idx = occ_idx[l_mask[occ_idx]]
+
+    fig, ax = plt.subplots(figsize=(12, 7))
+
+    # Plot all C-band channels as a blue bundle
+    for i, ch_idx in enumerate(c_occ_idx):
+        p_launch_dbm = 10.0 * np.log10(ch_power_w[ch_idx] * 1e3)  # W → dBm
+        p_dbm = p_launch_dbm + 10.0 * np.log10(np.maximum(_rho(ch_idx), 1e-30))
+        ax.plot(
+            z_km,
+            p_dbm,
+            color=C_COLOR,
+            lw=0.8,
+            alpha=0.4,
+            label="C-band" if i == 0 else None,
+        )
+
+    # Plot all L-band channels as a red bundle
+    for i, ch_idx in enumerate(l_occ_idx):
+        p_launch_dbm = 10.0 * np.log10(ch_power_w[ch_idx] * 1e3)
+        p_dbm = p_launch_dbm + 10.0 * np.log10(np.maximum(_rho(ch_idx), 1e-30))
+        ax.plot(
+            z_km,
+            p_dbm,
+            color=L_COLOR,
+            lw=0.8,
+            alpha=0.4,
+            label="L-band" if i == 0 else None,
+        )
+
+    # Reference: pure fibre attenuation from the mean occupied-channel launch power
+    mean_launch_w = float(np.mean(ch_power_w[occ_idx]))
+    mean_launch_dbm = 10.0 * np.log10(mean_launch_w * 1e3)
+    ax.plot(
+        z_km,
+        mean_launch_dbm + 10.0 * np.log10(np.exp(-a * z_np)),
+        "k--",
+        lw=1.8,
+        alpha=0.7,
+        label=f"Pure attenuation ({mean_launch_dbm:.1f} dBm launch)",
+    )
+
+    ax.set_xlabel("Position along span (km)")
+    ax.set_ylabel("Power (dBm)")
+    ax.legend(loc="upper right")
+
+    plt.tight_layout()
+    plt.savefig(os.path.join(out_dir, "plot_power_evolution.png"))
+    plt.close()
+    print("  Saved plot_power_evolution.png")
+
+
+def plot_power_evolution_3d(freqs, state, c_mask, l_mask, occ, params, out_dir):
+    """3-D surface plot of power (dBm) vs distance along span and channel frequency.
+
+    Builds a (num_occupied_channels × n_z) grid of power values from the
+    stored semi-analytical DRA fit, then renders it as a ``plot_surface``
+    with frequency on the x-axis, distance on the y-axis, and power (dBm)
+    on the z-axis.  C-band and L-band faces use distinct colourmaps so the
+    inter-band gap and relative power tilt are immediately visible.
+    """
+    from mpl_toolkits.mplot3d import Axes3D  # noqa: F401 – registers 3-D projection
+
+    if params is None or not getattr(params, "use_raman_amp", False):
+        print("  Skipping 3-D power evolution plot (Raman amplification unavailable).")
+        return
+
+    fit_params_full = np.array(params.raman_fit_params.val)
+    if fit_params_full.ndim != 3 or fit_params_full.shape[0] < 6:
+        print("  Skipping 3-D power evolution plot (invalid fit parameters shape).")
+        return
+
+    # --- Physical parameters (span 0) ---
+    L = float(params.max_span_length)
+    a = float(params.attenuation)
+    ref_freq = speed_of_light / float(params.ref_lambda)
+
+    ch_freq_rel_ghz = np.array(state.channel_centre_freq_array[0])
+    ch_freq_abs_hz = ref_freq + ch_freq_rel_ghz * 1e9
+    ch_power_w = np.array(state.channel_power_array[0])
+
+    pump_pow_fw = np.array(params.raman_pump_power_fw.val).reshape(-1)
+    pump_freq_bw = np.array(params.raman_pump_freq_bw.val).reshape(-1)
+    pump_freq_fw = np.array(params.raman_pump_freq_fw.val).reshape(-1)
+
+    active_bw = pump_freq_bw[pump_freq_bw > 0.0]
+    active_fw = pump_freq_fw[pump_freq_fw > 0.0]
+    active_fw_pow = pump_pow_fw[pump_freq_fw > 0.0]
+
+    P_signal = float(np.sum(ch_power_w[occ]))
+    P_f = P_signal + float(np.sum(active_fw_pow))
+    all_pumps = (
+        np.concatenate([active_fw, active_bw])
+        if (active_fw.size + active_bw.size) > 0
+        else np.array([ref_freq])
+    )
+    f_hat = float(np.mean(all_pumps)) - ref_freq
+    delta_f = ch_freq_abs_hz - ref_freq - f_hat
+
+    C_f = fit_params_full[0, :, 0]
+    a_f = fit_params_full[1, :, 0]
+    C_b = fit_params_full[2, :, 0]
+    a_b = fit_params_full[3, :, 0]
+    a_fit = fit_params_full[4, :, 0]
+
+    n_z = 200  # coarser grid for 3-D rendering speed
+    z_np = np.linspace(0.0, L, n_z)
+    z_km = z_np / 1e3
+
+    def _rho(ch_idx):
+        cf, af, cb, ab, af2 = C_f[ch_idx], a_f[ch_idx], C_b[ch_idx], a_b[ch_idx], a_fit[ch_idx]
+        l_eff = (1.0 - np.exp(-af * z_np)) / np.maximum(af, 1e-30)
+        l_eff_b = (np.exp(-ab * (L - z_np)) - np.exp(-ab * L)) / np.maximum(ab, 1e-30)
+        x_i = cf * P_f * l_eff + cb * l_eff_b
+        return np.exp(-af2 * z_np) * (1.0 - x_i * delta_f[ch_idx])
+
+    occ_idx = np.where(occ)[0]
+    if len(occ_idx) == 0:
+        print("  Skipping 3-D power evolution plot (no occupied channels).")
+        return
+
+    # Sort occupied channels by absolute frequency for a smooth surface
+    occ_freqs_thz = ch_freq_abs_hz[occ_idx] / 1e12
+    sort_order = np.argsort(occ_freqs_thz)
+    occ_idx_sorted = occ_idx[sort_order]
+    occ_freqs_sorted = occ_freqs_thz[sort_order]
+
+    n_ch = len(occ_idx_sorted)
+
+    # Build (n_ch × n_z) power grid
+    P_grid = np.empty((n_ch, n_z))
+    for k, ch_idx in enumerate(occ_idx_sorted):
+        p_launch_dbm = 10.0 * np.log10(ch_power_w[ch_idx] * 1e3)
+        P_grid[k, :] = p_launch_dbm + 10.0 * np.log10(np.maximum(_rho(ch_idx), 1e-30))
+
+    # Meshgrid: F (frequency, THz) × Z (distance, km)
+    F_grid, Z_grid = np.meshgrid(occ_freqs_sorted, z_km, indexing="ij")  # both (n_ch, n_z)
+
+    # Identify C / L band membership for each sorted channel
+    c_sorted = c_mask[occ_idx_sorted]
+    l_sorted = l_mask[occ_idx_sorted]
+
+    # --- Figure ---
+    fig = plt.figure(figsize=(14, 9))
+    ax = fig.add_subplot(111, projection="3d")
+
+    # Build per-face colour arrays from a diverging colourmap keyed to power
+    p_min, p_max = float(P_grid.min()), float(P_grid.max())
+    p_range = p_max - p_min if p_max > p_min else 1.0
+
+    c_cmap = plt.cm.Blues_r
+    l_cmap = plt.cm.Reds_r
+
+    # Plot C-band surface patch
+    c_idx = np.where(c_sorted)[0]
+    if len(c_idx) >= 2:
+        F_c = F_grid[c_idx, :]
+        Z_c = Z_grid[c_idx, :]
+        P_c = P_grid[c_idx, :]
+        norm_c = (P_c - p_min) / p_range
+        face_colors_c = c_cmap(norm_c)
+        ax.plot_surface(
+            Z_c,
+            F_c,
+            P_c,
+            facecolors=face_colors_c,
+            alpha=0.85,
+            linewidth=0,
+            antialiased=True,
+            label="C-band",
+        )
+
+    # Plot L-band surface patch
+    l_idx = np.where(l_sorted)[0]
+    if len(l_idx) >= 2:
+        F_l = F_grid[l_idx, :]
+        Z_l = Z_grid[l_idx, :]
+        P_l = P_grid[l_idx, :]
+        norm_l = (P_l - p_min) / p_range
+        face_colors_l = l_cmap(norm_l)
+        ax.plot_surface(
+            Z_l,
+            F_l,
+            P_l,
+            facecolors=face_colors_l,
+            alpha=0.85,
+            linewidth=0,
+            antialiased=True,
+            label="L-band",
+        )
+
+    # Overlay a few highlighted channel traces at the surface edges
+    highlight_step = max(1, n_ch // 8)
+    for k in range(0, n_ch, highlight_step):
+        color = C_COLOR if c_sorted[k] else L_COLOR
+        ax.plot(
+            z_km,
+            np.full(n_z, occ_freqs_sorted[k]),
+            P_grid[k, :],
+            color=color,
+            lw=0.8,
+            alpha=0.6,
+        )
+
+    # Pure-attenuation reference ribbon at mean launch power
+    mean_launch_dbm = float(np.mean([10.0 * np.log10(ch_power_w[i] * 1e3) for i in occ_idx]))
+    p_att = mean_launch_dbm + 10.0 * np.log10(np.exp(-a * z_np))
+    f_lo, f_hi = float(occ_freqs_sorted[0]), float(occ_freqs_sorted[-1])
+    for f_edge in [f_lo, f_hi]:
+        ax.plot(
+            z_km,
+            np.full(n_z, f_edge),
+            p_att,
+            "k--",
+            lw=1.2,
+            alpha=0.5,
+        )
+
+    ax.set_xlabel("Distance (km)", labelpad=8)
+    ax.set_ylabel("Frequency (THz)", labelpad=8)
+    ax.set_zlabel("Power (dBm)", labelpad=8)
+
+    # Proxy artists for the legend (plot_surface doesn't auto-register)
+    from matplotlib.patches import Patch
+
+    legend_elements = [
+        Patch(facecolor=C_COLOR, alpha=0.8, label="C-band"),
+        Patch(facecolor=L_COLOR, alpha=0.8, label="L-band"),
+        plt.Line2D([0], [0], color="k", ls="--", lw=1.2, alpha=0.6, label="Pure attenuation"),
+    ]
+    ax.legend(handles=legend_elements, loc="upper left")
+
+    ax.view_init(elev=25, azim=-50)
+
+    plt.tight_layout()
+    plt.savefig(os.path.join(out_dir, "plot_power_evolution_3d.png"), dpi=150)
+    plt.close()
+    print("  Saved plot_power_evolution_3d.png")
+
+
+def plot_optimised_launch_power(freqs, c_mask, l_mask, occ, params, out_dir):
+    """Plot the optimised per-channel launch power loaded from CSV (or per-band settings).
+
+    Shows the per-slot launch power profile in dBm vs frequency, coloured by band.
+    Only plotted when a non-uniform launch power source is configured (CSV or per-band).
+    """
+    slot_lp_w = np.array(params.slot_launch_power_array.val)
+    slot_lp_dbm = 10 * np.log10(slot_lp_w / 0.001)
+
+    fig, ax = plt.subplots(figsize=(14, 7))
+
+    c_occ = occ & c_mask
+    l_occ = occ & l_mask
+    if np.any(c_occ):
+        ax.scatter(
+            freqs[c_occ],
+            slot_lp_dbm[c_occ],
+            c=C_COLOR,
+            s=60,
+            marker="o",
+            label="C-band",
+            zorder=3,
+            edgecolors="k",
+            linewidths=0.3,
+        )
+    if np.any(l_occ):
+        ax.scatter(
+            freqs[l_occ],
+            slot_lp_dbm[l_occ],
+            c=L_COLOR,
+            s=60,
+            marker="o",
+            label="L-band",
+            zorder=3,
+            edgecolors="k",
+            linewidths=0.3,
+        )
+
+    # Show the uniform (max_power / N_ch) level for reference
+    num_ch = int(np.sum(occ))
+    if num_ch > 0:
+        uniform_w = params.max_power_per_fibre / num_ch
+        uniform_dbm = 10 * np.log10(uniform_w / 0.001)
+        ax.axhline(
+            uniform_dbm,
+            color="grey",
+            ls="--",
+            alpha=0.7,
+            label=f"Uniform ({uniform_dbm:.2f} dBm)",
+        )
+
+    ax.set_xlabel("Frequency (THz)")
+    ax.set_ylabel("Launch Power per Channel (dBm)")
+    ax.legend(loc="best")
+
+    plt.tight_layout()
+    plt.savefig(os.path.join(out_dir, "plot_optimised_launch_power.png"))
+    plt.close()
+    print("  Saved plot_optimised_launch_power.png")
 
 
 # ---------------------------------------------------------------------------
@@ -1005,6 +1580,7 @@ def main():
 
     # --- Baseline: load cached or run simulation ---
     cached = load_baseline_data(data_dir)
+    state = None
     params = None
     if cached is not None:
         print("\nLoaded cached baseline data.")
@@ -1029,15 +1605,19 @@ def main():
         # save_baseline_data(data_dir, freqs, path_d, occ, c_mask, l_mask, throughput_gbps)
 
     throughput_tbps = throughput_gbps / 1000.0
+    fec_oh = params.fec_threshold if params is not None else (1 - 0.838)
+    throughput_tbps_shannon = throughput_tbps / (1 - fec_oh)
     gosnr_db = np.array(path_d["gosnr_db"])
     num_ch = int(np.sum(occ))
     print(f"\nChannels loaded: {num_ch}")
     print(f"C-band channels: {int(np.sum(occ & c_mask))}")
     print(f"L-band channels: {int(np.sum(occ & l_mask))}")
     print(
-        f"Shannon-Hartley throughput: {throughput_tbps:.1f} Tb/s "
+        f"Shannon-Hartley throughput: {throughput_tbps_shannon:.1f} Tb/s "
         f"(Gerard: {GERARD_REF['shannon_capacity_tbps']} Tb/s)"
+        f""
     )
+    print(f"AIR: {throughput_tbps:.1f} Tb/s (Gerard: {GERARD_REF['total_capacity_tbps']} Tb/s)")
     if num_ch > 0:
         print(f"GOSNR range: {np.nanmin(gosnr_db[occ]):.2f} - {np.nanmax(gosnr_db[occ]):.2f} dB")
         print(f"GOSNR variation: {np.nanmax(gosnr_db[occ]) - np.nanmin(gosnr_db[occ]):.2f} dB")
@@ -1048,8 +1628,12 @@ def main():
     plot3_band_comparison(path_d, c_mask, l_mask, occ, out_dir)
     plot_summary(freqs, path_d, c_mask, l_mask, occ, out_dir)
     plot_raman_gain_profile(freqs, c_mask, l_mask, occ, params, out_dir)
-
-    sys.exit()
+    if state is not None:
+        plot_gain_budget(freqs, state, c_mask, l_mask, occ, params, out_dir)
+        plot_power_evolution(freqs, state, c_mask, l_mask, occ, params, out_dir)
+        plot_power_evolution_3d(freqs, state, c_mask, l_mask, occ, params, out_dir)
+    if params is not None:
+        plot_optimised_launch_power(freqs, c_mask, l_mask, occ, params, out_dir)
 
     # --- Sweep: load cached or run ---
     sweep_cached = load_sweep_data(data_dir)

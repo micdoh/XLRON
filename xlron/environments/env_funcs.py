@@ -2,6 +2,7 @@ import hashlib
 import itertools
 import json
 import math
+import os
 import pathlib
 from collections import defaultdict
 from functools import partial
@@ -49,6 +50,7 @@ T = TypeVar("T")  # Declare type variable
 
 one = jnp.array(1.0, dtype=dtype_config.SMALL_INT_DTYPE)
 zero = jnp.array(0.0, dtype=dtype_config.SMALL_INT_DTYPE)
+DEBUG_SNR_TRACE = os.getenv("XLRON_DEBUG_SNR", "0").lower() in {"1", "true", "yes"}
 
 
 @partial(jax.jit, static_argnums=(1,))
@@ -2845,6 +2847,7 @@ def init_transceiver_amplifier_noise_arrays(
             pathlib.Path(__file__).parents[1].absolute()
             / "data"
             / "gn_model"
+            / "transceiver_amplifier_data"
             / "transceiver_amplifier_data.csv"
         )
     )
@@ -2930,7 +2933,7 @@ def compute_band_gaps_from_csv(
     f = (
         pathlib.Path(band_data_filepath)
         if band_data_filepath
-        else (pathlib.Path(__file__).parents[1].absolute() / "data" / "gn_model" / "band_data.csv")
+        else (pathlib.Path(__file__).parents[1].absolute() / "data" / "gn_model" / "band_data" / "band_data.csv")
     )
     band_data = np.genfromtxt(f, delimiter=",", skip_header=1, usecols=(1, 2, 3, 4))
     # Columns: wavelength_min_nm, wavelength_max_nm, frequency_min_ghz, frequency_max_ghz
@@ -3512,6 +3515,14 @@ def get_snr_for_path(path, link_snr_array, params, state=None):
         )
         nsr_roadm = jnp.where(ch_power > 0, roadm_ase / ch_power, 0.0)
         nsr_path_slots = nsr_path_slots + nsr_roadm
+
+    # Add transceiver noise once at path level (not per-link).
+    # Per-link SNR functions return optical-only SNR; TRX noise is a path-level
+    # quantity representing the Tx/Rx noise floor.
+    if hasattr(params, "transceiver_snr"):
+        trx_snr_linear = isrs_gn_model.from_db(params.transceiver_snr.val)
+        nsr_trx = jnp.where(trx_snr_linear > 1.0, 1.0 / trx_snr_linear, 0.0)
+        nsr_path_slots = nsr_path_slots + nsr_trx
 
     return jnp.nan_to_num(
         isrs_gn_model.to_db(1 / nsr_path_slots), nan=-50, neginf=-50, posinf=50
@@ -4285,6 +4296,37 @@ def mask_slots_rmsa_gn_model(
             )
         )
         new_ok = (new_snr >= req_snr_val).astype(jnp.float32)
+        if DEBUG_SNR_TRACE:
+            should_trace = jnp.logical_and(has_cand, state.total_requests < 3)
+
+            def _trace(_):
+                trx_snr_db = params.transceiver_snr.val[slot_idx]
+                trx_snr_linear = from_db(trx_snr_db)
+                nsr_trx = jnp.where(trx_snr_linear > 1.0, 1.0 / trx_snr_linear, 0.0)
+                new_nsr = 1.0 / jnp.maximum(from_db(new_snr), 1e-20)
+                optical_nsr = jnp.maximum(new_nsr - nsr_trx, 1e-20)
+                optical_snr_db = isrs_gn_model.to_db(1.0 / optical_nsr)
+                jax.debug.print(
+                    "RMSA_SNR_TRACE req={} slot={} req_slots={} path_links={} "
+                    "req_snr_db={:.2f} new_snr_db={:.2f} optical_snr_db={:.2f} trx_snr_db={:.2f}",
+                    state.total_requests,
+                    slot_idx,
+                    req_slots_val,
+                    jnp.sum(path_vec),
+                    req_snr_val,
+                    new_snr,
+                    optical_snr_db,
+                    trx_snr_db,
+                    ordered=True,
+                )
+                return jnp.array(0, dtype=jnp.int32)
+
+            _ = jax.lax.cond(
+                should_trace,
+                _trace,
+                lambda _: jnp.array(0, dtype=jnp.int32),
+                operand=jnp.array(0, dtype=jnp.int32),
+            )
 
         # Check 2: Existing lightpaths still meet their SNR thresholds
         existing_fail = check_snr_sufficient(temp_state, params)

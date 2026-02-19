@@ -43,6 +43,8 @@ DIRECTED_TOPOLOGIES = [
     "usnet_ptrnet_directed",
 ]
 
+TARGET_RUNS = 5  # Number of repeat runs per benchmark config
+
 NUM_ENVS_VALUES = [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096]
 LINK_RESOURCES_VALUES = [50, 100, 150, 200, 250, 300, 350, 400, 450, 500]
 K_VALUES = [5, 10, 25, 50]
@@ -93,6 +95,14 @@ ENV_BASES = {
         "--scale_factor=1.0",
     ],
 }
+
+
+def _count_jsonl_lines(path: Path) -> int:
+    """Count non-empty lines in a JSONL file (each line = one completed run)."""
+    if not path.exists():
+        return 0
+    with open(path) as f:
+        return sum(1 for line in f if line.strip())
 
 
 def _timesteps_for_num_envs(num_envs: int) -> int:
@@ -311,6 +321,32 @@ def _group_cross_env() -> list[dict]:
     return runs
 
 
+def _group_config_grid() -> list[dict]:
+    """Group 9: Config grid (link_resources x NUM_ENVS) for RMSA on both devices."""
+    runs = []
+    grid_link_resources = [64, 128, 256, 512, 1024]
+    grid_num_envs = [1, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096]
+    for device in ["cpu", "gpu"]:
+        for lr in grid_link_resources:
+            for ne in grid_num_envs:
+                ts = _timesteps_for_num_envs(ne)
+                runs.append(
+                    {
+                        "env_flags": ENV_BASES["rmsa"],
+                        "extra_flags": [
+                            "--topology_name=nsfnet_deeprmsa_directed",
+                            f"--link_resources={lr}",
+                            "--k=5",
+                            f"--NUM_ENVS={ne}",
+                            f"--TOTAL_TIMESTEPS={ts}",
+                        ],
+                        "label": f"config_grid_{device}_lr{lr}_ne{ne}",
+                        "device": device,
+                    }
+                )
+    return runs
+
+
 SWEEP_GROUPS = {
     "num_envs": _group_num_envs,
     "topology": _group_topology,
@@ -320,6 +356,7 @@ SWEEP_GROUPS = {
     "device": _group_device,
     "rwa_lr": _group_rwa_lr,
     "cross_env": _group_cross_env,
+    "config_grid": _group_config_grid,
 }
 
 
@@ -453,17 +490,33 @@ def main():
         label = run_config["label"]
         output_file = output_dir / f"{label}.jsonl"
 
-        if args.resume and output_file.exists():
-            print(f"SKIP (exists): {label}")
+        existing = _count_jsonl_lines(output_file)
+        needed = max(0, TARGET_RUNS - existing)
+
+        if args.resume and needed == 0:
+            print(f"SKIP ({existing}/{TARGET_RUNS} runs exist): {label}")
             skipped += 1
             completed += 1
             continue
 
-        success = run_benchmark(run_config, output_dir, args.dry_run, args.timeout)
-        if success:
+        if not args.resume:
+            needed = TARGET_RUNS
+
+        if needed > 0 and existing > 0 and args.resume:
+            print(f"  Topping up {label}: {existing}/{TARGET_RUNS} exist, running {needed} more")
+
+        all_ok = True
+        for rep in range(needed):
+            rep_label = f"{label} [{rep + 1 + (existing if args.resume else 0)}/{TARGET_RUNS}]"
+            print(f"  Repeat: {rep_label}")
+            success = run_benchmark(run_config, output_dir, args.dry_run, args.timeout)
+            if not success:
+                all_ok = False
+                failed += 1
+                break
+
+        if all_ok:
             completed += 1
-        else:
-            failed += 1
 
     elapsed = time.time() - start_time
     print(f"\n{'=' * 70}")

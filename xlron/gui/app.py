@@ -96,7 +96,13 @@ def build_command(all_flags: dict) -> str:
     else:
         parts = ["python", "-m", "xlron.train.train"]
     for key, value in sorted(all_flags.items()):
-        if value is None or value is False:
+        if value is None:
+            continue
+        if isinstance(value, bool):
+            if value:
+                parts.append(f"--{key}")
+            elif DEFAULTS.get(key) is True:
+                parts.append(f"--no{key}")
             continue
         if value is True:
             parts.append(f"--{key}")

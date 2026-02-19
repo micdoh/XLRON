@@ -374,8 +374,9 @@ flags.DEFINE_float(
 flags.DEFINE_float(
     "fec_rate",
     0.8,
-    "FEC code rate applied to accepted bitrate (effective_bitrate = requested_bitrate * fec_rate). "
-    "Only used with rmsa_gn_model environment.",
+    "FEC code rate (e.g. 0.8 = 20%% overhead). In rsa_gn_model it sets "
+    "fec_threshold = 1 - fec_rate for the Shannon capacity formula; in rmsa_gn_model it scales "
+    "accepted bitrate (effective_bitrate = requested_bitrate * fec_rate).",
 )
 flags.DEFINE_string("traffic_requests_csv_filepath", None, "Path to traffic request CSV file")
 flags.DEFINE_string(
@@ -664,7 +665,7 @@ flags.DEFINE_string(
 )
 flags.DEFINE_string(
     "band_preference",
-    "C,L,S",
+    None,
     "Comma-separated band preference order for first-fit/last-fit heuristics in GN model "
     "environments (e.g. 'C,L,S,U,E,O'). First-fit exhausts slots in preferred band order.",
 )

@@ -13,7 +13,7 @@ Approach
    placed by KSP-FF). Freeze this state — lightpath allocations are fixed.
 2. Define a fully-differentiable objective:
 
-       throughput(pump_pow_bw, pump_freq_bw, launch_power)
+       throughput(pump_pow_bw, launch_power)
 
    Inside this function:
      a. Call `fit_dra_params_jax(pump_pow_bw, ...)` — differentiable Raman
@@ -35,7 +35,7 @@ Usage
 -----
   cd /path/to/XLRON
   python validation/pump_optimization.py [--steps 50] [--lr 1e-3]
-      [--optimise_freq] [--optimise_launch_power]
+      [--optimise_launch_power]
       [--launch_power_granularity per_band]
       [--max_total_power_dbm 21.0]
 """
@@ -100,8 +100,6 @@ def make_throughput_objective(state, params, snr_variance_penalty=0.0):
     Supported keys in pump_params:
       pump_pow_bw   – (num_pumps_bw,) BW pump powers [W]
       pump_pow_fw   – (num_pumps_fw,) FW pump powers [W]  (optional)
-      pump_freq_bw  – (num_pumps_bw,) BW pump freqs [Hz]  (optional)
-      pump_freq_fw  – (num_pumps_fw,) FW pump freqs [Hz]  (optional)
       launch_power  – (num_channels,) per-channel power multipliers, relative
                       to the baseline from state.channel_power_array.
                       1.0 = no change. (optional)
@@ -110,6 +108,10 @@ def make_throughput_objective(state, params, snr_variance_penalty=0.0):
         pump_pow_bw   →  fit_dra_params_jax  →  raman_fit_params
                       →  get_snr_dra (per link)  →  path SNR  →  throughput
         launch_power  →  ch_power_w_i  →  get_snr_dra  →  throughput
+
+    Note: pump frequency optimisation is not supported — the Raman fitting
+    uses int() casts on frequency-derived masks and scipy inside custom_vjp,
+    making it non-differentiable w.r.t. frequencies.
     """
     # --- Static values captured from params ---
     num_channels = params.link_resources
@@ -164,12 +166,14 @@ def make_throughput_objective(state, params, snr_variance_penalty=0.0):
         # Broadcast by tiling to all spans.
         pump_pow_bw_1d = pump_params["pump_pow_bw"]  # (num_pumps_bw,)
         pump_pow_fw_1d = pump_params.get("pump_pow_fw", nominal_pump_pow_fw)
-        pump_freq_bw_1d = pump_params.get("pump_freq_bw", nominal_pump_freq_bw)
-        pump_freq_fw_1d = pump_params.get("pump_freq_fw", nominal_pump_freq_fw)
         pump_pow_bw = jnp.broadcast_to(pump_pow_bw_1d[None, :], (max_spans, len(pump_pow_bw_1d)))
         pump_pow_fw = jnp.broadcast_to(pump_pow_fw_1d[None, :], (max_spans, len(pump_pow_fw_1d)))
-        pump_freq_bw = jnp.broadcast_to(pump_freq_bw_1d[None, :], (max_spans, len(pump_freq_bw_1d)))
-        pump_freq_fw = jnp.broadcast_to(pump_freq_fw_1d[None, :], (max_spans, len(pump_freq_fw_1d)))
+        pump_freq_bw = jnp.broadcast_to(
+            nominal_pump_freq_bw[None, :], (max_spans, len(nominal_pump_freq_bw))
+        )
+        pump_freq_fw = jnp.broadcast_to(
+            nominal_pump_freq_fw[None, :], (max_spans, len(nominal_pump_freq_fw))
+        )
         # launch_power: (num_channels,) multiplier, 1.0 = baseline
         launch_multiplier = pump_params.get(
             "launch_power", jnp.ones(num_channels, dtype=jnp.float32)
@@ -186,8 +190,8 @@ def make_throughput_objective(state, params, snr_variance_penalty=0.0):
             ref_lambda=ref_lambda,
             pump_pow_fw=pump_pow_fw_1d,
             pump_pow_bw=pump_pow_bw_1d,
-            pump_freq_fw=pump_freq_fw_1d,
-            pump_freq_bw=pump_freq_bw_1d,
+            pump_freq_fw=nominal_pump_freq_fw,
+            pump_freq_bw=nominal_pump_freq_bw,
             ch_centre_freq_ghz=ch_centre_freq_ghz,
             ch_power_w_i=baseline_ch_pow[0],
             num_bw=_static_num_bw,
@@ -291,6 +295,9 @@ def make_throughput_objective(state, params, snr_variance_penalty=0.0):
             inv_snr_sum = jnp.sum(
                 jnp.where(path, 1.0 / jnp.maximum(link_snr, 1e-20), 0.0), axis=0
             )  # (N,)
+            # Add transceiver noise once at path level
+            trx_snr_linear = 10.0 ** (trx_snr / 10.0)
+            inv_snr_sum = inv_snr_sum + jnp.where(trx_snr_linear > 1.0, 1.0 / trx_snr_linear, 0.0)
             path_snr_db = jnp.where(
                 inv_snr_sum > 0,
                 -10.0 * jnp.log10(jnp.maximum(inv_snr_sum, 1e-20)),
@@ -305,17 +312,20 @@ def make_throughput_objective(state, params, snr_variance_penalty=0.0):
             )
             slot_mask = jnp.where(cond, slot_mask, zero)
 
+            # Accumulate SNR dB stats for flatness penalty BEFORE the -50 dB
+            # clamping, using only active slots above min_snr.  This avoids the
+            # -50 dB sentinel dragging snr_min to an extreme value and creating
+            # a ~63 dB discontinuous penalty that causes oscillation.
+            above_threshold = jnp.logical_and(slot_mask > 0, path_snr_db >= min_snr)
+            active_snr_db = jnp.where(above_threshold, path_snr_db, 1e9)
+            snr_sum += jnp.sum(jnp.where(above_threshold, path_snr_db, 0.0))
+            snr_min = jnp.minimum(snr_min, jnp.min(active_snr_db))
+            count += jnp.sum(above_threshold.astype(path_snr_db.dtype))
+
             path_snr_db = jnp.where(path_snr_db < min_snr, -50.0, path_snr_db)
             snr_lin = from_db(path_snr_db) * slot_mask
             datarate = jnp.log2(1.0 + snr_lin) * slot_size_hz * 2.0 * (1.0 - fec_threshold)
             throughput += jnp.sum(datarate)
-
-            # Accumulate SNR dB stats for flatness penalty (active slots only).
-            # Use large negative sentinel for inactive slots so they don't affect min.
-            active_snr_db = jnp.where(slot_mask > 0, path_snr_db, 1e9)
-            snr_sum += jnp.sum(path_snr_db * slot_mask)
-            snr_min = jnp.minimum(snr_min, jnp.min(active_snr_db))
-            count += jnp.sum(slot_mask)
             return throughput, snr_sum, snr_min, count
 
         init_carry = (
@@ -397,7 +407,6 @@ def optimise_pump_powers(
     steps=200,
     lr=1e-3,
     lr_launch_power=None,
-    optimise_freq=False,
     optimise_launch_power=False,
     launch_power_granularity="per_band",
     max_total_power_dbm=None,
@@ -420,9 +429,6 @@ def optimise_pump_powers(
         "log_pump_pow_bw": jnp.log(jnp.array(params.raman_pump_power_bw.val[0], dtype=jnp.float32)),
         "log_pump_pow_fw": jnp.log(jnp.array(params.raman_pump_power_fw.val[0], dtype=jnp.float32)),
     }
-    if optimise_freq:
-        pump_params["pump_freq_bw"] = jnp.array(params.raman_pump_freq_bw.val[0], dtype=jnp.float32)
-        pump_params["pump_freq_fw"] = jnp.array(params.raman_pump_freq_fw.val[0], dtype=jnp.float32)
 
     # --- Launch power setup ---
     band_boundaries = _get_band_boundaries(ch_centre_freq_ghz)
@@ -462,7 +468,7 @@ def optimise_pump_powers(
     _lr_lp = lr_launch_power if lr_launch_power is not None else lr
     print(
         f"Steps: {steps}, LR (pump): {lr}, LR (launch power): {_lr_lp}, "
-        f"optimise_freq: {optimise_freq}, optimise_launch_power: {optimise_launch_power}"
+        f"optimise_launch_power: {optimise_launch_power}"
     )
     if max_total_power_dbm is not None:
         print(f"Max total fibre launch power: {max_total_power_dbm:.1f} dBm")
@@ -484,9 +490,6 @@ def optimise_pump_powers(
             "pump_pow_bw": jnp.exp(pp["log_pump_pow_bw"]),
             "pump_pow_fw": jnp.exp(pp["log_pump_pow_fw"]),
         }
-        if "pump_freq_bw" in pp:
-            expanded["pump_freq_bw"] = pp["pump_freq_bw"]
-            expanded["pump_freq_fw"] = pp["pump_freq_fw"]
         # Expand launch power (log-space multipliers → per-channel linear)
         if "log_launch_power_band" in pp:
             expanded["launch_power"] = make_launch_power_multiplier(
@@ -604,9 +607,6 @@ def optimise_pump_powers(
                 "pump_pow_bw": jnp.exp(pp["log_pump_pow_bw"]),
                 "pump_pow_fw": jnp.exp(pp["log_pump_pow_fw"]),
             }
-            if "pump_freq_bw" in pp:
-                expanded["pump_freq_bw"] = pp["pump_freq_bw"]
-                expanded["pump_freq_fw"] = pp["pump_freq_fw"]
             if "log_launch_power_band" in pp:
                 expanded["launch_power"] = make_launch_power_multiplier(
                     jnp.exp(pp["log_launch_power_band"]), ch_centre_freq_ghz
@@ -632,6 +632,10 @@ def optimise_pump_powers(
         tp_history = []
         for s in range(steps):
             tp, grads = step_fn(pp)
+            # Compute SNR penalty at the SAME params that tp was evaluated at
+            # (before the update), so the back-calculation is consistent.
+            if snr_variance_penalty > 0.0:
+                _raw_tp_at_current = _raw_tp_step_fn(pp)
             neg_grads = jax.tree.map(lambda g: -jnp.nan_to_num(g, nan=0.0), grads)
             updates, opt_state = optimizer.update(neg_grads, opt_state)
             pp = optax.apply_updates(pp, updates)
@@ -667,7 +671,7 @@ def optimise_pump_powers(
                 lp_str = ""
             # SNR std field — only when variance penalty is active
             if snr_variance_penalty > 0.0:
-                _snr_penalty_step = max(0.0, (_raw_tp_step_fn(pp) - tp_f) / snr_variance_penalty)
+                _snr_penalty_step = max(0.0, (_raw_tp_at_current - tp_f) / snr_variance_penalty)
                 snr_str = f"  SNR(mean-min)={_snr_penalty_step:5.3f} dB"
             else:
                 snr_str = ""
@@ -705,14 +709,6 @@ def optimise_pump_powers(
                 {
                     "pump_pow_bw": jnp.exp(best_params["log_pump_pow_bw"]),
                     "pump_pow_fw": jnp.exp(best_params["log_pump_pow_fw"]),
-                    **(
-                        {
-                            "pump_freq_bw": best_params["pump_freq_bw"],
-                            "pump_freq_fw": best_params["pump_freq_fw"],
-                        }
-                        if "pump_freq_bw" in best_params
-                        else {}
-                    ),
                     **(
                         {
                             "launch_power": make_launch_power_multiplier(
@@ -759,8 +755,6 @@ def optimise_pump_powers(
     print(f"Optimised BW pump powers (mW): {opt_pump_pow_bw_mw}")
     pump_csv_str = ",".join(f"{v:.6g}" for v in opt_pump_pow_bw_w)
     print(f"  Copy-paste (--raman_pump_power_bw): {pump_csv_str}")
-    if optimise_freq:
-        print(f"Optimised BW pump freqs (THz): {np.array(best_params['pump_freq_bw']) / 1e12}")
 
     # --- Launch power ---
     if optimise_launch_power:
@@ -849,7 +843,6 @@ def main():
         default=None,
         help="Learning rate for launch power (defaults to --lr if not set)",
     )
-    parser.add_argument("--optimise_freq", action="store_true")
     parser.add_argument(
         "--optimise_launch_power",
         action="store_true",
@@ -919,7 +912,6 @@ def main():
         steps=args.steps,
         lr=args.lr,
         lr_launch_power=args.lr_launch_power,
-        optimise_freq=args.optimise_freq,
         optimise_launch_power=args.optimise_launch_power,
         launch_power_granularity=args.launch_power_granularity,
         max_total_power_dbm=args.max_total_power_dbm,

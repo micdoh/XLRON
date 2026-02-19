@@ -853,7 +853,7 @@ def make(
             max_snr=max_snr,
             min_snr=min_snr,
             mod_format_correction=mod_format_correction,
-            fec_threshold=config.get("fec_threshold", 0.28),
+            fec_threshold=1.0 - config.get("fec_rate", 0.8),
             transceiver_snr=transceiver_snr,
             amplifier_noise_figure=amplifier_noise_figure,
             uniform_spans=uniform_spans,
@@ -920,7 +920,7 @@ def make(
                     )
         else:
             # Sentinel defaults when Raman amplification is disabled
-            raman_fit_params = jnp.zeros((7, 1, 1))
+            raman_fit_params = jnp.zeros((6, 1, 1))
             pump_pow_fw_arr = np.zeros((1, 1))
             pump_pow_bw_arr = np.zeros((1, 1))
             pump_freq_fw_arr = np.zeros((1, 1))

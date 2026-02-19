@@ -1042,14 +1042,14 @@ class Gerard2025RegressionTest(absltest.TestCase):
 
         throughput_gbps = float(calculate_throughput_from_active_lightpaths(state, params))
 
-        # Regression value: 63998.05 Gb/s (~64.0 Tb/s) measured 2026-02-18.
-        # Changed from 77147.94 after replacing lumped DRA ASE with distributed
-        # ASE (Green's function integral, Buglia et al. arXiv:2311.08964v1).
+        # Regression value: 66048.76 Gb/s (~66.0 Tb/s) measured 2026-02-18.
+        # Changed from 57301.70 after deriving fec_threshold from fec_rate
+        # (fec_threshold = 1 - fec_rate, was inconsistent at 0.28 vs 0.2).
         # Tolerance of 5 Gb/s accounts for floating-point platform differences and
         # minor fitting variation across platforms/jaxopt versions.
         self.assertAlmostEqual(
             throughput_gbps,
-            63998.05,
+            66048.76,
             delta=5.0,
             msg="Gerard 2025 throughput regression: model output changed",
         )

@@ -1,6 +1,7 @@
 import math
-from typing import Tuple
+from typing import Any, Optional, Tuple
 
+import numpy as np
 from gymnax.environments import environment, spaces
 
 from xlron import dtype_config
@@ -101,6 +102,12 @@ class RSAEnv(environment.Environment):
             self.initial_state = state.replace(
                 graph=init_graph_tuple(state, params, laplacian_matrix)
             )
+        self._render_figure = None
+        self._render_axes = None
+        self._render_graph = None
+        self._render_pos = None
+        self._render_edge_lookup = {}
+        self._render_graph_key = None
 
     @partial(jax.jit, static_argnums=(0, 4))
     def step(
@@ -290,6 +297,271 @@ class RSAEnv(environment.Environment):
             info["_throughput"] = state.throughput
 
         return obs, state, reward, terminal, truncated, info
+
+    @staticmethod
+    def _to_numpy(arr: Any) -> np.ndarray:
+        return np.asarray(jax.device_get(arr))
+
+    def _get_render_graph(self, params: RSAEnvParams):
+        import networkx as nx
+
+        edges = self._to_numpy(params.edges.val).astype(int)
+        graph_key = (
+            params.num_nodes,
+            params.num_links,
+            bool(params.directed_graph),
+            hash(edges.tobytes()),
+        )
+        if self._render_graph is not None and self._render_graph_key == graph_key:
+            return self._render_graph, self._render_pos, self._render_edge_lookup
+
+        lengths = self._to_numpy(params.link_length_array.val).astype(float).reshape(-1)
+        g = nx.Graph()
+        min_node = int(np.min(edges))
+        max_node = int(np.max(edges))
+        if min_node == 1 and max_node == params.num_nodes:
+            g.add_nodes_from(range(1, params.num_nodes + 1))
+        else:
+            g.add_nodes_from(range(params.num_nodes))
+        edge_lookup = {}
+        for idx, (u, v) in enumerate(edges):
+            u_int, v_int = int(u), int(v)
+            w = float(lengths[idx]) if idx < lengths.shape[0] else 1.0
+            key = tuple(sorted((u_int, v_int)))
+            edge_lookup.setdefault(key, []).append(idx)
+            if g.has_edge(u_int, v_int):
+                if w < g[u_int][v_int]["weight"]:
+                    g[u_int][v_int]["weight"] = w
+                    g[u_int][v_int]["inverse_weight"] = 1.0 / max(w, 1e-6)
+            else:
+                g.add_edge(
+                    u_int,
+                    v_int,
+                    weight=w,
+                    inverse_weight=1.0 / max(w, 1e-6),
+                )
+        initial_pos = nx.circular_layout(g)
+        pos = nx.spring_layout(
+            g,
+            k=0.12,
+            iterations=100,
+            pos=initial_pos,
+            weight="inverse_weight",
+            seed=7,
+        )
+        self._render_graph = g
+        self._render_pos = pos
+        self._render_edge_lookup = edge_lookup
+        self._render_graph_key = graph_key
+        return g, pos, edge_lookup
+
+    def _get_slot_rgba(self, state: RSAEnvState, params: RSAEnvParams) -> np.ndarray:
+        try:
+            from matplotlib import pyplot as plt
+        except ImportError as exc:
+            raise ImportError("matplotlib is required for RSAEnv.render()") from exc
+
+        slots = self._to_numpy(state.link_slot_array).astype(float)
+        dep = self._to_numpy(state.link_slot_departure_array).astype(float)
+        current_time = float(np.asarray(jax.device_get(state.current_time)))
+        mean_holding = max(float(params.mean_service_holding_time), 1e-6)
+
+        num_links, num_slots = slots.shape
+        rgba = np.ones((num_links, num_slots, 4), dtype=float)
+        rgba[..., :3] = 0.98
+        rgba[..., 3] = 1.0
+
+        gaps = slots < 0.0
+        rgba[gaps, :3] = 0.15
+        rgba[gaps, 3] = 0.95
+
+        occupied = slots > 0.0
+        remaining = np.where(dep > current_time, dep - current_time, dep)
+        remaining = np.clip(remaining / mean_holding, 0.0, 1.0)
+        palette = np.asarray(plt.get_cmap("tab20").colors)
+        color_idx = np.floor(np.abs(dep) * 1000.0).astype(int) % len(palette)
+
+        rgba[occupied, :3] = palette[color_idx[occupied]]
+        # Lower alpha when closer to departure (more transparent), but not too faint.
+        rgba[occupied, 3] = 0.35 + 0.60 * remaining[occupied]
+        return rgba
+
+    def render(
+        self,
+        state: RSAEnvState,
+        params: Optional[RSAEnvParams] = None,
+        mode: str = "human",
+        prev_state: Optional[RSAEnvState] = None,
+        action_info: Optional[ActionInfo] = None,
+        check: Optional[chex.Array] = None,
+        info: Optional[dict[str, Any]] = None,  # Reserved for future optional overlays.
+    ):
+        """Render RSA state as a link-slot heatmap plus a topology view."""
+        try:
+            import matplotlib.pyplot as plt
+            import networkx as nx
+        except ImportError as exc:
+            raise ImportError("matplotlib and networkx are required for RSAEnv.render()") from exc
+
+        if params is None:
+            raise ValueError("render() requires `params` for topology and normalization context.")
+
+        if self._render_figure is None:
+            self._render_figure = plt.figure(figsize=(16, 10))
+            gs = self._render_figure.add_gridspec(
+                2, 2, width_ratios=[3.0, 1.7], height_ratios=[8.0, 2.0], wspace=0.15, hspace=0.10
+            )
+            self._render_axes = (
+                self._render_figure.add_subplot(gs[0, 0]),
+                self._render_figure.add_subplot(gs[0, 1]),
+                self._render_figure.add_subplot(gs[1, :]),
+            )
+
+        ax_matrix, ax_graph, ax_stats = self._render_axes
+        ax_matrix.clear()
+        ax_graph.clear()
+        ax_stats.clear()
+
+        rgba = self._get_slot_rgba(state, params)
+        ax_matrix.imshow(rgba, aspect="auto", interpolation="nearest", origin="lower")
+        ax_matrix.set_title("Link Slot State (color=request, alpha=remaining time)")
+        ax_matrix.set_xlabel("Slot Index")
+        ax_matrix.set_ylabel("Link Index")
+
+        highlight_mask = None
+        accepted = False
+        if check is not None:
+            accepted = float(np.asarray(jax.device_get(check))) < 0.5
+        elif prev_state is not None:
+            accepted = int(self._to_numpy(state.accepted_services)) > int(
+                self._to_numpy(prev_state.accepted_services)
+            )
+
+        if accepted and action_info is not None:
+            highlight_mask = self._to_numpy(action_info.affected_slots_mask).astype(float)
+        elif accepted and prev_state is not None:
+            prev_slots = self._to_numpy(prev_state.link_slot_array).astype(float)
+            curr_slots = self._to_numpy(state.link_slot_array).astype(float)
+            prev_dep = self._to_numpy(prev_state.link_slot_departure_array).astype(float)
+            curr_dep = self._to_numpy(state.link_slot_departure_array).astype(float)
+            highlight_mask = (
+                ((curr_slots > 0.0) & (prev_slots <= 0.0)) | (curr_dep > (prev_dep + 1e-9))
+            ).astype(float)
+        if highlight_mask is not None:
+            y_idx, x_idx = np.where(highlight_mask > 0.5)
+            if x_idx.size > 0:
+                ax_matrix.scatter(
+                    x_idx, y_idx, marker="x", s=28, c="#111111", linewidths=0.8, alpha=0.95
+                )
+
+        g, pos, edge_lookup = self._get_render_graph(params)
+        nx.draw_networkx_edges(g, pos, edge_color="#9CA3AF", width=1.6, ax=ax_graph)
+        nx.draw_networkx_nodes(
+            g,
+            pos,
+            node_size=430,
+            node_color="#ffffff",
+            edgecolors="#111827",
+            linewidths=1.5,
+            ax=ax_graph,
+        )
+        nx.draw_networkx_labels(g, pos, font_size=9, font_weight="bold", ax=ax_graph)
+
+        highlight_color = "#F97316"
+        if highlight_mask is not None:
+            selected = np.where(highlight_mask > 0.5)
+            if selected[0].size > 0:
+                y0, x0 = int(selected[0][0]), int(selected[1][0])
+                rgb = rgba[y0, x0, :3]
+                highlight_color = tuple(float(c) for c in rgb.tolist())
+
+        highlighted_edges = set()
+        if accepted and action_info is not None:
+            path = self._to_numpy(action_info.path).astype(int)
+            valid_path = [int(node) for node in path if int(node) >= 0]
+            for i in range(len(valid_path) - 1):
+                key = tuple(sorted((valid_path[i], valid_path[i + 1])))
+                if key in edge_lookup:
+                    highlighted_edges.add(key)
+        if not highlighted_edges and highlight_mask is not None:
+            for link_idx in np.where(np.any(highlight_mask > 0.5, axis=1))[0].tolist():
+                if link_idx < self._to_numpy(params.edges.val).shape[0]:
+                    u, v = self._to_numpy(params.edges.val)[link_idx].astype(int).tolist()
+                    highlighted_edges.add(tuple(sorted((int(u), int(v)))))
+
+        if highlighted_edges:
+            nx.draw_networkx_edges(
+                g,
+                pos,
+                edgelist=list(highlighted_edges),
+                edge_color=highlight_color,
+                width=4.2,
+                ax=ax_graph,
+            )
+        ax_graph.set_title("Topology (latest accepted request highlighted)")
+        ax_graph.set_axis_off()
+
+        req = self._to_numpy(state.request_array).astype(float).reshape(-1)
+        src = int(req[0]) if req.size > 0 else -1
+        dst = int(req[1]) if req.size > 1 else -1
+        bit_rate = float(req[2]) if req.size > 2 else 0.0
+
+        total_requests = max(int(np.asarray(jax.device_get(state.total_requests))), 0)
+        accepted_services = int(np.asarray(jax.device_get(state.accepted_services)))
+        accepted_bitrate = float(np.asarray(jax.device_get(state.accepted_bitrate)))
+        total_bitrate = float(np.asarray(jax.device_get(state.total_bitrate)))
+        service_bp = 1.0 - (accepted_services / max(total_requests, 1))
+        bitrate_bp = 1.0 - (accepted_bitrate / max(total_bitrate, 1e-6))
+        util = float(np.count_nonzero(self._to_numpy(state.link_slot_array)) / state.link_slot_array.size)
+
+        lines = [
+            f"REQUEST src={src} dst={dst} bitrate={bit_rate:.2f}",
+            f"STEP {int(np.asarray(jax.device_get(state.total_timesteps)))}  TIME {float(np.asarray(jax.device_get(state.current_time))):.3f}",
+            f"ACCEPTED {accepted_services} / {total_requests}",
+            f"SERVICE BLOCKING {service_bp:.4f}",
+            f"BITRATE BLOCKING {bitrate_bp:.4f}",
+            f"UTILISATION {util:.4f}",
+        ]
+        if hasattr(state, "link_capacity_array"):
+            cap = self._to_numpy(state.link_capacity_array)
+            lines.append(f"LIGHTPATH CAPACITY (mean) {float(np.mean(cap)):.3f}")
+        if check is not None:
+            status = "ACCEPTED" if accepted else "BLOCKED"
+            lines.append(f"LATEST ACTION {status}")
+
+        ax_stats.set_axis_off()
+        ax_stats.text(
+            0.01,
+            0.95,
+            "\n".join(lines),
+            va="top",
+            ha="left",
+            family="monospace",
+            fontsize=12,
+            color="#22C55E",
+            bbox=dict(boxstyle="round,pad=0.45", facecolor="#0A0A0A", edgecolor="#22C55E", alpha=0.95),
+            transform=ax_stats.transAxes,
+        )
+        self._render_figure.suptitle("XLRON RSA Environment Render", fontsize=14, fontweight="bold")
+        self._render_figure.canvas.draw_idle()
+
+        if mode == "human":
+            plt.pause(0.001)
+            return None
+        if mode == "rgb_array":
+            self._render_figure.canvas.draw()
+            width, height = self._render_figure.canvas.get_width_height()
+            rgb = np.frombuffer(self._render_figure.canvas.tostring_rgb(), dtype=np.uint8)
+            return rgb.reshape((height, width, 3))
+        raise ValueError(f"Unsupported render mode: {mode}")
+
+    def close(self):
+        if self._render_figure is not None:
+            from matplotlib import pyplot as plt
+
+            plt.close(self._render_figure)
+            self._render_figure = None
+            self._render_axes = None
 
     @partial(jax.jit, static_argnums=(0, 2))
     def reset_env(
@@ -604,15 +876,7 @@ class RSAEnv(environment.Environment):
             elif params.reward_type == "snr":
                 # SNR calculation...
                 assert params.__class__.__name__ == "RSAGNModelEnvParams"
-                path_start_index = get_path_indices(
-                    params,
-                    action_info.nodes_sd[0],
-                    action_info.nodes_sd[1],
-                    params.k_paths,
-                    params.num_nodes,
-                ).astype(dtype_config.LARGE_INT_DTYPE)
-                path = params.path_link_array[path_start_index + action_info.path_index]
-                path_snr = get_snr_for_path(path, state.link_snr_array, params)[
+                path_snr = get_snr_for_path(action_info.path, state.link_snr_array, params)[
                     action_info.initial_slot_index.astype(dtype_config.LAREG_INT_DTYPE)
                 ]
                 # set to 0 if negative and divide by large SNR (e.g. 50. dB) to scale below 1

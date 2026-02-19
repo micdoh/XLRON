@@ -327,7 +327,7 @@ class GNModelEnvParams(RSAEnvParams):
     use_raman_amp: bool = struct.field(pytree_node=False)
     raman_fit_params: HashableArrayWrapper = struct.field(
         pytree_node=False
-    )  # (7, num_channels, max_spans) — [C_f, a_f, C_b, a_b, a, raman_gain, dra_ase_density] Neper-scale + linear + W/Hz
+    )  # (6, num_channels, max_spans) — [C_f, a_f, C_b, a_b, a, raman_gain] Neper-scale + linear
     raman_pump_power_fw: HashableArrayWrapper = struct.field(
         pytree_node=False
     )  # (max_spans, num_pumps_fw) — forward pump powers [W]

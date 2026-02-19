@@ -112,6 +112,22 @@ def _scan_modulations() -> list[str]:
     return sorted(str(p) for p in mod_dir.glob("*.csv"))
 
 
+def _scan_band_data() -> list[str]:
+    """Scan band data CSV files and return sorted list of paths."""
+    band_dir = _DATA_DIR / "gn_model" / "band_data"
+    if not band_dir.exists():
+        return []
+    return sorted(str(p) for p in band_dir.glob("*.csv"))
+
+
+def _scan_noise_data() -> list[str]:
+    """Scan transceiver/amplifier noise data CSV files and return sorted list of paths."""
+    noise_dir = _DATA_DIR / "gn_model" / "transceiver_amplifier_data"
+    if not noise_dir.exists():
+        return []
+    return sorted(str(p) for p in noise_dir.glob("*.csv"))
+
+
 # ---------------------------------------------------------------------------
 # Defaults — must match parameter_flags.py
 # ---------------------------------------------------------------------------
@@ -1117,12 +1133,12 @@ def physical_layer_section() -> dict:
             max_value=0.5,
             value=float(_get_preset_val("beta_fec")),
             format="%.1e",
-            step=1e-3,
+            step=1e-4,
             help=_h("beta_fec"),
         )
         _emit(flags, "beta_fec", beta_fec)
 
-    if st.session_state.get("_env_type") == "rmsa_gn_model":
+    if st.session_state.get("_env_type", "").endswith("gn_model"):
         fec_rate = st.number_input(
             "FEC Code Rate",
             min_value=0.0,
@@ -1134,22 +1150,59 @@ def physical_layer_section() -> dict:
         )
         _emit(flags, "fec_rate", fec_rate)
 
-    noise_data = st.text_input(
-        "Noise Data CSV (leave blank for default)",
-        value=_get_preset_val("noise_data_filepath") or "",
-        help=_h("noise_data_filepath"),
-    )
-    if noise_data.strip():
-        flags["noise_data_filepath"] = noise_data.strip()
-
     st.subheader("Band Configuration")
-    band_data = st.text_input(
-        "Band Data CSV (leave blank for default)",
-        value=_get_preset_val("band_data_filepath") or "",
+
+    # --- Band Data CSV dropdown ---
+    band_files = _scan_band_data()
+    preset_band = _get_preset_val("band_data_filepath") or ""
+    band_options = ["(default)"] + band_files + ["Custom path..."]
+    if preset_band and preset_band not in band_files:
+        band_default_idx = len(band_options) - 1  # Custom path...
+    elif preset_band in band_files:
+        band_default_idx = band_files.index(preset_band) + 1
+    else:
+        band_default_idx = 0
+    band_sel = st.selectbox(
+        "Band Data CSV",
+        band_options,
+        index=band_default_idx,
         help=_h("band_data_filepath"),
     )
-    if band_data.strip():
-        flags["band_data_filepath"] = band_data.strip()
+    if band_sel == "Custom path...":
+        band_custom = st.text_input(
+            "Band Data CSV path",
+            value=preset_band if preset_band not in band_files else "",
+        )
+        if band_custom.strip():
+            flags["band_data_filepath"] = band_custom.strip()
+    elif band_sel != "(default)":
+        flags["band_data_filepath"] = band_sel
+
+    # --- Noise / Transceiver-Amplifier Data CSV dropdown ---
+    noise_files = _scan_noise_data()
+    preset_noise = _get_preset_val("noise_data_filepath") or ""
+    noise_options = ["(default)"] + noise_files + ["Custom path..."]
+    if preset_noise and preset_noise not in noise_files:
+        noise_default_idx = len(noise_options) - 1  # Custom path...
+    elif preset_noise in noise_files:
+        noise_default_idx = noise_files.index(preset_noise) + 1
+    else:
+        noise_default_idx = 0
+    noise_sel = st.selectbox(
+        "Transceiver & Amplifier Noise Data CSV",
+        noise_options,
+        index=noise_default_idx,
+        help=_h("noise_data_filepath"),
+    )
+    if noise_sel == "Custom path...":
+        noise_custom = st.text_input(
+            "Noise Data CSV path",
+            value=preset_noise if preset_noise not in noise_files else "",
+        )
+        if noise_custom.strip():
+            flags["noise_data_filepath"] = noise_custom.strip()
+    elif noise_sel != "(default)":
+        flags["noise_data_filepath"] = noise_sel
 
     available_bands = ["C", "L", "S", "U", "E", "O"]
     preset_pref = _get_preset_val("band_preference")

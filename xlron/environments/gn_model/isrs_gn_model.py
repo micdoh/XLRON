@@ -700,9 +700,9 @@ def get_snr(
         num_subchannels=num_subchannels,
     )
 
-    # SNR
+    # SNR (optical only — transceiver noise is added once at path level in get_snr_for_path)
     transceiver_noise = ch_power_w_i / from_db(transceiver_snr)
-    noise_power = p_ase_inline + p_ase_roadm + p_nli + transceiver_noise
+    noise_power = p_ase_inline + p_ase_roadm + p_nli
     noise_power = jnp.where(noise_power > 0, noise_power, EPS)
     ch_power_squeezed = jnp.squeeze(ch_power_w_i)
     snr = jnp.where(ch_power_squeezed > 0, ch_power_squeezed / noise_power, -1e5)
@@ -866,9 +866,8 @@ def get_snr_fused(
     # ROADM ASE is now computed at path level (see calculate_roadm_ase)
     p_ase_roadm = jnp.zeros_like(p_ase_inline)
 
-    # === Final SNR ===
-    transceiver_noise = ch_pow / from_db(transceiver_snr)
-    noise_power = p_ase_inline + p_ase_roadm + p_nli + transceiver_noise
+    # === Final SNR (optical only — TRX noise added at path level) ===
+    noise_power = p_ase_inline + p_ase_roadm + p_nli
     noise_power = jnp.where(noise_power > 0, noise_power, EPS)
     ch_pow_sq = jnp.squeeze(ch_pow)
     snr = jnp.where(ch_pow_sq > 0, ch_pow_sq / noise_power, -1e5)

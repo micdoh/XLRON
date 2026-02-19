@@ -67,10 +67,10 @@ xlron/
 
 The DRA (Distributed Raman Amplification) module extends the ISRS GN model with Raman-pump-aware NLI and ASE calculations. Key files: `environments/gn_model/isrs_gn_model_dra.py` (DRA model), `environments/gn_model/isrs_gn_model.py` (base ISRS model).
 
-- **Fit parameters**: Shape `(7, num_channels, max_spans)`. Indices 0-4: `[C_f, a_f, C_b, a_b, a]` for the semi-analytical power profile. Index 5: per-channel ODE Raman gain (linear). Index 6: distributed DRA ASE spectral density (W/Hz).
+- **Fit parameters**: Shape `(6, num_channels, max_spans)`. Indices 0-4: `[C_f, a_f, C_b, a_b, a]` for the semi-analytical power profile. Index 5: per-channel ODE Raman gain (linear).
 - **Fitting**: `fit_dra_params_triangular()` runs at env creation time: solves Raman ODE via `jax.experimental.ode.odeint`, fits profiles via `jaxopt.LevenbergMarquardt`, stores ODE Raman gain.
 - **NLI**: `gn_model_dra()` computes NLI using 9 Raman mode combinations (forward/backward pump interactions) via the eta helper functions.
-- **ASE noise**: `get_snr_dra()` computes two ASE contributions per span: (1) EDFA ASE with reduced gain `G_EDFA = max(G_ISRS / G_Raman, 1.0)`, and (2) distributed DRA ASE computed by integrating the spontaneous Raman emission along the fibre using ODE pump profiles (pre-computed at env creation time, stored in fit_params row 6 as W/Hz spectral density). The hybrid amplifier model `P_ASE_span = G_EDFA * P_ASE_DRA + P_ASE_EDFA` accumulates across spans via geometric series.
+- **ASE noise**: `get_snr_dra()` uses a Friis cascade model for the hybrid Raman+EDFA amplifier. `NF_hybrid = NF_DRA + (NF_EDFA - 1) / G_raman` where `NF_DRA = 1/G_raman + 2*n_sp*(1 - 1/G_raman)` with `n_sp ≈ 1.13` (phonon factor). Total ASE per span: `P_ASE = NF_hybrid * G_total * h * f * B`, accumulated as `num_spans * P_ASE`.
 - **Signal-signal ISRS**: Excluded from the Raman ODE (`g_R[:num_channels, :num_channels] = 0`) to avoid double-counting with the GN model's perturbative ISRS tilt.
 
 ### Key Design Patterns

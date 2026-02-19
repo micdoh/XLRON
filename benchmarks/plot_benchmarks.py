@@ -62,25 +62,33 @@ def _save(fig: plt.Figure, output_dir: Path, name: str):
 
 
 def plot_fps_vs_num_envs(df: pd.DataFrame, output_dir: Path, device: str | None = None):
-    """Log-log plot of FPS vs NUM_ENVS, faceted by env_type."""
-    data = _filter_device(_filter_group(df, "num_envs"), device)
+    """Log-log plot of FPS vs NUM_ENVS. Only shows RMSA.
+
+    Generates two plots:
+    - fps_vs_num_envs: filtered to --device (default GPU if available)
+    - fps_vs_num_envs_cpu_gpu: both CPU and GPU series
+    """
+    data = _filter_group(df, "num_envs")
     if data.empty:
         print("  No data for num_envs group")
         return
 
-    env_types = sorted(data["config_env_type"].unique())
-    fig, axes = plt.subplots(1, len(env_types), figsize=(14 * len(env_types), 10))
-    if len(env_types) == 1:
-        axes = [axes]
+    # Only show RMSA
+    data = data[data["config_env_type"] == "rmsa"]
+    if data.empty:
+        print("  No RMSA data for num_envs group")
+        return
 
-    for ax, env_type in zip(axes, env_types):
-        subset = data[data["config_env_type"] == env_type].sort_values("config_NUM_ENVS")
-        color = ENV_TYPE_COLORS.get(env_type, "black")
-        display = ENV_TYPE_DISPLAY.get(env_type, env_type)
+    # Plot 1: single-device (respect --device filter)
+    single_dev = _filter_device(data, device)
+    if not single_dev.empty:
+        fig, ax = plt.subplots(figsize=(14, 10))
+        subset = single_dev.sort_values("config_NUM_ENVS")
+        color = ENV_TYPE_COLORS.get("rmsa", "black")
 
         ax.plot(
             subset["config_NUM_ENVS"], subset["timing_fps"],
-            marker="o", color=color, label=display,
+            marker="o", color=color, label="RMSA",
         )
 
         # Ideal linear scaling reference
@@ -95,41 +103,74 @@ def plot_fps_vs_num_envs(df: pd.DataFrame, output_dir: Path, device: str | None 
 
         ax.set_xscale("log", base=2)
         ax.set_yscale("log")
-        ax.set_xlabel("NUM_ENVS")
-        ax.set_ylabel("Frames per Second (FPS)")
-        ax.set_title(display)
+        ax.set_xlabel("# Parallel Environments")
+        ax.set_ylabel("FPS")
         ax.legend()
         ax.xaxis.set_major_formatter(ticker.ScalarFormatter())
+        fig.tight_layout()
+        _save(fig, output_dir, "fps_vs_num_envs")
 
-    fig.tight_layout()
-    _save(fig, output_dir, "fps_vs_num_envs")
+    # Plot 2: CPU + GPU overlay
+    if "device" in data.columns:
+        cpu_data = data[data["device"] == "cpu"]
+        gpu_data = data[data["device"] == "gpu"]
+        if not cpu_data.empty and not gpu_data.empty:
+            fig, ax = plt.subplots(figsize=(14, 10))
+            for label, dev_data, color, ls in [
+                ("RMSA (CPU)", cpu_data, DEVICE_COLORS["cpu"], "--"),
+                ("RMSA (GPU)", gpu_data, DEVICE_COLORS["gpu"], "-"),
+            ]:
+                subset = dev_data.sort_values("config_NUM_ENVS")
+                ax.plot(
+                    subset["config_NUM_ENVS"], subset["timing_fps"],
+                    marker="o", color=color, linestyle=ls, label=label,
+                )
+
+            # Linear scaling reference from GPU
+            gpu_sorted = gpu_data.sort_values("config_NUM_ENVS")
+            if len(gpu_sorted) > 0:
+                x0 = gpu_sorted["config_NUM_ENVS"].iloc[0]
+                y0 = gpu_sorted["timing_fps"].iloc[0]
+                x_range = gpu_sorted["config_NUM_ENVS"].values
+                ax.plot(
+                    x_range, y0 * (x_range / x0), "--",
+                    color="gray", alpha=0.5, label="Linear scaling",
+                )
+
+            ax.set_xscale("log", base=2)
+            ax.set_yscale("log")
+            ax.set_xlabel("# Parallel Environments")
+            ax.set_ylabel("FPS")
+            ax.legend()
+            ax.xaxis.set_major_formatter(ticker.ScalarFormatter())
+            fig.tight_layout()
+            _save(fig, output_dir, "fps_vs_num_envs_cpu_gpu")
 
 
 # -- Plot 2: FPS vs Link Resources -------------------------------------------
 
 
 def plot_fps_vs_link_resources(df: pd.DataFrame, output_dir: Path, device: str | None = None):
-    """FPS vs link_resources, faceted by env_type."""
+    """FPS vs link_resources. Only shows RMSA."""
     data = _filter_device(_filter_group(df, "link_resources"), device)
     if data.empty:
         print("  No data for link_resources group")
         return
 
-    env_types = sorted(data["config_env_type"].unique())
-    fig, axes = plt.subplots(1, len(env_types), figsize=(14 * len(env_types), 10))
-    if len(env_types) == 1:
-        axes = [axes]
+    # Only show RMSA
+    data = data[data["config_env_type"] == "rmsa"]
+    if data.empty:
+        print("  No RMSA data for link_resources group")
+        return
 
-    for ax, env_type in zip(axes, env_types):
-        subset = data[data["config_env_type"] == env_type].sort_values("config_link_resources")
-        color = ENV_TYPE_COLORS.get(env_type, "black")
-        display = ENV_TYPE_DISPLAY.get(env_type, env_type)
+    fig, ax = plt.subplots(figsize=(14, 10))
+    subset = data.sort_values("config_link_resources")
+    color = ENV_TYPE_COLORS.get("rmsa", "black")
 
-        ax.plot(subset["config_link_resources"], subset["timing_fps"],
-                marker="o", color=color)
-        ax.set_xlabel("Link Resources (slots)")
-        ax.set_ylabel("FPS")
-        ax.set_title(display)
+    ax.plot(subset["config_link_resources"], subset["timing_fps"],
+            marker="o", color=color)
+    ax.set_xlabel("FSU per Link")
+    ax.set_ylabel("FPS")
 
     fig.tight_layout()
     _save(fig, output_dir, "fps_vs_link_resources")
@@ -139,26 +180,25 @@ def plot_fps_vs_link_resources(df: pd.DataFrame, output_dir: Path, device: str |
 
 
 def plot_fps_vs_k(df: pd.DataFrame, output_dir: Path, device: str | None = None):
-    """FPS vs K, faceted by env_type."""
+    """FPS vs K. Only shows RMSA."""
     data = _filter_device(_filter_group(df, "k_paths"), device)
     if data.empty:
         print("  No data for k_paths group")
         return
 
-    env_types = sorted(data["config_env_type"].unique())
-    fig, axes = plt.subplots(1, len(env_types), figsize=(14 * len(env_types), 10))
-    if len(env_types) == 1:
-        axes = [axes]
+    # Only show RMSA
+    data = data[data["config_env_type"] == "rmsa"]
+    if data.empty:
+        print("  No RMSA data for k_paths group")
+        return
 
-    for ax, env_type in zip(axes, env_types):
-        subset = data[data["config_env_type"] == env_type].sort_values("config_k")
-        color = ENV_TYPE_COLORS.get(env_type, "black")
-        display = ENV_TYPE_DISPLAY.get(env_type, env_type)
+    fig, ax = plt.subplots(figsize=(14, 10))
+    subset = data.sort_values("config_k")
+    color = ENV_TYPE_COLORS.get("rmsa", "black")
 
-        ax.plot(subset["config_k"], subset["timing_fps"], marker="o", color=color)
-        ax.set_xlabel("K (shortest paths)")
-        ax.set_ylabel("FPS")
-        ax.set_title(display)
+    ax.plot(subset["config_k"], subset["timing_fps"], marker="o", color=color)
+    ax.set_xlabel("K (shortest paths)")
+    ax.set_ylabel("FPS")
 
     fig.tight_layout()
     _save(fig, output_dir, "fps_vs_k")
@@ -167,15 +207,55 @@ def plot_fps_vs_k(df: pd.DataFrame, output_dir: Path, device: str | None = None)
 # -- Plot 4: FPS vs Topology (multiple subplots) -----------------------------
 
 
+def _deduplicate_topologies(data: pd.DataFrame) -> pd.DataFrame:
+    """Keep one topology variant per base network.
+
+    Preference order: deeprmsa > nevin > ptrnet_real > ptrnet_published > other.
+    """
+    priority = {"deeprmsa": 0, "nevin": 1, "ptrnet_real": 2, "ptrnet_published": 3}
+
+    def _variant_priority(name: str) -> int:
+        for key, p in priority.items():
+            if key in name:
+                return p
+        return 99
+
+    def _base_name(name: str) -> str:
+        # e.g. "cost239_deeprmsa_directed" -> "cost239"
+        # "usnet_gcnrnn_directed" -> "usnet"
+        parts = name.replace("_directed", "").replace("_undirected", "").split("_")
+        return parts[0]
+
+    data = data.copy()
+    data["_base"] = data["config_topology_name"].apply(_base_name)
+    data["_prio"] = data["config_topology_name"].apply(_variant_priority)
+    data = data.sort_values("_prio").drop_duplicates(subset=["_base"], keep="first")
+    data = data.drop(columns=["_base", "_prio"])
+    return data
+
+
 def plot_fps_vs_topology(
     df: pd.DataFrame, output_dir: Path, topo_stats: pd.DataFrame | None = None,
     device: str | None = None,
 ):
-    """Multiple topology plots: FPS vs nodes, FPS vs edges, FPS vs avg_degree."""
+    """Multiple topology plots: FPS vs nodes, FPS vs edges, FPS vs avg_degree.
+
+    Only shows RMSA. Deduplicates topology variants (prefers deeprmsa).
+    Also generates a 3D surface plot of FPS vs num_nodes vs num_edges.
+    """
     data = _filter_device(_filter_group(df, "topology"), device)
     if data.empty:
         print("  No data for topology group")
         return
+
+    # Only show RMSA
+    data = data[data["config_env_type"] == "rmsa"]
+    if data.empty:
+        print("  No RMSA data for topology group")
+        return
+
+    # Deduplicate topology variants
+    data = _deduplicate_topologies(data)
 
     if topo_stats is None:
         topo_stats_path = Path("benchmarks/results/topology_stats.csv")
@@ -198,29 +278,52 @@ def plot_fps_vs_topology(
 
     for metric_col, metric_label in metrics:
         fig, ax = plt.subplots(figsize=(16, 10))
-        for env_type in sorted(merged["config_env_type"].unique()):
-            subset = merged[merged["config_env_type"] == env_type].sort_values(metric_col)
-            color = ENV_TYPE_COLORS.get(env_type, "black")
-            display = ENV_TYPE_DISPLAY.get(env_type, env_type)
+        subset = merged.sort_values(metric_col)
+        color = ENV_TYPE_COLORS.get("rmsa", "black")
 
-            ax.scatter(
-                subset[metric_col], subset["timing_fps"],
-                c=color, label=display, s=120, zorder=5,
+        ax.scatter(
+            subset[metric_col], subset["timing_fps"],
+            c=color, s=120, zorder=5,
+        )
+
+        for _, row in subset.iterrows():
+            topo_label = TOPOLOGY_DISPLAY.get(row["config_topology_name"], "")
+            ax.annotate(
+                topo_label, (row[metric_col], row["timing_fps"]),
+                textcoords="offset points", xytext=(5, 8), fontsize=14,
             )
-
-            for _, row in subset.iterrows():
-                topo_label = TOPOLOGY_DISPLAY.get(row["config_topology_name"], "")
-                ax.annotate(
-                    topo_label, (row[metric_col], row["timing_fps"]),
-                    textcoords="offset points", xytext=(5, 8), fontsize=14,
-                )
 
         ax.set_xlabel(metric_label)
         ax.set_ylabel("FPS")
-        ax.legend()
         fig.tight_layout()
         safe_name = metric_col.replace("_", "-")
         _save(fig, output_dir, f"fps_vs_{safe_name}")
+
+    # 3D surface plot: FPS vs num_nodes and num_edges
+    if "num_nodes" in merged.columns and "num_edges" in merged.columns:
+        from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
+
+        fig = plt.figure(figsize=(16, 12))
+        ax = fig.add_subplot(111, projection="3d")
+        color = ENV_TYPE_COLORS.get("rmsa", "black")
+
+        ax.scatter(
+            merged["num_nodes"], merged["num_edges"], merged["timing_fps"],
+            c=color, s=120, depthshade=True,
+        )
+
+        for _, row in merged.iterrows():
+            topo_label = TOPOLOGY_DISPLAY.get(row["config_topology_name"], "")
+            ax.text(
+                row["num_nodes"], row["num_edges"], row["timing_fps"],
+                f"  {topo_label}", fontsize=12,
+            )
+
+        ax.set_xlabel("Number of Nodes")
+        ax.set_ylabel("Number of Directed Edges")
+        ax.set_zlabel("FPS")
+        fig.tight_layout()
+        _save(fig, output_dir, "fps_vs_nodes_edges_3d")
 
 
 # -- Plot 5: Compilation Time vs NUM_ENVS ------------------------------------
@@ -252,7 +355,7 @@ def plot_compilation_time(df: pd.DataFrame, output_dir: Path, device: str | None
         )
 
     ax.set_xscale("log", base=2)
-    ax.set_xlabel("NUM_ENVS")
+    ax.set_xlabel("# Parallel Environments")
     ax.set_ylabel("Compilation Time (s)")
     ax.legend()
     ax.xaxis.set_major_formatter(ticker.ScalarFormatter())
@@ -268,7 +371,7 @@ def plot_cpu_vs_gpu(df: pd.DataFrame, output_dir: Path, device: str | None = Non
 
     Uses the 'device' group first; falls back to num_envs group if both
     CPU and GPU data are available there.  Ignores the --device filter since
-    this plot inherently needs both.
+    this plot inherently needs both.  Only shows RMSA data.
     """
     # Try dedicated device group
     data = _filter_group(df, "device")
@@ -280,6 +383,16 @@ def plot_cpu_vs_gpu(df: pd.DataFrame, output_dir: Path, device: str | None = Non
         print("  No data for cpu_vs_gpu plot")
         return
 
+    # Only show RMSA
+    data = data[data["config_env_type"] == "rmsa"]
+    if data.empty:
+        print("  No RMSA data for cpu_vs_gpu plot")
+        return
+
+    # Average duplicate rows (multiple runs per config)
+    group_cols = ["config_NUM_ENVS", "config_env_type", "device"]
+    data = data.groupby(group_cols, as_index=False)["timing_fps"].mean()
+
     cpu_data = data[data["device"] == "cpu"]
     gpu_data = data[data["device"] == "gpu"]
 
@@ -287,73 +400,45 @@ def plot_cpu_vs_gpu(df: pd.DataFrame, output_dir: Path, device: str | None = Non
         print("  Need both CPU and GPU data for cpu_vs_gpu plot")
         return
 
-    env_types = sorted(
-        set(cpu_data["config_env_type"].unique()) & set(gpu_data["config_env_type"].unique())
-    )
-    if not env_types:
-        print("  No overlapping env types between CPU and GPU data")
-        return
-
     fig, axes = plt.subplots(1, 2, figsize=(28, 10))
 
     # Left: raw FPS comparison
     ax = axes[0]
-    for env_type in env_types:
-        display = ENV_TYPE_DISPLAY.get(env_type, env_type)
-        for device_label, dev_data, color, ls in [
-            ("CPU", cpu_data, DEVICE_COLORS["cpu"], "--"),
-            ("GPU", gpu_data, DEVICE_COLORS["gpu"], "-"),
-        ]:
-            subset = dev_data[dev_data["config_env_type"] == env_type].sort_values(
-                "config_NUM_ENVS",
-            )
-            if subset.empty:
-                continue
-            ax.plot(
-                subset["config_NUM_ENVS"], subset["timing_fps"],
-                marker="o", color=color, linestyle=ls,
-                label=f"{display} ({device_label})",
-            )
+    for device_label, dev_data, color, ls in [
+        ("CPU", cpu_data, DEVICE_COLORS["cpu"], "--"),
+        ("GPU", gpu_data, DEVICE_COLORS["gpu"], "-"),
+    ]:
+        subset = dev_data.sort_values("config_NUM_ENVS")
+        ax.plot(
+            subset["config_NUM_ENVS"], subset["timing_fps"],
+            marker="o", color=color, linestyle=ls,
+            label=f"RMSA ({device_label})",
+        )
 
     ax.set_xscale("log", base=2)
     ax.set_yscale("log")
-    ax.set_xlabel("NUM_ENVS")
+    ax.set_xlabel("# Parallel Environments")
     ax.set_ylabel("FPS")
-    ax.set_title("Raw Throughput")
     ax.legend(fontsize=16)
     ax.xaxis.set_major_formatter(ticker.ScalarFormatter())
 
     # Right: speedup
     ax = axes[1]
-    for env_type in env_types:
-        display = ENV_TYPE_DISPLAY.get(env_type, env_type)
-        color = ENV_TYPE_COLORS.get(env_type, "black")
+    cpu_subset = cpu_data.sort_values("config_NUM_ENVS")
+    gpu_subset = gpu_data.sort_values("config_NUM_ENVS")
 
-        cpu_subset = cpu_data[cpu_data["config_env_type"] == env_type].sort_values(
-            "config_NUM_ENVS",
-        )
-        gpu_subset = gpu_data[gpu_data["config_env_type"] == env_type].sort_values(
-            "config_NUM_ENVS",
-        )
-
-        if cpu_subset.empty or gpu_subset.empty:
-            continue
-
-        merged = cpu_subset.merge(
-            gpu_subset, on="config_NUM_ENVS", suffixes=("_cpu", "_gpu"),
-        )
-        if merged.empty:
-            continue
-
+    merged = cpu_subset.merge(
+        gpu_subset, on="config_NUM_ENVS", suffixes=("_cpu", "_gpu"),
+    )
+    if not merged.empty:
         speedup = merged["timing_fps_gpu"] / merged["timing_fps_cpu"]
         ax.plot(merged["config_NUM_ENVS"], speedup,
-                marker="s", color=color, label=display)
+                marker="s", color=ENV_TYPE_COLORS.get("rmsa", "black"), label="RMSA")
 
     ax.axhline(y=1, color="gray", linestyle="--", alpha=0.5, label="Parity")
     ax.set_xscale("log", base=2)
-    ax.set_xlabel("NUM_ENVS")
+    ax.set_xlabel("# Parallel Environments")
     ax.set_ylabel("GPU Speedup (x)")
-    ax.set_title("GPU / CPU Speedup")
     ax.legend(fontsize=16)
     ax.xaxis.set_major_formatter(ticker.ScalarFormatter())
 
@@ -527,9 +612,26 @@ def plot_cross_env(df: pd.DataFrame, output_dir: Path, device: str | None = None
     bars = ax.barh(y_pos, single["timing_fps"], color=colors)
     ax.set_yticks(y_pos)
     ax.set_yticklabels(labels)
-    ax.set_xlabel("FPS")
-    ax.set_title("Throughput by Environment Type (NUM_ENVS=1)")
+
+    # Use log scale but show plain decimal tick labels with exponent in axis label
     ax.set_xscale("log")
+    ax.xaxis.set_major_formatter(ticker.FuncFormatter(
+        lambda x, _: f"{x / 1e3:.1f}" if x >= 1e3 else f"{x:.0f}"
+    ))
+    # Determine the exponent from the data range
+    max_fps = single["timing_fps"].max()
+    if max_fps >= 1e6:
+        ax.xaxis.set_major_formatter(ticker.FuncFormatter(
+            lambda x, _: f"{x / 1e6:.1f}"
+        ))
+        ax.set_xlabel(r"FPS ($\times 10^6$)")
+    elif max_fps >= 1e3:
+        ax.xaxis.set_major_formatter(ticker.FuncFormatter(
+            lambda x, _: f"{x / 1e3:.1f}"
+        ))
+        ax.set_xlabel(r"FPS ($\times 10^3$)")
+    else:
+        ax.set_xlabel("FPS")
 
     for bar, fps in zip(bars, single["timing_fps"]):
         ax.text(
@@ -539,6 +641,163 @@ def plot_cross_env(df: pd.DataFrame, output_dir: Path, device: str | None = None
 
     fig.tight_layout()
     _save(fig, output_dir, "cross_env_comparison")
+
+
+# -- Plot 11: Config Grid (L-S-E bar chart) ----------------------------------
+
+
+def plot_config_grid(df: pd.DataFrame, output_dir: Path, device: str | None = None):
+    """Horizontal bar chart of FPS for different (link_resources, NUM_ENVS) combos.
+
+    Each row is labelled Lxx-Sxx-Exx (Links, Slots/FSU, Envs).
+    Shows paired CPU and GPU bars.  Uses config_grid group if available,
+    otherwise assembles data from existing groups.
+    """
+    # Try dedicated config_grid group first
+    data = _filter_group(df, "config_grid")
+    if data.empty:
+        # Fall back: gather RMSA data from all groups that have both cpu and gpu
+        data = df[df["config_env_type"] == "rmsa"].copy()
+
+    if data.empty or "device" not in data.columns:
+        print("  No data for config_grid plot")
+        return
+
+    # Only RMSA
+    data = data[data["config_env_type"] == "rmsa"]
+
+    # Average duplicate rows per (link_resources, NUM_ENVS, device)
+    group_cols = ["config_link_resources", "config_NUM_ENVS", "device"]
+    data = data.groupby(group_cols, as_index=False)["timing_fps"].mean()
+
+    # Pivot so we have cpu and gpu columns
+    piv = data.pivot_table(
+        index=["config_link_resources", "config_NUM_ENVS"],
+        columns="device", values="timing_fps",
+    )
+    # Keep only rows with both CPU and GPU
+    piv = piv.dropna(subset=["cpu", "gpu"])
+    if piv.empty:
+        print("  No matching CPU+GPU data for config_grid plot")
+        return
+
+    piv = piv.reset_index()
+    # Sort by link_resources then NUM_ENVS for consistent ordering
+    piv = piv.sort_values(
+        ["config_link_resources", "config_NUM_ENVS"], ascending=[True, True],
+    )
+
+    # Build labels: Lxx-Sxx-Exx (L=num directed edges, S=FSU/slots, E=parallel envs)
+    # Topology is fixed (NSFNET=44 directed edges) in fallback data;
+    # config_grid also uses NSFNET.  Look up num_edges if available.
+    num_edges = 44  # NSFNET default
+    labels = [
+        f"L{num_edges}"
+        f"-S{int(row['config_link_resources'])}"
+        f"-E{int(row['config_NUM_ENVS'])}"
+        for _, row in piv.iterrows()
+    ]
+
+    y = np.arange(len(labels))
+    bar_height = 0.35
+
+    fig, ax = plt.subplots(figsize=(16, max(8, len(labels) * 0.7)))
+
+    bars_cpu = ax.barh(
+        y + bar_height / 2, piv["cpu"], bar_height,
+        label="CPU", color=DEVICE_COLORS["cpu"],
+    )
+    bars_gpu = ax.barh(
+        y - bar_height / 2, piv["gpu"], bar_height,
+        label="GPU", color=DEVICE_COLORS["gpu"],
+    )
+
+    ax.set_yticks(y)
+    ax.set_yticklabels(labels)
+    ax.set_xscale("log")
+    ax.set_xlabel("FPS")
+    ax.legend(fontsize=16)
+    ax.invert_yaxis()  # top-to-bottom reading order
+
+    # Annotate bars with FPS values
+    for bar, fps in zip(bars_cpu, piv["cpu"]):
+        ax.text(
+            bar.get_width() * 1.05, bar.get_y() + bar.get_height() / 2,
+            format_fps(fps), va="center", fontsize=14,
+        )
+    for bar, fps in zip(bars_gpu, piv["gpu"]):
+        ax.text(
+            bar.get_width() * 1.05, bar.get_y() + bar.get_height() / 2,
+            format_fps(fps), va="center", fontsize=14,
+        )
+
+    fig.tight_layout()
+    _save(fig, output_dir, "config_grid")
+
+
+# -- Plot 12: Configuration Summary ------------------------------------------
+
+
+def plot_config_summary(df: pd.DataFrame, output_dir: Path, device: str | None = None):
+    """Generate a text-based PNG summarizing the configuration of each benchmark group."""
+    fig, ax = plt.subplots(figsize=(20, 14))
+    ax.axis("off")
+
+    lines = []
+    lines.append("Benchmark Configuration Summary")
+    lines.append("=" * 60)
+
+    group_descriptions = {
+        "num_envs": ("FPS vs # Parallel Environments", "fps_vs_num_envs"),
+        "link_resources": ("FPS vs FSU per Link", "fps_vs_link_resources"),
+        "k_paths": ("FPS vs K Shortest Paths", "fps_vs_k"),
+        "topology": ("FPS vs Topology", "fps_vs_topology"),
+        "device": ("CPU vs GPU Comparison", "cpu_vs_gpu"),
+        "cross_env": ("Cross-Environment Comparison", "cross_env_comparison"),
+        "gn_bands": ("GN Model Band Scaling", "gn_band_scaling"),
+    }
+
+    for group, (title, filename) in group_descriptions.items():
+        sub = df[df["group"] == group] if "group" in df.columns else pd.DataFrame()
+        if sub.empty:
+            continue
+
+        lines.append("")
+        lines.append(f"{title}  ({filename}.png)")
+        lines.append("-" * 50)
+
+        env_types = sorted(sub["config_env_type"].unique())
+        devices = sorted(sub["device"].unique()) if "device" in sub.columns else ["N/A"]
+        num_envs = sorted(sub["config_NUM_ENVS"].unique())
+        topologies = sorted(sub["config_topology_name"].unique())
+        k_vals = sorted(sub["config_k"].dropna().unique())
+        lr_vals = sorted(sub["config_link_resources"].dropna().unique())
+
+        lines.append(f"  Env types:   {', '.join(env_types)}")
+        lines.append(f"  Devices:     {', '.join(str(d) for d in devices)}")
+        lines.append(f"  NUM_ENVS:    {', '.join(str(int(n)) for n in num_envs)}")
+        lines.append(f"  Topology:    {', '.join(topologies)}")
+        if k_vals:
+            lines.append(f"  K:           {', '.join(str(int(k)) for k in k_vals)}")
+        if lr_vals:
+            lines.append(f"  Link res:    {', '.join(str(int(lr)) for lr in lr_vals)}")
+
+        load_vals = sorted(sub["config_load"].dropna().unique())
+        if load_vals:
+            lines.append(f"  Load:        {', '.join(str(int(l)) for l in load_vals)} Erlangs")
+        heuristic = sub["config_path_heuristic"].dropna().unique()
+        if len(heuristic) > 0:
+            lines.append(f"  Heuristic:   {', '.join(str(h) for h in heuristic)}")
+
+    text = "\n".join(lines)
+    ax.text(
+        0.02, 0.98, text,
+        transform=ax.transAxes, verticalalignment="top",
+        fontfamily="monospace", fontsize=14, wrap=False,
+    )
+
+    fig.tight_layout()
+    _save(fig, output_dir, "config_summary")
 
 
 # -- Main ---------------------------------------------------------------------
@@ -554,6 +813,8 @@ PLOT_FUNCTIONS = {
     "heatmap": plot_heatmap,
     "scaling_efficiency": plot_scaling_efficiency,
     "cross_env": plot_cross_env,
+    "config_grid": plot_config_grid,
+    "config_summary": plot_config_summary,
 }
 
 
