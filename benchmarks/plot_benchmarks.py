@@ -789,6 +789,11 @@ def plot_config_summary(df: pd.DataFrame, output_dir: Path, device: str | None =
         if len(heuristic) > 0:
             lines.append(f"  Heuristic:   {', '.join(str(h) for h in heuristic)}")
 
+        if group == "gn_bands" and "config_band_preference" in sub.columns:
+            band_vals = sorted(sub["config_band_preference"].dropna().unique())
+            band_labels = [BAND_DISPLAY.get(b, b) for b in band_vals]
+            lines.append(f"  Bands:       {', '.join(band_labels)}")
+
     text = "\n".join(lines)
     ax.text(
         0.02, 0.98, text,
