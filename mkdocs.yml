@@ -4,7 +4,7 @@ theme:
   name: material
   logo: images/xlron_nobackground.png
   palette:
-    accent: deep purple
+    accent: red
     primary: red
   features:
     - content.tabs.link
