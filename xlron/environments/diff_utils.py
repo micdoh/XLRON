@@ -80,28 +80,27 @@ def differentiable_compare(x, y, op_type="==", temperature=1.0, differentiable=T
         Result that behaves like the specified comparison in forward pass
         but is differentiable in backward pass
     """
-    # Define hard results (for forward pass)
+    # Define hard results (for forward pass) and soft approximations (for backward pass)
+    x_f = jnp.asarray(x, dtype=jnp.float32)
+    y_f = jnp.asarray(y, dtype=jnp.float32)
     if op_type == "==":
         hard_result = x == y
-        # jnp.exp(-temperature * (x - y) ** 2)
+        soft_result = jnp.exp(-temperature * (x_f - y_f) ** 2)
     elif op_type == ">=":
         hard_result = x >= y
-        # jax.nn.sigmoid(temperature * (x - y))
+        soft_result = jax.nn.sigmoid(temperature * (x_f - y_f))
     elif op_type == "<=":
         hard_result = x <= y
-        # jax.nn.sigmoid(temperature * (y - x))
+        soft_result = jax.nn.sigmoid(temperature * (y_f - x_f))
     elif op_type == ">":
         hard_result = x > y
-        # Slightly sharper version for strict inequality
-        # jax.nn.sigmoid(temperature * (x - y - 1e-5))
+        soft_result = jax.nn.sigmoid(temperature * (x_f - y_f))
     elif op_type == "<":
         hard_result = x < y
-        # Slightly sharper version for strict inequality
-        # jax.nn.sigmoid(temperature * (y - x - 1e-5))
+        soft_result = jax.nn.sigmoid(temperature * (y_f - x_f))
     elif op_type == "!=":
         hard_result = x != y
-        # Invert the equality result
-        # 1.0 - jnp.exp(-temperature * (x - y) ** 2)
+        soft_result = 1.0 - jnp.exp(-temperature * (x_f - y_f) ** 2)
     else:
         raise ValueError(f"Unknown operation type: {op_type}")
 
@@ -110,7 +109,7 @@ def differentiable_compare(x, y, op_type="==", temperature=1.0, differentiable=T
         return hard_result
 
     # Apply straight-through gradient trick
-    return straight_through(hard_result, x)
+    return straight_through(hard_result, soft_result)
 
 
 def differentiable_argmax(x, temperature=1.0, differentiable=True):
@@ -164,11 +163,11 @@ def differentiable_round_simple(x, temperature=1.0, differentiable=True):
     # Soft version: Use sigmoid for each fractional part
     fractional = x - jnp.floor(x)
     # For values < 0.5, we round down (output = floor(x))
-    # For values >=.5, we round up (output = floor(x) + 1)
+    # For values >= 0.5, we round up (output = floor(x) + 1)
     # This sigmoid approaches 1.0 when fractional >= 0.5
-    jnp.floor(x) + jax.nn.sigmoid(temperature * (fractional - 0.5))
+    soft_round = jnp.floor(x) + jax.nn.sigmoid(temperature * (fractional - 0.5))
     # Apply straight-through gradient trick
-    return straight_through(hard_round, x)
+    return straight_through(hard_round, soft_round)
 
 
 def differentiable_round(x, decimals=0, temperature=1.0, differentiable=True):
@@ -198,11 +197,11 @@ def differentiable_round(x, decimals=0, temperature=1.0, differentiable=True):
     fractional = x_scaled - jnp.floor(x_scaled)
     # This sigmoid approaches 1.0 when fractional >= 0.5
     # Combine floor and ceiling with sigmoid weighting
-    (
+    soft_round = (
         jnp.floor(x_scaled) + jax.nn.sigmoid(temperature * (fractional - 0.5))
     ) / scale
     # Apply straight-through gradient trick
-    return straight_through(hard_round, x)
+    return straight_through(hard_round, soft_round)
 
 
 def differentiable_ceil(x, temperature=1.0, differentiable=True):
@@ -231,9 +230,9 @@ def differentiable_ceil(x, temperature=1.0, differentiable=True):
     # When fractional is > 0, ceiling is floor + 1
     # We use a sigmoid that approaches 1 for any fractional > 0
     # Higher temperature makes this transition sharper
-    jnp.floor(x) + jax.nn.sigmoid(temperature * fractional)
+    soft_ceil = jnp.floor(x) + jax.nn.sigmoid(temperature * fractional)
     # Apply straight-through gradient trick
-    return straight_through(hard_ceil, x)
+    return straight_through(hard_ceil, soft_ceil)
 
 
 def differentiable_floor(x, temperature=1.0, differentiable=True):
@@ -262,9 +261,9 @@ def differentiable_floor(x, temperature=1.0, differentiable=True):
     # When fractional is > 0, floor is ceil - 1
     # We use a sigmoid that approaches 1 for any fractional > 0
     # Higher temperature makes this transition sharper
-    jnp.ceil(x) - jax.nn.sigmoid(temperature * fractional)
+    soft_floor = jnp.ceil(x) - jax.nn.sigmoid(temperature * fractional)
     # Apply straight-through gradient trick
-    return straight_through(hard_floor, x)
+    return straight_through(hard_floor, soft_floor)
 
 
 # TODO - this is broken

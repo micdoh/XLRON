@@ -820,7 +820,7 @@ flags.DEFINE_boolean(
 flags.DEFINE_boolean("INITIALIZE_ACTIONS_MAX", False, "Initialize actions at max. value")
 flags.DEFINE_float(
     "temperature",
-    1.0,
+    5.0,
     "Temperature for differentiable function approximations (higher temp. = closer to original function)",
 )
 flags.DEFINE_boolean(
