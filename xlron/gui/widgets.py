@@ -218,6 +218,7 @@ DEFAULTS = {
     "MODEL_PATH": None,
     "DATA_OUTPUT_FILE": None,
     "EPISODE_DATA_OUTPUT_FILE": None,
+    "DOWNSAMPLE_FACTOR": 1,
     "PLOTTING": False,
     "PROFILE": False,
     "EVAL_DURING_TRAINING": False,
@@ -1505,6 +1506,15 @@ def logging_section() -> dict:
             )
             if exp_name:
                 _emit(flags, "EXPERIMENT_NAME", exp_name)
+
+            dsf = st.number_input(
+                "Downsample Factor",
+                min_value=1,
+                value=int(_get_preset_val("DOWNSAMPLE_FACTOR")),
+                step=1,
+                help=_h("DOWNSAMPLE_FACTOR"),
+            )
+            _emit(flags, "DOWNSAMPLE_FACTOR", int(dsf))
 
         save = st.checkbox(
             "Save Model", value=bool(_get_preset_val("SAVE_MODEL")), help=_h("SAVE_MODEL")
