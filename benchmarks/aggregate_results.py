@@ -72,20 +72,36 @@ def aggregate(
 
     _KNOWN_GROUPS = [
         "num_envs", "topology", "link_resources", "k_paths",
-        "gn_bands", "device", "rwa_lr", "cross_env",
+        "gn_bands", "device", "rwa_lr", "cross_env", "config_grid",
     ]
     _GROUP_PATTERN = "|".join(re.escape(g) for g in _KNOWN_GROUPS)
 
     def _parse_filename(name: str) -> tuple[str, str]:
-        """Return (device, group) from a benchmark filename."""
-        # Match optional device prefix, then the group name
+        """Return (device, group) from a benchmark filename.
+
+        Filenames follow: {server_device}_{group}_{details}
+        The server_device prefix indicates which machine ran the benchmark.
+        For the 'device' group, the JAX platform is encoded in the details.
+        For the 'config_grid' group, the JAX platform is also in the details.
+        """
+        # Match device prefix then group name
         m = re.match(rf"^(?:(cpu|gpu)_)?({_GROUP_PATTERN})_", name)
         if m:
             device = m.group(1) or "gpu"
             group = m.group(2)
-            # The 'device' group encodes device in the next segment
+            # 'device' group: the run's JAX platform is in the next segment
+            # e.g. "gpu_device_cpu_rmsa_ne1" or legacy "device_cpu_rmsa_ne1"
             if group == "device":
-                m2 = re.match(r"^device_(cpu|gpu)_", name)
+                # Look for the platform after "device_"
+                rest = name[m.end():]
+                m2 = re.match(r"^(cpu|gpu)_", rest)
+                if m2:
+                    device = m2.group(1)
+            # 'config_grid' group: the run's JAX platform is in the next segment
+            # e.g. "gpu_config_grid_cpu_lr128_ne64"
+            elif group == "config_grid":
+                rest = name[m.end():]
+                m2 = re.match(r"^(cpu|gpu)_", rest)
                 if m2:
                     device = m2.group(1)
             return device, group

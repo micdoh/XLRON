@@ -28,6 +28,18 @@ import sys
 import time
 from pathlib import Path
 
+
+def _gpu_available() -> bool:
+    """Check whether JAX can see a GPU."""
+    try:
+        result = subprocess.run(
+            [sys.executable, "-c", "import jax; print(any(d.platform == 'gpu' for d in jax.devices()))"],
+            capture_output=True, text=True, timeout=30,
+        )
+        return result.stdout.strip() == "True"
+    except Exception:
+        return False
+
 # -- Constants ----------------------------------------------------------------
 
 DIRECTED_TOPOLOGIES = [
@@ -136,8 +148,9 @@ def _build_command(
 
 
 def _group_num_envs() -> list[dict]:
-    """Group 1: NUM_ENVS scaling (rwa/rmsa on NSFNET)."""
+    """Group 1: NUM_ENVS scaling on NSFNET."""
     runs = []
+    # Fast env types: full NUM_ENVS sweep
     for env_type in ["rwa", "rmsa"]:
         for num_envs in NUM_ENVS_VALUES:
             ts = _timesteps_for_num_envs(num_envs)
@@ -154,13 +167,50 @@ def _group_num_envs() -> list[dict]:
                     "label": f"num_envs_{env_type}_ne{num_envs}",
                 }
             )
+    # Slower env types: reduced NUM_ENVS range and lower timesteps
+    slow_num_envs = [1, 2, 4, 8, 16, 32, 64]
+    for env_type in ["rsa_gn_model", "rmsa_gn_model", "rwa_lightpath_reuse"]:
+        for num_envs in slow_num_envs:
+            ts = 10000
+            extra = [
+                "--topology_name=nsfnet_deeprmsa_directed",
+                "--link_resources=100",
+                "--k=5",
+                f"--NUM_ENVS={num_envs}",
+                f"--TOTAL_TIMESTEPS={ts}",
+            ]
+            runs.append(
+                {
+                    "env_flags": ENV_BASES[env_type],
+                    "extra_flags": extra,
+                    "label": f"num_envs_{env_type}_ne{num_envs}",
+                }
+            )
     return runs
 
 
 def _group_topology() -> list[dict]:
-    """Group 2: Topology scaling (rwa/rmsa, all directed topos)."""
+    """Group 2: Topology scaling (all env types, all directed topos)."""
     runs = []
+    # Fast env types: NUM_ENVS=1 (for table) and NUM_ENVS=64 (for heatmap)
     for env_type in ["rwa", "rmsa"]:
+        for topo in DIRECTED_TOPOLOGIES:
+            for ne, ts in [(1, 100000), (64, 500000)]:
+                runs.append(
+                    {
+                        "env_flags": ENV_BASES[env_type],
+                        "extra_flags": [
+                            f"--topology_name={topo}",
+                            "--link_resources=100",
+                            "--k=5",
+                            f"--NUM_ENVS={ne}",
+                            f"--TOTAL_TIMESTEPS={ts}",
+                        ],
+                        "label": f"topology_{env_type}_{topo}_ne{ne}",
+                    }
+                )
+    # Slower env types: NUM_ENVS=1 only
+    for env_type in ["rsa_gn_model", "rmsa_gn_model", "rwa_lightpath_reuse"]:
         for topo in DIRECTED_TOPOLOGIES:
             runs.append(
                 {
@@ -169,8 +219,8 @@ def _group_topology() -> list[dict]:
                         f"--topology_name={topo}",
                         "--link_resources=100",
                         "--k=5",
-                        "--NUM_ENVS=64",
-                        "--TOTAL_TIMESTEPS=500000",
+                        "--NUM_ENVS=1",
+                        "--TOTAL_TIMESTEPS=10000",
                     ],
                     "label": f"topology_{env_type}_{topo}",
                 }
@@ -288,8 +338,8 @@ def _group_rwa_lr() -> list[dict]:
 def _group_cross_env() -> list[dict]:
     """Group 8: Cross-env-type comparison on same config."""
     runs = []
-    for env_type in ["rwa", "rmsa", "rsa_gn_model", "rmsa_gn_model"]:
-        ts = 10000 if "gn_model" in env_type else 100000
+    for env_type in ["rwa", "rmsa", "rsa_gn_model", "rmsa_gn_model", "rwa_lightpath_reuse"]:
+        ts = 10000 if ("gn_model" in env_type or env_type == "rwa_lightpath_reuse") else 100000
         runs.append(
             {
                 "env_flags": ENV_BASES[env_type],
@@ -429,9 +479,10 @@ def main():
         "--device",
         default=None,
         choices=["cpu", "gpu"],
-        help="Force all non-'device' group runs onto this device and prefix "
-        "output filenames with the device name. If not set, defaults to "
-        "GPU. The 'device' group always runs both CPU and GPU regardless.",
+        help="Force all runs onto this device and prefix output filenames "
+        "with the device name. If not set, auto-detects: 'gpu' when a GPU "
+        "is available, 'cpu' otherwise. Runs requiring a device that is "
+        "not available are skipped.",
     )
     parser.add_argument("--dry_run", action="store_true", help="Print commands without executing")
     parser.add_argument(
@@ -455,19 +506,36 @@ def main():
     else:
         selected = list(SWEEP_GROUPS)
 
-    # Build all runs, applying --device override
+    # Auto-detect device if not specified
+    if args.device is None:
+        args.device = "gpu" if _gpu_available() else "cpu"
+        print(f"Auto-detected device: {args.device}")
+
+    # CPU server → only CPU work, GPU server → only GPU work
+    target_device = args.device
+
+    # Build all runs, keeping only runs that match the target device
     all_runs = []
+    filtered_count = 0
     for group_name in selected:
         runs = SWEEP_GROUPS[group_name]()
         for r in runs:
             r["group"] = group_name
-            # The 'device' group already has per-run device settings; skip override
-            if group_name != "device" and args.device is not None:
-                r["device"] = args.device
-                # Prefix label so CPU/GPU results don't collide
-                if not r["label"].startswith(f"{args.device}_"):
-                    r["label"] = f"{args.device}_{r['label']}"
-        all_runs.extend(runs)
+            # Groups that define per-run device (device, config_grid):
+            # keep only runs matching this server's device
+            if "device" in r:
+                if r["device"] != target_device:
+                    filtered_count += 1
+                    continue
+            else:
+                r["device"] = target_device
+            # Prefix label so results from different servers don't collide
+            if not r["label"].startswith(("cpu_", "gpu_")):
+                r["label"] = f"{target_device}_{r['label']}"
+            all_runs.append(r)
+
+    if filtered_count:
+        print(f"Skipped {filtered_count} runs not matching device={target_device}")
 
     print(f"Total benchmark runs: {len(all_runs)}")
     print(f"Groups: {', '.join(selected)}")
