@@ -134,6 +134,34 @@ flags.DEFINE_string(
     "TRAJ_DATA_OUTPUT_FILE", None, "Path to save trajectory (actions, etc.) data output"
 )
 flags.DEFINE_boolean("PLOTTING", False, "Plotting")
+flags.DEFINE_string(
+    "RENDER_EVAL_MODE",
+    "off",
+    "Eval-only rendering mode: off, save, or human. "
+    "Only used for EVAL_HEURISTIC/EVAL_MODEL runs.",
+)
+flags.DEFINE_float("RENDER_FPS", 2.0, "Playback/recording frame rate for eval rendering")
+flags.DEFINE_float(
+    "RENDER_SCALE",
+    0.6,
+    "Scale factor for render figure resolution. Lower values render faster.",
+)
+flags.DEFINE_string(
+    "RENDER_OUTPUT_FILE",
+    None,
+    "Path to save eval render recording (.gif/.mp4). "
+    "If unset and mode includes save, defaults inside the run directory when available.",
+)
+flags.DEFINE_integer(
+    "RENDER_MAX_STEPS",
+    100,
+    "Max requests/steps to render during eval.",
+)
+flags.DEFINE_boolean(
+    "RENDER_CLICK_THROUGH",
+    False,
+    "If true and using human render mode, wait for key press between rendered requests.",
+)
 flags.DEFINE_integer("EMULATED_DEVICES", None, "Number of devices to emulate")
 flags.DEFINE_boolean("log_actions", False, "Log actions taken and other details")
 flags.DEFINE_boolean("log_path_lengths", False, "Log path length statistics")

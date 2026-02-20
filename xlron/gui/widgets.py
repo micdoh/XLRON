@@ -221,6 +221,12 @@ DEFAULTS = {
     "PLOTTING": False,
     "PROFILE": False,
     "EVAL_DURING_TRAINING": False,
+    "RENDER_EVAL_MODE": "off",
+    "RENDER_FPS": 2.0,
+    "RENDER_SCALE": 0.6,
+    "RENDER_OUTPUT_FILE": None,
+    "RENDER_MAX_STEPS": 100,
+    "RENDER_CLICK_THROUGH": False,
     # Physical layer (GN model)
     "modulations_csv_filepath": "./xlron/data/modulations/modulations_deeprmsa.csv",
     "calc_minimum_osnr": True,
@@ -1547,5 +1553,62 @@ def logging_section() -> dict:
         )
         if episode_data_out.strip():
             flags["EPISODE_DATA_OUTPUT_FILE"] = episode_data_out.strip()
+
+    st.markdown("### Evaluation Rendering")
+    st.caption(
+        "Only applies to Heuristic Evaluation or Model Evaluation runs. "
+        "GUI currently supports file playback (save) rather than live pop-up rendering."
+    )
+    colr1, colr2 = st.columns(2)
+    with colr1:
+        render_mode_labels = {
+            "Off": "off",
+            "Save Recording": "save",
+        }
+        current_mode = str(_get_preset_val("RENDER_EVAL_MODE") or "off").lower()
+        reverse = {v: k for k, v in render_mode_labels.items()}
+        selected_label = st.selectbox(
+            "Render Mode",
+            list(render_mode_labels.keys()),
+            index=list(render_mode_labels.keys()).index(reverse.get(current_mode, "Off")),
+            help=_h("RENDER_EVAL_MODE"),
+        )
+        _emit(flags, "RENDER_EVAL_MODE", render_mode_labels[selected_label])
+
+        render_fps = st.number_input(
+            "Render FPS",
+            min_value=0.1,
+            value=float(_get_preset_val("RENDER_FPS")),
+            step=0.1,
+            help=_h("RENDER_FPS"),
+        )
+        _emit(flags, "RENDER_FPS", render_fps)
+        render_scale = st.number_input(
+            "Render Scale",
+            min_value=0.4,
+            max_value=2.0,
+            value=float(_get_preset_val("RENDER_SCALE")),
+            step=0.1,
+            help=_h("RENDER_SCALE"),
+        )
+        _emit(flags, "RENDER_SCALE", render_scale)
+
+    with colr2:
+        render_max_steps = st.number_input(
+            "Max Render Steps",
+            min_value=1,
+            value=int(_get_preset_val("RENDER_MAX_STEPS")),
+            step=10,
+            help=_h("RENDER_MAX_STEPS"),
+        )
+        _emit(flags, "RENDER_MAX_STEPS", int(render_max_steps))
+
+    render_out = st.text_input(
+        "Render Output File (optional .gif/.mp4)",
+        value=_get_preset_val("RENDER_OUTPUT_FILE") or "",
+        help=_h("RENDER_OUTPUT_FILE"),
+    )
+    if render_out.strip():
+        flags["RENDER_OUTPUT_FILE"] = render_out.strip()
 
     return flags

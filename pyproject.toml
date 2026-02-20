@@ -19,6 +19,7 @@ dependencies = [
     "equinox>=0.13.2",
     "griffe>=1.14.0",
     "gymnax>=0.0.9",
+    "imageio[ffmpeg,pyav]>=2.37.2",
     "ipykernel>=7.0.1",
     "isort>=7.0.0",
     "jax>=0.8.0",

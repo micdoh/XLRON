@@ -15,17 +15,21 @@ else:
 
 import subprocess
 import time
+from functools import partial
+from pathlib import Path
 from typing import Any, Dict, List
 
 import equinox as eqx
 import jax
 import jax.numpy as jnp
+import numpy as np
 from absl import app, flags
 
 import wandb
 from xlron import dtype_config
+from xlron.environments.dataclasses import ActionInfo
 from xlron.environments.env_funcs import create_run_name
-from xlron.environments.make_env import process_config
+from xlron.environments.make_env import make, process_config
 from xlron.environments.wrappers import Profiler, jit_profiler
 from xlron.heuristics.eval_heuristic import get_eval_fn
 from xlron.parameter_flags import *  # noqa: F403,F401  # Ignore linter warnings for * import
@@ -41,6 +45,7 @@ from xlron.train.train_utils import (
     print_experiment_summary,
     print_metrics,
     run_eval_during_training,
+    select_action_eval,
     save_model,
     setup_wandb,
 )
@@ -49,6 +54,272 @@ FLAGS = flags.FLAGS
 
 # Create a global mutable container to collect data
 collected_states = []
+
+
+def _default_render_output_path(config: Dict[str, Any], run_name: str) -> Path:
+    output = config.get("RENDER_OUTPUT_FILE")
+    if output:
+        return Path(output)
+    run_dir = os.environ.get("XLRON_RUN_DIR")
+    if run_dir:
+        return Path(run_dir) / f"{run_name}_eval_render.mp4"
+    data_out = config.get("DATA_OUTPUT_FILE")
+    if data_out:
+        return Path(data_out).expanduser().resolve().parent / f"{run_name}_eval_render.mp4"
+    return Path.cwd() / f"{run_name}_eval_render.mp4"
+
+
+def run_eval_render(config: Dict[str, Any], eval_state: Any, run_name: str):
+    mode = str(config.get("RENDER_EVAL_MODE", "off")).lower()
+    if mode not in {"save", "human"}:
+        return
+    if not (config.get("EVAL_HEURISTIC") or config.get("EVAL_MODEL")):
+        return
+
+    gui_run = bool(os.environ.get("XLRON_RUN_DIR"))
+    if gui_run and mode == "human":
+        # GUI launches detached subprocesses; OS pop-up windows are often unavailable there.
+        # Ensure the render is still viewable in the GUI output pane by recording a file.
+        print(
+            "GUI run detected: 'human' render mode switched to 'save' so playback appears in GUI."
+        )
+        mode = "save"
+
+    backend_name = ""
+    if mode == "human":
+        try:
+            import matplotlib.pyplot as plt
+
+            backend_name = str(plt.get_backend()).lower()
+        except Exception:
+            backend_name = "unknown"
+        non_interactive = ("agg" in backend_name) or ("pdf" in backend_name) or ("svg" in backend_name) or ("ps" in backend_name)
+        if non_interactive:
+            fallback_mode = "save"
+            print(
+                f"Render mode '{mode}' requested but matplotlib backend '{backend_name}' is non-interactive. "
+                f"Falling back to '{fallback_mode}' for this eval run."
+            )
+            mode = fallback_mode
+
+    try:
+        render_config = config.copy()
+        render_config.log_wrapper = True
+        render_config.NUM_ENVS = 1
+        render_config.ENV_WARMUP_STEPS = 0
+        env, env_params = make(render_config)
+        base_env = env._env if hasattr(env, "_env") else env
+
+        key = jax.random.PRNGKey(int(config.SEED) + 1337)
+        key, reset_key = jax.random.split(key)
+        obsv, env_state = env.reset(reset_key, env_params)
+        last_obs = (
+            (env_state.env_state, env_params)
+            if config.USE_GNN or config.USE_TRANSFORMER
+            else tuple([obsv])
+        )
+
+        run_type = "MODEL EVAL" if config.EVAL_MODEL else f"{str(config.path_heuristic).upper()} EVAL"
+        render_context = {
+            "run_type": run_type,
+            "path_heuristic": config.path_heuristic,
+            "render_scale": float(config.RENDER_SCALE),
+            "topology_name": config.topology_name,
+            "topology_directory": config.get("topology_directory", None),
+        }
+        max_steps = int(config.RENDER_MAX_STEPS) if int(config.RENDER_MAX_STEPS) > 0 else int(
+            config.max_requests * getattr(config, "scale_factor", 1)
+        )
+        fps = max(float(config.RENDER_FPS), 0.1)
+        frames = []
+        output_path = None
+        writer = None
+        writer_error = None
+
+        if mode == "save":
+            output_path = _default_render_output_path(config, run_name)
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            if output_path.suffix.lower() not in {".gif", ".mp4"}:
+                output_path = output_path.with_suffix(".mp4")
+            try:
+                import imageio.v2 as imageio
+
+                writer = imageio.get_writer(str(output_path), fps=fps)
+                print(f"Streaming eval render frames to {output_path}")
+            except Exception as e:
+                writer_error = e
+                print(
+                    f"Streaming writer unavailable ({e}); falling back to in-memory frame buffer."
+                )
+
+        select_action_eval_jit = jax.jit(
+            partial(
+                select_action_eval,
+                env=env,
+                env_params=env_params,
+                eval_state=eval_state,
+                config=config,
+            )
+        )
+
+        for step_idx in range(max_steps):
+            key, action_key, step_key = jax.random.split(key, 3)
+            prev_log_state = env_state
+            prev_state = (
+                prev_log_state.env_state if hasattr(prev_log_state, "env_state") else prev_log_state
+            )
+
+            select_action_state = (action_key, env_state, last_obs)
+            env_state, action, _, _ = select_action_eval_jit(select_action_state)
+            action_info = base_env.process_action(prev_state, action, env_params)
+
+            obsv, env_state, _, terminal, truncated, info = env.step(
+                step_key, env_state, action, env_params
+            )
+            curr_state = env_state.env_state if hasattr(env_state, "env_state") else env_state
+
+            render_action_info = action_info
+            if isinstance(info, dict) and "_render_affected_slots_mask" in info:
+                render_action_info = ActionInfo(
+                    action=info["_render_action"],
+                    path_index=info["_render_path_index"],
+                    initial_slot_index=info["_render_initial_slot_index"],
+                    nodes_sd=info["_render_nodes_sd"],
+                    requested_datarate=info["_render_requested_datarate"],
+                    num_slots=info["_render_num_slots"],
+                    path=info["_render_path"],
+                    se=info["_render_se"],
+                    affected_slots_mask=info["_render_affected_slots_mask"],
+                    power_action=info["_render_power_action"],
+                )
+            if isinstance(info, dict) and "_render_check" in info:
+                check = jnp.asarray(info["_render_check"])
+            else:
+                accepted = int(jnp.asarray(curr_state.accepted_services).reshape(-1)[0]) > int(
+                    jnp.asarray(prev_state.accepted_services).reshape(-1)[0]
+                )
+                check = jnp.array(0 if accepted else 1, dtype=jnp.float32)
+
+            # Render/debug sanity check: compare requested slots with actual newly allocated width.
+            try:
+                accepted_now = float(np.asarray(jax.device_get(check)).reshape(-1)[0]) < 0.5
+                if accepted_now:
+                    prev_slots = np.asarray(jax.device_get(prev_state.link_slot_array), dtype=float)
+                    curr_slots = np.asarray(jax.device_get(curr_state.link_slot_array), dtype=float)
+                    if prev_slots.shape == curr_slots.shape:
+                        delta_mask = (curr_slots - prev_slots) > 0.5
+                        path_mask = (
+                            np.asarray(jax.device_get(render_action_info.path), dtype=float) > 0.5
+                        )
+                        if path_mask.shape[0] == delta_mask.shape[0]:
+                            delta_mask = delta_mask & path_mask[:, None]
+                            per_link_w = np.sum(delta_mask, axis=1)
+                            on_path_w = per_link_w[per_link_w > 0]
+                            if on_path_w.size > 0:
+                                alloc_w = int(np.min(on_path_w))
+                                req_w = int(
+                                    round(
+                                        float(
+                                            np.asarray(
+                                                jax.device_get(render_action_info.num_slots)
+                                            ).reshape(-1)[0]
+                                        )
+                                    )
+                                )
+                                if alloc_w != req_w:
+                                    step_id = int(
+                                        np.asarray(jax.device_get(curr_state.total_timesteps)).reshape(
+                                            -1
+                                        )[0]
+                                    )
+                                    print(
+                                        f"RENDER_FSU_MISMATCH step={step_id} req={req_w} alloc={alloc_w} "
+                                        f"action={int(np.asarray(jax.device_get(render_action_info.action)).reshape(-1)[0])}"
+                                    )
+            except Exception:
+                pass
+
+            if mode == "human":
+                base_env.render(
+                    curr_state,
+                    params=env_params,
+                    action_info=render_action_info,
+                    check=check,
+                    mode="human",
+                    render_context=render_context,
+                )
+                import matplotlib.pyplot as plt
+
+                plt.waitforbuttonpress(timeout=-1)
+
+            if mode == "save":
+                frame = base_env.render(
+                    curr_state,
+                    params=env_params,
+                    action_info=render_action_info,
+                    check=check,
+                    mode="rgb_array",
+                    render_context=render_context,
+                )
+                frame_np = np.array(frame, copy=True)
+                if writer is not None:
+                    writer.append_data(frame_np)
+                else:
+                    frames.append(frame_np)
+
+            last_obs = (
+                (env_state.env_state, env_params)
+                if config.USE_GNN or config.USE_TRANSFORMER
+                else tuple([obsv])
+            )
+            if bool(jnp.asarray(terminal)) or bool(jnp.asarray(truncated)):
+                # env.step auto-resets; continue to fill requested render budget.
+                pass
+
+        if mode == "save":
+            if writer is not None:
+                try:
+                    writer.close()
+                    print(f"Saved eval render: {output_path}")
+                except Exception as e:
+                    print(f"Failed to finalize eval render at {output_path}: {e}")
+            elif frames:
+                print(
+                    f"Captured {len(frames)} render frame(s) for eval recording"
+                    + (f" (streaming unavailable: {writer_error})" if writer_error else ".")
+                )
+                try:
+                    if output_path.suffix.lower() == ".mp4":
+                        import imageio.v2 as imageio
+
+                        imageio.mimsave(str(output_path), frames, fps=fps)
+                    else:
+                        try:
+                            import imageio.v2 as imageio
+
+                            imageio.mimsave(str(output_path), frames, fps=fps)
+                        except Exception:
+                            from PIL import Image
+
+                            pil_frames = [Image.fromarray(frame) for frame in frames]
+                            duration_ms = int(round(1000.0 / fps))
+                            pil_frames[0].save(
+                                str(output_path),
+                                save_all=True,
+                                append_images=pil_frames[1:],
+                                duration=duration_ms,
+                                loop=0,
+                                optimize=False,
+                                disposal=2,
+                            )
+                    print(f"Saved eval render: {output_path}")
+                except Exception as e:
+                    print(f"Failed to save eval render to {output_path}: {e}")
+            else:
+                print("No frames captured for eval rendering; skipping file save.")
+        base_env.close()
+    finally:
+        pass
 
 
 def identify_default_device(
@@ -142,6 +413,19 @@ def train(argv: list[str], config: Dict[str, Any] = {}) -> None:
     # Capture explicitly-set flags before process_config converts them
     user_flags = get_user_flags(FLAGS) if flags is FLAGS else dict(config)
     config = process_config(flags)
+    render_mode = str(config.get("RENDER_EVAL_MODE", "off")).lower()
+    if render_mode != "off" and int(config.NUM_ENVS) != 1:
+        old_envs = int(config.NUM_ENVS)
+        old_total_timesteps = float(config.TOTAL_TIMESTEPS)
+        new_total_timesteps = max(1, int(old_total_timesteps / old_envs))
+        print(
+            f"WARNING: render mode '{render_mode}' supports one environment. "
+            f"Forcing NUM_ENVS from {old_envs} to 1 and scaling TOTAL_TIMESTEPS "
+            f"from {int(old_total_timesteps)} to {new_total_timesteps}."
+        )
+        config.NUM_ENVS = 1
+        config.TOTAL_TIMESTEPS = new_total_timesteps
+        config = process_config(config)
     config.log_wrapper = True  # Always use log wrapper for training
     # Initialize dtypes based on flags
     dtype_config.initialize_dtypes(FLAGS)
@@ -330,6 +614,13 @@ def train(argv: list[str], config: Dict[str, Any] = {}) -> None:
         total_run_time = time.time() - start_time - log_time  # Update total first
         increment_run_time = total_run_time - prev_total  # Increment = difference
         log_start_time = time.time()
+        render_mode = str(config.RENDER_EVAL_MODE).lower()
+        if (config.EVAL_HEURISTIC or config.EVAL_MODEL) and render_mode != "off":
+            if render_mode in {"save", "human"}:
+                eval_state_for_render = (
+                    experiment_input[0] if isinstance(experiment_input, tuple) else experiment_input
+                )
+                run_eval_render(config, eval_state_for_render, experiment_name)
         merged_out, processed_data = log_metrics(
             config,
             out,

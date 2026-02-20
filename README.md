@@ -182,6 +182,12 @@ Topologies are loaded from JSON files in `xlron/data/topologies/`. Each topology
 - **5-node** (`5node_directed`, `5node_undirected`)
 - Custom topologies via `--topology_directory`
 
+Optional topology node attributes for rendering:
+- `longitude`
+- `latitude`
+
+When present in topology JSON nodes, XLRON render uses these to seed geographic node placement.
+
 ### Model Architectures
 
 - **MLP** (default) -- simple multi-layer perceptron
