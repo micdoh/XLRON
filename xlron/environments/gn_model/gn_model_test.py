@@ -194,8 +194,8 @@ class RSAGNModelTest(parameterized.TestCase):
             i += 1
             rng, rng_sample, rng_step = jax.random.split(rng, 3)
             # get mask
-            env_state = self.env.action_mask(env_state, self.params)
-            mask = env_state.link_slot_mask
+            mask, _ = self.env.action_mask(env_state, self.params)
+            env_state = env_state.replace(link_slot_mask=mask)
             # make distribution
             action_dist = distrax.Categorical(logits=jnp.where(mask, mask, -1e8))
             # jax.debug.print("action dist {}", action_dist.logits, ordered=True)
@@ -211,7 +211,7 @@ class RSAGNModelTest(parameterized.TestCase):
                 [path_action.reshape((1,)), power_action.reshape((1,))], axis=0
             )
             # step env
-            obsv, env_state, reward, done, info = self.variant(self.env.step, static_argnums=(3))(
+            obsv, env_state, reward, done, truncated, info = self.variant(self.env.step, static_argnums=(3))(
                 rng_step, env_state, action, self.params
             )
             jax.debug.print("action mask {}", env_state.link_slot_mask, ordered=True)
@@ -412,22 +412,20 @@ class RMSAGNModelMaskTest(parameterized.TestCase):
 
     def test_mask_has_valid_entries_empty_network(self):
         """On an empty network, the mask should have at least one valid slot."""
-        state = self.env.action_mask(self.state, self.params)
-        mask = state.link_slot_mask
+        mask, _, _ = self.env.action_mask(self.state, self.params)
         self.assertTrue(jnp.any(mask > 0), "Mask should have valid entries on empty network")
 
     def test_mask_shape(self):
         """Mask should have correct shape accounting for include_no_op."""
-        state = self.env.action_mask(self.state, self.params)
+        mask, _, mod_format_mask = self.env.action_mask(self.state, self.params)
         base_size = self.params.k_paths * self.params.link_resources
         expected_mask_size = base_size + (1 if self.params.include_no_op else 0)
-        self.assertEqual(state.link_slot_mask.shape, (expected_mask_size,))
-        self.assertEqual(state.mod_format_mask.shape, (base_size,))
+        self.assertEqual(mask.shape, (expected_mask_size,))
+        self.assertEqual(mod_format_mask.shape, (base_size,))
 
     def test_mod_format_mask_values(self):
         """mod_format_mask should contain -1 (invalid) or valid mod format indices."""
-        state = self.env.action_mask(self.state, self.params)
-        mfm = state.mod_format_mask
+        _, _, mfm = self.env.action_mask(self.state, self.params)
         num_mods = self.params.modulations_array.val.shape[0]
         # All entries should be >= -1 and < num_mods
         self.assertTrue(jnp.all(mfm >= -1.0))
@@ -436,8 +434,8 @@ class RMSAGNModelMaskTest(parameterized.TestCase):
     def test_step_after_mask_does_not_crash(self):
         """Taking a masked action should not crash."""
         rng = self.key
-        state = self.env.action_mask(self.state, self.params)
-        mask = state.link_slot_mask
+        mask, _, mod_format_mask = self.env.action_mask(self.state, self.params)
+        state = self.state.replace(link_slot_mask=mask, mod_format_mask=mod_format_mask)
         # Sample a valid action
         rng, rng_sample, rng_step = jax.random.split(rng, 3)
         action_dist = distrax.Categorical(logits=jnp.where(mask > 0, 0.0, -1e8))
@@ -521,8 +519,7 @@ class EnforceBandGapsTest(parameterized.TestCase):
 
     def test_mask_does_not_propose_gap_slots(self):
         """Action mask should be zero for any slot inside a band gap."""
-        state = self.env.action_mask(self.state, self.params)
-        mask = state.link_slot_mask
+        mask, _, _ = self.env.action_mask(self.state, self.params)
         gap_starts = self.params.gap_starts.val
         gap_widths = self.params.gap_widths.val
         for i in range(len(gap_starts)):
@@ -538,8 +535,8 @@ class EnforceBandGapsTest(parameterized.TestCase):
 
     def test_band_gaps_survive_step(self):
         """Band gap slots should remain -1 after taking a valid action."""
-        state = self.env.action_mask(self.state, self.params)
-        mask = state.link_slot_mask
+        mask, _, mod_format_mask = self.env.action_mask(self.state, self.params)
+        state = self.state.replace(link_slot_mask=mask, mod_format_mask=mod_format_mask)
         rng_sample, rng_step = jax.random.split(self.key)
         action_dist = distrax.Categorical(logits=jnp.where(mask > 0, 0.0, -1e8))
         path_action = action_dist.sample(seed=rng_sample)
@@ -943,8 +940,8 @@ class ChannelCentreFreqCachingTest(parameterized.TestCase):
         # Check initial state
         self.assertTrue(jnp.all(state.channel_centre_freq_array == 0))
         # Take a step
-        state = env.action_mask(state, params)
-        mask = state.link_slot_mask
+        mask, _, mod_format_mask = env.action_mask(state, params)
+        state = state.replace(link_slot_mask=mask, mod_format_mask=mod_format_mask)
         rng_sample, rng_step = jax.random.split(key)
         action_dist = distrax.Categorical(logits=jnp.where(mask > 0, 0.0, -1e8))
         path_action = action_dist.sample(seed=rng_sample)

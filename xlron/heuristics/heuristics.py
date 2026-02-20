@@ -464,13 +464,9 @@ def get_link_weights(state: EnvState, params: RSAEnvParams):
 
 def get_action_mask(state: EnvState, params: RSAEnvParams) -> chex.Array:
     if isinstance(params, RWALightpathReuseEnvParams):
-        full_mask = jit_profiler.call(
+        _, full_mask = jit_profiler.call(
             params.profile, mask_slots_rwalr, state, params, state.request_array
         )
-        # mask_slots_rwalr returns a 1D array that may include a trailing no-op element;
-        # strip it so the mask is (k_paths * link_resources,) before reshape
-        if params.include_no_op:
-            full_mask = full_mask[:-1]
     elif isinstance(params, RMSAGNModelEnvParams):
         updated_state = jit_profiler.call(
             params.profile, mask_slots_rmsa_gn_model, state, params, state.request_array

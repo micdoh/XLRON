@@ -101,7 +101,7 @@ class DeepRMSAEnv(RSAEnv):
             2,
         ),
     )
-    def action_mask(self, state: RSAEnvState, params: RSAEnvParams) -> RSAEnvState:
+    def action_mask(self, state: RSAEnvState, params: RSAEnvParams):
         """Returns mask of valid actions.
 
         Args:
@@ -109,13 +109,12 @@ class DeepRMSAEnv(RSAEnv):
             params: Environment parameters
 
         Returns:
-            state: Environment state with action mask
+            Tuple of (link_slot_mask, full_link_slot_mask)
         """
         mask = jnp.where(state.path_stats[:, 0] >= one, one, zero)
         # If mask is all zeros, make all ones
         mask = jnp.where(jnp.sum(mask) == zero, one, mask)
-        state = state.replace(link_slot_mask=mask)
-        return state
+        return mask, mask
 
     def action_space(self, params: RSAEnvParams) -> spaces.Discrete:
         """Action space of the environment."""

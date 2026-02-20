@@ -894,7 +894,12 @@ def select_action(select_action_state, env, env_params, train_state, config):
     model = eqx.combine(train_state.model_params, train_state.model_static)
     pi, value = model(*last_obs)
     # Action masking
-    action_mask, full_action_mask = env.action_mask(env_state.env_state, env_params)
+    mask_result = env.action_mask(env_state.env_state, env_params)
+    if len(mask_result) == 3:
+        action_mask, full_action_mask, mod_format_mask = mask_result
+    else:
+        action_mask, full_action_mask = mask_result
+        mod_format_mask = None
 
     # Always do action masking with VONE
     if config.env_type.lower() == "vone":
@@ -982,11 +987,14 @@ def select_action(select_action_state, env, env_params, train_state, config):
         valid_mass = jnp.sum(probs * action_mask, axis=-1)
 
     # Single state update at the end
-    inner_state = env_state.env_state.replace(
+    replace_kwargs = dict(
         link_slot_mask=action_mask,
         full_link_slot_mask=full_action_mask,
         valid_mass=valid_mass,
     )
+    if mod_format_mask is not None:
+        replace_kwargs["mod_format_mask"] = mod_format_mask
+    inner_state = env_state.env_state.replace(**replace_kwargs)
     env_state = env_state.replace(env_state=inner_state)
 
     return env_state, action, log_prob, value

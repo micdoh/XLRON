@@ -91,7 +91,7 @@ class RWALightpathReuseEnv(RSAEnv):
             2,
         ),
     )
-    def action_mask(self, state: RSAEnvState, params: RSAEnvParams) -> RSAEnvState:
+    def action_mask(self, state: RSAEnvState, params: RSAEnvParams):
         """Returns mask of valid actions.
 
         Args:
@@ -99,7 +99,6 @@ class RWALightpathReuseEnv(RSAEnv):
             params: Environment parameters
 
         Returns:
-            state: Environment state with action mask
+            Tuple of (link_slot_mask, full_link_slot_mask)
         """
-        link_slot_mask = mask_slots_rwalr(state, params, state.request_array)
-        return state.replace(link_slot_mask=link_slot_mask)
+        return mask_slots_rwalr(state, params, state.request_array)

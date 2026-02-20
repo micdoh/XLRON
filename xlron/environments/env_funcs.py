@@ -2655,15 +2655,16 @@ def mask_slots_rwalr(state: EnvState, params: EnvParams, request: chex.Array) ->
 
     link_slot_mask = jax.vmap(single_path)(jnp.arange(params.k_paths)).reshape(-1)
 
+    full_link_slot_mask = link_slot_mask
+
     if params.aggregate_slots > 1:
-        state = state.replace(full_link_slot_mask=link_slot_mask)
         link_slot_mask, _ = aggregate_slots(link_slot_mask.reshape(params.k_paths, -1), params)
         link_slot_mask = link_slot_mask.reshape(-1)
 
     if params.include_no_op:
         link_slot_mask = jnp.concatenate([link_slot_mask, jnp.ones((1,))])
 
-    return link_slot_mask
+    return link_slot_mask, full_link_slot_mask
 
 
 def pad_array(array, fill_value):
@@ -4473,14 +4474,15 @@ def mask_slots_rmsa_gn_model(
     )  # (k * link_resources,)
 
     link_slot_mask = jnp.where(mod_format_mask >= 0, 1.0, 0.0)
+    full_link_slot_mask = link_slot_mask
     if params.aggregate_slots > 1:
-        state = state.replace(full_link_slot_mask=link_slot_mask)
         link_slot_mask, _ = aggregate_slots(link_slot_mask.reshape(params.k_paths, -1), params)
         link_slot_mask = link_slot_mask.reshape(-1)
     if params.include_no_op:
         link_slot_mask = jnp.hstack([link_slot_mask, jnp.ones((1,))])
     state = state.replace(
         link_slot_mask=link_slot_mask,
+        full_link_slot_mask=full_link_slot_mask,
         mod_format_mask=mod_format_mask,
     )
     return state

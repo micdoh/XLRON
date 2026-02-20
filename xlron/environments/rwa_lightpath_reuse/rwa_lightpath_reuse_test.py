@@ -598,7 +598,7 @@ class MaskSlotsRWALightpathReuseTest(parameterized.TestCase):
         state = self.state.replace(
             link_capacity_array=link_capacity_array, path_index_array=path_index_array
         )
-        link_slot_mask = self.variant(mask_slots_rwalr, static_argnums=(1,))(
+        link_slot_mask, _ = self.variant(mask_slots_rwalr, static_argnums=(1,))(
             state, self.params, request
         )
         jax.debug.print("link_slot_mask {}", link_slot_mask, ordered=True)
@@ -655,8 +655,8 @@ class RWALightpathReuseTest(parameterized.TestCase):
             i += 1
             rng, rng_sample, rng_step = jax.random.split(rng, 3)
             # get mask
-            env_state = self.env.action_mask(env_state, self.params)
-            mask = env_state.link_slot_mask
+            mask, _ = self.env.action_mask(env_state, self.params)
+            env_state = env_state.replace(link_slot_mask=mask)
             # make distribution
             action_dist = distrax.Categorical(logits=jnp.where(mask, mask, -1e8))
             jax.debug.print("action dist {}", action_dist.logits, ordered=True)
