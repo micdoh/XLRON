@@ -1703,8 +1703,9 @@ def differentiable_check_no_spectrum_reuse(
     if not params.differentiable:
         return hard_result
 
-    # Measure violations (how much each element exceeds the threshold of -1)
-    violations = jnp.maximum(0, -1 - state.link_slot_array)
+    # Measure violations: a slot value > 1 means double-occupation (collision)
+    # After implement_path_action, link_slot_array += mask, so occupied=1, collision=2
+    violations = jnp.maximum(0, state.link_slot_array - 1)
 
     # Any violation is considered a violation (alternatively can sum to discourage more egregious violations)
     # TODO - see if sum vs. max makes a difference in solution quality
