@@ -355,11 +355,26 @@ def print_experiment_summary(config: Box, env_params=None) -> None:
     print(f"  Arrival rate:             {arrival_rate}")
     print(f"  Mean holding time:        {holding_time}{' (truncated)' if truncate_ht else ''}")
     if values_bw is not None:
-        bw_str = (
-            ", ".join(str(int(v)) for v in np.asarray(values_bw).flatten())
-            if hasattr(values_bw, "__len__")
-            else str(values_bw)
-        )
+        # Support values_bw provided as scalar, array, or comma-separated string.
+        if isinstance(values_bw, str):
+            parts = [p.strip() for p in values_bw.split(",") if p.strip()]
+            bw_list = []
+            for p in parts:
+                try:
+                    fv = float(p)
+                    bw_list.append(str(int(fv)) if fv.is_integer() else str(fv))
+                except ValueError:
+                    bw_list.append(p)
+        else:
+            flat = np.asarray(values_bw).reshape(-1)
+            bw_list = []
+            for v in flat:
+                try:
+                    fv = float(v)
+                    bw_list.append(str(int(fv)) if fv.is_integer() else str(fv))
+                except (TypeError, ValueError):
+                    bw_list.append(str(v))
+        bw_str = ", ".join(bw_list)
         print(f"  Bandwidth values (Gbps):  [{bw_str}]")
     print(f"  Reward type:              {reward_type}")
     op_mode = "continuous" if continuous else ("incremental" if incremental else "episodic")

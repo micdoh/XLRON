@@ -1,4 +1,5 @@
 import math
+import pathlib
 from typing import Any, Optional, Tuple
 
 import numpy as np
@@ -39,10 +40,13 @@ from xlron.environments.env_funcs import (
     init_rsa_request_array,
     init_traffic_matrix,
     mask_slots,
+    make_graph,
+    read_rsa_request,
     required_slots,
     set_band_gaps,
     update_graph_tuple,
-    calculate_throughput_from_active_lightpaths
+    calculate_throughput_from_active_lightpaths,
+    get_lightpath_snr,
 )
 from xlron.environments.wrappers import *
 
@@ -108,6 +112,15 @@ class RSAEnv(environment.Environment):
         self._render_pos = None
         self._render_edge_lookup = {}
         self._render_graph_key = None
+        self._render_logo_ax = None
+        self._render_header_text_artist = None
+        self._render_topology_key = None
+        self._render_topology_highlight_artist = None
+        self._render_scale = None
+        self._render_snr_cbar = None
+        self._render_snr_cbar_ax = None
+        self._render_matrix_base_pos = None
+        self._render_last_lightpath_snr = None
 
     @partial(jax.jit, static_argnums=(0, 4))
     def step(
@@ -291,6 +304,19 @@ class RSAEnv(environment.Environment):
         info["_accepted_bitrate"] = state.accepted_bitrate
         info["_total_bitrate"] = state.total_bitrate
         info["_utilisation"] = jnp.count_nonzero(state.link_slot_array) / state.link_slot_array.size
+        if params.render:
+            # Expose exact action_info/check used internally by step_env for render/debug paths.
+            info["_render_action"] = action_info.action
+            info["_render_path_index"] = action_info.path_index
+            info["_render_initial_slot_index"] = action_info.initial_slot_index
+            info["_render_nodes_sd"] = action_info.nodes_sd
+            info["_render_requested_datarate"] = action_info.requested_datarate
+            info["_render_num_slots"] = action_info.num_slots
+            info["_render_path"] = action_info.path
+            info["_render_se"] = action_info.se
+            info["_render_affected_slots_mask"] = action_info.affected_slots_mask
+            info["_render_power_action"] = action_info.power_action
+            info["_render_check"] = check
         if hasattr(state, "throughput"):
             throughput = calculate_throughput_from_active_lightpaths(state, params)
             state = state.replace(throughput=throughput)
@@ -302,15 +328,25 @@ class RSAEnv(environment.Environment):
     def _to_numpy(arr: Any) -> np.ndarray:
         return np.asarray(jax.device_get(arr))
 
-    def _get_render_graph(self, params: RSAEnvParams):
+    @staticmethod
+    def _to_scalar(arr: Any) -> float:
+        out = np.asarray(jax.device_get(arr)).reshape(-1)
+        if out.size == 0:
+            return 0.0
+        return float(out[0])
+
+    def _get_render_graph(self, params: RSAEnvParams, render_context: Optional[dict[str, Any]] = None):
         import networkx as nx
 
         edges = self._to_numpy(params.edges.val).astype(int)
+        context = render_context or {}
         graph_key = (
             params.num_nodes,
             params.num_links,
             bool(params.directed_graph),
             hash(edges.tobytes()),
+            context.get("topology_name"),
+            context.get("topology_directory"),
         )
         if self._render_graph is not None and self._render_graph_key == graph_key:
             return self._render_graph, self._render_pos, self._render_edge_lookup
@@ -340,13 +376,20 @@ class RSAEnv(environment.Environment):
                     weight=w,
                     inverse_weight=1.0 / max(w, 1e-6),
                 )
-        initial_pos = nx.circular_layout(g)
+        initial_pos = self._get_geo_seed_positions(g, context)
+        fixed_nodes = None
+        if initial_pos is not None:
+            fixed_nodes = list(g.nodes)
+        else:
+            initial_pos = nx.circular_layout(g)
+
         pos = nx.spring_layout(
             g,
             k=0.12,
             iterations=100,
             pos=initial_pos,
             weight="inverse_weight",
+            fixed=fixed_nodes,
             seed=7,
         )
         self._render_graph = g
@@ -355,15 +398,72 @@ class RSAEnv(environment.Environment):
         self._render_graph_key = graph_key
         return g, pos, edge_lookup
 
+    @staticmethod
+    def _extract_node_positions(graph):
+        pos = {}
+        for node, attrs in graph.nodes(data=True):
+            if "pos" in attrs and isinstance(attrs["pos"], (list, tuple)) and len(attrs["pos"]) >= 2:
+                lon, lat = attrs["pos"][0], attrs["pos"][1]
+            elif "longitude" in attrs and "latitude" in attrs:
+                lon, lat = attrs["longitude"], attrs["latitude"]
+            elif "lon" in attrs and "lat" in attrs:
+                lon, lat = attrs["lon"], attrs["lat"]
+            elif "x" in attrs and "y" in attrs:
+                lon, lat = attrs["x"], attrs["y"]
+            else:
+                return None
+            pos[node] = (float(lon), float(lat))
+        return pos if pos else None
+
+    @classmethod
+    def _get_geo_seed_positions(cls, g, render_context: Optional[dict[str, Any]] = None):
+        """Seed graph layout from topology-file node attributes when available."""
+        context = render_context or {}
+        topology_name = context.get("topology_name")
+        topology_directory = context.get("topology_directory")
+        if not topology_name:
+            return cls._extract_node_positions(g)
+        try:
+            topo_graph = make_graph(str(topology_name), str(topology_directory) if topology_directory else None)
+        except Exception:
+            return cls._extract_node_positions(g)
+
+        topo_pos = cls._extract_node_positions(topo_graph)
+        if topo_pos is None:
+            return None
+        if all(node in topo_pos for node in g.nodes):
+            return {node: topo_pos[node] for node in g.nodes}
+        if all((int(node) + 1) in topo_pos for node in g.nodes):
+            return {node: topo_pos[int(node) + 1] for node in g.nodes}
+        return None
+
     def _get_slot_rgba(self, state: RSAEnvState, params: RSAEnvParams) -> np.ndarray:
         try:
             from matplotlib import pyplot as plt
         except ImportError as exc:
             raise ImportError("matplotlib is required for RSAEnv.render()") from exc
 
+        if self.name == "RWALightpathReuseEnv" and hasattr(state, "link_capacity_array"):
+            cap = self._to_numpy(state.link_capacity_array).astype(float)
+            default_cap = 1e6
+            rgba = np.ones((cap.shape[0], cap.shape[1], 4), dtype=float)
+            rgba[..., :3] = 1.0
+            rgba[..., 3] = 1.0
+
+            # Used lightpath slots with remaining capacity > 0: gray.
+            used_positive = (cap > 0.0) & (cap < (default_cap - 1e-6))
+            rgba[used_positive, :3] = 0.72
+            rgba[used_positive, 3] = 1.0
+
+            # Exhausted capacity: black.
+            exhausted = cap <= 0.0
+            rgba[exhausted, :3] = 0.06
+            rgba[exhausted, 3] = 1.0
+            return rgba
+
         slots = self._to_numpy(state.link_slot_array).astype(float)
         dep = self._to_numpy(state.link_slot_departure_array).astype(float)
-        current_time = float(np.asarray(jax.device_get(state.current_time)))
+        current_time = self._to_scalar(state.current_time)
         mean_holding = max(float(params.mean_service_holding_time), 1e-6)
 
         num_links, num_slots = slots.shape
@@ -382,21 +482,54 @@ class RSAEnv(environment.Environment):
         color_idx = np.floor(np.abs(dep) * 1000.0).astype(int) % len(palette)
 
         rgba[occupied, :3] = palette[color_idx[occupied]]
-        # Lower alpha when closer to departure (more transparent), but not too faint.
         rgba[occupied, 3] = 0.35 + 0.60 * remaining[occupied]
         return rgba
+
+    def _build_render_header(self, params: RSAEnvParams, render_context: Optional[dict[str, Any]]) -> str:
+        env_name = self.name
+        if env_name == "RWALightpathReuseEnv":
+            env_label = "RWA-LR"
+        elif env_name == "RSAGNModelEnv":
+            env_label = "RSA GN Model"
+        elif env_name == "RMSAGNModelEnv":
+            env_label = "RMSA GN Model"
+        elif env_name == "DeepRMSAEnv":
+            env_label = "RMSA"
+        elif not params.consider_modulation_format:
+            vals = self._to_numpy(params.values_bw.val).reshape(-1)
+            is_rwa = vals.size == 1 and abs(float(vals[0]) - float(params.slot_size)) < 1e-6 and int(params.guardband) == 0
+            env_label = "RWA" if is_rwa else "RSA"
+        else:
+            env_label = "RMSA"
+
+        context = render_context or {}
+        run_type = context.get("run_type")
+        if run_type is None:
+            heuristic = context.get("path_heuristic")
+            if heuristic:
+                run_type = f"{str(heuristic).upper()} EVAL"
+            else:
+                run_type = "EVAL"
+
+        if params.continuous_operation:
+            mode_label = "Continuous Operation"
+        elif params.incremental_loading:
+            mode_label = "Incremental Loading"
+        else:
+            mode_label = "Episodic"
+
+        load_text = f" | Load {float(params.load):.1f}" if params.continuous_operation else ""
+        return f"{env_label} | {run_type} | {mode_label} {load_text}"
 
     def render(
         self,
         state: RSAEnvState,
         params: Optional[RSAEnvParams] = None,
         mode: str = "human",
-        prev_state: Optional[RSAEnvState] = None,
         action_info: Optional[ActionInfo] = None,
         check: Optional[chex.Array] = None,
-        info: Optional[dict[str, Any]] = None,  # Reserved for future optional overlays.
+        render_context: Optional[dict[str, Any]] = None,
     ):
-        """Render RSA state as a link-slot heatmap plus a topology view."""
         try:
             import matplotlib.pyplot as plt
             import networkx as nx
@@ -404,68 +537,294 @@ class RSAEnv(environment.Environment):
             raise ImportError("matplotlib and networkx are required for RSAEnv.render()") from exc
 
         if params is None:
-            raise ValueError("render() requires `params` for topology and normalization context.")
+            raise ValueError("render() requires `params`.")
+
+        render_scale = float((render_context or {}).get("render_scale", 1.0))
+        render_scale = max(0.4, min(render_scale, 2.0))
+        # Keep text/nodes legible while scaling down proportionally at smaller render sizes.
+        text_scale = max(0.35, min(0.20 + 0.80 * render_scale, 1.2))
+        node_scale = max(0.50, min(0.30 + 0.70 * render_scale, 1.3))
+        header_fontsize = 14 * text_scale
+        stats_fontsize = 14 * text_scale
+        node_fontsize = 9 * text_scale
+        node_size = 260 * node_scale
+
+        if self._render_figure is not None and self._render_scale is not None:
+            if abs(float(self._render_scale) - render_scale) > 1e-9:
+                self.close()
 
         if self._render_figure is None:
-            self._render_figure = plt.figure(figsize=(16, 10))
+            self._render_figure = plt.figure(figsize=(16 * render_scale, 10 * render_scale))
+            self._render_scale = render_scale
             gs = self._render_figure.add_gridspec(
-                2, 2, width_ratios=[3.0, 1.7], height_ratios=[8.0, 2.0], wspace=0.15, hspace=0.10
+                2, 2, width_ratios=[3.4, 2.0], height_ratios=[7.0, 3.0], wspace=0.12, hspace=0.10
             )
             self._render_axes = (
-                self._render_figure.add_subplot(gs[0, 0]),
+                self._render_figure.add_subplot(gs[:, 0]),
                 self._render_figure.add_subplot(gs[0, 1]),
-                self._render_figure.add_subplot(gs[1, :]),
+                self._render_figure.add_subplot(gs[1, 1]),
+            )
+            self._render_matrix_base_pos = self._render_axes[0].get_position().frozen()
+            logo_ax = self._render_figure.add_axes([0.015, 0.905, 0.055, 0.075])
+            logo_ax.set_axis_off()
+            logo_path = pathlib.Path(__file__).resolve().parents[3] / "docs" / "images" / "xlron_nobackground.png"
+            if logo_path.exists():
+                logo_img = plt.imread(str(logo_path))
+                logo_ax.imshow(logo_img)
+            self._render_logo_ax = logo_ax
+            self._render_header_text_artist = self._render_figure.text(
+                0.075,
+                0.935,
+                "",
+                ha="left",
+                va="center",
+                fontsize=header_fontsize,
+                color="#111111",
+                fontweight="bold",
+            )
+        elif hasattr(self, "_render_header_text_artist") and self._render_header_text_artist is None:
+            self._render_header_text_artist = self._render_figure.text(
+                0.075,
+                0.935,
+                "",
+                ha="left",
+                va="center",
+                fontsize=header_fontsize,
+                color="#111111",
+                fontweight="bold",
             )
 
         ax_matrix, ax_graph, ax_stats = self._render_axes
-        ax_matrix.clear()
-        ax_graph.clear()
-        ax_stats.clear()
+        if self._render_matrix_base_pos is not None:
+            ax_matrix.set_position(self._render_matrix_base_pos)
+        if self._render_logo_ax is not None and self._render_header_text_artist is not None:
+            matrix_bbox = ax_matrix.get_position()
+            logo_w = 0.060
+            logo_h = 0.082
+            logo_x = matrix_bbox.x0
+            logo_y = min(0.955 - logo_h, matrix_bbox.y1 + 0.006)
+            self._render_logo_ax.set_position([logo_x, logo_y, logo_w, logo_h])
+            self._render_header_text_artist.set_position(
+                (logo_x + logo_w + 0.020, logo_y + logo_h * 0.5)
+            )
+            self._render_header_text_artist.set_fontsize(header_fontsize)
+            self._render_header_text_artist.set_text(
+                self._build_render_header(params, render_context)
+            )
 
-        rgba = self._get_slot_rgba(state, params)
-        ax_matrix.imshow(rgba, aspect="auto", interpolation="nearest", origin="lower")
-        ax_matrix.set_title("Link Slot State (color=request, alpha=remaining time)")
+        ax_matrix.clear()
+        ax_stats.clear()
+        lightpath_snr_for_stats = None
+        render_snr_for_stats = None
+        snr_active_mask_for_stats = None
+        gn_mode = hasattr(state, "link_snr_array") and hasattr(state, "path_index_array")
+        if gn_mode:
+            from matplotlib.colors import LinearSegmentedColormap
+
+            lightpath_snr_for_stats = self._to_numpy(get_lightpath_snr(state, params)).astype(float)
+            raw_snr = np.array(lightpath_snr_for_stats, copy=True)
+            occupied_mask = self._to_numpy(state.link_slot_array).astype(float) > 0.0
+            path_idx = self._to_numpy(state.path_index_array).astype(int)
+            raw_snr = np.where(np.isfinite(raw_snr), raw_snr, np.nan)
+
+            # Only trust lightpath SNR where slot is occupied and mapped to a valid path index.
+            valid_mask = occupied_mask & (path_idx >= 0) & np.isfinite(raw_snr)
+            snr = np.full_like(raw_snr, np.nan, dtype=float)
+            snr[valid_mask] = raw_snr[valid_mask]
+
+            # For transient invalid slots, carry forward last valid rendered SNR to avoid
+            # sudden collapses right after blocking/rollback transitions.
+            if (
+                self._render_last_lightpath_snr is not None
+                and self._render_last_lightpath_snr.shape == snr.shape
+            ):
+                carry_mask = occupied_mask & ~np.isfinite(snr) & np.isfinite(self._render_last_lightpath_snr)
+                if np.any(carry_mask):
+                    snr[carry_mask] = self._render_last_lightpath_snr[carry_mask]
+
+            # Anything still unresolved in occupied slots gets a conservative floor for display only.
+            unresolved_occ = occupied_mask & ~np.isfinite(snr)
+            if np.any(unresolved_occ):
+                snr[unresolved_occ] = 7.5
+
+            self._render_last_lightpath_snr = np.array(snr, copy=True)
+            empty_mask = ~occupied_mask
+
+            vmin, vmax = 7.5, 20.0
+            snr = np.clip(snr, vmin, vmax)
+            render_snr_for_stats = np.array(snr, copy=True)
+            snr_active_mask_for_stats = occupied_mask & np.isfinite(render_snr_for_stats)
+            snr_vis = np.ma.array(snr, mask=empty_mask)
+
+            if self._render_matrix_base_pos is not None:
+                base = self._render_matrix_base_pos
+                matrix_x0 = max(0.05, base.x0 - 0.02)
+                matrix_w = max(0.05, base.width - 0.05)
+                ax_matrix.set_position([matrix_x0, base.y0, matrix_w, base.height])
+
+            # Multi-stop gradient with clear transitions, low->high SNR.
+            snr_cmap = LinearSegmentedColormap.from_list(
+                "xlron_snr",
+                ["#8B0000", "#D95F02", "#FEC44F", "#66BD63", "#1A9850"],
+                N=256,
+            ).copy()
+            snr_cmap.set_bad(color="#FFFFFF")
+            im = ax_matrix.imshow(
+                snr_vis,
+                aspect="auto",
+                interpolation="nearest",
+                origin="lower",
+                cmap=snr_cmap,
+                vmin=vmin,
+                vmax=vmax,
+            )
+            matrix_bbox = ax_matrix.get_position()
+            cbar_w = 0.014
+            cbar_pad = 0.010
+            cbar_x = min(0.99 - cbar_w, matrix_bbox.x1 + cbar_pad)
+            cbar_rect = [cbar_x, matrix_bbox.y0, cbar_w, matrix_bbox.height]
+            if self._render_snr_cbar_ax is None or self._render_snr_cbar_ax.figure is not self._render_figure:
+                self._render_snr_cbar_ax = self._render_figure.add_axes(cbar_rect)
+                self._render_snr_cbar = None
+            else:
+                self._render_snr_cbar_ax.set_position(cbar_rect)
+                self._render_snr_cbar_ax.set_visible(True)
+
+            if self._render_snr_cbar is None:
+                self._render_snr_cbar = self._render_figure.colorbar(
+                    im, cax=self._render_snr_cbar_ax
+                )
+            else:
+                self._render_snr_cbar.update_normal(im)
+            self._render_snr_cbar.set_ticks([7.5, 10, 12.5, 15, 17.5, 20])
+            self._render_snr_cbar.ax.yaxis.set_ticks_position("right")
+            self._render_snr_cbar.ax.yaxis.set_label_position("right")
+            self._render_snr_cbar.set_label("SNR (dB)", fontsize=max(7.0, 10.0 * text_scale))
+            self._render_snr_cbar.ax.tick_params(
+                labelsize=max(6.0, 9.0 * text_scale), length=2
+            )
+            rgba = np.asarray(im.cmap(im.norm(snr_vis.filled(7.5))))
+        else:
+            if self._render_snr_cbar_ax is not None:
+                self._render_snr_cbar_ax.set_visible(False)
+            rgba = self._get_slot_rgba(state, params)
+            ax_matrix.imshow(rgba, aspect="auto", interpolation="nearest", origin="lower")
         ax_matrix.set_xlabel("Slot Index")
-        ax_matrix.set_ylabel("Link Index")
+        ax_matrix.set_ylabel("Link")
+        edges = self._to_numpy(params.edges.val).astype(int)
+        num_links = rgba.shape[0]
+        if edges.ndim == 2 and edges.shape[0] >= num_links:
+            labels = [f"{int(u)}\u2192{int(v)}" for u, v in edges[:num_links]]
+            ax_matrix.set_yticks(np.arange(num_links))
+            ax_matrix.set_yticklabels(labels, fontsize=max(5.0, 8.0 * text_scale))
+
+        if self.name == "RWALightpathReuseEnv" and hasattr(state, "link_capacity_array"):
+            cap = self._to_numpy(state.link_capacity_array).astype(float)
+            used_mask = (cap > 0.0) & (cap < (1e6 - 1e-6))
+            if np.any(used_mask):
+                from matplotlib.patches import Rectangle
+
+                if hasattr(state, "path_index_array") and hasattr(state, "path_capacity_array"):
+                    path_idx = self._to_numpy(state.path_index_array).astype(int)
+                    path_cap = self._to_numpy(state.path_capacity_array).astype(float).reshape(-1)
+                    valid_idx = (
+                        (path_idx >= 0)
+                        & (path_idx < path_cap.shape[0])
+                        & used_mask
+                    )
+                    max_cap = np.zeros_like(cap, dtype=float)
+                    max_cap[valid_idx] = path_cap[path_idx[valid_idx]]
+                else:
+                    max_used = float(np.max(cap[used_mask])) if np.any(used_mask) else 1.0
+                    max_cap = np.full_like(cap, max_used, dtype=float)
+
+                safe_max = np.maximum(max_cap, 1e-6)
+                fill_ratio = np.clip(1.0 - (cap / safe_max), 0.0, 1.0)
+                fill_ratio = np.where(used_mask, fill_ratio, 0.0)
+
+                y_idx, x_idx = np.where(fill_ratio > 0.0)
+                for y, x in zip(y_idx.tolist(), x_idx.tolist()):
+                    h = float(fill_ratio[y, x])
+                    if h <= 0.0:
+                        continue
+                    ax_matrix.add_patch(
+                        Rectangle(
+                            (x - 0.5, y - 0.5),
+                            1.0,
+                            h,
+                            facecolor="#050505",
+                            edgecolor="none",
+                            alpha=0.92,
+                        )
+                    )
 
         highlight_mask = None
         accepted = False
         if check is not None:
-            accepted = float(np.asarray(jax.device_get(check))) < 0.5
-        elif prev_state is not None:
-            accepted = int(self._to_numpy(state.accepted_services)) > int(
-                self._to_numpy(prev_state.accepted_services)
-            )
+            accepted = self._to_scalar(check) < 0.5
+        elif action_info is not None:
+            # If action_info exists and no explicit check was provided, assume this frame
+            # corresponds to the processed action.
+            accepted = True
 
         if accepted and action_info is not None:
-            highlight_mask = self._to_numpy(action_info.affected_slots_mask).astype(float)
-        elif accepted and prev_state is not None:
-            prev_slots = self._to_numpy(prev_state.link_slot_array).astype(float)
-            curr_slots = self._to_numpy(state.link_slot_array).astype(float)
-            prev_dep = self._to_numpy(prev_state.link_slot_departure_array).astype(float)
-            curr_dep = self._to_numpy(state.link_slot_departure_array).astype(float)
-            highlight_mask = (
-                ((curr_slots > 0.0) & (prev_slots <= 0.0)) | (curr_dep > (prev_dep + 1e-9))
-            ).astype(float)
+            affected = self._to_numpy(action_info.affected_slots_mask).astype(float)
+            if gn_mode:
+                link_slot = self._to_numpy(state.link_slot_array).astype(float)
+                highlight_mask = affected
+                occupied_now = (link_slot > 0.0).astype(float)
+                highlight_mask = highlight_mask * occupied_now
+            else:
+                # Preserve original non-GN behavior.
+                highlight_mask = affected
         if highlight_mask is not None:
+            from matplotlib.patches import Rectangle
+
             y_idx, x_idx = np.where(highlight_mask > 0.5)
             if x_idx.size > 0:
-                ax_matrix.scatter(
-                    x_idx, y_idx, marker="x", s=28, c="#111111", linewidths=0.8, alpha=0.95
-                )
+                for y, x in zip(y_idx.tolist(), x_idx.tolist()):
+                    ax_matrix.add_patch(
+                        Rectangle(
+                            (x - 0.5, y - 0.5),
+                            1.0,
+                            1.0,
+                            fill=False,
+                            edgecolor="#111111",
+                            linewidth=1.8,
+                        )
+                    )
+        alloc_fsu = None
+        if accepted and highlight_mask is not None:
+            hm = highlight_mask > 0.5
+            if np.any(hm):
+                per_link = np.sum(hm, axis=1)
+                on_path = per_link[per_link > 0]
+                if on_path.size > 0:
+                    alloc_fsu = int(np.min(on_path))
 
-        g, pos, edge_lookup = self._get_render_graph(params)
-        nx.draw_networkx_edges(g, pos, edge_color="#9CA3AF", width=1.6, ax=ax_graph)
-        nx.draw_networkx_nodes(
-            g,
-            pos,
-            node_size=430,
-            node_color="#ffffff",
-            edgecolors="#111827",
-            linewidths=1.5,
-            ax=ax_graph,
-        )
-        nx.draw_networkx_labels(g, pos, font_size=9, font_weight="bold", ax=ax_graph)
+        g, pos, edge_lookup = self._get_render_graph(params, render_context)
+        if self._render_topology_key != self._render_graph_key:
+            ax_graph.clear()
+            nx.draw_networkx_edges(g, pos, edge_color="#9CA3AF", width=1.6, ax=ax_graph)
+            nx.draw_networkx_nodes(
+                g,
+                pos,
+                node_size=node_size,
+                node_color="#ffffff",
+                edgecolors="#111827",
+                linewidths=1.5,
+                ax=ax_graph,
+            )
+            nx.draw_networkx_labels(
+                g,
+                pos,
+                font_size=node_fontsize,
+                font_weight="bold",
+                ax=ax_graph,
+            )
+            ax_graph.set_axis_off()
+            self._render_topology_key = self._render_graph_key
+            self._render_topology_highlight_artist = None
 
         highlight_color = "#F97316"
         if highlight_mask is not None:
@@ -489,45 +848,97 @@ class RSAEnv(environment.Environment):
                     u, v = self._to_numpy(params.edges.val)[link_idx].astype(int).tolist()
                     highlighted_edges.add(tuple(sorted((int(u), int(v)))))
 
+        if self._render_topology_highlight_artist is not None:
+            try:
+                self._render_topology_highlight_artist.remove()
+            except Exception:
+                pass
+            self._render_topology_highlight_artist = None
         if highlighted_edges:
-            nx.draw_networkx_edges(
+            edge_list = list(highlighted_edges)
+            self._render_topology_highlight_artist = nx.draw_networkx_edges(
                 g,
                 pos,
-                edgelist=list(highlighted_edges),
-                edge_color=highlight_color,
+                edgelist=edge_list,
+                edge_color=[highlight_color] * len(edge_list),
                 width=4.2,
                 ax=ax_graph,
             )
-        ax_graph.set_title("Topology (latest accepted request highlighted)")
         ax_graph.set_axis_off()
 
-        req = self._to_numpy(state.request_array).astype(float).reshape(-1)
-        src = int(req[0]) if req.size > 0 else -1
-        dst = int(req[1]) if req.size > 1 else -1
-        bit_rate = float(req[2]) if req.size > 2 else 0.0
+        if action_info is not None and hasattr(action_info, "nodes_sd") and hasattr(action_info, "requested_datarate"):
+            src = int(self._to_scalar(action_info.nodes_sd[0]))
+            dst = int(self._to_scalar(action_info.nodes_sd[1]))
+            bit_rate = float(self._to_scalar(action_info.requested_datarate))
+        else:
+            req = self._to_numpy(state.request_array).astype(float).reshape(-1)
+            if req.size >= 3:
+                nodes_sd, requested_datarate = read_rsa_request(jnp.asarray(req))
+                src = int(self._to_scalar(nodes_sd[0]))
+                dst = int(self._to_scalar(nodes_sd[1]))
+                bit_rate = float(self._to_scalar(requested_datarate))
+            else:
+                src, dst, bit_rate = -1, -1, 0.0
+        src_disp = src + 1 if src >= 0 else -1
+        dst_disp = dst + 1 if dst >= 0 else -1
 
-        total_requests = max(int(np.asarray(jax.device_get(state.total_requests))), 0)
-        accepted_services = int(np.asarray(jax.device_get(state.accepted_services)))
-        accepted_bitrate = float(np.asarray(jax.device_get(state.accepted_bitrate)))
-        total_bitrate = float(np.asarray(jax.device_get(state.total_bitrate)))
+        total_requests = max(int(self._to_scalar(state.total_requests)), 0)
+        accepted_services = int(self._to_scalar(state.accepted_services))
+        accepted_bitrate = self._to_scalar(state.accepted_bitrate)
+        total_bitrate = self._to_scalar(state.total_bitrate)
         service_bp = 1.0 - (accepted_services / max(total_requests, 1))
         bitrate_bp = 1.0 - (accepted_bitrate / max(total_bitrate, 1e-6))
         util = float(np.count_nonzero(self._to_numpy(state.link_slot_array)) / state.link_slot_array.size)
 
-        lines = [
-            f"REQUEST src={src} dst={dst} bitrate={bit_rate:.2f}",
-            f"STEP {int(np.asarray(jax.device_get(state.total_timesteps)))}  TIME {float(np.asarray(jax.device_get(state.current_time))):.3f}",
-            f"ACCEPTED {accepted_services} / {total_requests}",
-            f"SERVICE BLOCKING {service_bp:.4f}",
-            f"BITRATE BLOCKING {bitrate_bp:.4f}",
-            f"UTILISATION {util:.4f}",
+        req_fsu = (
+            int(round(self._to_scalar(action_info.num_slots)))
+            if action_info is not None and hasattr(action_info, "num_slots")
+            else None
+        )
+        rows = [
+            ("Request", f"{src_disp:>2} -> {dst_disp:<2}"),
+            ("Bitrate (Gbps)", f"{bit_rate:>10.1f}"),
+            (
+                "FSU",
+                f"{alloc_fsu:>3d} / {req_fsu:<3d}"
+                if alloc_fsu is not None and req_fsu is not None
+                else f"{'n/a':>10}",
+            ),
+            ("Step", f"{int(self._to_scalar(state.total_timesteps)):>10d}"),
+            ("Time", f"{self._to_scalar(state.current_time):>10.3f}"),
+            ("Accepted", f"{accepted_services:>5d} / {total_requests:<5d}"),
+            ("Service Blocking", f"{service_bp:>10.4f}"),
+            ("Bitrate Blocking", f"{bitrate_bp:>10.4f}"),
+            ("Utilisation", f"{util:>10.4f}"),
         ]
         if hasattr(state, "link_capacity_array"):
             cap = self._to_numpy(state.link_capacity_array)
-            lines.append(f"LIGHTPATH CAPACITY (mean) {float(np.mean(cap)):.3f}")
+            rows.append(("Mean Capacity", f"{float(np.mean(cap)):>10.3f}"))
+        if gn_mode and lightpath_snr_for_stats is not None and snr_active_mask_for_stats is not None:
+            stats_src = render_snr_for_stats if render_snr_for_stats is not None else lightpath_snr_for_stats
+            active_snr = stats_src[snr_active_mask_for_stats]
+            active_snr = active_snr[np.isfinite(active_snr)]
+            mean_active_snr = float(np.mean(active_snr)) if active_snr.size > 0 else float("nan")
+            curr_req_snr = float("nan")
+            if accepted and action_info is not None and highlight_mask is not None:
+                req_mask = (highlight_mask > 0.5) & snr_active_mask_for_stats
+                req_snr_vals = stats_src[req_mask]
+                req_snr_vals = req_snr_vals[np.isfinite(req_snr_vals)]
+                if req_snr_vals.size > 0:
+                    curr_req_snr = float(np.mean(req_snr_vals))
+            rows.append(
+                ("Request SNR (dB)", f"{curr_req_snr:>10.2f}" if np.isfinite(curr_req_snr) else f"{'n/a':>10}")
+            )
+            rows.append(
+                (
+                    "Mean Active SNR",
+                    f"{mean_active_snr:>10.2f}" if np.isfinite(mean_active_snr) else f"{'n/a':>10}",
+                )
+            )
         if check is not None:
             status = "ACCEPTED" if accepted else "BLOCKED"
-            lines.append(f"LATEST ACTION {status}")
+            rows.append(("Latest Action", f"{status:>10s}"))
+        lines = [f"{k:<18} {v:>14}" for k, v in rows]
 
         ax_stats.set_axis_off()
         ax_stats.text(
@@ -537,12 +948,11 @@ class RSAEnv(environment.Environment):
             va="top",
             ha="left",
             family="monospace",
-            fontsize=12,
-            color="#22C55E",
-            bbox=dict(boxstyle="round,pad=0.45", facecolor="#0A0A0A", edgecolor="#22C55E", alpha=0.95),
+            fontsize=stats_fontsize,
+            color="#111111",
+            bbox=dict(boxstyle="round,pad=0.35", facecolor="#FFFFFF", edgecolor="#DDDDDD", alpha=1.0),
             transform=ax_stats.transAxes,
         )
-        self._render_figure.suptitle("XLRON RSA Environment Render", fontsize=14, fontweight="bold")
         self._render_figure.canvas.draw_idle()
 
         if mode == "human":
@@ -550,18 +960,37 @@ class RSAEnv(environment.Environment):
             return None
         if mode == "rgb_array":
             self._render_figure.canvas.draw()
-            width, height = self._render_figure.canvas.get_width_height()
-            rgb = np.frombuffer(self._render_figure.canvas.tostring_rgb(), dtype=np.uint8)
-            return rgb.reshape((height, width, 3))
+            rgba = np.asarray(self._render_figure.canvas.buffer_rgba(), dtype=np.uint8)
+            if rgba.ndim == 1:
+                width, height = self._render_figure.canvas.get_width_height()
+                rgba = rgba.reshape((height, width, 4))
+            return np.array(rgba[:, :, :3], copy=True)
         raise ValueError(f"Unsupported render mode: {mode}")
 
     def close(self):
         if self._render_figure is not None:
             from matplotlib import pyplot as plt
 
+            if self._render_snr_cbar is not None:
+                try:
+                    self._render_snr_cbar.remove()
+                except Exception:
+                    pass
+                self._render_snr_cbar = None
+            if self._render_snr_cbar_ax is not None:
+                try:
+                    self._render_snr_cbar_ax.remove()
+                except Exception:
+                    pass
+                self._render_snr_cbar_ax = None
             plt.close(self._render_figure)
             self._render_figure = None
             self._render_axes = None
+            self._render_topology_key = None
+            self._render_topology_highlight_artist = None
+            self._render_scale = None
+            self._render_matrix_base_pos = None
+            self._render_last_lightpath_snr = None
 
     @partial(jax.jit, static_argnums=(0, 2))
     def reset_env(
@@ -614,6 +1043,11 @@ class RSAEnv(environment.Environment):
         action_1d = jnp.atleast_1d(action)
         path_action = action_1d[0]
         power_action = action_1d[1] if action_1d.shape[0] > 1 else jnp.float32(0.0)
+        # Keep a single discretized path action for all downstream indexing.
+        # This must match process_path_action's rounding behavior.
+        path_action_discrete = differentiable_round_simple(
+            path_action, params.temperature, params.differentiable
+        ).astype(dtype_config.LARGE_INT_DTYPE)
         path_index, initial_slot_index = jit_profiler.call(
             params.profile, process_path_action, state, params, path_action
         )
@@ -624,9 +1058,8 @@ class RSAEnv(environment.Environment):
         # For RMSA GN model, use the SE from the selected modulation format (from masking)
         # rather than the static path_se_array value
         if params.__class__.__name__ == "RMSAGNModelEnvParams":
-            path_action_int = path_action.astype(dtype_config.LARGE_INT_DTYPE)
             mod_format_index = jax.lax.dynamic_slice(
-                state.mod_format_mask, (path_action_int,), (1,)
+                state.mod_format_mask, (path_action_discrete,), (1,)
             )[0].astype(dtype_config.LARGE_INT_DTYPE)
             path_se = params.modulations_array.val[mod_format_index, 1]
         else:
@@ -650,7 +1083,7 @@ class RSAEnv(environment.Environment):
             params,
         )
         action_info = ActionInfo(
-            action=path_action,
+            action=path_action_discrete,
             path_index=path_index,
             initial_slot_index=initial_slot_index,
             num_slots=num_slots,

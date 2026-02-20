@@ -6,10 +6,12 @@ Tracks processes via a JSON registry in /tmp/xlron_runs/.
 
 import json
 import os
+import re
 import signal
 import subprocess
 import sys
 import time
+from datetime import datetime
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
@@ -46,10 +48,66 @@ def _save_registry(registry: dict[str, dict]):
     REGISTRY_PATH.write_text(json.dumps(registry, indent=2))
 
 
+def _extract_flag(command: str, flag: str) -> str | None:
+    """Extract `--flag=value` or `--flag value` from a raw CLI command."""
+    pat_eq = re.compile(rf"--{re.escape(flag)}=([^\s]+)", flags=re.IGNORECASE)
+    m_eq = pat_eq.search(command)
+    if m_eq:
+        return m_eq.group(1).strip()
+    pat_sp = re.compile(rf"--{re.escape(flag)}\s+([^\s]+)", flags=re.IGNORECASE)
+    m_sp = pat_sp.search(command)
+    if m_sp:
+        return m_sp.group(1).strip()
+    return None
+
+
+def _slug(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
+
+
+def _build_run_id(command: str) -> str:
+    """Build human-readable run id: timestamp + mode + env + topology."""
+    ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    mode = "train"
+    if re.search(r"--eval_model\b", command, flags=re.IGNORECASE):
+        mode = "model-eval"
+    elif re.search(r"--eval_heuristic\b", command, flags=re.IGNORECASE):
+        heur = _extract_flag(command, "path_heuristic")
+        mode = f"heur-eval-{_slug(heur)}" if heur else "heur-eval"
+    env = _slug(_extract_flag(command, "env_type") or "env")
+    topo = _slug(_extract_flag(command, "topology_name") or "topology")
+    return f"run_{ts}_{mode}_{env}_{topo}"
+
+
 def launch_run(command: str) -> RunInfo:
     """Spawn a detached subprocess for the given command string."""
+    cmd_lower = command.lower()
+    is_eval = "--eval_heuristic" in cmd_lower or "--eval_model" in cmd_lower
+    if is_eval:
+        # GUI runs should always render to file (for in-GUI playback), not live popups.
+        if "--render_eval_mode=" in cmd_lower:
+            command = re.sub(
+                r"--RENDER_EVAL_MODE=\S+",
+                "--RENDER_EVAL_MODE=save",
+                command,
+                flags=re.IGNORECASE,
+            )
+        elif "--render_eval_mode" in cmd_lower:
+            command = re.sub(
+                r"--RENDER_EVAL_MODE(\s+\S+)?",
+                "--RENDER_EVAL_MODE=save",
+                command,
+                flags=re.IGNORECASE,
+            )
+
     _ensure_dirs()
-    run_id = f"run_{int(time.time())}_{os.getpid()}"
+    run_id = _build_run_id(command)
+    # Ensure uniqueness if launched multiple times within the same second.
+    base_run_id = run_id
+    suffix = 1
+    while (RUNS_DIR / run_id).exists():
+        suffix += 1
+        run_id = f"{base_run_id}_{suffix}"
     run_dir = RUNS_DIR / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
     log_path = str(run_dir / "output.log")
@@ -57,7 +115,9 @@ def launch_run(command: str) -> RunInfo:
     log_file = open(log_path, "w")
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
+    # GUI is file-playback oriented for renders.
     env["MPLBACKEND"] = "Agg"
+    env["XLRON_RUN_DIR"] = str(run_dir)
     proc = subprocess.Popen(
         [sys.executable, "-u"] + command.split()[1:],  # -u for unbuffered, skip "python" prefix
         stdout=log_file,
@@ -113,6 +173,17 @@ def refresh_registry():
         if entry["status"] == "running":
             try:
                 os.kill(entry["pid"], 0)  # check if alive
+                # On macOS/Linux a zombie can still pass kill(pid, 0); treat it as finished.
+                ps = subprocess.run(
+                    ["ps", "-p", str(entry["pid"]), "-o", "stat="],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                stat = ps.stdout.strip()
+                if (not stat) or stat.startswith("Z"):
+                    entry["status"] = "finished"
+                    changed = True
             except ProcessLookupError:
                 # Process gone — check log for clues
                 entry["status"] = "finished"

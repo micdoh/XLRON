@@ -1607,8 +1607,7 @@ def complete_step_rmsa_gn_model(
     # --- Book-keeping (always) ---
     state = state.replace(
         accepted_services=state.accepted_services + success,
-        accepted_bitrate=state.accepted_bitrate
-        + (success * action_info.requested_datarate * params.fec_rate),
+        accepted_bitrate=state.accepted_bitrate + (success * action_info.requested_datarate),
         total_bitrate=state.total_bitrate + action_info.requested_datarate,
         total_timesteps=state.total_timesteps + 1,
     )
@@ -4208,18 +4207,41 @@ def mask_slots_rmsa_gn_model(
     # Extract FF and LF slot indices
     has_candidate = jnp.any(slot_available, axis=2)  # (k, num_mods)
 
-    # FF: first True along axis=2 (append False sentinel so argmax returns link_resources when empty)
-    ff_sentinel = jnp.zeros((params.k_paths, num_mods, 1), dtype=bool)
-    ff_indices = jnp.argmax(
-        jnp.concatenate([slot_available, ff_sentinel], axis=2), axis=2
-    )  # (k, num_mods)
+    use_band_order = (
+        hasattr(params, "band_slot_order_ff")
+        and hasattr(params, "band_slot_order_lf")
+        and params.band_slot_order_ff.val.shape[0] == params.link_resources
+        and params.band_slot_order_lf.val.shape[0] == params.link_resources
+    )
 
-    # LF: last True along axis=2
-    lf_sentinel = jnp.zeros((params.k_paths, num_mods, 1), dtype=bool)
-    lf_from_end = jnp.argmax(
-        jnp.concatenate([jnp.flip(slot_available, axis=2), lf_sentinel], axis=2), axis=2
-    )  # (k, num_mods)
-    lf_indices = params.link_resources - 1 - lf_from_end  # (k, num_mods)
+    def _first_true_in_order(avail_3d, order):
+        """Return first available raw slot index for each (path, mod) in given slot order."""
+        ordered = avail_3d[:, :, order]
+        sent = jnp.zeros((params.k_paths, num_mods, 1), dtype=bool)
+        idx_in_order = jnp.argmax(jnp.concatenate([ordered, sent], axis=2), axis=2)
+        has_any = jnp.any(ordered, axis=2)
+        safe = jnp.clip(idx_in_order, 0, params.link_resources - 1)
+        raw_idx = order[safe]
+        return jnp.where(has_any, raw_idx, params.link_resources)
+
+    if use_band_order:
+        order_ff = params.band_slot_order_ff.val.astype(dtype_config.LARGE_INT_DTYPE)
+        order_lf = params.band_slot_order_lf.val.astype(dtype_config.LARGE_INT_DTYPE)
+        ff_indices = _first_true_in_order(slot_available, order_ff)  # (k, num_mods)
+        lf_indices = _first_true_in_order(slot_available, order_lf)  # (k, num_mods)
+    else:
+        # FF: first True along axis=2 (append False sentinel so argmax returns link_resources when empty)
+        ff_sentinel = jnp.zeros((params.k_paths, num_mods, 1), dtype=bool)
+        ff_indices = jnp.argmax(
+            jnp.concatenate([slot_available, ff_sentinel], axis=2), axis=2
+        )  # (k, num_mods)
+
+        # LF: last True along axis=2
+        lf_sentinel = jnp.zeros((params.k_paths, num_mods, 1), dtype=bool)
+        lf_from_end = jnp.argmax(
+            jnp.concatenate([jnp.flip(slot_available, axis=2), lf_sentinel], axis=2), axis=2
+        )  # (k, num_mods)
+        lf_indices = params.link_resources - 1 - lf_from_end  # (k, num_mods)
 
     # Skip LF evaluation when FF == LF (same slot, would be duplicate)
     is_same = ff_indices == lf_indices
@@ -4407,34 +4429,44 @@ def mask_slots_rmsa_gn_model(
     ff_results = all_results[: params.k_paths * num_mods].reshape(params.k_paths, num_mods)
     lf_results = all_results[params.k_paths * num_mods :].reshape(params.k_paths, num_mods)
 
-    # Build mod_format_mask: for each (path, slot), store winning mod format index or -1
+    # Build mod_format_mask: for each (path, slot), store the valid modulation
+    # format with the highest spectral efficiency (SE), or -1 if none.
     slot_idx_range = jnp.arange(params.link_resources, dtype=dtype_config.LARGE_INT_DTYPE)
+    se_values_typed = se_values.astype(dtype_config.LARGE_FLOAT_DTYPE)
 
     def build_path_mask(path_idx):
-        path_mask = jnp.full((params.link_resources,), -1.0, dtype=dtype_config.LARGE_FLOAT_DTYPE)
+        best_idx = jnp.full((params.link_resources,), -1, dtype=dtype_config.LARGE_INT_DTYPE)
+        best_se = jnp.full(
+            (params.link_resources,),
+            -jnp.inf,
+            dtype=dtype_config.LARGE_FLOAT_DTYPE,
+        )
 
-        def apply_mod(mod_idx, mask):
+        def apply_mod(mod_idx, carry):
+            best_idx_i, best_se_i = carry
             ff_idx = ff_indices[path_idx, mod_idx]
             lf_idx = lf_indices[path_idx, mod_idx]
             ff_ok = ff_results[path_idx, mod_idx]
             lf_ok = lf_results[path_idx, mod_idx]
+            mod_se = se_values_typed[mod_idx]
+            mod_idx_i = mod_idx.astype(dtype_config.LARGE_INT_DTYPE)
 
-            # Set FF slot position if valid
-            mask = jnp.where(
-                (slot_idx_range == ff_idx) & (ff_ok > 0),
-                mod_idx.astype(dtype_config.LARGE_FLOAT_DTYPE),
-                mask,
-            )
-            # Set LF slot position if valid
-            mask = jnp.where(
-                (slot_idx_range == lf_idx) & (lf_ok > 0),
-                mod_idx.astype(dtype_config.LARGE_FLOAT_DTYPE),
-                mask,
-            )
-            return mask
+            ff_valid = (slot_idx_range == ff_idx) & (ff_ok > 0) & (mod_se > best_se_i)
+            best_se_i = jnp.where(ff_valid, mod_se, best_se_i)
+            best_idx_i = jnp.where(ff_valid, mod_idx_i, best_idx_i)
 
-        path_mask = jax.lax.fori_loop(0, num_mods, apply_mod, path_mask)
-        return path_mask
+            lf_valid = (slot_idx_range == lf_idx) & (lf_ok > 0) & (mod_se > best_se_i)
+            best_se_i = jnp.where(lf_valid, mod_se, best_se_i)
+            best_idx_i = jnp.where(lf_valid, mod_idx_i, best_idx_i)
+            return best_idx_i, best_se_i
+
+        best_idx, _ = jax.lax.fori_loop(
+            0,
+            num_mods,
+            apply_mod,
+            (best_idx, best_se),
+        )
+        return best_idx.astype(dtype_config.LARGE_FLOAT_DTYPE)
 
     mod_format_mask = jax.vmap(build_path_mask)(jnp.arange(params.k_paths)).reshape(
         -1

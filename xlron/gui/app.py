@@ -1,12 +1,12 @@
 """XLRON GUI — Streamlit-based command builder and process manager."""
-
+import base64
 import time
 from pathlib import Path
 
 import streamlit as st
 
 from xlron.gui.presets import PRESETS
-from xlron.gui.process import get_active_runs, get_all_runs, launch_run, stop_run, tail_log
+from xlron.gui.process import get_all_runs, launch_run, stop_run, tail_log
 from xlron.gui.widgets import (
     DEFAULTS,
     _emit,
@@ -79,6 +79,34 @@ def _save_preset(name: str, config: dict) -> None:
 
 
 st.set_page_config(page_title="XLRON", page_icon="🔬", layout="wide")
+st.markdown(
+    """
+<script>
+(function() {
+  const KEY = "xlron_sidebar_scroll_top";
+  const getSidebar = () => document.querySelector('[data-testid="stSidebarContent"]');
+  const restore = () => {
+    const el = getSidebar();
+    if (!el) return;
+    const saved = window.sessionStorage.getItem(KEY);
+    if (saved !== null) el.scrollTop = parseInt(saved, 10) || 0;
+  };
+  const attach = () => {
+    const el = getSidebar();
+    if (!el || el.dataset.scrollBound === "1") return;
+    el.dataset.scrollBound = "1";
+    el.addEventListener("scroll", () => {
+      window.sessionStorage.setItem(KEY, String(el.scrollTop));
+    }, { passive: true });
+  };
+  restore();
+  attach();
+  setTimeout(() => { restore(); attach(); }, 50);
+})();
+</script>
+    """,
+    unsafe_allow_html=True,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -160,15 +188,11 @@ with st.sidebar:
     # Run controls — placeholder, filled after command is built
     st.subheader("Run Controls")
     cmd_placeholder = st.empty()
-    copy_btn_placeholder = st.empty()
     run_btn_col, stop_btn_col = st.columns(2)
     run_btn_placeholder = run_btn_col.empty()
     stop_btn_placeholder = stop_btn_col.empty()
-    status_placeholder = st.empty()
 
     st.divider()
-
-    # Run history
     st.subheader("Run History")
     history_placeholder = st.empty()
 
@@ -300,36 +324,30 @@ command_multiline = _format_command_multiline(command)
 with st.sidebar:
     cmd_placeholder.code(command_multiline, language="bash")
 
-    # Copy Command button — shows the command in a modal/popover for easy copy
-    if copy_btn_placeholder.button("Copy Command", width="stretch"):
-        st.session_state["_show_command"] = True
-
     if run_btn_placeholder.button("Run", type="primary", width="stretch"):
         info = launch_run(command)
         st.session_state["_active_run_id"] = info.run_id
         st.session_state["_log_offset"] = 0
         st.rerun()
 
-    # Stop button
+    # Stop button (no live sidebar status polling to avoid UI jumpiness)
     active_run = st.session_state.get("_active_run_id")
-    if active_run:
-        active_runs = get_active_runs()
-        active_ids = {r["run_id"] for r in active_runs}
-        if active_run in active_ids:
-            if stop_btn_placeholder.button("Stop", type="secondary", width="stretch"):
-                stop_run(active_run)
-                st.session_state.pop("_active_run_id", None)
-                st.rerun()
-            status_placeholder.success(f"Running: {active_run}")
-        else:
-            status_placeholder.info("No active run")
-            st.session_state.pop("_active_run_id", None)
-
-    # Run history
     runs = get_all_runs()
+    active_entry = next((r for r in runs if r["run_id"] == active_run), None) if active_run else None
+    if active_run:
+        if stop_btn_placeholder.button("Stop", type="secondary", width="stretch"):
+            stop_run(active_run)
+            st.session_state.pop("_active_run_id", None)
+            st.rerun()
+        st.caption(f"Selected run: {active_run}")
+        if active_entry is not None:
+            st.caption(f"Status: {active_entry['status']}")
+            with st.expander("Current Command", expanded=False):
+                st.code(_format_command_multiline(active_entry["command"]), language="bash")
+
     if runs:
-        for run in runs[:5]:
-            col_id, col_status = history_placeholder.container().columns([3, 1])
+        for run in runs[:8]:
+            col_id, col_status = history_placeholder.container().columns([5, 1])
             with col_id:
                 label = run["run_id"]
                 if st.button(label, key=f"reconnect_{run['run_id']}"):
@@ -345,23 +363,6 @@ with st.sidebar:
                     st.markdown("🔴")
     else:
         history_placeholder.caption("No runs yet")
-
-
-# ---------------------------------------------------------------------------
-# Copy command dialog
-# ---------------------------------------------------------------------------
-
-if st.session_state.get("_show_command"):
-
-    @st.dialog("Copy Command")
-    def _show_copy_dialog():
-        st.markdown("Copy this command to run XLRON from the terminal:")
-        st.code(command_multiline, language="bash")
-        if st.button("Close"):
-            st.session_state["_show_command"] = False
-            st.rerun()
-
-    _show_copy_dialog()
 
 
 # ---------------------------------------------------------------------------
@@ -400,8 +401,13 @@ with col_output:
     st.subheader("Output")
 
     active_run_id = st.session_state.get("_active_run_id")
+    runs = get_all_runs()
+    if not active_run_id and runs:
+        # Fall back to the newest run so playback/logs are visible after page reloads.
+        active_run_id = runs[0]["run_id"]
+        st.session_state["_active_run_id"] = active_run_id
+
     if active_run_id:
-        runs = get_all_runs()
         run_entry = next((r for r in runs if r["run_id"] == active_run_id), None)
         if run_entry:
             log_path = run_entry["log_path"]
@@ -428,6 +434,52 @@ with col_output:
                 st.subheader("Plots")
                 for pf in plot_files:
                     st.image(str(pf), caption=pf.stem, width="stretch")
+
+            gif_files = sorted(run_dir.glob("*.gif"))
+            mp4_files = sorted(run_dir.glob("*.mp4"))
+            if gif_files or mp4_files:
+                with st.expander("Render Playback", expanded=True):
+                    for gf in gif_files:
+                        try:
+                            size = gf.stat().st_size
+                            if run_entry["status"] == "running" and size == 0:
+                                continue
+                        except OSError:
+                            continue
+                        size_mb = size / (1024 * 1024)
+                        st.caption(f"{gf.name} ({size_mb:.1f} MB)")
+                        try:
+                            if size_mb <= 20.0:
+                                gif_b64 = base64.b64encode(gf.read_bytes()).decode("ascii")
+                                st.markdown(
+                                    f'<img src="data:image/gif;base64,{gif_b64}" style="width:100%;height:auto;" />',
+                                    unsafe_allow_html=True,
+                                )
+                            else:
+                                st.image(str(gf), width="stretch")
+                                st.caption("Large GIF previewed statically in Streamlit.")
+                        except Exception:
+                            if run_entry["status"] == "running":
+                                st.caption(f"Render file is still being written: {gf.name}")
+                            else:
+                                st.warning(f"Could not load render file: {gf.name}")
+                    for mf in mp4_files:
+                        try:
+                            size = mf.stat().st_size
+                            if run_entry["status"] == "running" and size == 0:
+                                continue
+                        except OSError:
+                            continue
+                        size_mb = size / (1024 * 1024)
+                        st.caption(f"{mf.name} ({size_mb:.1f} MB)")
+                        try:
+                            st.video(str(mf))
+                            st.caption(mf.name)
+                        except Exception:
+                            if run_entry["status"] == "running":
+                                st.caption(f"Render file is still being written: {mf.name}")
+                            else:
+                                st.warning(f"Could not load render file: {mf.name}")
 
             # Auto-refresh while process is running
             if run_entry["status"] == "running":

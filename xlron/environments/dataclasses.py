@@ -142,6 +142,7 @@ class EnvParams:
     transformer_obs_type: str = struct.field(pytree_node=False)
     use_gnn: bool = struct.field(pytree_node=False)
     profile: bool = struct.field(pytree_node=False)
+    render: bool = struct.field(pytree_node=False)
 
 
 @struct.dataclass

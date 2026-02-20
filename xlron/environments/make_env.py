@@ -652,6 +652,7 @@ def make(
         transformer_obs_type=transformer_obs_type,
         use_gnn=config.get("USE_GNN"),
         profile=profile,
+        render=str(config.get("RENDER_EVAL_MODE", "off")).lower() in {"save", "human"},
     )
 
     gap_starts = (

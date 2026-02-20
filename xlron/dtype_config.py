@@ -136,18 +136,4 @@ def initialize_dtypes(flags: flags.FlagValues | Box | Dict) -> None:
     globals()["ACTION_DTYPE"] = DTYPE_MAP[action_dtype_flag]
     globals()["INDEX_DTYPE"] = DTYPE_MAP[index_dtype]
 
-    print("Data types initialized:")
-    print(f"COMPUTE_DTYPE: {globals()['COMPUTE_DTYPE']}")
-    print(f"PARAMS_DTYPE: {globals()['PARAMS_DTYPE']}")
-    print(f"LARGE_FLOAT_DTYPE: {globals()['LARGE_FLOAT_DTYPE']}")
-    print(f"SMALL_FLOAT_DTYPE: {globals()['SMALL_FLOAT_DTYPE']}")
-    print(f"LARGE_INT_DTYPE: {globals()['LARGE_INT_DTYPE']}")
-    print(f"SMALL_INT_DTYPE: {globals()['SMALL_INT_DTYPE']}")
-    print(f"BINARY_DTYPE: {globals()['BINARY_DTYPE']}")
-    print(f"REWARD_DTYPE: {globals()['REWARD_DTYPE']}")
-    print(f"ACTION_DTYPE: {globals()['ACTION_DTYPE']}")
-    print(f"INDEX_DTYPE: {globals()['INDEX_DTYPE']}")
-
-
 initialize_dtypes(FLAGS)
-
