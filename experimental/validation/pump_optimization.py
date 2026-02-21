@@ -844,8 +844,15 @@ def optimise_pump_powers(
         pp = init_pp
         opt_state = optimizer.init(pp)
         tp_history = []
+        start_best_tp = -float("inf")
+        start_best_pp = pp  # track best params within this start
         for s in range(steps):
             tp, grads = step_fn(pp)
+            tp_f = float(tp)
+            # tp was evaluated at pp BEFORE the update — snapshot if it's best
+            if tp_f > start_best_tp:
+                start_best_tp = tp_f
+                start_best_pp = jax.tree.map(lambda x: x.copy(), pp)
             # Compute SNR penalty at the SAME params that tp was evaluated at
             # (before the update), so the back-calculation is consistent.
             if snr_variance_penalty > 0.0:
@@ -854,7 +861,6 @@ def optimise_pump_powers(
             updates, opt_state = optimizer.update(neg_grads, opt_state)
             pp = optax.apply_updates(pp, updates)
             pp = _apply_constraints(pp)
-            tp_f = float(tp)
             tp_history.append(tp_f)
             if "pump_slope_bw" in pp and "log_pump_intercept_bw" not in pp:
                 # fixed_total_slope mode
@@ -912,11 +918,10 @@ def optimise_pump_powers(
                 f"  {tp_f:11.3f} Gb/s  delta={tp_f - baseline_gbps:+10.2f} Gb/s"
                 f"  pumps=[{pump_str}] mW{lp_str}{snr_str}"
             )
-        start_best = max(tp_history)
-        all_best_tps.append(start_best)
-        if start_best > best_tp:
-            best_tp = start_best
-            best_params = pp
+        all_best_tps.append(start_best_tp)
+        if start_best_tp > best_tp:
+            best_tp = start_best_tp
+            best_params = start_best_pp
             best_history = [(0, baseline_gbps)] + [(s + 1, t) for s, t in enumerate(tp_history)]
 
     if not best_history or len(best_history) == 1:
