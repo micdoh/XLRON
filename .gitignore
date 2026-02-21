@@ -21,3 +21,8 @@ saved_models/
 debug_*
 *.jsonl
 *.png
+experimental/benchmarks/results
+experimental/benchmarks/figures
+archive
+misc
+*_results
