@@ -1,3 +1,6 @@
+import sys
+from pathlib import Path
+
 import pandas as pd
 import numpy as np
 from io import StringIO
@@ -7,6 +10,12 @@ import seaborn as sns
 import matplotlib.lines as mlines
 import matplotlib.collections as mcollections
 import matplotlib.container as mcontainer
+
+# Add experimental/ to path so plot_style is importable
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+from plot_style import configure_style, increase_legend_line_thickness
+
+PLOTS_DIR = Path(__file__).resolve().parent / "plots"
 
 # CSV data (replace this with the actual content of your CSV file)
 csv_data_hops = """
@@ -331,38 +340,10 @@ PtrNet-RSA,USNET,80,330,3.46,0.34
 """
 
 
-def increase_legend_line_thickness(legend, line_width=3, marker_size=10):
-    """
-    Increase the line thickness and marker size in the legend without affecting the plot lines.
-
-    :param legend: matplotlib.legend.Legend object
-    :param line_width: desired line width for legend lines
-    :param marker_size: desired marker size for legend markers
-    """
-    for n, handle in enumerate(legend.legend_handles):
-        if isinstance(handle, mlines.Line2D):
-            handle.set_linewidth(line_width)
-            handle.set_markersize(25 if n < 2 else marker_size)
-        elif isinstance(handle, mcollections.LineCollection):
-            handle.set_linewidth(line_width)
-        elif isinstance(handle, mcontainer.ErrorbarContainer):
-            handle.lines[0].set_linewidth(line_width)
-            if len(handle.lines) > 1:  # If there are caps on the error bars
-                handle.lines[1].set_linewidth(line_width)
-                handle.lines[2].set_linewidth(line_width)
-            handle.lines[0].set_markersize(marker_size)
-
-
 if __name__ == '__main__':
-    # Set up Helvetica font and other plot parameters
-    mpl.rcParams['font.family'] = 'sans-serif'
-    mpl.rcParams['font.sans-serif'] = ['Helvetica', 'Arial', 'DejaVu Sans', 'Bitstream Vera Sans', 'sans-serif']
-    plt.rcParams.update({'font.size': 32})
-    plt.rcParams.update({'axes.labelsize': 34})
-    plt.rcParams.update({'xtick.labelsize': 24})
-    plt.rcParams.update({'ytick.labelsize': 24})
+    configure_style()
 
-    data_file = '../../../../experiment_data/JOCN2024/experiment_results_eval.csv'
+    data_file = Path(__file__).resolve().parents[4] / 'experiment_data' / 'JOCN2024' / 'experiment_results_eval.csv'
     df = pd.read_csv(data_file)
     # Filter to only have these columns: NAME,TOPOLOGY,LOAD,K,service_blocking_probability_mean/std/iqr_lower/iqr_upper
     df = df[['NAME', 'TOPOLOGY', 'LOAD', 'K', 'WEIGHT', 'service_blocking_probability_mean', 'service_blocking_probability_std',
@@ -581,4 +562,5 @@ if __name__ == '__main__':
     # Adjust layout and display the plot
     #plt.tight_layout(rect=[0.03, 0.04, 1, 0.99])  # Adjust the rect parameter to make room for labels and legend
     plt.tight_layout(rect=[0.03, 0.105, 1, 1])
+    plt.savefig(PLOTS_DIR / 'review_comparison.png')
     plt.show()
