@@ -3,9 +3,14 @@
 Raman Pump Power Optimisation
 ==============================
 
-Optimises backward Raman pump powers (and optionally frequencies and per-channel
-launch powers) to maximise total Shannon-Hartley throughput of the loaded
-Gerard 2025 network.
+Optimises backward Raman pump powers (and optionally per-channel launch powers)
+to maximise total Shannon-Hartley throughput of the loaded Gerard 2025 network.
+
+Pump powers can be optimised independently (default), constrained to lie on a
+straight line in log-space via --pump_power_mode=slope (2 params: intercept + slope
+vs normalised pump frequency), or with fixed total power and slope-only optimisation
+via --pump_power_mode=fixed_total_slope (1 param: slope; intercept derived
+analytically to maintain exact total pump power).
 
 Approach
 --------
@@ -44,16 +49,13 @@ import argparse
 import os
 import sys
 
-_project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, _project_root)
-
 import jax
 import jax.numpy as jnp
 import numpy as np
 import optax
 
 from xlron.environments.gn_model import isrs_gn_model_dra
-from xlron.environments.gn_model.isrs_gn_model import from_db
+from xlron.environments.gn_model.isrs_gn_model import calculate_roadm_ase, from_db
 
 # ---------------------------------------------------------------------------
 # Differentiable SNR wrapper (analytical VJP w.r.t. ch_power_w_i)
@@ -137,9 +139,17 @@ def make_throughput_objective(state, params, snr_variance_penalty=0.0):
     ch_centre_freq_ghz = params.slot_centre_freq_array.val  # (N,) relative GHz
     active_lps = state.active_lightpaths_array  # (M, 3)
     path_link_arr = params.path_link_array.val
+    span_lumped_loss_db = params.span_lumped_loss_db
+    roadm_express_loss = params.roadm_express_loss.val  # (N,) dB
+    roadm_add_drop_loss = params.roadm_add_drop_loss.val  # (N,) dB
+    roadm_noise_figure = params.roadm_noise_figure.val  # (N,) dB
 
     # Baseline per-channel power per link, from the loaded state
     baseline_ch_pow = jnp.array(state.channel_power_array)  # (num_links, N) W
+
+    # Initial per-slot launch powers used at env creation for the Raman fit.
+    # Using the same array ensures the baseline fit matches the cached params.
+    _initial_launch_pow = jnp.array(params.slot_launch_power_array.val)  # (N,)
 
     # Static mask: slots that are zero on ALL links are permanent gap/guard slots.
     # Multiplying launch_multiplier by this mask prevents NaN gradients from
@@ -192,7 +202,7 @@ def make_throughput_objective(state, params, snr_variance_penalty=0.0):
             pump_freq_fw=nominal_pump_freq_fw,
             pump_freq_bw=nominal_pump_freq_bw,
             ch_centre_freq_ghz=ch_centre_freq_ghz,
-            ch_power_w_i=baseline_ch_pow[0],
+            ch_power_w_i=_initial_launch_pow,
             num_bw=_static_num_bw,
             num_fw=_static_num_fw,
         )  # (6, num_channels, max_spans)
@@ -234,6 +244,7 @@ def make_throughput_objective(state, params, snr_variance_penalty=0.0):
                 raman_pump_power_bw=pump_pow_bw,
                 raman_pump_freq_fw=pump_freq_fw,
                 raman_pump_freq_bw=pump_freq_bw,
+                span_lumped_loss_db=span_lumped_loss_db,
             )
             _, _, _, p_ase_inline, p_ase_roadm, p_nli, transceiver_noise = aux
             # Guard aux against NaN (occurs for zero-power channels in gn_model_dra)
@@ -294,6 +305,24 @@ def make_throughput_objective(state, params, snr_variance_penalty=0.0):
             inv_snr_sum = jnp.sum(
                 jnp.where(path, 1.0 / jnp.maximum(link_snr, 1e-20), 0.0), axis=0
             )  # (N,)
+            # Add ROADM ASE noise at path level
+            num_links_on_path = jnp.sum(path.astype(jnp.float32))
+            num_express = jnp.maximum(num_links_on_path - 1, 0)
+            first_link_idx = jnp.argmax(path.squeeze())
+            ch_pow_first = baseline_ch_pow[first_link_idx]  # (N,) W
+            ch_bw_hz = state.channel_centre_bw_array[first_link_idx] * 1e9
+            ch_ctrs_hz = state.channel_centre_freq_array[first_link_idx] * 1e9
+            p_ase_roadm = calculate_roadm_ase(
+                roadm_express_loss=roadm_express_loss,
+                roadm_add_drop_loss=roadm_add_drop_loss,
+                roadm_noise_figure=roadm_noise_figure,
+                num_roadm_express=num_express,
+                ref_lambda=ref_lambda,
+                ch_centre_i=ch_ctrs_hz,
+                ch_bandwidth_i=ch_bw_hz,
+            )
+            nsr_roadm = jnp.where(ch_pow_first > 0, p_ase_roadm / ch_pow_first, 0.0)
+            inv_snr_sum = inv_snr_sum + nsr_roadm
             # Add transceiver noise once at path level
             trx_snr_linear = 10.0 ** (trx_snr / 10.0)
             inv_snr_sum = inv_snr_sum + jnp.where(trx_snr_linear > 1.0, 1.0 / trx_snr_linear, 0.0)
@@ -400,6 +429,30 @@ def make_launch_power_multiplier(band_scalars, ch_centre_freq_ghz):
 # ---------------------------------------------------------------------------
 
 
+def _make_pump_pow_from_slope(log_intercept, slope, norm_freqs):
+    """Compute per-pump log-powers from a linear slope parameterisation.
+
+    log_power[i] = log_intercept + slope * norm_freq[i]
+
+    where norm_freq is in [-1, 1] (normalised from the active pump frequencies).
+    Returns log-space powers (apply jnp.exp to get linear).
+    """
+    return log_intercept + slope * norm_freqs
+
+
+def _intercept_for_fixed_total(slope, norm_freqs, total_power_w):
+    """Compute the log-intercept that yields a given total pump power.
+
+    Given:  P_total = sum_i exp(intercept + slope * norm_freq_i)
+            P_total = exp(intercept) * sum_i exp(slope * norm_freq_i)
+            intercept = log(P_total) - log(sum_i exp(slope * norm_freq_i))
+
+    Uses log-sum-exp for numerical stability.
+    """
+    log_sum_exp = jnp.log(jnp.sum(jnp.exp(slope * norm_freqs)))
+    return jnp.log(total_power_w) - log_sum_exp
+
+
 def optimise_pump_powers(
     state,
     params,
@@ -408,6 +461,7 @@ def optimise_pump_powers(
     lr_launch_power=None,
     optimise_launch_power=False,
     launch_power_granularity="per_band",
+    pump_power_mode="independent",
     max_total_power_dbm=None,
     max_total_pump_power_mw=None,
     num_starts=1,
@@ -422,12 +476,83 @@ def optimise_pump_powers(
     ch_centre_freq_ghz = np.array(params.slot_centre_freq_array.val)
     num_channels = params.link_resources
 
-    # Optimise in log-space: log_pump_pow_bw = log(pump_pow_bw), so pump powers
-    # are always positive by construction (no clamping needed, gradients scale-invariant).
-    pump_params = {
-        "log_pump_pow_bw": jnp.log(jnp.array(params.raman_pump_power_bw.val[0], dtype=jnp.float32)),
-        "log_pump_pow_fw": jnp.log(jnp.array(params.raman_pump_power_fw.val[0], dtype=jnp.float32)),
-    }
+    # --- Pump power parameterisation ---
+    initial_log_pump_bw = jnp.log(jnp.array(params.raman_pump_power_bw.val[0], dtype=jnp.float32))
+    initial_log_pump_fw = jnp.log(jnp.array(params.raman_pump_power_fw.val[0], dtype=jnp.float32))
+
+    # For slope mode: normalise active BW pump frequencies to [-1, 1]
+    pump_freq_bw_np = np.array(params.raman_pump_freq_bw.val[0])
+    active_bw_mask = pump_freq_bw_np > 0
+    num_active_bw = int(np.sum(active_bw_mask))
+    if num_active_bw > 0:
+        active_freqs = pump_freq_bw_np[active_bw_mask]
+        freq_min, freq_max = float(active_freqs.min()), float(active_freqs.max())
+        freq_range = max(freq_max - freq_min, 1.0)  # avoid div-by-zero for single pump
+        # Normalise all pumps (inactive ones get 0, but won't be used)
+        norm_freqs_bw = np.where(
+            active_bw_mask,
+            2.0 * (pump_freq_bw_np - freq_min) / freq_range - 1.0,
+            0.0,
+        ).astype(np.float32)
+    else:
+        norm_freqs_bw = np.zeros_like(pump_freq_bw_np, dtype=np.float32)
+    norm_freqs_bw_jnp = jnp.array(norm_freqs_bw)
+
+    # Default: not used unless pump_power_mode == "fixed_total_slope"
+    fixed_total_pump_w = None
+
+    # Compute initial slope from least-squares fit (shared by slope and fixed_total_slope)
+    if pump_power_mode in ("slope", "fixed_total_slope"):
+        if num_active_bw > 1:
+            active_log_pow = np.array(initial_log_pump_bw)[active_bw_mask]
+            active_nf = norm_freqs_bw[active_bw_mask]
+            A = np.stack([np.ones_like(active_nf), active_nf], axis=1)
+            lstsq_result = np.linalg.lstsq(A, active_log_pow, rcond=None)
+            init_intercept, init_slope = float(lstsq_result[0][0]), float(lstsq_result[0][1])
+        else:
+            init_intercept = float(initial_log_pump_bw[0]) if num_active_bw == 1 else 0.0
+            init_slope = 0.0
+
+    if pump_power_mode == "fixed_total_slope":
+        # Fixed total power: only the slope is optimised (1 param).
+        # The intercept is computed analytically so sum(pump_pow) = target.
+        initial_total_pump_w = float(jnp.sum(jnp.exp(initial_log_pump_bw)))
+        fixed_total_pump_w = (
+            (max_total_pump_power_mw * 1e-3) if max_total_pump_power_mw is not None
+            else initial_total_pump_w
+        )
+        # Recompute intercept for the target total at the initial slope
+        init_intercept = float(_intercept_for_fixed_total(
+            jnp.float32(init_slope), norm_freqs_bw_jnp, fixed_total_pump_w
+        ))
+        pump_params = {
+            "pump_slope_bw": jnp.array([init_slope], dtype=jnp.float32),
+            "log_pump_pow_fw": initial_log_pump_fw,
+        }
+        fitted_log_pow = init_intercept + init_slope * norm_freqs_bw
+        fitted_pow_mw = np.exp(fitted_log_pow[active_bw_mask]) * 1e3
+        print(f"\nPump power mode: fixed_total_slope (1 param: slope only)")
+        print(f"  Fixed total BW pump power: {fixed_total_pump_w * 1e3:.1f} mW")
+        print(f"  Initial intercept (log, derived): {init_intercept:.4f}, slope: {init_slope:.4f}")
+        print(f"  Fitted BW pump powers (mW): {fitted_pow_mw}")
+    elif pump_power_mode == "slope":
+        pump_params = {
+            "log_pump_intercept_bw": jnp.array([init_intercept], dtype=jnp.float32),
+            "pump_slope_bw": jnp.array([init_slope], dtype=jnp.float32),
+            "log_pump_pow_fw": initial_log_pump_fw,
+        }
+        fitted_log_pow = init_intercept + init_slope * norm_freqs_bw
+        fitted_pow_mw = np.exp(fitted_log_pow[active_bw_mask]) * 1e3
+        print(f"\nPump power mode: slope (2 params: intercept + slope)")
+        print(f"  Initial intercept (log): {init_intercept:.4f}, slope: {init_slope:.4f}")
+        print(f"  Fitted BW pump powers (mW): {fitted_pow_mw}")
+    else:
+        # Optimise in log-space: log_pump_pow_bw = log(pump_pow_bw), so pump powers
+        # are always positive by construction (no clamping needed, gradients scale-invariant).
+        pump_params = {
+            "log_pump_pow_bw": initial_log_pump_bw,
+            "log_pump_pow_fw": initial_log_pump_fw,
+        }
 
     # --- Launch power setup ---
     band_boundaries = _get_band_boundaries(ch_centre_freq_ghz)
@@ -460,9 +585,10 @@ def optimise_pump_powers(
             mean_pow_dbm = 10 * np.log10(float(np.mean(baseline_ch_pow_w)) * 1e3)
             print(f"\nLaunch power: scalar, init={mean_pow_dbm:.2f} dBm/ch (uniform)")
 
-    print(
-        f"\nInitial BW pump powers (mW): {np.exp(np.array(pump_params['log_pump_pow_bw'])) * 1e3}"
-    )
+    if "log_pump_pow_bw" in pump_params:
+        print(
+            f"\nInitial BW pump powers (mW): {np.exp(np.array(pump_params['log_pump_pow_bw'])) * 1e3}"
+        )
     print(f"Initial BW pump freqs (THz): {np.array(params.raman_pump_freq_bw.val[0]) / 1e12}")
     _lr_lp = lr_launch_power if lr_launch_power is not None else lr
     print(
@@ -472,10 +598,25 @@ def optimise_pump_powers(
     if max_total_power_dbm is not None:
         print(f"Max total fibre launch power: {max_total_power_dbm:.1f} dBm")
     if max_total_pump_power_mw is not None:
-        initial_pump_total_mw = float(jnp.sum(jnp.exp(pump_params["log_pump_pow_bw"]))) * 1e3
-        print(
-            f"Max total BW pump power: {max_total_pump_power_mw:.1f} mW (initial: {initial_pump_total_mw:.1f} mW)"
-        )
+        if pump_power_mode == "fixed_total_slope":
+            print(
+                f"Total BW pump power fixed at: {fixed_total_pump_w * 1e3:.1f} mW (from --max_total_pump_power_mw)"
+            )
+        elif "log_pump_intercept_bw" in pump_params:
+            _init_log = _make_pump_pow_from_slope(
+                float(pump_params["log_pump_intercept_bw"][0]),
+                float(pump_params["pump_slope_bw"][0]),
+                norm_freqs_bw_jnp,
+            )
+            initial_pump_total_mw = float(jnp.sum(jnp.exp(_init_log))) * 1e3
+            print(
+                f"Max total BW pump power: {max_total_pump_power_mw:.1f} mW (initial: {initial_pump_total_mw:.1f} mW)"
+            )
+        else:
+            initial_pump_total_mw = float(jnp.sum(jnp.exp(pump_params["log_pump_pow_bw"]))) * 1e3
+            print(
+                f"Max total BW pump power: {max_total_pump_power_mw:.1f} mW (initial: {initial_pump_total_mw:.1f} mW)"
+            )
 
     # --- Build the objective ---
     # For per-band/scalar, wrap throughput_fn to expand band scalars → per-channel
@@ -485,8 +626,23 @@ def optimise_pump_powers(
 
     def throughput_fn(pp):
         # Convert from log-space back to linear before calling objective
+        # Expand pump powers based on mode
+        if "pump_slope_bw" in pp and "log_pump_intercept_bw" not in pp:
+            # fixed_total_slope: intercept derived analytically from slope + total power
+            ic = _intercept_for_fixed_total(
+                pp["pump_slope_bw"][0], norm_freqs_bw_jnp, fixed_total_pump_w
+            )
+            log_pump_bw = _make_pump_pow_from_slope(ic, pp["pump_slope_bw"][0], norm_freqs_bw_jnp)
+            pump_pow_bw = jnp.exp(log_pump_bw)
+        elif "log_pump_intercept_bw" in pp:
+            log_pump_bw = _make_pump_pow_from_slope(
+                pp["log_pump_intercept_bw"][0], pp["pump_slope_bw"][0], norm_freqs_bw_jnp
+            )
+            pump_pow_bw = jnp.exp(log_pump_bw)
+        else:
+            pump_pow_bw = jnp.exp(pp["log_pump_pow_bw"])
         expanded = {
-            "pump_pow_bw": jnp.exp(pp["log_pump_pow_bw"]),
+            "pump_pow_bw": pump_pow_bw,
             "pump_pow_fw": jnp.exp(pp["log_pump_pow_fw"]),
         }
         # Expand launch power (log-space multipliers → per-channel linear)
@@ -512,7 +668,12 @@ def optimise_pump_powers(
         g_np = np.nan_to_num(np.array(g), nan=0.0)
         print(f"  d(T)/d({k}): mean={g_np.mean():.3e}, |max|={np.abs(g_np).max():.3e}")
 
-    if np.all(np.abs(np.nan_to_num(np.array(grads["log_pump_pow_bw"]), nan=0.0)) < 1e-30):
+    pump_grad_key = (
+        "pump_slope_bw" if ("pump_slope_bw" in grads and "log_pump_intercept_bw" not in grads)
+        else "log_pump_intercept_bw" if "log_pump_intercept_bw" in grads
+        else "log_pump_pow_bw"
+    )
+    if np.all(np.abs(np.nan_to_num(np.array(grads[pump_grad_key]), nan=0.0)) < 1e-30):
         print("\nWARNING: Zero gradient. Check that channels are active.")
         return pump_params, [(0, baseline_gbps)]
 
@@ -554,9 +715,22 @@ def optimise_pump_powers(
 
     def _apply_constraints(pp):
         if max_pump_w is not None:
-            pump_lin = jnp.exp(pp["log_pump_pow_bw"])
-            scale = jnp.minimum(1.0, max_pump_w / jnp.maximum(jnp.sum(pump_lin), 1e-20))
-            pp = {**pp, "log_pump_pow_bw": jnp.log(pump_lin * scale)}
+            if "pump_slope_bw" in pp and "log_pump_intercept_bw" not in pp:
+                # fixed_total_slope: total power is exact by construction, skip
+                pass
+            elif "log_pump_intercept_bw" in pp:
+                # Slope mode: compute per-pump powers, scale intercept to satisfy budget
+                log_pow = _make_pump_pow_from_slope(
+                    pp["log_pump_intercept_bw"][0], pp["pump_slope_bw"][0], norm_freqs_bw_jnp
+                )
+                pump_lin = jnp.exp(log_pow)
+                scale = jnp.minimum(1.0, max_pump_w / jnp.maximum(jnp.sum(pump_lin), 1e-20))
+                # Shift intercept by log(scale) to uniformly scale all pumps
+                pp = {**pp, "log_pump_intercept_bw": pp["log_pump_intercept_bw"] + jnp.log(scale)}
+            else:
+                pump_lin = jnp.exp(pp["log_pump_pow_bw"])
+                scale = jnp.minimum(1.0, max_pump_w / jnp.maximum(jnp.sum(pump_lin), 1e-20))
+                pp = {**pp, "log_pump_pow_bw": jnp.log(pump_lin * scale)}
         if max_launch_pow_w is not None:
             for lp_key in _lp_keys_present:
                 lp_lin = jnp.exp(pp[lp_key])
@@ -573,7 +747,36 @@ def optimise_pump_powers(
 
     # ---- Generate starting points ----
     rng = np.random.default_rng(seed)
-    if num_starts == 1:
+    _is_slope_mode = pump_power_mode in ("slope", "fixed_total_slope")
+    if _is_slope_mode and num_starts > 1:
+        # For slope modes: sweep slopes from "all power at low-freq pump" to
+        # "all power at high-freq pump".  With norm_freqs in [-1, 1], a slope
+        # of S gives a highest/lowest pump ratio of exp(2*S).  We use a max
+        # ratio of ~20 dB (100x), i.e. |S_max| ≈ ln(100)/2 ≈ 2.3.
+        s_max = np.log(100.0) / 2.0  # ≈ 2.3
+        sweep_slopes = np.linspace(-s_max, s_max, num_starts).astype(np.float32)
+        all_init_params = []
+        print(f"\nSlope sweep: {num_starts} starting slopes from {-s_max:.2f} to {+s_max:.2f}")
+        for i, sl in enumerate(sweep_slopes):
+            pp_i = {**pump_params, "pump_slope_bw": jnp.array([sl], dtype=jnp.float32)}
+            if "log_pump_intercept_bw" in pp_i:
+                # slope mode: recompute intercept to preserve initial total power
+                _init_total = float(jnp.sum(jnp.exp(initial_log_pump_bw)))
+                ic = float(_intercept_for_fixed_total(
+                    jnp.float32(sl), norm_freqs_bw_jnp, _init_total
+                ))
+                pp_i = {**pp_i, "log_pump_intercept_bw": jnp.array([ic], dtype=jnp.float32)}
+            all_init_params.append(pp_i)
+            # Show the resulting pump powers for this start
+            if pump_power_mode == "fixed_total_slope":
+                _ic = float(_intercept_for_fixed_total(
+                    jnp.float32(sl), norm_freqs_bw_jnp, fixed_total_pump_w
+                ))
+            else:
+                _ic = float(pp_i["log_pump_intercept_bw"][0])
+            _pow = np.exp((_ic + sl * norm_freqs_bw)[active_bw_mask]) * 1e3
+            print(f"  Start {i}: slope={sl:+.4f}  pumps(mW)=[{', '.join(f'{v:.1f}' for v in _pow)}]")
+    elif num_starts == 1:
         all_init_params = [pump_params]
     else:
         print(f"\nMulti-start: {num_starts} starting points, noise_scale={noise_scale} (log-space)")
@@ -602,8 +805,20 @@ def optimise_pump_powers(
 
         def _raw_tp_step_fn(pp):
             """Evaluate raw throughput (no penalty) by expanding log-params."""
+            if "pump_slope_bw" in pp and "log_pump_intercept_bw" not in pp:
+                ic = _intercept_for_fixed_total(
+                    pp["pump_slope_bw"][0], norm_freqs_bw_jnp, fixed_total_pump_w
+                )
+                pump_bw = jnp.exp(_make_pump_pow_from_slope(ic, pp["pump_slope_bw"][0], norm_freqs_bw_jnp))
+            elif "log_pump_intercept_bw" in pp:
+                log_pow = _make_pump_pow_from_slope(
+                    pp["log_pump_intercept_bw"][0], pp["pump_slope_bw"][0], norm_freqs_bw_jnp
+                )
+                pump_bw = jnp.exp(log_pow)
+            else:
+                pump_bw = jnp.exp(pp["log_pump_pow_bw"])
             expanded = {
-                "pump_pow_bw": jnp.exp(pp["log_pump_pow_bw"]),
+                "pump_pow_bw": pump_bw,
                 "pump_pow_fw": jnp.exp(pp["log_pump_pow_fw"]),
             }
             if "log_launch_power_band" in pp:
@@ -641,8 +856,26 @@ def optimise_pump_powers(
             pp = _apply_constraints(pp)
             tp_f = float(tp)
             tp_history.append(tp_f)
-            pump_mw = np.exp(np.array(pp["log_pump_pow_bw"])) * 1e3
-            pump_str = "  ".join(f"{v:6.2f}" for v in pump_mw)
+            if "pump_slope_bw" in pp and "log_pump_intercept_bw" not in pp:
+                # fixed_total_slope mode
+                _sl = float(pp["pump_slope_bw"][0])
+                _ic = float(_intercept_for_fixed_total(
+                    jnp.float32(_sl), norm_freqs_bw_jnp, fixed_total_pump_w
+                ))
+                log_pow = _make_pump_pow_from_slope(_ic, _sl, norm_freqs_bw)
+                pump_mw = np.exp(log_pow[active_bw_mask]) * 1e3
+                pump_str = "  ".join(f"{v:6.2f}" for v in pump_mw)
+                pump_str += f"  (sl={_sl:.4f} total={np.sum(pump_mw):.1f}mW)"
+            elif "log_pump_intercept_bw" in pp:
+                _ic = float(pp["log_pump_intercept_bw"][0])
+                _sl = float(pp["pump_slope_bw"][0])
+                log_pow = _make_pump_pow_from_slope(_ic, _sl, norm_freqs_bw)
+                pump_mw = np.exp(log_pow[active_bw_mask]) * 1e3
+                pump_str = "  ".join(f"{v:6.2f}" for v in pump_mw)
+                pump_str += f"  (ic={_ic:.4f} sl={_sl:.4f})"
+            else:
+                pump_mw = np.exp(np.array(pp["log_pump_pow_bw"])) * 1e3
+                pump_str = "  ".join(f"{v:6.2f}" for v in pump_mw)
             # Launch power field — fixed width per granularity mode
             if "log_launch_power" in pp:
                 mult = np.exp(np.array(pp["log_launch_power"]))
@@ -703,10 +936,23 @@ def optimise_pump_powers(
     if snr_variance_penalty > 0.0:
         # Compute raw throughput (no penalty) at best params to report SNR std.
         # raw_fn is the penalised objective; swap it out temporarily.
+        if "pump_slope_bw" in best_params and "log_pump_intercept_bw" not in best_params:
+            _sl = best_params["pump_slope_bw"][0]
+            _ic = _intercept_for_fixed_total(_sl, norm_freqs_bw_jnp, fixed_total_pump_w)
+            _best_pump_bw = jnp.exp(_make_pump_pow_from_slope(_ic, _sl, norm_freqs_bw_jnp))
+        elif "log_pump_intercept_bw" in best_params:
+            _best_log_pow = _make_pump_pow_from_slope(
+                float(best_params["log_pump_intercept_bw"][0]),
+                float(best_params["pump_slope_bw"][0]),
+                norm_freqs_bw_jnp,
+            )
+            _best_pump_bw = jnp.exp(_best_log_pow)
+        else:
+            _best_pump_bw = jnp.exp(best_params["log_pump_pow_bw"])
         raw_tp = float(
             make_throughput_objective(state, params, snr_variance_penalty=0.0)(
                 {
-                    "pump_pow_bw": jnp.exp(best_params["log_pump_pow_bw"]),
+                    "pump_pow_bw": _best_pump_bw,
                     "pump_pow_fw": jnp.exp(best_params["log_pump_pow_fw"]),
                     **(
                         {
@@ -749,11 +995,36 @@ def optimise_pump_powers(
             f"delta={best_tp - baseline_gbps:+.2f} Gb/s"
         )
     # --- Pump powers ---
-    opt_pump_pow_bw_w = np.exp(np.array(best_params["log_pump_pow_bw"]))
-    opt_pump_pow_bw_mw = opt_pump_pow_bw_w * 1e3
-    print(f"Optimised BW pump powers (mW): {opt_pump_pow_bw_mw}")
-    pump_csv_str = ",".join(f"{v:.6g}" for v in opt_pump_pow_bw_w)
-    print(f"  Copy-paste (--raman_pump_power_bw): {pump_csv_str}")
+    if "pump_slope_bw" in best_params and "log_pump_intercept_bw" not in best_params:
+        # fixed_total_slope mode
+        opt_slope = float(best_params["pump_slope_bw"][0])
+        opt_intercept = float(_intercept_for_fixed_total(
+            jnp.float32(opt_slope), norm_freqs_bw_jnp, fixed_total_pump_w
+        ))
+        opt_log_pow = _make_pump_pow_from_slope(opt_intercept, opt_slope, norm_freqs_bw)
+        opt_pump_pow_bw_w = np.exp(opt_log_pow)
+        opt_pump_pow_bw_mw = opt_pump_pow_bw_w[active_bw_mask] * 1e3
+        print(f"Optimised BW pump powers (mW, fixed_total_slope): {opt_pump_pow_bw_mw}")
+        print(f"  slope: {opt_slope:.6f}, intercept (derived): {opt_intercept:.6f}")
+        print(f"  Total: {np.sum(opt_pump_pow_bw_mw):.1f} mW (target: {fixed_total_pump_w * 1e3:.1f} mW)")
+        pump_csv_str = ",".join(f"{v:.6g}" for v in opt_pump_pow_bw_w)
+        print(f"  Copy-paste (--raman_pump_power_bw): {pump_csv_str}")
+    elif "log_pump_intercept_bw" in best_params:
+        opt_intercept = float(best_params["log_pump_intercept_bw"][0])
+        opt_slope = float(best_params["pump_slope_bw"][0])
+        opt_log_pow = _make_pump_pow_from_slope(opt_intercept, opt_slope, norm_freqs_bw)
+        opt_pump_pow_bw_w = np.exp(opt_log_pow)
+        opt_pump_pow_bw_mw = opt_pump_pow_bw_w[active_bw_mask] * 1e3
+        print(f"Optimised BW pump powers (mW, slope mode): {opt_pump_pow_bw_mw}")
+        print(f"  intercept (log): {opt_intercept:.6f}, slope: {opt_slope:.6f}")
+        pump_csv_str = ",".join(f"{v:.6g}" for v in opt_pump_pow_bw_w)
+        print(f"  Copy-paste (--raman_pump_power_bw): {pump_csv_str}")
+    else:
+        opt_pump_pow_bw_w = np.exp(np.array(best_params["log_pump_pow_bw"]))
+        opt_pump_pow_bw_mw = opt_pump_pow_bw_w * 1e3
+        print(f"Optimised BW pump powers (mW): {opt_pump_pow_bw_mw}")
+        pump_csv_str = ",".join(f"{v:.6g}" for v in opt_pump_pow_bw_w)
+        print(f"  Copy-paste (--raman_pump_power_bw): {pump_csv_str}")
 
     # --- Launch power ---
     if optimise_launch_power:
@@ -854,6 +1125,16 @@ def main():
         help="Granularity of launch power optimisation (default: per_band)",
     )
     parser.add_argument(
+        "--pump_power_mode",
+        default="independent",
+        choices=["independent", "slope", "fixed_total_slope"],
+        help="Pump power parameterisation: 'independent' optimises each pump power "
+        "separately (default); 'slope' constrains all pump powers to lie on a "
+        "straight line in log-space (2 params: intercept + slope vs frequency); "
+        "'fixed_total_slope' fixes the total pump power (from initial config or "
+        "--max_total_pump_power_mw) and optimises only the slope (1 param)",
+    )
+    parser.add_argument(
         "--max_total_power_dbm",
         type=float,
         default=None,
@@ -895,8 +1176,7 @@ def main():
 
     out_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "gerard2025_results")
 
-    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-    from gerard2025_validation import run_simulation
+    from experimental.validation.gerard2025_validation import run_simulation
 
     print("Running baseline simulation (Gerard 2025 preset)...")
     state, params, env, config = run_simulation(quiet=False)
@@ -913,6 +1193,7 @@ def main():
         lr_launch_power=args.lr_launch_power,
         optimise_launch_power=args.optimise_launch_power,
         launch_power_granularity=args.launch_power_granularity,
+        pump_power_mode=args.pump_power_mode,
         max_total_power_dbm=args.max_total_power_dbm,
         max_total_pump_power_mw=args.max_total_pump_power_mw,
         num_starts=args.num_starts,
