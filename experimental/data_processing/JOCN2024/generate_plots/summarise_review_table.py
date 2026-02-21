@@ -563,4 +563,3 @@ if __name__ == '__main__':
     #plt.tight_layout(rect=[0.03, 0.04, 1, 0.99])  # Adjust the rect parameter to make room for labels and legend
     plt.tight_layout(rect=[0.03, 0.105, 1, 1])
     plt.savefig(PLOTS_DIR / 'review_comparison.png')
-    plt.show()

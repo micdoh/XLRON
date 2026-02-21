@@ -90,7 +90,6 @@ def plot_literature_review(csv_path):
     plt.legend(loc='upper left')
     plt.tight_layout()
     plt.savefig(PLOTS_DIR / 'RL_RSA_litreview_barchart.png')
-    plt.show()
 
 
 def main():

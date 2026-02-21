@@ -116,7 +116,6 @@ def plot_fractions_unique_paths():
 
     plt.tight_layout()
     plt.savefig(PLOTS_DIR / 'fractions_unique_paths.png')
-    plt.show()
 
 
 def plot_combined_dot_plot():
@@ -162,7 +161,6 @@ def plot_combined_dot_plot():
 
     plt.tight_layout()
     plt.savefig(PLOTS_DIR / 'combined_dot_plot.png')
-    plt.show()
 
 
 def main():

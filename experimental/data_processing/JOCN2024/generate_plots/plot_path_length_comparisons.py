@@ -238,7 +238,6 @@ def plot_fractions_unique_paths(fractions_data):
     ax.legend(handles=legend_elements, loc='upper left', ncol=2)
     plt.tight_layout()
     plt.savefig(PLOTS_DIR / 'path_length_fractions.png')
-    plt.show()
 
 
 def plot_combined_dot_plot(path_hops_data):
@@ -287,7 +286,6 @@ def plot_combined_dot_plot(path_hops_data):
     ax.legend(handles=topology_legend + heuristic_legend, loc='upper right', markerscale=1.5)
     plt.tight_layout()
     plt.savefig(PLOTS_DIR / 'path_length_dot_plot.png')
-    plt.show()
 
 
 def main():

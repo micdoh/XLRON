@@ -654,7 +654,10 @@ def run_launch_power_sweep():
     Returns (power_dbm_values, avg_gosnr_values).
     """
     print("\n--- Launch Power Sweep ---")
-    power_dbm_values = np.arange(14.0, 26.0, 0.25)
+    power_dbm_values = np.concatenate([
+        np.arange(18.0, 22.0, 0.25),
+        np.arange(22.0, 26.0, 0.1),
+    ])
     avg_gosnr_values = []
 
     for pdbm in power_dbm_values:
@@ -734,7 +737,10 @@ def run_ablation_sweeps():
 
     Returns dict: {config_name: (power_dbm_values, avg_gosnr_values)}.
     """
-    power_dbm_values = np.arange(14.0, 26.0, 0.25)
+    power_dbm_values = np.concatenate([
+        np.arange(18.0, 22.0, 0.25),
+        np.arange(22.0, 26.0, 0.1),
+    ])
     results = {}
 
     for name, overrides in ABLATION_CONFIGS.items():

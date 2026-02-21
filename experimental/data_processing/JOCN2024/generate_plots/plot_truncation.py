@@ -60,7 +60,6 @@ def plot_truncation(mean=25, n_samples=1_000_000):
 
     plt.tight_layout()
     plt.savefig(PLOTS_DIR / 'truncation.png')
-    plt.show()
 
 
 def main():

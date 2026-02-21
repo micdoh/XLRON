@@ -96,7 +96,6 @@ def plot_heuristic_comparison(heur_data):
     plt.legend(loc='center left', bbox_to_anchor=(1, 0.5))
     plt.tight_layout()
     plt.savefig(PLOTS_DIR / 'heuristic_comparison.png')
-    plt.show()
 
 
 def plot_k_traffic_comparison(k_data):
@@ -154,7 +153,6 @@ def plot_k_traffic_comparison(k_data):
     plt.text(46, 2.8, s='Traffic')
     plt.tight_layout()
     plt.savefig(PLOTS_DIR / 'k_traffic_comparison.png')
-    plt.show()
 
 
 def plot_heuristic_traffic_comparison(traffic_data):
@@ -202,7 +200,6 @@ def plot_heuristic_traffic_comparison(traffic_data):
     plt.legend(loc='center left', bbox_to_anchor=(1, 0.5))
     plt.tight_layout()
     plt.savefig(PLOTS_DIR / 'heuristic_50_traffic_comparison.png')
-    plt.show()
 
 
 def main():

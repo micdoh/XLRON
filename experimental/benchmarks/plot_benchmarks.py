@@ -12,7 +12,6 @@ Usage:
 """
 
 import argparse
-import sys
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -27,9 +26,7 @@ _FIGURES_DIR = _BENCHMARKS_DIR / "figures"
 _DEFAULT_CSV = _RESULTS_DIR / "benchmark_results.csv"
 _DEFAULT_TOPO_STATS = _RESULTS_DIR / "topology_stats.csv"
 
-sys.path.insert(0, str(_BENCHMARKS_DIR))
-sys.path.insert(0, str(_BENCHMARKS_DIR.parent))
-from plot_style import (
+from experimental.plot_style import (
     BAND_DISPLAY,
     DEVICE_COLORS,
     ENV_TYPE_COLORS,

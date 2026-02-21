@@ -488,4 +488,3 @@ if __name__ == '__main__':
     # Adjust the layout
     plt.tight_layout()
     plt.savefig(PLOTS_DIR / 'networks_plots_short.png')
-    plt.show()
