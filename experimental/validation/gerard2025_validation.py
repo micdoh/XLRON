@@ -24,12 +24,7 @@ Usage:
   python experimental/gerard2025_validation.py
 """
 
-import importlib.util
 import os
-import sys
-
-_project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, _project_root)
 
 import jax
 import jax.numpy as jnp
@@ -37,13 +32,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy.constants import c as speed_of_light
 
-# Import plot_style from benchmarks/ (not a package, so use importlib)
-_ps_spec = importlib.util.spec_from_file_location(
-    "plot_style", os.path.join(_project_root, "experimental", "plot_style.py")
-)
-_plot_style = importlib.util.module_from_spec(_ps_spec)
-_ps_spec.loader.exec_module(_plot_style)
-configure_style = _plot_style.configure_style
+from experimental.plot_style import configure_style
 
 from xlron.environments.env_funcs import (
     calculate_throughput_from_active_lightpaths,
@@ -157,7 +146,7 @@ GERARD_REF = {
     "distance_km": 1504,
     "num_channels": 90,
     "channel_rate_gbps": 800,
-    "total_bandwidth_thz": 9.6,
+    "total_bandwidth_thz": 8.625,
 }
 
 
@@ -710,7 +699,7 @@ def plot4_launch_power_sweep(power_dbm_values, avg_gosnr_values, out_dir):
             f"{avg_gosnr_values[opt_idx]:.1f} dB",
         )
 
-    ax.axvspan(18.0, 19.5, alpha=0.1, color="green", label="Gerard optimal range")
+    ax.axvline(21.2, color="green", linestyle=":", linewidth=1.5, label="Gerard optimal (21.2 dBm)")
     ax.set_xlabel("Total Fibre Launch Power (dBm)")
     ax.set_ylabel("Average GOSNR (dB)")
 
@@ -730,7 +719,7 @@ ABLATION_CONFIGS = {
     "Full model (baseline)": {},
     "No Raman": {"use_raman_amp": False},
     "1 subchannel": {"num_subchannels": 1},
-    "Incoherent": {"coherent": False},
+    "Incoherent ASE": {"coherent": False},
     "No Raman + 1 subchannel": {"use_raman_amp": False, "num_subchannels": 1},
 }
 
@@ -831,7 +820,7 @@ def plot5_ablation_sweep(ablation_results, out_dir):
                 linewidths=0.5,
             )
 
-    ax.axvspan(18.0, 19.5, alpha=0.1, color="green", label="Gerard optimal range")
+    ax.axvline(21.2, color="green", linestyle=":", linewidth=1.5, label="Gerard optimal (21.2 dBm)")
     ax.set_xlabel("Total Fibre Launch Power (dBm)")
     ax.set_ylabel("Average GOSNR (dB)")
     ax.legend()
@@ -1671,7 +1660,7 @@ def main():
     xlron_c_osnr_nl = _sm(osnr_nl_db, c_occ)
     xlron_l_osnr_nl = _sm(osnr_nl_db, l_occ)
 
-    bw_thz = num_ch * 100e-3
+    bw_thz = (num_ch * 100e-3) - (config.inter_band_gap_ghz * 1e-3)
     se = (throughput_gbps / (bw_thz * 1e3)) if bw_thz > 0 else 0.0
     variation = float(np.nanmax(gosnr_db[occ]) - np.nanmin(gosnr_db[occ])) if num_ch > 0 else 0.0
 
@@ -1729,7 +1718,7 @@ def main():
     print(f"{'  C-band channels':<35} {int(np.sum(c_occ)):>12d}")
     print(f"{'  L-band channels':<35} {int(np.sum(l_occ)):>12d}")
     print(
-        f"{'Total capacity (Tb/s)':<35} {throughput_tbps:>12.1f} {GERARD_REF['shannon_capacity_tbps']:>12.1f} {throughput_tbps - GERARD_REF['shannon_capacity_tbps']:>+10.1f}"
+        f"{'Total capacity (Tb/s)':<35} {throughput_tbps:>12.1f} {GERARD_REF['total_capacity_tbps']:>12.1f} {throughput_tbps - GERARD_REF['total_capacity_tbps']:>+10.1f}"
     )
     print(
         f"{'Spectral efficiency (b/s/Hz)':<35} {se:>12.2f} {GERARD_REF['spectral_efficiency_bps_hz']:>12.2f} {se - GERARD_REF['spectral_efficiency_bps_hz']:>+10.2f}"
