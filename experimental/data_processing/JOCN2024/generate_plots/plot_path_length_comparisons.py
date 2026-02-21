@@ -1,15 +1,19 @@
-import matplotlib as mpl
+import sys
+from pathlib import Path
+
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import numpy as np
 import pandas as pd
 
-# Set up Helvetica font
-mpl.rcParams['font.family'] = 'sans-serif'
-mpl.rcParams['font.sans-serif'] = ['Helvetica', 'Arial', 'DejaVu Sans', 'Bitstream Vera Sans', 'sans-serif']
-plt.rcParams.update({'font.size': 28})
-plt.rcParams.update({'axes.labelsize': 32})
-plt.rcParams.update({'xtick.labelsize': 32})
+# Add experimental/ to path so plot_style is importable
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+from plot_style import configure_style
+
+# Apply global style
+configure_style(font_size=28, axes_label_size=32, tick_size=32)
+
+PLOTS_DIR = Path(__file__).resolve().parent / "plots"
 
 topology_colors = {
    'NSFNET': '#264653',  # Dark teal
@@ -192,8 +196,6 @@ def plot_fractions_unique_paths(fractions_data):
             k5_data = [fractions_data[f'k5_{key}'][i] * 100]
             k50_data = [fractions_data[f'k50_{key}'][i] * 100]
             if 'Available' not in label:
-                # k5_err = [fractions_data[f'k5_{key}_err'][i] * 100]
-                # k50_err = [fractions_data[f'k50_{key}_err'][i] * 100]
                 # Calculate asymmetric errors relative to the mean
                 k5_err = [
                     [max(k5_data[0] - fractions_data[f'k5_{key}_iqr_lower'][i] * 100, 0)],  # distance from mean to lower bound
@@ -235,6 +237,7 @@ def plot_fractions_unique_paths(fractions_data):
 
     ax.legend(handles=legend_elements, loc='upper left', ncol=2)
     plt.tight_layout()
+    plt.savefig(PLOTS_DIR / 'path_length_fractions.png')
     plt.show()
 
 
@@ -251,9 +254,6 @@ def plot_combined_dot_plot(path_hops_data):
             for heuristic, marker in heuristic_markers.items():
                 x = path_hops_data[f'{"5" if k == "K=5" else "50"}-{heuristic}_length'][i]
                 y = path_hops_data[f'{"5" if k == "K=5" else "50"}-{heuristic}_hops'][i]
-
-                # xerr = path_hops_data[f'{"5" if k == "K=5" else "50"}-{heuristic}_length_err'][i]
-                # yerr = path_hops_data[f'{"5" if k == "K=5" else "50"}-{heuristic}_hops_err'][i]
 
                 # Create asymmetrical error bars using IQR values
                 xerr = [[x - path_hops_data[f'{"5" if k == "K=5" else "50"}-{heuristic}_length_iqr_lower'][i]],
@@ -286,12 +286,14 @@ def plot_combined_dot_plot(path_hops_data):
 
     ax.legend(handles=topology_legend + heuristic_legend, loc='upper right', markerscale=1.5)
     plt.tight_layout()
+    plt.savefig(PLOTS_DIR / 'path_length_dot_plot.png')
     plt.show()
 
 
 def main():
     # Read and process CSV data
-    fractions_data, path_hops_data = process_csv_data('/Users/michaeldoherty/git/XLRON/data/JOCN2024/experiment_results_unique_paths.csv')
+    csv_path = Path(__file__).resolve().parents[4] / 'experiment_data' / 'JOCN2024' / 'experiment_results_unique_paths.csv'
+    fractions_data, path_hops_data = process_csv_data(csv_path)
 
     # Create plots
     plot_fractions_unique_paths(fractions_data)

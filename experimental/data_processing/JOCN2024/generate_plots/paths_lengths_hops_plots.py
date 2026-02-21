@@ -1,8 +1,18 @@
-import matplotlib as mpl
+import sys
+from pathlib import Path
+
 import matplotlib.pyplot as plt
-import matplotlib.font_manager as fm
-import numpy as np
 import matplotlib.patches as mpatches
+import numpy as np
+
+# Add experimental/ to path so plot_style is importable
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+from plot_style import configure_style
+
+# Apply global style
+configure_style(font_size=28, axes_label_size=32, tick_size=32)
+
+PLOTS_DIR = Path(__file__).resolve().parent / "plots"
 
 # Data (unchanged)
 fractions_data = {
@@ -38,15 +48,6 @@ path_hops_data = {
     '20-SP-FF_hops_length_err': [1377, 1155, 536, 858],
     '20-SP-FF_hops_hops_err': [0.89, 0.67, 1.39, 2.96]
 }
-
-# Set up Helvetica font
-mpl.rcParams['font.family'] = 'sans-serif'
-mpl.rcParams['font.sans-serif'] = ['Helvetica', 'Arial', 'DejaVu Sans', 'Bitstream Vera Sans', 'sans-serif']
-plt.rcParams.update({'font.size': 28})
-# Set axis label size
-plt.rcParams.update({'axes.labelsize': 32})
-# Set axis tick label size
-plt.rcParams.update({'xtick.labelsize': 32})
 
 # Define color scheme
 topology_colors = {
@@ -111,13 +112,10 @@ def plot_fractions_unique_paths():
         mpatches.Patch(facecolor='none', edgecolor='black', label='K=20')
     ]
 
-    # Add topology colors to legend
-    #for topology, color in topology_colors.items():
-    #    legend_elements.append(mpatches.Patch(facecolor=color, label=topology))
-
     ax.legend(handles=legend_elements, loc='upper left', ncol=2)
 
     plt.tight_layout()
+    plt.savefig(PLOTS_DIR / 'fractions_unique_paths.png')
     plt.show()
 
 
@@ -163,6 +161,7 @@ def plot_combined_dot_plot():
     ax.legend(handles=topology_legend + heuristic_legend, loc='upper right', markerscale=1.5)
 
     plt.tight_layout()
+    plt.savefig(PLOTS_DIR / 'combined_dot_plot.png')
     plt.show()
 
 

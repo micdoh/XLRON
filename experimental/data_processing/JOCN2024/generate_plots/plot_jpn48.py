@@ -1,8 +1,17 @@
+import sys
+from pathlib import Path
+
 import pandas as pd
 import networkx as nx
 import matplotlib.pyplot as plt
 from io import StringIO
 from networkx.drawing.layout import spring_layout
+
+# Add experimental/ to path so plot_style is importable
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+from plot_style import configure_style
+
+PLOTS_DIR = Path(__file__).resolve().parent / "plots"
 
 cost239_nodes = """
 Node,Latitude,Longitude,Location Name,Country
@@ -352,6 +361,8 @@ Edge_ID,Source,Destination,Computed Length (km)
 """
 
 if __name__ == '__main__':
+    configure_style()
+
     # Create a figure with 2x2 subplots
     fig, axes = plt.subplots(2, 2, figsize=(20, 20))
     axes = axes.ravel()  # Flatten axes array for easier indexing
@@ -476,5 +487,5 @@ if __name__ == '__main__':
 
     # Adjust the layout
     plt.tight_layout()
-    plt.savefig('networks_plots_short.png')
+    plt.savefig(PLOTS_DIR / 'networks_plots_short.png')
     plt.show()
