@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
 """Generate benchmark plots from aggregated results.
 
+Automatically aggregates raw JSONL results before plotting.
+All paths default to the benchmarks/ directory structure.
+
 Usage:
-    python benchmarks/plot_benchmarks.py --input=benchmarks/results/benchmark_results.csv
-    python benchmarks/plot_benchmarks.py --input=benchmarks/results/benchmark_results.csv --device=gpu
-    python benchmarks/plot_benchmarks.py --input=benchmarks/results/benchmark_results.csv --plots=fps_vs_num_envs,cpu_vs_gpu
+    python benchmarks/plot_benchmarks.py
+    python benchmarks/plot_benchmarks.py --device=gpu
+    python benchmarks/plot_benchmarks.py --plots=fps_vs_num_envs,cpu_vs_gpu
+    python benchmarks/plot_benchmarks.py --input=custom/path.csv --skip_aggregate
 """
 
 import argparse
@@ -15,14 +19,21 @@ import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 import numpy as np
 import pandas as pd
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "experimental"))
+
+# Resolve paths relative to this script so they work from any cwd
+_BENCHMARKS_DIR = Path(__file__).resolve().parent
+_RESULTS_DIR = _BENCHMARKS_DIR / "results"
+_FIGURES_DIR = _BENCHMARKS_DIR / "figures"
+_DEFAULT_CSV = _RESULTS_DIR / "benchmark_results.csv"
+_DEFAULT_TOPO_STATS = _RESULTS_DIR / "topology_stats.csv"
+
+sys.path.insert(0, str(_BENCHMARKS_DIR))
+sys.path.insert(0, str(_BENCHMARKS_DIR.parent))
 from plot_style import (
-    BAND_COLORS,
     BAND_DISPLAY,
     DEVICE_COLORS,
     ENV_TYPE_COLORS,
     ENV_TYPE_DISPLAY,
-    TOPOLOGY_COLORS,
     TOPOLOGY_DISPLAY,
     configure_style,
     format_fps,
@@ -237,7 +248,7 @@ def plot_fps_vs_topology(
     agg = _agg(data, ["config_topology_name"])
 
     if topo_stats is None:
-        topo_stats_path = Path("benchmarks/results/topology_stats.csv")
+        topo_stats_path = _DEFAULT_TOPO_STATS
         if not topo_stats_path.exists():
             print("  No topology_stats.csv found, skipping topology table")
             return
@@ -903,14 +914,21 @@ PLOT_FUNCTIONS = {
 
 def main():
     parser = argparse.ArgumentParser(description="Generate XLRON benchmark plots")
-    parser.add_argument("--input", required=True, help="Path to aggregated CSV")
     parser.add_argument(
-        "--topo_stats", default="benchmarks/topology_stats.csv",
-        help="Path to topology stats CSV",
+        "--input", default=str(_DEFAULT_CSV),
+        help="Path to aggregated CSV (default: benchmarks/results/benchmark_results.csv)",
     )
     parser.add_argument(
-        "--output_dir", default="benchmarks/figures",
-        help="Output directory for figures",
+        "--results_dir", default=str(_RESULTS_DIR),
+        help="Directory containing raw JSONL result files (default: benchmarks/results/)",
+    )
+    parser.add_argument(
+        "--topo_stats", default=str(_DEFAULT_TOPO_STATS),
+        help="Path to topology stats CSV (default: benchmarks/results/topology_stats.csv)",
+    )
+    parser.add_argument(
+        "--output_dir", default=str(_FIGURES_DIR),
+        help="Output directory for figures (default: benchmarks/figures/)",
     )
     parser.add_argument(
         "--plots", default=None,
@@ -922,12 +940,23 @@ def main():
         help="Filter to a single device (default: use all data). "
              "The cpu_vs_gpu plot always uses both regardless.",
     )
+    parser.add_argument(
+        "--skip_aggregate", action="store_true",
+        help="Skip re-aggregating JSONL files (use existing CSV as-is)",
+    )
     args = parser.parse_args()
 
     configure_style()
 
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Auto-aggregate raw JSONL results into CSV before plotting
+    if not args.skip_aggregate:
+        from aggregate_results import aggregate
+        print("Aggregating JSONL results...")
+        aggregate(results_dir=args.results_dir, output_csv=args.input)
+        print()
 
     df = pd.read_csv(args.input)
     topo_stats = None

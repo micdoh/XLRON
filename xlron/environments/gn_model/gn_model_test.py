@@ -17,9 +17,25 @@ from xlron.environments.rsa import *
 from xlron.environments.wrappers import *
 
 
+# Module-level caches for expensive make() calls.
+# Only env and params are cached; obs/state are recomputed per call via
+# env.reset() to avoid buffer donation/deletion issues with chex device variants.
+_gn_cache = {}
+
+
+def _gn_cached_setup(cache_key, settings, seed=0):
+    """Return (key, env, obs, state, params) using cached env/params."""
+    key = jax.random.PRNGKey(seed)
+    if cache_key not in _gn_cache:
+        env, params = make(settings, log_wrapper=False)
+        _gn_cache[cache_key] = (env, params)
+    env, params = _gn_cache[cache_key]
+    obs, state = env.reset(key, params)
+    return key, env, obs, state, params
+
+
 def rsa_gn_model_4_nsfnet_test_setup():
-    key = jax.random.PRNGKey(0)
-    settings_rsa_gn_model_4_nsfnet = dict(
+    return _gn_cached_setup("rsa_gn_model_4_nsfnet", dict(
         k=5,
         topology_name="nsfnet_deeprmsa_undirected",
         link_resources=4,
@@ -31,10 +47,7 @@ def rsa_gn_model_4_nsfnet_test_setup():
         slot_size=25,
         mod_format_correction=False,
         launch_power=0.0,
-    )
-    env, params = make(settings_rsa_gn_model_4_nsfnet, log_wrapper=False)
-    obs, state = env.reset(key, params)
-    return key, env, obs, state, params
+    ))
 
 
 @absltest.skipThisClass("Not finalized")
@@ -384,8 +397,7 @@ class TransceiverAmplifierNoiseTest(parameterized.TestCase):
 
 def rmsa_gn_model_test_setup():
     # Seed 3 generates a short-path request (300 km) that passes SNR checks
-    key = jax.random.PRNGKey(3)
-    settings = dict(
+    return _gn_cached_setup("rmsa_gn_model", dict(
         k=4,
         topology_name="nsfnet_deeprmsa_directed",
         link_resources=10,
@@ -399,10 +411,7 @@ def rmsa_gn_model_test_setup():
         max_power_per_fibre=10.0,
         coherent=False,
         include_no_op=False,
-    )
-    env, params = make(settings, log_wrapper=False)
-    obs, state = env.reset(key, params)
-    return key, env, obs, state, params
+    ), seed=3)
 
 
 class RMSAGNModelMaskTest(parameterized.TestCase):
@@ -452,6 +461,11 @@ class RMSAGNModelMaskTest(parameterized.TestCase):
 
 
 def rmsa_gn_model_enforce_band_gaps_test_setup():
+    key = jax.random.PRNGKey(3)
+    if "rmsa_gn_model_band_gaps" in _gn_cache:
+        env, params = _gn_cache["rmsa_gn_model_band_gaps"]
+        obs, state = env.reset(key, params)
+        return key, env, obs, state, params
     # Create a temp band data CSV with two non-contiguous bands so that a gap
     # appears in the middle of the 100-slot range (ref_lambda=1564nm default).
     # Slot freq range at defaults: ~191064 - 192302 GHz.
@@ -465,7 +479,6 @@ def rmsa_gn_model_enforce_band_gaps_test_setup():
     band_file.write(band_csv)
     band_file.close()
 
-    key = jax.random.PRNGKey(3)
     settings = dict(
         k=4,
         topology_name="nsfnet_deeprmsa_directed",
@@ -486,6 +499,7 @@ def rmsa_gn_model_enforce_band_gaps_test_setup():
     obs, state = env.reset(key, params)
     # Clean up temp file
     pathlib.Path(band_file.name).unlink()
+    _gn_cache["rmsa_gn_model_band_gaps"] = (env, params)
     return key, env, obs, state, params
 
 
@@ -558,8 +572,7 @@ class EnforceBandGapsTest(parameterized.TestCase):
 
 
 def rsa_gn_model_band_preference_test_setup(band_preference):
-    key = jax.random.PRNGKey(3)
-    settings = dict(
+    return _gn_cached_setup(f"rsa_gn_model_band_pref_{band_preference}", dict(
         k=4,
         topology_name="nsfnet_deeprmsa_directed",
         link_resources=100,
@@ -574,10 +587,7 @@ def rsa_gn_model_band_preference_test_setup(band_preference):
         coherent=False,
         include_no_op=False,
         band_preference=band_preference,
-    )
-    env, params = make(settings, log_wrapper=False)
-    obs, state = env.reset(key, params)
-    return key, env, obs, state, params
+    ), seed=3)
 
 
 class BandPreferenceTest(parameterized.TestCase):
@@ -657,8 +667,7 @@ class BandPreferenceTest(parameterized.TestCase):
 
 
 def rsa_gn_model_subchannels_test_setup(num_subchannels=1):
-    key = jax.random.PRNGKey(3)
-    settings = dict(
+    return _gn_cached_setup(f"rsa_gn_model_subch_{num_subchannels}", dict(
         k=4,
         topology_name="nsfnet_deeprmsa_directed",
         link_resources=10,
@@ -673,10 +682,7 @@ def rsa_gn_model_subchannels_test_setup(num_subchannels=1):
         coherent=False,
         include_no_op=False,
         num_subchannels=num_subchannels,
-    )
-    env, params = make(settings, log_wrapper=False)
-    obs, state = env.reset(key, params)
-    return key, env, obs, state, params
+    ), seed=3)
 
 
 class NumSubchannelsTest(parameterized.TestCase):

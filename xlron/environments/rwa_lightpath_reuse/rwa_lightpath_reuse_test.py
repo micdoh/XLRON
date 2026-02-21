@@ -14,9 +14,25 @@ from xlron.environments.rsa.rsa import *
 from xlron.environments.wrappers import *
 
 
-def rwa_lightpath_reuse_4_nsfnet_test_setup():
+# Module-level caches for expensive make() calls.
+# Only env and params are cached; obs/state are recomputed per call via
+# env.reset() to avoid buffer donation/deletion issues with chex device variants.
+_rwa_lr_cache = {}
+
+
+def _rwa_lr_cached_setup(cache_key, settings):
+    """Return (key, env, obs, state, params) using cached env/params."""
     key = jax.random.PRNGKey(0)
-    settings_rwa_lr_nsfnet_4 = dict(
+    if cache_key not in _rwa_lr_cache:
+        env, params = make(settings, log_wrapper=False)
+        _rwa_lr_cache[cache_key] = (env, params)
+    env, params = _rwa_lr_cache[cache_key]
+    obs, state = env.reset(key, params)
+    return key, env, obs, state, params
+
+
+def rwa_lightpath_reuse_4_nsfnet_test_setup():
+    return _rwa_lr_cached_setup("rwa_lr_nsfnet_4", dict(
         k=5,
         topology_name="nsfnet_deeprmsa_undirected",
         link_resources=4,
@@ -25,15 +41,11 @@ def rwa_lightpath_reuse_4_nsfnet_test_setup():
         incremental_loading=True,
         env_type="rwa_lightpath_reuse",
         scale_factor=1.0,
-    )
-    env, params = make(settings_rwa_lr_nsfnet_4, log_wrapper=False)
-    obs, state = env.reset(key, params)
-    return key, env, obs, state, params
+    ))
 
 
 def rwa_lightpath_reuse_4node_test_setup():
-    key = jax.random.PRNGKey(0)
-    settings_rwa_lr_4 = dict(
+    return _rwa_lr_cached_setup("rwa_lr_4node", dict(
         k=2,
         topology_name="4node",
         link_resources=4,
@@ -41,10 +53,7 @@ def rwa_lightpath_reuse_4node_test_setup():
         values_bw=[100],
         incremental_loading=True,
         env_type="rwa_lightpath_reuse",
-    )
-    env, params = make(settings_rwa_lr_4, log_wrapper=False)
-    obs, state = env.reset(key, params)
-    return key, env, obs, state, params
+    ))
 
 
 class CheckLightpathAvailableAndExistingTest(parameterized.TestCase):

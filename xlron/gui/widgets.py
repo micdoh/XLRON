@@ -190,8 +190,21 @@ DEFAULTS = {
     "MAX_GRAD_NORM": 0.5,
     # Schedules
     "LR_SCHEDULE": "cosine",
+    "LR_END_FRACTION": 0.1,
+    "LR_SCHEDULE_MULTIPLIER": 1.0,
+    "WARMUP_STEPS_FRACTION": 0.2,
+    "WARMUP_MULTIPLIER": 1.0,
     "ENT_SCHEDULE": "constant",
+    "ENT_END_FRACTION": 0.1,
+    "ENT_SCHEDULE_MULTIPLIER": 1.0,
     "VML_SCHEDULE": "constant",
+    "VML_END_FRACTION": 10.0,
+    "VML_SCHEDULE_MULTIPLIER": 1.0,
+    "LAMBDA_SCHEDULE_MULTIPLIER": 1.0,
+    "VF_SCHEDULE_MULTIPLIER": 1.0,
+    "INITIAL_LAMBDA": 0.9,
+    "FINAL_LAMBDA": 0.98,
+    "STEP_ON_GRADIENT": False,
     # Advanced
     "REWARD_CENTERING": False,
     "OFF_POLICY_IAM": False,
@@ -970,10 +983,13 @@ def ppo_section() -> dict:
 
 
 def schedule_section() -> dict:
-    """LR schedule, entropy schedule, VML schedule."""
+    """LR schedule, entropy schedule, VML schedule, end fractions, multipliers, warmup."""
     flags = {}
 
     schedules = ["cosine", "warmup_cosine", "linear", "constant"]
+
+    # --- LR Schedule ---
+    st.markdown("**Learning Rate**")
     col1, col2, col3 = st.columns(3)
     with col1:
         lr_sched = st.selectbox(
@@ -984,7 +1000,57 @@ def schedule_section() -> dict:
         )
         _emit(flags, "LR_SCHEDULE", lr_sched)
     with col2:
-        ent_scheds = ["constant", "linear", "cosine"]
+        lr_end = st.number_input(
+            "LR End Fraction",
+            min_value=0.0,
+            max_value=1.0,
+            value=float(_get_preset_val("LR_END_FRACTION")),
+            step=0.01,
+            format="%.3f",
+            help=_h("LR_END_FRACTION"),
+        )
+        _emit(flags, "LR_END_FRACTION", lr_end)
+    with col3:
+        lr_mult = st.number_input(
+            "LR Schedule Multiplier",
+            min_value=0.01,
+            value=float(_get_preset_val("LR_SCHEDULE_MULTIPLIER")),
+            step=0.1,
+            format="%.2f",
+            help=_h("LR_SCHEDULE_MULTIPLIER"),
+        )
+        _emit(flags, "LR_SCHEDULE_MULTIPLIER", lr_mult)
+
+    # --- Warmup (visible when warmup_cosine selected) ---
+    if lr_sched == "warmup_cosine":
+        wc1, wc2 = st.columns(2)
+        with wc1:
+            warmup_frac = st.number_input(
+                "Warmup Steps Fraction",
+                min_value=0.0,
+                max_value=1.0,
+                value=float(_get_preset_val("WARMUP_STEPS_FRACTION")),
+                step=0.05,
+                format="%.2f",
+                help=_h("WARMUP_STEPS_FRACTION"),
+            )
+            _emit(flags, "WARMUP_STEPS_FRACTION", warmup_frac)
+        with wc2:
+            warmup_mult = st.number_input(
+                "Warmup Peak Multiplier",
+                min_value=0.01,
+                value=float(_get_preset_val("WARMUP_MULTIPLIER")),
+                step=0.1,
+                format="%.2f",
+                help=_h("WARMUP_MULTIPLIER"),
+            )
+            _emit(flags, "WARMUP_MULTIPLIER", warmup_mult)
+
+    # --- Entropy Schedule ---
+    st.markdown("**Entropy Coefficient**")
+    ent_scheds = ["constant", "linear", "cosine"]
+    ec1, ec2, ec3 = st.columns(3)
+    with ec1:
         ent_sched = st.selectbox(
             "Entropy Schedule",
             ent_scheds,
@@ -992,8 +1058,32 @@ def schedule_section() -> dict:
             help=_h("ENT_SCHEDULE"),
         )
         _emit(flags, "ENT_SCHEDULE", ent_sched)
-    with col3:
-        vml_scheds = ["constant", "linear", "cosine"]
+    with ec2:
+        ent_end = st.number_input(
+            "Entropy End Fraction",
+            min_value=0.0,
+            value=float(_get_preset_val("ENT_END_FRACTION")),
+            step=0.01,
+            format="%.3f",
+            help=_h("ENT_END_FRACTION"),
+        )
+        _emit(flags, "ENT_END_FRACTION", ent_end)
+    with ec3:
+        ent_mult = st.number_input(
+            "Entropy Schedule Multiplier",
+            min_value=0.01,
+            value=float(_get_preset_val("ENT_SCHEDULE_MULTIPLIER")),
+            step=0.1,
+            format="%.2f",
+            help=_h("ENT_SCHEDULE_MULTIPLIER"),
+        )
+        _emit(flags, "ENT_SCHEDULE_MULTIPLIER", ent_mult)
+
+    # --- VML Schedule ---
+    st.markdown("**Valid Mass Loss Coefficient**")
+    vml_scheds = ["constant", "linear", "cosine"]
+    vc1, vc2, vc3 = st.columns(3)
+    with vc1:
         vml_sched = st.selectbox(
             "VML Schedule",
             vml_scheds,
@@ -1001,6 +1091,82 @@ def schedule_section() -> dict:
             help=_h("VML_SCHEDULE"),
         )
         _emit(flags, "VML_SCHEDULE", vml_sched)
+    with vc2:
+        vml_end = st.number_input(
+            "VML End Fraction",
+            min_value=0.0,
+            value=float(_get_preset_val("VML_END_FRACTION")),
+            step=0.1,
+            format="%.2f",
+            help=_h("VML_END_FRACTION"),
+        )
+        _emit(flags, "VML_END_FRACTION", vml_end)
+    with vc3:
+        vml_mult = st.number_input(
+            "VML Schedule Multiplier",
+            min_value=0.01,
+            value=float(_get_preset_val("VML_SCHEDULE_MULTIPLIER")),
+            step=0.1,
+            format="%.2f",
+            help=_h("VML_SCHEDULE_MULTIPLIER"),
+        )
+        _emit(flags, "VML_SCHEDULE_MULTIPLIER", vml_mult)
+
+    # --- GAE Lambda Anneal ---
+    st.markdown("**GAE Lambda Anneal**")
+    st.caption("When GAE Lambda is not set explicitly (in PPO section), it anneals between these values.")
+    lc1, lc2, lc3 = st.columns(3)
+    with lc1:
+        init_lam = st.number_input(
+            "Initial Lambda",
+            min_value=0.0,
+            max_value=1.0,
+            value=float(_get_preset_val("INITIAL_LAMBDA")),
+            step=0.01,
+            format="%.3f",
+            help=_h("INITIAL_LAMBDA"),
+        )
+        _emit(flags, "INITIAL_LAMBDA", init_lam)
+    with lc2:
+        final_lam = st.number_input(
+            "Final Lambda",
+            min_value=0.0,
+            max_value=1.0,
+            value=float(_get_preset_val("FINAL_LAMBDA")),
+            step=0.01,
+            format="%.3f",
+            help=_h("FINAL_LAMBDA"),
+        )
+        _emit(flags, "FINAL_LAMBDA", final_lam)
+    with lc3:
+        lam_mult = st.number_input(
+            "Lambda Schedule Multiplier",
+            min_value=0.01,
+            value=float(_get_preset_val("LAMBDA_SCHEDULE_MULTIPLIER")),
+            step=0.1,
+            format="%.2f",
+            help=_h("LAMBDA_SCHEDULE_MULTIPLIER"),
+        )
+        _emit(flags, "LAMBDA_SCHEDULE_MULTIPLIER", lam_mult)
+
+    # --- VF Schedule Multiplier ---
+    vf_s_mult = st.number_input(
+        "VF Schedule Multiplier",
+        min_value=0.01,
+        value=float(_get_preset_val("VF_SCHEDULE_MULTIPLIER")),
+        step=0.1,
+        format="%.2f",
+        help=_h("VF_SCHEDULE_MULTIPLIER"),
+    )
+    _emit(flags, "VF_SCHEDULE_MULTIPLIER", vf_s_mult)
+
+    # --- Step on Gradient ---
+    step_grad = st.checkbox(
+        "Step Schedule on Gradient Update",
+        value=bool(_get_preset_val("STEP_ON_GRADIENT")),
+        help=_h("STEP_ON_GRADIENT"),
+    )
+    _emit(flags, "STEP_ON_GRADIENT", step_grad)
 
     return flags
 

@@ -3110,6 +3110,7 @@ def compute_band_layout(
         selected.append((name, band_info[name][0], band_info[name][1]))
 
     # Parse slots_per_band override
+    slots_override = {}
     slots_per_band_list = None
     if slots_per_band is not None:
         slots_per_band_list = [int(x.strip()) for x in slots_per_band.split(",")]
@@ -3617,10 +3618,8 @@ def get_snr_link_array(state: EnvState, params: EnvParams) -> chex.Array:
         if params.mod_format_correction:
             mod_format_link = state.modulation_format_index_array[link_index, :]
             kurtosis_link = get_required_snr_se_kurtosis_on_link(mod_format_link, 4, params)
-            se_link = get_required_snr_se_kurtosis_on_link(mod_format_link, 1, params)
         else:
             kurtosis_link = jnp.zeros(params.link_resources).astype(jnp.float32)
-            se_link = jnp.ones(params.link_resources, dtype=jnp.float32)
         bw_link = state.channel_centre_bw_array[link_index, :]
         ch_power_link = state.channel_power_array[link_index, :]
         ch_centres_link = state.channel_centre_freq_array[link_index, :]
@@ -4024,11 +4023,10 @@ def calculate_throughput_from_active_lightpaths(
     state = state.replace(link_snr_array=get_snr_link_array(state, params))
 
     # --- Vectorised throughput: replace fori_loop with batched ops ---
-    M = state.active_lightpaths_array.shape[0]  # max lightpaths
     S = params.link_resources                    # slots per link
 
     # Extract per-lightpath metadata  (M,)
-    path_indices = state.active_lightpaths_array[:, 0]       # (M,)
+    path_indices = state.active_lightpaths_array[:, 0]       # (M,) # Max total lightpaths is M 
     initial_slots = state.active_lightpaths_array[:, 1]      # (M,)
     num_slots = state.active_lightpaths_array[:, 2]          # (M,)
     active = path_indices >= 0                                # (M,) bool

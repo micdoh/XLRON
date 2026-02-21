@@ -70,23 +70,33 @@ def settings_vone_4node_mod():
     )
 
 
-def vone_4node_test_setup():
+# Module-level caches for expensive make() calls.
+# Only env and params are cached; obs/state are recomputed per call via
+# env.reset() to avoid buffer donation/deletion issues with chex device variants.
+_vone_cache = {}
+
+
+def _vone_cached_setup(cache_key, settings):
+    """Return (key, env, obs, state, params) using cached env/params."""
     key = jax.random.PRNGKey(0)
-    env, params = make(settings_vone_4node(), log_wrapper=False)
+    if cache_key not in _vone_cache:
+        env, params = make(settings, log_wrapper=False)
+        _vone_cache[cache_key] = (env, params)
+    env, params = _vone_cache[cache_key]
     obs, state = env.reset(key, params)
     return key, env, obs, state, params
+
+
+def vone_4node_test_setup():
+    return _vone_cached_setup("vone_4node", settings_vone_4node())
 
 
 def vone_4node_mod_test_setup():
-    key = jax.random.PRNGKey(0)
-    env, params = make(settings_vone_4node_mod(), log_wrapper=False)
-    obs, state = env.reset(key, params)
-    return key, env, obs, state, params
+    return _vone_cached_setup("vone_4node_mod", settings_vone_4node_mod())
 
 
 def vone_nsfnet_16_test_setup():
-    key = jax.random.PRNGKey(0)
-    settings_vone_nsfnet_16 = dict(
+    return _vone_cached_setup("vone_nsfnet_16", dict(
         load=100,
         k=5,
         topology_name="nsfnet_deeprmsa_undirected",
@@ -101,15 +111,11 @@ def vone_nsfnet_16_test_setup():
         min_node_resources=1,
         max_node_resources=2,
         env_type="vone",
-    )
-    env, params = make(settings_vone_nsfnet_16, log_wrapper=False)
-    obs, state = env.reset(key, params)
-    return key, env, obs, state, params
+    ))
 
 
 def vone_nsfnet_16_mod_test_setup():
-    key = jax.random.PRNGKey(0)
-    settings_vone_nsfnet_16_mod = dict(
+    return _vone_cached_setup("vone_nsfnet_16_mod", dict(
         load=100,
         k=5,
         topology_name="nsfnet_deeprmsa_undirected",
@@ -122,10 +128,7 @@ def vone_nsfnet_16_mod_test_setup():
         max_node_resources=2,
         consider_modulation_format=True,
         env_type="vone",
-    )
-    env, params = make(settings_vone_nsfnet_16_mod, log_wrapper=False)
-    obs, state = env.reset(key, params)
-    return key, env, obs, state, params
+    ))
 
 
 class GenerateVoneRequestTest(parameterized.TestCase):

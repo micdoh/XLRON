@@ -45,7 +45,6 @@ _plot_style = importlib.util.module_from_spec(_ps_spec)
 _ps_spec.loader.exec_module(_plot_style)
 configure_style = _plot_style.configure_style
 
-from xlron import dtype_config
 from xlron.environments.env_funcs import (
     calculate_throughput_from_active_lightpaths,
     get_launch_power,

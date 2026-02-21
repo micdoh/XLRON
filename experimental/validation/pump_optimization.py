@@ -51,7 +51,6 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import optax
-from scipy.constants import c as speed_of_light
 
 from xlron.environments.gn_model import isrs_gn_model_dra
 from xlron.environments.gn_model.isrs_gn_model import from_db

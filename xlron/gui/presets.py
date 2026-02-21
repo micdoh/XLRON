@@ -153,7 +153,7 @@ PRESETS = {
         "num_subchannels": 8,
         "power_per_channel_per_band": "1.6756,2.5809",
         "calc_minimum_osnr": True,
-        "launch_power_csv": "./experimental/lp.csv",
+        "launch_power_csv": "./experimental/validation/gerard2025_results/lp.csv",
         "modulations_csv_filepath": "./xlron/data/modulations/pcs_64qam.csv",
         "band_data_filepath": "./xlron/data/gn_model/band_data/band_data_gerard2025.csv",
         "noise_data_filepath": "./xlron/data/gn_model/transceiver_amplifier_data/transceiver_amplifier_data_gerard2025.csv",

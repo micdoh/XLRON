@@ -269,7 +269,7 @@ def make(
     min_node_resources = config.get("min_node_resources", 1)
     max_node_resources = config.get("max_node_resources", 2)
     virtual_topologies = config.get("virtual_topologies", "3_ring")
-    virtual_topologies = virtual_topologies.split(",")
+    virtual_topologies = virtual_topologies.split(",") if isinstance(virtual_topologies, str) else virtual_topologies
     # Automated calculation of max edges in virtual topologies
     max_edges = 0
     for topology in virtual_topologies:

@@ -3,7 +3,6 @@ from gymnax.environments import spaces
 
 from xlron.environments.dataclasses import *
 from xlron.environments.env_funcs import (
-    get_paths_obs_gn_model,
     init_active_lightpaths_array,
     init_active_lightpaths_array_departure,
     init_channel_centre_bw_array,

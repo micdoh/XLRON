@@ -46,40 +46,71 @@ def settings_rwa_4node():
     )
 
 
+# Module-level caches for expensive make() + reset() calls.
+# Each cache stores (env, params) for a specific config - the expensive part.
+# obs and state are cheap to recompute via env.reset() and must be fresh per
+# test to avoid buffer donation/deletion issues with chex device variants.
+_cache = {}
+
+
+def _cached_setup(cache_key, settings, seed=0):
+    """Return (key, env, obs, state, params) using cached env/params."""
+    key = jax.random.PRNGKey(seed)
+    if cache_key not in _cache:
+        env, params = make(settings, log_wrapper=False)
+        _cache[cache_key] = (env, params)
+    env, params = _cache[cache_key]
+    obs, state = env.reset(key, params)
+    return key, env, obs, state, params
+
+
 def rwa_4node_test_setup(**kwargs):
+    if not kwargs:
+        return _cached_setup("rwa_4node", settings_rwa_4node())
     key = jax.random.PRNGKey(0)
-    settings_rwa_4node().update(kwargs)
-    env, params = make(settings_rwa_4node(), log_wrapper=False)
+    settings = settings_rwa_4node()
+    settings.update(kwargs)
+    env, params = make(settings, log_wrapper=False)
     obs, state = env.reset(key, params)
     return key, env, obs, state, params
 
 
 def rwa_4node_agg_slots_test_setup(**kwargs):
+    if not kwargs:
+        settings = settings_rwa_4node()
+        settings["aggregate_slots"] = 2
+        settings["link_resources"] = 6
+        return _cached_setup("rwa_4node_agg_slots", settings)
     key = jax.random.PRNGKey(0)
-    settings_rwa_4node_agg_slots = settings_rwa_4node()
-    settings_rwa_4node_agg_slots["aggregate_slots"] = 2
-    settings_rwa_4node_agg_slots["link_resources"] = 6
-    settings_rwa_4node_agg_slots.update(kwargs)
-    env, params = make(settings_rwa_4node_agg_slots, log_wrapper=False)
+    settings = settings_rwa_4node()
+    settings["aggregate_slots"] = 2
+    settings["link_resources"] = 6
+    settings.update(kwargs)
+    env, params = make(settings, log_wrapper=False)
     obs, state = env.reset(key, params)
     return key, env, obs, state, params
 
 
 def rsa_4node_3_slot_request_test_setup(**kwargs):
+    if not kwargs:
+        settings = settings_rwa_4node()
+        settings["env_type"] = "rsa"
+        settings["values_bw"] = [3]
+        settings["link_resources"] = 5
+        return _cached_setup("rsa_4node_3_slot", settings)
     key = jax.random.PRNGKey(0)
-    settings_rsa_4node_3_slots = settings_rwa_4node()
-    settings_rsa_4node_3_slots["env_type"] = "rsa"
-    settings_rsa_4node_3_slots["values_bw"] = [3]
-    settings_rsa_4node_3_slots["link_resources"] = 5
-    settings_rsa_4node_3_slots.update(kwargs)
-    env, params = make(settings_rsa_4node_3_slots, log_wrapper=False)
+    settings = settings_rwa_4node()
+    settings["env_type"] = "rsa"
+    settings["values_bw"] = [3]
+    settings["link_resources"] = 5
+    settings.update(kwargs)
+    env, params = make(settings, log_wrapper=False)
     obs, state = env.reset(key, params)
     return key, env, obs, state, params
 
 
 def rsa_nsfnet_16_test_setup(**kwargs):
-    key = jax.random.PRNGKey(0)
-    settings_rsa_nsfnet_16 = dict(
+    base_settings = dict(
         load=100,
         k=5,
         topology_name="nsfnet_deeprmsa_undirected",
@@ -90,15 +121,17 @@ def rsa_nsfnet_16_test_setup(**kwargs):
         mean_service_holding_time=10,
         env_type="rsa",
     )
-    settings_rsa_nsfnet_16.update(kwargs)
-    env, params = make(settings_rsa_nsfnet_16, log_wrapper=False)
+    if not kwargs:
+        return _cached_setup("rsa_nsfnet_16", base_settings)
+    key = jax.random.PRNGKey(0)
+    base_settings.update(kwargs)
+    env, params = make(base_settings, log_wrapper=False)
     obs, state = env.reset(key, params)
     return key, env, obs, state, params
 
 
 def rsa_nsfnet_16_mod_test_setup(**kwargs):
-    key = jax.random.PRNGKey(0)
-    settings_rsa_nsfnet_16_mod = dict(
+    base_settings = dict(
         load=100,
         k=5,
         topology_name="nsfnet_deeprmsa_undirected",
@@ -109,15 +142,17 @@ def rsa_nsfnet_16_mod_test_setup(**kwargs):
         mean_service_holding_time=10,
         env_type="rsa",
     )
-    settings_rsa_nsfnet_16_mod.update(kwargs)
-    env, params = make(settings_rsa_nsfnet_16_mod, log_wrapper=False)
+    if not kwargs:
+        return _cached_setup("rsa_nsfnet_16_mod", base_settings)
+    key = jax.random.PRNGKey(0)
+    base_settings.update(kwargs)
+    env, params = make(base_settings, log_wrapper=False)
     obs, state = env.reset(key, params)
     return key, env, obs, state, params
 
 
 def rsa_nsfnet_4_test_setup(**kwargs):
-    key = jax.random.PRNGKey(0)
-    settings_rsa_nsfnet_4 = dict(
+    base_settings = dict(
         load=1000,
         k=5,
         topology_name="nsfnet_deeprmsa_undirected",
@@ -128,8 +163,11 @@ def rsa_nsfnet_4_test_setup(**kwargs):
         mean_service_holding_time=10,
         env_type="rsa",
     )
-    settings_rsa_nsfnet_4.update(kwargs)
-    env, params = make(settings_rsa_nsfnet_4, log_wrapper=False)
+    if not kwargs:
+        return _cached_setup("rsa_nsfnet_4", base_settings)
+    key = jax.random.PRNGKey(0)
+    base_settings.update(kwargs)
+    env, params = make(base_settings, log_wrapper=False)
     obs, state = env.reset(key, params)
     return key, env, obs, state, params
 
