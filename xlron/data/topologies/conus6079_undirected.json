@@ -1,0 +1,704 @@
+{
+    "directed": false,
+    "multigraph": false,
+    "graph": {},
+    "nodes": [
+        {
+            "id": 1,
+            "latitude": 42.67,
+            "longitude": -73.8
+        },
+        {
+            "id": 2,
+            "latitude": 35.12,
+            "longitude": -106.62
+        },
+        {
+            "id": 3,
+            "latitude": 33.76,
+            "longitude": -84.42
+        },
+        {
+            "id": 4,
+            "latitude": 39.3,
+            "longitude": -76.61
+        },
+        {
+            "id": 5,
+            "latitude": 30.45,
+            "longitude": -91.13
+        },
+        {
+            "id": 6,
+            "latitude": 45.79,
+            "longitude": -108.54
+        },
+        {
+            "id": 7,
+            "latitude": 33.53,
+            "longitude": -86.8
+        },
+        {
+            "id": 8,
+            "latitude": 42.34,
+            "longitude": -71.02
+        },
+        {
+            "id": 9,
+            "latitude": 42.89,
+            "longitude": -78.86
+        },
+        {
+            "id": 10,
+            "latitude": 35.2,
+            "longitude": -80.83
+        },
+        {
+            "id": 11,
+            "latitude": 41.84,
+            "longitude": -87.68
+        },
+        {
+            "id": 12,
+            "latitude": 39.14,
+            "longitude": -84.51
+        },
+        {
+            "id": 13,
+            "latitude": 41.48,
+            "longitude": -81.68
+        },
+        {
+            "id": 14,
+            "latitude": 39.99,
+            "longitude": -82.99
+        },
+        {
+            "id": 15,
+            "latitude": 32.79,
+            "longitude": -96.77
+        },
+        {
+            "id": 16,
+            "latitude": 39.77,
+            "longitude": -104.87
+        },
+        {
+            "id": 17,
+            "latitude": 42.38,
+            "longitude": -83.1
+        },
+        {
+            "id": 18,
+            "latitude": 31.85,
+            "longitude": -106.44
+        },
+        {
+            "id": 19,
+            "latitude": 36.08,
+            "longitude": -79.83
+        },
+        {
+            "id": 20,
+            "latitude": 41.77,
+            "longitude": -72.68
+        },
+        {
+            "id": 21,
+            "latitude": 29.77,
+            "longitude": -95.39
+        },
+        {
+            "id": 22,
+            "latitude": 30.33,
+            "longitude": -81.66
+        },
+        {
+            "id": 23,
+            "latitude": 39.12,
+            "longitude": -94.73
+        },
+        {
+            "id": 24,
+            "latitude": 36.21,
+            "longitude": -115.22
+        },
+        {
+            "id": 25,
+            "latitude": 34.72,
+            "longitude": -92.35
+        },
+        {
+            "id": 26,
+            "latitude": 34.11,
+            "longitude": -118.41
+        },
+        {
+            "id": 27,
+            "latitude": 38.22,
+            "longitude": -85.74
+        },
+        {
+            "id": 28,
+            "latitude": 25.78,
+            "longitude": -80.21
+        },
+        {
+            "id": 29,
+            "latitude": 43.06,
+            "longitude": -87.97
+        },
+        {
+            "id": 30,
+            "latitude": 44.96,
+            "longitude": -93.27
+        },
+        {
+            "id": 31,
+            "latitude": 36.17,
+            "longitude": -86.78
+        },
+        {
+            "id": 32,
+            "latitude": 30.07,
+            "longitude": -89.93
+        },
+        {
+            "id": 33,
+            "latitude": 40.67,
+            "longitude": -73.94
+        },
+        {
+            "id": 34,
+            "latitude": 40.72,
+            "longitude": -74.17
+        },
+        {
+            "id": 35,
+            "latitude": 37.77,
+            "longitude": -122.22
+        },
+        {
+            "id": 36,
+            "latitude": 41.26,
+            "longitude": -96.01
+        },
+        {
+            "id": 37,
+            "latitude": 40.01,
+            "longitude": -75.13
+        },
+        {
+            "id": 38,
+            "latitude": 33.54,
+            "longitude": -112.07
+        },
+        {
+            "id": 39,
+            "latitude": 40.3,
+            "longitude": -80.13
+        },
+        {
+            "id": 40,
+            "latitude": 45.54,
+            "longitude": -122.66
+        },
+        {
+            "id": 41,
+            "latitude": 41.82,
+            "longitude": -71.42
+        },
+        {
+            "id": 42,
+            "latitude": 35.82,
+            "longitude": -78.66
+        },
+        {
+            "id": 43,
+            "latitude": 38.57,
+            "longitude": -121.47
+        },
+        {
+            "id": 44,
+            "latitude": 40.78,
+            "longitude": -111.93
+        },
+        {
+            "id": 45,
+            "latitude": 29.46,
+            "longitude": -98.51
+        },
+        {
+            "id": 46,
+            "latitude": 32.81,
+            "longitude": -117.14
+        },
+        {
+            "id": 47,
+            "latitude": 37.66,
+            "longitude": -122.42
+        },
+        {
+            "id": 48,
+            "latitude": 37.3,
+            "longitude": -121.85
+        },
+        {
+            "id": 49,
+            "latitude": 34.43,
+            "longitude": -119.72
+        },
+        {
+            "id": 50,
+            "latitude": 41.4,
+            "longitude": -75.67
+        },
+        {
+            "id": 51,
+            "latitude": 47.62,
+            "longitude": -122.35
+        },
+        {
+            "id": 52,
+            "latitude": 38.64,
+            "longitude": -90.24
+        },
+        {
+            "id": 53,
+            "latitude": 43.04,
+            "longitude": -76.14
+        },
+        {
+            "id": 54,
+            "latitude": 30.46,
+            "longitude": -84.28
+        },
+        {
+            "id": 55,
+            "latitude": 27.96,
+            "longitude": -82.48
+        },
+        {
+            "id": 56,
+            "latitude": 41.66,
+            "longitude": -83.58
+        },
+        {
+            "id": 57,
+            "latitude": 32.2,
+            "longitude": -110.89
+        },
+        {
+            "id": 58,
+            "latitude": 36.13,
+            "longitude": -95.92
+        },
+        {
+            "id": 59,
+            "latitude": 38.91,
+            "longitude": -77.02
+        },
+        {
+            "id": 60,
+            "latitude": 26.75,
+            "longitude": -80.13
+        }
+    ],
+    "links": [
+        {
+            "distance": 346,
+            "source": 1,
+            "target": 8
+        },
+        {
+            "distance": 293,
+            "source": 1,
+            "target": 53
+        },
+        {
+            "distance": 809,
+            "source": 2,
+            "target": 16
+        },
+        {
+            "distance": 546,
+            "source": 2,
+            "target": 18
+        },
+        {
+            "distance": 333,
+            "source": 3,
+            "target": 7
+        },
+        {
+            "distance": 549,
+            "source": 3,
+            "target": 10
+        },
+        {
+            "distance": 692,
+            "source": 3,
+            "target": 22
+        },
+        {
+            "distance": 224,
+            "source": 4,
+            "target": 37
+        },
+        {
+            "distance": 84,
+            "source": 4,
+            "target": 59
+        },
+        {
+            "distance": 625,
+            "source": 5,
+            "target": 21
+        },
+        {
+            "distance": 184,
+            "source": 5,
+            "target": 32
+        },
+        {
+            "distance": 1500,
+            "source": 6,
+            "target": 51
+        },
+        {
+            "distance": 1500,
+            "source": 6,
+            "target": 30
+        },
+        {
+            "distance": 440,
+            "source": 7,
+            "target": 31
+        },
+        {
+            "distance": 728,
+            "source": 7,
+            "target": 32
+        },
+        {
+            "distance": 100,
+            "source": 8,
+            "target": 41
+        },
+        {
+            "distance": 333,
+            "source": 9,
+            "target": 53
+        },
+        {
+            "distance": 420,
+            "source": 9,
+            "target": 13
+        },
+        {
+            "distance": 200,
+            "source": 10,
+            "target": 19
+        },
+        {
+            "distance": 625,
+            "source": 11,
+            "target": 52
+        },
+        {
+            "distance": 574,
+            "source": 11,
+            "target": 17
+        },
+        {
+            "distance": 207,
+            "source": 11,
+            "target": 29
+        },
+        {
+            "distance": 241,
+            "source": 12,
+            "target": 14
+        },
+        {
+            "distance": 222,
+            "source": 12,
+            "target": 27
+        },
+        {
+            "distance": 971,
+            "source": 12,
+            "target": 59
+        },
+        {
+            "distance": 299,
+            "source": 13,
+            "target": 14
+        },
+        {
+            "distance": 239,
+            "source": 13,
+            "target": 56
+        },
+        {
+            "distance": 368,
+            "source": 14,
+            "target": 39
+        },
+        {
+            "distance": 569,
+            "source": 15,
+            "target": 58
+        },
+        {
+            "distance": 1372,
+            "source": 15,
+            "target": 18
+        },
+        {
+            "distance": 541,
+            "source": 15,
+            "target": 21
+        },
+        {
+            "distance": 692,
+            "source": 15,
+            "target": 25
+        },
+        {
+            "distance": 1150,
+            "source": 16,
+            "target": 36
+        },
+        {
+            "distance": 914,
+            "source": 16,
+            "target": 44
+        },
+        {
+            "distance": 134,
+            "source": 17,
+            "target": 56
+        },
+        {
+            "distance": 1205,
+            "source": 18,
+            "target": 45
+        },
+        {
+            "distance": 632,
+            "source": 18,
+            "target": 57
+        },
+        {
+            "distance": 601,
+            "source": 19,
+            "target": 59
+        },
+        {
+            "distance": 863,
+            "source": 19,
+            "target": 27
+        },
+        {
+            "distance": 164,
+            "source": 19,
+            "target": 42
+        },
+        {
+            "distance": 242,
+            "source": 20,
+            "target": 33
+        },
+        {
+            "distance": 157,
+            "source": 20,
+            "target": 41
+        },
+        {
+            "distance": 455,
+            "source": 21,
+            "target": 45
+        },
+        {
+            "distance": 1007,
+            "source": 22,
+            "target": 42
+        },
+        {
+            "distance": 638,
+            "source": 22,
+            "target": 60
+        },
+        {
+            "distance": 392,
+            "source": 23,
+            "target": 36
+        },
+        {
+            "distance": 588,
+            "source": 23,
+            "target": 52
+        },
+        {
+            "distance": 523,
+            "source": 23,
+            "target": 58
+        },
+        {
+            "distance": 968,
+            "source": 24,
+            "target": 35
+        },
+        {
+            "distance": 558,
+            "source": 24,
+            "target": 26
+        },
+        {
+            "distance": 620,
+            "source": 24,
+            "target": 38
+        },
+        {
+            "distance": 875,
+            "source": 24,
+            "target": 44
+        },
+        {
+            "distance": 794,
+            "source": 25,
+            "target": 31
+        },
+        {
+            "distance": 280,
+            "source": 26,
+            "target": 46
+        },
+        {
+            "distance": 188,
+            "source": 26,
+            "target": 49
+        },
+        {
+            "distance": 369,
+            "source": 27,
+            "target": 31
+        },
+        {
+            "distance": 592,
+            "source": 27,
+            "target": 52
+        },
+        {
+            "distance": 496,
+            "source": 28,
+            "target": 55
+        },
+        {
+            "distance": 162,
+            "source": 28,
+            "target": 60
+        },
+        {
+            "distance": 710,
+            "source": 29,
+            "target": 30
+        },
+        {
+            "distance": 701,
+            "source": 30,
+            "target": 36
+        },
+        {
+            "distance": 816,
+            "source": 32,
+            "target": 54
+        },
+        {
+            "distance": 30,
+            "source": 33,
+            "target": 34
+        },
+        {
+            "distance": 249,
+            "source": 33,
+            "target": 50
+        },
+        {
+            "distance": 170,
+            "source": 34,
+            "target": 37
+        },
+        {
+            "distance": 166,
+            "source": 35,
+            "target": 43
+        },
+        {
+            "distance": 1419,
+            "source": 35,
+            "target": 44
+        },
+        {
+            "distance": 32,
+            "source": 35,
+            "target": 47
+        },
+        {
+            "distance": 242,
+            "source": 37,
+            "target": 50
+        },
+        {
+            "distance": 718,
+            "source": 38,
+            "target": 46
+        },
+        {
+            "distance": 278,
+            "source": 38,
+            "target": 57
+        },
+        {
+            "distance": 592,
+            "source": 39,
+            "target": 50
+        },
+        {
+            "distance": 1172,
+            "source": 40,
+            "target": 43
+        },
+        {
+            "distance": 349,
+            "source": 40,
+            "target": 51
+        },
+        {
+            "distance": 1500,
+            "source": 44,
+            "target": 51
+        },
+        {
+            "distance": 96,
+            "source": 47,
+            "target": 48
+        },
+        {
+            "distance": 559,
+            "source": 48,
+            "target": 49
+        },
+        {
+            "distance": 280,
+            "source": 50,
+            "target": 53
+        },
+        {
+            "distance": 492,
+            "source": 54,
+            "target": 55
+        }
+    ]
+}

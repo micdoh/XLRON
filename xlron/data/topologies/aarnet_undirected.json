@@ -1,0 +1,243 @@
+{
+    "directed": false,
+    "multigraph": false,
+    "graph": {},
+    "nodes": [
+        {
+            "id": 1,
+            "name": "Sydney",
+            "latitude": -33.87,
+            "longitude": 151.21
+        },
+        {
+            "id": 2,
+            "name": "Brisbane",
+            "latitude": -27.47,
+            "longitude": 153.03
+        },
+        {
+            "id": 3,
+            "name": "Canberra",
+            "latitude": -35.28,
+            "longitude": 149.13
+        },
+        {
+            "id": 4,
+            "name": "Sydney",
+            "latitude": -33.87,
+            "longitude": 151.21
+        },
+        {
+            "id": 5,
+            "name": "Townsville",
+            "latitude": -19.25,
+            "longitude": 146.8
+        },
+        {
+            "id": 6,
+            "name": "Cairns",
+            "latitude": -16.92,
+            "longitude": 145.77
+        },
+        {
+            "id": 7,
+            "name": "Brisbane",
+            "latitude": -27.47,
+            "longitude": 153.03
+        },
+        {
+            "id": 8,
+            "name": "Rockhampton",
+            "latitude": -23.38,
+            "longitude": 150.5
+        },
+        {
+            "id": 9,
+            "name": "Armidale",
+            "latitude": -30.52,
+            "longitude": 151.65
+        },
+        {
+            "id": 10,
+            "name": "Hobart",
+            "latitude": -42.88,
+            "longitude": 147.33
+        },
+        {
+            "id": 11,
+            "name": "Canberra",
+            "latitude": -35.28,
+            "longitude": 149.13
+        },
+        {
+            "id": 12,
+            "name": "West Leederville",
+            "latitude": -31.93,
+            "longitude": 115.83
+        },
+        {
+            "id": 13,
+            "name": "West Leederville",
+            "latitude": -31.93,
+            "longitude": 115.83
+        },
+        {
+            "id": 14,
+            "name": "Adelaide",
+            "latitude": -34.93,
+            "longitude": 138.6
+        },
+        {
+            "id": 15,
+            "name": "Adelaide",
+            "latitude": -34.93,
+            "longitude": 138.6
+        },
+        {
+            "id": 16,
+            "name": "Melbourne",
+            "latitude": -37.81,
+            "longitude": 144.96
+        },
+        {
+            "id": 17,
+            "name": "Melbourne",
+            "latitude": -37.81,
+            "longitude": 144.96
+        },
+        {
+            "id": 18,
+            "name": "Alice Springs",
+            "latitude": -23.7,
+            "longitude": 133.88
+        },
+        {
+            "id": 19,
+            "name": "Darwin",
+            "latitude": -12.46,
+            "longitude": 130.84
+        }
+    ],
+    "links": [
+        {
+            "distance": 370,
+            "source": 1,
+            "target": 11
+        },
+        {
+            "distance": 1,
+            "source": 1,
+            "target": 4
+        },
+        {
+            "distance": 1099,
+            "source": 1,
+            "target": 7
+        },
+        {
+            "distance": 1099,
+            "source": 2,
+            "target": 4
+        },
+        {
+            "distance": 1,
+            "source": 2,
+            "target": 7
+        },
+        {
+            "distance": 1,
+            "source": 3,
+            "target": 11
+        },
+        {
+            "distance": 700,
+            "source": 3,
+            "target": 16
+        },
+        {
+            "distance": 562,
+            "source": 4,
+            "target": 9
+        },
+        {
+            "distance": 1070,
+            "source": 4,
+            "target": 17
+        },
+        {
+            "distance": 422,
+            "source": 5,
+            "target": 6
+        },
+        {
+            "distance": 897,
+            "source": 5,
+            "target": 8
+        },
+        {
+            "distance": 781,
+            "source": 7,
+            "target": 8
+        },
+        {
+            "distance": 898,
+            "source": 10,
+            "target": 17
+        },
+        {
+            "distance": 898,
+            "source": 10,
+            "target": 16
+        },
+        {
+            "distance": 1,
+            "source": 12,
+            "target": 13
+        },
+        {
+            "distance": 2668,
+            "source": 12,
+            "target": 14
+        },
+        {
+            "distance": 2668,
+            "source": 13,
+            "target": 15
+        },
+        {
+            "distance": 3273,
+            "source": 14,
+            "target": 19
+        },
+        {
+            "distance": 1,
+            "source": 14,
+            "target": 15
+        },
+        {
+            "distance": 980,
+            "source": 14,
+            "target": 16
+        },
+        {
+            "distance": 980,
+            "source": 15,
+            "target": 17
+        },
+        {
+            "distance": 1662,
+            "source": 15,
+            "target": 18
+        },
+        {
+            "distance": 1,
+            "source": 16,
+            "target": 17
+        },
+        {
+            "distance": 1613,
+            "source": 18,
+            "target": 19
+        }
+    ]
+}

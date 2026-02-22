@@ -1,0 +1,620 @@
+{
+    "directed": false,
+    "multigraph": false,
+    "graph": {},
+    "nodes": [
+        {
+            "id": 1,
+            "name": "Seattle",
+            "latitude": 47.6038321,
+            "longitude": -122.330062
+        },
+        {
+            "id": 2,
+            "name": "Lacey",
+            "latitude": 46.9914485,
+            "longitude": -122.793870264497
+        },
+        {
+            "id": 3,
+            "name": "Portland",
+            "latitude": 45.5202471,
+            "longitude": -122.674194
+        },
+        {
+            "id": 4,
+            "name": "Eugene",
+            "latitude": 44.0505054,
+            "longitude": -123.0950506
+        },
+        {
+            "id": 5,
+            "name": "Sunnyvale",
+            "latitude": 37.3688301,
+            "longitude": -122.036349
+        },
+        {
+            "id": 6,
+            "name": "San Jose",
+            "latitude": 37.3361663,
+            "longitude": -121.890591
+        },
+        {
+            "id": 7,
+            "name": "Los Angeles",
+            "latitude": 34.0536909,
+            "longitude": -118.242766
+        },
+        {
+            "id": 8,
+            "name": "Phoenix",
+            "latitude": 33.4484367,
+            "longitude": -112.074141
+        },
+        {
+            "id": 9,
+            "name": "South Tucson",
+            "latitude": 32.2228765,
+            "longitude": -110.974847
+        },
+        {
+            "id": 10,
+            "name": "El Paso",
+            "latitude": 31.7601164,
+            "longitude": -106.4870404
+        },
+        {
+            "id": 11,
+            "name": "Albuquerque",
+            "latitude": 35.0841034,
+            "longitude": -106.650985
+        },
+        {
+            "id": 12,
+            "name": "Sanderson",
+            "latitude": 30.1424077,
+            "longitude": -102.394024
+        },
+        {
+            "id": 13,
+            "name": "Dallas",
+            "latitude": 32.7762719,
+            "longitude": -96.7968559
+        },
+        {
+            "id": 14,
+            "name": "Houston",
+            "latitude": 29.7589382,
+            "longitude": -95.3676974
+        },
+        {
+            "id": 15,
+            "name": "San Antonio",
+            "latitude": 29.4246002,
+            "longitude": -98.4951405
+        },
+        {
+            "id": 16,
+            "name": "Jackson",
+            "latitude": 32.2998686,
+            "longitude": -90.1830408
+        },
+        {
+            "id": 17,
+            "name": "Port Allen",
+            "latitude": 30.4494155,
+            "longitude": -91.1869659
+        },
+        {
+            "id": 18,
+            "name": "Pensacola",
+            "latitude": 30.421309,
+            "longitude": -87.2169149
+        },
+        {
+            "id": 19,
+            "name": "Jacksonville",
+            "latitude": 30.3321838,
+            "longitude": -81.655651
+        },
+        {
+            "id": 20,
+            "name": "Atlanta",
+            "latitude": 33.7489924,
+            "longitude": -84.3902644
+        },
+        {
+            "id": 21,
+            "name": "Charlotte",
+            "latitude": 35.2272086,
+            "longitude": -80.8430827
+        },
+        {
+            "id": 22,
+            "name": "Raleigh",
+            "latitude": 35.7803977,
+            "longitude": -78.6390989
+        },
+        {
+            "id": 23,
+            "name": "Washington, D.C.",
+            "latitude": 38.8950368,
+            "longitude": -77.0365427
+        },
+        {
+            "id": 24,
+            "name": "Baltimore",
+            "latitude": 39.2908816,
+            "longitude": -76.610759
+        },
+        {
+            "id": 25,
+            "name": "Ashburn",
+            "latitude": 39.0300191,
+            "longitude": -77.46964646557657
+        },
+        {
+            "id": 26,
+            "name": "Philadelphia",
+            "latitude": 39.9527237,
+            "longitude": -75.1635262
+        },
+        {
+            "id": 27,
+            "name": "New York City",
+            "latitude": 40.7127281,
+            "longitude": -74.0060152
+        },
+        {
+            "id": 28,
+            "name": "Hartford",
+            "latitude": 41.764582,
+            "longitude": -72.6908547
+        },
+        {
+            "id": 29,
+            "name": "Boston",
+            "latitude": 42.3554334,
+            "longitude": -71.060511
+        },
+        {
+            "id": 30,
+            "name": "Pittsburgh",
+            "latitude": 40.4416941,
+            "longitude": -79.9900861
+        },
+        {
+            "id": 31,
+            "name": "Cleveland",
+            "latitude": 41.4996574,
+            "longitude": -81.6936772
+        },
+        {
+            "id": 32,
+            "name": "Toledo",
+            "latitude": 39.8560679,
+            "longitude": -4.0239568
+        },
+        {
+            "id": 33,
+            "name": "Chicago",
+            "latitude": 41.8755616,
+            "longitude": -87.6244212
+        },
+        {
+            "id": 34,
+            "name": "Indianapolis",
+            "latitude": 39.7683331,
+            "longitude": -86.1583502
+        },
+        {
+            "id": 35,
+            "name": "Covington",
+            "latitude": 39.1014537,
+            "longitude": -84.5124602
+        },
+        {
+            "id": 36,
+            "name": "Louisville",
+            "latitude": 38.2542376,
+            "longitude": -85.759407
+        },
+        {
+            "id": 37,
+            "name": "Nashville",
+            "latitude": 36.1622767,
+            "longitude": -86.7742984
+        },
+        {
+            "id": 38,
+            "name": "Memphis",
+            "latitude": 35.1460249,
+            "longitude": -90.0517638
+        },
+        {
+            "id": 39,
+            "name": "Huntsville",
+            "latitude": 34.729847,
+            "longitude": -86.5859011
+        },
+        {
+            "id": 40,
+            "name": "St. Louis",
+            "latitude": 38.6280278,
+            "longitude": -90.1910154
+        },
+        {
+            "id": 41,
+            "name": "Kansas City",
+            "latitude": 39.100105,
+            "longitude": -94.5781416
+        },
+        {
+            "id": 42,
+            "name": "Omaha",
+            "latitude": 41.2587459,
+            "longitude": -95.9383758
+        },
+        {
+            "id": 43,
+            "name": "Minneapolis",
+            "latitude": 44.9772995,
+            "longitude": -93.2654692
+        },
+        {
+            "id": 44,
+            "name": "Fargo",
+            "latitude": 46.877229,
+            "longitude": -96.789821
+        },
+        {
+            "id": 45,
+            "name": "Missoula",
+            "latitude": 46.8701049,
+            "longitude": -113.995267
+        },
+        {
+            "id": 46,
+            "name": "Boise",
+            "latitude": 43.6166163,
+            "longitude": -116.200886
+        },
+        {
+            "id": 47,
+            "name": "Reno",
+            "latitude": 39.5261206,
+            "longitude": -119.8126581
+        },
+        {
+            "id": 48,
+            "name": "Sacramento",
+            "latitude": 38.5810606,
+            "longitude": -121.493895
+        },
+        {
+            "id": 49,
+            "name": "Las Vegas",
+            "latitude": 36.1672559,
+            "longitude": -115.148516
+        },
+        {
+            "id": 50,
+            "name": "Tulelake",
+            "latitude": 41.6487907,
+            "longitude": -121.2931651
+        },
+        {
+            "id": 51,
+            "name": "Hunters Creek Village",
+            "latitude": 29.7843829,
+            "longitude": -95.4379478
+        },
+        {
+            "id": 52,
+            "name": "Atwood",
+            "latitude": 39.7904797,
+            "longitude": -101.0994722
+        },
+        {
+            "id": 53,
+            "name": "Cheyenne",
+            "latitude": 41.139981,
+            "longitude": -104.820246
+        },
+        {
+            "id": 54,
+            "name": "Denver",
+            "latitude": 39.7392364,
+            "longitude": -104.984862
+        },
+        {
+            "id": 55,
+            "name": "Pueblo",
+            "latitude": 38.2544472,
+            "longitude": -104.609141
+        },
+        {
+            "id": 56,
+            "name": "Salt Lake City",
+            "latitude": 40.7596198,
+            "longitude": -111.886797
+        }
+    ],
+    "links": [
+        {
+            "distance": 115,
+            "source": 1,
+            "target": 2
+        },
+        {
+            "distance": 246,
+            "source": 2,
+            "target": 3
+        },
+        {
+            "distance": 250,
+            "source": 3,
+            "target": 4
+        },
+        {
+            "distance": 1122,
+            "source": 4,
+            "target": 5
+        },
+        {
+            "distance": 20,
+            "source": 5,
+            "target": 6
+        },
+        {
+            "distance": 737,
+            "source": 6,
+            "target": 7
+        },
+        {
+            "distance": 922,
+            "source": 6,
+            "target": 49
+        },
+        {
+            "distance": 550,
+            "source": 7,
+            "target": 49
+        },
+        {
+            "distance": 256,
+            "source": 8,
+            "target": 9
+        },
+        {
+            "distance": 639,
+            "source": 9,
+            "target": 10
+        },
+        {
+            "distance": 555,
+            "source": 10,
+            "target": 11
+        },
+        {
+            "distance": 1018,
+            "source": 11,
+            "target": 12
+        },
+        {
+            "distance": 909,
+            "source": 12,
+            "target": 13
+        },
+        {
+            "distance": 543,
+            "source": 13,
+            "target": 14
+        },
+        {
+            "distance": 457,
+            "source": 14,
+            "target": 15
+        },
+        {
+            "distance": 1283,
+            "source": 15,
+            "target": 16
+        },
+        {
+            "distance": 340,
+            "source": 16,
+            "target": 17
+        },
+        {
+            "distance": 571,
+            "source": 17,
+            "target": 18
+        },
+        {
+            "distance": 800,
+            "source": 18,
+            "target": 19
+        },
+        {
+            "distance": 689,
+            "source": 19,
+            "target": 20
+        },
+        {
+            "distance": 546,
+            "source": 20,
+            "target": 21
+        },
+        {
+            "distance": 313,
+            "source": 21,
+            "target": 22
+        },
+        {
+            "distance": 561,
+            "source": 22,
+            "target": 23
+        },
+        {
+            "distance": 86,
+            "source": 23,
+            "target": 24
+        },
+        {
+            "distance": 119,
+            "source": 24,
+            "target": 25
+        },
+        {
+            "distance": 334,
+            "source": 25,
+            "target": 26
+        },
+        {
+            "distance": 194,
+            "source": 26,
+            "target": 27
+        },
+        {
+            "distance": 241,
+            "source": 27,
+            "target": 28
+        },
+        {
+            "distance": 225,
+            "source": 28,
+            "target": 29
+        },
+        {
+            "distance": 951,
+            "source": 29,
+            "target": 23
+        },
+        {
+            "distance": 278,
+            "source": 30,
+            "target": 31
+        },
+        {
+            "distance": 7896,
+            "source": 31,
+            "target": 32
+        },
+        {
+            "distance": 8418,
+            "source": 32,
+            "target": 33
+        },
+        {
+            "distance": 397,
+            "source": 33,
+            "target": 34
+        },
+        {
+            "distance": 239,
+            "source": 34,
+            "target": 35
+        },
+        {
+            "distance": 215,
+            "source": 35,
+            "target": 36
+        },
+        {
+            "distance": 374,
+            "source": 36,
+            "target": 37
+        },
+        {
+            "distance": 475,
+            "source": 37,
+            "target": 38
+        },
+        {
+            "distance": 479,
+            "source": 38,
+            "target": 39
+        },
+        {
+            "distance": 344,
+            "source": 39,
+            "target": 20
+        },
+        {
+            "distance": 575,
+            "source": 40,
+            "target": 41
+        },
+        {
+            "distance": 400,
+            "source": 41,
+            "target": 42
+        },
+        {
+            "distance": 700,
+            "source": 42,
+            "target": 43
+        },
+        {
+            "distance": 517,
+            "source": 43,
+            "target": 44
+        },
+        {
+            "distance": 1632,
+            "source": 44,
+            "target": 45
+        },
+        {
+            "distance": 601,
+            "source": 45,
+            "target": 46
+        },
+        {
+            "distance": 817,
+            "source": 46,
+            "target": 47
+        },
+        {
+            "distance": 269,
+            "source": 47,
+            "target": 48
+        },
+        {
+            "distance": 932,
+            "source": 48,
+            "target": 49
+        },
+        {
+            "distance": 3332,
+            "source": 50,
+            "target": 51
+        },
+        {
+            "distance": 1533,
+            "source": 51,
+            "target": 52
+        },
+        {
+            "distance": 523,
+            "source": 52,
+            "target": 53
+        },
+        {
+            "distance": 235,
+            "source": 53,
+            "target": 54
+        },
+        {
+            "distance": 252,
+            "source": 54,
+            "target": 55
+        },
+        {
+            "distance": 1025,
+            "source": 55,
+            "target": 56
+        }
+    ]
+}

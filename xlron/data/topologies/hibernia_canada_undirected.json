@@ -1,0 +1,119 @@
+{
+    "directed": false,
+    "multigraph": false,
+    "graph": {},
+    "nodes": [
+        {
+            "id": 1,
+            "name": "Niagara Falls",
+            "latitude": 43.08,
+            "longitude": -79.07
+        },
+        {
+            "id": 2,
+            "name": "Moncton",
+            "latitude": 46.12,
+            "longitude": -64.8
+        },
+        {
+            "id": 3,
+            "name": "Edmundston",
+            "latitude": 47.37,
+            "longitude": -68.33
+        },
+        {
+            "id": 4,
+            "name": "Quebec",
+            "latitude": 46.81,
+            "longitude": -71.21
+        },
+        {
+            "id": 5,
+            "name": "Montreal",
+            "latitude": 45.51,
+            "longitude": -73.59
+        },
+        {
+            "id": 6,
+            "name": "Toronto",
+            "latitude": 43.7,
+            "longitude": -79.42
+        },
+        {
+            "id": 7,
+            "name": "Meadow Lake",
+            "latitude": 55.85,
+            "longitude": -108.48
+        },
+        {
+            "id": 8,
+            "name": "Kensington",
+            "latitude": 46.28,
+            "longitude": -63.65
+        },
+        {
+            "id": 9,
+            "name": "Hope",
+            "latitude": 49.87,
+            "longitude": -121.44
+        },
+        {
+            "id": 10,
+            "name": "Halifax",
+            "latitude": 44.65,
+            "longitude": -63.57
+        }
+    ],
+    "links": [
+        {
+            "distance": 1585,
+            "source": 1,
+            "target": 8
+        },
+        {
+            "distance": 4106,
+            "source": 1,
+            "target": 9
+        },
+        {
+            "distance": 284,
+            "source": 2,
+            "target": 10
+        },
+        {
+            "distance": 454,
+            "source": 2,
+            "target": 3
+        },
+        {
+            "distance": 340,
+            "source": 3,
+            "target": 4
+        },
+        {
+            "distance": 350,
+            "source": 4,
+            "target": 5
+        },
+        {
+            "distance": 755,
+            "source": 5,
+            "target": 6
+        },
+        {
+            "distance": 1160,
+            "source": 5,
+            "target": 8
+        },
+        {
+            "distance": 3072,
+            "source": 6,
+            "target": 7
+        },
+        {
+            "distance": 4053,
+            "source": 7,
+            "target": 8
+        }
+    ]
+}

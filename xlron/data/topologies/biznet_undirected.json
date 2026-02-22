@@ -1,0 +1,337 @@
+{
+    "directed": false,
+    "multigraph": false,
+    "graph": {},
+    "nodes": [
+        {
+            "id": 1,
+            "name": "Karangbadar Kidul",
+            "latitude": -7.73,
+            "longitude": 109.01
+        },
+        {
+            "id": 2,
+            "name": "Purwokerto",
+            "latitude": -7.42,
+            "longitude": 109.23
+        },
+        {
+            "id": 3,
+            "name": "Sukabumi",
+            "latitude": -6.92,
+            "longitude": 106.93
+        },
+        {
+            "id": 4,
+            "name": "Cilingga",
+            "latitude": -7.33,
+            "longitude": 108.2
+        },
+        {
+            "id": 5,
+            "name": "Pekalongan",
+            "latitude": -6.89,
+            "longitude": 109.68
+        },
+        {
+            "id": 6,
+            "name": "Semarang",
+            "latitude": -6.99,
+            "longitude": 110.42
+        },
+        {
+            "id": 7,
+            "name": "Magelang",
+            "latitude": -7.47,
+            "longitude": 110.22
+        },
+        {
+            "id": 8,
+            "name": "Yogyakarta",
+            "latitude": -7.78,
+            "longitude": 110.36
+        },
+        {
+            "id": 9,
+            "name": "Kudus",
+            "latitude": -6.8,
+            "longitude": 110.84
+        },
+        {
+            "id": 10,
+            "name": "Surakarta",
+            "latitude": -7.56,
+            "longitude": 110.83
+        },
+        {
+            "id": 11,
+            "name": "Naisano Dua",
+            "latitude": -9.6,
+            "longitude": 123.77
+        },
+        {
+            "id": 12,
+            "name": "Surabaya",
+            "latitude": -7.25,
+            "longitude": 112.75
+        },
+        {
+            "id": 13,
+            "name": "Kediri",
+            "latitude": -7.82,
+            "longitude": 112.02
+        },
+        {
+            "id": 14,
+            "name": "Madiun",
+            "latitude": -7.63,
+            "longitude": 111.52
+        },
+        {
+            "id": 15,
+            "name": "Merik",
+            "latitude": -6.9,
+            "longitude": 112.05
+        },
+        {
+            "id": 16,
+            "name": "Banyuwangi",
+            "latitude": -8.22,
+            "longitude": 114.36
+        },
+        {
+            "id": 17,
+            "name": "Jember",
+            "latitude": -8.17,
+            "longitude": 113.7
+        },
+        {
+            "id": 18,
+            "name": "Probolinggo",
+            "latitude": -7.75,
+            "longitude": 113.22
+        },
+        {
+            "id": 19,
+            "name": "Malang",
+            "latitude": -7.98,
+            "longitude": 112.63
+        },
+        {
+            "id": 20,
+            "name": "Umbulan",
+            "latitude": -6.77,
+            "longitude": 105.85
+        },
+        {
+            "id": 21,
+            "name": "Tegal",
+            "latitude": -6.87,
+            "longitude": 109.14
+        },
+        {
+            "id": 22,
+            "name": "Cirebon",
+            "latitude": -6.71,
+            "longitude": 108.56
+        },
+        {
+            "id": 23,
+            "name": "Bandung",
+            "latitude": -6.9,
+            "longitude": 107.62
+        },
+        {
+            "id": 24,
+            "name": "Rengasdengklok",
+            "latitude": -6.3,
+            "longitude": 107.31
+        },
+        {
+            "id": 25,
+            "name": "Jakarta",
+            "latitude": -6.21,
+            "longitude": 106.85
+        },
+        {
+            "id": 26,
+            "name": "Bogor",
+            "latitude": -6.59,
+            "longitude": 106.79
+        },
+        {
+            "id": 27,
+            "name": "Serang",
+            "latitude": -6.11,
+            "longitude": 106.15
+        },
+        {
+            "id": 28,
+            "name": "Ciparay",
+            "latitude": -6.07,
+            "longitude": 105.88
+        }
+    ],
+    "links": [
+        {
+            "distance": 63,
+            "source": 1,
+            "target": 2
+        },
+        {
+            "distance": 150,
+            "source": 1,
+            "target": 4
+        },
+        {
+            "distance": 164,
+            "source": 2,
+            "target": 7
+        },
+        {
+            "distance": 60,
+            "source": 3,
+            "target": 26
+        },
+        {
+            "distance": 114,
+            "source": 3,
+            "target": 23
+        },
+        {
+            "distance": 120,
+            "source": 4,
+            "target": 23
+        },
+        {
+            "distance": 89,
+            "source": 5,
+            "target": 21
+        },
+        {
+            "distance": 124,
+            "source": 5,
+            "target": 6
+        },
+        {
+            "distance": 76,
+            "source": 6,
+            "target": 9
+        },
+        {
+            "distance": 117,
+            "source": 6,
+            "target": 10
+        },
+        {
+            "distance": 57,
+            "source": 7,
+            "target": 8
+        },
+        {
+            "distance": 86,
+            "source": 8,
+            "target": 10
+        },
+        {
+            "distance": 201,
+            "source": 9,
+            "target": 15
+        },
+        {
+            "distance": 115,
+            "source": 10,
+            "target": 14
+        },
+        {
+            "distance": 1500,
+            "source": 11,
+            "target": 16
+        },
+        {
+            "distance": 114,
+            "source": 12,
+            "target": 18
+        },
+        {
+            "distance": 154,
+            "source": 12,
+            "target": 13
+        },
+        {
+            "distance": 130,
+            "source": 12,
+            "target": 15
+        },
+        {
+            "distance": 104,
+            "source": 13,
+            "target": 19
+        },
+        {
+            "distance": 89,
+            "source": 13,
+            "target": 14
+        },
+        {
+            "distance": 109,
+            "source": 16,
+            "target": 17
+        },
+        {
+            "distance": 106,
+            "source": 17,
+            "target": 18
+        },
+        {
+            "distance": 180,
+            "source": 17,
+            "target": 19
+        },
+        {
+            "distance": 159,
+            "source": 20,
+            "target": 26
+        },
+        {
+            "distance": 117,
+            "source": 20,
+            "target": 28
+        },
+        {
+            "distance": 100,
+            "source": 21,
+            "target": 22
+        },
+        {
+            "distance": 159,
+            "source": 22,
+            "target": 23
+        },
+        {
+            "distance": 112,
+            "source": 23,
+            "target": 24
+        },
+        {
+            "distance": 78,
+            "source": 24,
+            "target": 25
+        },
+        {
+            "distance": 64,
+            "source": 25,
+            "target": 26
+        },
+        {
+            "distance": 117,
+            "source": 25,
+            "target": 27
+        },
+        {
+            "distance": 45,
+            "source": 27,
+            "target": 28
+        }
+    ]
+}

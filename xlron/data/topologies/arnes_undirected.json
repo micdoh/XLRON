@@ -1,0 +1,194 @@
+{
+    "directed": false,
+    "multigraph": false,
+    "graph": {},
+    "nodes": [
+        {
+            "id": 1,
+            "latitude": 46.55,
+            "longitude": 15.633333333333
+        },
+        {
+            "id": 2,
+            "latitude": 46.59004243,
+            "longitude": 15.017967473
+        },
+        {
+            "id": 3,
+            "latitude": 46.366666666667,
+            "longitude": 15.116666666667
+        },
+        {
+            "id": 4,
+            "latitude": 46.22909194,
+            "longitude": 15.264128741
+        },
+        {
+            "id": 5,
+            "latitude": 46.394136552,
+            "longitude": 15.570726245
+        },
+        {
+            "id": 6,
+            "latitude": 46.156303,
+            "longitude": 15.238617
+        },
+        {
+            "id": 7,
+            "latitude": 46.15,
+            "longitude": 15.05
+        },
+        {
+            "id": 8,
+            "latitude": 45.846325,
+            "longitude": 15.424869
+        },
+        {
+            "id": 9,
+            "latitude": 45.798055555556,
+            "longitude": 15.162777777778
+        },
+        {
+            "id": 10,
+            "latitude": 45.642961111111,
+            "longitude": 14.859383333333
+        },
+        {
+            "id": 11,
+            "latitude": 46.0513888888889,
+            "longitude": 14.5061111111111
+        },
+        {
+            "id": 12,
+            "latitude": 46.23887,
+            "longitude": 14.35561
+        },
+        {
+            "id": 13,
+            "latitude": 46.366666666667,
+            "longitude": 14.116666666667
+        },
+        {
+            "id": 14,
+            "latitude": 46.183,
+            "longitude": 13.733
+        },
+        {
+            "id": 15,
+            "latitude": 45.966666666667,
+            "longitude": 13.65
+        },
+        {
+            "id": 16,
+            "latitude": 45.888356136,
+            "longitude": 13.905237912
+        },
+        {
+            "id": 17,
+            "latitude": 45.547542728,
+            "longitude": 13.7306571
+        }
+    ],
+    "links": [
+        {
+            "distance": 72,
+            "source": 1,
+            "target": 2
+        },
+        {
+            "distance": 40,
+            "source": 2,
+            "target": 3
+        },
+        {
+            "distance": 27,
+            "source": 3,
+            "target": 4
+        },
+        {
+            "distance": 45,
+            "source": 4,
+            "target": 5
+        },
+        {
+            "distance": 29,
+            "source": 5,
+            "target": 1
+        },
+        {
+            "distance": 13,
+            "source": 4,
+            "target": 6
+        },
+        {
+            "distance": 21,
+            "source": 6,
+            "target": 7
+        },
+        {
+            "distance": 66,
+            "source": 7,
+            "target": 11
+        },
+        {
+            "distance": 92,
+            "source": 11,
+            "target": 4
+        },
+        {
+            "distance": 93,
+            "source": 5,
+            "target": 8
+        },
+        {
+            "distance": 30,
+            "source": 8,
+            "target": 9
+        },
+        {
+            "distance": 45,
+            "source": 9,
+            "target": 10
+        },
+        {
+            "distance": 79,
+            "source": 10,
+            "target": 11
+        },
+        {
+            "distance": 123,
+            "source": 11,
+            "target": 17
+        },
+        {
+            "distance": 60,
+            "source": 17,
+            "target": 16
+        },
+        {
+            "distance": 32,
+            "source": 16,
+            "target": 15
+        },
+        {
+            "distance": 39,
+            "source": 15,
+            "target": 14
+        },
+        {
+            "distance": 53,
+            "source": 14,
+            "target": 13
+        },
+        {
+            "distance": 35,
+            "source": 13,
+            "target": 12
+        },
+        {
+            "distance": 37,
+            "source": 12,
+            "target": 11
+        }
+    ]
+}

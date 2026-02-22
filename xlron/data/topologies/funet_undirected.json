@@ -1,0 +1,288 @@
+{
+    "directed": false,
+    "multigraph": false,
+    "graph": {},
+    "nodes": [
+        {
+            "id": 1,
+            "name": "Kouvola",
+            "latitude": 60.87,
+            "longitude": 26.7
+        },
+        {
+            "id": 2,
+            "name": "Lahti",
+            "latitude": 60.98,
+            "longitude": 25.66
+        },
+        {
+            "id": 3,
+            "name": "Mikkeli",
+            "latitude": 61.69,
+            "longitude": 27.27
+        },
+        {
+            "id": 4,
+            "name": "Jyvaeskylae",
+            "latitude": 62.23,
+            "longitude": 25.73
+        },
+        {
+            "id": 5,
+            "name": "Seinaejoki",
+            "latitude": 62.8,
+            "longitude": 22.83
+        },
+        {
+            "id": 6,
+            "name": "Pori",
+            "latitude": 61.48,
+            "longitude": 21.78
+        },
+        {
+            "id": 7,
+            "name": "Tampere",
+            "latitude": 61.5,
+            "longitude": 23.79
+        },
+        {
+            "id": 8,
+            "name": "Haemeenlinna",
+            "latitude": 61.0,
+            "longitude": 24.46
+        },
+        {
+            "id": 9,
+            "name": "Rauma",
+            "latitude": 61.13,
+            "longitude": 21.51
+        },
+        {
+            "id": 10,
+            "name": "Turku",
+            "latitude": 60.45,
+            "longitude": 22.27
+        },
+        {
+            "id": 11,
+            "name": "Kotka",
+            "latitude": 60.47,
+            "longitude": 26.92
+        },
+        {
+            "id": 12,
+            "name": "Helsinki",
+            "latitude": 60.17,
+            "longitude": 24.94
+        },
+        {
+            "id": 13,
+            "name": "Espoo",
+            "latitude": 60.21,
+            "longitude": 24.65
+        },
+        {
+            "id": 14,
+            "name": "Salo",
+            "latitude": 60.38,
+            "longitude": 23.13
+        },
+        {
+            "id": 15,
+            "name": "Joensuu",
+            "latitude": 62.6,
+            "longitude": 29.77
+        },
+        {
+            "id": 16,
+            "name": "Lappeenranta",
+            "latitude": 61.06,
+            "longitude": 28.19
+        },
+        {
+            "id": 17,
+            "name": "Oulu",
+            "latitude": 65.01,
+            "longitude": 25.47
+        },
+        {
+            "id": 18,
+            "name": "Haukipudas",
+            "latitude": 65.18,
+            "longitude": 25.35
+        },
+        {
+            "id": 19,
+            "name": "Rovaniemi",
+            "latitude": 66.5,
+            "longitude": 25.72
+        },
+        {
+            "id": 20,
+            "name": "Sodankylae",
+            "latitude": 67.42,
+            "longitude": 26.6
+        },
+        {
+            "id": 21,
+            "name": "Ristijaervi",
+            "latitude": 64.5,
+            "longitude": 28.22
+        },
+        {
+            "id": 22,
+            "name": "Kokkola",
+            "latitude": 63.84,
+            "longitude": 23.13
+        },
+        {
+            "id": 23,
+            "name": "Vaasa",
+            "latitude": 63.1,
+            "longitude": 21.62
+        },
+        {
+            "id": 24,
+            "name": "Kuopio",
+            "latitude": 62.89,
+            "longitude": 27.68
+        }
+    ],
+    "links": [
+        {
+            "distance": 86,
+            "source": 1,
+            "target": 2
+        },
+        {
+            "distance": 69,
+            "source": 1,
+            "target": 11
+        },
+        {
+            "distance": 144,
+            "source": 1,
+            "target": 3
+        },
+        {
+            "distance": 125,
+            "source": 1,
+            "target": 16
+        },
+        {
+            "distance": 147,
+            "source": 2,
+            "target": 12
+        },
+        {
+            "distance": 203,
+            "source": 3,
+            "target": 24
+        },
+        {
+            "distance": 151,
+            "source": 3,
+            "target": 4
+        },
+        {
+            "distance": 195,
+            "source": 4,
+            "target": 7
+        },
+        {
+            "distance": 105,
+            "source": 5,
+            "target": 23
+        },
+        {
+            "distance": 235,
+            "source": 5,
+            "target": 6
+        },
+        {
+            "distance": 62,
+            "source": 6,
+            "target": 9
+        },
+        {
+            "distance": 99,
+            "source": 7,
+            "target": 8
+        },
+        {
+            "distance": 133,
+            "source": 8,
+            "target": 13
+        },
+        {
+            "distance": 129,
+            "source": 9,
+            "target": 10
+        },
+        {
+            "distance": 72,
+            "source": 10,
+            "target": 14
+        },
+        {
+            "distance": 25,
+            "source": 12,
+            "target": 13
+        },
+        {
+            "distance": 129,
+            "source": 13,
+            "target": 14
+        },
+        {
+            "distance": 285,
+            "source": 15,
+            "target": 16
+        },
+        {
+            "distance": 167,
+            "source": 15,
+            "target": 24
+        },
+        {
+            "distance": 30,
+            "source": 17,
+            "target": 18
+        },
+        {
+            "distance": 213,
+            "source": 17,
+            "target": 21
+        },
+        {
+            "distance": 258,
+            "source": 17,
+            "target": 22
+        },
+        {
+            "distance": 222,
+            "source": 18,
+            "target": 19
+        },
+        {
+            "distance": 164,
+            "source": 19,
+            "target": 20
+        },
+        {
+            "distance": 376,
+            "source": 19,
+            "target": 21
+        },
+        {
+            "distance": 271,
+            "source": 21,
+            "target": 24
+        },
+        {
+            "distance": 167,
+            "source": 22,
+            "target": 23
+        }
+    ]
+}

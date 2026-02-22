@@ -1,0 +1,184 @@
+{
+    "directed": false,
+    "multigraph": false,
+    "graph": {},
+    "nodes": [
+        {
+            "id": 1,
+            "name": "Odense",
+            "latitude": 55.4,
+            "longitude": 10.39
+        },
+        {
+            "id": 2,
+            "name": "Nyborg",
+            "latitude": 55.31,
+            "longitude": 10.79
+        },
+        {
+            "id": 3,
+            "name": "Vejle",
+            "latitude": 55.71,
+            "longitude": 9.54
+        },
+        {
+            "id": 4,
+            "name": "Kolding",
+            "latitude": 55.49,
+            "longitude": 9.47
+        },
+        {
+            "id": 5,
+            "name": "Holbaek",
+            "latitude": 55.72,
+            "longitude": 11.72
+        },
+        {
+            "id": 6,
+            "name": "Kongens Lyngby",
+            "latitude": 55.77,
+            "longitude": 12.5
+        },
+        {
+            "id": 7,
+            "name": "Slagelse",
+            "latitude": 55.4,
+            "longitude": 11.35
+        },
+        {
+            "id": 8,
+            "name": "Fuglebjerg",
+            "latitude": 55.31,
+            "longitude": 11.55
+        },
+        {
+            "id": 9,
+            "name": "Tarnby",
+            "latitude": 55.63,
+            "longitude": 12.6
+        },
+        {
+            "id": 10,
+            "name": "Herning",
+            "latitude": 56.14,
+            "longitude": 8.97
+        },
+        {
+            "id": 11,
+            "name": "Aalborg",
+            "latitude": 57.05,
+            "longitude": 9.92
+        },
+        {
+            "id": 12,
+            "name": "Farso",
+            "latitude": 56.77,
+            "longitude": 9.34
+        },
+        {
+            "id": 13,
+            "name": "Hobro",
+            "latitude": 56.64,
+            "longitude": 9.79
+        },
+        {
+            "id": 14,
+            "name": "Silkeborg",
+            "latitude": 56.17,
+            "longitude": 9.55
+        },
+        {
+            "id": 15,
+            "name": "Arhus",
+            "latitude": 56.16,
+            "longitude": 10.21
+        }
+    ],
+    "links": [
+        {
+            "distance": 41,
+            "source": 1,
+            "target": 2
+        },
+        {
+            "distance": 95,
+            "source": 1,
+            "target": 3
+        },
+        {
+            "distance": 88,
+            "source": 1,
+            "target": 4
+        },
+        {
+            "distance": 55,
+            "source": 2,
+            "target": 7
+        },
+        {
+            "distance": 72,
+            "source": 2,
+            "target": 8
+        },
+        {
+            "distance": 89,
+            "source": 3,
+            "target": 10
+        },
+        {
+            "distance": 37,
+            "source": 3,
+            "target": 4
+        },
+        {
+            "distance": 98,
+            "source": 3,
+            "target": 15
+        },
+        {
+            "distance": 74,
+            "source": 5,
+            "target": 6
+        },
+        {
+            "distance": 64,
+            "source": 5,
+            "target": 7
+        },
+        {
+            "distance": 25,
+            "source": 6,
+            "target": 9
+        },
+        {
+            "distance": 113,
+            "source": 8,
+            "target": 9
+        },
+        {
+            "distance": 54,
+            "source": 10,
+            "target": 14
+        },
+        {
+            "distance": 71,
+            "source": 11,
+            "target": 12
+        },
+        {
+            "distance": 69,
+            "source": 11,
+            "target": 13
+        },
+        {
+            "distance": 102,
+            "source": 12,
+            "target": 14
+        },
+        {
+            "distance": 89,
+            "source": 13,
+            "target": 15
+        }
+    ]
+}

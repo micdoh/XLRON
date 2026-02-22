@@ -1,0 +1,501 @@
+{
+    "directed": true,
+    "multigraph": false,
+    "graph": {},
+    "nodes": [
+        {
+            "id": 1,
+            "name": "Vienna",
+            "latitude": 48.2091,
+            "longitude": 16.3729
+        },
+        {
+            "id": 2,
+            "name": "Brussels",
+            "latitude": 50.8469,
+            "longitude": 4.3518
+        },
+        {
+            "id": 3,
+            "name": "Geneve",
+            "latitude": 46.2038,
+            "longitude": 6.1399
+        },
+        {
+            "id": 4,
+            "name": "Karlin",
+            "latitude": 50.0785,
+            "longitude": 14.4423
+        },
+        {
+            "id": 5,
+            "name": "Frankfurt am Main",
+            "latitude": 50.1122,
+            "longitude": 8.6842
+        },
+        {
+            "id": 6,
+            "name": "Madrid",
+            "latitude": 40.4167,
+            "longitude": -3.7033
+        },
+        {
+            "id": 7,
+            "name": "Paris",
+            "latitude": 48.8566,
+            "longitude": 2.351
+        },
+        {
+            "id": 8,
+            "name": "Perama",
+            "latitude": 37.9778,
+            "longitude": 23.5808
+        },
+        {
+            "id": 9,
+            "name": "Zagreb - Centar",
+            "latitude": 45.8071,
+            "longitude": 15.9644
+        },
+        {
+            "id": 10,
+            "name": "Budapest VIII. keruelet",
+            "latitude": 47.4976,
+            "longitude": 19.0936
+        },
+        {
+            "id": 11,
+            "name": "Dublin",
+            "latitude": 53.3416,
+            "longitude": -6.2573
+        },
+        {
+            "id": 12,
+            "name": "Giv`atayim",
+            "latitude": 32.0714,
+            "longitude": 34.8097
+        },
+        {
+            "id": 13,
+            "name": "Milano",
+            "latitude": 45.4642,
+            "longitude": 9.19
+        },
+        {
+            "id": 14,
+            "name": "Luxembourg",
+            "latitude": 49.6112,
+            "longitude": 6.1296
+        },
+        {
+            "id": 15,
+            "name": "Duivendrecht",
+            "latitude": 52.3236,
+            "longitude": 4.9407
+        },
+        {
+            "id": 16,
+            "name": "Brooklyn",
+            "latitude": 40.6698,
+            "longitude": -73.94384
+        },
+        {
+            "id": 17,
+            "name": "Poznan",
+            "latitude": 52.3963,
+            "longitude": 16.8874
+        },
+        {
+            "id": 18,
+            "name": "Lisbon",
+            "latitude": 38.7073,
+            "longitude": -9.1363
+        },
+        {
+            "id": 19,
+            "name": "Bromma",
+            "latitude": 59.3617,
+            "longitude": 17.8742
+        },
+        {
+            "id": 20,
+            "name": "Ljubljana",
+            "latitude": 46.0574,
+            "longitude": 14.5148
+        },
+        {
+            "id": 21,
+            "name": "Bratislava",
+            "latitude": 48.1531,
+            "longitude": 17.1297
+        },
+        {
+            "id": 22,
+            "name": "London",
+            "latitude": 51.5086,
+            "longitude": -0.1264
+        }
+    ],
+    "links": [
+        {
+            "distance": 1206,
+            "source": 1,
+            "target": 3
+        },
+        {
+            "distance": 896,
+            "source": 1,
+            "target": 5
+        },
+        {
+            "distance": 327,
+            "source": 1,
+            "target": 10
+        },
+        {
+            "distance": 8494,
+            "source": 1,
+            "target": 16
+        },
+        {
+            "distance": 416,
+            "source": 1,
+            "target": 20
+        },
+        {
+            "distance": 396,
+            "source": 2,
+            "target": 7
+        },
+        {
+            "distance": 280,
+            "source": 2,
+            "target": 14
+        },
+        {
+            "distance": 254,
+            "source": 2,
+            "target": 15
+        },
+        {
+            "distance": 615,
+            "source": 3,
+            "target": 7
+        },
+        {
+            "distance": 375,
+            "source": 3,
+            "target": 13
+        },
+        {
+            "distance": 616,
+            "source": 4,
+            "target": 5
+        },
+        {
+            "distance": 463,
+            "source": 4,
+            "target": 17
+        },
+        {
+            "distance": 435,
+            "source": 4,
+            "target": 21
+        },
+        {
+            "distance": 717,
+            "source": 5,
+            "target": 7
+        },
+        {
+            "distance": 2241,
+            "source": 5,
+            "target": 8
+        },
+        {
+            "distance": 1500,
+            "source": 5,
+            "target": 11
+        },
+        {
+            "distance": 777,
+            "source": 5,
+            "target": 13
+        },
+        {
+            "distance": 537,
+            "source": 5,
+            "target": 15
+        },
+        {
+            "distance": 1500,
+            "source": 5,
+            "target": 19
+        },
+        {
+            "distance": 1500,
+            "source": 6,
+            "target": 7
+        },
+        {
+            "distance": 1500,
+            "source": 6,
+            "target": 13
+        },
+        {
+            "distance": 754,
+            "source": 6,
+            "target": 18
+        },
+        {
+            "distance": 430,
+            "source": 7,
+            "target": 14
+        },
+        {
+            "distance": 515,
+            "source": 7,
+            "target": 22
+        },
+        {
+            "distance": 1815,
+            "source": 8,
+            "target": 13
+        },
+        {
+            "distance": 456,
+            "source": 9,
+            "target": 10
+        },
+        {
+            "distance": 173,
+            "source": 9,
+            "target": 20
+        },
+        {
+            "distance": 246,
+            "source": 10,
+            "target": 21
+        },
+        {
+            "distance": 694,
+            "source": 11,
+            "target": 22
+        },
+        {
+            "distance": 3320,
+            "source": 12,
+            "target": 13
+        },
+        {
+            "distance": 4116,
+            "source": 12,
+            "target": 15
+        },
+        {
+            "distance": 539,
+            "source": 15,
+            "target": 22
+        },
+        {
+            "distance": 6961,
+            "source": 16,
+            "target": 22
+        },
+        {
+            "distance": 1165,
+            "source": 17,
+            "target": 19
+        },
+        {
+            "distance": 1983,
+            "source": 18,
+            "target": 22
+        },
+        {
+            "distance": 1781,
+            "source": 19,
+            "target": 22
+        },
+        {
+            "distance": 1206,
+            "source": 3,
+            "target": 1
+        },
+        {
+            "distance": 896,
+            "source": 5,
+            "target": 1
+        },
+        {
+            "distance": 327,
+            "source": 10,
+            "target": 1
+        },
+        {
+            "distance": 8494,
+            "source": 16,
+            "target": 1
+        },
+        {
+            "distance": 416,
+            "source": 20,
+            "target": 1
+        },
+        {
+            "distance": 396,
+            "source": 7,
+            "target": 2
+        },
+        {
+            "distance": 280,
+            "source": 14,
+            "target": 2
+        },
+        {
+            "distance": 254,
+            "source": 15,
+            "target": 2
+        },
+        {
+            "distance": 615,
+            "source": 7,
+            "target": 3
+        },
+        {
+            "distance": 375,
+            "source": 13,
+            "target": 3
+        },
+        {
+            "distance": 616,
+            "source": 5,
+            "target": 4
+        },
+        {
+            "distance": 463,
+            "source": 17,
+            "target": 4
+        },
+        {
+            "distance": 435,
+            "source": 21,
+            "target": 4
+        },
+        {
+            "distance": 717,
+            "source": 7,
+            "target": 5
+        },
+        {
+            "distance": 2241,
+            "source": 8,
+            "target": 5
+        },
+        {
+            "distance": 1500,
+            "source": 11,
+            "target": 5
+        },
+        {
+            "distance": 777,
+            "source": 13,
+            "target": 5
+        },
+        {
+            "distance": 537,
+            "source": 15,
+            "target": 5
+        },
+        {
+            "distance": 1500,
+            "source": 19,
+            "target": 5
+        },
+        {
+            "distance": 1500,
+            "source": 7,
+            "target": 6
+        },
+        {
+            "distance": 1500,
+            "source": 13,
+            "target": 6
+        },
+        {
+            "distance": 754,
+            "source": 18,
+            "target": 6
+        },
+        {
+            "distance": 430,
+            "source": 14,
+            "target": 7
+        },
+        {
+            "distance": 515,
+            "source": 22,
+            "target": 7
+        },
+        {
+            "distance": 1815,
+            "source": 13,
+            "target": 8
+        },
+        {
+            "distance": 456,
+            "source": 10,
+            "target": 9
+        },
+        {
+            "distance": 173,
+            "source": 20,
+            "target": 9
+        },
+        {
+            "distance": 246,
+            "source": 21,
+            "target": 10
+        },
+        {
+            "distance": 694,
+            "source": 22,
+            "target": 11
+        },
+        {
+            "distance": 3320,
+            "source": 13,
+            "target": 12
+        },
+        {
+            "distance": 4116,
+            "source": 15,
+            "target": 12
+        },
+        {
+            "distance": 539,
+            "source": 22,
+            "target": 15
+        },
+        {
+            "distance": 6961,
+            "source": 22,
+            "target": 16
+        },
+        {
+            "distance": 1165,
+            "source": 19,
+            "target": 17
+        },
+        {
+            "distance": 1983,
+            "source": 22,
+            "target": 18
+        },
+        {
+            "distance": 1781,
+            "source": 22,
+            "target": 19
+        }
+    ]
+}

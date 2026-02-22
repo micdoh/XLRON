@@ -1,0 +1,162 @@
+{
+    "directed": false,
+    "multigraph": false,
+    "graph": {},
+    "nodes": [
+        {
+            "id": 1,
+            "name": "Houston",
+            "latitude": 29.76,
+            "longitude": -95.36
+        },
+        {
+            "id": 2,
+            "name": "Princeton",
+            "latitude": 40.35,
+            "longitude": -74.66
+        },
+        {
+            "id": 3,
+            "name": "Atlanta",
+            "latitude": 33.75,
+            "longitude": -84.39
+        },
+        {
+            "id": 4,
+            "name": "Pittsburgh",
+            "latitude": 40.44,
+            "longitude": -80.0
+        },
+        {
+            "id": 5,
+            "name": "Ithaca",
+            "latitude": 42.44,
+            "longitude": -76.5
+        },
+        {
+            "id": 6,
+            "name": "Seattle",
+            "latitude": 47.61,
+            "longitude": -122.33
+        },
+        {
+            "id": 7,
+            "name": "Palo Alto",
+            "latitude": 37.44,
+            "longitude": -122.14
+        },
+        {
+            "id": 8,
+            "name": "San Diego",
+            "latitude": 32.72,
+            "longitude": -117.16
+        },
+        {
+            "id": 9,
+            "name": "Salt Lake City",
+            "latitude": 40.76,
+            "longitude": -111.89
+        },
+        {
+            "id": 10,
+            "name": "Boulder",
+            "latitude": 40.01,
+            "longitude": -105.27
+        },
+        {
+            "id": 11,
+            "name": "Lincoln",
+            "latitude": 40.8,
+            "longitude": -96.67
+        },
+        {
+            "id": 12,
+            "name": "Champaign",
+            "latitude": 40.12,
+            "longitude": -88.24
+        },
+        {
+            "id": 13,
+            "name": "Ann Arbor",
+            "latitude": 42.28,
+            "longitude": -83.74
+        }
+    ],
+    "links": [
+        {
+            "distance": 1500,
+            "source": 1,
+            "target": 3
+        },
+        {
+            "distance": 1651,
+            "source": 1,
+            "target": 12
+        },
+        {
+            "distance": 2618,
+            "source": 1,
+            "target": 8
+        },
+        {
+            "distance": 1500,
+            "source": 2,
+            "target": 3
+        },
+        {
+            "distance": 418,
+            "source": 2,
+            "target": 5
+        },
+        {
+            "distance": 560,
+            "source": 4,
+            "target": 13
+        },
+        {
+            "distance": 892,
+            "source": 5,
+            "target": 13
+        },
+        {
+            "distance": 2004,
+            "source": 6,
+            "target": 10
+        },
+        {
+            "distance": 1500,
+            "source": 6,
+            "target": 7
+        },
+        {
+            "distance": 4116,
+            "source": 7,
+            "target": 13
+        },
+        {
+            "distance": 1040,
+            "source": 7,
+            "target": 8
+        },
+        {
+            "distance": 850,
+            "source": 9,
+            "target": 10
+        },
+        {
+            "distance": 1809,
+            "source": 10,
+            "target": 12
+        },
+        {
+            "distance": 1075,
+            "source": 11,
+            "target": 12
+        },
+        {
+            "distance": 670,
+            "source": 12,
+            "target": 13
+        }
+    ]
+}

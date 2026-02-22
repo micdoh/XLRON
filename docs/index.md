@@ -16,6 +16,7 @@ XLRON is a product of my PhD research, which is focused on the application of Re
 - Powered by JAX for accelerated training on GPU and TPU. See the [Training with PPO guide](./training.md).
 - Command-line interface for running experiments with customisable hyperparameters
 - Advanced deep learning architectures (GNN, GAT) and physical layer models (ISRS GN model, Distributed Raman Amplification).
+- **119 real-world network topologies** from [TopologyBench](https://github.com/TopologyBench/Real-Topologies) included natively, covering networks from every continent.
 - Implementations of heuristics (KSP-FF, etc.) for benchmarking and comparison. See the [Heuristic Evaluation guide](./heuristic_evaluation.md).
 - Capacity bound estimation via [cut-set and reconfigurable routing methods](./capacity_bounds.md).
 - Ideal for research and innovation in optical network optimization.

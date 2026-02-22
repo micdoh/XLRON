@@ -1,0 +1,207 @@
+{
+    "directed": true,
+    "multigraph": false,
+    "graph": {},
+    "nodes": [
+        {
+            "id": 1,
+            "name": "Samtredia",
+            "latitude": 42.15,
+            "longitude": 42.34
+        },
+        {
+            "id": 2,
+            "name": "Batumi",
+            "latitude": 41.64,
+            "longitude": 41.64
+        },
+        {
+            "id": 3,
+            "name": "Kutaisi",
+            "latitude": 42.25,
+            "longitude": 42.7
+        },
+        {
+            "id": 4,
+            "name": "Kutaisi",
+            "latitude": 42.25,
+            "longitude": 42.7
+        },
+        {
+            "id": 5,
+            "name": "P'ot'i",
+            "latitude": 42.15,
+            "longitude": 41.67
+        },
+        {
+            "id": 6,
+            "name": "Zugdidi",
+            "latitude": 42.51,
+            "longitude": 41.87
+        },
+        {
+            "id": 7,
+            "name": "Khashuri",
+            "latitude": 41.99,
+            "longitude": 43.6
+        },
+        {
+            "id": 8,
+            "name": "Tbilisi",
+            "latitude": 41.69,
+            "longitude": 44.83
+        },
+        {
+            "id": 9,
+            "name": "Rust'avi",
+            "latitude": 41.55,
+            "longitude": 44.99
+        },
+        {
+            "id": 10,
+            "name": "Telavi",
+            "latitude": 41.92,
+            "longitude": 45.47
+        },
+        {
+            "id": 11,
+            "name": "Rust'avi",
+            "latitude": 41.55,
+            "longitude": 44.99
+        },
+        {
+            "id": 12,
+            "name": "Gori",
+            "latitude": 41.98,
+            "longitude": 44.12
+        },
+        {
+            "id": 13,
+            "name": "Kutaisi",
+            "latitude": 42.25,
+            "longitude": 42.7
+        }
+    ],
+    "links": [
+        {
+            "distance": 83,
+            "source": 1,
+            "target": 5
+        },
+        {
+            "distance": 48,
+            "source": 1,
+            "target": 13
+        },
+        {
+            "distance": 85,
+            "source": 2,
+            "target": 5
+        },
+        {
+            "distance": 1,
+            "source": 3,
+            "target": 4
+        },
+        {
+            "distance": 1,
+            "source": 4,
+            "target": 13
+        },
+        {
+            "distance": 65,
+            "source": 5,
+            "target": 6
+        },
+        {
+            "distance": 64,
+            "source": 7,
+            "target": 12
+        },
+        {
+            "distance": 119,
+            "source": 7,
+            "target": 13
+        },
+        {
+            "distance": 88,
+            "source": 8,
+            "target": 10
+        },
+        {
+            "distance": 31,
+            "source": 8,
+            "target": 11
+        },
+        {
+            "distance": 101,
+            "source": 8,
+            "target": 12
+        },
+        {
+            "distance": 1,
+            "source": 9,
+            "target": 11
+        },
+        {
+            "distance": 83,
+            "source": 5,
+            "target": 1
+        },
+        {
+            "distance": 48,
+            "source": 13,
+            "target": 1
+        },
+        {
+            "distance": 85,
+            "source": 5,
+            "target": 2
+        },
+        {
+            "distance": 1,
+            "source": 4,
+            "target": 3
+        },
+        {
+            "distance": 1,
+            "source": 13,
+            "target": 4
+        },
+        {
+            "distance": 65,
+            "source": 6,
+            "target": 5
+        },
+        {
+            "distance": 64,
+            "source": 12,
+            "target": 7
+        },
+        {
+            "distance": 119,
+            "source": 13,
+            "target": 7
+        },
+        {
+            "distance": 88,
+            "source": 10,
+            "target": 8
+        },
+        {
+            "distance": 31,
+            "source": 11,
+            "target": 8
+        },
+        {
+            "distance": 101,
+            "source": 12,
+            "target": 8
+        },
+        {
+            "distance": 1,
+            "source": 11,
+            "target": 9
+        }
+    ]
+}

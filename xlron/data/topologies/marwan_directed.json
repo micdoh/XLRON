@@ -1,0 +1,105 @@
+{
+    "directed": true,
+    "multigraph": false,
+    "graph": {},
+    "nodes": [
+        {
+            "id": 1,
+            "name": "Marrakesh",
+            "latitude": 31.63,
+            "longitude": -8.01
+        },
+        {
+            "id": 2,
+            "name": "Fes",
+            "latitude": 34.04,
+            "longitude": -5.0
+        },
+        {
+            "id": 3,
+            "name": "Rabat",
+            "latitude": 34.01,
+            "longitude": -6.83
+        },
+        {
+            "id": 4,
+            "name": "Agadir",
+            "latitude": 30.42,
+            "longitude": -9.6
+        },
+        {
+            "id": 5,
+            "name": "Tangier",
+            "latitude": 35.78,
+            "longitude": -5.81
+        },
+        {
+            "id": 6,
+            "name": "Casablanca",
+            "latitude": 33.59,
+            "longitude": -7.62
+        }
+    ],
+    "links": [
+        {
+            "distance": 583,
+            "source": 1,
+            "target": 2
+        },
+        {
+            "distance": 304,
+            "source": 1,
+            "target": 4
+        },
+        {
+            "distance": 311,
+            "source": 2,
+            "target": 5
+        },
+        {
+            "distance": 715,
+            "source": 3,
+            "target": 4
+        },
+        {
+            "distance": 130,
+            "source": 3,
+            "target": 6
+        },
+        {
+            "distance": 442,
+            "source": 5,
+            "target": 6
+        },
+        {
+            "distance": 583,
+            "source": 2,
+            "target": 1
+        },
+        {
+            "distance": 304,
+            "source": 4,
+            "target": 1
+        },
+        {
+            "distance": 311,
+            "source": 5,
+            "target": 2
+        },
+        {
+            "distance": 715,
+            "source": 4,
+            "target": 3
+        },
+        {
+            "distance": 130,
+            "source": 6,
+            "target": 3
+        },
+        {
+            "distance": 442,
+            "source": 6,
+            "target": 5
+        }
+    ]
+}

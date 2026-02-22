@@ -1,0 +1,112 @@
+def create_geant2_graph():
+    # Create an empty graph
+    G = nx.Graph()
+
+    node_attributes = {
+    1: {'lat': 38.7077507, 'long': -9.1365919, 'location': 'Lisbon', 'country': nan},
+    2: {'lat': 40.4167047, 'long': -3.7035825, 'location': 'Madrid', 'country': nan},
+    3: {'lat': 48.8588897, 'long': 2.320041021720077, 'location': 'Paris', 'country': nan},
+    4: {'lat': 51.5074456, 'long': -0.1277653, 'location': 'London', 'country': nan},
+    5: {'lat': 53.3493795, 'long': -6.2605593, 'location': 'Dublin', 'country': nan},
+    6: {'lat': 50.8465573, 'long': 4.351697, 'location': 'Brussels', 'country': nan},
+    7: {'lat': 52.3730796, 'long': 4.8924534, 'location': 'Amsterdam', 'country': nan},
+    8: {'lat': 49.6112768, 'long': 6.129799, 'location': 'Luxembourg', 'country': nan},
+    9: {'lat': 46.9484742, 'long': 7.4521749, 'location': 'Bern', 'country': nan},
+    10: {'lat': 41.8933203, 'long': 12.4829321, 'location': 'Rome', 'country': nan},
+    11: {'lat': 35.8989818, 'long': 14.5136759, 'location': 'Valetta', 'country': nan},
+    12: {'lat': 33.9597677, 'long': -83.376398, 'location': 'Athens', 'country': nan},
+    13: {'lat': 35.1746503, 'long': 33.3638783, 'location': 'Nicosia', 'country': nan},
+    14: {'lat': 39.9207759, 'long': 32.8540497, 'location': 'Ankara', 'country': nan},
+    15: {'lat': -15.2538402, 'long': 48.2562163, 'location': 'Sofia', 'country': nan},
+    16: {'lat': 44.4361414, 'long': 26.1027202, 'location': 'Bucharest', 'country': nan},
+    17: {'lat': 47.4978789, 'long': 19.0402383, 'location': 'Budapest', 'country': nan},
+    18: {'lat': 45.8130967, 'long': 15.9772795, 'location': 'Zagreb', 'country': nan},
+    19: {'lat': 48.2083537, 'long': 16.3725042, 'location': 'Vienna', 'country': nan},
+    20: {'lat': 48.1516988, 'long': 17.1093063, 'location': 'Bratislava', 'country': nan},
+    21: {'lat': 46.0500268, 'long': 14.5069289, 'location': 'Ljubljana', 'country': nan},
+    22: {'lat': 50.0874654, 'long': 14.4212535, 'location': 'Prague', 'country': nan},
+    23: {'lat': 52.5170365, 'long': 13.3888599, 'location': 'Berlin', 'country': nan},
+    24: {'lat': 55.6867243, 'long': 12.5700724, 'location': 'Copenhagen', 'country': nan},
+    25: {'lat': 59.9133301, 'long': 10.7389701, 'location': 'Oslo', 'country': nan},
+    26: {'lat': 59.3251172, 'long': 18.0710935, 'location': 'Stockholm', 'country': nan},
+    27: {'lat': 60.1674881, 'long': 24.9427473, 'location': 'Helsinki', 'country': nan},
+    28: {'lat': 59.4372155, 'long': 24.7453688, 'location': 'Tallinn', 'country': nan},
+    29: {'lat': 54.6870458, 'long': 25.2829111, 'location': 'Vilnius', 'country': nan},
+    30: {'lat': 55.7505412, 'long': 37.6174782, 'location': 'Moscow', 'country': nan},
+    31: {'lat': 56.9493977, 'long': 24.1051846, 'location': 'Riga', 'country': nan},
+    32: {'lat': 52.2337172, 'long': 21.07143223563649, 'location': 'Warsaw', 'country': nan},
+    33: {'lat': 53.4794892, 'long': -2.2451148, 'location': 'Manchester', 'country': nan},
+    34: {'lat': 51.4816546, 'long': -3.1791934, 'location': 'Cardiff', 'country': nan},
+    35: {'lat': 60.102423, 'long': 19.94126, 'location': 'Mariehamn', 'country': nan},
+    }
+
+    edge_attributes = {
+    1.0: {'source': 1.0, 'destination': 2.0, 'fiber_length': 754.3499999999999},
+    2.0: {'source': 1.0, 'destination': 4.0, 'fiber_length': 1982.9875},
+    3.0: {'source': 4.0, 'destination': 33.0, 'fiber_length': 392.925},
+    4.0: {'source': 33.0, 'destination': 5.0, 'fiber_length': 399.72},
+    5.0: {'source': 4.0, 'destination': 34.0, 'fiber_length': 316.875},
+    6.0: {'source': 34.0, 'destination': 5.0, 'fiber_length': 441.87},
+    7.0: {'source': 4.0, 'destination': 6.0, 'fiber_length': 481.11},
+    8.0: {'source': 4.0, 'destination': 3.0, 'fiber_length': 513.255},
+    9.0: {'source': 3.0, 'destination': 2.0, 'fiber_length': 1500.0},
+    10.0: {'source': 3.0, 'destination': 9.0, 'fiber_length': 656.175},
+    11.0: {'source': 3.0, 'destination': 8.0, 'fiber_length': 433.425},
+    12.0: {'source': 2.0, 'destination': 10.0, 'fiber_length': 1703.7625},
+    13.0: {'source': 2.0, 'destination': 9.0, 'fiber_length': 1500.0},
+    14.0: {'source': 6.0, 'destination': 7.0, 'fiber_length': 260.7},
+    15.0: {'source': 7.0, 'destination': 24.0, 'fiber_length': 932.52},
+    16.0: {'source': 7.0, 'destination': 23.0, 'fiber_length': 863.61},
+    17.0: {'source': 7.0, 'destination': 11.0, 'fiber_length': 2477.675},
+    18.0: {'source': 8.0, 'destination': 3.0, 'fiber_length': 433.425},
+    19.0: {'source': 8.0, 'destination': 23.0, 'fiber_length': 901.5},
+    20.0: {'source': 9.0, 'destination': 23.0, 'fiber_length': 1127.115},
+    21.0: {'source': 9.0, 'destination': 10.0, 'fiber_length': 1033.95},
+    22.0: {'source': 10.0, 'destination': 19.0, 'fiber_length': 1148.31},
+    23.0: {'source': 10.0, 'destination': 12.0, 'fiber_length': 9999.5},
+    24.0: {'source': 10.0, 'destination': 13.0, 'fiber_length': 2446.825},
+    25.0: {'source': 10.0, 'destination': 11.0, 'fiber_length': 1033.89},
+    26.0: {'source': 12.0, 'destination': 13.0, 'fiber_length': 12376.075},
+    27.0: {'source': 12.0, 'destination': 15.0, 'fiber_length': 18449.125},
+    28.0: {'source': 12.0, 'destination': 19.0, 'fiber_length': 9891.1375},
+    29.0: {'source': 14.0, 'destination': 16.0, 'fiber_length': 1123.365},
+    30.0: {'source': 14.0, 'destination': 15.0, 'fiber_length': 7923.9375},
+    31.0: {'source': 15.0, 'destination': 16.0, 'fiber_length': 8758.099999999999},
+    32.0: {'source': 15.0, 'destination': 17.0, 'fiber_length': 9448.825},
+    33.0: {'source': 16.0, 'destination': 17.0, 'fiber_length': 964.395},
+    34.0: {'source': 17.0, 'destination': 20.0, 'fiber_length': 242.16},
+    35.0: {'source': 17.0, 'destination': 18.0, 'fiber_length': 449.3100000000001},
+    36.0: {'source': 18.0, 'destination': 21.0, 'fiber_length': 175.08},
+    37.0: {'source': 19.0, 'destination': 21.0, 'fiber_length': 417.6},
+    38.0: {'source': 19.0, 'destination': 23.0, 'fiber_length': 785.4749999999999},
+    39.0: {'source': 19.0, 'destination': 20.0, 'fiber_length': 82.485},
+    40.0: {'source': 20.0, 'destination': 22.0, 'fiber_length': 436.23},
+    41.0: {'source': 22.0, 'destination': 32.0, 'fiber_length': 781.92},
+    42.0: {'source': 22.0, 'destination': 23.0, 'fiber_length': 419.28},
+    43.0: {'source': 23.0, 'destination': 32.0, 'fiber_length': 783.33},
+    44.0: {'source': 23.0, 'destination': 24.0, 'fiber_length': 534.705},
+    45.0: {'source': 23.0, 'destination': 30.0, 'fiber_length': 2012.4375},
+    46.0: {'source': 24.0, 'destination': 28.0, 'fiber_length': 1253.43},
+    47.0: {'source': 24.0, 'destination': 30.0, 'fiber_length': 1950.25},
+    48.0: {'source': 24.0, 'destination': 26.0, 'fiber_length': 781.29},
+    49.0: {'source': 24.0, 'destination': 25.0, 'fiber_length': 723.4350000000001},
+    50.0: {'source': 25.0, 'destination': 26.0, 'fiber_length': 625.89},
+    51.0: {'source': 26.0, 'destination': 35.0, 'fiber_length': 203.835},
+    52.0: {'source': 35.0, 'destination': 27.0, 'fiber_length': 415.4399999999999},
+    53.0: {'source': 26.0, 'destination': 27.0, 'fiber_length': 594.0},
+    54.0: {'source': 28.0, 'destination': 31.0, 'fiber_length': 418.74},
+    55.0: {'source': 31.0, 'destination': 29.0, 'fiber_length': 393.135},
+    56.0: {'source': 29.0, 'destination': 32.0, 'fiber_length': 584.91},
+    }
+
+    # Add nodes
+    G.add_nodes_from(node_attributes.keys())
+
+    # Add edges
+    for edge in edge_attributes.values():
+        G.add_edge(edge['source'], edge['destination'], weight=edge['fiber_length'])
+
+    # Set node attributes
+    nx.set_node_attributes(G, node_attributes)
+
+    return G

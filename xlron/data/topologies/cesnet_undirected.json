@@ -1,0 +1,156 @@
+{
+    "directed": false,
+    "multigraph": false,
+    "graph": {},
+    "nodes": [
+        {
+            "id": 1,
+            "name": "Warmare",
+            "latitude": -1.3716486,
+            "longitude": 133.8214949
+        },
+        {
+            "id": 2,
+            "name": "Liberec",
+            "latitude": 50.7702648,
+            "longitude": 15.0583947
+        },
+        {
+            "id": 3,
+            "name": "Ledec nad Sazavou",
+            "latitude": 49.7072278,
+            "longitude": 15.2954608
+        },
+        {
+            "id": 4,
+            "name": "Prague",
+            "latitude": 50.0874654,
+            "longitude": 14.4212535
+        },
+        {
+            "id": 5,
+            "name": "Pardubice",
+            "latitude": 50.0385812,
+            "longitude": 15.7791356
+        },
+        {
+            "id": 6,
+            "name": "Pilsen",
+            "latitude": 49.7477415,
+            "longitude": 13.3775249
+        },
+        {
+            "id": 7,
+            "name": "Ceske Budejovice",
+            "latitude": 48.9747357,
+            "longitude": 14.474285
+        },
+        {
+            "id": 8,
+            "name": "Jihlava",
+            "latitude": 49.396064,
+            "longitude": 15.5903065
+        },
+        {
+            "id": 9,
+            "name": "Brno",
+            "latitude": 49.1922443,
+            "longitude": 16.6113382
+        },
+        {
+            "id": 10,
+            "name": "Olomouc",
+            "latitude": 49.5940567,
+            "longitude": 17.251143
+        },
+        {
+            "id": 11,
+            "name": "Zlin",
+            "latitude": 49.226766,
+            "longitude": 17.6667415
+        },
+        {
+            "id": 12,
+            "name": "Ostrava",
+            "latitude": 49.8349139,
+            "longitude": 18.2820084
+        }
+    ],
+    "links": [
+        {
+            "distance": 15127,
+            "source": 1,
+            "target": 2
+        },
+        {
+            "distance": 179,
+            "source": 2,
+            "target": 3
+        },
+        {
+            "distance": 113,
+            "source": 3,
+            "target": 4
+        },
+        {
+            "distance": 146,
+            "source": 4,
+            "target": 5
+        },
+        {
+            "distance": 126,
+            "source": 4,
+            "target": 6
+        },
+        {
+            "distance": 176,
+            "source": 6,
+            "target": 7
+        },
+        {
+            "distance": 141,
+            "source": 7,
+            "target": 8
+        },
+        {
+            "distance": 116,
+            "source": 8,
+            "target": 9
+        },
+        {
+            "distance": 97,
+            "source": 9,
+            "target": 10
+        },
+        {
+            "distance": 76,
+            "source": 10,
+            "target": 11
+        },
+        {
+            "distance": 121,
+            "source": 11,
+            "target": 12
+        },
+        {
+            "distance": 210,
+            "source": 9,
+            "target": 12
+        },
+        {
+            "distance": 171,
+            "source": 4,
+            "target": 8
+        },
+        {
+            "distance": 76,
+            "source": 5,
+            "target": 3
+        },
+        {
+            "distance": 212,
+            "source": 10,
+            "target": 3
+        }
+    ]
+}

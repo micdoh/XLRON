@@ -1,0 +1,185 @@
+{
+    "directed": false,
+    "multigraph": false,
+    "graph": {},
+    "nodes": [
+        {
+            "id": 1,
+            "name": "Dubbo",
+            "latitude": -32.25,
+            "longitude": 148.62
+        },
+        {
+            "id": 2,
+            "name": "Moree",
+            "latitude": -29.47,
+            "longitude": 149.85
+        },
+        {
+            "id": 3,
+            "name": "Parkes",
+            "latitude": -33.13,
+            "longitude": 148.18
+        },
+        {
+            "id": 4,
+            "name": "Albury",
+            "latitude": -36.08,
+            "longitude": 146.92
+        },
+        {
+            "id": 5,
+            "name": "Newcastle",
+            "latitude": -32.93,
+            "longitude": 151.78
+        },
+        {
+            "id": 6,
+            "name": "Coffs Harbour",
+            "latitude": -30.3,
+            "longitude": 153.13
+        },
+        {
+            "id": 7,
+            "name": "Geelong",
+            "latitude": -38.15,
+            "longitude": 144.36
+        },
+        {
+            "id": 8,
+            "name": "Shepparton",
+            "latitude": -36.38,
+            "longitude": 145.4
+        },
+        {
+            "id": 9,
+            "name": "West Leederville",
+            "latitude": -31.93,
+            "longitude": 115.83
+        },
+        {
+            "id": 10,
+            "name": "Adelaide",
+            "latitude": -34.93,
+            "longitude": 138.6
+        },
+        {
+            "id": 11,
+            "name": "Melbourne",
+            "latitude": -37.81,
+            "longitude": 144.96
+        },
+        {
+            "id": 12,
+            "name": "Sydney",
+            "latitude": -33.87,
+            "longitude": 151.21
+        },
+        {
+            "id": 13,
+            "name": "Canberra",
+            "latitude": -35.28,
+            "longitude": 149.13
+        },
+        {
+            "id": 14,
+            "name": "Brisbane",
+            "latitude": -27.47,
+            "longitude": 153.03
+        },
+        {
+            "id": 15,
+            "name": "Kalgoorlie",
+            "latitude": -30.75,
+            "longitude": 121.47
+        },
+        {
+            "id": 16,
+            "name": "Port Augusta",
+            "latitude": -32.5,
+            "longitude": 137.77
+        }
+    ],
+    "links": [
+        {
+            "distance": 496,
+            "source": 1,
+            "target": 2
+        },
+        {
+            "distance": 159,
+            "source": 1,
+            "target": 3
+        },
+        {
+            "distance": 573,
+            "source": 2,
+            "target": 14
+        },
+        {
+            "distance": 389,
+            "source": 4,
+            "target": 11
+        },
+        {
+            "distance": 328,
+            "source": 4,
+            "target": 13
+        },
+        {
+            "distance": 176,
+            "source": 5,
+            "target": 12
+        },
+        {
+            "distance": 479,
+            "source": 5,
+            "target": 6
+        },
+        {
+            "distance": 472,
+            "source": 6,
+            "target": 14
+        },
+        {
+            "distance": 940,
+            "source": 7,
+            "target": 10
+        },
+        {
+            "distance": 97,
+            "source": 7,
+            "target": 11
+        },
+        {
+            "distance": 246,
+            "source": 8,
+            "target": 11
+        },
+        {
+            "distance": 2668,
+            "source": 9,
+            "target": 10
+        },
+        {
+            "distance": 827,
+            "source": 9,
+            "target": 15
+        },
+        {
+            "distance": 421,
+            "source": 10,
+            "target": 16
+        },
+        {
+            "distance": 370,
+            "source": 12,
+            "target": 13
+        },
+        {
+            "distance": 1942,
+            "source": 15,
+            "target": 16
+        }
+    ]
+}

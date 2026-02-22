@@ -1,0 +1,290 @@
+{
+    "directed": false,
+    "multigraph": false,
+    "graph": {},
+    "nodes": [
+        {
+            "id": 1,
+            "name": "Klatovy",
+            "latitude": 49.4,
+            "longitude": 13.3
+        },
+        {
+            "id": 2,
+            "name": "Pisek",
+            "latitude": 49.31,
+            "longitude": 14.15
+        },
+        {
+            "id": 3,
+            "name": "Chomutov",
+            "latitude": 50.46,
+            "longitude": 13.42
+        },
+        {
+            "id": 4,
+            "name": "Pilsen",
+            "latitude": 49.75,
+            "longitude": 13.38
+        },
+        {
+            "id": 5,
+            "name": "Jindrichuv Hradec",
+            "latitude": 49.14,
+            "longitude": 15.0
+        },
+        {
+            "id": 6,
+            "name": "Havlickuv Brod",
+            "latitude": 49.61,
+            "longitude": 15.58
+        },
+        {
+            "id": 7,
+            "name": "Ceske Budejovice",
+            "latitude": 48.97,
+            "longitude": 14.47
+        },
+        {
+            "id": 8,
+            "name": "Tabor",
+            "latitude": 49.41,
+            "longitude": 14.66
+        },
+        {
+            "id": 9,
+            "name": "Brno",
+            "latitude": 49.2,
+            "longitude": 16.61
+        },
+        {
+            "id": 10,
+            "name": "Usti nad Labem",
+            "latitude": 50.66,
+            "longitude": 14.03
+        },
+        {
+            "id": 11,
+            "name": "Kolin",
+            "latitude": 50.03,
+            "longitude": 15.2
+        },
+        {
+            "id": 12,
+            "name": "Ostrava",
+            "latitude": 49.83,
+            "longitude": 18.28
+        },
+        {
+            "id": 13,
+            "name": "Zlin",
+            "latitude": 49.22,
+            "longitude": 17.67
+        },
+        {
+            "id": 14,
+            "name": "Jemnice",
+            "latitude": 49.03,
+            "longitude": 15.5
+        },
+        {
+            "id": 15,
+            "name": "Hodonin",
+            "latitude": 48.85,
+            "longitude": 17.13
+        },
+        {
+            "id": 16,
+            "name": "Prostejov",
+            "latitude": 49.47,
+            "longitude": 17.11
+        },
+        {
+            "id": 17,
+            "name": "Beroun",
+            "latitude": 49.96,
+            "longitude": 14.07
+        },
+        {
+            "id": 18,
+            "name": "Karlovy Vary",
+            "latitude": 50.23,
+            "longitude": 12.87
+        },
+        {
+            "id": 19,
+            "name": "Opava",
+            "latitude": 49.94,
+            "longitude": 17.9
+        },
+        {
+            "id": 20,
+            "name": "Olomouc",
+            "latitude": 49.6,
+            "longitude": 17.25
+        },
+        {
+            "id": 21,
+            "name": "Ceska Trebova",
+            "latitude": 49.9,
+            "longitude": 16.44
+        },
+        {
+            "id": 22,
+            "name": "Liberec",
+            "latitude": 50.77,
+            "longitude": 15.06
+        },
+        {
+            "id": 23,
+            "name": "Semily",
+            "latitude": 50.6,
+            "longitude": 15.34
+        },
+        {
+            "id": 24,
+            "name": "Kladno",
+            "latitude": 50.15,
+            "longitude": 14.1
+        },
+        {
+            "id": 25,
+            "name": "Prague",
+            "latitude": 50.09,
+            "longitude": 14.42
+        },
+        {
+            "id": 26,
+            "name": "Mlada Boleslav",
+            "latitude": 50.41,
+            "longitude": 14.9
+        }
+    ],
+    "links": [
+        {
+            "distance": 59,
+            "source": 1,
+            "target": 4
+        },
+        {
+            "distance": 67,
+            "source": 2,
+            "target": 7
+        },
+        {
+            "distance": 73,
+            "source": 3,
+            "target": 10
+        },
+        {
+            "distance": 70,
+            "source": 3,
+            "target": 18
+        },
+        {
+            "distance": 82,
+            "source": 4,
+            "target": 17
+        },
+        {
+            "distance": 97,
+            "source": 4,
+            "target": 18
+        },
+        {
+            "distance": 101,
+            "source": 5,
+            "target": 6
+        },
+        {
+            "distance": 64,
+            "source": 5,
+            "target": 7
+        },
+        {
+            "distance": 131,
+            "source": 6,
+            "target": 9
+        },
+        {
+            "distance": 187,
+            "source": 7,
+            "target": 25
+        },
+        {
+            "distance": 76,
+            "source": 7,
+            "target": 8
+        },
+        {
+            "distance": 82,
+            "source": 9,
+            "target": 15
+        },
+        {
+            "distance": 110,
+            "source": 10,
+            "target": 22
+        },
+        {
+            "distance": 84,
+            "source": 11,
+            "target": 25
+        },
+        {
+            "distance": 45,
+            "source": 12,
+            "target": 19
+        },
+        {
+            "distance": 118,
+            "source": 12,
+            "target": 20
+        },
+        {
+            "distance": 121,
+            "source": 12,
+            "target": 13
+        },
+        {
+            "distance": 239,
+            "source": 13,
+            "target": 14
+        },
+        {
+            "distance": 181,
+            "source": 14,
+            "target": 15
+        },
+        {
+            "distance": 26,
+            "source": 16,
+            "target": 20
+        },
+        {
+            "distance": 43,
+            "source": 17,
+            "target": 25
+        },
+        {
+            "distance": 101,
+            "source": 20,
+            "target": 21
+        },
+        {
+            "distance": 41,
+            "source": 22,
+            "target": 23
+        },
+        {
+            "distance": 36,
+            "source": 24,
+            "target": 25
+        },
+        {
+            "distance": 74,
+            "source": 25,
+            "target": 26
+        }
+    ]
+}

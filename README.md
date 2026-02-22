@@ -180,7 +180,21 @@ Topologies are loaded from JSON files in `xlron/data/topologies/`. Each topology
 - **German17** (`german17_directed`, `german17_undirected`)
 - **CONUS** (`conus_directed`, `conus_undirected`)
 - **5-node** (`5node_directed`, `5node_undirected`)
+- **119 real-world topologies** from [TopologyBench](https://github.com/TopologyBench/Real-Topologies) (e.g. `coronet`, `geant`, `abilene`, `germany50`, `japan25`, ...)
 - Custom topologies via `--topology_directory`
+
+All 119 [TopologyBench](https://github.com/TopologyBench/Real-Topologies) real-world network topologies are included natively, pre-converted in both directed and undirected variants. Use them like any built-in topology:
+
+```bash
+python -m xlron.train.train --topology_name=coronet_directed ...
+```
+
+To list all available TopologyBench topologies or regenerate from source:
+
+```bash
+python xlron/data/topologies/topology_bench_to_xlron_conversion.py --list
+python xlron/data/topologies/topology_bench_to_xlron_conversion.py --download  # re-download from GitHub
+```
 
 Optional topology node attributes for rendering:
 - `longitude`

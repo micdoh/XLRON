@@ -1,0 +1,75 @@
+{
+    "directed": false,
+    "multigraph": false,
+    "graph": {},
+    "nodes": [
+        {
+            "id": 1,
+            "name": "Novi Sad",
+            "latitude": 45.25,
+            "longitude": 19.84
+        },
+        {
+            "id": 2,
+            "name": "Belgrade",
+            "latitude": 44.8,
+            "longitude": 20.47
+        },
+        {
+            "id": 3,
+            "name": "Kragujevac",
+            "latitude": 44.02,
+            "longitude": 20.92
+        },
+        {
+            "id": 4,
+            "name": "Nis",
+            "latitude": 43.32,
+            "longitude": 21.9
+        },
+        {
+            "id": 5,
+            "name": "Krusevac",
+            "latitude": 43.58,
+            "longitude": 21.33
+        },
+        {
+            "id": 6,
+            "name": "Podgorica",
+            "latitude": 42.44,
+            "longitude": 19.26
+        }
+    ],
+    "links": [
+        {
+            "distance": 106,
+            "source": 1,
+            "target": 2
+        },
+        {
+            "distance": 474,
+            "source": 1,
+            "target": 6
+        },
+        {
+            "distance": 141,
+            "source": 2,
+            "target": 3
+        },
+        {
+            "distance": 166,
+            "source": 3,
+            "target": 4
+        },
+        {
+            "distance": 82,
+            "source": 4,
+            "target": 5
+        },
+        {
+            "distance": 316,
+            "source": 5,
+            "target": 6
+        }
+    ]
+}

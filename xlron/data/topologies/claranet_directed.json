@@ -1,0 +1,279 @@
+{
+    "directed": true,
+    "multigraph": false,
+    "graph": {},
+    "nodes": [
+        {
+            "id": 1,
+            "name": "Faro",
+            "latitude": 37.02,
+            "longitude": -7.93
+        },
+        {
+            "id": 2,
+            "name": "City Center",
+            "latitude": 40.42,
+            "longitude": -3.7
+        },
+        {
+            "id": 3,
+            "name": "Porto",
+            "latitude": 41.15,
+            "longitude": -8.62
+        },
+        {
+            "id": 4,
+            "name": "Lisbon",
+            "latitude": 38.72,
+            "longitude": -9.13
+        },
+        {
+            "id": 5,
+            "name": "Barcelona",
+            "latitude": 41.39,
+            "longitude": 2.16
+        },
+        {
+            "id": 6,
+            "name": "Manchester",
+            "latitude": 53.48,
+            "longitude": -2.24
+        },
+        {
+            "id": 7,
+            "name": "Coningsby",
+            "latitude": 53.08,
+            "longitude": -0.14
+        },
+        {
+            "id": 8,
+            "name": "Amsterdam",
+            "latitude": 52.37,
+            "longitude": 4.89
+        },
+        {
+            "id": 9,
+            "name": "Eindhoven",
+            "latitude": 51.44,
+            "longitude": 5.48
+        },
+        {
+            "id": 10,
+            "name": "Berlin",
+            "latitude": 52.52,
+            "longitude": 13.41
+        },
+        {
+            "id": 11,
+            "name": "Frankfurt am Main",
+            "latitude": 50.12,
+            "longitude": 8.68
+        },
+        {
+            "id": 12,
+            "name": "Munich",
+            "latitude": 48.14,
+            "longitude": 11.58
+        },
+        {
+            "id": 13,
+            "name": "Paris",
+            "latitude": 48.85,
+            "longitude": 2.35
+        },
+        {
+            "id": 14,
+            "name": "Rennes",
+            "latitude": 48.08,
+            "longitude": -1.68
+        },
+        {
+            "id": 15,
+            "name": "London",
+            "latitude": 51.51,
+            "longitude": -0.13
+        }
+    ],
+    "links": [
+        {
+            "distance": 325,
+            "source": 1,
+            "target": 4
+        },
+        {
+            "distance": 753,
+            "source": 2,
+            "target": 4
+        },
+        {
+            "distance": 756,
+            "source": 2,
+            "target": 5
+        },
+        {
+            "distance": 411,
+            "source": 3,
+            "target": 4
+        },
+        {
+            "distance": 1981,
+            "source": 4,
+            "target": 15
+        },
+        {
+            "distance": 1244,
+            "source": 5,
+            "target": 13
+        },
+        {
+            "distance": 392,
+            "source": 6,
+            "target": 15
+        },
+        {
+            "distance": 262,
+            "source": 7,
+            "target": 15
+        },
+        {
+            "distance": 167,
+            "source": 8,
+            "target": 9
+        },
+        {
+            "distance": 545,
+            "source": 8,
+            "target": 11
+        },
+        {
+            "distance": 536,
+            "source": 8,
+            "target": 15
+        },
+        {
+            "distance": 635,
+            "source": 10,
+            "target": 11
+        },
+        {
+            "distance": 756,
+            "source": 10,
+            "target": 12
+        },
+        {
+            "distance": 457,
+            "source": 11,
+            "target": 12
+        },
+        {
+            "distance": 718,
+            "source": 11,
+            "target": 13
+        },
+        {
+            "distance": 956,
+            "source": 11,
+            "target": 15
+        },
+        {
+            "distance": 464,
+            "source": 13,
+            "target": 14
+        },
+        {
+            "distance": 517,
+            "source": 13,
+            "target": 15
+        },
+        {
+            "distance": 325,
+            "source": 4,
+            "target": 1
+        },
+        {
+            "distance": 753,
+            "source": 4,
+            "target": 2
+        },
+        {
+            "distance": 756,
+            "source": 5,
+            "target": 2
+        },
+        {
+            "distance": 411,
+            "source": 4,
+            "target": 3
+        },
+        {
+            "distance": 1981,
+            "source": 15,
+            "target": 4
+        },
+        {
+            "distance": 1244,
+            "source": 13,
+            "target": 5
+        },
+        {
+            "distance": 392,
+            "source": 15,
+            "target": 6
+        },
+        {
+            "distance": 262,
+            "source": 15,
+            "target": 7
+        },
+        {
+            "distance": 167,
+            "source": 9,
+            "target": 8
+        },
+        {
+            "distance": 545,
+            "source": 11,
+            "target": 8
+        },
+        {
+            "distance": 536,
+            "source": 15,
+            "target": 8
+        },
+        {
+            "distance": 635,
+            "source": 11,
+            "target": 10
+        },
+        {
+            "distance": 756,
+            "source": 12,
+            "target": 10
+        },
+        {
+            "distance": 457,
+            "source": 12,
+            "target": 11
+        },
+        {
+            "distance": 718,
+            "source": 13,
+            "target": 11
+        },
+        {
+            "distance": 956,
+            "source": 15,
+            "target": 11
+        },
+        {
+            "distance": 464,
+            "source": 14,
+            "target": 13
+        },
+        {
+            "distance": 517,
+            "source": 15,
+            "target": 13
+        }
+    ]
+}

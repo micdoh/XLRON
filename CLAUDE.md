@@ -184,6 +184,8 @@ Topology files live in `xlron/data/topologies/`. The `--topology_name` is the fi
 
 Key topologies: `nsfnet_deeprmsa_directed/undirected`, `nsfnet_nevin_undirected`, `cost239_deeprmsa_directed/undirected`, `cost239_ptrnet_real_directed/undirected`, `usnet_gcnrnn_directed/undirected`, `usnet_ptrnet_directed/undirected`, `jpn48_directed/undirected`, `german17_directed/undirected`, `conus_directed/undirected`, `5node_directed/undirected`.
 
+Additionally, all 119 real-world topologies from [TopologyBench](https://github.com/TopologyBench/Real-Topologies) are included in both directed and undirected variants (e.g. `coronet_directed`, `geant_undirected`, `abilene_directed`, `germany50_undirected`). Run `python xlron/data/topologies/topology_bench_to_xlron_conversion.py --list` to see all available names.
+
 ## Working with Differentiable Operations
 
 The `diff_utils.py` module provides differentiable versions of discrete operations:

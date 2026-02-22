@@ -1,0 +1,386 @@
+{
+    "directed": false,
+    "multigraph": false,
+    "graph": {},
+    "nodes": [
+        {
+            "id": 1,
+            "name": "Shreveport Louisiana",
+            "latitude": 32.5135356,
+            "longitude": -93.7477839
+        },
+        {
+            "id": 2,
+            "name": "Haughton Louisiana",
+            "latitude": 32.5326514,
+            "longitude": -93.5040627
+        },
+        {
+            "id": 3,
+            "name": "Ruston Louisiana",
+            "latitude": 32.5297498,
+            "longitude": -92.6386604
+        },
+        {
+            "id": 4,
+            "name": "Monroe Louisiana",
+            "latitude": 32.5102427,
+            "longitude": -92.1032411
+        },
+        {
+            "id": 5,
+            "name": "Tallulah Louisiana",
+            "latitude": 32.4084539,
+            "longitude": -91.1869112
+        },
+        {
+            "id": 6,
+            "name": "Edwards Mississippi",
+            "latitude": 32.3301465,
+            "longitude": -90.6056548
+        },
+        {
+            "id": 7,
+            "name": "Jackson Mississippi",
+            "latitude": 32.2998686,
+            "longitude": -90.1830408
+        },
+        {
+            "id": 8,
+            "name": "Mendenhall Mississippi",
+            "latitude": 31.9622006,
+            "longitude": -89.8702079
+        },
+        {
+            "id": 9,
+            "name": "Seminary Mississipi",
+            "latitude": 31.5623892,
+            "longitude": -89.4975669
+        },
+        {
+            "id": 10,
+            "name": "Tylertown Mississipi",
+            "latitude": 31.1160119,
+            "longitude": -90.1420331
+        },
+        {
+            "id": 11,
+            "name": "Greensburg Louisiana",
+            "latitude": 30.829635,
+            "longitude": -90.6677355
+        },
+        {
+            "id": 12,
+            "name": "Jackson Louisiana",
+            "latitude": 32.2932692,
+            "longitude": -92.5628442
+        },
+        {
+            "id": 13,
+            "name": "Louisiana State University",
+            "latitude": 30.4057618499999,
+            "longitude": -91.1859745026568
+        },
+        {
+            "id": 14,
+            "name": "Hammond Louisiana",
+            "latitude": 30.5043583,
+            "longitude": -90.4611995
+        },
+        {
+            "id": 15,
+            "name": "Laplace Louisiana",
+            "latitude": 30.0715993,
+            "longitude": -90.4663589046885
+        },
+        {
+            "id": 16,
+            "name": "Louisiana State University Health Sciences Center New Orleans",
+            "latitude": 29.956837,
+            "longitude": -90.0831349957948
+        },
+        {
+            "id": 17,
+            "name": "The University of New Orleans",
+            "latitude": 30.0290509,
+            "longitude": -90.0650149
+        },
+        {
+            "id": 18,
+            "name": "Tulane University",
+            "latitude": 29.94121955,
+            "longitude": -90.1201008917918
+        },
+        {
+            "id": 19,
+            "name": "Schriever Louisiana",
+            "latitude": 29.7386285,
+            "longitude": -90.81026625563359
+        },
+        {
+            "id": 20,
+            "name": "Franklin Louisiana",
+            "latitude": 32.1254252,
+            "longitude": -91.6778053
+        },
+        {
+            "id": 21,
+            "name": "University of Louisiana at Lafayette East University",
+            "latitude": 30.2105847574037,
+            "longitude": -92.0294380456438
+        },
+        {
+            "id": 22,
+            "name": "Port Barre Louisiana",
+            "latitude": 30.5601953,
+            "longitude": -91.9540055
+        },
+        {
+            "id": 23,
+            "name": "Ramah Louisiana",
+            "latitude": 30.4024175,
+            "longitude": -91.5073329
+        },
+        {
+            "id": 24,
+            "name": "Roanoke Louisiana",
+            "latitude": 30.2351806,
+            "longitude": -92.7478897
+        },
+        {
+            "id": 25,
+            "name": "Lake Charles Louisiana",
+            "latitude": 30.2305095,
+            "longitude": -93.2169807
+        },
+        {
+            "id": 26,
+            "name": "Crowley Louisiana",
+            "latitude": 30.2140928,
+            "longitude": -92.3745761
+        },
+        {
+            "id": 27,
+            "name": "Landry Louisiana",
+            "latitude": 29.8693722,
+            "longitude": -91.6653928
+        },
+        {
+            "id": 28,
+            "name": "Alexandria Louisiana",
+            "latitude": 31.3119463,
+            "longitude": -92.4453558
+        },
+        {
+            "id": 29,
+            "name": "Derry Louisiana",
+            "latitude": 31.5340592,
+            "longitude": -92.9476592
+        },
+        {
+            "id": 30,
+            "name": "Coushatta Louisiana",
+            "latitude": 32.0148834,
+            "longitude": -93.3421165
+        },
+        {
+            "id": 31,
+            "name": "Southern University and A&M College",
+            "latitude": 30.52581565,
+            "longitude": -91.1949460453526
+        },
+        {
+            "id": 32,
+            "name": "Louisiana Public Broadcasting",
+            "latitude": 30.394061,
+            "longitude": -91.105683219937
+        }
+    ],
+    "links": [
+        {
+            "distance": 23,
+            "source": 1,
+            "target": 2
+        },
+        {
+            "distance": 67,
+            "source": 1,
+            "target": 30
+        },
+        {
+            "distance": 81,
+            "source": 2,
+            "target": 3
+        },
+        {
+            "distance": 87,
+            "source": 4,
+            "target": 5
+        },
+        {
+            "distance": 55,
+            "source": 5,
+            "target": 6
+        },
+        {
+            "distance": 40,
+            "source": 6,
+            "target": 7
+        },
+        {
+            "distance": 48,
+            "source": 7,
+            "target": 8
+        },
+        {
+            "distance": 57,
+            "source": 8,
+            "target": 9
+        },
+        {
+            "distance": 79,
+            "source": 9,
+            "target": 10
+        },
+        {
+            "distance": 59,
+            "source": 10,
+            "target": 11
+        },
+        {
+            "distance": 247,
+            "source": 12,
+            "target": 13
+        },
+        {
+            "distance": 13,
+            "source": 13,
+            "target": 31
+        },
+        {
+            "distance": 17,
+            "source": 31,
+            "target": 32
+        },
+        {
+            "distance": 8,
+            "source": 32,
+            "target": 13
+        },
+        {
+            "distance": 70,
+            "source": 13,
+            "target": 14
+        },
+        {
+            "distance": 48,
+            "source": 14,
+            "target": 15
+        },
+        {
+            "distance": 39,
+            "source": 15,
+            "target": 16
+        },
+        {
+            "distance": 8,
+            "source": 16,
+            "target": 17
+        },
+        {
+            "distance": 11,
+            "source": 17,
+            "target": 18
+        },
+        {
+            "distance": 70,
+            "source": 18,
+            "target": 19
+        },
+        {
+            "distance": 278,
+            "source": 19,
+            "target": 20
+        },
+        {
+            "distance": 216,
+            "source": 20,
+            "target": 21
+        },
+        {
+            "distance": 54,
+            "source": 21,
+            "target": 23
+        },
+        {
+            "distance": 40,
+            "source": 21,
+            "target": 22
+        },
+        {
+            "distance": 69,
+            "source": 21,
+            "target": 24
+        },
+        {
+            "distance": 33,
+            "source": 21,
+            "target": 26
+        },
+        {
+            "distance": 52,
+            "source": 21,
+            "target": 27
+        },
+        {
+            "distance": 76,
+            "source": 22,
+            "target": 13
+        },
+        {
+            "distance": 76,
+            "source": 22,
+            "target": 13
+        },
+        {
+            "distance": 45,
+            "source": 24,
+            "target": 25
+        },
+        {
+            "distance": 81,
+            "source": 25,
+            "target": 26
+        },
+        {
+            "distance": 33,
+            "source": 26,
+            "target": 21
+        },
+        {
+            "distance": 52,
+            "source": 21,
+            "target": 27
+        },
+        {
+            "distance": 177,
+            "source": 27,
+            "target": 28
+        },
+        {
+            "distance": 54,
+            "source": 28,
+            "target": 29
+        },
+        {
+            "distance": 65,
+            "source": 29,
+            "target": 30
+        },
+        {
+            "distance": 67,
+            "source": 30,
+            "target": 1
+        }
+    ]
+}

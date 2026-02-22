@@ -1,0 +1,217 @@
+{
+    "directed": true,
+    "multigraph": false,
+    "graph": {},
+    "nodes": [
+        {
+            "id": 1,
+            "name": "London",
+            "latitude": 51.51,
+            "longitude": -0.13
+        },
+        {
+            "id": 2,
+            "name": "Southport",
+            "latitude": 53.65,
+            "longitude": -3.01
+        },
+        {
+            "id": 3,
+            "name": "Manchester",
+            "latitude": 53.48,
+            "longitude": -2.24
+        },
+        {
+            "id": 4,
+            "name": "Peterborough",
+            "latitude": 52.57,
+            "longitude": -0.25
+        },
+        {
+            "id": 5,
+            "name": "Cambridge",
+            "latitude": 52.2,
+            "longitude": 0.12
+        },
+        {
+            "id": 6,
+            "name": "Sheffield",
+            "latitude": 53.38,
+            "longitude": -1.47
+        },
+        {
+            "id": 7,
+            "name": "Leicester",
+            "latitude": 52.63,
+            "longitude": -1.13
+        },
+        {
+            "id": 8,
+            "name": "Barnoldswick",
+            "latitude": 53.93,
+            "longitude": -2.21
+        },
+        {
+            "id": 9,
+            "name": "Leeds",
+            "latitude": 53.8,
+            "longitude": -1.55
+        },
+        {
+            "id": 10,
+            "name": "Birmingham",
+            "latitude": 52.47,
+            "longitude": -1.92
+        },
+        {
+            "id": 11,
+            "name": "Liverpool",
+            "latitude": 53.41,
+            "longitude": -2.98
+        },
+        {
+            "id": 12,
+            "name": "Reading",
+            "latitude": 51.46,
+            "longitude": -0.97
+        },
+        {
+            "id": 13,
+            "name": "Bristol",
+            "latitude": 51.45,
+            "longitude": -2.58
+        }
+    ],
+    "links": [
+        {
+            "distance": 88,
+            "source": 1,
+            "target": 12
+        },
+        {
+            "distance": 118,
+            "source": 1,
+            "target": 5
+        },
+        {
+            "distance": 92,
+            "source": 2,
+            "target": 8
+        },
+        {
+            "distance": 40,
+            "source": 2,
+            "target": 11
+        },
+        {
+            "distance": 171,
+            "source": 3,
+            "target": 10
+        },
+        {
+            "distance": 74,
+            "source": 3,
+            "target": 11
+        },
+        {
+            "distance": 90,
+            "source": 4,
+            "target": 7
+        },
+        {
+            "distance": 72,
+            "source": 4,
+            "target": 5
+        },
+        {
+            "distance": 130,
+            "source": 6,
+            "target": 7
+        },
+        {
+            "distance": 70,
+            "source": 6,
+            "target": 9
+        },
+        {
+            "distance": 68,
+            "source": 8,
+            "target": 9
+        },
+        {
+            "distance": 183,
+            "source": 10,
+            "target": 13
+        },
+        {
+            "distance": 167,
+            "source": 12,
+            "target": 13
+        },
+        {
+            "distance": 88,
+            "source": 12,
+            "target": 1
+        },
+        {
+            "distance": 118,
+            "source": 5,
+            "target": 1
+        },
+        {
+            "distance": 92,
+            "source": 8,
+            "target": 2
+        },
+        {
+            "distance": 40,
+            "source": 11,
+            "target": 2
+        },
+        {
+            "distance": 171,
+            "source": 10,
+            "target": 3
+        },
+        {
+            "distance": 74,
+            "source": 11,
+            "target": 3
+        },
+        {
+            "distance": 90,
+            "source": 7,
+            "target": 4
+        },
+        {
+            "distance": 72,
+            "source": 5,
+            "target": 4
+        },
+        {
+            "distance": 130,
+            "source": 7,
+            "target": 6
+        },
+        {
+            "distance": 70,
+            "source": 9,
+            "target": 6
+        },
+        {
+            "distance": 68,
+            "source": 9,
+            "target": 8
+        },
+        {
+            "distance": 183,
+            "source": 13,
+            "target": 10
+        },
+        {
+            "distance": 167,
+            "source": 13,
+            "target": 12
+        }
+    ]
+}

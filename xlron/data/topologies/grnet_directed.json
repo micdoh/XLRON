@@ -1,0 +1,603 @@
+{
+    "directed": true,
+    "multigraph": false,
+    "graph": {},
+    "nodes": [
+        {
+            "id": 1,
+            "name": "Karditsa",
+            "latitude": 39.37,
+            "longitude": 21.92
+        },
+        {
+            "id": 2,
+            "name": "Volos",
+            "latitude": 39.37,
+            "longitude": 22.95
+        },
+        {
+            "id": 3,
+            "name": "Larisa",
+            "latitude": 39.64,
+            "longitude": 22.42
+        },
+        {
+            "id": 4,
+            "name": "Trikala",
+            "latitude": 39.56,
+            "longitude": 21.77
+        },
+        {
+            "id": 5,
+            "name": "Mytilini",
+            "latitude": 39.11,
+            "longitude": 26.55
+        },
+        {
+            "id": 6,
+            "name": "Chios",
+            "latitude": 38.37,
+            "longitude": 26.14
+        },
+        {
+            "id": 7,
+            "name": "Igoumenitsa",
+            "latitude": 39.5,
+            "longitude": 20.27
+        },
+        {
+            "id": 8,
+            "name": "Kerkyra",
+            "latitude": 39.62,
+            "longitude": 19.92
+        },
+        {
+            "id": 9,
+            "name": "Ermoupolis",
+            "latitude": 37.44,
+            "longitude": 24.94
+        },
+        {
+            "id": 10,
+            "name": "Mykonos",
+            "latitude": 37.45,
+            "longitude": 25.33
+        },
+        {
+            "id": 11,
+            "name": "Mesolongi",
+            "latitude": 38.37,
+            "longitude": 21.43
+        },
+        {
+            "id": 12,
+            "name": "Chania",
+            "latitude": 35.51,
+            "longitude": 24.02
+        },
+        {
+            "id": 13,
+            "name": "Irakleion",
+            "latitude": 35.33,
+            "longitude": 25.14
+        },
+        {
+            "id": 14,
+            "name": "Rethymno",
+            "latitude": 35.36,
+            "longitude": 24.47
+        },
+        {
+            "id": 15,
+            "name": "Pylos",
+            "latitude": 36.91,
+            "longitude": 21.7
+        },
+        {
+            "id": 16,
+            "name": "Kalamata",
+            "latitude": 37.04,
+            "longitude": 22.11
+        },
+        {
+            "id": 17,
+            "name": "Chalkida",
+            "latitude": 38.46,
+            "longitude": 23.6
+        },
+        {
+            "id": 18,
+            "name": "Athens",
+            "latitude": 37.98,
+            "longitude": 23.72
+        },
+        {
+            "id": 19,
+            "name": "Rodos",
+            "latitude": 36.44,
+            "longitude": 28.22
+        },
+        {
+            "id": 20,
+            "name": "Neon Karlovasion",
+            "latitude": 37.79,
+            "longitude": 26.7
+        },
+        {
+            "id": 21,
+            "name": "Tripoli",
+            "latitude": 37.51,
+            "longitude": 22.38
+        },
+        {
+            "id": 22,
+            "name": "Patra",
+            "latitude": 38.24,
+            "longitude": 21.73
+        },
+        {
+            "id": 23,
+            "name": "Kalavryta",
+            "latitude": 38.03,
+            "longitude": 22.11
+        },
+        {
+            "id": 24,
+            "name": "Arkhaia Korinthos",
+            "latitude": 37.92,
+            "longitude": 22.88
+        },
+        {
+            "id": 25,
+            "name": "Vrontados",
+            "latitude": 38.47,
+            "longitude": 25.91
+        },
+        {
+            "id": 26,
+            "name": "Ioannina",
+            "latitude": 39.67,
+            "longitude": 20.85
+        },
+        {
+            "id": 27,
+            "name": "Serres",
+            "latitude": 41.09,
+            "longitude": 23.55
+        },
+        {
+            "id": 28,
+            "name": "Thessaloniki",
+            "latitude": 40.64,
+            "longitude": 22.94
+        },
+        {
+            "id": 29,
+            "name": "Edessa",
+            "latitude": 40.8,
+            "longitude": 22.05
+        },
+        {
+            "id": 30,
+            "name": "Kastoria",
+            "latitude": 40.52,
+            "longitude": 21.27
+        },
+        {
+            "id": 31,
+            "name": "Kavala",
+            "latitude": 40.94,
+            "longitude": 24.4
+        },
+        {
+            "id": 32,
+            "name": "Xanthi",
+            "latitude": 41.14,
+            "longitude": 24.88
+        },
+        {
+            "id": 33,
+            "name": "Komotini",
+            "latitude": 41.12,
+            "longitude": 25.4
+        },
+        {
+            "id": 34,
+            "name": "Alexandroupoli",
+            "latitude": 40.85,
+            "longitude": 25.87
+        }
+    ],
+    "links": [
+        {
+            "distance": 79,
+            "source": 1,
+            "target": 3
+        },
+        {
+            "distance": 82,
+            "source": 2,
+            "target": 3
+        },
+        {
+            "distance": 85,
+            "source": 3,
+            "target": 4
+        },
+        {
+            "distance": 324,
+            "source": 3,
+            "target": 18
+        },
+        {
+            "distance": 179,
+            "source": 3,
+            "target": 28
+        },
+        {
+            "distance": 135,
+            "source": 5,
+            "target": 25
+        },
+        {
+            "distance": 134,
+            "source": 5,
+            "target": 6
+        },
+        {
+            "distance": 221,
+            "source": 6,
+            "target": 9
+        },
+        {
+            "distance": 80,
+            "source": 7,
+            "target": 26
+        },
+        {
+            "distance": 49,
+            "source": 7,
+            "target": 8
+        },
+        {
+            "distance": 52,
+            "source": 9,
+            "target": 10
+        },
+        {
+            "distance": 617,
+            "source": 9,
+            "target": 32
+        },
+        {
+            "distance": 184,
+            "source": 9,
+            "target": 18
+        },
+        {
+            "distance": 353,
+            "source": 9,
+            "target": 13
+        },
+        {
+            "distance": 190,
+            "source": 10,
+            "target": 20
+        },
+        {
+            "distance": 45,
+            "source": 11,
+            "target": 22
+        },
+        {
+            "distance": 414,
+            "source": 12,
+            "target": 18
+        },
+        {
+            "distance": 155,
+            "source": 12,
+            "target": 13
+        },
+        {
+            "distance": 91,
+            "source": 13,
+            "target": 14
+        },
+        {
+            "distance": 481,
+            "source": 13,
+            "target": 18
+        },
+        {
+            "distance": 456,
+            "source": 13,
+            "target": 19
+        },
+        {
+            "distance": 59,
+            "source": 15,
+            "target": 16
+        },
+        {
+            "distance": 206,
+            "source": 16,
+            "target": 22
+        },
+        {
+            "distance": 82,
+            "source": 17,
+            "target": 18
+        },
+        {
+            "distance": 265,
+            "source": 18,
+            "target": 22
+        },
+        {
+            "distance": 111,
+            "source": 18,
+            "target": 24
+        },
+        {
+            "distance": 455,
+            "source": 18,
+            "target": 28
+        },
+        {
+            "distance": 303,
+            "source": 19,
+            "target": 20
+        },
+        {
+            "distance": 95,
+            "source": 21,
+            "target": 24
+        },
+        {
+            "distance": 61,
+            "source": 22,
+            "target": 23
+        },
+        {
+            "distance": 264,
+            "source": 22,
+            "target": 26
+        },
+        {
+            "distance": 312,
+            "source": 26,
+            "target": 28
+        },
+        {
+            "distance": 107,
+            "source": 27,
+            "target": 28
+        },
+        {
+            "distance": 258,
+            "source": 28,
+            "target": 32
+        },
+        {
+            "distance": 116,
+            "source": 28,
+            "target": 29
+        },
+        {
+            "distance": 109,
+            "source": 29,
+            "target": 30
+        },
+        {
+            "distance": 69,
+            "source": 31,
+            "target": 32
+        },
+        {
+            "distance": 65,
+            "source": 32,
+            "target": 33
+        },
+        {
+            "distance": 74,
+            "source": 33,
+            "target": 34
+        },
+        {
+            "distance": 79,
+            "source": 3,
+            "target": 1
+        },
+        {
+            "distance": 82,
+            "source": 3,
+            "target": 2
+        },
+        {
+            "distance": 85,
+            "source": 4,
+            "target": 3
+        },
+        {
+            "distance": 324,
+            "source": 18,
+            "target": 3
+        },
+        {
+            "distance": 179,
+            "source": 28,
+            "target": 3
+        },
+        {
+            "distance": 135,
+            "source": 25,
+            "target": 5
+        },
+        {
+            "distance": 134,
+            "source": 6,
+            "target": 5
+        },
+        {
+            "distance": 221,
+            "source": 9,
+            "target": 6
+        },
+        {
+            "distance": 80,
+            "source": 26,
+            "target": 7
+        },
+        {
+            "distance": 49,
+            "source": 8,
+            "target": 7
+        },
+        {
+            "distance": 52,
+            "source": 10,
+            "target": 9
+        },
+        {
+            "distance": 617,
+            "source": 32,
+            "target": 9
+        },
+        {
+            "distance": 184,
+            "source": 18,
+            "target": 9
+        },
+        {
+            "distance": 353,
+            "source": 13,
+            "target": 9
+        },
+        {
+            "distance": 190,
+            "source": 20,
+            "target": 10
+        },
+        {
+            "distance": 45,
+            "source": 22,
+            "target": 11
+        },
+        {
+            "distance": 414,
+            "source": 18,
+            "target": 12
+        },
+        {
+            "distance": 155,
+            "source": 13,
+            "target": 12
+        },
+        {
+            "distance": 91,
+            "source": 14,
+            "target": 13
+        },
+        {
+            "distance": 481,
+            "source": 18,
+            "target": 13
+        },
+        {
+            "distance": 456,
+            "source": 19,
+            "target": 13
+        },
+        {
+            "distance": 59,
+            "source": 16,
+            "target": 15
+        },
+        {
+            "distance": 206,
+            "source": 22,
+            "target": 16
+        },
+        {
+            "distance": 82,
+            "source": 18,
+            "target": 17
+        },
+        {
+            "distance": 265,
+            "source": 22,
+            "target": 18
+        },
+        {
+            "distance": 111,
+            "source": 24,
+            "target": 18
+        },
+        {
+            "distance": 455,
+            "source": 28,
+            "target": 18
+        },
+        {
+            "distance": 303,
+            "source": 20,
+            "target": 19
+        },
+        {
+            "distance": 95,
+            "source": 24,
+            "target": 21
+        },
+        {
+            "distance": 61,
+            "source": 23,
+            "target": 22
+        },
+        {
+            "distance": 264,
+            "source": 26,
+            "target": 22
+        },
+        {
+            "distance": 312,
+            "source": 28,
+            "target": 26
+        },
+        {
+            "distance": 107,
+            "source": 28,
+            "target": 27
+        },
+        {
+            "distance": 258,
+            "source": 32,
+            "target": 28
+        },
+        {
+            "distance": 116,
+            "source": 29,
+            "target": 28
+        },
+        {
+            "distance": 109,
+            "source": 30,
+            "target": 29
+        },
+        {
+            "distance": 69,
+            "source": 32,
+            "target": 31
+        },
+        {
+            "distance": 65,
+            "source": 33,
+            "target": 32
+        },
+        {
+            "distance": 74,
+            "source": 34,
+            "target": 33
+        }
+    ]
+}

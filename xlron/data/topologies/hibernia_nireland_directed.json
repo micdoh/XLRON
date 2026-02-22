@@ -1,0 +1,259 @@
+{
+    "directed": true,
+    "multigraph": false,
+    "graph": {},
+    "nodes": [
+        {
+            "id": 1,
+            "name": "Drogheda",
+            "latitude": 53.72,
+            "longitude": -6.35
+        },
+        {
+            "id": 2,
+            "name": "Southport",
+            "latitude": 53.65,
+            "longitude": -3.01
+        },
+        {
+            "id": 3,
+            "name": "Portadown",
+            "latitude": 54.41,
+            "longitude": -6.45
+        },
+        {
+            "id": 4,
+            "name": "Castleblayney",
+            "latitude": 54.12,
+            "longitude": -6.73
+        },
+        {
+            "id": 5,
+            "name": "Monaghan",
+            "latitude": 54.25,
+            "longitude": -6.97
+        },
+        {
+            "id": 6,
+            "name": "Dundalk",
+            "latitude": 54.0,
+            "longitude": -6.42
+        },
+        {
+            "id": 7,
+            "name": "Rathmines",
+            "latitude": 53.34,
+            "longitude": -6.27
+        },
+        {
+            "id": 8,
+            "name": "Armagh",
+            "latitude": 54.35,
+            "longitude": -6.67
+        },
+        {
+            "id": 9,
+            "name": "Ballymena",
+            "latitude": 54.86,
+            "longitude": -6.28
+        },
+        {
+            "id": 10,
+            "name": "Belfast",
+            "latitude": 54.58,
+            "longitude": -5.93
+        },
+        {
+            "id": 11,
+            "name": "Omagh",
+            "latitude": 54.6,
+            "longitude": -7.3
+        },
+        {
+            "id": 12,
+            "name": "Strabane",
+            "latitude": 54.82,
+            "longitude": -7.47
+        },
+        {
+            "id": 13,
+            "name": "Letterkenny",
+            "latitude": 54.95,
+            "longitude": -7.73
+        },
+        {
+            "id": 14,
+            "name": "Derry",
+            "latitude": 55.0,
+            "longitude": -7.31
+        },
+        {
+            "id": 15,
+            "name": "Coleraine",
+            "latitude": 55.13,
+            "longitude": -6.67
+        }
+    ],
+    "links": [
+        {
+            "distance": 47,
+            "source": 1,
+            "target": 6
+        },
+        {
+            "distance": 64,
+            "source": 1,
+            "target": 7
+        },
+        {
+            "distance": 328,
+            "source": 2,
+            "target": 7
+        },
+        {
+            "distance": 58,
+            "source": 3,
+            "target": 10
+        },
+        {
+            "distance": 24,
+            "source": 3,
+            "target": 8
+        },
+        {
+            "distance": 32,
+            "source": 4,
+            "target": 5
+        },
+        {
+            "distance": 36,
+            "source": 4,
+            "target": 6
+        },
+        {
+            "distance": 34,
+            "source": 5,
+            "target": 8
+        },
+        {
+            "distance": 74,
+            "source": 8,
+            "target": 11
+        },
+        {
+            "distance": 58,
+            "source": 9,
+            "target": 10
+        },
+        {
+            "distance": 58,
+            "source": 9,
+            "target": 15
+        },
+        {
+            "distance": 40,
+            "source": 11,
+            "target": 12
+        },
+        {
+            "distance": 34,
+            "source": 12,
+            "target": 14
+        },
+        {
+            "distance": 33,
+            "source": 12,
+            "target": 13
+        },
+        {
+            "distance": 41,
+            "source": 13,
+            "target": 14
+        },
+        {
+            "distance": 65,
+            "source": 14,
+            "target": 15
+        },
+        {
+            "distance": 47,
+            "source": 6,
+            "target": 1
+        },
+        {
+            "distance": 64,
+            "source": 7,
+            "target": 1
+        },
+        {
+            "distance": 328,
+            "source": 7,
+            "target": 2
+        },
+        {
+            "distance": 58,
+            "source": 10,
+            "target": 3
+        },
+        {
+            "distance": 24,
+            "source": 8,
+            "target": 3
+        },
+        {
+            "distance": 32,
+            "source": 5,
+            "target": 4
+        },
+        {
+            "distance": 36,
+            "source": 6,
+            "target": 4
+        },
+        {
+            "distance": 34,
+            "source": 8,
+            "target": 5
+        },
+        {
+            "distance": 74,
+            "source": 11,
+            "target": 8
+        },
+        {
+            "distance": 58,
+            "source": 10,
+            "target": 9
+        },
+        {
+            "distance": 58,
+            "source": 15,
+            "target": 9
+        },
+        {
+            "distance": 40,
+            "source": 12,
+            "target": 11
+        },
+        {
+            "distance": 34,
+            "source": 14,
+            "target": 12
+        },
+        {
+            "distance": 33,
+            "source": 13,
+            "target": 12
+        },
+        {
+            "distance": 41,
+            "source": 14,
+            "target": 13
+        },
+        {
+            "distance": 65,
+            "source": 15,
+            "target": 14
+        }
+    ]
+}

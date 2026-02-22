@@ -1,0 +1,171 @@
+{
+    "directed": false,
+    "multigraph": false,
+    "graph": {},
+    "nodes": [
+        {
+            "id": 1,
+            "name": "Legowo",
+            "latitude": 54.2,
+            "longitude": 18.6
+        },
+        {
+            "id": 2,
+            "name": "Biale Blota",
+            "latitude": 53.1,
+            "longitude": 17.9
+        },
+        {
+            "id": 3,
+            "name": "Mielno",
+            "latitude": 54.2,
+            "longitude": 16.1
+        },
+        {
+            "id": 4,
+            "name": "Zabrze",
+            "latitude": 50.3,
+            "longitude": 18.8
+        },
+        {
+            "id": 5,
+            "name": "Piekary",
+            "latitude": 50.0,
+            "longitude": 19.8
+        },
+        {
+            "id": 6,
+            "name": "Bialystok",
+            "latitude": 53.1,
+            "longitude": 23.1
+        },
+        {
+            "id": 7,
+            "name": "Ksawerow",
+            "latitude": 51.7,
+            "longitude": 19.4
+        },
+        {
+            "id": 8,
+            "name": "Plewiska",
+            "latitude": 52.4,
+            "longitude": 16.8
+        },
+        {
+            "id": 9,
+            "name": "Niechobrz",
+            "latitude": 50.0,
+            "longitude": 21.9
+        },
+        {
+            "id": 10,
+            "name": "Przeclaw",
+            "latitude": 53.4,
+            "longitude": 14.5
+        },
+        {
+            "id": 11,
+            "name": "Ochota",
+            "latitude": 52.2,
+            "longitude": 21.0
+        },
+        {
+            "id": 12,
+            "name": "Smolec",
+            "latitude": 51.1,
+            "longitude": 16.9
+        }
+    ],
+    "links": [
+        {
+            "distance": 411,
+            "source": 1,
+            "target": 11
+        },
+        {
+            "distance": 244,
+            "source": 1,
+            "target": 3
+        },
+        {
+            "distance": 481,
+            "source": 1,
+            "target": 6
+        },
+        {
+            "distance": 256,
+            "source": 2,
+            "target": 3
+        },
+        {
+            "distance": 161,
+            "source": 2,
+            "target": 8
+        },
+        {
+            "distance": 348,
+            "source": 2,
+            "target": 11
+        },
+        {
+            "distance": 207,
+            "source": 3,
+            "target": 10
+        },
+        {
+            "distance": 118,
+            "source": 4,
+            "target": 5
+        },
+        {
+            "distance": 242,
+            "source": 4,
+            "target": 7
+        },
+        {
+            "distance": 241,
+            "source": 4,
+            "target": 12
+        },
+        {
+            "distance": 225,
+            "source": 5,
+            "target": 9
+        },
+        {
+            "distance": 388,
+            "source": 5,
+            "target": 11
+        },
+        {
+            "distance": 532,
+            "source": 6,
+            "target": 9
+        },
+        {
+            "distance": 260,
+            "source": 6,
+            "target": 11
+        },
+        {
+            "distance": 184,
+            "source": 7,
+            "target": 11
+        },
+        {
+            "distance": 279,
+            "source": 7,
+            "target": 12
+        },
+        {
+            "distance": 285,
+            "source": 8,
+            "target": 10
+        },
+        {
+            "distance": 217,
+            "source": 8,
+            "target": 12
+        }
+    ]
+}

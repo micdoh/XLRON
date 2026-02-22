@@ -1,0 +1,593 @@
+{
+    "directed": true,
+    "multigraph": false,
+    "graph": {},
+    "nodes": [
+        {
+            "id": 1,
+            "name": "Boston",
+            "latitude": 42.36,
+            "longitude": -71.06
+        },
+        {
+            "id": 2,
+            "name": "Detroit",
+            "latitude": 42.33,
+            "longitude": -83.05
+        },
+        {
+            "id": 3,
+            "name": "Philadelphia",
+            "latitude": 39.95,
+            "longitude": -75.16
+        },
+        {
+            "id": 4,
+            "name": "New York City",
+            "latitude": 40.71,
+            "longitude": -74.01
+        },
+        {
+            "id": 5,
+            "name": "Sacramento",
+            "latitude": 38.58,
+            "longitude": -121.49
+        },
+        {
+            "id": 6,
+            "name": "San Jose",
+            "latitude": 37.34,
+            "longitude": -121.89
+        },
+        {
+            "id": 7,
+            "name": "Seattle",
+            "latitude": 47.61,
+            "longitude": -122.33
+        },
+        {
+            "id": 8,
+            "name": "Portland",
+            "latitude": 45.52,
+            "longitude": -122.68
+        },
+        {
+            "id": 9,
+            "name": "Sunnyvale",
+            "latitude": 37.37,
+            "longitude": -122.04
+        },
+        {
+            "id": 10,
+            "name": "Los Angeles",
+            "latitude": 34.05,
+            "longitude": -118.24
+        },
+        {
+            "id": 11,
+            "name": "Pittsburgh",
+            "latitude": 40.44,
+            "longitude": -80.0
+        },
+        {
+            "id": 12,
+            "name": "Dallas",
+            "latitude": 32.78,
+            "longitude": -96.81
+        },
+        {
+            "id": 13,
+            "name": "San Antonio",
+            "latitude": 29.42,
+            "longitude": -98.49
+        },
+        {
+            "id": 14,
+            "name": "Phoenix",
+            "latitude": 33.45,
+            "longitude": -112.07
+        },
+        {
+            "id": 15,
+            "name": "San Diego",
+            "latitude": 32.72,
+            "longitude": -117.16
+        },
+        {
+            "id": 16,
+            "name": "Tampa",
+            "latitude": 27.95,
+            "longitude": -82.46
+        },
+        {
+            "id": 17,
+            "name": "Miami",
+            "latitude": 25.77,
+            "longitude": -80.19
+        },
+        {
+            "id": 18,
+            "name": "New Orleans",
+            "latitude": 29.95,
+            "longitude": -90.08
+        },
+        {
+            "id": 19,
+            "name": "Houston",
+            "latitude": 29.76,
+            "longitude": -95.36
+        },
+        {
+            "id": 20,
+            "name": "Washington, D.C.",
+            "latitude": 38.9,
+            "longitude": -77.04
+        },
+        {
+            "id": 21,
+            "name": "Baltimore",
+            "latitude": 39.29,
+            "longitude": -76.61
+        },
+        {
+            "id": 22,
+            "name": "Denver",
+            "latitude": 39.74,
+            "longitude": -104.98
+        },
+        {
+            "id": 23,
+            "name": "Minneapolis",
+            "latitude": 44.98,
+            "longitude": -93.26
+        },
+        {
+            "id": 24,
+            "name": "Chicago",
+            "latitude": 41.85,
+            "longitude": -87.65
+        },
+        {
+            "id": 25,
+            "name": "Kansas City",
+            "latitude": 39.11,
+            "longitude": -94.63
+        },
+        {
+            "id": 26,
+            "name": "Atlanta",
+            "latitude": 33.75,
+            "longitude": -84.39
+        },
+        {
+            "id": 27,
+            "name": "Raleigh",
+            "latitude": 35.77,
+            "longitude": -78.64
+        },
+        {
+            "id": 28,
+            "name": "Ashburn",
+            "latitude": 39.04,
+            "longitude": -77.49
+        },
+        {
+            "id": 29,
+            "name": "Vienna",
+            "latitude": 38.9,
+            "longitude": -77.27
+        }
+    ],
+    "links": [
+        {
+            "distance": 1477,
+            "source": 1,
+            "target": 2
+        },
+        {
+            "distance": 460,
+            "source": 1,
+            "target": 4
+        },
+        {
+            "distance": 575,
+            "source": 2,
+            "target": 24
+        },
+        {
+            "distance": 622,
+            "source": 3,
+            "target": 11
+        },
+        {
+            "distance": 194,
+            "source": 3,
+            "target": 4
+        },
+        {
+            "distance": 216,
+            "source": 3,
+            "target": 21
+        },
+        {
+            "distance": 336,
+            "source": 3,
+            "target": 28
+        },
+        {
+            "distance": 1500,
+            "source": 4,
+            "target": 24
+        },
+        {
+            "distance": 213,
+            "source": 5,
+            "target": 6
+        },
+        {
+            "distance": 1167,
+            "source": 5,
+            "target": 8
+        },
+        {
+            "distance": 21,
+            "source": 6,
+            "target": 9
+        },
+        {
+            "distance": 1865,
+            "source": 6,
+            "target": 22
+        },
+        {
+            "distance": 3486,
+            "source": 7,
+            "target": 24
+        },
+        {
+            "distance": 351,
+            "source": 7,
+            "target": 8
+        },
+        {
+            "distance": 756,
+            "source": 9,
+            "target": 10
+        },
+        {
+            "distance": 2488,
+            "source": 10,
+            "target": 12
+        },
+        {
+            "distance": 861,
+            "source": 10,
+            "target": 14
+        },
+        {
+            "distance": 268,
+            "source": 10,
+            "target": 15
+        },
+        {
+            "distance": 459,
+            "source": 11,
+            "target": 20
+        },
+        {
+            "distance": 989,
+            "source": 11,
+            "target": 24
+        },
+        {
+            "distance": 610,
+            "source": 12,
+            "target": 13
+        },
+        {
+            "distance": 544,
+            "source": 12,
+            "target": 19
+        },
+        {
+            "distance": 1096,
+            "source": 12,
+            "target": 25
+        },
+        {
+            "distance": 1500,
+            "source": 12,
+            "target": 26
+        },
+        {
+            "distance": 1068,
+            "source": 12,
+            "target": 18
+        },
+        {
+            "distance": 457,
+            "source": 13,
+            "target": 19
+        },
+        {
+            "distance": 1703,
+            "source": 13,
+            "target": 14
+        },
+        {
+            "distance": 722,
+            "source": 14,
+            "target": 15
+        },
+        {
+            "distance": 496,
+            "source": 16,
+            "target": 17
+        },
+        {
+            "distance": 1161,
+            "source": 16,
+            "target": 18
+        },
+        {
+            "distance": 1463,
+            "source": 17,
+            "target": 26
+        },
+        {
+            "distance": 764,
+            "source": 18,
+            "target": 19
+        },
+        {
+            "distance": 564,
+            "source": 20,
+            "target": 27
+        },
+        {
+            "distance": 86,
+            "source": 20,
+            "target": 21
+        },
+        {
+            "distance": 30,
+            "source": 20,
+            "target": 29
+        },
+        {
+            "distance": 1844,
+            "source": 22,
+            "target": 24
+        },
+        {
+            "distance": 857,
+            "source": 23,
+            "target": 24
+        },
+        {
+            "distance": 996,
+            "source": 24,
+            "target": 25
+        },
+        {
+            "distance": 857,
+            "source": 26,
+            "target": 27
+        },
+        {
+            "distance": 1279,
+            "source": 26,
+            "target": 28
+        },
+        {
+            "distance": 37,
+            "source": 28,
+            "target": 29
+        },
+        {
+            "distance": 1477,
+            "source": 2,
+            "target": 1
+        },
+        {
+            "distance": 460,
+            "source": 4,
+            "target": 1
+        },
+        {
+            "distance": 575,
+            "source": 24,
+            "target": 2
+        },
+        {
+            "distance": 622,
+            "source": 11,
+            "target": 3
+        },
+        {
+            "distance": 194,
+            "source": 4,
+            "target": 3
+        },
+        {
+            "distance": 216,
+            "source": 21,
+            "target": 3
+        },
+        {
+            "distance": 336,
+            "source": 28,
+            "target": 3
+        },
+        {
+            "distance": 1500,
+            "source": 24,
+            "target": 4
+        },
+        {
+            "distance": 213,
+            "source": 6,
+            "target": 5
+        },
+        {
+            "distance": 1167,
+            "source": 8,
+            "target": 5
+        },
+        {
+            "distance": 21,
+            "source": 9,
+            "target": 6
+        },
+        {
+            "distance": 1865,
+            "source": 22,
+            "target": 6
+        },
+        {
+            "distance": 3486,
+            "source": 24,
+            "target": 7
+        },
+        {
+            "distance": 351,
+            "source": 8,
+            "target": 7
+        },
+        {
+            "distance": 756,
+            "source": 10,
+            "target": 9
+        },
+        {
+            "distance": 2488,
+            "source": 12,
+            "target": 10
+        },
+        {
+            "distance": 861,
+            "source": 14,
+            "target": 10
+        },
+        {
+            "distance": 268,
+            "source": 15,
+            "target": 10
+        },
+        {
+            "distance": 459,
+            "source": 20,
+            "target": 11
+        },
+        {
+            "distance": 989,
+            "source": 24,
+            "target": 11
+        },
+        {
+            "distance": 610,
+            "source": 13,
+            "target": 12
+        },
+        {
+            "distance": 544,
+            "source": 19,
+            "target": 12
+        },
+        {
+            "distance": 1096,
+            "source": 25,
+            "target": 12
+        },
+        {
+            "distance": 1500,
+            "source": 26,
+            "target": 12
+        },
+        {
+            "distance": 1068,
+            "source": 18,
+            "target": 12
+        },
+        {
+            "distance": 457,
+            "source": 19,
+            "target": 13
+        },
+        {
+            "distance": 1703,
+            "source": 14,
+            "target": 13
+        },
+        {
+            "distance": 722,
+            "source": 15,
+            "target": 14
+        },
+        {
+            "distance": 496,
+            "source": 17,
+            "target": 16
+        },
+        {
+            "distance": 1161,
+            "source": 18,
+            "target": 16
+        },
+        {
+            "distance": 1463,
+            "source": 26,
+            "target": 17
+        },
+        {
+            "distance": 764,
+            "source": 19,
+            "target": 18
+        },
+        {
+            "distance": 564,
+            "source": 27,
+            "target": 20
+        },
+        {
+            "distance": 86,
+            "source": 21,
+            "target": 20
+        },
+        {
+            "distance": 30,
+            "source": 29,
+            "target": 20
+        },
+        {
+            "distance": 1844,
+            "source": 24,
+            "target": 22
+        },
+        {
+            "distance": 857,
+            "source": 24,
+            "target": 23
+        },
+        {
+            "distance": 996,
+            "source": 25,
+            "target": 24
+        },
+        {
+            "distance": 857,
+            "source": 27,
+            "target": 26
+        },
+        {
+            "distance": 1279,
+            "source": 28,
+            "target": 26
+        },
+        {
+            "distance": 37,
+            "source": 29,
+            "target": 28
+        }
+    ]
+}

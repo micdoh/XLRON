@@ -1,0 +1,519 @@
+{
+    "directed": true,
+    "multigraph": false,
+    "graph": {},
+    "nodes": [
+        {
+            "id": 1,
+            "latitude": 33.76,
+            "longitude": 84.42
+        },
+        {
+            "id": 2,
+            "latitude": 39.3,
+            "longitude": 76.61
+        },
+        {
+            "id": 3,
+            "latitude": 42.34,
+            "longitude": 71.02
+        },
+        {
+            "id": 4,
+            "latitude": 41.84,
+            "longitude": 87.68
+        },
+        {
+            "id": 5,
+            "latitude": 35.2,
+            "longitude": 80.83
+        },
+        {
+            "id": 6,
+            "latitude": 41.48,
+            "longitude": 81.68
+        },
+        {
+            "id": 7,
+            "latitude": 32.79,
+            "longitude": 96.77
+        },
+        {
+            "id": 8,
+            "latitude": 39.77,
+            "longitude": 104.87
+        },
+        {
+            "id": 9,
+            "latitude": 31.85,
+            "longitude": 106.44
+        },
+        {
+            "id": 10,
+            "latitude": 29.77,
+            "longitude": 95.39
+        },
+        {
+            "id": 11,
+            "latitude": 39.78,
+            "longitude": 86.15
+        },
+        {
+            "id": 12,
+            "latitude": 39.12,
+            "longitude": 94.55
+        },
+        {
+            "id": 13,
+            "latitude": 34.11,
+            "longitude": 118.41
+        },
+        {
+            "id": 14,
+            "latitude": 36.08,
+            "longitude": 115.17
+        },
+        {
+            "id": 15,
+            "latitude": 25.78,
+            "longitude": 80.21
+        },
+        {
+            "id": 16,
+            "latitude": 38.48,
+            "longitude": 80.65
+        },
+        {
+            "id": 17,
+            "latitude": 30.07,
+            "longitude": 89.93
+        },
+        {
+            "id": 18,
+            "latitude": 40.67,
+            "longitude": 73.94
+        },
+        {
+            "id": 19,
+            "latitude": 40.01,
+            "longitude": 75.13
+        },
+        {
+            "id": 20,
+            "latitude": 33.54,
+            "longitude": 112.07
+        },
+        {
+            "id": 21,
+            "latitude": 38.57,
+            "longitude": 121.47
+        },
+        {
+            "id": 22,
+            "latitude": 40.78,
+            "longitude": 111.93
+        },
+        {
+            "id": 23,
+            "latitude": 29.46,
+            "longitude": 98.51
+        },
+        {
+            "id": 24,
+            "latitude": 37.62,
+            "longitude": 122.38
+        },
+        {
+            "id": 25,
+            "latitude": 37.37,
+            "longitude": 121.92
+        },
+        {
+            "id": 26,
+            "latitude": 38.64,
+            "longitude": 90.24
+        },
+        {
+            "id": 27,
+            "latitude": 47.62,
+            "longitude": 122.35
+        },
+        {
+            "id": 28,
+            "latitude": 27.96,
+            "longitude": 82.48
+        },
+        {
+            "id": 29,
+            "latitude": 30.46,
+            "longitude": 84.28
+        },
+        {
+            "id": 30,
+            "latitude": 38.91,
+            "longitude": 77.02
+        }
+    ],
+    "links": [
+        {
+            "distance": 549,
+            "source": 1,
+            "target": 5
+        },
+        {
+            "distance": 1500,
+            "source": 1,
+            "target": 10
+        },
+        {
+            "distance": 224,
+            "source": 2,
+            "target": 19
+        },
+        {
+            "distance": 84,
+            "source": 2,
+            "target": 30
+        },
+        {
+            "distance": 1330,
+            "source": 3,
+            "target": 6
+        },
+        {
+            "distance": 459,
+            "source": 3,
+            "target": 18
+        },
+        {
+            "distance": 750,
+            "source": 4,
+            "target": 6
+        },
+        {
+            "distance": 394,
+            "source": 4,
+            "target": 11
+        },
+        {
+            "distance": 1500,
+            "source": 5,
+            "target": 15
+        },
+        {
+            "distance": 800,
+            "source": 5,
+            "target": 30
+        },
+        {
+            "distance": 541,
+            "source": 7,
+            "target": 10
+        },
+        {
+            "distance": 1097,
+            "source": 7,
+            "target": 12
+        },
+        {
+            "distance": 1338,
+            "source": 8,
+            "target": 9
+        },
+        {
+            "distance": 1333,
+            "source": 8,
+            "target": 12
+        },
+        {
+            "distance": 914,
+            "source": 8,
+            "target": 22
+        },
+        {
+            "distance": 839,
+            "source": 9,
+            "target": 20
+        },
+        {
+            "distance": 1205,
+            "source": 9,
+            "target": 23
+        },
+        {
+            "distance": 791,
+            "source": 10,
+            "target": 17
+        },
+        {
+            "distance": 455,
+            "source": 10,
+            "target": 23
+        },
+        {
+            "distance": 744,
+            "source": 11,
+            "target": 16
+        },
+        {
+            "distance": 562,
+            "source": 11,
+            "target": 26
+        },
+        {
+            "distance": 565,
+            "source": 12,
+            "target": 26
+        },
+        {
+            "distance": 883,
+            "source": 13,
+            "target": 20
+        },
+        {
+            "distance": 722,
+            "source": 13,
+            "target": 25
+        },
+        {
+            "distance": 600,
+            "source": 14,
+            "target": 20
+        },
+        {
+            "distance": 891,
+            "source": 14,
+            "target": 22
+        },
+        {
+            "distance": 496,
+            "source": 15,
+            "target": 28
+        },
+        {
+            "distance": 478,
+            "source": 16,
+            "target": 30
+        },
+        {
+            "distance": 816,
+            "source": 17,
+            "target": 29
+        },
+        {
+            "distance": 187,
+            "source": 18,
+            "target": 19
+        },
+        {
+            "distance": 1278,
+            "source": 21,
+            "target": 22
+        },
+        {
+            "distance": 198,
+            "source": 21,
+            "target": 24
+        },
+        {
+            "distance": 1500,
+            "source": 21,
+            "target": 27
+        },
+        {
+            "distance": 1500,
+            "source": 22,
+            "target": 27
+        },
+        {
+            "distance": 74,
+            "source": 24,
+            "target": 25
+        },
+        {
+            "distance": 492,
+            "source": 28,
+            "target": 29
+        },
+        {
+            "distance": 549,
+            "source": 5,
+            "target": 1
+        },
+        {
+            "distance": 1500,
+            "source": 10,
+            "target": 1
+        },
+        {
+            "distance": 224,
+            "source": 19,
+            "target": 2
+        },
+        {
+            "distance": 84,
+            "source": 30,
+            "target": 2
+        },
+        {
+            "distance": 1330,
+            "source": 6,
+            "target": 3
+        },
+        {
+            "distance": 459,
+            "source": 18,
+            "target": 3
+        },
+        {
+            "distance": 750,
+            "source": 6,
+            "target": 4
+        },
+        {
+            "distance": 394,
+            "source": 11,
+            "target": 4
+        },
+        {
+            "distance": 1500,
+            "source": 15,
+            "target": 5
+        },
+        {
+            "distance": 800,
+            "source": 30,
+            "target": 5
+        },
+        {
+            "distance": 541,
+            "source": 10,
+            "target": 7
+        },
+        {
+            "distance": 1097,
+            "source": 12,
+            "target": 7
+        },
+        {
+            "distance": 1338,
+            "source": 9,
+            "target": 8
+        },
+        {
+            "distance": 1333,
+            "source": 12,
+            "target": 8
+        },
+        {
+            "distance": 914,
+            "source": 22,
+            "target": 8
+        },
+        {
+            "distance": 839,
+            "source": 20,
+            "target": 9
+        },
+        {
+            "distance": 1205,
+            "source": 23,
+            "target": 9
+        },
+        {
+            "distance": 791,
+            "source": 17,
+            "target": 10
+        },
+        {
+            "distance": 455,
+            "source": 23,
+            "target": 10
+        },
+        {
+            "distance": 744,
+            "source": 16,
+            "target": 11
+        },
+        {
+            "distance": 562,
+            "source": 26,
+            "target": 11
+        },
+        {
+            "distance": 565,
+            "source": 26,
+            "target": 12
+        },
+        {
+            "distance": 883,
+            "source": 20,
+            "target": 13
+        },
+        {
+            "distance": 722,
+            "source": 25,
+            "target": 13
+        },
+        {
+            "distance": 600,
+            "source": 20,
+            "target": 14
+        },
+        {
+            "distance": 891,
+            "source": 22,
+            "target": 14
+        },
+        {
+            "distance": 496,
+            "source": 28,
+            "target": 15
+        },
+        {
+            "distance": 478,
+            "source": 30,
+            "target": 16
+        },
+        {
+            "distance": 816,
+            "source": 29,
+            "target": 17
+        },
+        {
+            "distance": 187,
+            "source": 19,
+            "target": 18
+        },
+        {
+            "distance": 1278,
+            "source": 22,
+            "target": 21
+        },
+        {
+            "distance": 198,
+            "source": 24,
+            "target": 21
+        },
+        {
+            "distance": 1500,
+            "source": 27,
+            "target": 21
+        },
+        {
+            "distance": 1500,
+            "source": 27,
+            "target": 22
+        },
+        {
+            "distance": 74,
+            "source": 25,
+            "target": 24
+        },
+        {
+            "distance": 492,
+            "source": 29,
+            "target": 28
+        }
+    ]
+}
