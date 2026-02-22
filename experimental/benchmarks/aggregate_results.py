@@ -76,27 +76,41 @@ def aggregate(
     ]
     _GROUP_PATTERN = "|".join(re.escape(g) for g in _KNOWN_GROUPS)
 
-    def _parse_filename(name: str) -> tuple[str, str]:
-        """Return (device, group) from a benchmark filename.
+    def _parse_filename(name: str) -> tuple[str, str, bool]:
+        """Return (device, group, valid) from a benchmark filename.
 
         Filenames follow: {server_device}_{group}_{details}
         The server_device prefix indicates which machine ran the benchmark.
         For the 'device' group, the JAX platform is encoded in the details.
         For the 'config_grid' group, the JAX platform is also in the details.
+
+        The third return value ``valid`` is False when the server prefix
+        doesn't match the claimed device.  For ``device`` and ``config_grid``
+        groups, the target JAX platform is encoded in the filename details.
+        Cross-server runs (e.g. ``cpu_config_grid_gpu_*`` or
+        ``gpu_config_grid_cpu_*``) are unreliable because
+        ``JAX_PLATFORMS=cpu`` on a GPU server doesn't produce comparable
+        results to a dedicated CPU server, and a CPU server requesting GPU
+        silently falls back to CPU.  We require server == device for these
+        groups.
         """
         # Match device prefix then group name
         m = re.match(rf"^(?:(cpu|gpu)_)?({_GROUP_PATTERN})_", name)
         if m:
-            device = m.group(1) or "gpu"
+            server = m.group(1) or "gpu"
             group = m.group(2)
+            device = server  # default: device = server
+            valid = True
             # 'device' group: the run's JAX platform is in the next segment
             # e.g. "gpu_device_cpu_rmsa_ne1" or legacy "device_cpu_rmsa_ne1"
             if group == "device":
-                # Look for the platform after "device_"
                 rest = name[m.end():]
                 m2 = re.match(r"^(cpu|gpu)_", rest)
                 if m2:
                     device = m2.group(1)
+                    # Only keep runs where server matches claimed device
+                    if device != server:
+                        valid = False
             # 'config_grid' group: the run's JAX platform is in the next segment
             # e.g. "gpu_config_grid_cpu_lr128_ne64"
             elif group == "config_grid":
@@ -104,12 +118,20 @@ def aggregate(
                 m2 = re.match(r"^(cpu|gpu)_", rest)
                 if m2:
                     device = m2.group(1)
-            return device, group
-        return "unknown", "unknown"
+                    # Only keep runs where server matches claimed device
+                    if device != server:
+                        valid = False
+            return device, group, valid
+        return "unknown", "unknown", True
 
     parsed = df["file"].apply(_parse_filename)
     df["device"] = parsed.apply(lambda x: x[0])
     df["group"] = parsed.apply(lambda x: x[1])
+    valid = parsed.apply(lambda x: x[2])
+    n_invalid = (~valid).sum()
+    if n_invalid > 0:
+        print(f"Dropping {n_invalid} rows where server != claimed device")
+        df = df[valid].reset_index(drop=True)
     Path(output_csv).parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(output_csv, index=False)
     print(

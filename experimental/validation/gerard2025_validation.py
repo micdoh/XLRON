@@ -496,48 +496,66 @@ def plot1_2_combined_snr_metrics(freqs, path_d, c_mask, l_mask, occ, out_dir):
     ax.set_xlabel("Frequency (THz)")
     ax.set_ylabel("SNR Metric (dB)")
 
-    # Order rows as: metric dots | Gerard L | Gerard C | Received SNR (4 columns).
-    # Each original metric fills 3 columns; Received SNR sits in column 4.
-    ordered_labels = []
-    ordered_handles = []
-    for metric_label, _, _, _, _ in metric_defs:
-        ordered_labels.extend(
-            [
-                metric_label,
-                gerard_l_handles[metric_label].get_label(),
-                gerard_c_handles[metric_label].get_label(),
-            ]
-        )
-        ordered_handles.extend(
-            [
-                metric_handles[metric_label],
-                gerard_l_handles[metric_label],
-                gerard_c_handles[metric_label],
-            ]
-        )
-    # Received SNR in a 4th column — pad rows 2 and 3 with invisible entries
-    # so the label appears only once, aligned with row 1.
+    # Build 3-row × 4-column legend grid explicitly.
+    # Columns 1-3: metric scatter | Gerard L ref | Gerard C ref.
+    # Column 4: Received SNR (row 1 only), blank in rows 2-3.
     from matplotlib.patches import Patch
     blank = Patch(facecolor="none", edgecolor="none", label="")
-    ordered_labels.insert(3, rcv_label)
-    ordered_handles.insert(3, metric_handles[rcv_label])
-    ordered_labels.insert(7, " ")
-    ordered_handles.insert(7, blank)
-    ordered_labels.insert(11, " ")
-    ordered_handles.insert(11, blank)
+
+    ordered_handles = []
+    ordered_labels = []
+    for i, (metric_label, _, _, _, _) in enumerate(metric_defs):
+        ordered_handles.extend([
+            metric_handles[metric_label],
+            gerard_l_handles[metric_label],
+            gerard_c_handles[metric_label],
+            metric_handles[rcv_label] if i == 0 else blank,
+        ])
+        ordered_labels.extend([
+            metric_label,
+            gerard_l_handles[metric_label].get_label(),
+            gerard_c_handles[metric_label].get_label(),
+            rcv_label if i == 0 else " ",
+        ])
+
+    # Use two legends: main 3×3 grid + separate Received SNR to the right.
+    main_handles = []
+    main_labels = []
+    for metric_label, _, _, _, _ in metric_defs:
+        main_handles.extend([
+            metric_handles[metric_label],
+            gerard_l_handles[metric_label],
+            gerard_c_handles[metric_label],
+        ])
+        main_labels.extend([
+            metric_label,
+            gerard_l_handles[metric_label].get_label(),
+            gerard_c_handles[metric_label].get_label(),
+        ])
+
+    leg1 = ax.legend(
+        main_handles,
+        main_labels,
+        ncol=3,
+        loc="lower left",
+        bbox_to_anchor=(0.0, 1.02),
+        frameon=True,
+        borderaxespad=0.3,
+    )
+    ax.add_artist(leg1)
 
     ax.legend(
-        ordered_handles,
-        ordered_labels,
-        ncol=4,
-        loc="lower center",
-        bbox_to_anchor=(0.5, 1.0),
+        [metric_handles[rcv_label]],
+        [rcv_label],
+        ncol=1,
+        loc="lower right",
+        bbox_to_anchor=(1.0, 1.02),
         frameon=True,
         borderaxespad=0.3,
     )
 
-    plt.tight_layout(rect=[0, 0, 1, 0.85])
-    plt.savefig(os.path.join(out_dir, "plot1_2_combined_snr_metrics.png"))
+    plt.tight_layout()
+    plt.savefig(os.path.join(out_dir, "plot1_2_combined_snr_metrics.png"), bbox_inches="tight")
     plt.close()
     print("  Saved plot1_2_combined_snr_metrics.png")
 
@@ -829,7 +847,7 @@ def plot5_ablation_sweep(ablation_results, out_dir):
     ax.axvline(21.2, color="green", linestyle=":", linewidth=1.5, label="Gerard optimal (21.2 dBm)")
     ax.set_xlabel("Total Fibre Launch Power (dBm)")
     ax.set_ylabel("Average GOSNR (dB)")
-    ax.legend()
+    ax.legend(loc="lower center", bbox_to_anchor=(0.75, 0.0))
 
     plt.tight_layout()
     plt.savefig(os.path.join(out_dir, "plot5_ablation_sweep.png"))

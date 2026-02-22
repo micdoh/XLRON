@@ -1,7 +1,7 @@
 """Box plots of warm-up period estimation using mean-crossing rule.
 
 Extracted from warmup.ipynb (first method -- mean crossing rule).
-JAX-accelerated: uses jax.lax.fori_loop + jax.vmap for ~100x speedup.
+JAX-accelerated: uses jax.lax.while_loop + jax.vmap for ~100x speedup.
 """
 
 import sys
@@ -20,11 +20,7 @@ from plot_style import configure_style
 
 PLOTS_DIR = Path(__file__).resolve().parent / "plots"
 
-# Circular buffer size must exceed max load (1000).
-# Safe because expired entries depart before the buffer wraps:
-#   mean_holding_time = load/arrival_rate < BUF_SIZE/arrival_rate  ⟹  load < BUF_SIZE
-_BUF_SIZE = 2048
-_MAX_REQUESTS = 5_000  # Convergence typically < 3×load; 5K is safe up to load=1000
+_MAX_REQUESTS = 10_000  # Must exceed worst-case convergence (~5-7× load)
 
 
 def simulate_warmup(n_repeats=1000, max_requests=_MAX_REQUESTS, seed=42):
@@ -55,25 +51,28 @@ def simulate_warmup(n_repeats=1000, max_requests=_MAX_REQUESTS, seed=42):
             * mean_ht
         )
 
-        def body(i, carry):
-            current_time, buf, result_i = carry
-            current_time = current_time + inter_arrivals[i]
-            departure = current_time + holding_times[i]
-            # Write departure to circular buffer position
-            buf = buf.at[i % _BUF_SIZE].set(departure)
-            # Count active services (departure > current_time)
-            active = jnp.sum(buf > current_time)
-            # Record first crossing only
+        # Pre-compute cumulative arrival times and departure times
+        arrival_times = jnp.cumsum(inter_arrivals)
+        departure_times = arrival_times + holding_times
+
+        idx = jnp.arange(max_requests, dtype=jnp.int32)
+
+        def cond_fn(state):
+            i, result_i = state
+            return (result_i < 0) & (i < max_requests)
+
+        def body_fn(state):
+            i, result_i = state
+            # Count services j <= i whose departure is still after arrival[i]
+            # (exact equivalent of the original: [x for x in services if x > current_time])
+            active = jnp.sum((idx <= i) & (departure_times > arrival_times[i]))
             crossed = active >= load_f
             result_i = jnp.where((result_i < 0) & crossed, i, result_i)
-            return (current_time, buf, result_i)
+            return (i + 1, result_i)
 
-        init = (
-            jnp.float32(0.0),
-            jnp.zeros(_BUF_SIZE, dtype=jnp.float32),
-            jnp.int32(-1),
+        _, result_i = jax.lax.while_loop(
+            cond_fn, body_fn, (jnp.int32(0), jnp.int32(-1))
         )
-        _, _, result_i = jax.lax.fori_loop(0, max_requests, body, init)
         return result_i
 
     # Vectorise across repeats

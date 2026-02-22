@@ -315,7 +315,13 @@ def plot_fps_vs_topology(
 
 
 def plot_compilation_time(df: pd.DataFrame, output_dir: Path, device: str | None = None):
-    """Compilation time vs NUM_ENVS."""
+    """Compilation time vs NUM_ENVS.
+
+    Uses env-type colours and distinguishes CPU/GPU via marker and linestyle.
+    The legend has two sections: one showing device styles, one showing env-type colours.
+    """
+    import matplotlib.lines as mlines
+
     data = _filter_device(_filter_group(df, "num_envs"), device)
     if data.empty or "timing_compilation_time_s" not in data.columns:
         print("  No compilation time data")
@@ -330,7 +336,8 @@ def plot_compilation_time(df: pd.DataFrame, output_dir: Path, device: str | None
     devices = sorted(data["device"].unique()) if "device" in data.columns else [None]
     fig, ax = plt.subplots(figsize=(14, 10))
 
-    device_styles = {"cpu": "--", "gpu": "-"}
+    device_linestyles = {"cpu": "--", "gpu": "-"}
+    device_markers = {"cpu": "s", "gpu": "o"}
 
     for env_type in env_types:
         et_data = data[data["config_env_type"] == env_type]
@@ -346,22 +353,41 @@ def plot_compilation_time(df: pd.DataFrame, output_dir: Path, device: str | None
                 continue
 
             color = ENV_TYPE_COLORS.get(env_type, "black")
-            display = ENV_TYPE_DISPLAY.get(env_type, env_type)
-            linestyle = device_styles.get(dev, "-")
-            label = f"{display} ({dev.upper()})" if dev and len(devices) > 1 else display
+            linestyle = device_linestyles.get(dev, "-")
+            marker = device_markers.get(dev, "o")
 
             x = sub["config_NUM_ENVS"].values
             y = sub["timing_compilation_time_s_mean"].values
             yerr = sub["timing_compilation_time_s_std"].values
 
-            ax.plot(x, y, marker="o", color=color, linestyle=linestyle, label=label)
-            ax.fill_between(x, y - yerr, y + yerr, color=color, alpha=0.2)
+            ax.plot(x, y, marker=marker, color=color, linestyle=linestyle)
+            ax.fill_between(x, y - yerr, y + yerr, color=color, alpha=0.15)
 
     ax.set_xscale("log", base=2)
     ax.set_xlabel("# Parallel Environments")
     ax.set_ylabel("Compilation Time (s)")
-    ax.legend()
     ax.xaxis.set_major_formatter(ticker.ScalarFormatter())
+
+    # Build two-section legend: device styles (black) + env-type colours
+    legend_handles = []
+    if len(devices) > 1:
+        for dev in devices:
+            h = mlines.Line2D(
+                [], [], color="black",
+                linestyle=device_linestyles.get(dev, "-"),
+                marker=device_markers.get(dev, "o"),
+                label=dev.upper(),
+            )
+            legend_handles.append(h)
+    for env_type in env_types:
+        h = mlines.Line2D(
+            [], [], color=ENV_TYPE_COLORS.get(env_type, "black"),
+            linestyle="-", marker="o",
+            label=ENV_TYPE_DISPLAY.get(env_type, env_type),
+        )
+        legend_handles.append(h)
+    ax.legend(handles=legend_handles)
+
     fig.tight_layout()
     _save(fig, output_dir, "compilation_time_vs_num_envs")
 
@@ -372,15 +398,22 @@ def plot_compilation_time(df: pd.DataFrame, output_dir: Path, device: str | None
 def plot_gpu_speedup(df: pd.DataFrame, output_dir: Path, device: str | None = None):
     """GPU speedup over CPU at different NUM_ENVS.
 
-    Uses the 'device' group first; falls back to num_envs group if both
-    CPU and GPU data are available there.  Ignores the --device filter since
-    this plot inherently needs both.  Only shows RMSA data.
+    Prefers the 'num_envs' group (which scales TOTAL_TIMESTEPS with
+    NUM_ENVS to avoid compilation overhead distorting FPS at high env
+    counts).  Falls back to the 'device' group if num_envs doesn't have
+    both CPU and GPU data.  Ignores the --device filter since this plot
+    inherently needs both.  Only shows RMSA data.
     """
-    # Try dedicated device group
-    data = _filter_group(df, "device")
-    if data.empty:
-        # Fall back to num_envs group which may have both cpu and gpu
-        data = _filter_group(df, "num_envs")
+    # Prefer num_envs group (better TOTAL_TIMESTEPS scaling)
+    data = _filter_group(df, "num_envs")
+    if data.empty or "device" not in data.columns:
+        data = _filter_group(df, "device")
+    else:
+        # Check it actually has both cpu and gpu; fall back otherwise
+        rmsa_ne = data[data["config_env_type"] == "rmsa"]
+        devs = rmsa_ne["device"].unique() if not rmsa_ne.empty else []
+        if "cpu" not in devs or "gpu" not in devs:
+            data = _filter_group(df, "device")
 
     if data.empty or "device" not in data.columns:
         print("  No data for gpu_speedup plot")

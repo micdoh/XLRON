@@ -171,7 +171,7 @@ def _group_num_envs() -> list[dict]:
     slow_num_envs = [1, 2, 4, 8, 16, 32, 64]
     for env_type in ["rsa_gn_model", "rmsa_gn_model", "rwa_lightpath_reuse"]:
         for num_envs in slow_num_envs:
-            ts = 10000
+            ts = 1000 if "gn_model" in env_type else 10000
             extra = [
                 "--topology_name=nsfnet_deeprmsa_directed",
                 "--link_resources=100",
@@ -211,6 +211,7 @@ def _group_topology() -> list[dict]:
                 )
     # Slower env types: NUM_ENVS=1 only
     for env_type in ["rsa_gn_model", "rmsa_gn_model", "rwa_lightpath_reuse"]:
+        ts = 1000 if "gn_model" in env_type else 10000
         for topo in DIRECTED_TOPOLOGIES:
             runs.append(
                 {
@@ -220,7 +221,7 @@ def _group_topology() -> list[dict]:
                         "--link_resources=100",
                         "--k=5",
                         "--NUM_ENVS=1",
-                        "--TOTAL_TIMESTEPS=10000",
+                        f"--TOTAL_TIMESTEPS={ts}",
                     ],
                     "label": f"topology_{env_type}_{topo}",
                 }
@@ -283,7 +284,7 @@ def _group_gn_bands() -> list[dict]:
                         "--topology_name=nsfnet_deeprmsa_directed",
                         "--k=5",
                         f"--band_preference={bands}",
-                        "--TOTAL_TIMESTEPS=10000",
+                        "--TOTAL_TIMESTEPS=1000",
                     ],
                     "label": f"gn_bands_{env_type}_{band_label}",
                 }
@@ -339,7 +340,7 @@ def _group_cross_env() -> list[dict]:
     """Group 8: Cross-env-type comparison on same config."""
     runs = []
     for env_type in ["rwa", "rmsa", "rsa_gn_model", "rmsa_gn_model", "rwa_lightpath_reuse"]:
-        ts = 10000 if ("gn_model" in env_type or env_type == "rwa_lightpath_reuse") else 100000
+        ts = 1000 if "gn_model" in env_type else (10000 if env_type == "rwa_lightpath_reuse" else 100000)
         runs.append(
             {
                 "env_flags": ENV_BASES[env_type],
