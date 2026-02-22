@@ -151,7 +151,7 @@ def _group_num_envs() -> list[dict]:
     """Group 1: NUM_ENVS scaling on NSFNET."""
     runs = []
     # Fast env types: full NUM_ENVS sweep
-    for env_type in ["rwa", "rmsa"]:
+    for env_type in ["rwa", "rmsa", "rwa_lightpath_reuse"]:
         for num_envs in NUM_ENVS_VALUES:
             ts = _timesteps_for_num_envs(num_envs)
             runs.append(
@@ -167,17 +167,16 @@ def _group_num_envs() -> list[dict]:
                     "label": f"num_envs_{env_type}_ne{num_envs}",
                 }
             )
-    # Slower env types: reduced NUM_ENVS range and lower timesteps
+    # GN model env types: reduced NUM_ENVS range and lower timesteps
     slow_num_envs = [1, 2, 4, 8, 16, 32, 64]
-    for env_type in ["rsa_gn_model", "rmsa_gn_model", "rwa_lightpath_reuse"]:
+    for env_type in ["rsa_gn_model", "rmsa_gn_model"]:
         for num_envs in slow_num_envs:
-            ts = 1000 if "gn_model" in env_type else 10000
             extra = [
                 "--topology_name=nsfnet_deeprmsa_directed",
                 "--link_resources=100",
                 "--k=5",
                 f"--NUM_ENVS={num_envs}",
-                f"--TOTAL_TIMESTEPS={ts}",
+                "--TOTAL_TIMESTEPS=1000",
             ]
             runs.append(
                 {
@@ -193,7 +192,7 @@ def _group_topology() -> list[dict]:
     """Group 2: Topology scaling (all env types, all directed topos)."""
     runs = []
     # Fast env types: NUM_ENVS=1 (for table) and NUM_ENVS=64 (for heatmap)
-    for env_type in ["rwa", "rmsa"]:
+    for env_type in ["rwa", "rmsa", "rwa_lightpath_reuse"]:
         for topo in DIRECTED_TOPOLOGIES:
             for ne, ts in [(1, 100000), (64, 500000)]:
                 runs.append(
@@ -209,9 +208,8 @@ def _group_topology() -> list[dict]:
                         "label": f"topology_{env_type}_{topo}_ne{ne}",
                     }
                 )
-    # Slower env types: NUM_ENVS=1 only
-    for env_type in ["rsa_gn_model", "rmsa_gn_model", "rwa_lightpath_reuse"]:
-        ts = 1000 if "gn_model" in env_type else 10000
+    # GN model env types: NUM_ENVS=1 only, fewer timesteps
+    for env_type in ["rsa_gn_model", "rmsa_gn_model"]:
         for topo in DIRECTED_TOPOLOGIES:
             runs.append(
                 {
@@ -221,7 +219,7 @@ def _group_topology() -> list[dict]:
                         "--link_resources=100",
                         "--k=5",
                         "--NUM_ENVS=1",
-                        f"--TOTAL_TIMESTEPS={ts}",
+                        "--TOTAL_TIMESTEPS=100",
                     ],
                     "label": f"topology_{env_type}_{topo}",
                 }
@@ -340,7 +338,7 @@ def _group_cross_env() -> list[dict]:
     """Group 8: Cross-env-type comparison on same config."""
     runs = []
     for env_type in ["rwa", "rmsa", "rsa_gn_model", "rmsa_gn_model", "rwa_lightpath_reuse"]:
-        ts = 1000 if "gn_model" in env_type else (10000 if env_type == "rwa_lightpath_reuse" else 100000)
+        ts = 1000 if "gn_model" in env_type else 100000
         runs.append(
             {
                 "env_flags": ENV_BASES[env_type],
@@ -354,8 +352,8 @@ def _group_cross_env() -> list[dict]:
                 "label": f"cross_env_{env_type}_ne1",
             }
         )
-    # Also rwa/rmsa at NUM_ENVS=64
-    for env_type in ["rwa", "rmsa"]:
+    # Also fast env types at NUM_ENVS=64
+    for env_type in ["rwa", "rmsa", "rwa_lightpath_reuse"]:
         runs.append(
             {
                 "env_flags": ENV_BASES[env_type],
