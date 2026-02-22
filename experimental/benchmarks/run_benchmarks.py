@@ -6,7 +6,7 @@ levels to measure simulation throughput (FPS) via heuristic evaluation.
 
 Usage:
     # Run all sweep groups
-    python benchmarks/run_benchmarks.py --output_dir=benchmarks/results
+    python benchmarks/run_benchmarks.py --output_dir=experimental/benchmarks/results
 
     # Run specific sweep groups
     python benchmarks/run_benchmarks.py --groups=num_envs,topology
@@ -418,7 +418,7 @@ def run_benchmark(
     run_config: dict,
     output_dir: Path,
     dry_run: bool = False,
-    timeout: int = 1800,
+    timeout: int = 3200,
 ) -> bool:
     """Execute a single benchmark run.
 
@@ -468,7 +468,7 @@ def run_benchmark(
 def main():
     parser = argparse.ArgumentParser(description="XLRON Benchmark Suite")
     parser.add_argument(
-        "--output_dir", default="benchmarks/results", help="Directory for JSONL output files"
+        "--output_dir", default="experimental/benchmarks/results", help="Directory for JSONL output files"
     )
     parser.add_argument(
         "--groups",
