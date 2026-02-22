@@ -706,3 +706,10 @@ The per-channel Raman gain varies across the spectrum (typically higher for L-ba
 | Key metric | Throughput (Gbit/s) | Blocking probability, accepted bitrate |
 | Best for | Capacity studies, fast evaluation | Realistic RL training, NLI-aware allocation |
 | Modulation format correction | Not applicable | Optional (`--mod_format_correction`) |
+
+
+---
+
+## See Also
+
+- [Comparison with optical-networking-gym OSNR Model](gn_model_comparison.md) -- detailed comparison of XLRON's ISRS GN model with the simplified GN model implementation in optical-networking-gym
