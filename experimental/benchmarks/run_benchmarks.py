@@ -208,22 +208,24 @@ def _group_topology() -> list[dict]:
                         "label": f"topology_{env_type}_{topo}_ne{ne}",
                     }
                 )
-    # GN model env types: NUM_ENVS=1 only, fewer timesteps
+    # GN model env types: fewer timesteps
     for env_type in ["rsa_gn_model", "rmsa_gn_model"]:
+        ne_values = [(1, 100), (64, 100)] if env_type == "rmsa_gn_model" else [(1, 100)]
         for topo in DIRECTED_TOPOLOGIES:
-            runs.append(
-                {
-                    "env_flags": ENV_BASES[env_type],
-                    "extra_flags": [
-                        f"--topology_name={topo}",
-                        "--link_resources=100",
-                        "--k=5",
-                        "--NUM_ENVS=1",
-                        "--TOTAL_TIMESTEPS=100",
-                    ],
-                    "label": f"topology_{env_type}_{topo}",
-                }
-            )
+            for ne, ts in ne_values:
+                runs.append(
+                    {
+                        "env_flags": ENV_BASES[env_type],
+                        "extra_flags": [
+                            f"--topology_name={topo}",
+                            "--link_resources=100",
+                            "--k=5",
+                            f"--NUM_ENVS={ne}",
+                            f"--TOTAL_TIMESTEPS={ts}",
+                        ],
+                        "label": f"topology_{env_type}_{topo}_ne{ne}",
+                    }
+                )
     return runs
 
 

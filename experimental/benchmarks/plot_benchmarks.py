@@ -545,6 +545,15 @@ def plot_heatmap(df: pd.DataFrame, output_dir: Path, device: str | None = None):
         print("  No data for heatmap")
         return
 
+    # For env types with multiple NUM_ENVS runs (e.g. ne1 + ne64), keep only
+    # the highest NUM_ENVS per (device, topology, env_type) for the heatmap.
+    if "config_NUM_ENVS" in data.columns:
+        group_cols = ["config_topology_name", "config_env_type"]
+        if "device" in data.columns:
+            group_cols = ["device"] + group_cols
+        max_ne = data.groupby(group_cols, dropna=False)["config_NUM_ENVS"].transform("max")
+        data = data[data["config_NUM_ENVS"] == max_ne]
+
     from matplotlib.colors import LogNorm, LinearSegmentedColormap
 
     # GPU colormap: yellow → orange → red
