@@ -4225,6 +4225,7 @@ docs = [
 ]
 gui = [
     { name = "streamlit" },
+    { name = "watchdog" },
 ]
 
 [package.dev-dependencies]
@@ -4281,6 +4282,7 @@ requires-dist = [
     { name = "tqdm", specifier = ">=4.67.1" },
     { name = "ty", specifier = ">=0.0.1a25" },
     { name = "wandb", specifier = ">=0.22.2" },
+    { name = "watchdog", marker = "extra == 'gui'", specifier = ">=6.0.0" },
 ]
 provides-extras = ["gui", "docs"]
 

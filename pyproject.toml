@@ -65,6 +65,7 @@ tpu = [
 [project.optional-dependencies]
 gui = [
   "streamlit>=1.38.0",
+  "watchdog>=6.0.0",
 ]
 docs = [
   "mkdocs",
