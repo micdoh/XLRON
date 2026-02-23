@@ -14,25 +14,59 @@ import matplotlib.container as mcontainer
 
 # -- Color Palettes -----------------------------------------------------------
 
+# Core palette
+PRIMARY_COLORS = ["#30A08E", "#E1F6F2", "#A5E5D7", "#1D605B"]
+ACCENT_COLORS = ["#8064A2", "#E75D72", "#69D3BE", "#FF9A56"]
+
+# Combined sequence for general use (primary dark/mid + all accents)
+PALETTE = [
+    PRIMARY_COLORS[0],  # teal
+    ACCENT_COLORS[1],   # coral
+    ACCENT_COLORS[0],   # purple
+    ACCENT_COLORS[3],   # orange
+    PRIMARY_COLORS[3],  # dark teal
+    ACCENT_COLORS[2],   # seafoam
+    PRIMARY_COLORS[2],  # medium mint
+    ACCENT_COLORS[1],   # coral (repeat for >7 series)
+]
+
+# Table styling
+TABLE_HEADER_COLOR = PRIMARY_COLORS[3]   # dark teal
+TABLE_ROW_ALT_COLOR = PRIMARY_COLORS[1]  # light mint
+
+# Heatmap colormaps (built lazily by configure_style or on first access)
+HEATMAP_GPU_COLORS = [
+    PRIMARY_COLORS[1],  # light mint
+    ACCENT_COLORS[2],   # seafoam
+    PRIMARY_COLORS[0],  # teal
+    PRIMARY_COLORS[3],  # dark teal
+]
+HEATMAP_CPU_COLORS = [
+    "#F3E8FF",          # pale lavender
+    ACCENT_COLORS[0],   # purple
+    ACCENT_COLORS[1],   # coral
+    "#9E2B3A",          # deep berry
+]
+
 ENV_TYPE_COLORS = {
-    "rwa": "#1f77b4",
-    "rmsa": "#ff7f0e",
-    "rsa_gn_model": "#2ca02c",
-    "rmsa_gn_model": "#d62728",
-    "rwa_lightpath_reuse": "#9467bd",
+    "rwa": PRIMARY_COLORS[0],          # teal
+    "rmsa": ACCENT_COLORS[3],          # orange
+    "rsa_gn_model": ACCENT_COLORS[0],  # purple
+    "rmsa_gn_model": ACCENT_COLORS[1], # coral
+    "rwa_lightpath_reuse": ACCENT_COLORS[2],  # seafoam
 }
 
 TOPOLOGY_COLORS = {
-    "5node_directed": "#1f77b4",
-    "cost239_deeprmsa_directed": "#ff7f0e",
-    "cost239_ptrnet_published_directed": "#bcbd22",
-    "cost239_ptrnet_real_directed": "#17becf",
-    "nsfnet_deeprmsa_directed": "#2ca02c",
-    "german17_directed": "#d62728",
-    "usnet_gcnrnn_directed": "#9467bd",
-    "usnet_ptrnet_directed": "#8c564b",
-    "jpn48_directed": "#e377c2",
-    "conus_directed": "#7f7f7f",
+    "5node_directed": PRIMARY_COLORS[0],          # teal
+    "cost239_deeprmsa_directed": ACCENT_COLORS[3], # orange
+    "cost239_ptrnet_published_directed": ACCENT_COLORS[2],  # seafoam
+    "cost239_ptrnet_real_directed": PRIMARY_COLORS[3],      # dark teal
+    "nsfnet_deeprmsa_directed": ACCENT_COLORS[1],  # coral
+    "german17_directed": ACCENT_COLORS[0],         # purple
+    "usnet_gcnrnn_directed": PRIMARY_COLORS[2],    # medium mint
+    "usnet_ptrnet_directed": "#C4487A",            # rose (extra)
+    "jpn48_directed": "#5B9BD5",                   # steel blue (extra)
+    "conus_directed": PRIMARY_COLORS[3],           # dark teal
 }
 
 TOPOLOGY_DISPLAY = {
@@ -43,7 +77,7 @@ TOPOLOGY_DISPLAY = {
     "nsfnet_deeprmsa_directed": "NSFNET",
     "german17_directed": "German17",
     "usnet_gcnrnn_directed": "USNET-A",
-    "usnet_ptrnet_directed": "USNET-B",
+    "usnet_ptrnet_directed": "USNET",
     "jpn48_directed": "JPN48",
     "conus_directed": "CONUS",
 }
@@ -57,15 +91,23 @@ ENV_TYPE_DISPLAY = {
 }
 
 DEVICE_COLORS = {
-    "cpu": "#1f77b4",
-    "gpu": "#d62728",
+    "cpu": ACCENT_COLORS[0],   # purple
+    "gpu": ACCENT_COLORS[1],   # coral
 }
 
 BAND_COLORS = {
-    "C": "#1f77b4",
-    "C,L": "#ff7f0e",
-    "C,L,S": "#2ca02c",
+    "C": PRIMARY_COLORS[0],    # teal
+    "C,L": ACCENT_COLORS[3],   # orange
+    "C,L,S": ACCENT_COLORS[0], # purple
 }
+
+COMPARISON_COLORS = {
+    "deeprmsa_original": PRIMARY_COLORS[0],  # teal
+    "xlron": ACCENT_COLORS[3],               # orange
+    "optical_rl_gym": ACCENT_COLORS[0],      # purple
+}
+
+REFERENCE_LINE_COLOR = ACCENT_COLORS[1]  # coral
 
 BAND_DISPLAY = {
     "C": "C (43 x 100 GHz)",
@@ -117,13 +159,9 @@ def configure_style(
 def get_topology_order() -> list[str]:
     """Return directed topologies ordered roughly by network size."""
     return [
-        "5node_directed",
         "cost239_deeprmsa_directed",
-        "cost239_ptrnet_published_directed",
-        "cost239_ptrnet_real_directed",
         "nsfnet_deeprmsa_directed",
         "german17_directed",
-        "usnet_gcnrnn_directed",
         "usnet_ptrnet_directed",
         "jpn48_directed",
         "conus_directed",
@@ -194,7 +232,7 @@ def _example_bar_chart():
     width = 0.25
     rng = np.random.RandomState(42)
     for i, (label, color) in enumerate(
-        [("KSP-FF", "#1f77b4"), ("FF-KSP", "#ff7f0e"), ("KSP-MU", "#2ca02c")]
+        [("KSP-FF", PALETTE[0]), ("FF-KSP", PALETTE[1]), ("KSP-MU", PALETTE[2])]
     ):
         vals = rng.uniform(0.5, 5.0, len(categories))
         err = vals * 0.1

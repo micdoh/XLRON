@@ -17,7 +17,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from experimental.plot_style import configure_style
+from experimental.plot_style import COMPARISON_COLORS, REFERENCE_LINE_COLOR, configure_style
 
 # -- Configurable constants ---------------------------------------------------
 
@@ -68,6 +68,10 @@ def _load_training_iqr() -> pd.DataFrame:
     # Rebase so execution time starts from 0
     df["execution_time"] = df["execution_time"] - df["execution_time"].iloc[0]
     df["wall_time"] = df["time_elapsed"] - df["time_elapsed"].iloc[0]
+    # Drop first 3000 rows (early noisy data) and rebase times to 0
+    df = df.iloc[3000:].reset_index(drop=True)
+    df["execution_time"] = df["execution_time"] - df["execution_time"].iloc[0]
+    df["wall_time"] = df["wall_time"] - df["wall_time"].iloc[0]
     return df
 
 
@@ -97,27 +101,27 @@ def plot_bp_vs_steps(xlron: pd.DataFrame, original: pd.DataFrame,
 
     # Original (total steps across all agents)
     ax.plot(original["total_steps"], original["bp_pct"],
-            color="#1f77b4", label="DeepRMSA Original", linewidth=1.5)
+            color=COMPARISON_COLORS["deeprmsa_original"], label="DeepRMSA", linewidth=1.5)
     ax.fill_between(original["total_steps"],
                     original["bp_lower_pct"], original["bp_upper_pct"],
-                    color="#1f77b4", alpha=0.2)
+                    color=COMPARISON_COLORS["deeprmsa_original"], alpha=0.2)
 
     # XLRON (total steps across all envs)
     ax.plot(xlron["total_steps"], xlron["bp_pct"],
-            color="#ff7f0e", label="XLRON", linewidth=1.5)
+            color=COMPARISON_COLORS["xlron"], label="XLRON", linewidth=1.5)
     ax.fill_between(xlron["total_steps"],
                     xlron["bp_lower_pct"], xlron["bp_upper_pct"],
-                    color="#ff7f0e", alpha=0.2)
+                    color=COMPARISON_COLORS["xlron"], alpha=0.2)
 
     # Optical-RL-Gym
     ax.plot(training_iqr["total_steps"], training_iqr["bp_pct"],
-            color="#9467bd", label="Optical-RL-Gym", linewidth=1.5)
+            color=COMPARISON_COLORS["optical_rl_gym"], label="Optical-RL-Gym", linewidth=1.5)
     ax.fill_between(training_iqr["total_steps"],
                     training_iqr["bp_lower_pct"], training_iqr["bp_upper_pct"],
-                    color="#9467bd", alpha=0.2)
+                    color=COMPARISON_COLORS["optical_rl_gym"], alpha=0.2)
 
     # KSP-FF reference line
-    ax.axhline(y=5.0, color="green", linestyle="--", linewidth=1.5, label="KSP-FF")
+    ax.axhline(y=5.0, color=REFERENCE_LINE_COLOR, linestyle="--", linewidth=1.5, label=r"5-SP-FF$_{km}$")
 
     ax.set_yscale("log")
     ax.set_xlabel("Environment Steps")
@@ -139,27 +143,27 @@ def plot_bp_vs_time(xlron: pd.DataFrame, original: pd.DataFrame,
 
     # Original
     ax.plot(original["execution_time"], original["bp_pct"],
-            color="#1f77b4", label="DeepRMSA Original", linewidth=1.5)
+            color=COMPARISON_COLORS["deeprmsa_original"], label="DeepRMSA", linewidth=1.5)
     ax.fill_between(original["execution_time"],
                     original["bp_lower_pct"], original["bp_upper_pct"],
-                    color="#1f77b4", alpha=0.2)
+                    color=COMPARISON_COLORS["deeprmsa_original"], alpha=0.2)
 
     # XLRON
     ax.plot(xlron["execution_time"], xlron["bp_pct"],
-            color="#ff7f0e", label="XLRON", linewidth=1.5)
+            color=COMPARISON_COLORS["xlron"], label="XLRON", linewidth=1.5)
     ax.fill_between(xlron["execution_time"],
                     xlron["bp_lower_pct"], xlron["bp_upper_pct"],
-                    color="#ff7f0e", alpha=0.2)
+                    color=COMPARISON_COLORS["xlron"], alpha=0.2)
 
     # Optical-RL-Gym
     ax.plot(training_iqr["execution_time"], training_iqr["bp_pct"],
-            color="#9467bd", label="Optical-RL-Gym", linewidth=1.5)
+            color=COMPARISON_COLORS["optical_rl_gym"], label="Optical-RL-Gym", linewidth=1.5)
     ax.fill_between(training_iqr["execution_time"],
                     training_iqr["bp_lower_pct"], training_iqr["bp_upper_pct"],
-                    color="#9467bd", alpha=0.2)
+                    color=COMPARISON_COLORS["optical_rl_gym"], alpha=0.2)
 
     # KSP-FF reference line
-    ax.axhline(y=5.0, color="green", linestyle="--", linewidth=1.5, label="KSP-FF")
+    ax.axhline(y=5.0, color=REFERENCE_LINE_COLOR, linestyle="--", linewidth=1.5, label=r"5-SP-FF$_{km}$")
 
     ax.set_xscale("log")
     ax.set_yscale("log")
@@ -187,58 +191,65 @@ def plot_bp_vs_wall_time(xlron: pd.DataFrame, original: pd.DataFrame,
 
     # Original
     ax.plot(original["execution_time"], original["bp_pct"],
-            color="#1f77b4", label="DeepRMSA Original", linewidth=1.5)
+            color=COMPARISON_COLORS["deeprmsa_original"], label="DeepRMSA", linewidth=1.5)
     ax.fill_between(original["execution_time"],
                     original["bp_lower_pct"], original["bp_upper_pct"],
-                    color="#1f77b4", alpha=0.2)
+                    color=COMPARISON_COLORS["deeprmsa_original"], alpha=0.2)
 
     # XLRON (shifted by compilation time)
     ax.plot(xlron["wall_time"], xlron["bp_pct"],
-            color="#ff7f0e", label="XLRON", linewidth=1.5)
+            color=COMPARISON_COLORS["xlron"], label="XLRON", linewidth=1.5)
     ax.fill_between(xlron["wall_time"],
                     xlron["bp_lower_pct"], xlron["bp_upper_pct"],
-                    color="#ff7f0e", alpha=0.2)
+                    color=COMPARISON_COLORS["xlron"], alpha=0.2)
 
     # Optical-RL-Gym
     ax.plot(training_iqr["wall_time"], training_iqr["bp_pct"],
-            color="#9467bd", label="Optical-RL-Gym", linewidth=1.5)
+            color=COMPARISON_COLORS["optical_rl_gym"], label="Optical-RL-Gym", linewidth=1.5)
     ax.fill_between(training_iqr["wall_time"],
                     training_iqr["bp_lower_pct"], training_iqr["bp_upper_pct"],
-                    color="#9467bd", alpha=0.2)
+                    color=COMPARISON_COLORS["optical_rl_gym"], alpha=0.2)
 
     # KSP-FF reference line
-    ax.axhline(y=5.0, color="green", linestyle="--", linewidth=1.5, label="KSP-FF")
+    ax.axhline(y=5.0, color=REFERENCE_LINE_COLOR, linestyle="--", linewidth=1.5,
+               label=r"5-SP-FF$_{km}$")
 
-    # Speedup annotation arrow at y=10%
+    # Speedup annotations
     xlron_end = xlron["wall_time"].max()
+    irl_end = training_iqr["wall_time"].max()
     original_end = original["execution_time"].max()
     xlron_exec = xlron["execution_time"].max()
-    exec_speedup = original_end / xlron_exec
-    wall_speedup = original_end / xlron_end
-    xlron_final_bp = xlron["bp_pct"].iloc[-1]
-    original_final_bp = original["bp_pct"].iloc[-1]
-    blocking_reduction = original_final_bp / xlron_final_bp
-    arrow_y = 10.0
-    ax.annotate("", xy=(original_end, arrow_y), xytext=(xlron_end, arrow_y),
-                arrowprops=dict(arrowstyle="<->", color="red", lw=2))
-    label = (f"Execution speedup  : {exec_speedup:>5.0f}x\n"
-             f"Wall-clock speedup : {wall_speedup:>5.0f}x\n"
-             f"Blocking reduction : {blocking_reduction:>5.1f}x")
-    # Place text box just below the arrow, centred in log-space
-    text_x = np.sqrt(xlron_end * original_end) * 1.5  # geometric mean shifted right
-    ax.text(text_x, arrow_y * 0.75, label, ha="center", va="top",
+
+    # Faint vertical lines at end of each data series
+    for x_end in (xlron_end, original_end, irl_end):
+        ax.axvline(x=x_end, color="gray", linestyle="--", linewidth=0.8, alpha=0.4)
+
+    # Speedup of XLRON relative to each baseline
+    exec_speedup_vs_deeprmsa = original_end / xlron_exec
+    exec_speedup_vs_irl = training_iqr["execution_time"].max() / xlron_exec
+
+    # Arrow 1: XLRON ↔ DeepRMSA
+    arrow_y1 = 10.0
+    ax.annotate("", xy=(original_end, arrow_y1), xytext=(xlron_end, arrow_y1),
+                arrowprops=dict(arrowstyle="<->", color="black", lw=2,
+                                shrinkA=0, shrinkB=0))
+
+    # Arrow 2: same x-start (XLRON end) ↔ Optical-RL-Gym end (slightly below)
+    arrow_y2 = arrow_y1 * 0.85
+    ax.annotate("", xy=(irl_end, arrow_y2), xytext=(xlron_end, arrow_y2),
+                arrowprops=dict(arrowstyle="<->", color="black", lw=2,
+                                shrinkA=0, shrinkB=0))
+
+    label = f"Execution speedup: {exec_speedup_vs_deeprmsa:.0f}x to {exec_speedup_vs_irl:.0f}x"
+    ax.text(1e3, 6.2, label, ha="center", va="bottom",
             fontsize=10, family="monospace",
             bbox=dict(boxstyle="round,pad=0.4", fc="white", ec="black", lw=1.5, alpha=0.9))
-
-    # Vertical arrow showing blocking reduction
-    ax.annotate("", xy=(150, 3.4), xytext=(150, original_final_bp),
-                arrowprops=dict(arrowstyle="<->", color="red", lw=2))
 
     ax.set_xscale("log")
     ax.set_yscale("log")
     ax.set_xlabel("Time (s)")
     ax.set_ylabel("Service Blocking Probability (%)")
-    ax.legend()
+    ax.legend(loc="upper right")
     ax.set_xlim(left=10)
 
     fig.tight_layout()
@@ -246,6 +257,95 @@ def plot_bp_vs_wall_time(xlron: pd.DataFrame, original: pd.DataFrame,
     fig.savefig(output_dir / "deeprmsa_bp_vs_wall_time.png", dpi=200)
     plt.close(fig)
     print(f"  Saved deeprmsa_bp_vs_wall_time.png")
+
+
+def plot_bp_steps_and_wall_time(xlron: pd.DataFrame, original: pd.DataFrame,
+                                training_iqr: pd.DataFrame, output_dir: Path):
+    """Combined: BP vs Steps (left) and BP vs Wall Time (right), side by side."""
+    fig, (ax_steps, ax_wt) = plt.subplots(1, 2, figsize=(12, 4.5), sharey=True)
+
+    # -- Helper to plot all three series on an axis --
+    def _plot_series(ax, x_col_xlron, x_col_original, x_col_irl):
+        ax.plot(original[x_col_original], original["bp_pct"],
+                color=COMPARISON_COLORS["deeprmsa_original"], label="DeepRMSA", linewidth=1.5)
+        ax.fill_between(original[x_col_original],
+                        original["bp_lower_pct"], original["bp_upper_pct"],
+                        color=COMPARISON_COLORS["deeprmsa_original"], alpha=0.2)
+
+        ax.plot(xlron[x_col_xlron], xlron["bp_pct"],
+                color=COMPARISON_COLORS["xlron"], label="XLRON", linewidth=1.5)
+        ax.fill_between(xlron[x_col_xlron],
+                        xlron["bp_lower_pct"], xlron["bp_upper_pct"],
+                        color=COMPARISON_COLORS["xlron"], alpha=0.2)
+
+        ax.plot(training_iqr[x_col_irl], training_iqr["bp_pct"],
+                color=COMPARISON_COLORS["optical_rl_gym"], label="Optical-RL-Gym", linewidth=1.5)
+        ax.fill_between(training_iqr[x_col_irl],
+                        training_iqr["bp_lower_pct"], training_iqr["bp_upper_pct"],
+                        color=COMPARISON_COLORS["optical_rl_gym"], alpha=0.2)
+
+        ax.axhline(y=5.0, color=REFERENCE_LINE_COLOR, linestyle="--", linewidth=1.5,
+                   label=r"5-SP-FF$_{km}$")
+        ax.set_yscale("log")
+
+    # Left panel: BP vs Steps
+    _plot_series(ax_steps, "total_steps", "total_steps", "total_steps")
+    ax_steps.set_xlabel("Environment Steps")
+    ax_steps.set_ylabel("Service Blocking Probability (%)")
+    ax_steps.set_xlim(left=0)
+
+    # Right panel: BP vs Wall Time (with compilation region and annotations)
+    ax_wt.axvspan(0, XLRON_COMPILATION_TIME, alpha=0.15, color="gray",
+                  label="XLRON Compilation")
+    _plot_series(ax_wt, "wall_time", "execution_time", "wall_time")
+    ax_wt.set_xscale("log")
+    ax_wt.set_xlabel("Time (s)")
+    ax_wt.set_xlim(left=10)
+
+    # Speedup annotations on right panel
+    xlron_end = xlron["wall_time"].max()
+    irl_end = training_iqr["wall_time"].max()
+    original_end = original["execution_time"].max()
+    xlron_exec = xlron["execution_time"].max()
+
+    for x_end in (xlron_end, original_end, irl_end):
+        ax_wt.axvline(x=x_end, color="gray", linestyle="--", linewidth=0.8, alpha=0.4)
+
+    exec_speedup_vs_deeprmsa = original_end / xlron_exec
+    exec_speedup_vs_irl = training_iqr["execution_time"].max() / xlron_exec
+
+    # Arrow 1: XLRON ↔ DeepRMSA
+    arrow_y1 = 10.0
+    ax_wt.annotate("", xy=(original_end, arrow_y1), xytext=(xlron_end, arrow_y1),
+                   arrowprops=dict(arrowstyle="<->", color="black", lw=2,
+                                   shrinkA=0, shrinkB=0))
+
+    # Arrow 2: same x-start (XLRON end) ↔ Optical-RL-Gym end (slightly below)
+    arrow_y2 = arrow_y1 * 0.85
+    ax_wt.annotate("", xy=(irl_end, arrow_y2), xytext=(xlron_end, arrow_y2),
+                   arrowprops=dict(arrowstyle="<->", color="black", lw=2,
+                                   shrinkA=0, shrinkB=0))
+
+    label = f"Speedup: {exec_speedup_vs_deeprmsa:.0f}x to {exec_speedup_vs_irl:.0f}x"
+    ax_wt.text(1e3, 6.2, label, ha="center", va="bottom",
+               fontsize=10, family="monospace",
+               bbox=dict(boxstyle="round,pad=0.4", fc="white", ec="black", lw=1.5, alpha=0.9))
+
+    # Single legend from left panel (avoid duplicates from right)
+    handles, labels = ax_steps.get_legend_handles_labels()
+    # Add compilation region handle from right panel
+    wt_handles, wt_labels = ax_wt.get_legend_handles_labels()
+    for h, l in zip(wt_handles, wt_labels):
+        if l not in labels:
+            handles.append(h)
+            labels.append(l)
+    ax_wt.legend(handles, labels, loc="upper right", fontsize=9)
+
+    fig.tight_layout()
+    output_dir.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output_dir / "deeprmsa_bp_combined.png", dpi=200)
+    plt.close(fig)
+    print(f"  Saved deeprmsa_bp_combined.png")
 
 
 def main():
@@ -267,6 +367,7 @@ def main():
     plot_bp_vs_steps(xlron, original, training_iqr, _FIGURES_DIR)
     plot_bp_vs_time(xlron, original, training_iqr, _FIGURES_DIR)
     plot_bp_vs_wall_time(xlron, original, training_iqr, _FIGURES_DIR)
+    plot_bp_steps_and_wall_time(xlron, original, training_iqr, _FIGURES_DIR)
 
 
 if __name__ == "__main__":

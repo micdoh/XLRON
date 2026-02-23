@@ -73,6 +73,7 @@ def aggregate(
     _KNOWN_GROUPS = [
         "num_envs", "topology", "link_resources", "k_paths",
         "gn_bands", "device", "rwa_lr", "cross_env", "config_grid",
+        "k_grid",
     ]
     _GROUP_PATTERN = "|".join(re.escape(g) for g in _KNOWN_GROUPS)
 
@@ -111,9 +112,9 @@ def aggregate(
                     # Only keep runs where server matches claimed device
                     if device != server:
                         valid = False
-            # 'config_grid' group: the run's JAX platform is in the next segment
-            # e.g. "gpu_config_grid_cpu_lr128_ne64"
-            elif group == "config_grid":
+            # 'config_grid' / 'k_grid' groups: the run's JAX platform is in the next segment
+            # e.g. "gpu_config_grid_cpu_lr128_ne64", "gpu_k_grid_cpu_k5_ne64"
+            elif group in ("config_grid", "k_grid"):
                 rest = name[m.end():]
                 m2 = re.match(r"^(cpu|gpu)_", rest)
                 if m2:

@@ -415,6 +415,32 @@ def _group_config_grid() -> list[dict]:
     return runs
 
 
+def _group_k_grid() -> list[dict]:
+    """Group 10: K-paths x NUM_ENVS grid for RMSA on both devices."""
+    runs = []
+    grid_k = [5, 10, 25, 50]
+    grid_num_envs = [1, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096]
+    for device in ["cpu", "gpu"]:
+        for k in grid_k:
+            for ne in grid_num_envs:
+                ts = _timesteps_for_num_envs(ne)
+                runs.append(
+                    {
+                        "env_flags": ENV_BASES["rmsa"],
+                        "extra_flags": [
+                            "--topology_name=nsfnet_deeprmsa_directed",
+                            "--link_resources=100",
+                            f"--k={k}",
+                            f"--NUM_ENVS={ne}",
+                            f"--TOTAL_TIMESTEPS={ts}",
+                        ],
+                        "label": f"k_grid_{device}_k{k}_ne{ne}",
+                        "device": device,
+                    }
+                )
+    return runs
+
+
 SWEEP_GROUPS = {
     "num_envs": _group_num_envs,
     "topology": _group_topology,
@@ -425,6 +451,7 @@ SWEEP_GROUPS = {
     "rwa_lr": _group_rwa_lr,
     "cross_env": _group_cross_env,
     "config_grid": _group_config_grid,
+    "k_grid": _group_k_grid,
 }
 
 

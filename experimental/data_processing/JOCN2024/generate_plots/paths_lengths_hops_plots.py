@@ -7,7 +7,7 @@ import numpy as np
 
 # Add experimental/ to path so plot_style is importable
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
-from plot_style import configure_style
+from plot_style import TOPOLOGY_COLORS, TOPOLOGY_DISPLAY, configure_style
 
 # Apply global style
 configure_style(font_size=28, axes_label_size=32, tick_size=32)
@@ -49,12 +49,17 @@ path_hops_data = {
     '20-SP-FF_hops_hops_err': [0.89, 0.67, 1.39, 2.96]
 }
 
-# Define color scheme
+# Build display-name → color mapping from plot_style
+_DISPLAY_TO_INTERNAL = {v: k for k, v in TOPOLOGY_DISPLAY.items()}
+# Also map short names used in this file (e.g. "USNET" → first matching entry)
+for internal, display in TOPOLOGY_DISPLAY.items():
+    short = display.split("-")[0]
+    if short not in _DISPLAY_TO_INTERNAL:
+        _DISPLAY_TO_INTERNAL[short] = internal
+
 topology_colors = {
-    'NSFNET': '#1f77b4',
-    'COST239': '#ff7f0e',
-    'USNET': '#2ca02c',
-    'JPN48': '#d62728'
+    name: TOPOLOGY_COLORS[_DISPLAY_TO_INTERNAL[name]]
+    for name in ['NSFNET', 'COST239', 'USNET', 'JPN48']
 }
 
 # Update textures for different types
