@@ -58,6 +58,7 @@ DIRECTED_TOPOLOGIES = [
 TARGET_RUNS = 5  # Number of repeat runs per benchmark config
 
 NUM_ENVS_VALUES = [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096]
+RWA_LR_MAX_REQUESTS = 10_000  # per-env episode length for rwa_lightpath_reuse
 LINK_RESOURCES_VALUES = [50, 100, 150, 200, 250, 300, 350, 400, 450, 500]
 K_VALUES = [5, 10, 25, 50]
 
@@ -103,7 +104,7 @@ ENV_BASES = {
     "rwa_lightpath_reuse": [
         "--env_type=rwa_lightpath_reuse",
         "--incremental_loading",
-        "--max_requests=10000",
+        f"--max_requests={RWA_LR_MAX_REQUESTS}",
         "--scale_factor=1.0",
     ],
 }
@@ -153,7 +154,10 @@ def _group_num_envs() -> list[dict]:
     # Fast env types: full NUM_ENVS sweep
     for env_type in ["rwa", "rmsa", "rwa_lightpath_reuse"]:
         for num_envs in NUM_ENVS_VALUES:
-            ts = _timesteps_for_num_envs(num_envs)
+            if env_type == "rwa_lightpath_reuse":
+                ts = RWA_LR_MAX_REQUESTS * num_envs
+            else:
+                ts = _timesteps_for_num_envs(num_envs)
             runs.append(
                 {
                     "env_flags": ENV_BASES[env_type],
@@ -194,7 +198,11 @@ def _group_topology() -> list[dict]:
     # Fast env types: NUM_ENVS=1 (for table) and NUM_ENVS=64 (for heatmap)
     for env_type in ["rwa", "rmsa", "rwa_lightpath_reuse"]:
         for topo in DIRECTED_TOPOLOGIES:
-            for ne, ts in [(1, 100000), (64, 500000)]:
+            for ne in [1, 64]:
+                if env_type == "rwa_lightpath_reuse":
+                    ts = RWA_LR_MAX_REQUESTS * ne
+                else:
+                    ts = 100000 if ne == 1 else 500000
                 runs.append(
                     {
                         "env_flags": ENV_BASES[env_type],
@@ -328,7 +336,7 @@ def _group_rwa_lr() -> list[dict]:
                         "--link_resources=100",
                         f"--k={k}",
                         "--NUM_ENVS=1",
-                        "--TOTAL_TIMESTEPS=10000",
+                        f"--TOTAL_TIMESTEPS={RWA_LR_MAX_REQUESTS}",
                     ],
                     "label": f"rwa_lr_{topo}_k{k}",
                 }
@@ -340,7 +348,12 @@ def _group_cross_env() -> list[dict]:
     """Group 8: Cross-env-type comparison on same config."""
     runs = []
     for env_type in ["rwa", "rmsa", "rsa_gn_model", "rmsa_gn_model", "rwa_lightpath_reuse"]:
-        ts = 1000 if "gn_model" in env_type else 100000
+        if env_type == "rwa_lightpath_reuse":
+            ts = RWA_LR_MAX_REQUESTS * 1
+        elif "gn_model" in env_type:
+            ts = 1000
+        else:
+            ts = 100000
         runs.append(
             {
                 "env_flags": ENV_BASES[env_type],
@@ -356,6 +369,10 @@ def _group_cross_env() -> list[dict]:
         )
     # Also fast env types at NUM_ENVS=64
     for env_type in ["rwa", "rmsa", "rwa_lightpath_reuse"]:
+        if env_type == "rwa_lightpath_reuse":
+            ts = RWA_LR_MAX_REQUESTS * 64
+        else:
+            ts = 500000
         runs.append(
             {
                 "env_flags": ENV_BASES[env_type],
@@ -364,7 +381,7 @@ def _group_cross_env() -> list[dict]:
                     "--link_resources=100",
                     "--k=5",
                     "--NUM_ENVS=64",
-                    "--TOTAL_TIMESTEPS=500000",
+                    f"--TOTAL_TIMESTEPS={ts}",
                 ],
                 "label": f"cross_env_{env_type}_ne64",
             }
