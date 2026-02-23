@@ -210,7 +210,7 @@ def _group_topology() -> list[dict]:
                 )
     # GN model env types: fewer timesteps
     for env_type in ["rsa_gn_model", "rmsa_gn_model"]:
-        ne_values = [(1, 100), (64, 100)] if env_type == "rmsa_gn_model" else [(1, 100)]
+        ne_values = [(1, 100), (64, 1000)] if env_type == "rmsa_gn_model" else [(1, 100)]
         for topo in DIRECTED_TOPOLOGIES:
             for ne, ts in ne_values:
                 runs.append(
