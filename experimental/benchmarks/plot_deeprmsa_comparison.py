@@ -37,6 +37,7 @@ _FIGURES_DIR = _BENCHMARKS_DIR / "figures"
 
 _XLRON_CSV = _RESULTS_DIR / "deeprmsa_benchmark.csv"
 _ORIGINAL_CSV = _RESULTS_DIR / "deeprmsa_original_training_results.csv"
+_OPTICALGRLGYM_CSV = _RESULTS_DIR / "training_iqr_data.csv"
 
 
 def _load_xlron() -> pd.DataFrame:
@@ -48,6 +49,25 @@ def _load_xlron() -> pd.DataFrame:
     df["total_steps"] = df["step"] * XLRON_NUM_ENVS
     df["execution_time"] = df["total_steps"] / XLRON_TRAINING_FPS
     df["wall_time"] = XLRON_COMPILATION_TIME + df["execution_time"]
+    return df
+
+
+def _load_training_iqr() -> pd.DataFrame:
+    df = pd.read_csv(_OPTICALGRLGYM_CSV)
+    df["bp_pct"] = df["sbp_mean"] * 100
+    df["bp_lower_pct"] = df["sbp_q1"] * 100
+    df["bp_upper_pct"] = df["sbp_q3"] * 100
+    df["total_steps"] = df["global_step"]  # already total steps
+    # Estimate compilation offset by linear extrapolation to step 0.
+    n = min(10, len(df))
+    steps = df["global_step"].iloc[:n].values
+    times = df["time_elapsed"].iloc[:n].values
+    coeffs = np.polyfit(steps, times, 1)
+    compilation_offset = max(coeffs[1], 0.0)
+    df["execution_time"] = df["time_elapsed"] - compilation_offset
+    # Rebase so execution time starts from 0
+    df["execution_time"] = df["execution_time"] - df["execution_time"].iloc[0]
+    df["wall_time"] = df["time_elapsed"] - df["time_elapsed"].iloc[0]
     return df
 
 
@@ -70,7 +90,8 @@ def _load_original() -> pd.DataFrame:
     return df
 
 
-def plot_bp_vs_steps(xlron: pd.DataFrame, original: pd.DataFrame, output_dir: Path):
+def plot_bp_vs_steps(xlron: pd.DataFrame, original: pd.DataFrame,
+                     training_iqr: pd.DataFrame, output_dir: Path):
     """Plot 1: Service Blocking Probability (%) vs Environment Steps."""
     fig, ax = plt.subplots(figsize=(8, 5))
 
@@ -83,13 +104,20 @@ def plot_bp_vs_steps(xlron: pd.DataFrame, original: pd.DataFrame, output_dir: Pa
 
     # XLRON (total steps across all envs)
     ax.plot(xlron["total_steps"], xlron["bp_pct"],
-            color="#ff7f0e", label="DeepRMSA XLRON", linewidth=1.5)
+            color="#ff7f0e", label="XLRON", linewidth=1.5)
     ax.fill_between(xlron["total_steps"],
                     xlron["bp_lower_pct"], xlron["bp_upper_pct"],
                     color="#ff7f0e", alpha=0.2)
 
+    # Optical-RL-Gym
+    ax.plot(training_iqr["total_steps"], training_iqr["bp_pct"],
+            color="#9467bd", label="Optical-RL-Gym", linewidth=1.5)
+    ax.fill_between(training_iqr["total_steps"],
+                    training_iqr["bp_lower_pct"], training_iqr["bp_upper_pct"],
+                    color="#9467bd", alpha=0.2)
+
     # KSP-FF reference line
-    ax.axhline(y=4.0, color="green", linestyle="--", linewidth=1.5, label="KSP-FF")
+    ax.axhline(y=5.0, color="green", linestyle="--", linewidth=1.5, label="KSP-FF")
 
     ax.set_yscale("log")
     ax.set_xlabel("Environment Steps")
@@ -104,7 +132,8 @@ def plot_bp_vs_steps(xlron: pd.DataFrame, original: pd.DataFrame, output_dir: Pa
     print(f"  Saved deeprmsa_bp_vs_steps.png")
 
 
-def plot_bp_vs_time(xlron: pd.DataFrame, original: pd.DataFrame, output_dir: Path):
+def plot_bp_vs_time(xlron: pd.DataFrame, original: pd.DataFrame,
+                    training_iqr: pd.DataFrame, output_dir: Path):
     """Plot 2: Service Blocking Probability (%) vs Time (s) [log scale, execution only]."""
     fig, ax = plt.subplots(figsize=(8, 5))
 
@@ -117,13 +146,20 @@ def plot_bp_vs_time(xlron: pd.DataFrame, original: pd.DataFrame, output_dir: Pat
 
     # XLRON
     ax.plot(xlron["execution_time"], xlron["bp_pct"],
-            color="#ff7f0e", label="DeepRMSA XLRON", linewidth=1.5)
+            color="#ff7f0e", label="XLRON", linewidth=1.5)
     ax.fill_between(xlron["execution_time"],
                     xlron["bp_lower_pct"], xlron["bp_upper_pct"],
                     color="#ff7f0e", alpha=0.2)
 
+    # Optical-RL-Gym
+    ax.plot(training_iqr["execution_time"], training_iqr["bp_pct"],
+            color="#9467bd", label="Optical-RL-Gym", linewidth=1.5)
+    ax.fill_between(training_iqr["execution_time"],
+                    training_iqr["bp_lower_pct"], training_iqr["bp_upper_pct"],
+                    color="#9467bd", alpha=0.2)
+
     # KSP-FF reference line
-    ax.axhline(y=4.0, color="green", linestyle="--", linewidth=1.5, label="KSP-FF")
+    ax.axhline(y=5.0, color="green", linestyle="--", linewidth=1.5, label="KSP-FF")
 
     ax.set_xscale("log")
     ax.set_yscale("log")
@@ -139,7 +175,8 @@ def plot_bp_vs_time(xlron: pd.DataFrame, original: pd.DataFrame, output_dir: Pat
     print(f"  Saved deeprmsa_bp_vs_time.png")
 
 
-def plot_bp_vs_wall_time(xlron: pd.DataFrame, original: pd.DataFrame, output_dir: Path):
+def plot_bp_vs_wall_time(xlron: pd.DataFrame, original: pd.DataFrame,
+                         training_iqr: pd.DataFrame, output_dir: Path):
     """Plot 3: Service Blocking Probability (%) vs Wall Time (s) [with compilation]."""
     fig, ax = plt.subplots(figsize=(8, 5))
 
@@ -157,13 +194,20 @@ def plot_bp_vs_wall_time(xlron: pd.DataFrame, original: pd.DataFrame, output_dir
 
     # XLRON (shifted by compilation time)
     ax.plot(xlron["wall_time"], xlron["bp_pct"],
-            color="#ff7f0e", label="DeepRMSA XLRON", linewidth=1.5)
+            color="#ff7f0e", label="XLRON", linewidth=1.5)
     ax.fill_between(xlron["wall_time"],
                     xlron["bp_lower_pct"], xlron["bp_upper_pct"],
                     color="#ff7f0e", alpha=0.2)
 
+    # Optical-RL-Gym
+    ax.plot(training_iqr["wall_time"], training_iqr["bp_pct"],
+            color="#9467bd", label="Optical-RL-Gym", linewidth=1.5)
+    ax.fill_between(training_iqr["wall_time"],
+                    training_iqr["bp_lower_pct"], training_iqr["bp_upper_pct"],
+                    color="#9467bd", alpha=0.2)
+
     # KSP-FF reference line
-    ax.axhline(y=4.0, color="green", linestyle="--", linewidth=1.5, label="KSP-FF")
+    ax.axhline(y=5.0, color="green", linestyle="--", linewidth=1.5, label="KSP-FF")
 
     # Speedup annotation arrow at y=10%
     xlron_end = xlron["wall_time"].max()
@@ -208,18 +252,21 @@ def main():
     configure_style(font_size=14, axes_label_size=16, tick_size=12, legend_size=12)
     xlron = _load_xlron()
     original = _load_original()
+    training_iqr = _load_training_iqr()
 
     print(f"XLRON: {len(xlron)} rows, total steps {xlron['total_steps'].min():,.0f}-{xlron['total_steps'].max():,.0f} "
           f"(per-env steps * {XLRON_NUM_ENVS} envs)")
     print(f"Original: {len(original)} rows, total steps {original['total_steps'].min():,.0f}-{original['total_steps'].max():,.0f} "
           f"(per-agent steps * {ORIGINAL_NUM_AGENTS} agents)")
+    print(f"Training IQR: {len(training_iqr)} rows, total steps {training_iqr['total_steps'].min():,.0f}-{training_iqr['total_steps'].max():,.0f}")
     print(f"XLRON execution time: {xlron['execution_time'].min():.1f}-{xlron['execution_time'].max():.1f}s "
           f"(FPS={XLRON_TRAINING_FPS:.0f}), compilation: {XLRON_COMPILATION_TIME:.0f}s")
     print(f"Original execution time: {original['execution_time'].min():.1f}-{original['execution_time'].max():.1f}s")
+    print(f"Training IQR wall time: {training_iqr['wall_time'].min():.1f}-{training_iqr['wall_time'].max():.1f}s")
 
-    plot_bp_vs_steps(xlron, original, _FIGURES_DIR)
-    plot_bp_vs_time(xlron, original, _FIGURES_DIR)
-    plot_bp_vs_wall_time(xlron, original, _FIGURES_DIR)
+    plot_bp_vs_steps(xlron, original, training_iqr, _FIGURES_DIR)
+    plot_bp_vs_time(xlron, original, training_iqr, _FIGURES_DIR)
+    plot_bp_vs_wall_time(xlron, original, training_iqr, _FIGURES_DIR)
 
 
 if __name__ == "__main__":

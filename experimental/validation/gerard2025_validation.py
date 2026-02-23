@@ -444,9 +444,9 @@ def plot1_2_combined_snr_metrics(freqs, path_d, c_mask, l_mask, occ, out_dir):
 
     # Metrics with Gerard reference lines (3 original metrics)
     metric_defs = [
-        ("GOSNR (optical)", "GOSNR_dB", gosnr, "#1f77b4", "o"),
-        ("OSNR$_{ASE}$", "OSNR_ASE_dB", osnr_ase, "#d62728", "s"),
-        ("OSNR$_{NL}$", "OSNR_NL_dB", osnr_nl, "#2ca02c", "^"),
+        ("GOSNR", "GOSNR_dB", gosnr, "#1f77b4", "o"),
+        ("OSNR$_{ASE}$", "OSNR_ASE_dB", osnr_ase, "#d62728", "o"),
+        ("OSNR$_{NL}$", "OSNR_NL_dB", osnr_nl, "#2ca02c", "o"),
     ]
 
     metric_handles = {}
@@ -469,14 +469,14 @@ def plot1_2_combined_snr_metrics(freqs, path_d, c_mask, l_mask, occ, out_dir):
             color=color,
             ls=":",
             alpha=0.7,
-            label=f"Gerard {metric_label} L ({GERARD_REF['L_band'][metric_key]:.1f} dB)",
+            label=f"Gerard {metric_label} L",
         )
         gerard_c_handles[metric_label] = ax.axhline(
             GERARD_REF["C_band"][metric_key],
             color=color,
             ls="--",
             alpha=0.7,
-            label=f"Gerard {metric_label} C ({GERARD_REF['C_band'][metric_key]:.1f} dB)",
+            label=f"Gerard {metric_label} C",
         )
 
     # Received SNR (includes transceiver noise) — no Gerard reference lines
@@ -486,7 +486,7 @@ def plot1_2_combined_snr_metrics(freqs, path_d, c_mask, l_mask, occ, out_dir):
         gosnr_with_trx[occ],
         c="black",
         s=50,
-        marker="D",
+        marker="o",
         label=rcv_label,
         zorder=3,
         edgecolors="k",
@@ -538,24 +538,27 @@ def plot1_2_combined_snr_metrics(freqs, path_d, c_mask, l_mask, occ, out_dir):
         main_labels,
         ncol=3,
         loc="lower left",
-        bbox_to_anchor=(0.0, 1.02),
+        bbox_to_anchor=(0.0, 1.01),
         frameon=True,
-        borderaxespad=0.3,
+        borderaxespad=0,
     )
     ax.add_artist(leg1)
 
-    ax.legend(
+    leg2 = ax.legend(
         [metric_handles[rcv_label]],
         [rcv_label],
         ncol=1,
         loc="lower right",
-        bbox_to_anchor=(1.0, 1.02),
+        bbox_to_anchor=(1.0, 1.01),
         frameon=True,
-        borderaxespad=0.3,
+        borderaxespad=0,
     )
 
-    plt.tight_layout()
-    plt.savefig(os.path.join(out_dir, "plot1_2_combined_snr_metrics.png"), bbox_inches="tight")
+    plt.savefig(
+        os.path.join(out_dir, "plot1_2_combined_snr_metrics.png"),
+        bbox_extra_artists=[leg1, leg2],
+        bbox_inches="tight",
+    )
     plt.close()
     print("  Saved plot1_2_combined_snr_metrics.png")
 
