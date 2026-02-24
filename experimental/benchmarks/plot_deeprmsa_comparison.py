@@ -294,6 +294,32 @@ def plot_bp_steps_and_wall_time(xlron: pd.DataFrame, original: pd.DataFrame,
     ax_steps.set_ylabel("Service Blocking Probability (%)")
     ax_steps.set_xlim(left=0)
 
+    # Starting y-values for each series
+    y0_deeprmsa = original["bp_pct"].iloc[0]
+    y0_xlron = xlron["bp_pct"].iloc[0]
+    y0_irl = training_iqr["bp_pct"].iloc[0]
+
+    # Faint horizontal reference lines at start values
+    for y0, color in [
+        (y0_deeprmsa, COMPARISON_COLORS["deeprmsa_original"]),
+        (y0_xlron, COMPARISON_COLORS["xlron"]),
+        (y0_irl, COMPARISON_COLORS["optical_rl_gym"]),
+    ]:
+        ax_steps.axhline(y=y0, color=color, linestyle="--", linewidth=0.8, alpha=0.3)
+
+    # Vertical arrow from Optical-RL-Gym start → XLRON start
+    arrow_x = 0.55e7
+    ax_steps.annotate(
+        "", xy=(arrow_x, y0_xlron), xytext=(arrow_x, y0_irl),
+        arrowprops=dict(arrowstyle="<->", color="black", lw=2,
+                        shrinkA=0, shrinkB=0),
+    )
+    ax_steps.text(
+        arrow_x * 1.15, np.sqrt(y0_irl * y0_xlron), "Invalid action masking\nreduces blocking",
+        ha="left", va="center", fontsize=9,
+        bbox=dict(boxstyle="round,pad=0.4", fc="white", ec="black", lw=1.0, alpha=0.9),
+    )
+
     # Right panel: BP vs Wall Time (with compilation region and annotations)
     ax_wt.axvspan(0, XLRON_COMPILATION_TIME, alpha=0.15, color="gray",
                   label="XLRON Compilation")
@@ -308,8 +334,13 @@ def plot_bp_steps_and_wall_time(xlron: pd.DataFrame, original: pd.DataFrame,
     original_end = original["execution_time"].max()
     xlron_exec = xlron["execution_time"].max()
 
-    for x_end in (xlron_end, original_end, irl_end):
-        ax_wt.axvline(x=x_end, color="gray", linestyle="--", linewidth=0.8, alpha=0.4)
+    # Faint coloured vertical lines at end of each data series
+    for x_end, color in [
+        (xlron_end, COMPARISON_COLORS["xlron"]),
+        (original_end, COMPARISON_COLORS["deeprmsa_original"]),
+        (irl_end, COMPARISON_COLORS["optical_rl_gym"]),
+    ]:
+        ax_wt.axvline(x=x_end, color=color, linestyle="--", linewidth=0.8, alpha=0.3)
 
     exec_speedup_vs_deeprmsa = original_end / xlron_exec
     exec_speedup_vs_irl = training_iqr["execution_time"].max() / xlron_exec

@@ -150,6 +150,8 @@ DEFAULTS = {
     "incremental_loading": False,
     "end_first_blocking": False,
     "truncate_holding_time": False,
+    "custom_traffic_matrix_csv_filepath": "",
+    "random_traffic": False,
     # Execution
     "TOTAL_TIMESTEPS": 1e6,
     "NUM_ENVS": 1,
@@ -663,6 +665,21 @@ def traffic_section() -> dict:
         help=_h("reward_type"),
     )
     _emit(flags, "reward_type", reward_type)
+
+    traffic_matrix_csv = st.text_input(
+        "Traffic Matrix CSV File",
+        value=str(_get_preset_val("custom_traffic_matrix_csv_filepath") or ""),
+        help=_h("custom_traffic_matrix_csv_filepath"),
+    )
+    if traffic_matrix_csv.strip():
+        flags["custom_traffic_matrix_csv_filepath"] = traffic_matrix_csv.strip()
+
+    random_traffic = st.checkbox(
+        "Random Traffic Matrix",
+        value=bool(_get_preset_val("random_traffic")),
+        help=_h("random_traffic"),
+    )
+    _emit(flags, "random_traffic", random_traffic)
 
     return flags
 

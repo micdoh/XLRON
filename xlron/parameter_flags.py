@@ -451,10 +451,18 @@ flags.DEFINE_boolean(
 flags.DEFINE_boolean(
     "random_traffic",
     False,
-    "Random traffic matrix for RSA on each reset (else uniform or custom)",
+    "Generate a new random traffic matrix on each episode reset, so source-destination "
+    "pair probabilities vary between episodes. When False, the traffic matrix is fixed "
+    "for the entire run (uniform by default, or loaded from a CSV via "
+    "--custom_traffic_matrix_csv_filepath).",
 )
 flags.DEFINE_string(
-    "custom_traffic_matrix_csv_filepath", None, "Path to custom traffic matrix CSV file"
+    "custom_traffic_matrix_csv_filepath",
+    None,
+    "Path to a CSV file specifying a custom traffic matrix. The CSV should be an NxN "
+    "matrix (N = number of nodes) where entry (i, j) gives the relative traffic demand "
+    "from node i to node j. Leave blank to use uniform traffic (equal probability for "
+    "all source-destination pairs). Ignored when --random_traffic is enabled.",
 )
 flags.DEFINE_float(
     "alpha",

@@ -707,9 +707,6 @@ def plot_cross_env(df: pd.DataFrame, output_dir: Path, device: str | None = None
     if not dev_order:
         dev_order = [None]
 
-    # Assign a hatch pattern per env type
-    env_hatches = {et: h for et, h in zip(env_order, ["", "//", "\\\\", "xx", ".."])}
-
     fig, ax = plt.subplots(figsize=(14, 10))
     y = np.arange(len(env_order))
     n_dev = len(dev_order)
@@ -731,13 +728,10 @@ def plot_cross_env(df: pd.DataFrame, output_dir: Path, device: str | None = None
         offset = (i - (n_dev - 1) / 2) * height
         color = DEVICE_COLORS.get(dev, "black") if dev else "black"
         label = dev.upper() if dev and n_dev > 1 else None
-        # Each bar gets the env-type hatch but the device color
         for j, et in enumerate(env_order):
-            hatch = env_hatches.get(et, "")
             bar = ax.barh(
                 y[j] + offset, fps_means[j], height, xerr=fps_stds[j],
-                color=color, hatch=hatch, capsize=4,
-                edgecolor="white" if hatch else None,
+                color=color, capsize=4,
                 label=label if j == 0 else None,
             )
             all_bars.extend(bar)
@@ -831,95 +825,117 @@ def plot_config_summary(df: pd.DataFrame, output_dir: Path, device: str | None =
     _save(fig, output_dir, "config_summary")
 
 
-# -- Plot 13: FPS vs FSU per Link, one line per NUM_ENVS ----------------------
+# -- Plot 13: FPS vs FSU / K by NUM_ENVS (side-by-side) -----------------------
 
 
-def plot_fps_vs_fsu_by_num_envs(df: pd.DataFrame, output_dir: Path, device: str | None = None):
-    """FPS vs FSU per Link with a separate line per NUM_ENVS value.
+def plot_fps_vs_fsu_and_k_by_num_envs(df: pd.DataFrame, output_dir: Path, device: str | None = None):
+    """Side-by-side: FPS vs FSU per Link (left) and FPS vs K (right), one line per NUM_ENVS.
 
     Lines go from transparent (low NUM_ENVS) to opaque (high NUM_ENVS).
     Color is determined by device (GPU/CPU).  GPU is listed first in the legend.
+    A shared legend sits outside the right panel.
     """
-    # Try dedicated config_grid group first, fall back to link_resources
-    data = _filter_group(df, "config_grid")
-    if data.empty:
-        data = _filter_group(df, "link_resources")
-    if data.empty:
-        print("  No data for fps_vs_fsu_by_num_envs")
-        return
-
-    # Only RMSA
-    data = data[data["config_env_type"] == "rmsa"]
-    if data.empty:
-        print("  No RMSA data for fps_vs_fsu_by_num_envs")
-        return
-
-    if device:
-        data = _filter_device(data, device)
-
-    # Need at least two distinct link_resources values for a meaningful line
-    if data["config_link_resources"].nunique() < 2:
-        print("  Need >=2 link_resources values for fps_vs_fsu_by_num_envs")
-        return
-
-    # Aggregate
-    group_cols = ["config_link_resources", "config_NUM_ENVS"]
-    if "device" in data.columns:
-        group_cols = group_cols + ["device"]
-    agg = _agg(data, group_cols)
-
-    # Determine devices — put GPU first
-    if "device" in agg.columns:
-        devices = sorted(agg["device"].unique())
-        dev_order = []
-        if "gpu" in devices:
-            dev_order.append("gpu")
-        if "cpu" in devices:
-            dev_order.append("cpu")
-        for d in devices:
-            if d not in dev_order:
-                dev_order.append(d)
-    else:
-        dev_order = [None]
-
-    fig, ax = plt.subplots(figsize=(14, 10))
-
-    for dev in dev_order:
-        sub = agg[agg["device"] == dev] if dev else agg
-        if sub.empty:
-            continue
-        color = DEVICE_COLORS.get(dev, "black") if dev else "black"
-        num_envs_vals = sorted(sub["config_NUM_ENVS"].unique())
-        n = len(num_envs_vals)
-
-        # Alpha range: lightest 0.25, most opaque 1.0
-        for idx, ne in enumerate(num_envs_vals):
-            alpha = 0.25 + 0.75 * (idx / max(n - 1, 1))
-            row = sub[sub["config_NUM_ENVS"] == ne].sort_values("config_link_resources")
-            x = row["config_link_resources"].values
-            y = row["timing_fps_mean"].values
-            yerr = row["timing_fps_std"].values
-            ax.plot(x, y, marker="o", color=color, alpha=alpha)
-            ax.fill_between(x, y - yerr, y + yerr, color=color, alpha=alpha * 0.2)
-
-    ax.set_xlabel("FSU per Link")
-    ax.set_ylabel("FPS")
-    ax.set_yscale("log")
-
-    # Custom legend: device color dots + grey alpha-scaled num_envs lines
     import matplotlib.lines as mlines
+
+    # -- Load left panel data (FSU per Link) --
+    data_lr = _filter_group(df, "config_grid")
+    if data_lr.empty:
+        data_lr = _filter_group(df, "link_resources")
+    data_lr = data_lr[data_lr["config_env_type"] == "rmsa"] if not data_lr.empty else data_lr
+    if device and not data_lr.empty:
+        data_lr = _filter_device(data_lr, device)
+    if not data_lr.empty and data_lr["config_link_resources"].nunique() < 2:
+        data_lr = pd.DataFrame()
+
+    # -- Load right panel data (K) --
+    data_k = _filter_group(df, "k_grid")
+    if data_k.empty:
+        data_k = _filter_group(df, "k_paths")
+    data_k = data_k[data_k["config_env_type"] == "rmsa"] if not data_k.empty else data_k
+    if device and not data_k.empty:
+        data_k = _filter_device(data_k, device)
+    if not data_k.empty and data_k["config_k"].nunique() < 2:
+        data_k = pd.DataFrame()
+
+    if data_lr.empty and data_k.empty:
+        print("  No data for fps_vs_fsu_and_k_by_num_envs")
+        return
+
+    fig, (ax_lr, ax_k) = plt.subplots(1, 2, figsize=(24, 10), sharey=True)
+
+    # Collect all NUM_ENVS and devices across both panels for a unified legend
+    all_ne_set = set()
+    dev_set = set()
+
+    def _plot_panel(ax, data, x_col, x_label):
+        if data.empty:
+            return
+        group_cols = [x_col, "config_NUM_ENVS"]
+        if "device" in data.columns:
+            group_cols = group_cols + ["device"]
+        agg = _agg(data, group_cols)
+
+        # Determine devices — put GPU first
+        if "device" in agg.columns:
+            devices = sorted(agg["device"].unique())
+            dev_order = []
+            if "gpu" in devices:
+                dev_order.append("gpu")
+            if "cpu" in devices:
+                dev_order.append("cpu")
+            for d in devices:
+                if d not in dev_order:
+                    dev_order.append(d)
+        else:
+            dev_order = [None]
+
+        for dev in dev_order:
+            sub = agg[agg["device"] == dev] if dev else agg
+            if sub.empty:
+                continue
+            if dev is not None:
+                dev_set.add(dev)
+            color = DEVICE_COLORS.get(dev, "black") if dev else "black"
+            num_envs_vals = sorted(sub["config_NUM_ENVS"].unique())
+            n = len(num_envs_vals)
+
+            for idx, ne in enumerate(num_envs_vals):
+                all_ne_set.add(ne)
+                alpha = 0.25 + 0.75 * (idx / max(n - 1, 1))
+                row = sub[sub["config_NUM_ENVS"] == ne].sort_values(x_col)
+                x = row[x_col].values
+                y = row["timing_fps_mean"].values
+                yerr = row["timing_fps_std"].values
+                ax.plot(x, y, marker="o", color=color, alpha=alpha)
+                ax.fill_between(x, y - yerr, y + yerr, color=color, alpha=alpha * 0.2)
+
+        ax.set_xlabel(x_label)
+        ax.set_yscale("log")
+
+    _plot_panel(ax_lr, data_lr, "config_link_resources", "FSU per Link")
+    _plot_panel(ax_k, data_k, "config_k", "K (shortest paths)")
+
+    ax_lr.set_ylabel("FPS")
+
+    # Shared legend on the right side of the right panel
     handles = []
-    # Device entries (colored dots)
-    for dev in dev_order:
-        if dev is None:
-            continue
+    # Device entries (colored dots) — GPU first
+    dev_legend_order = []
+    if "gpu" in dev_set:
+        dev_legend_order.append("gpu")
+    if "cpu" in dev_set:
+        dev_legend_order.append("cpu")
+    for d in sorted(dev_set):
+        if d not in dev_legend_order:
+            dev_legend_order.append(d)
+    for dev in dev_legend_order:
         color = DEVICE_COLORS.get(dev, "black")
         handles.append(mlines.Line2D(
             [], [], marker="o", color="none", markerfacecolor=color,
             markeredgecolor=color, markersize=10, label=dev.upper(),
         ))
-    # Collect all NUM_ENVS across devices for the grey lines
-    all_ne = sorted(agg["config_NUM_ENVS"].unique())
+    # NUM_ENVS entries (black/grey alpha-scaled lines)
+    all_ne = sorted(all_ne_set)
     n_all = len(all_ne)
     for idx, ne in enumerate(all_ne):
         alpha = 0.25 + 0.75 * (idx / max(n_all - 1, 1))
@@ -927,120 +943,14 @@ def plot_fps_vs_fsu_by_num_envs(df: pd.DataFrame, output_dir: Path, device: str 
             [], [], marker="o", color="black", alpha=alpha,
             markersize=8, label=f"{int(ne)} envs",
         ))
-    ax.legend(
+    ax_k.legend(
         handles=handles, fontsize=16,
         loc="center left", bbox_to_anchor=(1.02, 0.5),
         frameon=True, borderaxespad=0,
     )
 
     fig.tight_layout()
-    _save(fig, output_dir, "fps_vs_fsu_by_num_envs")
-
-
-# -- Plot 14: FPS vs K, one line per NUM_ENVS ---------------------------------
-
-
-def plot_fps_vs_k_by_num_envs(df: pd.DataFrame, output_dir: Path, device: str | None = None):
-    """FPS vs K (shortest paths) with a separate line per NUM_ENVS value.
-
-    Lines go from transparent (low NUM_ENVS) to opaque (high NUM_ENVS).
-    Color is determined by device (GPU/CPU).  GPU is listed first in the legend.
-    """
-    # Try dedicated k_grid group first, fall back to k_paths
-    data = _filter_group(df, "k_grid")
-    if data.empty:
-        data = _filter_group(df, "k_paths")
-    if data.empty:
-        print("  No data for fps_vs_k_by_num_envs")
-        return
-
-    # Only RMSA
-    data = data[data["config_env_type"] == "rmsa"]
-    if data.empty:
-        print("  No RMSA data for fps_vs_k_by_num_envs")
-        return
-
-    if device:
-        data = _filter_device(data, device)
-
-    # Need at least two distinct k values for a meaningful line
-    if data["config_k"].nunique() < 2:
-        print("  Need >=2 k values for fps_vs_k_by_num_envs")
-        return
-
-    # Aggregate
-    group_cols = ["config_k", "config_NUM_ENVS"]
-    if "device" in data.columns:
-        group_cols = group_cols + ["device"]
-    agg = _agg(data, group_cols)
-
-    # Determine devices — put GPU first
-    if "device" in agg.columns:
-        devices = sorted(agg["device"].unique())
-        dev_order = []
-        if "gpu" in devices:
-            dev_order.append("gpu")
-        if "cpu" in devices:
-            dev_order.append("cpu")
-        for d in devices:
-            if d not in dev_order:
-                dev_order.append(d)
-    else:
-        dev_order = [None]
-
-    fig, ax = plt.subplots(figsize=(14, 10))
-
-    for dev in dev_order:
-        sub = agg[agg["device"] == dev] if dev else agg
-        if sub.empty:
-            continue
-        color = DEVICE_COLORS.get(dev, "black") if dev else "black"
-        num_envs_vals = sorted(sub["config_NUM_ENVS"].unique())
-        n = len(num_envs_vals)
-
-        # Alpha range: lightest 0.25, most opaque 1.0
-        for idx, ne in enumerate(num_envs_vals):
-            alpha = 0.25 + 0.75 * (idx / max(n - 1, 1))
-            row = sub[sub["config_NUM_ENVS"] == ne].sort_values("config_k")
-            x = row["config_k"].values
-            y = row["timing_fps_mean"].values
-            yerr = row["timing_fps_std"].values
-            ax.plot(x, y, marker="o", color=color, alpha=alpha)
-            ax.fill_between(x, y - yerr, y + yerr, color=color, alpha=alpha * 0.2)
-
-    ax.set_xlabel("K (shortest paths)")
-    ax.set_ylabel("FPS")
-    ax.set_yscale("log")
-
-    # Custom legend: device color dots + grey alpha-scaled num_envs lines
-    import matplotlib.lines as mlines
-    handles = []
-    # Device entries (colored dots)
-    for dev in dev_order:
-        if dev is None:
-            continue
-        color = DEVICE_COLORS.get(dev, "black")
-        handles.append(mlines.Line2D(
-            [], [], marker="o", color="none", markerfacecolor=color,
-            markeredgecolor=color, markersize=10, label=dev.upper(),
-        ))
-    # Collect all NUM_ENVS across devices for the grey lines
-    all_ne = sorted(agg["config_NUM_ENVS"].unique())
-    n_all = len(all_ne)
-    for idx, ne in enumerate(all_ne):
-        alpha = 0.25 + 0.75 * (idx / max(n_all - 1, 1))
-        handles.append(mlines.Line2D(
-            [], [], marker="o", color="black", alpha=alpha,
-            markersize=8, label=f"{int(ne)} envs",
-        ))
-    ax.legend(
-        handles=handles, fontsize=16,
-        loc="center left", bbox_to_anchor=(1.02, 0.5),
-        frameon=True, borderaxespad=0,
-    )
-
-    fig.tight_layout()
-    _save(fig, output_dir, "fps_vs_k_by_num_envs")
+    _save(fig, output_dir, "fps_vs_fsu_and_k_by_num_envs")
 
 
 # -- Main ---------------------------------------------------------------------
@@ -1055,8 +965,7 @@ PLOT_FUNCTIONS = {
     "heatmap": plot_heatmap,
     "cross_env": plot_cross_env,
     "config_summary": plot_config_summary,
-    "fps_vs_fsu_by_num_envs": plot_fps_vs_fsu_by_num_envs,
-    "fps_vs_k_by_num_envs": plot_fps_vs_k_by_num_envs,
+    "fps_vs_fsu_and_k_by_num_envs": plot_fps_vs_fsu_and_k_by_num_envs,
 }
 
 
