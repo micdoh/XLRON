@@ -701,9 +701,22 @@ def load_model(config: Box, key: chex.PRNGKey) -> eqx.Module:
         model = init_network(config=config, key=key)
         model_loaded = eqx.tree_deserialise_leaves(config.MODEL_PATH, model)
     if config.KEEP_VF:
-        # Replace critic layers with loaded model's critic layers
-        model = eqx.tree_at(lambda m: m.critic_layers, model, model_loaded.critic_layers)
-        model = eqx.tree_at(lambda m: m.critic_output, model, model_loaded.critic_output)
+        # Keep loaded critic weights, reinitialize actor.
+        # Start from a fresh model and replace critic sub-tree with loaded weights.
+        if hasattr(model_loaded, "critic"):
+            # ActorCriticMLP (.critic is MLP), ActorCriticGNN (.critic is CriticGNN)
+            model = eqx.tree_at(lambda m: m.critic, model, model_loaded.critic)
+        elif hasattr(model_loaded, "actor_critic"):
+            # ActorCriticTransformer: critic encoder is actor_critic[1], plus critic_mlp
+            model = eqx.tree_at(lambda m: m.actor_critic[1], model, model_loaded.actor_critic[1])
+            model = eqx.tree_at(lambda m: m.critic_mlp, model, model_loaded.critic_mlp)
+        elif hasattr(model_loaded, "critic_layers"):
+            # LaunchPowerActorCriticMLP
+            model = eqx.tree_at(lambda m: m.critic_layers, model, model_loaded.critic_layers)
+            model = eqx.tree_at(lambda m: m.critic_output, model, model_loaded.critic_output)
+        else:
+            print("WARNING: KEEP_VF enabled but could not identify critic sub-tree; loading full model")
+            model = model_loaded
     else:
         model = model_loaded
     print(f"Loaded model: {config.MODEL_PATH}")
