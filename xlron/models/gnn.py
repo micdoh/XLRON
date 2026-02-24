@@ -968,20 +968,13 @@ class ActorGNN(eqx.Module):
 
         # Get current request
         nodes_sd, requested_bw = read_rsa_request(state.request_array)
-        init_action_array = jnp.zeros(
-            params.k_paths * self.edge_output_size, dtype=dtype_config.SMALL_FLOAT_DTYPE
-        )
 
-        def get_path_action_dist(i, action_array):
-            path_features = get_path_slots(edge_features, params, nodes_sd, i, agg_func="sum")
-            action_array = jax.lax.dynamic_update_slice(
-                action_array, path_features, (i * self.edge_output_size,)
-            )
-            return action_array
+        def get_path_features(i):
+            return get_path_slots(edge_features, params, nodes_sd, i, agg_func="sum")
 
-        path_action_logits = jax.lax.fori_loop(
-            0, params.k_paths, get_path_action_dist, init_action_array
-        )
+        path_action_logits = jax.vmap(get_path_features)(
+            jnp.arange(params.k_paths)
+        ).reshape((-1,))
         if params.include_no_op:
             path_action_logits = jnp.hstack([path_action_logits, jnp.array([-1e4])])
         path_action_logits = jnp.reshape(path_action_logits, (-1,)) / self.temperature
@@ -992,21 +985,13 @@ class ActorGNN(eqx.Module):
             if self.global_output_size > 0:
                 power_logits = processed_graph.globals.reshape((-1,)) / self.temperature
             else:
-                init_feature_array = jnp.zeros(
-                    (params.k_paths, edge_features.shape[1]), dtype=dtype_config.LARGE_FLOAT_DTYPE
-                )
-
-                def get_power_action_dist(i, feature_array):
-                    path_features = get_path_slots(
+                def get_power_path_features(i):
+                    return get_path_slots(
                         edge_features, params, nodes_sd, i, agg_func="sum"
-                    ).reshape((1, -1))
-                    feature_array = jax.lax.dynamic_update_slice(
-                        feature_array, path_features, (i, 0)
                     )
-                    return feature_array
 
-                path_feature_batch = jax.lax.fori_loop(
-                    0, params.k_paths, get_power_action_dist, init_feature_array
+                path_feature_batch = jax.vmap(get_power_path_features)(
+                    jnp.arange(params.k_paths)
                 )
                 power_logits = jax.vmap(self.power_mlp)(path_feature_batch)
 
