@@ -609,11 +609,13 @@ class GraphNet(eqx.Module):
         # Embed
         nodes = jax.vmap(self.node_embedder)(graphs.nodes)
         edges = jax.vmap(self.edge_embedder)(graphs.edges)
-        globals_ = (
-            jax.vmap(self.global_embedder)(graphs.globals)
-            if graphs.globals is not None
-            else jnp.zeros((1, self.global_embedding_size))
-        )
+        if graphs.globals is not None:
+            g = graphs.globals
+            if g.ndim == 1:
+                g = g[:, None]  # (n_graphs,) -> (n_graphs, 1)
+            globals_ = jax.vmap(self.global_embedder)(g)
+        else:
+            globals_ = jnp.zeros((1, self.global_embedding_size))
 
         processed_graphs = graphs._replace(nodes=nodes, edges=edges, globals=globals_)
 
