@@ -388,6 +388,40 @@ def add_graphs_tuples(
     )
 
 
+# --- Module-level helpers for scan-based message passing ---
+
+def _make_update_edge_fn(edge_mlp):
+    """Build a jraph-compatible edge update function from an MLP."""
+    def update_edge_fn(concatenated_inputs):
+        return jax.vmap(edge_mlp)(concatenated_inputs)
+    return jraph.concatenated_args(update_edge_fn)
+
+
+def _make_update_node_fn(node_mlp):
+    """Build a jraph-compatible node update function from an MLP."""
+    def update_node_fn(concatenated_inputs):
+        return jax.vmap(node_mlp)(concatenated_inputs)
+    return jraph.concatenated_args(update_node_fn)
+
+
+def _make_update_global_fn(global_mlp):
+    """Build a jraph-compatible global update function from an MLP."""
+    def update_global_fn(concatenated_inputs):
+        return jax.vmap(global_mlp)(concatenated_inputs)
+    return jraph.concatenated_args(update_global_fn)
+
+
+class MessagePassingStep(eqx.Module):
+    """A single message passing step containing MLPs and optional layer norms."""
+    edge_mlp: Optional[eqx.nn.MLP]
+    node_mlp: Optional[eqx.nn.MLP]
+    global_mlp: Optional[eqx.nn.MLP]
+    attn_mlp: Optional[eqx.nn.MLP]
+    node_ln: Optional[eqx.nn.LayerNorm]
+    edge_ln: Optional[eqx.nn.LayerNorm]
+    global_ln: Optional[eqx.nn.LayerNorm]
+
+
 class GraphNet(eqx.Module):
     """A complete Graph Network model defined with Jraph and Equinox."""
 
@@ -396,16 +430,13 @@ class GraphNet(eqx.Module):
     node_embedder: eqx.nn.Linear
     global_embedder: eqx.nn.Linear
 
-    # MLP layers for each message passing step (list of tuples)
-    message_passing_layers: tuple
+    # Scan-compatible message passing steps (vmap-stacked)
+    steps: MessagePassingStep
 
     # Decoder layers
     edge_decoder: Optional[eqx.nn.Linear]
     node_decoder: Optional[eqx.nn.Linear]
     global_decoder: Optional[eqx.nn.Linear]
-
-    # Layer norms for each step
-    layer_norms: Optional[tuple]
 
     # Static configuration
     message_passing_steps: int = eqx.field(static=True)
@@ -484,118 +515,95 @@ class GraphNet(eqx.Module):
             node_mlp_dims = node_mlp_dims + [node_embedding_size]
             global_mlp_dims = global_mlp_dims + [global_embedding_size]
 
-        # Split keys
-        keys = jax.random.split(key, 10 + message_passing_steps * 4)
-        key_idx = 0
+        # Split keys for embedders and decoders
+        embed_decode_key, steps_key = jax.random.split(key)
+        keys = jax.random.split(embed_decode_key, 6)
 
         # Create embedders
         self.edge_embedder = eqx.nn.Linear(
-            input_edge_features, edge_embedding_size, key=keys[key_idx]
+            input_edge_features, edge_embedding_size, key=keys[0]
         )
-        key_idx += 1
         self.node_embedder = eqx.nn.Linear(
-            input_node_features, node_embedding_size, key=keys[key_idx]
+            input_node_features, node_embedding_size, key=keys[1]
         )
-        key_idx += 1
         self.global_embedder = eqx.nn.Linear(
-            input_global_features, global_embedding_size, key=keys[key_idx]
+            input_global_features, global_embedding_size, key=keys[2]
         )
-        key_idx += 1
-
-        # Create message passing layers for each step
-        mp_layers = []
-        layer_norms_list = []
 
         # Input sizes for MLPs after concatenation
-        # Edge MLP: edges + sender_nodes + receiver_nodes + globals
         edge_mlp_input = edge_embedding_size + 2 * node_embedding_size + global_embedding_size
-        # Node MLP: nodes + aggregated_sent + aggregated_received + globals
         node_mlp_input = node_embedding_size + 2 * edge_embedding_size + global_embedding_size
-        # Global MLP: aggregated_nodes + aggregated_edges + globals
         global_mlp_input = node_embedding_size + edge_embedding_size + global_embedding_size
-        # Attention MLP: edges + sender + receiver + globals
         attn_mlp_input = edge_embedding_size + 2 * node_embedding_size + global_embedding_size
 
-        for step in range(message_passing_steps):
-            step_layers = {}
+        # Determine which optional components are present (fixed for all steps)
+        _has_edge_mlp = use_edge_model and bool(edge_mlp_dims)
+        _has_node_mlp = bool(node_mlp_dims)
+        _has_global_mlp = global_output_size > 0 and bool(global_mlp_dims)
+        _has_attn_mlp = use_attention and bool(attn_mlp_dims)
+        _has_layer_norm = gnn_layer_norm
+        _has_global_ln = gnn_layer_norm and global_output_size > 0
+        attn_depth = max(len(attn_mlp_dims), 1) if _has_attn_mlp else 0
 
-            if use_edge_model and edge_mlp_dims:
-                step_layers["edge_mlp"] = eqx.nn.MLP(
+        # Build message passing steps via filter_vmap for scan-compatible stacking
+        step_keys = jax.random.split(steps_key, message_passing_steps)
+
+        @eqx.filter_vmap
+        def make_step(step_key):
+            k1, k2, k3, k4 = jax.random.split(step_key, 4)
+            return MessagePassingStep(
+                edge_mlp=eqx.nn.MLP(
                     in_size=edge_mlp_input,
-                    out_size=edge_mlp_dims[-1] if edge_mlp_dims else edge_embedding_size,
-                    width_size=edge_mlp_dims[0] if edge_mlp_dims else edge_embedding_size,
+                    out_size=edge_mlp_dims[-1],
+                    width_size=edge_mlp_dims[0],
                     depth=len(edge_mlp_dims),
                     activation=jax.nn.relu,
-                    key=keys[key_idx],
-                )
-                key_idx += 1
-
-            if node_mlp_dims:
-                step_layers["node_mlp"] = eqx.nn.MLP(
+                    key=k1,
+                ) if _has_edge_mlp else None,
+                node_mlp=eqx.nn.MLP(
                     in_size=node_mlp_input,
-                    out_size=node_mlp_dims[-1] if node_mlp_dims else node_embedding_size,
-                    width_size=node_mlp_dims[0] if node_mlp_dims else node_embedding_size,
+                    out_size=node_mlp_dims[-1],
+                    width_size=node_mlp_dims[0],
                     depth=len(node_mlp_dims),
                     activation=jax.nn.relu,
-                    key=keys[key_idx],
-                )
-                key_idx += 1
-
-            if global_output_size > 0 and global_mlp_dims:
-                step_layers["global_mlp"] = eqx.nn.MLP(
+                    key=k2,
+                ) if _has_node_mlp else None,
+                global_mlp=eqx.nn.MLP(
                     in_size=global_mlp_input,
-                    out_size=global_mlp_dims[-1] if global_mlp_dims else global_embedding_size,
-                    width_size=global_mlp_dims[0] if global_mlp_dims else global_embedding_size,
+                    out_size=global_mlp_dims[-1],
+                    width_size=global_mlp_dims[0],
                     depth=len(global_mlp_dims),
                     activation=jax.nn.relu,
-                    key=keys[key_idx],
-                )
-                key_idx += 1
-
-            if use_attention and attn_mlp_dims:
-                # Ensure at least depth 1 for GATv2-style dynamic attention
-                attn_depth = max(len(attn_mlp_dims), 1)
-                step_layers["attn_mlp"] = eqx.nn.MLP(
+                    key=k3,
+                ) if _has_global_mlp else None,
+                attn_mlp=eqx.nn.MLP(
                     in_size=attn_mlp_input,
                     out_size=1,
-                    width_size=attn_mlp_dims[0] if attn_mlp_dims else 128,
+                    width_size=attn_mlp_dims[0],
                     depth=attn_depth,
                     activation=jax.nn.relu,
-                    key=keys[key_idx],
-                )
-                key_idx += 1
+                    key=k4,
+                ) if _has_attn_mlp else None,
+                node_ln=eqx.nn.LayerNorm(node_embedding_size) if _has_layer_norm else None,
+                edge_ln=eqx.nn.LayerNorm(edge_embedding_size) if _has_layer_norm else None,
+                global_ln=eqx.nn.LayerNorm(global_embedding_size) if _has_global_ln else None,
+            )
 
-            mp_layers.append(step_layers)
+        self.steps = make_step(step_keys)
 
-            if gnn_layer_norm:
-                layer_norms_list.append(
-                    {
-                        "node": eqx.nn.LayerNorm(node_embedding_size),
-                        "edge": eqx.nn.LayerNorm(edge_embedding_size),
-                        "global": eqx.nn.LayerNorm(global_embedding_size)
-                        if global_output_size > 0
-                        else None,
-                    }
-                )
-
-        self.message_passing_layers = tuple(mp_layers)
-        self.layer_norms = tuple(layer_norms_list) if gnn_layer_norm else None
-
-        # Create decoders
+        # Create decoders (keys[3], keys[4], keys[5])
         self.edge_decoder = (
-            eqx.nn.Linear(edge_embedding_size, edge_output_size, key=keys[key_idx])
+            eqx.nn.Linear(edge_embedding_size, edge_output_size, key=keys[3])
             if edge_output_size > 0
             else None
         )
-        key_idx += 1
         self.node_decoder = (
-            eqx.nn.Linear(node_embedding_size, node_output_size, key=keys[key_idx])
+            eqx.nn.Linear(node_embedding_size, node_output_size, key=keys[4])
             if node_output_size > 0
             else None
         )
-        key_idx += 1
         self.global_decoder = (
-            eqx.nn.Linear(global_embedding_size, global_output_size, key=keys[key_idx])
+            eqx.nn.Linear(global_embedding_size, global_output_size, key=keys[5])
             if global_output_size > 0
             else None
         )
@@ -619,49 +627,31 @@ class GraphNet(eqx.Module):
 
         processed_graphs = graphs._replace(nodes=nodes, edges=edges, globals=globals_)
 
-        # Message passing
-        for step, step_layers in enumerate(self.message_passing_layers):
-            # Build update functions using the MLPs
-            # jraph.concatenated_args wraps a fn(concatenated_input) to accept separate args
-            # # Remember to vmap over edges
-            def make_update_edge_fn(edge_mlp):
-                def update_edge_fn(concatenated_inputs):
-                    return jax.vmap(edge_mlp)(concatenated_inputs)
+        # Message passing via scan (traces body once instead of N times)
+        dynamic_steps, static_steps = eqx.partition(self.steps, eqx.is_array)
 
-                return jraph.concatenated_args(update_edge_fn)
+        # Capture static config in closure for the scan body
+        _use_attention = self.use_attention
+        _skip_connections = self.skip_connections
+        _gnn_layer_norm = self.gnn_layer_norm
 
-            def make_update_node_fn(node_mlp):
-                def update_node_fn(concatenated_inputs):
-                    return jax.vmap(node_mlp)(concatenated_inputs)
+        def apply_step(carry, dynamic_step):
+            graphs = carry
+            step = eqx.combine(dynamic_step, static_steps)
 
-                return jraph.concatenated_args(update_node_fn)
+            # Build update functions from this step's MLPs
+            update_edge_fn = _make_update_edge_fn(step.edge_mlp) if step.edge_mlp is not None else None
+            update_node_fn = _make_update_node_fn(step.node_mlp) if step.node_mlp is not None else None
+            update_global_fn = _make_update_global_fn(step.global_mlp) if step.global_mlp is not None else None
 
-            def make_update_global_fn(global_mlp):
-                def update_global_fn(concatenated_inputs):
-                    return jax.vmap(global_mlp)(concatenated_inputs)
-
-                return jraph.concatenated_args(update_global_fn)
-
-            update_edge_fn = (
-                make_update_edge_fn(step_layers["edge_mlp"]) if "edge_mlp" in step_layers else None
-            )
-            update_node_fn = (
-                make_update_node_fn(step_layers["node_mlp"]) if "node_mlp" in step_layers else None
-            )
-            update_global_fn = (
-                make_update_global_fn(step_layers["global_mlp"])
-                if "global_mlp" in step_layers
-                else None
-            )
-
-            if self.use_attention and "attn_mlp" in step_layers:
-                attn_mlp = step_layers["attn_mlp"]
+            if _use_attention and step.attn_mlp is not None:
+                _attn_mlp = step.attn_mlp
 
                 def attention_logit_fn(edges, sender_attr, receiver_attr, global_edge_attributes):
                     x = jnp.concatenate(
                         (edges, sender_attr, receiver_attr, global_edge_attributes), axis=1
                     )
-                    return jax.vmap(attn_mlp)(x)
+                    return jax.vmap(_attn_mlp)(x)
 
                 def attention_reduce_fn(edges, attention):
                     return attention * edges
@@ -680,22 +670,25 @@ class GraphNet(eqx.Module):
                     update_global_fn=update_global_fn,
                 )
 
-            new_graphs = graph_net(processed_graphs)
+            new_graphs = graph_net(graphs)
 
-            if self.skip_connections:
-                processed_graphs = add_graphs_tuples(new_graphs, processed_graphs)
+            if _skip_connections:
+                graphs = add_graphs_tuples(new_graphs, graphs)
             else:
-                processed_graphs = new_graphs
+                graphs = new_graphs
 
-            if self.gnn_layer_norm and self.layer_norms is not None:
-                ln = self.layer_norms[step]
-                processed_graphs = processed_graphs._replace(
-                    nodes=jax.vmap(ln["node"])(processed_graphs.nodes),
-                    edges=jax.vmap(ln["edge"])(processed_graphs.edges),
-                    globals=jax.vmap(ln["global"])(processed_graphs.globals)
-                    if ln["global"] is not None and processed_graphs.globals is not None
-                    else processed_graphs.globals,
+            if _gnn_layer_norm and step.node_ln is not None:
+                graphs = graphs._replace(
+                    nodes=jax.vmap(step.node_ln)(graphs.nodes),
+                    edges=jax.vmap(step.edge_ln)(graphs.edges),
+                    globals=jax.vmap(step.global_ln)(graphs.globals)
+                    if step.global_ln is not None and graphs.globals is not None
+                    else graphs.globals,
                 )
+
+            return graphs, None
+
+        processed_graphs, _ = jax.lax.scan(apply_step, processed_graphs, dynamic_steps)
 
         # Decode
         if self.edge_decoder is not None:
