@@ -145,6 +145,7 @@ DEFAULTS = {
     "mean_service_holding_time": 25,
     "continuous_operation": False,
     "ENV_WARMUP_STEPS": 0,
+    "warmup_action_type": "default",
     "max_requests": 4,
     "reward_type": "service",
     "incremental_loading": False,
@@ -657,6 +658,18 @@ def traffic_section() -> dict:
         help=_h("ENV_WARMUP_STEPS"),
     )
     _emit(flags, "ENV_WARMUP_STEPS", int(warmup))
+
+    if warmup > 0:
+        warmup_options = ["default", "heuristic", "random"]
+        warmup_action = st.selectbox(
+            "Warmup Action Type",
+            warmup_options,
+            index=warmup_options.index(str(_get_preset_val("warmup_action_type"))),
+            help="Action selection during warmup. 'default' uses the run mode's normal method "
+            "(RL policy or heuristic). 'heuristic' forces the --path_heuristic. "
+            "'random' samples uniformly from valid actions.",
+        )
+        _emit(flags, "warmup_action_type", None if warmup_action == "default" else warmup_action)
 
     reward_type = st.selectbox(
         "Reward Type",

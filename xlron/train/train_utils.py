@@ -382,7 +382,8 @@ def print_experiment_summary(config: Box, env_params=None) -> None:
     if not continuous:
         print(f"  Max requests / episode:   {max_requests}")
     if warmup > 0:
-        print(f"  Warmup steps:             {warmup}")
+        warmup_type = config.get("warmup_action_type", None) or "default"
+        print(f"  Warmup steps:             {warmup} ({warmup_type})")
 
     print(f"\n  {'--- Execution ---':^{W - 4}}")
     print(
@@ -1094,7 +1095,23 @@ def select_action_eval(select_action_state, env, env_params, eval_state, config)
 
 
 def get_warmup_fn(warmup_state, env, params, train_state, config) -> Callable[[Tuple], Tuple]:
-    """Warmup period for DeepRMSA."""
+    """Warmup period to fill the network before training or eval.
+
+    The action selection method is controlled by ``config.warmup_action_type``:
+      - None  : use the default for the current run mode (RL policy or heuristic)
+      - "heuristic" : always use the heuristic specified by ``--path_heuristic``
+      - "random"    : sample uniformly from valid (masked) actions
+    """
+    warmup_action_type = getattr(config, "warmup_action_type", None)
+    if warmup_action_type is not None and warmup_action_type not in ("heuristic", "random"):
+        raise ValueError(
+            f"warmup_action_type must be None, 'heuristic', or 'random', got '{warmup_action_type}'"
+        )
+    use_heuristic_warmup = (
+        config.EVAL_HEURISTIC
+        or warmup_action_type == "heuristic"
+    )
+    use_random_warmup = warmup_action_type == "random"
 
     def warmup_fn(warmup_state) -> Tuple[EnvState, chex.Array]:
         rng, state, last_obs = warmup_state
@@ -1103,11 +1120,20 @@ def get_warmup_fn(warmup_state, env, params, train_state, config) -> Callable[[T
             _rng, _state, _params, _train_state, _last_obs = val
             # SELECT ACTION
             _rng, action_key, step_key = jax.random.split(_rng, 3)
-            select_action_state = (_rng, _state, _last_obs)
-            action_fn = select_action if not config.EVAL_HEURISTIC else select_action_eval
-            _state, action, log_prob, value = action_fn(
-                select_action_state, env, _params, _train_state, config
-            )
+
+            if use_random_warmup:
+                # Random valid action: sample uniformly from the action mask
+                mask_result = env.action_mask(_state.env_state, _params)
+                action_mask = mask_result[0]
+                action = jax.random.categorical(
+                    action_key, jnp.log(jnp.maximum(action_mask, 1e-8))
+                )
+            else:
+                select_action_state = (_rng, _state, _last_obs)
+                action_fn = select_action if not use_heuristic_warmup else select_action_eval
+                _state, action, log_prob, value = action_fn(
+                    select_action_state, env, _params, _train_state, config
+                )
             if "gn_model" in config.env_type.lower() and config.launch_power_type == "rl":
                 # If the action is launch power, the action is this shape:
                 # jnp.concatenate([path_action.reshape((1,)), power_action.reshape((1,))], axis=0)
@@ -1131,7 +1157,8 @@ def get_warmup_fn(warmup_state, env, params, train_state, config) -> Callable[[T
             elif (
                 "gn_model" in config.env_type.lower()
                 and config.launch_power_type != "rl"
-                and not config.EVAL_HEURISTIC
+                and not use_heuristic_warmup
+                and not use_random_warmup
             ):
                 raise ValueError("Check that EVAL_HEURISTIC is set to True if using a heuristic")
             # STEP ENV

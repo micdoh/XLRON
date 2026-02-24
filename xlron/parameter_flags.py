@@ -437,6 +437,13 @@ flags.DEFINE_boolean(
     "Truncate holding time to less than 2*mean_service_holding_time",
 )
 flags.DEFINE_integer("ENV_WARMUP_STEPS", 0, "Number of warmup steps before training or eval")
+flags.DEFINE_string(
+    "warmup_action_type",
+    None,
+    "Action selection method during warmup. None uses the default for the run mode "
+    "(RL policy or heuristic). 'heuristic' uses the heuristic specified by --path_heuristic. "
+    "'random' selects random valid actions.",
+)
 flags.DEFINE_boolean(
     "pack_path_bits",
     False,
