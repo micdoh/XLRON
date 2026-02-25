@@ -141,6 +141,32 @@ def get_active_requests(requests: jnp.ndarray, i: int) -> jnp.ndarray:
     return requests
 
 
+@jax.jit
+def get_real_departures(requests: jnp.ndarray, i: int) -> jnp.ndarray:
+    """Compute real departure times for requests, with inactive requests set to 0.
+
+    Uses the same active/inactive logic as get_active_requests but returns real
+    departure times (current_time + holding_time) instead of synthetic timing.
+
+    Args:
+        requests: Request array with columns [source, bitrate, dest, arrival, holding, current_time].
+        i: Index into requests for the current timestep.
+
+    Returns:
+        Array of real departure times (shape = (N,)), 0 for inactive requests.
+    """
+    current_time = requests[i][5]
+
+    def compute_real_departure(request):
+        expired_condition = request[5] + request[4] < current_time
+        future_condition = request[5] > current_time
+        inactive = jnp.logical_or(expired_condition, future_condition)
+        real_departure = request[5] + request[4]
+        return jnp.where(inactive, 0.0, real_departure)
+
+    return jax.vmap(compute_real_departure)(requests)
+
+
 def get_active_requests_filtered(requests: jnp.ndarray, i: int) -> jnp.ndarray:
     """Returns only the active rows (variable-length, not JIT-compatible).
 
@@ -225,8 +251,32 @@ def get_eval_fn(config, env, env_params, compile_defrag=False) -> Callable:
             return runner_state[0], blocking_events
 
         def run_defrag_trimmed(rng, sorted_requests, sort_index, init_obs, defrag_initial_state):
-            """Run defrag with trimmed active requests (max_active steps)."""
+            """Run defrag with trimmed active requests (max_active steps).
+
+            After defrag, reconstructs real departure times in link_slot_departure_array.
+            The defrag episode uses synthetic timing (holding=N, never expire) so services
+            can be rearranged. Without reconstruction, synthetic departure times would
+            prevent services from expiring correctly in the main loop.
+            """
             active_requests = get_active_requests(sorted_requests, sort_index)
+
+            # Compute real departure times in the same trim order as the defrag requests.
+            # get_active_requests zeros bw for inactive requests; trim_active_requests
+            # sorts by bw descending (active first) then slices to max_active.
+            # We apply the same sort to real departures so index j in the trimmed array
+            # corresponds to real_deps_trimmed[j].
+            real_deps = get_real_departures(sorted_requests, sort_index)  # (N,)
+            # Apply same sort order as trim_active_requests (by bw descending)
+            sort_idx = jnp.argsort(active_requests[:, 1], descending=True)
+            real_deps_sorted = real_deps[sort_idx]
+            if total_ts >= max_active:
+                real_deps_trimmed = real_deps_sorted[:max_active]
+            else:
+                real_deps_trimmed = jnp.concatenate([
+                    real_deps_sorted,
+                    jnp.zeros(max_active - total_ts, dtype=real_deps_sorted.dtype)
+                ])
+
             trimmed = fix_timing_after_trim(trim_active_requests(active_requests))
 
             defrag_state = defrag_initial_state.replace(
@@ -243,7 +293,17 @@ def get_eval_fn(config, env, env_params, compile_defrag=False) -> Callable:
             sorted_requests = sorted_requests.at[sort_index, 1].set(val)
 
             lsa = final_state.env_state.link_slot_array
-            lsda = final_state.env_state.link_slot_departure_array
+            lsda_synthetic = final_state.env_state.link_slot_departure_array
+
+            # Reconstruct real departure times from synthetic defrag departures.
+            # In defrag, request at step j gets departure = j + max_active.
+            # So defrag_step = round(departure - max_active) recovers j.
+            # We then look up the real departure time for request j.
+            n = max_active
+            defrag_step = jnp.round(lsda_synthetic - n).astype(jnp.int32)
+            defrag_step = jnp.clip(defrag_step, 0, n - 1)
+            lsda = jnp.where(lsa > 0, real_deps_trimmed[defrag_step], 0.0)
+
             return sorted_requests, lsa, lsda, blocking
 
         def compiled_main_loop(
@@ -330,6 +390,12 @@ def get_eval_fn(config, env, env_params, compile_defrag=False) -> Callable:
             active_requests = get_active_requests_filtered(sorted_requests, sort_index)
             num_active = active_requests.shape[0]
 
+            # Compute real departure times (current_time + holding_time) for each
+            # active request BEFORE we overwrite timing columns with synthetic values.
+            # active_requests still has original columns at this point:
+            #   [source, bitrate, dest, arrival, holding, current_time]
+            real_deps = active_requests[:, 5] + active_requests[:, 4]  # (num_active,)
+
             # Re-number timing columns for the compacted active requests:
             # arrival=1, holding=num_active, current_time=0..num_active-1
             arrival_times = jnp.ones((num_active, 1))
@@ -363,6 +429,21 @@ def get_eval_fn(config, env, env_params, compile_defrag=False) -> Callable:
                 if reward < 0:
                     blocking = True
                     break
+
+            # Reconstruct real departure times from synthetic defrag departures.
+            # In defrag, request at step j gets departure = j + num_active.
+            # So defrag_step = round(departure - num_active) recovers j.
+            # We then look up the real departure time for request j.
+            if not blocking:
+                lsa = env_state.env_state.link_slot_array
+                lsda_synthetic = env_state.env_state.link_slot_departure_array
+                defrag_step = jnp.round(lsda_synthetic - num_active).astype(jnp.int32)
+                defrag_step = jnp.clip(defrag_step, 0, num_active - 1)
+                lsda = jnp.where(lsa > 0, real_deps[defrag_step], 0.0)
+                inner = env_state.env_state.replace(
+                    link_slot_departure_array=lsda,
+                )
+                env_state = env_state.replace(env_state=inner)
 
             blocking = jnp.bool_(blocking)
             val = jnp.where(blocking, 0, sorted_requests[sort_index].at[1].get())

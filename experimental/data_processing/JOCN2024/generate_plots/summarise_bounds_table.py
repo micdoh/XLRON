@@ -115,16 +115,16 @@ def plot_case(ax, pub, topology, n_slots, heur_data, bounds_data):
     if not case_heur.empty:
         line = ax.plot(case_heur['load'], case_heur['mean'], label='Heuristic',
                        marker='o', markerfacecolor=heur_col, linestyle='-', color=heur_col)
-        ax.fill_between(case_heur['load'], case_heur['iqr_lower'],
-                        case_heur['iqr_upper'], alpha=0.2, color=heur_col)
+        ax.fill_between(case_heur['load'], case_heur['band_lower'],
+                        case_heur['band_upper'], alpha=0.2, color=heur_col)
         lines.append(line[0])
         labels.append('Best heuristic')
 
     if not case_bounds.empty:
         line = ax.plot(case_bounds['load'], case_bounds['mean'], label='Bounds',
                        marker='o', markerfacecolor=bounds_col, linestyle='-', color=bounds_col)
-        ax.fill_between(case_bounds['load'], case_bounds['iqr_lower'],
-                        case_bounds['iqr_upper'], alpha=0.2, color=bounds_col)
+        ax.fill_between(case_bounds['load'], case_bounds['band_lower'],
+                        case_bounds['band_upper'], alpha=0.2, color=bounds_col)
         lines.append(line[0])
         labels.append('Defragmentation bound')
 
@@ -181,21 +181,17 @@ if __name__ == '__main__':
                             'service_blocking_probability_iqr_lower': 'iqr_lower',
                             'service_blocking_probability_iqr_upper': 'iqr_upper'})
 
-    # Multiply mean, stddev, iqr_lower, iqr_upper by 100 to get percentages
-    # Add 0.0001 to values to avoid zeros and ensure plotting
-    def fix_iqrs(df):
+    # Scale to percentages and compute mean ± SEM shaded band
+    # n = number of independent samples (NUM_ENVS for heuristic, num_trials for bounds)
+    def compute_bands(df, n):
         df['mean'] *= 100
         df['stddev'] *= 100
-        df['iqr_lower'] *= 100
-        df['iqr_upper'] *= 100
-        # if IQR upper is zero, set it to df['mean']
-        mask_mean = df[df['iqr_upper'] == 0]['mean']
-        mask_stddev = df[df['iqr_upper'] == 0]['stddev']
-        df.loc[mask_mean.index, 'iqr_upper'] = mask_mean
-        df.loc[mask_mean.index, 'iqr_lower'] = mask_mean - mask_stddev
+        sem = df['stddev'] / np.sqrt(n)
+        df['band_lower'] = (df['mean'] - sem).clip(lower=0)
+        df['band_upper'] = df['mean'] + sem
         return df
-    heur_data = fix_iqrs(heur_data)
-    bounds_data = fix_iqrs(bounds_data)
+    heur_data = compute_bands(heur_data, n=2000)      # NUM_ENVS=2000
+    bounds_data = compute_bands(bounds_data, n=10)     # num_trials=10
 
     # Define the publications and topologies
     publications = ['DeepRMSA~Reward-RMSA~GCN-RMSA', 'MaskRSA', 'PtrNet-RSA-40', 'PtrNet-RSA-80']
@@ -275,3 +271,155 @@ if __name__ == '__main__':
     #plt.tight_layout(rect=[0.03, 0.04, 1, 0.99])  # Adjust the rect parameter to make room for labels and legend
     plt.tight_layout(rect=[0.03, 0.105, 1, 1])
     plt.savefig(PLOTS_DIR / 'bounds_comparison.png')
+
+    # ---- New bounds comparison plot (experiment_data/bounds/) ----
+    new_data_dir = Path(__file__).resolve().parents[4] / 'experiment_data' / 'bounds'
+    new_reconfig_data = pd.read_csv(new_data_dir / 'experiment_results_reconfigurable_bounds.csv')
+    new_cutset_data = pd.read_csv(new_data_dir / 'experiment_results_cutsets_bounds.csv')
+
+    # Process heuristic eval data - CSV has 42 data fields for 41 headers
+    # (extra empty field at position 5), so pandas uses field[0] as index.
+    # The index has the true NAME, columns NAME/HEUR/TOPOLOGY/LOAD are shifted,
+    # but metric columns (returns_mean onward) are correct due to offsets canceling.
+    _raw_heur = pd.read_csv(new_data_dir / 'experiment_results_eval_bounds.csv')
+    new_heur_data = pd.DataFrame({
+        'NAME': _raw_heur.index,
+        'TOPOLOGY': _raw_heur['HEUR'].values,
+        'LOAD': _raw_heur['TOPOLOGY'].values,
+        'K': _raw_heur['LOAD'].values,
+        'service_blocking_probability_mean': _raw_heur['service_blocking_probability_mean'].values,
+        'service_blocking_probability_std': _raw_heur['service_blocking_probability_std'].values,
+        'service_blocking_probability_iqr_lower': _raw_heur['service_blocking_probability_iqr_lower'].values,
+        'service_blocking_probability_iqr_upper': _raw_heur['service_blocking_probability_iqr_upper'].values,
+    })
+
+    # Process reconfigurable bounds (same format as JOCN2024 bounds)
+    new_reconfig_data = new_reconfig_data.rename(columns={
+        'experiment': 'NAME', 'topology': 'TOPOLOGY', 'load': 'LOAD', 'k': 'K',
+        'heur': 'HEUR',
+        'blocking_prob_mean': 'service_blocking_probability_mean',
+        'blocking_prob_std': 'service_blocking_probability_std',
+        'blocking_prob_iqr_lower': 'service_blocking_probability_iqr_lower',
+        'blocking_prob_iqr_upper': 'service_blocking_probability_iqr_upper'
+    })
+
+    # Process cutset bounds
+    new_cutset_data = new_cutset_data.rename(columns={
+        'experiment': 'NAME', 'topology': 'TOPOLOGY', 'load': 'LOAD', 'k': 'K',
+        'blocking_prob_mean': 'service_blocking_probability_mean',
+        'blocking_prob_std': 'service_blocking_probability_std',
+        'blocking_prob_iqr_lower': 'service_blocking_probability_iqr_lower',
+        'blocking_prob_iqr_upper': 'service_blocking_probability_iqr_upper'
+    })
+
+    # Map individual experiment names to grouped publication names
+    def get_publication_new(name):
+        if name in ['DeepRMSA', 'Reward-RMSA', 'GCN-RMSA']:
+            return 'DeepRMSA~Reward-RMSA~GCN-RMSA'
+        if 'PtrNet-RSA' in name:
+            return 'PtrNet-RSA'
+        return name
+
+    for df in [new_heur_data, new_reconfig_data, new_cutset_data]:
+        df['N_slots'] = df['NAME'].apply(get_n_slots)
+        df['topology'] = df['TOPOLOGY'].apply(get_topology)
+        df['publication'] = df['NAME'].apply(get_publication_new)
+        df.rename(columns={'LOAD': 'load', 'K': 'k',
+                           'service_blocking_probability_mean': 'mean',
+                           'service_blocking_probability_std': 'stddev',
+                           'service_blocking_probability_iqr_lower': 'iqr_lower',
+                           'service_blocking_probability_iqr_upper': 'iqr_upper'}, inplace=True)
+
+    new_heur_data = compute_bands(new_heur_data, n=2000)      # NUM_ENVS=2000
+    new_reconfig_data = compute_bands(new_reconfig_data, n=10)  # num_trials=10
+    new_cutset_data = compute_bands(new_cutset_data, n=10)      # num_trials=10
+
+    cutset_col = '#30A08E'
+
+    def plot_case_new(ax, pub, topology, n_slots, heur_df, reconfig_df, cutset_df):
+        pub_filter = 'PtrNet-RSA' if 'PtrNet-RSA' in pub else pub
+
+        case_heur = heur_df[(heur_df['publication'] == pub_filter) &
+                            (heur_df['topology'] == topology) &
+                            (heur_df['N_slots'] == n_slots)]
+        case_reconfig = reconfig_df[(reconfig_df['publication'] == pub_filter) &
+                                     (reconfig_df['topology'] == topology) &
+                                     (reconfig_df['N_slots'] == n_slots)]
+        case_cutset = cutset_df[(cutset_df['publication'] == pub_filter) &
+                                 (cutset_df['topology'] == topology) &
+                                 (cutset_df['N_slots'] == n_slots)]
+
+        lines = []
+        labels = []
+
+        if not case_heur.empty:
+            line = ax.plot(case_heur['load'], case_heur['mean'],
+                          marker='o', markerfacecolor=heur_col, linestyle='-', color=heur_col)
+            ax.fill_between(case_heur['load'], case_heur['band_lower'],
+                           case_heur['band_upper'], alpha=0.2, color=heur_col)
+            lines.append(line[0])
+            labels.append('Best heuristic')
+
+        if not case_reconfig.empty:
+            line = ax.plot(case_reconfig['load'], case_reconfig['mean'],
+                          marker='s', markerfacecolor=bounds_col, linestyle='-', color=bounds_col)
+            ax.fill_between(case_reconfig['load'], case_reconfig['band_lower'],
+                           case_reconfig['band_upper'], alpha=0.2, color=bounds_col)
+            lines.append(line[0])
+            labels.append('Defragmentation bound')
+
+        if not case_cutset.empty:
+            line = ax.plot(case_cutset['load'], case_cutset['mean'],
+                          marker='^', markerfacecolor=cutset_col, linestyle='-', color=cutset_col)
+            ax.fill_between(case_cutset['load'], case_cutset['band_lower'],
+                           case_cutset['band_upper'], alpha=0.2, color=cutset_col)
+            lines.append(line[0])
+            labels.append('Cut-set bound')
+
+        pub_display = 'Deep/Reward/GCN-RMSA' if pub == 'DeepRMSA~Reward-RMSA~GCN-RMSA' else pub
+        title = f'{pub_display}\n\n{topology}' if topology == 'NSFNET' else topology
+        ax.set_title(title, fontsize=32)
+
+        has_data = not (case_heur.empty and case_reconfig.empty and case_cutset.empty)
+        return has_data, lines, labels
+
+    # Create new figure with same grid layout
+    fig2 = plt.figure(figsize=(30, 18))
+    all_lines2 = []
+    all_labels2 = []
+
+    for col, publication in enumerate(publications):
+        n_slots = get_n_slots(publication)
+        col_def = grid[col]
+
+        for n, topology in enumerate(col_def):
+            ax = fig2.add_subplot(max_rows, len(publications), col + 1 + n * len(publications))
+            ax.set_yscale('log')
+            ax.yaxis.grid(True)
+            ax.set_xticks(np.arange(0, 1000, 25))
+            ax.set_ylim(0.01, 1)
+
+            data_plotted, lines, labels = plot_case_new(
+                ax, publication, topology, n_slots,
+                new_heur_data, new_reconfig_data, new_cutset_data
+            )
+
+            if not data_plotted:
+                fig2.delaxes(ax)
+            else:
+                all_lines2.extend(lines)
+                all_labels2.extend(labels)
+
+    unique_labels2 = []
+    unique_lines2 = []
+    for label, line in zip(all_labels2, all_lines2):
+        if label not in unique_labels2:
+            unique_labels2.append(label)
+            unique_lines2.append(line)
+
+    fig2.text(0.51, 0.09, 'Traffic Load (Erlang)', ha='center', va='center', fontsize=36)
+    fig2.text(0.025, 0.48, 'Service Blocking Probability (%)', ha='center', va='center', rotation='vertical', fontsize=36)
+    legend2 = fig2.legend(unique_lines2, unique_labels2, loc='lower center', ncol=5)
+    increase_legend_line_thickness(legend2, line_width=6, marker_size=15)
+    plt.tight_layout(rect=[0.03, 0.105, 1, 1])
+    plt.savefig(PLOTS_DIR / 'bounds_comparison_new.png')
