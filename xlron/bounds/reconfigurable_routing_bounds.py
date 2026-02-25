@@ -487,6 +487,10 @@ def main(argv):
     else:
         default_device = identify_default_device(auto_select=True)
     print(f"Default device set to: {default_device}")
+    # Auto-enable compilation on GPU/TPU for performance
+    if default_device.platform in ("gpu", "tpu") and not FLAGS.COMPILE_RR_BOUNDS:
+        print(f"  Auto-enabling COMPILE_RR_BOUNDS (running on {default_device.platform})")
+        FLAGS.__setattr__("COMPILE_RR_BOUNDS", True)
     jax.numpy.set_printoptions(threshold=sys.maxsize)  # Don't truncate printed arrays
     jax.numpy.set_printoptions(linewidth=220)
     profile = bool(FLAGS.PROFILE)
