@@ -34,16 +34,16 @@ global \
     REWARD_DTYPE, \
     ACTION_DTYPE
 
-COMPUTE_DTYPE = jnp.bfloat16
-PARAMS_DTYPE = jnp.bfloat16
-LARGE_FLOAT_DTYPE = jnp.bfloat16
-SMALL_FLOAT_DTYPE = jnp.float16
+COMPUTE_DTYPE = jnp.float32
+PARAMS_DTYPE = jnp.float32
+LARGE_FLOAT_DTYPE = jnp.float32
+SMALL_FLOAT_DTYPE = jnp.float32
 LARGE_INT_DTYPE = jnp.int32
-SMALL_INT_DTYPE = jnp.int8
-BINARY_DTYPE = jnp.int8  # Default for binary arrays.
-REWARD_DTYPE = jnp.int16  # Default for rewards, can be float or int.
-ACTION_DTYPE = jnp.int16  # Default for actions, must be int for indexing.
-INDEX_DTYPE = jnp.int16  # Default for indexing arrays.
+SMALL_INT_DTYPE = jnp.int32
+BINARY_DTYPE = jnp.int32  # Default for binary arrays.
+REWARD_DTYPE = jnp.float32  # Default for rewards, can be float or int.
+ACTION_DTYPE = jnp.int32  # Default for actions, must be int for indexing.
+INDEX_DTYPE = jnp.int32  # Default for indexing arrays.
 
 
 def _is_called_from_train_py() -> bool:
@@ -100,13 +100,13 @@ def initialize_dtypes(flags: flags.FlagValues | Box | Dict) -> None:
         action_default = "int32"
         index_dtype = "int32"
     else:
-        compute_default = "float32" if platform == "cpu" else "bfloat16"
-        float_default = "float32" if platform == "cpu" else "float16"
-        int_default = "int32" if platform == "cpu" else "int16"
-        binary_default = "int32" if platform == "cpu" else "int8"
-        reward_default = "float32" if platform == "cpu" else "int16"
-        action_default = "int32" if platform == "cpu" else "int16"
-        index_dtype = "int32" if platform == "cpu" else "int16"
+        compute_default = "float32"
+        float_default = "float32"
+        int_default = "int32"
+        binary_default = "int32"
+        reward_default = "float32"
+        action_default = "int32"
+        index_dtype = "int32"
 
     # Allow global int_dtype and float_dtype flags
     compute_dtype_flag = get_flag_value_or_none("compute_dtype", compute_default)
