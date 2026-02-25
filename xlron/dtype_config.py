@@ -1,6 +1,5 @@
 # Usage: import all of these at the top of every file that creates arrays
 
-import inspect
 import os
 from typing import Any, Dict
 
@@ -46,16 +45,6 @@ ACTION_DTYPE = jnp.int32  # Default for actions, must be int for indexing.
 INDEX_DTYPE = jnp.int32  # Default for indexing arrays.
 
 
-def _is_called_from_train_py() -> bool:
-    """Check if this module is being imported/called from train.py"""
-    stack = inspect.stack()
-    for frame_info in stack:
-        filename = os.path.basename(frame_info.filename)
-        if filename == "train.py" or filename == "train_transformer.py":
-            return True
-    return False
-
-
 def initialize_dtypes(flags: flags.FlagValues | Box | Dict) -> None:
     # TODO - work out best dtypes to use based on environment params and hardware
     def get_flag_value_or_none(flag_name: str, default: Any) -> Any:
@@ -75,12 +64,7 @@ def initialize_dtypes(flags: flags.FlagValues | Box | Dict) -> None:
             return env_var
         return None
 
-    # Check if called from train.py
-    called_from_train = _is_called_from_train_py()
-
-    platform = jax.local_devices()[0].platform
-
-    # Force 32-bit types if called from train.py, otherwise use platform-specific defaults
+    # Differentiable mode uses float32 for everything (including ints) for gradient flow
     if get_flag_value_or_none("differentiable", False):
         print("Differentiable flag is set - using float 32-bit data types")
         compute_default = "float32"
@@ -89,15 +73,6 @@ def initialize_dtypes(flags: flags.FlagValues | Box | Dict) -> None:
         binary_default = "float32"
         reward_default = "float32"
         action_default = "float32"
-        index_dtype = "int32"
-    elif called_from_train:
-        print("Detected import from train.py - using 32-bit data types")
-        compute_default = "float32"
-        float_default = "float32"
-        int_default = "int32"
-        binary_default = "int32"
-        reward_default = "float32"
-        action_default = "int32"
         index_dtype = "int32"
     else:
         compute_default = "float32"
