@@ -14,17 +14,28 @@ import argparse
 import csv
 from pathlib import Path
 
+import matplotlib.pyplot as plt
 import networkx as nx
 import numpy as np
+import pandas as pd
+
+from experimental.plot_style import (
+    TABLE_HEADER_COLOR,
+    TABLE_ROW_ALT_COLOR,
+    TOPOLOGY_DISPLAY,
+    configure_style,
+)
 
 from xlron.environments.env_funcs import make_graph
 
-TOPOLOGY_DIR = Path(__file__).resolve().parents[1] / "xlron" / "data" / "topologies"
+_BENCHMARKS_DIR = Path(__file__).resolve().parent
+TOPOLOGY_DIR = Path(__file__).resolve().parents[2] / "xlron" / "data" / "topologies"
+print(f"Topology dir {TOPOLOGY_DIR}")
 
 
 def compute_topology_stats(
     topology_names: list[str] | None = None,
-    output_file: str = "benchmarks/topology_stats.csv",
+    output_file: str = "experimental/benchmarks/results/topology_stats.csv",
 ) -> list[dict]:
     """Compute graph statistics for topologies and write to CSV.
 
@@ -95,13 +106,101 @@ def compute_topology_stats(
     return rows
 
 
+def plot_topology_stats(
+    topo_stats_path: str | Path,
+    output_dir: str | Path = _BENCHMARKS_DIR / "figures",
+):
+    """Render a publication-quality table of topology stats from CSV."""
+    topo_stats_path = Path(topo_stats_path)
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    if not topo_stats_path.exists():
+        print(f"  No topology_stats.csv found at {topo_stats_path}, skipping topology table")
+        return
+
+    topo_stats = pd.read_csv(topo_stats_path)
+
+    # Only keep directed topologies
+    merged = topo_stats[topo_stats["directed"] == True].copy()
+    if merged.empty:
+        print("  No directed topologies found")
+        return
+
+    # Sort by number of edges
+    merged = merged.sort_values("num_edges")
+
+    # Build table data
+    col_labels = ["Topology", "Nodes", "Links", "Avg Degree",
+                  "Avg Path Length (hops)", "Avg Path Length (km)"]
+    cell_text = []
+    for _, row in merged.iterrows():
+        name = row["topology_name"]
+        fallback = name.replace("_directed", "").replace("_", " ").upper()
+        display = TOPOLOGY_DISPLAY.get(name, fallback)
+        avg_path_km = row["avg_path_length"] * row["avg_link_distance_km"]
+        cell_text.append([
+            display,
+            str(int(row["num_nodes"])),
+            str(int(row["num_edges"])),
+            f"{row['avg_degree']:.2f}",
+            f"{row['avg_path_length']:.2f}",
+            f"{avg_path_km:.0f}",
+        ])
+
+    fig, ax = plt.subplots(figsize=(14, 1.0 + 0.22 * len(cell_text)))
+    ax.axis("off")
+
+    table = ax.table(
+        cellText=cell_text,
+        colLabels=col_labels,
+        loc="center",
+        cellLoc="center",
+    )
+    table.auto_set_font_size(False)
+    table.set_fontsize(8)
+    table.scale(1, 1.2)
+
+    # Custom column widths: narrow for Nodes/Links, wider for the rest
+    col_widths = [0.14, 0.08, 0.08, 0.14, 0.22, 0.22]
+    n_rows = len(cell_text) + 1  # +1 for header
+    for j, w in enumerate(col_widths):
+        for i in range(n_rows):
+            table[i, j].set_width(w)
+
+    # Style header row
+    for j in range(len(col_labels)):
+        cell = table[0, j]
+        cell.set_facecolor(TABLE_HEADER_COLOR)
+        cell.set_text_props(color="white", fontweight="bold")
+
+    # Alternate row shading
+    for i in range(len(cell_text)):
+        color = TABLE_ROW_ALT_COLOR if i % 2 == 0 else "white"
+        for j in range(len(col_labels)):
+            table[i + 1, j].set_facecolor(color)
+
+    fig.tight_layout()
+    out_path = output_dir / "topology_table.png"
+    fig.savefig(out_path)
+    plt.close(fig)
+    print(f"  Saved {out_path}")
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Compute XLRON topology graph statistics")
-    parser.add_argument("--output", default="benchmarks/results/topology_stats.csv", help="Output CSV path")
+    parser.add_argument("--output", default="experimental/benchmarks/results/topology_stats.csv", help="Output CSV path")
     parser.add_argument(
         "--topologies", default=None, help="Comma-separated topology names (default: all)"
+    )
+    parser.add_argument(
+        "--figures_dir", default=str(_BENCHMARKS_DIR / "figures"),
+        help="Output directory for figures (default: benchmarks/figures/)",
     )
     args = parser.parse_args()
 
     topo_names = args.topologies.split(",") if args.topologies else None
     compute_topology_stats(topology_names=topo_names, output_file=args.output)
+
+    configure_style()
+    plot_topology_stats(topo_stats_path=args.output, output_dir=args.figures_dir)

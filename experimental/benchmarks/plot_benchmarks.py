@@ -24,7 +24,6 @@ _BENCHMARKS_DIR = Path(__file__).resolve().parent
 _RESULTS_DIR = _BENCHMARKS_DIR / "results"
 _FIGURES_DIR = _BENCHMARKS_DIR / "figures"
 _DEFAULT_CSV = _RESULTS_DIR / "benchmark_results.csv"
-_DEFAULT_TOPO_STATS = _RESULTS_DIR / "topology_stats.csv"
 
 from experimental.plot_style import (
     BAND_DISPLAY,
@@ -33,8 +32,6 @@ from experimental.plot_style import (
     ENV_TYPE_DISPLAY,
     HEATMAP_CPU_COLORS,
     HEATMAP_GPU_COLORS,
-    TABLE_HEADER_COLOR,
-    TABLE_ROW_ALT_COLOR,
     TOPOLOGY_DISPLAY,
     configure_style,
     format_fps,
@@ -192,115 +189,7 @@ def plot_fps_vs_link_resources_and_k(df: pd.DataFrame, output_dir: Path, device:
     _save(fig, output_dir, "fps_vs_link_resources_and_k")
 
 
-# -- Plot 4: Topology Table ---------------------------------------------------
-
-
-def plot_fps_vs_topology(
-    df: pd.DataFrame, output_dir: Path, topo_stats: pd.DataFrame | None = None,
-    device: str | None = None,
-):
-    """Render a publication-quality table of topology stats with RMSA CPU FPS."""
-    data = _filter_group(df, "topology")
-    if data.empty:
-        print("  No data for topology group")
-        return
-
-    # RMSA, CPU, NUM_ENVS=1 only
-    data = data[data["config_env_type"] == "rmsa"]
-    if "config_NUM_ENVS" in data.columns:
-        ne1 = data[data["config_NUM_ENVS"] == 1]
-        if not ne1.empty:
-            data = ne1
-    if "device" in data.columns:
-        cpu_data = data[data["device"] == "cpu"]
-        if not cpu_data.empty:
-            data = cpu_data
-    if data.empty:
-        print("  No RMSA CPU data for topology table")
-        return
-
-    agg = _agg(data, ["config_topology_name"])
-
-    if topo_stats is None:
-        topo_stats_path = _DEFAULT_TOPO_STATS
-        if not topo_stats_path.exists():
-            print("  No topology_stats.csv found, skipping topology table")
-            return
-        topo_stats = pd.read_csv(topo_stats_path)
-
-    # Only keep directed topologies present in benchmark data
-    merged = agg.merge(
-        topo_stats[topo_stats["directed"] == True],
-        left_on="config_topology_name", right_on="topology_name", how="inner",
-    )
-    if merged.empty:
-        print("  No matching topologies after merge")
-        return
-
-    # Keep only topologies in the canonical order list
-    canonical = get_topology_order()
-    merged = merged[merged["config_topology_name"].isin(canonical)]
-    if merged.empty:
-        print("  No matching topologies after filtering")
-        return
-
-    # Sort by number of nodes
-    merged = merged.sort_values("num_nodes")
-
-    # Build table data
-    col_labels = ["Topology", "Nodes", "Links", "Avg Degree",
-                  "Avg Path Length (hops)", "Avg Path Length (km)"]
-    cell_text = []
-    for _, row in merged.iterrows():
-        display = TOPOLOGY_DISPLAY.get(row["config_topology_name"],
-                                       row["config_topology_name"])
-        avg_path_km = row["avg_path_length"] * row["avg_link_distance_km"]
-        cell_text.append([
-            display,
-            str(int(row["num_nodes"])),
-            str(int(row["num_edges"])),
-            f"{row['avg_degree']:.2f}",
-            f"{row['avg_path_length']:.2f}",
-            f"{avg_path_km:.0f}",
-        ])
-
-    fig, ax = plt.subplots(figsize=(14, 1.2 + 0.6 * len(cell_text)))
-    ax.axis("off")
-
-    table = ax.table(
-        cellText=cell_text,
-        colLabels=col_labels,
-        loc="center",
-        cellLoc="center",
-    )
-    table.auto_set_font_size(False)
-    table.set_fontsize(16)
-    table.scale(1, 2.0)
-
-    # Custom column widths: narrow for Nodes/Links, wider for the rest
-    col_widths = [0.14, 0.08, 0.08, 0.14, 0.22, 0.22]
-    n_rows = len(cell_text) + 1  # +1 for header
-    for j, w in enumerate(col_widths):
-        for i in range(n_rows):
-            table[i, j].set_width(w)
-
-    # Style header row
-    for j in range(len(col_labels)):
-        cell = table[0, j]
-        cell.set_facecolor(TABLE_HEADER_COLOR)
-        cell.set_text_props(color="white", fontweight="bold")
-
-    # Alternate row shading
-    for i in range(len(cell_text)):
-        color = TABLE_ROW_ALT_COLOR if i % 2 == 0 else "white"
-        for j in range(len(col_labels)):
-            table[i + 1, j].set_facecolor(color)
-
-    fig.tight_layout()
-    _save(fig, output_dir, "topology_table")
-
-
-# -- Plot 5: Compilation Time vs NUM_ENVS ------------------------------------
+# -- Plot 4: Compilation Time vs NUM_ENVS ------------------------------------
 
 
 def plot_compilation_time(df: pd.DataFrame, output_dir: Path, device: str | None = None):
@@ -958,7 +847,6 @@ def plot_fps_vs_fsu_and_k_by_num_envs(df: pd.DataFrame, output_dir: Path, device
 PLOT_FUNCTIONS = {
     "fps_vs_num_envs": plot_fps_vs_num_envs,
     "fps_vs_link_resources_and_k": plot_fps_vs_link_resources_and_k,
-    "fps_vs_topology": plot_fps_vs_topology,
     "compilation_time": plot_compilation_time,
     "gpu_speedup": plot_gpu_speedup,
     "gn_band_scaling": plot_gn_band_scaling,
@@ -978,10 +866,6 @@ def main():
     parser.add_argument(
         "--results_dir", default=str(_RESULTS_DIR),
         help="Directory containing raw JSONL result files (default: benchmarks/results/)",
-    )
-    parser.add_argument(
-        "--topo_stats", default=str(_DEFAULT_TOPO_STATS),
-        help="Path to topology stats CSV (default: benchmarks/results/topology_stats.csv)",
     )
     parser.add_argument(
         "--output_dir", default=str(_FIGURES_DIR),
@@ -1016,9 +900,6 @@ def main():
         print()
 
     df = pd.read_csv(args.input)
-    topo_stats = None
-    if Path(args.topo_stats).exists():
-        topo_stats = pd.read_csv(args.topo_stats)
 
     # Show data summary
     if "group" in df.columns:
@@ -1044,10 +925,7 @@ def main():
     for plot_name in plots_to_make:
         print(f"Generating: {plot_name}")
         fn = PLOT_FUNCTIONS[plot_name]
-        if plot_name == "fps_vs_topology":
-            fn(df, output_dir, topo_stats, args.device)
-        else:
-            fn(df, output_dir, args.device)
+        fn(df, output_dir, args.device)
 
     print(f"\nAll plots saved to {output_dir}")
 
