@@ -987,7 +987,7 @@ _GERARD_2025_PRESET = {
     "raman_pump_power_bw": "0.16,0.04,0.03,0.03,0.05",
     "raman_pump_freq_bw": "200.5e12,203.1e12,205.7e12,208.4e12,211.1e12",
     "coherent": True,
-    "custom_traffic_matrix_csv_filepath": "xlron/data/topologies/three_node_chain_traffic_0to2.csv",
+    "custom_traffic_matrix_csv_filepath": "xlron/data/traffic_matrices/three_node_chain_traffic_0to2.csv",
     "incremental_loading": True,
     "max_requests": 90,
     "TOTAL_TIMESTEPS": 90,
