@@ -28,6 +28,7 @@ from xlron.environments.env_funcs import (
 )
 from xlron.environments.make_env import make
 from xlron.environments.wrappers import Profiler, TimeIt
+from xlron.parameter_flags import *  # noqa: F403,F401
 from xlron.train.train_utils import build_run_summary, get_user_flags, write_run_summary
 
 FLAGS = flags.FLAGS
@@ -413,6 +414,153 @@ def _find_feasible_start_slots(traversed, cutset_link_mask, slot_array, num_slot
     return feasible_starts
 
 
+def _check_feasibility_no_continuity(traversed, cutset_link_mask, slot_array, num_slots):
+    """Check if a request is feasible without spectrum continuity.
+
+    For each traversed cut-set, at least one link must have total free
+    capacity >= num_slots (not necessarily contiguous or at the same index).
+
+    Args:
+        traversed: (C,) boolean.
+        cutset_link_mask: (C, L) binary.
+        slot_array: (L, S) occupancy (1=used, 0=free).
+        num_slots: scalar int — number of slots needed.
+
+    Returns:
+        feasible: scalar boolean — True if all traversed cut-sets can be satisfied.
+    """
+    free_per_link = jnp.sum(1 - slot_array, axis=1)  # (L,)
+    link_has_capacity = free_per_link >= num_slots  # (L,)
+
+    # Per cut-set: feasible if ANY link in that cut-set has enough capacity
+    cutset_feasible = (
+        jnp.einsum(
+            "cl,l->c", cutset_link_mask.astype(jnp.int32), link_has_capacity.astype(jnp.int32)
+        )
+        > 0
+    )  # (C,)
+
+    # Non-traversed cut-sets are always feasible
+    cutset_feasible_or_skip = cutset_feasible | (~traversed)  # (C,)
+    return cutset_feasible_or_skip.all()
+
+
+def _assign_links_no_continuity(
+    num_slots,
+    traversed,
+    cutset_link_mask,
+    slot_array,
+    max_links_to_assign,
+    link_selection_mode,
+    rng_key,
+):
+    """Greedy link assignment without spectrum continuity.
+
+    Same greedy set-cover as _assign_links_for_block, but eligibility is based
+    on total free capacity >= num_slots rather than a specific slot block.
+
+    Args:
+        num_slots: scalar int — number of slots needed.
+        traversed: (C,) boolean.
+        cutset_link_mask: (C, L) binary.
+        slot_array: (L, S) occupancy.
+        max_links_to_assign: static int.
+        link_selection_mode: static str.
+        rng_key: PRNG key.
+
+    Returns:
+        assigned_links: (max_links_to_assign,) int, padded with -1.
+        num_assigned: scalar int.
+    """
+    num_total_slots = slot_array.shape[1]
+    num_links = slot_array.shape[0]
+    free_per_link = jnp.sum(1 - slot_array, axis=1)  # (L,)
+    link_has_capacity = free_per_link >= num_slots  # (L,)
+
+    # Tiebreaker based on selection mode (reuse free_fraction logic)
+    free_fraction = free_per_link / num_total_slots  # (L,)
+    if link_selection_mode == "least_congested":
+        tiebreaker = free_fraction
+    elif link_selection_mode == "most_congested":
+        tiebreaker = 1.0 - free_fraction
+    elif link_selection_mode == "random":
+        tiebreaker = jax.random.uniform(rng_key, shape=(num_links,))
+    else:
+        tiebreaker = free_fraction
+
+    init_covered = ~traversed
+
+    def greedy_body(i, state):
+        covered, assigned_links, num_assigned = state
+        uncovered = ~covered
+        coverage_count = jnp.sum(cutset_link_mask * uncovered[:, None], axis=0)  # (L,)
+        score = (coverage_count.astype(jnp.float32) + tiebreaker) * link_has_capacity
+        score = jnp.where(coverage_count > 0, score, -1.0)
+
+        best_link = jnp.argmax(score)
+        best_score = score[best_link]
+
+        newly_covered = cutset_link_mask[:, best_link].astype(jnp.bool_)
+        new_covered = covered | newly_covered
+
+        do_assign = best_score > 0
+        covered = jnp.where(do_assign, new_covered, covered)
+        assigned_links = assigned_links.at[i].set(jnp.where(do_assign, best_link, -1))
+        num_assigned = num_assigned + do_assign.astype(jnp.int32)
+        return (covered, assigned_links, num_assigned)
+
+    assigned_links_init = jnp.full(max_links_to_assign, -1, dtype=jnp.int32)
+    init_state = (init_covered, assigned_links_init, jnp.int32(0))
+    _, assigned_links, num_assigned = jax.lax.fori_loop(
+        0, max_links_to_assign, greedy_body, init_state
+    )
+    return assigned_links, num_assigned
+
+
+def _build_per_link_first_fit_mask(assigned_links, unique_link_indices, slot_array, num_slots, num_links, link_resources, max_links_to_assign):
+    """Build affected_slots_mask where each assigned link uses its own first-fit start slot.
+
+    Args:
+        assigned_links: (max_links_to_assign,) int in compressed space, -1 = unused.
+        unique_link_indices: (num_unique_links,) mapping compressed -> full link index.
+        slot_array: (num_links, link_resources) full occupancy array.
+        num_slots: scalar int — slots needed (including guardband).
+        num_links: static int.
+        link_resources: static int.
+        max_links_to_assign: static int.
+
+    Returns:
+        affected_slots_mask: (num_links, link_resources) binary mask.
+    """
+    slot_indices = jnp.arange(link_resources)
+
+    def assign_one_link(i, mask):
+        comp_idx = assigned_links[i]
+        full_idx = jnp.where(comp_idx >= 0, unique_link_indices[jnp.maximum(comp_idx, 0)], 0)
+        valid = comp_idx >= 0
+
+        # First-fit on this specific link
+        link_free = 1 - slot_array[full_idx]  # (S,)
+        # Sliding window: count free slots in each window of size num_slots
+        cumfree = jnp.concatenate([jnp.zeros(1, dtype=link_free.dtype), jnp.cumsum(link_free)])
+        end_indices = jnp.minimum(slot_indices + num_slots, link_resources)
+        block_free = cumfree[end_indices] - cumfree[slot_indices]
+        feasible = (block_free >= num_slots) & ((slot_indices + num_slots) <= link_resources)
+        start_slot = jnp.argmax(feasible)  # first-fit
+        has_feasible = feasible[start_slot]
+
+        # Build slot mask for this link
+        slot_mask = (slot_indices >= start_slot) & (slot_indices < start_slot + num_slots)
+        link_mask = jnp.zeros((num_links, link_resources), dtype=jnp.float32)
+        link_mask = link_mask.at[full_idx].set(slot_mask.astype(jnp.float32))
+
+        do_assign = valid & has_feasible
+        return jnp.where(do_assign, mask + link_mask, mask)
+
+    init_mask = jnp.zeros((num_links, link_resources), dtype=jnp.float32)
+    return jax.lax.fori_loop(0, max_links_to_assign, assign_one_link, init_mask)
+
+
 def _compute_link_tiebreaker(slot_array, start_slot, num_slots, link_selection_mode, rng_key):
     """Compute per-link tiebreaker score for greedy link assignment.
 
@@ -570,11 +718,16 @@ def _simulation_step(
     best_se_matrix,
     params,
     link_selection_mode,
+    neglect_spectrum_continuity=False,
 ):
     """One timestep of the capacity-bound simulation.
 
     Uses standard RSA env functions for request generation, expiry,
     allocation, checking, and commit/rollback.
+
+    When neglect_spectrum_continuity is True, feasibility is based on total
+    free capacity per link (not slot-level), and each assigned link uses its
+    own independent first-fit start slot for the actual allocation.
 
     carry = (state, always_accepted_count, blocked_count,
              always_accepted_bitrate, blocked_bitrate)
@@ -605,48 +758,92 @@ def _simulation_step(
     traversed = _find_traversed_cutsets(source, dest, partition1, partition2)
     any_traversed = jnp.any(traversed)
 
-    # --- 4. Find feasible start slot (using only cut-set links) ---
+    # --- 4-7. Feasibility, link assignment, and mask construction ---
     slot_array_subset = state.link_slot_array[unique_link_indices]
-    feasible_starts = _find_feasible_start_slots(
-        traversed, cutset_link_mask, slot_array_subset, num_slots
-    )
-    start_slot = jnp.argmax(feasible_starts)
-    has_feasible = feasible_starts[start_slot]
 
-    # --- 5. Assign links (greedy set cover in compressed space) ---
-    assigned_links_compressed, _ = _assign_links_for_block(
-        start_slot,
-        num_slots,
-        traversed,
-        cutset_link_mask,
-        slot_array_subset,
-        max_links_to_assign,
-        link_selection_mode,
-        rng_link,
-    )
+    if neglect_spectrum_continuity:
+        # Capacity-based feasibility (no spectrum continuity)
+        has_feasible = _check_feasibility_no_continuity(
+            traversed, cutset_link_mask, slot_array_subset, num_slots
+        )
 
-    # --- 6. Build path vector in full link space ---
-    # Convert compressed link indices to full network indices.
-    # For blocked requests (not feasible), path stays all-zeros which
-    # causes check_real_path to fail in check_action_rsa.
-    accept_with_cutset = any_traversed & has_feasible
-    path = jnp.zeros(params.num_links, dtype=state.link_slot_array.dtype)
+        # Capacity-based link assignment
+        assigned_links_compressed, _ = _assign_links_no_continuity(
+            num_slots,
+            traversed,
+            cutset_link_mask,
+            slot_array_subset,
+            max_links_to_assign,
+            link_selection_mode,
+            rng_link,
+        )
 
-    def set_link_in_path(i, p):
-        comp_idx = assigned_links_compressed[i]
-        full_idx = jnp.where(comp_idx >= 0, unique_link_indices[jnp.maximum(comp_idx, 0)], -1)
-        valid = (comp_idx >= 0) & accept_with_cutset
-        return jnp.where(valid, p.at[full_idx].set(1.0), p)
+        accept_with_cutset = any_traversed & has_feasible
 
-    path = jax.lax.fori_loop(0, max_links_to_assign, set_link_in_path, path)
+        # Per-link first-fit mask (each link gets its own start slot)
+        affected_slots_mask = _build_per_link_first_fit_mask(
+            assigned_links_compressed,
+            unique_link_indices,
+            state.link_slot_array,
+            num_slots,
+            params.num_links,
+            params.link_resources,
+            max_links_to_assign,
+        )
+        # Zero out mask if not accepting
+        affected_slots_mask = affected_slots_mask * accept_with_cutset
 
-    # --- 7. Build ActionInfo ---
-    affected_slots_mask = get_affected_slots_mask(
-        start_slot.astype(state.link_slot_array.dtype),
-        num_slots.astype(state.link_slot_array.dtype),
-        path,
-        params,
-    )
+        # Build path from assigned links
+        path = jnp.zeros(params.num_links, dtype=state.link_slot_array.dtype)
+
+        def set_link_in_path(i, p):
+            comp_idx = assigned_links_compressed[i]
+            full_idx = jnp.where(comp_idx >= 0, unique_link_indices[jnp.maximum(comp_idx, 0)], -1)
+            valid = (comp_idx >= 0) & accept_with_cutset
+            return jnp.where(valid, p.at[full_idx].set(1.0), p)
+
+        path = jax.lax.fori_loop(0, max_links_to_assign, set_link_in_path, path)
+
+        # Use dummy start slot (not meaningful in this mode)
+        start_slot = jnp.int32(0)
+
+    else:
+        # Original spectrum-continuity mode
+        feasible_starts = _find_feasible_start_slots(
+            traversed, cutset_link_mask, slot_array_subset, num_slots
+        )
+        start_slot = jnp.argmax(feasible_starts)
+        has_feasible = feasible_starts[start_slot]
+
+        assigned_links_compressed, _ = _assign_links_for_block(
+            start_slot,
+            num_slots,
+            traversed,
+            cutset_link_mask,
+            slot_array_subset,
+            max_links_to_assign,
+            link_selection_mode,
+            rng_link,
+        )
+
+        accept_with_cutset = any_traversed & has_feasible
+        path = jnp.zeros(params.num_links, dtype=state.link_slot_array.dtype)
+
+        def set_link_in_path(i, p):
+            comp_idx = assigned_links_compressed[i]
+            full_idx = jnp.where(comp_idx >= 0, unique_link_indices[jnp.maximum(comp_idx, 0)], -1)
+            valid = (comp_idx >= 0) & accept_with_cutset
+            return jnp.where(valid, p.at[full_idx].set(1.0), p)
+
+        path = jax.lax.fori_loop(0, max_links_to_assign, set_link_in_path, path)
+
+        affected_slots_mask = get_affected_slots_mask(
+            start_slot.astype(state.link_slot_array.dtype),
+            num_slots.astype(state.link_slot_array.dtype),
+            path,
+            params,
+        )
+
     action_info = ActionInfo(
         action=jnp.array(0, dtype=state.link_slot_array.dtype),
         path_index=jnp.array(0, dtype=state.link_slot_array.dtype),
@@ -710,6 +907,7 @@ def run_single_trial(
     num_requests,
     max_links_to_assign,
     link_selection_mode,
+    neglect_spectrum_continuity=False,
 ):
     """Run a single trial of the capacity-bound simulation.
 
@@ -743,6 +941,7 @@ def run_single_trial(
             best_se_matrix,
             params,
             link_selection_mode,
+            neglect_spectrum_continuity,
         )
         return (state, aa, bc, aabr, bbr, step_idx + 1), None
 
@@ -781,6 +980,7 @@ def run_capacity_bound_simulation(
     num_trials,
     seed=0,
     link_selection_mode="least_congested",
+    neglect_spectrum_continuity=False,
 ):
     """Run the full capacity-bound simulation across multiple loads and trials.
 
@@ -794,6 +994,7 @@ def run_capacity_bound_simulation(
         num_trials: int, trials per load.
         seed: int, base random seed.
         link_selection_mode: str — secondary link selection heuristic.
+        neglect_spectrum_continuity: bool — if True, use capacity-counter mode.
 
     Returns:
         results: dict mapping load -> {accepted, blocked, always_accepted, blocking_prob}
@@ -823,6 +1024,7 @@ def run_capacity_bound_simulation(
     print(f"  Consider modulation format: {params.consider_modulation_format}")
     print(f"  Max links to assign per request: {max_links_to_assign}")
     print(f"  Link selection mode: {link_selection_mode}")
+    print(f"  Neglect spectrum continuity: {neglect_spectrum_continuity}")
     print(f"  Requests per trial: {num_requests}")
     print(f"  Num trials: {num_trials}")
     print(f"  Loads to sweep: {loads}")
@@ -855,6 +1057,7 @@ def run_capacity_bound_simulation(
                 num_requests,
                 max_links_to_assign,
                 link_selection_mode,
+                neglect_spectrum_continuity,
             )
 
         # Compilation (each load recompiles because arrival_rate is static)
@@ -1135,6 +1338,7 @@ def main(argv):
         num_trials=FLAGS.num_trials,
         seed=FLAGS.SEED,
         link_selection_mode=FLAGS.cutset_link_selection_mode,
+        neglect_spectrum_continuity=FLAGS.NEGLECT_SPECTRUM_CONTINUITY,
     )
 
     print_results_table(results)

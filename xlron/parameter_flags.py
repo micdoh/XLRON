@@ -807,6 +807,13 @@ flags.DEFINE_integer(
     "Number of iterations per parallel process (only relevant when finding cutsets exhaustively for larger networks (40+ nodes) on GPU)",
 )
 flags.DEFINE_integer("CUTSET_TOP_K", 256, "Number of top congested cutsets to return")
+flags.DEFINE_boolean(
+    "NEGLECT_SPECTRUM_CONTINUITY",
+    False,
+    "When True, the cut-set capacity bound tracks only total free capacity per link "
+    "rather than slot-level occupancy. This removes the spectrum continuity constraint "
+    "across cut-set links, giving a tighter (more optimistic) upper bound.",
+)
 # Shared capacity bound estimation flags
 flags.DEFINE_integer(
     "num_trials",
