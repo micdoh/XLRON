@@ -94,6 +94,10 @@ line-length = 100
 "xlron/environments/vone/vone.py" = ["F403", "F405"]
 "xlron/heuristics/heuristics.py" = ["F403", "F405"]
 
+[tool.pytest.ini_options]
+testpaths = ["."]
+collect_ignore_glob = ["xlron/environments/vone/*"]
+
 [tool.isort]
 multi_line_output = 3
 include_trailing_comma = true
