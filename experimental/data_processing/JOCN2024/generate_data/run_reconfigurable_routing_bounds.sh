@@ -2,9 +2,10 @@
 
 PYTHON_PATH=".venv/bin/python"
 DEFRAG_PATH="xlron/bounds/reconfigurable_routing_bounds.py"
-OUTPUT_FILE="experiment_results_reconfigurable_bounds.csv"
+OUTPUT_FILE="experiment_results_reconfigurable_bounds.jsonl"
 
-echo "experiment,topology,load,k,heur,blocking_prob_mean,blocking_prob_std,blocking_prob_iqr_lower,blocking_prob_iqr_upper,block_count_mean,block_count_std,block_count_iqr_lower,block_count_iqr_upper,fix_count_mean,fix_count_std,fix_count_iqr_lower,fix_count_iqr_upper,fix_ratio_mean,fix_ratio_std,fix_ratio_iqr_lower,fix_ratio_iqr_upper" > $OUTPUT_FILE
+# Clear output file
+> $OUTPUT_FILE
 
 run_reconfigurable_routing_bound() {
     local name=$1
@@ -16,7 +17,7 @@ run_reconfigurable_routing_bound() {
 
     echo "Running $name: topology=$topology, load=$traffic_load, k=$k, heur=$heur"
 
-    output=$($PYTHON_PATH -u $DEFRAG_PATH \
+    $PYTHON_PATH -u $DEFRAG_PATH \
         --topology_name "$topology" \
         --load "$traffic_load" \
         --k "$k" \
@@ -25,26 +26,9 @@ run_reconfigurable_routing_bound() {
         --modulations_csv_filepath "./xlron/data/modulations/modulations_deeprmsa.csv" \
         --path_heuristic "$heur" \
         --COMPILE_RR_BOUNDS \
-        $additional_args 2>&1 | tee /dev/tty)
-
-    blocking_mean=$(echo "$output" | grep "Blocking Probability mean:" | sed 's/.*: \(.*\)/\1/')
-    blocking_std=$(echo "$output" | grep "Blocking Probability std:" | sed 's/.*: \(.*\)/\1/')
-    blocking_iqr_lower=$(echo "$output" | grep "Blocking Probability IQR lower:" | sed 's/.*: \(.*\)/\1/')
-    blocking_iqr_upper=$(echo "$output" | grep "Blocking Probability IQR upper:" | sed 's/.*: \(.*\)/\1/')
-    block_count_mean=$(echo "$output" | grep "Block Count mean:" | sed 's/.*: \(.*\)/\1/')
-    block_count_std=$(echo "$output" | grep "Block Count std:" | sed 's/.*: \(.*\)/\1/')
-    block_count_iqr_lower=$(echo "$output" | grep "Block Count IQR lower:" | sed 's/.*: \(.*\)/\1/')
-    block_count_iqr_upper=$(echo "$output" | grep "Block Count IQR upper:" | sed 's/.*: \(.*\)/\1/')
-    fix_count_mean=$(echo "$output" | grep "Fix Count mean:" | sed 's/.*: \(.*\)/\1/')
-    fix_count_std=$(echo "$output" | grep "Fix Count std:" | sed 's/.*: \(.*\)/\1/')
-    fix_count_iqr_lower=$(echo "$output" | grep "Fix Count IQR lower:" | sed 's/.*: \(.*\)/\1/')
-    fix_count_iqr_upper=$(echo "$output" | grep "Fix Count IQR upper:" | sed 's/.*: \(.*\)/\1/')
-    fix_ratio_mean=$(echo "$output" | grep "Fix Ratio mean:" | sed 's/.*: \(.*\)/\1/')
-    fix_ratio_std=$(echo "$output" | grep "Fix Ratio std:" | sed 's/.*: \(.*\)/\1/')
-    fix_ratio_iqr_lower=$(echo "$output" | grep "Fix Ratio IQR lower:" | sed 's/.*: \(.*\)/\1/')
-    fix_ratio_iqr_upper=$(echo "$output" | grep "Fix Ratio IQR upper:" | sed 's/.*: \(.*\)/\1/')
-
-    echo "$name,$topology,$traffic_load,$k,$heur,$blocking_mean,$blocking_std,$blocking_iqr_lower,$blocking_iqr_upper,$block_count_mean,$block_count_std,$block_count_iqr_lower,$block_count_iqr_upper,$fix_count_mean,$fix_count_std,$fix_count_iqr_lower,$fix_count_iqr_upper,$fix_ratio_mean,$fix_ratio_std,$fix_ratio_iqr_lower,$fix_ratio_iqr_upper" >> $OUTPUT_FILE
+        --PROJECT "$name" \
+        --DATA_OUTPUT_FILE "$OUTPUT_FILE" \
+        $additional_args
 }
 
 # DeepRMSA, Reward-RMSA, GCN-RMSA  Experiments

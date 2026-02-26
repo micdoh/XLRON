@@ -2,12 +2,13 @@
 
 PYTHON_PATH="./.venv/bin/python"
 SCRIPT_PATH="-m xlron.bounds.cutsets_bounds"
-OUTPUT_FILE="experiment_results_cutsets_bounds.csv"
+OUTPUT_FILE="experiment_results_cutsets_bounds.jsonl"
 
 # Fixed cutset flags
 CUTSET_FLAGS="--CUTSET_EXHAUSTIVE --CUTSET_BATCH_SIZE=512 --CUTSET_ITERATIONS=32 --CUTSET_TOP_K=256 --cutset_link_selection_mode=least_congested"
 
-echo "experiment,topology,load,k,blocking_prob_mean,blocking_prob_std,blocking_prob_iqr_lower,blocking_prob_iqr_upper,bitrate_blocking_prob_mean,bitrate_blocking_prob_std,bitrate_blocking_prob_iqr_lower,bitrate_blocking_prob_iqr_upper,accepted_count_mean,accepted_count_std,accepted_count_iqr_lower,accepted_count_iqr_upper,blocked_count_mean,blocked_count_std,blocked_count_iqr_lower,blocked_count_iqr_upper,always_accepted_count_mean,always_accepted_count_std,always_accepted_count_iqr_lower,always_accepted_count_iqr_upper" > $OUTPUT_FILE
+# Clear output file
+> $OUTPUT_FILE
 
 run_experiment() {
     local name=$1
@@ -20,38 +21,17 @@ run_experiment() {
 
     local cutset_flags="${6:-$CUTSET_FLAGS}"
 
-    output=$($PYTHON_PATH $SCRIPT_PATH \
+    $PYTHON_PATH $SCRIPT_PATH \
         --topology_name "$topology" \
         --load "$traffic_load" \
         --k "$k" \
         --max_requests 13000 \
         --num_trials 10 \
         --modulations_csv_filepath "./xlron/data/modulations/modulations_deeprmsa.csv" \
+        --PROJECT "$name" \
+        --DATA_OUTPUT_FILE "$OUTPUT_FILE" \
         $cutset_flags \
-        $additional_args 2>&1 | tee /dev/tty)
-
-    blocking_mean=$(echo "$output" | grep "Blocking Probability mean:" | tail -1 | sed 's/.*: //' | tr -d '[:space:]')
-    blocking_std=$(echo "$output" | grep "Blocking Probability std:" | tail -1 | sed 's/.*: //' | tr -d '[:space:]')
-    blocking_iqr_lower=$(echo "$output" | grep "Blocking Probability IQR lower:" | tail -1 | sed 's/.*: //' | tr -d '[:space:]')
-    blocking_iqr_upper=$(echo "$output" | grep "Blocking Probability IQR upper:" | tail -1 | sed 's/.*: //' | tr -d '[:space:]')
-    bitrate_blocking_mean=$(echo "$output" | grep "Bitrate Blocking Probability mean:" | tail -1 | sed 's/.*: //' | tr -d '[:space:]')
-    bitrate_blocking_std=$(echo "$output" | grep "Bitrate Blocking Probability std:" | tail -1 | sed 's/.*: //' | tr -d '[:space:]')
-    bitrate_blocking_iqr_lower=$(echo "$output" | grep "Bitrate Blocking Probability IQR lower:" | tail -1 | sed 's/.*: //' | tr -d '[:space:]')
-    bitrate_blocking_iqr_upper=$(echo "$output" | grep "Bitrate Blocking Probability IQR upper:" | tail -1 | sed 's/.*: //' | tr -d '[:space:]')
-    accepted_mean=$(echo "$output" | grep "Accepted Count mean:" | tail -1 | sed 's/.*: //' | tr -d '[:space:]')
-    accepted_std=$(echo "$output" | grep "Accepted Count std:" | tail -1 | sed 's/.*: //' | tr -d '[:space:]')
-    accepted_iqr_lower=$(echo "$output" | grep "Accepted Count IQR lower:" | tail -1 | sed 's/.*: //' | tr -d '[:space:]')
-    accepted_iqr_upper=$(echo "$output" | grep "Accepted Count IQR upper:" | tail -1 | sed 's/.*: //' | tr -d '[:space:]')
-    blocked_mean=$(echo "$output" | grep "Blocked Count mean:" | tail -1 | sed 's/.*: //' | tr -d '[:space:]')
-    blocked_std=$(echo "$output" | grep "Blocked Count std:" | tail -1 | sed 's/.*: //' | tr -d '[:space:]')
-    blocked_iqr_lower=$(echo "$output" | grep "Blocked Count IQR lower:" | tail -1 | sed 's/.*: //' | tr -d '[:space:]')
-    blocked_iqr_upper=$(echo "$output" | grep "Blocked Count IQR upper:" | tail -1 | sed 's/.*: //' | tr -d '[:space:]')
-    always_accepted_mean=$(echo "$output" | grep "Always Accepted Count mean:" | tail -1 | sed 's/.*: //' | tr -d '[:space:]')
-    always_accepted_std=$(echo "$output" | grep "Always Accepted Count std:" | tail -1 | sed 's/.*: //' | tr -d '[:space:]')
-    always_accepted_iqr_lower=$(echo "$output" | grep "Always Accepted Count IQR lower:" | tail -1 | sed 's/.*: //' | tr -d '[:space:]')
-    always_accepted_iqr_upper=$(echo "$output" | grep "Always Accepted Count IQR upper:" | tail -1 | sed 's/.*: //' | tr -d '[:space:]')
-
-    echo "$name,$topology,$traffic_load,$k,$blocking_mean,$blocking_std,$blocking_iqr_lower,$blocking_iqr_upper,$bitrate_blocking_mean,$bitrate_blocking_std,$bitrate_blocking_iqr_lower,$bitrate_blocking_iqr_upper,$accepted_mean,$accepted_std,$accepted_iqr_lower,$accepted_iqr_upper,$blocked_mean,$blocked_std,$blocked_iqr_lower,$blocked_iqr_upper,$always_accepted_mean,$always_accepted_std,$always_accepted_iqr_lower,$always_accepted_iqr_upper" >> $OUTPUT_FILE
+        $additional_args
 }
 
 # DeepRMSA, Reward-RMSA, GCN-RMSA Experiments
