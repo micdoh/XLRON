@@ -285,7 +285,7 @@ class GenerateArrivalHoldingTimesTest(parameterized.TestCase):
         for i in range(1, 10000):
             rng, key = jax.random.split(rng)
             arrival_time, holding_time = self.variant(generate_arrival_holding_times)(
-                key, self.params
+                key, self.params, jnp.array(self.params.arrival_rate), jnp.array(self.params.mean_service_holding_time)
             )
             min_arr = jnp.minimum(min_arr, arrival_time)
             min_hold = jnp.minimum(min_hold, holding_time)

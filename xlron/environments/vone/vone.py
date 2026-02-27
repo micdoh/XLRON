@@ -84,6 +84,8 @@ class VONEEnv(environment.Environment):
             if traffic_matrix is not None
             else init_traffic_matrix(key, params),
             valid_mass=1.0,
+            arrival_rate=params.arrival_rate,
+            mean_service_holding_time=params.mean_service_holding_time,
         )
         self.laplacian_matrix = laplacian_matrix
         self.initial_state = state.replace(

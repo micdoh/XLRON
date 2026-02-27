@@ -342,6 +342,22 @@ flags.DEFINE_float(
     "Traffic load in Erlangs (arrival_rate = load / mean_service_holding_time). "
     "Also used as the single traffic load point for capacity bound estimation.",
 )
+flags.DEFINE_float(
+    "min_load",
+    None,
+    "Minimum load for load sweep. When set (along with max_load and step_load), "
+    "runs the experiment across a range of loads using a single compilation.",
+)
+flags.DEFINE_float(
+    "max_load",
+    None,
+    "Maximum load for load sweep (inclusive).",
+)
+flags.DEFINE_float(
+    "step_load",
+    None,
+    "Load step size for load sweep.",
+)
 flags.DEFINE_float("mean_service_holding_time", 25, "Mean service holding time")
 flags.DEFINE_integer("k", 5, "Number of paths")
 flags.DEFINE_string("topology_name", "4node", "Topology name")

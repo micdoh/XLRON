@@ -86,6 +86,8 @@ class RMSAGNModelEnv(RSAEnv):
             launch_power_array=launch_power_array,
             mod_format_mask=init_mod_format_mask(params),
             valid_mass=jnp.array(1.0, dtype=dtype_config.LARGE_FLOAT_DTYPE),
+            arrival_rate=jnp.array(params.arrival_rate, dtype=dtype_config.SMALL_FLOAT_DTYPE),
+            mean_service_holding_time=jnp.array(params.mean_service_holding_time, dtype=dtype_config.SMALL_FLOAT_DTYPE),
         )
         self.initial_state = state.replace(graph=init_graph_tuple(state, params, laplacian_matrix))
 

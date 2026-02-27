@@ -191,7 +191,7 @@ def init_graph_tuple(
     spectral_features = get_spectral_features(adj, num_features=params.num_spectral_features)
 
     # For dynamic traffic, edge_features are normalised remaining holding time instead of link_slot_array
-    holding_time_edge_features = state.link_slot_departure_array / params.mean_service_holding_time
+    holding_time_edge_features = state.link_slot_departure_array / state.mean_service_holding_time
 
     if params.__class__.__name__ in ["RSAGNModelEnvParams", "RMSAGNModelEnvParams"]:
         # Normalize by max parameters (converted to linear units)
@@ -204,7 +204,7 @@ def init_graph_tuple(
     elif params.__class__.__name__ == "VONEEnvParams":
         edge_features = (
             state.link_slot_array
-            if params.mean_service_holding_time > 1e5
+            if params.incremental_loading
             else holding_time_edge_features
         )
         node_features = getattr(
@@ -219,7 +219,7 @@ def init_graph_tuple(
     else:
         edge_features = (
             state.link_slot_array
-            if params.mean_service_holding_time > 1e5
+            if params.incremental_loading
             else holding_time_edge_features
         )
         # [n_edges] or [n_edges, ...]
@@ -279,7 +279,7 @@ def update_graph_tuple(state: EnvState, params: EnvParams) -> EnvState:
         source_dest_features, dest_idx, -1.0, params.temperature, params.differentiable
     )
     spectral_features = state.graph.nodes[..., : params.num_spectral_features]
-    holding_time_edge_features = state.link_slot_departure_array / params.mean_service_holding_time
+    holding_time_edge_features = state.link_slot_departure_array / state.mean_service_holding_time
 
     if params.__class__.__name__ in ["RSAGNModelEnvParams", "RMSAGNModelEnvParams"]:
         # Normalize by max parameters (converted to linear units)
@@ -306,7 +306,7 @@ def update_graph_tuple(state: EnvState, params: EnvParams) -> EnvState:
     elif params.__class__.__name__ == "VONEEnvParams":
         edge_features = (
             state.link_slot_array
-            if params.mean_service_holding_time > 1e5
+            if params.incremental_loading
             else holding_time_edge_features
         )
         node_features = getattr(state, "node_capacity_array", jnp.zeros(params.num_nodes))
@@ -317,7 +317,7 @@ def update_graph_tuple(state: EnvState, params: EnvParams) -> EnvState:
     else:
         edge_features = (
             state.link_slot_array
-            if params.mean_service_holding_time > 1e5
+            if params.incremental_loading
             else holding_time_edge_features
         )
         node_features = jnp.concatenate([spectral_features, source_dest_features], axis=-1)
@@ -628,7 +628,7 @@ def get_obs_transformer(state: RSAEnvState, params: RSAEnvParams) -> chex.Array:
         edge_features = state.link_capacity_array / 1e6
     else:
         # Dynamic traffic: normalized departure times only
-        edge_features = state.link_slot_departure_array / params.mean_service_holding_time
+        edge_features = state.link_slot_departure_array / state.mean_service_holding_time
 
     # --- Traffic matrix node marginal features (NOT request-specific) ---
     send_load = jnp.sum(state.traffic_matrix, axis=1)  # (N,) row marginals
@@ -666,7 +666,7 @@ def get_obs_transformer(state: RSAEnvState, params: RSAEnvParams) -> chex.Array:
     if params.transformer_obs_type == "departure":
         holding_time_col = jnp.full(
             (params.num_links, 1),
-            state.holding_time / params.mean_service_holding_time,
+            state.holding_time / state.mean_service_holding_time,
         )  # (E, 1)
         request_specific = [holding_time_col] + request_specific
 
@@ -965,7 +965,7 @@ def generate_request_rsa(key: chex.PRNGKey, state: EnvState, params: EnvParams) 
             else (jnp.minimum(nodes[0], nodes[1]), jnp.maximum(nodes[0], nodes[1]))
         )
 
-        arrival_time, holding_time = generate_arrival_holding_times(key_times, params)
+        arrival_time, holding_time = generate_arrival_holding_times(key_times, params, state.arrival_rate, state.mean_service_holding_time)
         current_time = (
             state.current_time + arrival_time
             if not params.relative_arrival_times
@@ -1024,7 +1024,7 @@ def generate_request_rwalr(key: chex.PRNGKey, state: EnvState, params: EnvParams
         bw = jax.random.choice(key_slot, params.values_bw.val)
         nodes = jnp.stack(nodes, dtype=dtype_config.LARGE_INT_DTYPE)
         source, dest = nodes if params.directed_graph else jnp.sort(nodes)
-        arrival_time, holding_time = generate_arrival_holding_times(key_times, params)
+        arrival_time, holding_time = generate_arrival_holding_times(key_times, params, state.arrival_rate, state.mean_service_holding_time)
         current_time = (
             state.current_time + arrival_time
             if not params.relative_arrival_times
@@ -1193,7 +1193,7 @@ def _poisson(key, lam, shape, dtype) -> Array:
 
 # TODO - consider just making a differentiable version of this whole function
 @partial(jax.jit, static_argnums=(1,))
-def generate_arrival_holding_times(key, params):
+def generate_arrival_holding_times(key, params, arrival_rate, mean_service_holding_time):
     """
     Generate arrival and holding times based on Poisson distributed events.
     To understand how sampling from e^-x can be transformed to sample from lambda*e^-(x/lambda) see:
@@ -1210,6 +1210,8 @@ def generate_arrival_holding_times(key, params):
     Args:
         key: PRNG key
         params: Environment parameters
+        arrival_rate: Traced arrival rate (load / mean_service_holding_time)
+        mean_service_holding_time: Traced mean service holding time
 
     Returns:
         arrival_time: Arrival time
@@ -1218,16 +1220,16 @@ def generate_arrival_holding_times(key, params):
     key_arrival, key_holding = jax.random.split(key, 2)
     arrival_time = (
         jax.random.exponential(key_arrival, shape=(1,), dtype=dtype_config.SMALL_FLOAT_DTYPE)
-        / params.arrival_rate
+        / arrival_rate
     )  # Divide because it is rate (lambda)
     if params.truncate_holding_time:
         # For DeepRMSA, need to generate holding times that are less than 2*mean_service_holding_time
         key_holding = jax.random.split(key, 5)
         holding_times = jax.vmap(
-            lambda x: jax.random.exponential(x, shape=(1,)) * params.mean_service_holding_time
+            lambda x: jax.random.exponential(x, shape=(1,)) * mean_service_holding_time
         )(key_holding).reshape(-1)
         holding_times = jnp.where(
-            holding_times < 2 * params.mean_service_holding_time, holding_times, zero
+            holding_times < 2 * mean_service_holding_time, holding_times, zero
         )
         # Get first non-zero value in holding_times
         holding_time_indices = differentiable_where(
@@ -1252,7 +1254,7 @@ def generate_arrival_holding_times(key, params):
     else:
         holding_time = (
             jax.random.exponential(key_holding, shape=(1,), dtype=dtype_config.SMALL_FLOAT_DTYPE)
-            * params.mean_service_holding_time
+            * mean_service_holding_time
         )  # Multiply because it is mean (1/lambda)
     return arrival_time, holding_time
 

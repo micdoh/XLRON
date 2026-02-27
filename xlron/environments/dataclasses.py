@@ -62,6 +62,8 @@ class EnvState:
         full_link_slot_mask (chex.Array): Action mask for link slot action (including if slot actions are aggregated)
         accepted_services (chex.Array): Number of accepted services
         accepted_bitrate (chex.Array): Accepted bitrate
+        arrival_rate (chex.Scalar): Arrival rate (load / mean_service_holding_time), traced for recompilation-free load sweeps
+        mean_service_holding_time (chex.Scalar): Mean service holding time, traced for recompilation-free load sweeps
     """
 
     current_time: chex.Array
@@ -81,6 +83,8 @@ class EnvState:
     link_slot_mask: chex.Array
     traffic_matrix: chex.Array
     valid_mass: chex.Array
+    arrival_rate: chex.Array
+    mean_service_holding_time: chex.Array
 
 
 @struct.dataclass

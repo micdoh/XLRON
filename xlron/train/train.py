@@ -408,6 +408,25 @@ def identify_default_device(
         return device
 
 
+def _update_experiment_input_load(experiment_input, load_val, mean_service_holding_time, num_learners):
+    """Update arrival_rate and mean_service_holding_time in experiment_input for a new load.
+
+    experiment_input is (runner_state, env_state, obsv, rng_step, rng_epoch) where
+    env_state is a LogEnvState wrapping an inner EnvState. With NUM_ENVS > 1 the
+    inner state has vmapped (batched) leaves, so arrival_rate has shape [NUM_ENVS].
+    We use jnp.full_like to preserve the existing shape and dtype.
+    """
+    runner_state, env_state, obsv, rng_step, rng_epoch = experiment_input
+    arrival_rate = load_val / mean_service_holding_time
+    # Use full_like to match shape (scalar or [NUM_ENVS] or [NUM_LEARNERS, NUM_ENVS])
+    ar = jnp.full_like(env_state.env_state.arrival_rate, arrival_rate)
+    msht = jnp.full_like(env_state.env_state.mean_service_holding_time, mean_service_holding_time)
+
+    inner = env_state.env_state.replace(arrival_rate=ar, mean_service_holding_time=msht)
+    env_state = env_state.replace(env_state=inner)
+    return (runner_state, env_state, obsv, rng_step, rng_epoch)
+
+
 def train(argv: list[str], config: Dict[str, Any] = {}) -> None:
     flags = FLAGS if not config else config
     # Capture explicitly-set flags before process_config converts them
@@ -514,6 +533,18 @@ def train(argv: list[str], config: Dict[str, Any] = {}) -> None:
 
     profiler = Profiler(enabled=True)
 
+    # Build load sweep array
+    if (
+        config.get("min_load") is not None
+        and config.get("max_load") is not None
+        and config.get("step_load") is not None
+    ):
+        loads = np.arange(
+            config.min_load, config.max_load + config.step_load / 2, config.step_load
+        )
+    else:
+        loads = np.array([config.load])
+
     with profiler.section("COMPILATION"):
         print("\n---BEGINNING COMPILATION---\n")
 
@@ -592,145 +623,178 @@ def train(argv: list[str], config: Dict[str, Any] = {}) -> None:
         run_eval = eval_input = None
 
     # START TRAINING
-    start_time = time.time()
-    log_time = 0.0
-    total_run_time = 0.0
-    best_eval_metric = float("inf")
-    first_save = True
-    episode_count = update_count = step_count = 0
-    merged_out: Dict[str, Dict[str, jax.Array]] = {}
-    processed_data: Dict[str, Dict[str, jax.Array]] = {}
-    processed_data_all: Dict[str, Dict[str, jax.Array]] = {}
-    print(f"Running {config.NUM_INCREMENTS} increments of training")
-    for i in range(config.NUM_INCREMENTS):
-        print(f"\n---INCREMENT {i + 1}/{config.NUM_INCREMENTS}---")
-        # Run the increment
-        with profiler.section("EXECUTION", frames=config.STEPS_PER_INCREMENT * config.NUM_LEARNERS):
-            out = run_experiment(experiment_input)
-            out = jax.tree_util.tree_map(
-                lambda x: x.block_until_ready() if hasattr(x, "block_until_ready") else x, out
-            )  # Wait for all devices to finish
-        prev_total = total_run_time
-        total_run_time = time.time() - start_time - log_time  # Update total first
-        increment_run_time = total_run_time - prev_total  # Increment = difference
-        log_start_time = time.time()
-        render_mode = str(config.RENDER_EVAL_MODE).lower()
-        if (config.EVAL_HEURISTIC or config.EVAL_MODEL) and render_mode != "off":
-            if render_mode in {"save", "human"}:
-                eval_state_for_render = (
-                    experiment_input[0] if isinstance(experiment_input, tuple) else experiment_input
-                )
-                run_eval_render(config, eval_state_for_render, experiment_name)
-        merged_out, processed_data = log_metrics(
-            config,
-            out,
-            total_run_time,
-            increment_run_time,
-            merge_func,
-            episode_count=episode_count,
-            update_count=update_count,
-            step_count=step_count,
-        )
-        # Save model params (skip if EVAL_DURING_TRAINING, which saves only the best model)
-        if config.SAVE_MODEL and not config.EVAL_DURING_TRAINING:
-            train_state = out["runner_state"][0]  # Get TrainState from the first learner
-            # Determine current metric value to decide whether to save
-            if config.continuous_operation:
-                if config.reward_type == "bitrate":
-                    current_metric = float(
-                        processed_data["bitrate_blocking_probability"]["mean"][-1]
-                    )
-                else:
-                    current_metric = float(
-                        processed_data["service_blocking_probability"]["mean"][-1]
-                    )
-            else:
-                if config.reward_type == "bitrate":
-                    current_metric = float(
-                        processed_data["bitrate_blocking_probability"]["episode_end_mean"][-1]
-                    )
-                else:
-                    current_metric = float(
-                        processed_data["service_blocking_probability"]["episode_end_mean"][-1]
-                    )
-            if current_metric <= best_eval_metric:
-                best_eval_metric = current_metric
-                model = eqx.combine(train_state.model_params, train_state.model_static)
-                saved_path = save_model(model, config, first_save=first_save)
-                if first_save:
-                    config.MODEL_PATH = str(saved_path)
-                    first_save = False
+    # Save base experiment input for load sweep (reused for each load)
+    base_experiment_input = experiment_input
+    mean_service_holding_time = float(env_params.mean_service_holding_time)
 
-        # Extend every item in processed data with new data
-        episode_count += len(processed_data["service_blocking_probability"]["episode_end_mean"])
-        step_count += config.STEPS_PER_INCREMENT // config.NUM_ENVS
-        update_count += config.NUM_UPDATES * config.NUM_MINIBATCHES
-        # Concatenate arrays for each key
-        processed_data_all = (
-            processed_data
-            if i == 0
-            else jax.tree.map(
-                lambda x, y: jnp.concatenate([x, y]), processed_data_all, processed_data
+    for load_idx, load_val in enumerate(loads):
+        load_val = float(load_val)
+        if len(loads) > 1:
+            print(f"\n{'='*70}")
+            print(f"LOAD SWEEP: load={load_val:.1f} ({load_idx + 1}/{len(loads)})")
+            print(f"{'='*70}")
+            # Update config.load and user_flags for logging/JSONL output
+            config.load = load_val
+            config.arrival_rate = load_val / mean_service_holding_time
+            user_flags["load"] = load_val
+            # Update experiment_input with new arrival_rate for this load
+            experiment_input = _update_experiment_input_load(
+                base_experiment_input, load_val, mean_service_holding_time,
+                config.NUM_LEARNERS,
             )
-        )
+            # Update run/experiment names for this load
+            run_name = create_run_name(config)
+            experiment_name = config.EXPERIMENT_NAME if config.EXPERIMENT_NAME else run_name
+        else:
+            experiment_input = base_experiment_input
 
-        # Run eval during training
-        if (
-            config.EVAL_DURING_TRAINING
-            and not (config.EVAL_HEURISTIC or config.EVAL_MODEL)
-            and (i + 1) % config.EVAL_FREQUENCY == 0
-        ):
-            with profiler.section("EVAL"):
-                best_eval_metric, first_save = run_eval_during_training(
-                    config,
-                    run_eval,
-                    eval_input,
-                    out,
-                    best_eval_metric,
-                    step_count,
-                    first_save=first_save,
-                )
+        # Setup wandb per load (each load gets its own run)
+        # For single-load case, wandb was already set up before compilation
+        if config.WANDB and len(loads) > 1:
+            if load_idx > 0:
+                wandb.finish()
+            setup_wandb(config, project_name, experiment_name)
 
-        log_time += time.time() - log_start_time
-        # Update the experiment input for the next increment
-        experiment_input = out["runner_state"]  # TrainState, EnvState, Obs, key, key
-        for metric in metrics:
-            if processed_data.get(metric):
+        start_time = time.time()
+        log_time = 0.0
+        total_run_time = 0.0
+        best_eval_metric = float("inf")
+        first_save = True
+        episode_count = update_count = step_count = 0
+        merged_out: Dict[str, Dict[str, jax.Array]] = {}
+        processed_data: Dict[str, Dict[str, jax.Array]] = {}
+        processed_data_all: Dict[str, Dict[str, jax.Array]] = {}
+        print(f"Running {config.NUM_INCREMENTS} increments of training")
+        for i in range(config.NUM_INCREMENTS):
+            print(f"\n---INCREMENT {i + 1}/{config.NUM_INCREMENTS}---")
+            # Run the increment
+            with profiler.section("EXECUTION", frames=config.STEPS_PER_INCREMENT * config.NUM_LEARNERS):
+                out = run_experiment(experiment_input)
+                out = jax.tree_util.tree_map(
+                    lambda x: x.block_until_ready() if hasattr(x, "block_until_ready") else x, out
+                )  # Wait for all devices to finish
+            prev_total = total_run_time
+            total_run_time = time.time() - start_time - log_time  # Update total first
+            increment_run_time = total_run_time - prev_total  # Increment = difference
+            log_start_time = time.time()
+            render_mode = str(config.RENDER_EVAL_MODE).lower()
+            if (config.EVAL_HEURISTIC or config.EVAL_MODEL) and render_mode != "off":
+                if render_mode in {"save", "human"}:
+                    eval_state_for_render = (
+                        experiment_input[0] if isinstance(experiment_input, tuple) else experiment_input
+                    )
+                    run_eval_render(config, eval_state_for_render, experiment_name)
+            merged_out, processed_data = log_metrics(
+                config,
+                out,
+                total_run_time,
+                increment_run_time,
+                merge_func,
+                episode_count=episode_count,
+                update_count=update_count,
+                step_count=step_count,
+            )
+            # Save model params (skip if EVAL_DURING_TRAINING, which saves only the best model)
+            if config.SAVE_MODEL and not config.EVAL_DURING_TRAINING:
+                train_state = out["runner_state"][0]  # Get TrainState from the first learner
+                # Determine current metric value to decide whether to save
                 if config.continuous_operation:
-                    print(
-                        f"{metric}: {float(processed_data[metric]['mean'][-1]):.3f} ± {float(processed_data[metric]['std'][-1]):.3f}"
-                    )
+                    if config.reward_type == "bitrate":
+                        current_metric = float(
+                            processed_data["bitrate_blocking_probability"]["mean"][-1]
+                        )
+                    else:
+                        current_metric = float(
+                            processed_data["service_blocking_probability"]["mean"][-1]
+                        )
                 else:
-                    print(
-                        f"Episode end {metric}: {float(processed_data[metric]['episode_end_mean'][-1])} ± {float(processed_data[metric]['episode_end_std'][-1]):.3f}"
+                    if config.reward_type == "bitrate":
+                        current_metric = float(
+                            processed_data["bitrate_blocking_probability"]["episode_end_mean"][-1]
+                        )
+                    else:
+                        current_metric = float(
+                            processed_data["service_blocking_probability"]["episode_end_mean"][-1]
+                        )
+                if current_metric <= best_eval_metric:
+                    best_eval_metric = current_metric
+                    model = eqx.combine(train_state.model_params, train_state.model_static)
+                    saved_path = save_model(model, config, first_save=first_save)
+                    if first_save:
+                        config.MODEL_PATH = str(saved_path)
+                        first_save = False
+
+            # Extend every item in processed data with new data
+            episode_count += len(processed_data["service_blocking_probability"]["episode_end_mean"])
+            step_count += config.STEPS_PER_INCREMENT // config.NUM_ENVS
+            update_count += config.NUM_UPDATES * config.NUM_MINIBATCHES
+            # Concatenate arrays for each key
+            processed_data_all = (
+                processed_data
+                if i == 0
+                else jax.tree.map(
+                    lambda x, y: jnp.concatenate([x, y]), processed_data_all, processed_data
+                )
+            )
+
+            # Run eval during training
+            if (
+                config.EVAL_DURING_TRAINING
+                and not (config.EVAL_HEURISTIC or config.EVAL_MODEL)
+                and (i + 1) % config.EVAL_FREQUENCY == 0
+            ):
+                with profiler.section("EVAL"):
+                    best_eval_metric, first_save = run_eval_during_training(
+                        config,
+                        run_eval,
+                        eval_input,
+                        out,
+                        best_eval_metric,
+                        step_count,
+                        first_save=first_save,
                     )
 
-    # END OF TRAINING
+            log_time += time.time() - log_start_time
+            # Update the experiment input for the next increment
+            experiment_input = out["runner_state"]  # TrainState, EnvState, Obs, key, key
+            for metric in metrics:
+                if processed_data.get(metric):
+                    if config.continuous_operation:
+                        print(
+                            f"{metric}: {float(processed_data[metric]['mean'][-1]):.3f} ± {float(processed_data[metric]['std'][-1]):.3f}"
+                        )
+                    else:
+                        print(
+                            f"Episode end {metric}: {float(processed_data[metric]['episode_end_mean'][-1])} ± {float(processed_data[metric]['episode_end_std'][-1]):.3f}"
+                        )
+
+        # END OF INCREMENTS FOR THIS LOAD
+        # Build timing info from profiler records
+        timing = {}
+        if "COMPILATION" in profiler._records:
+            timing["compilation_time_s"] = sum(e for e, _ in profiler._records["COMPILATION"])
+        execution_entries = [
+            (e, f)
+            for tag, entries in profiler._records.items()
+            if tag.startswith("EXECUTION")
+            for e, f in entries
+        ]
+        if execution_entries:
+            timing["execution_time_s"] = sum(e for e, _ in execution_entries)
+            total_frames = sum(f for _, f in execution_entries if f is not None)
+            if total_frames and timing["execution_time_s"] > 0:
+                timing["fps"] = total_frames / timing["execution_time_s"]
+
+        print_metrics(processed_data_all, config, user_flags=user_flags, timing=timing or None)
+        if config.PLOTTING:
+            plot_metrics(experiment_name, processed_data_all, config)
+        if config.log_actions:
+            log_actions(merged_out, processed_data, config)
+
+    # END OF LOAD SWEEP
     profiler.summary()
     if config.PROFILE:
         jit_profiler.summary()
-
-    # Build timing info from profiler records
-    timing = {}
-    if "COMPILATION" in profiler._records:
-        timing["compilation_time_s"] = sum(e for e, _ in profiler._records["COMPILATION"])
-    execution_entries = [
-        (e, f)
-        for tag, entries in profiler._records.items()
-        if tag.startswith("EXECUTION")
-        for e, f in entries
-    ]
-    if execution_entries:
-        timing["execution_time_s"] = sum(e for e, _ in execution_entries)
-        total_frames = sum(f for _, f in execution_entries if f is not None)
-        if total_frames and timing["execution_time_s"] > 0:
-            timing["fps"] = total_frames / timing["execution_time_s"]
-
-    print_metrics(processed_data_all, config, user_flags=user_flags, timing=timing or None)
-    if config.PLOTTING:
-        plot_metrics(experiment_name, processed_data_all, config)
-    if config.log_actions:
-        log_actions(merged_out, processed_data, config)
 
     if config.WANDB:
         wandb.finish()

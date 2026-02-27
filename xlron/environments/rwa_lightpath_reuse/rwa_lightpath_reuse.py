@@ -81,6 +81,8 @@ class RWALightpathReuseEnv(RSAEnv):
             time_since_last_departure=0.0,
             list_of_requests=list_of_requests,
             valid_mass=1.0,
+            arrival_rate=params.arrival_rate,
+            mean_service_holding_time=params.mean_service_holding_time,
         )
         self.initial_state = state.replace(graph=init_graph_tuple(state, params, laplacian_matrix))
 

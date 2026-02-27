@@ -476,6 +476,24 @@ def step_env(rng, raw_env, env_state, env_params, profile=False):
     return obsv, env_state, reward, terminal, truncated, info
 
 
+def _build_loads(flags_obj):
+    """Build array of loads from flags. Uses min/max/step if set, else single load."""
+    import numpy as np
+    if flags_obj.min_load is not None and flags_obj.max_load is not None and flags_obj.step_load is not None:
+        return np.arange(flags_obj.min_load, flags_obj.max_load + flags_obj.step_load / 2, flags_obj.step_load)
+    return np.array([flags_obj.load])
+
+
+def _update_state_arrival_rate(env_state, load_val, mean_service_holding_time):
+    """Update arrival_rate (and mean_service_holding_time) in a LogEnvState."""
+    arrival_rate = load_val / mean_service_holding_time
+    inner = env_state.env_state.replace(
+        arrival_rate=jnp.array(arrival_rate, dtype=jnp.float32),
+        mean_service_holding_time=jnp.array(mean_service_holding_time, dtype=jnp.float32),
+    )
+    return env_state.replace(env_state=inner)
+
+
 def main(argv):
     user_flags = get_user_flags(FLAGS)
     # Bounds code requires absolute arrival times to track request lifetimes
@@ -495,57 +513,91 @@ def main(argv):
     jax.numpy.set_printoptions(linewidth=220)
     profile = bool(FLAGS.PROFILE)
 
-    all_blocking_probs = []
-    all_block_counts = []
-    all_fix_counts = []
-    total_compilation_time = 0.0
-    total_execution_time = 0.0
+    loads = _build_loads(FLAGS)
+    # Use max load for max_active sizing (determines defrag array shapes)
+    effective_max_load = float(max(loads))
+    mean_service_holding_time = float(FLAGS.mean_service_holding_time)
 
-    num_seeds = 1 if profile else FLAGS.num_trials
-    for seed in range(num_seeds):
-        print(f"  Seed {seed + 1}/{num_seeds}: setting up environment...", flush=True)
+    for load_val in loads:
+        load_val = float(load_val)
+        print(f"\n{'='*60}")
+        print(f"  Load = {load_val:.1f} Erlang")
+        print(f"{'='*60}")
 
-        # Define environment
-        FLAGS.__setattr__("deterministic_requests", False)
-        env, env_params = make(FLAGS)
+        all_blocking_probs = []
+        all_block_counts = []
+        all_fix_counts = []
+        total_compilation_time = 0.0
+        total_execution_time = 0.0
 
-        # Generate requests for parallel envs
-        rng = jax.random.PRNGKey(seed)
-        setup_key = jax.random.split(rng, 1)[0]
-        init_obs, env_state = env.reset(setup_key, env_params)
-        request_array = generate_request_list(
-            setup_key, FLAGS.TOTAL_TIMESTEPS, env_state, env_params
-        )
-        # Define env again but this time with deterministic requests
-        FLAGS.__setattr__("deterministic_requests", True)
-        env, env_params = make(FLAGS)
-        raw_env = env._env if hasattr(env, "_env") else env
-        # Set the requests arrays for each state
-        inner_state = env_state.env_state.replace(list_of_requests=request_array)
-        inner_state = generate_request_rsa(setup_key, inner_state, env_params)
-        env_state = env_state.replace(env_state=inner_state)
-        initial_state = copy.deepcopy(env_state)
+        num_seeds = 1 if profile else FLAGS.num_trials
+        for seed in range(num_seeds):
+            print(f"  Seed {seed + 1}/{num_seeds}: setting up environment...", flush=True)
 
-        sorted_requests, sort_indices = sort_requests(request_array, env_params)
+            # Define environment
+            FLAGS.__setattr__("deterministic_requests", False)
+            # Set load for request generation (affects arrival_rate in state)
+            FLAGS.__setattr__("load", load_val)
+            env, env_params = make(FLAGS)
 
-        # Define the heuristic evaluation function
-        env_key = jax.random.split(rng, 1)[0]
-        compile_defrag = bool(FLAGS.COMPILE_RR_BOUNDS)
-        print(
-            f"  Seed {seed + 1}/{num_seeds}: compiling (compile_defrag={compile_defrag})...",
-            flush=True,
-        )
-        main_loop_fn, defrag_fn = get_eval_fn(FLAGS, env, env_params, compile_defrag=compile_defrag)
-        if compile_defrag:
-            max_active = max(1, int(FLAGS.load * 3))
-            defrag_list = jnp.zeros((max_active, 6), dtype=request_array.dtype)
-            defrag_initial_state = initial_state.replace(
-                env_state=initial_state.env_state.replace(list_of_requests=defrag_list)
+            # Generate requests for parallel envs
+            rng = jax.random.PRNGKey(seed)
+            setup_key = jax.random.split(rng, 1)[0]
+            init_obs, env_state = env.reset(setup_key, env_params)
+            request_array = generate_request_list(
+                setup_key, FLAGS.TOTAL_TIMESTEPS, env_state, env_params
             )
-            with TimeIt(tag="MAIN LOOP COMPILATION") as comp_timer:
-                compiled_main = (
-                    jax.jit(main_loop_fn)
-                    .lower(
+            # Define env again but this time with deterministic requests
+            FLAGS.__setattr__("deterministic_requests", True)
+            env, env_params = make(FLAGS)
+            raw_env = env._env if hasattr(env, "_env") else env
+            # Set the requests arrays for each state
+            inner_state = env_state.env_state.replace(list_of_requests=request_array)
+            inner_state = generate_request_rsa(setup_key, inner_state, env_params)
+            env_state = env_state.replace(env_state=inner_state)
+            initial_state = copy.deepcopy(env_state)
+
+            sorted_requests, sort_indices = sort_requests(request_array, env_params)
+
+            # Define the heuristic evaluation function
+            env_key = jax.random.split(rng, 1)[0]
+            compile_defrag = bool(FLAGS.COMPILE_RR_BOUNDS)
+            print(
+                f"  Seed {seed + 1}/{num_seeds}: compiling (compile_defrag={compile_defrag})...",
+                flush=True,
+            )
+            # Use effective_max_load for max_active sizing
+            FLAGS.__setattr__("load", effective_max_load)
+            main_loop_fn, defrag_fn = get_eval_fn(FLAGS, env, env_params, compile_defrag=compile_defrag)
+            FLAGS.__setattr__("load", load_val)  # Restore actual load
+            if compile_defrag:
+                max_active = max(1, int(effective_max_load * 3))
+                defrag_list = jnp.zeros((max_active, 6), dtype=request_array.dtype)
+                defrag_initial_state = initial_state.replace(
+                    env_state=initial_state.env_state.replace(list_of_requests=defrag_list)
+                )
+                with TimeIt(tag="MAIN LOOP COMPILATION") as comp_timer:
+                    compiled_main = (
+                        jax.jit(main_loop_fn)
+                        .lower(
+                            env_key,
+                            env_state,
+                            sorted_requests,
+                            init_obs,
+                            request_array,
+                            defrag_initial_state,
+                            sort_indices,
+                        )
+                        .compile()
+                    )
+                total_compilation_time += comp_timer.elapsed_secs
+
+                print(
+                    f"  Seed {seed + 1}/{num_seeds}: running {int(FLAGS.TOTAL_TIMESTEPS)} timesteps (compiled)...",
+                    flush=True,
+                )
+                with TimeIt(tag="EXECUTION", frames=FLAGS.TOTAL_TIMESTEPS) as exec_timer:
+                    _, _, blocking_events_arr, block_count_arr, fix_count_arr = compiled_main(
                         env_key,
                         env_state,
                         sorted_requests,
@@ -554,95 +606,12 @@ def main(argv):
                         defrag_initial_state,
                         sort_indices,
                     )
-                    .compile()
-                )
-            total_compilation_time += comp_timer.elapsed_secs
+                    jax.block_until_ready(blocking_events_arr)
+                total_execution_time += exec_timer.elapsed_secs
 
-            print(
-                f"  Seed {seed + 1}/{num_seeds}: running {int(FLAGS.TOTAL_TIMESTEPS)} timesteps (compiled)...",
-                flush=True,
-            )
-            with TimeIt(tag="EXECUTION", frames=FLAGS.TOTAL_TIMESTEPS) as exec_timer:
-                _, _, blocking_events_arr, block_count_arr, fix_count_arr = compiled_main(
-                    env_key,
-                    env_state,
-                    sorted_requests,
-                    init_obs,
-                    request_array,
-                    defrag_initial_state,
-                    sort_indices,
-                )
-                jax.block_until_ready(blocking_events_arr)
-            total_execution_time += exec_timer.elapsed_secs
-
-            blocking_events = blocking_events_arr.tolist()
-            block_count = int(block_count_arr)
-            fix_count = int(fix_count_arr)
-            print(
-                f"  Seed {seed + 1}/{num_seeds}: blocking={sum(blocking_events) / FLAGS.TOTAL_TIMESTEPS:.5f}, blocks={block_count}, fixes={fix_count}",
-                flush=True,
-            )
-            blocking_prob = sum(blocking_events) / FLAGS.TOTAL_TIMESTEPS
-            all_blocking_probs.append(blocking_prob)
-            all_block_counts.append(block_count)
-            all_fix_counts.append(fix_count)
-        else:
-            run_defrag = defrag_fn
-            with TimeIt(tag="STEP ENV COMPILATION") as comp_timer:
-                step_env.lower(env_key, raw_env, env_state, env_params, profile).compile()
-            total_compilation_time += comp_timer.elapsed_secs
-
-            jit_profiler.reset()
-            import time as _time
-
-            step_time_total = 0.0
-            defrag_time_total = 0.0
-            defrag_call_count = 0
-
-            with TimeIt(tag="EXECUTION", frames=FLAGS.TOTAL_TIMESTEPS) as exec_timer:
-                blocking_events = []
-                block_count = 0
-                fix_count = 0
-                pbar = tqdm(
-                    range(int(FLAGS.TOTAL_TIMESTEPS)),
-                    desc=f"  Seed {seed + 1}/{num_seeds}",
-                    bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}] blocks={postfix[0]} fixes={postfix[1]}",
-                    postfix=[0, 0],
-                )
-                for i in pbar:
-                    t0 = _time.time()
-                    obsv, env_state, reward, terminal, truncated, info = step_env(
-                        env_key, raw_env, env_state, env_params, profile
-                    )
-                    step_time_total += _time.time() - t0
-                    blocking = 1 if reward < 0 else 0
-                    if blocking:
-                        block_count += 1
-                        sort_index = sort_indices[i]
-                        t0 = _time.time()
-                        sorted_requests, new_env_state, blocking = run_defrag(
-                            env_key, sorted_requests, sort_index, init_obs, initial_state
-                        )
-                        defrag_time_total += _time.time() - t0
-                        defrag_call_count += 1
-                        if not blocking:
-                            new_link_slot_array = new_env_state.env_state.link_slot_array
-                            new_link_slot_departure_array = (
-                                new_env_state.env_state.link_slot_departure_array
-                            )
-                            inner = env_state.env_state.replace(
-                                link_slot_array=new_link_slot_array,
-                                link_slot_departure_array=new_link_slot_departure_array,
-                            )
-                            env_state = env_state.replace(env_state=inner)
-                            fix_count += 1
-                        pbar.postfix[0] = block_count
-                        pbar.postfix[1] = fix_count
-                    # Replace env_state requests with unsorted ones
-                    env_state = env_state.replace(
-                        env_state=env_state.env_state.replace(list_of_requests=request_array)
-                    )
-                    blocking_events.append(blocking)
+                blocking_events = blocking_events_arr.tolist()
+                block_count = int(block_count_arr)
+                fix_count = int(fix_count_arr)
                 print(
                     f"  Seed {seed + 1}/{num_seeds}: blocking={sum(blocking_events) / FLAGS.TOTAL_TIMESTEPS:.5f}, blocks={block_count}, fixes={fix_count}",
                     flush=True,
@@ -651,81 +620,148 @@ def main(argv):
                 all_blocking_probs.append(blocking_prob)
                 all_block_counts.append(block_count)
                 all_fix_counts.append(fix_count)
+            else:
+                run_defrag = defrag_fn
+                with TimeIt(tag="STEP ENV COMPILATION") as comp_timer:
+                    step_env.lower(env_key, raw_env, env_state, env_params, profile).compile()
+                total_compilation_time += comp_timer.elapsed_secs
 
-            total_execution_time += exec_timer.elapsed_secs
+                jit_profiler.reset()
+                import time as _time
 
-            # Python-level timing summary
-            print(f"\n--- Python-level timing (seed {seed}) ---")
-            print(
-                f"  step_env total:  {step_time_total:.4f}s  ({int(FLAGS.TOTAL_TIMESTEPS)} calls, "
-                f"{1e6 * step_time_total / FLAGS.TOTAL_TIMESTEPS:.1f} us/call)"
-            )
-            print(
-                f"  run_defrag total: {defrag_time_total:.4f}s  ({defrag_call_count} calls"
-                + (
-                    f", {1e6 * defrag_time_total / defrag_call_count:.1f} us/call"
-                    if defrag_call_count
-                    else ""
+                step_time_total = 0.0
+                defrag_time_total = 0.0
+                defrag_call_count = 0
+
+                with TimeIt(tag="EXECUTION", frames=FLAGS.TOTAL_TIMESTEPS) as exec_timer:
+                    blocking_events = []
+                    block_count = 0
+                    fix_count = 0
+                    pbar = tqdm(
+                        range(int(FLAGS.TOTAL_TIMESTEPS)),
+                        desc=f"  Seed {seed + 1}/{num_seeds}",
+                        bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}] blocks={postfix[0]} fixes={postfix[1]}",
+                        postfix=[0, 0],
+                    )
+                    for i in pbar:
+                        t0 = _time.time()
+                        obsv, env_state, reward, terminal, truncated, info = step_env(
+                            env_key, raw_env, env_state, env_params, profile
+                        )
+                        step_time_total += _time.time() - t0
+                        blocking = 1 if reward < 0 else 0
+                        if blocking:
+                            block_count += 1
+                            sort_index = sort_indices[i]
+                            t0 = _time.time()
+                            sorted_requests, new_env_state, blocking = run_defrag(
+                                env_key, sorted_requests, sort_index, init_obs, initial_state
+                            )
+                            defrag_time_total += _time.time() - t0
+                            defrag_call_count += 1
+                            if not blocking:
+                                new_link_slot_array = new_env_state.env_state.link_slot_array
+                                new_link_slot_departure_array = (
+                                    new_env_state.env_state.link_slot_departure_array
+                                )
+                                inner = env_state.env_state.replace(
+                                    link_slot_array=new_link_slot_array,
+                                    link_slot_departure_array=new_link_slot_departure_array,
+                                )
+                                env_state = env_state.replace(env_state=inner)
+                                fix_count += 1
+                            pbar.postfix[0] = block_count
+                            pbar.postfix[1] = fix_count
+                        # Replace env_state requests with unsorted ones
+                        env_state = env_state.replace(
+                            env_state=env_state.env_state.replace(list_of_requests=request_array)
+                        )
+                        blocking_events.append(blocking)
+                    print(
+                        f"  Seed {seed + 1}/{num_seeds}: blocking={sum(blocking_events) / FLAGS.TOTAL_TIMESTEPS:.5f}, blocks={block_count}, fixes={fix_count}",
+                        flush=True,
+                    )
+                    blocking_prob = sum(blocking_events) / FLAGS.TOTAL_TIMESTEPS
+                    all_blocking_probs.append(blocking_prob)
+                    all_block_counts.append(block_count)
+                    all_fix_counts.append(fix_count)
+
+                total_execution_time += exec_timer.elapsed_secs
+
+                # Python-level timing summary
+                print(f"\n--- Python-level timing (seed {seed}) ---")
+                print(
+                    f"  step_env total:  {step_time_total:.4f}s  ({int(FLAGS.TOTAL_TIMESTEPS)} calls, "
+                    f"{1e6 * step_time_total / FLAGS.TOTAL_TIMESTEPS:.1f} us/call)"
                 )
-                + ")"
-            )
-            print(
-                f"  step_env fraction:  {100 * step_time_total / (step_time_total + defrag_time_total):.1f}%"
-            )
-            print(
-                f"  run_defrag fraction: {100 * defrag_time_total / (step_time_total + defrag_time_total):.1f}%"
-            )
+                print(
+                    f"  run_defrag total: {defrag_time_total:.4f}s  ({defrag_call_count} calls"
+                    + (
+                        f", {1e6 * defrag_time_total / defrag_call_count:.1f} us/call"
+                        if defrag_call_count
+                        else ""
+                    )
+                    + ")"
+                )
+                print(
+                    f"  step_env fraction:  {100 * step_time_total / (step_time_total + defrag_time_total):.1f}%"
+                )
+                print(
+                    f"  run_defrag fraction: {100 * defrag_time_total / (step_time_total + defrag_time_total):.1f}%"
+                )
 
-        if profile:
-            jit_profiler.summary()
+            if profile:
+                jit_profiler.summary()
 
-    blocking_probs = jnp.array(all_blocking_probs)
-    block_counts = jnp.array(all_block_counts)
-    fix_counts = jnp.array(all_fix_counts)
+        blocking_probs = jnp.array(all_blocking_probs)
+        block_counts = jnp.array(all_block_counts)
+        fix_counts = jnp.array(all_fix_counts)
 
-    metrics_dict = {
-        "service_blocking_probability": {
-            "mean": float(jnp.mean(blocking_probs)),
-            "std": float(jnp.std(blocking_probs)),
-            "iqr_lower": float(jnp.percentile(blocking_probs, 25)),
-            "iqr_upper": float(jnp.percentile(blocking_probs, 75)),
-        },
-        "block_count": {
-            "mean": float(jnp.mean(block_counts)),
-            "std": float(jnp.std(block_counts)),
-            "iqr_lower": float(jnp.percentile(block_counts, 25)),
-            "iqr_upper": float(jnp.percentile(block_counts, 75)),
-        },
-        "fix_count": {
-            "mean": float(jnp.mean(fix_counts)),
-            "std": float(jnp.std(fix_counts)),
-            "iqr_lower": float(jnp.percentile(fix_counts, 25)),
-            "iqr_upper": float(jnp.percentile(fix_counts, 75)),
-        },
-        "fix_ratio": {
-            "mean": float(jnp.nan_to_num(jnp.mean(fix_counts) / jnp.mean(block_counts), nan=1)),
-            "std": float(jnp.nan_to_num(jnp.std(fix_counts / block_counts), nan=0)),
-            "iqr_lower": float(
-                jnp.nan_to_num(jnp.percentile(fix_counts / block_counts, 25), nan=0)
-            ),
-            "iqr_upper": float(
-                jnp.nan_to_num(jnp.percentile(fix_counts / block_counts, 75), nan=0)
-            ),
-        },
-    }
+        metrics_dict = {
+            "service_blocking_probability": {
+                "mean": float(jnp.mean(blocking_probs)),
+                "std": float(jnp.std(blocking_probs)),
+                "iqr_lower": float(jnp.percentile(blocking_probs, 25)),
+                "iqr_upper": float(jnp.percentile(blocking_probs, 75)),
+            },
+            "block_count": {
+                "mean": float(jnp.mean(block_counts)),
+                "std": float(jnp.std(block_counts)),
+                "iqr_lower": float(jnp.percentile(block_counts, 25)),
+                "iqr_upper": float(jnp.percentile(block_counts, 75)),
+            },
+            "fix_count": {
+                "mean": float(jnp.mean(fix_counts)),
+                "std": float(jnp.std(fix_counts)),
+                "iqr_lower": float(jnp.percentile(fix_counts, 25)),
+                "iqr_upper": float(jnp.percentile(fix_counts, 75)),
+            },
+            "fix_ratio": {
+                "mean": float(jnp.nan_to_num(jnp.mean(fix_counts) / jnp.mean(block_counts), nan=1)),
+                "std": float(jnp.nan_to_num(jnp.std(fix_counts / block_counts), nan=0)),
+                "iqr_lower": float(
+                    jnp.nan_to_num(jnp.percentile(fix_counts / block_counts, 25), nan=0)
+                ),
+                "iqr_upper": float(
+                    jnp.nan_to_num(jnp.percentile(fix_counts / block_counts, 75), nan=0)
+                ),
+            },
+        }
 
-    timing = {
-        "compilation_time_s": total_compilation_time,
-        "execution_time_s": total_execution_time,
-    }
-    total_frames = num_seeds * FLAGS.TOTAL_TIMESTEPS
-    if total_execution_time > 0:
-        timing["fps"] = total_frames / total_execution_time
+        timing = {
+            "compilation_time_s": total_compilation_time,
+            "execution_time_s": total_execution_time,
+        }
+        total_frames = num_seeds * FLAGS.TOTAL_TIMESTEPS
+        if total_execution_time > 0:
+            timing["fps"] = total_frames / total_execution_time
 
-    summary = build_run_summary(
-        "reconfigurable_routing_bound", user_flags, metrics_dict, timing=timing
-    )
-    write_run_summary(summary, FLAGS.DATA_OUTPUT_FILE, print_to_console=True)
+        run_config = dict(user_flags)
+        run_config["load"] = load_val
+        summary = build_run_summary(
+            "reconfigurable_routing_bound", run_config, metrics_dict, timing=timing
+        )
+        write_run_summary(summary, FLAGS.DATA_OUTPUT_FILE, print_to_console=True)
 
 
 if __name__ == "__main__":

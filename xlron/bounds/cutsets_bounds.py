@@ -1031,40 +1031,48 @@ def run_capacity_bound_simulation(
 
     profiler = Profiler()
 
+    # Get fresh initial state once (used as template for all loads)
+    reset_key = jax.random.PRNGKey(seed)
+    _, base_initial_state = env.reset(reset_key, params)
+    trial_rngs = jax.random.split(jax.random.PRNGKey(seed + 1), num_trials)
+
+    # Compile once with initial_state as a traced argument (not closed over)
+    def single(rng, initial_state):
+        return run_single_trial(
+            rng,
+            initial_state,
+            params,
+            partition1,
+            partition2,
+            cutset_link_mask,
+            unique_link_indices,
+            best_se_matrix,
+            num_requests,
+            max_links_to_assign,
+            link_selection_mode,
+            neglect_spectrum_continuity,
+        )
+
+    with profiler.section("COMPILATION"):
+        jitted_single = (
+            jax.jit(jax.vmap(single, in_axes=(0, None)))
+            .lower(trial_rngs, base_initial_state)
+            .compile()
+        )
+
     results = {}
     for load_idx, load_val in enumerate(loads):
         arrival_rate = float(load_val / mean_service_holding_time)
-        params_for_load = params.replace(arrival_rate=arrival_rate)
 
-        # Get fresh initial state for each load (reset env)
-        reset_key = jax.random.PRNGKey(seed)
-        _, initial_state = env.reset(reset_key, params_for_load)
-
-        trial_rngs = jax.random.split(jax.random.PRNGKey(seed + 1), num_trials)
+        # Update traced fields in state (no recompilation)
+        initial_state = base_initial_state.replace(
+            arrival_rate=jnp.array(arrival_rate, dtype=jnp.float32),
+            mean_service_holding_time=jnp.array(mean_service_holding_time, dtype=jnp.float32),
+        )
 
         print(f"\nLoad = {load_val:.1f} Erlang (arrival_rate = {arrival_rate:.4f})...")
 
-        def single(rng):
-            return run_single_trial(
-                rng,
-                initial_state,
-                params_for_load,
-                partition1,
-                partition2,
-                cutset_link_mask,
-                unique_link_indices,
-                best_se_matrix,
-                num_requests,
-                max_links_to_assign,
-                link_selection_mode,
-                neglect_spectrum_continuity,
-            )
-
-        # Compilation (each load recompiles because arrival_rate is static)
-        with profiler.section(f"COMPILATION (load={load_val:.0f})"):
-            jitted_single = jax.jit(jax.vmap(single)).lower(trial_rngs).compile()
-
-        # Execution
+        # Execution (reuses compiled function, no recompilation)
         with profiler.section(
             f"EXECUTION (load={load_val:.0f})",
             frames=num_requests * num_trials,
@@ -1077,7 +1085,7 @@ def run_capacity_bound_simulation(
                 blocked_br,
                 always_accepted_br,
                 total_br,
-            ) = jitted_single(trial_rngs)
+            ) = jitted_single(trial_rngs, initial_state)
             # Block until results are ready for accurate timing
             jax.block_until_ready((accepted, blocked))
 
@@ -1326,7 +1334,10 @@ def main(argv):
     raw_env = env._env if hasattr(env, "_env") else env
 
     # --- Run capacity bound simulation ---
-    loads = np.array([FLAGS.load])
+    if FLAGS.min_load is not None and FLAGS.max_load is not None and FLAGS.step_load is not None:
+        loads = np.arange(FLAGS.min_load, FLAGS.max_load + FLAGS.step_load / 2, FLAGS.step_load)
+    else:
+        loads = np.array([FLAGS.load])
 
     results, sim_profiler = run_capacity_bound_simulation(
         heavy_cut_sets=heavy_cut_sets,

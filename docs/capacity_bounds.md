@@ -43,7 +43,11 @@ python -m xlron.bounds.cutsets_bounds \
 
 ##### `--load`
 
-Traffic load in Erlangs. The cut-set simulation runs at this single load point. Use a shell loop to sweep multiple loads. Default: `250`.
+Traffic load in Erlangs. When using a single load point, this is the load used. When using `--min_load`/`--max_load`/`--step_load` for a load sweep, this value is used for the initial compilation. Default: `250`.
+
+##### `--min_load` / `--max_load` / `--step_load`
+
+When all three are set, the script sweeps loads from `min_load` to `max_load` (inclusive) in steps of `step_load`. The environment is compiled once and reused across all loads without recompilation. Each load produces its own JSONL summary line. Example: `--min_load=150 --max_load=300 --step_load=10`.
 
 ##### `--max_requests`
 
@@ -124,29 +128,30 @@ python -m xlron.bounds.cutsets_bounds \
 
 #### Load Sweep on NSFNET
 
-Since the cut-set script processes a single load per invocation, sweep loads with a shell loop:
+Use `--min_load`, `--max_load`, and `--step_load` to sweep loads in a single invocation. The environment is compiled once and reused across all loads:
 
 ```bash
-for load in 150 160 170 180 190 200 210 220 230 240 250 260 270 280 290 300; do
-    python -m xlron.bounds.cutsets_bounds \
-        --topology_name=nsfnet_deeprmsa_directed \
-        --env_type=rmsa \
-        --link_resources=100 \
-        --k=50 \
-        --load=$load \
-        --continuous_operation \
-        --truncate_holding_time \
-        --mean_service_holding_time=20 \
-        --modulations_csv_filepath="./xlron/data/modulations/modulations_deeprmsa.csv" \
-        --max_requests=100000 \
-        --num_trials=10 \
-        --CUTSET_EXHAUSTIVE \
-        --CUTSET_BATCH_SIZE=512 \
-        --CUTSET_ITERATIONS=32 \
-        --CUTSET_TOP_K=256 \
-        --cutset_link_selection_mode=least_congested
-done
+python -m xlron.bounds.cutsets_bounds \
+    --topology_name=nsfnet_deeprmsa_directed \
+    --env_type=rmsa \
+    --link_resources=100 \
+    --k=50 \
+    --load=300 \
+    --min_load=150 --max_load=300 --step_load=10 \
+    --continuous_operation \
+    --truncate_holding_time \
+    --mean_service_holding_time=20 \
+    --modulations_csv_filepath="./xlron/data/modulations/modulations_deeprmsa.csv" \
+    --max_requests=100000 \
+    --num_trials=10 \
+    --CUTSET_EXHAUSTIVE \
+    --CUTSET_BATCH_SIZE=512 \
+    --CUTSET_ITERATIONS=32 \
+    --CUTSET_TOP_K=256 \
+    --cutset_link_selection_mode=least_congested
 ```
+
+Note: `--load` should be set to the maximum load in the sweep range, as it is used for the initial environment setup and compilation.
 
 #### Large Network (JPN48) Without Exhaustive Search
 
@@ -264,26 +269,27 @@ python xlron/bounds/reconfigurable_routing_bounds.py \
 
 #### Load Sweep
 
-Since the reconfigurable routing script processes a single load per invocation, sweep loads with a shell loop:
+Use `--min_load`, `--max_load`, and `--step_load` to sweep loads in a single invocation:
 
 ```bash
-for load in 150 160 170 180 190 200 210 220 230 240 250 260 270 280 290 300; do
-    python xlron/bounds/reconfigurable_routing_bounds.py \
-        --topology_name=nsfnet_deeprmsa_directed \
-        --env_type=rmsa \
-        --link_resources=100 \
-        --k=50 \
-        --load=$load \
-        --continuous_operation \
-        --truncate_holding_time \
-        --mean_service_holding_time=20 \
-        --modulations_csv_filepath="./xlron/data/modulations/modulations_deeprmsa.csv" \
-        --path_heuristic=ksp_ff \
-        --TOTAL_TIMESTEPS=13000 \
-        --NUM_ENVS=1 \
-        --COMPILE_RR_BOUNDS
-done
+python xlron/bounds/reconfigurable_routing_bounds.py \
+    --topology_name=nsfnet_deeprmsa_directed \
+    --env_type=rmsa \
+    --link_resources=100 \
+    --k=50 \
+    --load=300 \
+    --min_load=150 --max_load=300 --step_load=10 \
+    --continuous_operation \
+    --truncate_holding_time \
+    --mean_service_holding_time=20 \
+    --modulations_csv_filepath="./xlron/data/modulations/modulations_deeprmsa.csv" \
+    --path_heuristic=ksp_ff \
+    --TOTAL_TIMESTEPS=13000 \
+    --NUM_ENVS=1 \
+    --COMPILE_RR_BOUNDS
 ```
+
+Note: `--load` should be set to the maximum load in the sweep range, as it is used for the initial environment setup (including array sizing for active request tracking).
 
 #### RSA with Unit Bandwidth
 

@@ -101,6 +101,8 @@ class RSAEnv(environment.Environment):
             accepted_bitrate=jnp.array(0, dtype=dtype_config.LARGE_FLOAT_DTYPE),
             total_bitrate=jnp.array(0, dtype=dtype_config.LARGE_FLOAT_DTYPE),
             valid_mass=jnp.array(1.0, dtype=dtype_config.LARGE_FLOAT_DTYPE),
+            arrival_rate=jnp.array(params.arrival_rate, dtype=dtype_config.SMALL_FLOAT_DTYPE),
+            mean_service_holding_time=jnp.array(params.mean_service_holding_time, dtype=dtype_config.SMALL_FLOAT_DTYPE),
         )
         if params.__class__.__name__ not in ["RSAGNModelEnvParams", "RMSAGNModelEnvParams"]:
             self.initial_state = state.replace(
@@ -1409,5 +1411,7 @@ class RSAMultibandEnv(RSAEnv):
             total_bitrate=jnp.array(0, dtype=dtype_config.LARGE_FLOAT_DTYPE),
             list_of_requests=list_of_requests,
             valid_mass=jnp.array(1.0, dtype=dtype_config.LARGE_FLOAT_DTYPE),
+            arrival_rate=jnp.array(params.arrival_rate, dtype=dtype_config.SMALL_FLOAT_DTYPE),
+            mean_service_holding_time=jnp.array(params.mean_service_holding_time, dtype=dtype_config.SMALL_FLOAT_DTYPE),
         )
         self.initial_state = state.replace(graph=init_graph_tuple(state, params, laplacian_matrix))

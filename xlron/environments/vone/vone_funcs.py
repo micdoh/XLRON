@@ -346,7 +346,7 @@ def generate_vone_request(key: chex.PRNGKey, state: EnvState, params: EnvParams)
     # Mask out unused part of request array
     first_row = jnp.where(topology_pattern == 0, 0, first_row)
     # Set times
-    arrival_time, holding_time = generate_arrival_holding_times(key, params)
+    arrival_time, holding_time = generate_arrival_holding_times(key, params, state.arrival_rate, state.mean_service_holding_time)
     state = state.replace(
         holding_time=holding_time,
         current_time=state.current_time + arrival_time,

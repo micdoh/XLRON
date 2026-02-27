@@ -112,6 +112,19 @@ These flags control how traffic is generated in the simulation.
 
 The offered traffic load in Erlangs. This is the primary traffic parameter — it equals `arrival_rate * mean_service_holding_time`. The arrival rate is derived from the load and holding time. Higher load means more congestion and higher blocking probability.
 
+### `--min_load` / `--max_load` / `--step_load`
+
+When all three are set, the script sweeps loads from `min_load` to `max_load` (inclusive) in steps of `step_load`. The environment is compiled once and reused across all loads without JIT recompilation, which is significantly faster than running separate processes per load. Each load produces its own JSONL summary line. `--load` should be set to the maximum load in the sweep range for initial compilation. Example:
+
+```bash
+python -m xlron.train.train \
+    --load=300 --min_load=150 --max_load=300 --step_load=10 \
+    --env_type=rmsa --topology_name=nsfnet_deeprmsa_directed \
+    --link_resources=100 --k=50 --continuous_operation \
+    --ENV_WARMUP_STEPS=3000 --TOTAL_TIMESTEPS=100000 --NUM_ENVS=10 \
+    --EVAL_HEURISTIC --path_heuristic=ksp_ff
+```
+
 ### `--mean_service_holding_time`
 
 Mean holding time for connection requests. Default: `25`. The arrival rate is calculated as `load / mean_service_holding_time`. You can set this to match the assumptions of a specific paper (e.g. `20` for DeepRMSA), but the load in Erlangs is what determines network congestion.

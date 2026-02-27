@@ -1,3 +1,4 @@
+import json
 import sys
 from pathlib import Path
 
@@ -15,6 +16,51 @@ from scipy import interpolate
 # Add experimental/ to path so plot_style is importable
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from plot_style import configure_style, increase_legend_line_thickness
+
+
+def load_bounds_file(path):
+    """Load a bounds results file, supporting both legacy CSV and JSONL formats.
+
+    For JSONL files (produced by --DATA_OUTPUT_FILE), flattens the nested
+    JSON structure into a flat DataFrame with columns matching the legacy
+    CSV format (experiment, topology, load, k, plus metric columns).
+
+    Returns a pandas DataFrame.
+    """
+    path = Path(path)
+
+    # Try JSONL first if it exists, then fall back to CSV
+    jsonl_path = path.with_suffix('.jsonl') if path.suffix != '.jsonl' else path
+    csv_path = path.with_suffix('.csv') if path.suffix != '.csv' else path
+
+    if jsonl_path.exists():
+        records = []
+        with open(jsonl_path) as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                obj = json.loads(line)
+                row = {}
+                config = obj.get('config', {})
+                # Map config fields to legacy CSV column names
+                row['experiment'] = config.get('PROJECT', '')
+                row['topology'] = config.get('topology_name', '')
+                row['load'] = config.get('load', 0)
+                row['k'] = config.get('k', 0)
+                row['heur'] = config.get('path_heuristic', '')
+                # Flatten metrics: {metric_name: {stat: val}} -> metric_stat columns
+                for metric_name, stats in obj.get('metrics', {}).items():
+                    for stat_name, stat_val in stats.items():
+                        row[f'{metric_name}_{stat_name}'] = stat_val
+                records.append(row)
+        return pd.DataFrame(records)
+    elif csv_path.exists():
+        return pd.read_csv(csv_path)
+    else:
+        raise FileNotFoundError(
+            f"No bounds data file found at {jsonl_path} or {csv_path}"
+        )
 
 PLOTS_DIR = Path(__file__).resolve().parent / "plots"
 
@@ -274,8 +320,9 @@ if __name__ == '__main__':
 
     # ---- New bounds comparison plot (experiment_data/bounds/) ----
     new_data_dir = Path(__file__).resolve().parents[4] / 'experiment_data' / 'bounds'
-    new_reconfig_data = pd.read_csv(new_data_dir / 'experiment_results_reconfigurable_bounds.csv')
-    new_cutset_data = pd.read_csv(new_data_dir / 'experiment_results_cutsets_bounds.csv')
+    new_reconfig_data = load_bounds_file(new_data_dir / 'experiment_results_reconfigurable_bounds.csv')
+    new_cutset_data = load_bounds_file(new_data_dir / 'experiment_results_cutsets_bounds.csv')
+    new_cutset_no_cont_data = load_bounds_file(new_data_dir / 'experiment_results_cutsets_bounds_no_continuity.jsonl')
 
     # Process heuristic eval data - CSV has 42 data fields for 41 headers
     # (extra empty field at position 5), so pandas uses field[0] as index.
@@ -293,24 +340,22 @@ if __name__ == '__main__':
         'service_blocking_probability_iqr_upper': _raw_heur['service_blocking_probability_iqr_upper'].values,
     })
 
-    # Process reconfigurable bounds (same format as JOCN2024 bounds)
-    new_reconfig_data = new_reconfig_data.rename(columns={
+    # Rename columns to canonical names. Both old CSV columns (blocking_prob_*)
+    # and new JSONL columns (service_blocking_probability_*) are handled;
+    # pandas rename silently ignores columns that don't exist.
+    _bounds_rename = {
+        # common fields (CSV uses these; JSONL loader already produces them)
         'experiment': 'NAME', 'topology': 'TOPOLOGY', 'load': 'LOAD', 'k': 'K',
         'heur': 'HEUR',
+        # old CSV metric columns -> canonical
         'blocking_prob_mean': 'service_blocking_probability_mean',
         'blocking_prob_std': 'service_blocking_probability_std',
         'blocking_prob_iqr_lower': 'service_blocking_probability_iqr_lower',
-        'blocking_prob_iqr_upper': 'service_blocking_probability_iqr_upper'
-    })
-
-    # Process cutset bounds
-    new_cutset_data = new_cutset_data.rename(columns={
-        'experiment': 'NAME', 'topology': 'TOPOLOGY', 'load': 'LOAD', 'k': 'K',
-        'blocking_prob_mean': 'service_blocking_probability_mean',
-        'blocking_prob_std': 'service_blocking_probability_std',
-        'blocking_prob_iqr_lower': 'service_blocking_probability_iqr_lower',
-        'blocking_prob_iqr_upper': 'service_blocking_probability_iqr_upper'
-    })
+        'blocking_prob_iqr_upper': 'service_blocking_probability_iqr_upper',
+    }
+    new_reconfig_data = new_reconfig_data.rename(columns=_bounds_rename)
+    new_cutset_data = new_cutset_data.rename(columns=_bounds_rename)
+    new_cutset_no_cont_data = new_cutset_no_cont_data.rename(columns=_bounds_rename)
 
     # Map individual experiment names to grouped publication names
     def get_publication_new(name):
@@ -320,7 +365,7 @@ if __name__ == '__main__':
             return 'PtrNet-RSA'
         return name
 
-    for df in [new_heur_data, new_reconfig_data, new_cutset_data]:
+    for df in [new_heur_data, new_reconfig_data, new_cutset_data, new_cutset_no_cont_data]:
         df['N_slots'] = df['NAME'].apply(get_n_slots)
         df['topology'] = df['TOPOLOGY'].apply(get_topology)
         df['publication'] = df['NAME'].apply(get_publication_new)
@@ -333,10 +378,12 @@ if __name__ == '__main__':
     new_heur_data = compute_bands(new_heur_data, n=2000)      # NUM_ENVS=2000
     new_reconfig_data = compute_bands(new_reconfig_data, n=10)  # num_trials=10
     new_cutset_data = compute_bands(new_cutset_data, n=10)      # num_trials=10
+    new_cutset_no_cont_data = compute_bands(new_cutset_no_cont_data, n=10)  # num_trials=10
 
     cutset_col = '#30A08E'
+    cutset_no_cont_col = '#E07B39'
 
-    def plot_case_new(ax, pub, topology, n_slots, heur_df, reconfig_df, cutset_df):
+    def plot_case_new(ax, pub, topology, n_slots, heur_df, reconfig_df, cutset_df, cutset_no_cont_df):
         pub_filter = 'PtrNet-RSA' if 'PtrNet-RSA' in pub else pub
 
         case_heur = heur_df[(heur_df['publication'] == pub_filter) &
@@ -348,6 +395,9 @@ if __name__ == '__main__':
         case_cutset = cutset_df[(cutset_df['publication'] == pub_filter) &
                                  (cutset_df['topology'] == topology) &
                                  (cutset_df['N_slots'] == n_slots)]
+        case_cutset_no_cont = cutset_no_cont_df[(cutset_no_cont_df['publication'] == pub_filter) &
+                                                 (cutset_no_cont_df['topology'] == topology) &
+                                                 (cutset_no_cont_df['N_slots'] == n_slots)]
 
         lines = []
         labels = []
@@ -376,11 +426,42 @@ if __name__ == '__main__':
             lines.append(line[0])
             labels.append('Cut-set bound')
 
+        if not case_cutset_no_cont.empty:
+            line = ax.plot(case_cutset_no_cont['load'], case_cutset_no_cont['mean'],
+                          marker='D', markerfacecolor=cutset_no_cont_col, linestyle='-', color=cutset_no_cont_col)
+            ax.fill_between(case_cutset_no_cont['load'], case_cutset_no_cont['band_lower'],
+                           case_cutset_no_cont['band_upper'], alpha=0.2, color=cutset_no_cont_col)
+            lines.append(line[0])
+            labels.append('Cut-set bound (no spectrum continuity)')
+
+        # Dynamically adjust axis limits so at least one point per series is visible.
+        # Start from the default limits and only expand.
+        y_min, y_max = 0.01, 1
+        x_min, x_max = ax.get_xlim()  # auto-scaled from plotted data
+        for case in [case_heur, case_reconfig, case_cutset, case_cutset_no_cont]:
+            if case.empty:
+                continue
+            visible = case[case['mean'] > 0]
+            if visible.empty:
+                continue
+            # Pick the point with the largest mean (most likely already in range)
+            best_idx = visible['mean'].idxmax()
+            best_y = visible.loc[best_idx, 'mean']
+            best_x = visible.loc[best_idx, 'load']
+            if best_y < y_min:
+                y_min = best_y * 0.5  # margin below on log scale
+            if best_x > x_max:
+                x_max = best_x + 25
+            if best_x < x_min:
+                x_min = best_x - 25
+        ax.set_ylim(y_min, y_max)
+        ax.set_xlim(x_min, x_max)
+
         pub_display = 'Deep/Reward/GCN-RMSA' if pub == 'DeepRMSA~Reward-RMSA~GCN-RMSA' else pub
         title = f'{pub_display}\n\n{topology}' if topology == 'NSFNET' else topology
         ax.set_title(title, fontsize=32)
 
-        has_data = not (case_heur.empty and case_reconfig.empty and case_cutset.empty)
+        has_data = not (case_heur.empty and case_reconfig.empty and case_cutset.empty and case_cutset_no_cont.empty)
         return has_data, lines, labels
 
     # Create new figure with same grid layout
@@ -397,11 +478,10 @@ if __name__ == '__main__':
             ax.set_yscale('log')
             ax.yaxis.grid(True)
             ax.set_xticks(np.arange(0, 1000, 25))
-            ax.set_ylim(0.01, 1)
 
             data_plotted, lines, labels = plot_case_new(
                 ax, publication, topology, n_slots,
-                new_heur_data, new_reconfig_data, new_cutset_data
+                new_heur_data, new_reconfig_data, new_cutset_data, new_cutset_no_cont_data
             )
 
             if not data_plotted:
