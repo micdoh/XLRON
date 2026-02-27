@@ -625,7 +625,9 @@ def get_obs_transformer(state: RSAEnvState, params: RSAEnvParams) -> chex.Array:
     if params.transformer_obs_type == "occupancy":
         edge_features = state.link_slot_array
     elif params.transformer_obs_type == "capacity":
-        edge_features = state.link_capacity_array / 1e6
+        # 0 where no active lightpath, normalized remaining capacity otherwise
+        active_mask = (state.link_slot_array > 0).astype(dtype_config.LARGE_FLOAT_DTYPE)
+        edge_features = active_mask * state.link_capacity_array / (jnp.mean(params.values_bw.val) * 100)
     else:
         # Dynamic traffic: normalized departure times only
         edge_features = state.link_slot_departure_array / state.mean_service_holding_time
