@@ -88,9 +88,9 @@ def find_best_above(probes: dict) -> tuple[int, float] | None:
 def compute_sweep_range(sweep_num, initial_load, all_probes):
     """Determine the min/max for the next sweep based on results so far."""
     if sweep_num == 0:
-        # Wide initial sweep: 0.3x to 3x estimated load
-        sweep_min = max(MIN_LOAD, round(initial_load * 0.3))
-        sweep_max = min(MAX_LOAD, round(initial_load * 3.0))
+        # Initial sweep: 0.5x to 2x estimated load
+        sweep_min = max(MIN_LOAD, round(initial_load * 0.5))
+        sweep_max = min(MAX_LOAD, round(initial_load * 2.0))
         return sweep_min, sweep_max
 
     # Targeted sweep based on previous results
