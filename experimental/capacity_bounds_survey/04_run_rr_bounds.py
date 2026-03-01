@@ -14,16 +14,18 @@ from config import (
     compute_heuristic_gradient,
     estimate_next_load,
     get_topology_list,
+    load_heuristic_selection,
     load_load_ranges,
     parse_jsonl_blocking,
     run_command,
 )
 
 
-def run_rr_probe(name, load, probe_file, timeout=14400):
+def run_rr_probe(name, load, probe_file, heuristic="ksp_ff", timeout=14400):
     """Run RR bounds at a single load and return blocking probability."""
     extra_flags = dict(FULL_RR_PARAMS)
     extra_flags["load"] = load
+    extra_flags["path_heuristic"] = heuristic
 
     cmd = build_command(
         script="xlron/bounds/reconfigurable_routing_bounds.py",
@@ -50,6 +52,7 @@ def main():
 
     topologies = get_topology_list()
     ranges = load_load_ranges()
+    heur_selection = load_heuristic_selection()
     output_dir = RESULTS_DIR / "rr_bounds"
     probe_dir = output_dir / "probes"
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -80,7 +83,8 @@ def main():
             failed += 1
             continue
 
-        print(f"\n[{completed + skipped + failed + 1}/{len(topologies)}] {name}")
+        best_heuristic = heur_selection.get(name, "ksp_ff")
+        print(f"\n[{completed + skipped + failed + 1}/{len(topologies)}] {name} (heuristic={best_heuristic})")
 
         gradient = compute_heuristic_gradient(entry)
         probe_files = []
@@ -89,7 +93,7 @@ def main():
         # --- Probe 1: run at heuristic's load_high ---
         p1_file = probe_dir / f"{name}_p1.jsonl"
         print(f"  Probe 1: load={load_high}", end=" ", flush=True)
-        bp1 = run_rr_probe(name, load_high, p1_file)
+        bp1 = run_rr_probe(name, load_high, p1_file, heuristic=best_heuristic)
 
         if bp1 is None:
             print("-> FAILED")
@@ -104,7 +108,7 @@ def main():
         load2 = estimate_next_load(load_high, bp1, gradient)
         p2_file = probe_dir / f"{name}_p2.jsonl"
         print(f"  Probe 2: load={load2}", end=" ", flush=True)
-        bp2 = run_rr_probe(name, load2, p2_file)
+        bp2 = run_rr_probe(name, load2, p2_file, heuristic=best_heuristic)
 
         if bp2 is not None:
             print(f"-> BP={bp2*100:.4f}%")
@@ -132,7 +136,7 @@ def main():
             if load3 is not None:
                 p3_file = probe_dir / f"{name}_p3.jsonl"
                 print(f"  Probe 3: load={load3}", end=" ", flush=True)
-                bp3 = run_rr_probe(name, load3, p3_file)
+                bp3 = run_rr_probe(name, load3, p3_file, heuristic=best_heuristic)
                 if bp3 is not None:
                     print(f"-> BP={bp3*100:.4f}%")
                     probe_files.append(p3_file)

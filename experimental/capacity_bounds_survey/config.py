@@ -294,3 +294,15 @@ def save_load_ranges(ranges: dict):
     path = RESULTS_DIR / "load_ranges.json"
     with open(path, "w") as f:
         json.dump(ranges, f, indent=2)
+
+
+def load_heuristic_selection() -> dict:
+    """Load per-topology heuristic selection from JSON.
+
+    Returns dict mapping topology_name -> heuristic name (e.g. "ksp_ff" or "ff_ksp").
+    """
+    path = RESULTS_DIR / "heuristic_selection.json"
+    if path.exists():
+        with open(path) as f:
+            return json.load(f)
+    return {}

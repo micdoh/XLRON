@@ -15,6 +15,7 @@ from config import (
     SHARED_FLAGS,
     build_command,
     get_topology_list,
+    load_heuristic_selection,
     load_load_ranges,
     parse_jsonl_blocking,
     run_command,
@@ -39,6 +40,7 @@ def main():
 
     topologies = get_topology_list()
     ranges = load_load_ranges()
+    heur_selection = load_heuristic_selection()
     output_dir = RESULTS_DIR / "k_sensitivity"
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -69,8 +71,9 @@ def main():
             failed += 1
             continue
 
+        best_heuristic = heur_selection.get(name, "ksp_ff")
         print(f"\n[{completed + skipped + failed + 1}/{len(large_topos)}] {name} "
-              f"(nodes={topo['num_nodes']}), load={target_load}")
+              f"(nodes={topo['num_nodes']}), load={target_load}, heuristic={best_heuristic}")
 
         # Clear the output file for a fresh run
         if output_file.exists():
@@ -91,6 +94,7 @@ def main():
                     "EVAL_HEURISTIC": True,
                     "load": target_load,
                     "k": k_val,
+                    "path_heuristic": best_heuristic,
                 },
                 output_file=str(temp_file),
             )

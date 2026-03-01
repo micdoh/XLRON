@@ -23,6 +23,7 @@ from config import (
     K_SENSITIVITY_VALUES,
     RESULTS_DIR,
     get_topology_list,
+    load_heuristic_selection,
     load_topology_stats,
 )
 
@@ -109,11 +110,13 @@ def generate_summary_table(
     topologies: list[dict],
 ) -> pd.DataFrame:
     """Generate the main summary table with interpolated loads at 0.1% blocking."""
+    heur_selection = load_heuristic_selection()
     rows = []
     for topo in topologies:
         name = topo["topology_name"]
         row = {
             "topology": name,
+            "heuristic_used": heur_selection.get(name, "ksp_ff"),
             "nodes": topo["num_nodes"],
             "edges": topo["num_edges"],
             "avg_degree": round(topo["avg_degree"], 2),
@@ -205,7 +208,7 @@ def plot_bounds_overview(df: pd.DataFrame, figures_dir: Path):
     x = np.arange(len(valid))
     width = 0.25
 
-    ax.bar(x - width, valid["heuristic_load_01pct"], width, label="Heuristic (KSP-FF)", alpha=0.8)
+    ax.bar(x - width, valid["heuristic_load_01pct"], width, label="Heuristic (best)", alpha=0.8)
     if valid["cutset_load_01pct"].notna().any():
         ax.bar(x, valid["cutset_load_01pct"], width, label="Cut-set bound", alpha=0.8)
     if valid["rr_load_01pct"].notna().any():
@@ -410,6 +413,10 @@ def main():
         print(f"    Median: {df['gap_rr_pct'].median():.1f}%")
         print(f"    Min:    {df['gap_rr_pct'].min():.1f}%")
         print(f"    Max:    {df['gap_rr_pct'].max():.1f}%")
+
+    num_ffksp = (df["heuristic_used"] == "ff_ksp").sum()
+    num_kspff = (df["heuristic_used"] == "ksp_ff").sum()
+    print(f"\n  Heuristic selection: {num_ffksp} use FF-KSP, {num_kspff} use KSP-FF")
 
     # Generate plots
     print("\nGenerating plots...")

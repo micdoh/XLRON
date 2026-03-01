@@ -41,19 +41,22 @@ MIN_LOAD = 2
 MAX_LOAD = 50000
 
 
-def run_sweep(topology, sweep_min, sweep_max, step, sweep_file, timeout=3600):
+def run_sweep(topology, sweep_min, sweep_max, step, sweep_file, timeout=3600, extra_flags=None):
     """Run a heuristic eval load sweep. Returns list of {load, blocking_mean, ...}."""
+    flags = {
+        **QUICK_SCAN_PARAMS,
+        "EVAL_HEURISTIC": True,
+        "load": sweep_min,
+        "min_load": sweep_min,
+        "max_load": sweep_max,
+        "step_load": step,
+    }
+    if extra_flags:
+        flags.update(extra_flags)
     cmd = build_command(
         script="xlron.train.train",
         topology=topology,
-        extra_flags={
-            **QUICK_SCAN_PARAMS,
-            "EVAL_HEURISTIC": True,
-            "load": sweep_min,
-            "min_load": sweep_min,
-            "max_load": sweep_max,
-            "step_load": step,
-        },
+        extra_flags=flags,
         output_file=str(sweep_file),
     )
 
@@ -119,11 +122,14 @@ def compute_sweep_range(sweep_num, initial_load, all_probes):
     return max(MIN_LOAD, round(min(loads) / 3)), min(loads)
 
 
-def discover_bracket(topology, stats, probe_dir, heuristic_dir):
+def discover_bracket(topology, stats, probe_dir, heuristic_dir, extra_flags=None):
     """Find two loads that bracket 0.1% blocking using load sweeps.
 
     Saves ALL sweep results to heuristic_eval/ for use as final data.
     Returns dict with status, load_low, load_high, bp_low, bp_high, probes.
+
+    Args:
+        extra_flags: Optional dict of flags to override defaults (e.g. path_heuristic).
     """
     initial_load = estimate_initial_load(stats)
     print(f"  Initial load estimate: {initial_load} Erlang")
@@ -146,7 +152,7 @@ def discover_bracket(topology, stats, probe_dir, heuristic_dir):
         print(f"  Sweep {sweep_num + 1}: [{sweep_min}, {sweep_max}] step={step}")
 
         sweep_file = probe_dir / f"{topology}_sweep{sweep_num}.jsonl"
-        entries = run_sweep(topology, sweep_min, sweep_max, step, sweep_file)
+        entries = run_sweep(topology, sweep_min, sweep_max, step, sweep_file, extra_flags=extra_flags)
 
         if entries is None:
             break
