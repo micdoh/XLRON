@@ -1,11 +1,13 @@
 """Phase 1: Discover two load points bracketing 0.1% blocking for each topology.
 
-Uses binary search with quick heuristic evaluations to find:
+Uses binary search with heuristic evaluations to find:
   - load_low:  a load where blocking is in [0.01%, 0.1%)
   - load_high: a load where blocking is in [0.1%, 1%]
 
 These two points are sufficient to interpolate the load at exactly 0.1% blocking.
-Results are saved incrementally to load_ranges.json for resume support.
+The bracket probe results double as the final heuristic evaluation data (no
+separate Phase 2 re-run needed). Results are saved incrementally to
+load_ranges.json for resume support.
 """
 
 import sys
@@ -234,6 +236,31 @@ def discover_bracket(topology: str, stats: dict, output_dir: Path) -> dict:
     return {"status": "failed", "probes": {int(k): v for k, v in probes.items()}}
 
 
+def save_bracket_probes(name: str, result: dict, probe_dir: Path, heuristic_dir: Path):
+    """Copy the two bracket probe JSONL files into heuristic_eval/ as final results."""
+    if result.get("status") not in ("ok", "ok_relaxed"):
+        return
+
+    heuristic_file = heuristic_dir / f"{name}.jsonl"
+    if heuristic_file.exists() and heuristic_file.stat().st_size > 0:
+        return  # Already saved
+
+    load_low = result["load_low"]
+    load_high = result["load_high"]
+    probe_low = probe_dir / f"{name}_probe_{int(load_low)}.jsonl"
+    probe_high = probe_dir / f"{name}_probe_{int(load_high)}.jsonl"
+
+    with open(heuristic_file, "w") as f_out:
+        for probe_file in [probe_low, probe_high]:
+            if probe_file.exists():
+                with open(probe_file) as f_in:
+                    for line in f_in:
+                        f_out.write(line)
+
+    if heuristic_file.stat().st_size > 0:
+        print(f"  Saved heuristic results: {heuristic_file.name}")
+
+
 def main():
     print("=" * 60)
     print("Phase 1: Discovering load brackets for 0.1% blocking")
@@ -242,7 +269,9 @@ def main():
     topologies = get_topology_list()
     ranges = load_load_ranges()
     probe_dir = RESULTS_DIR / "probes"
+    heuristic_dir = RESULTS_DIR / "heuristic_eval"
     probe_dir.mkdir(parents=True, exist_ok=True)
+    heuristic_dir.mkdir(parents=True, exist_ok=True)
 
     completed = 0
     skipped = 0
@@ -252,6 +281,8 @@ def main():
         name = topo["topology_name"]
 
         if name in ranges:
+            # Still save heuristic results if not yet saved (e.g. resumed run)
+            save_bracket_probes(name, ranges[name], probe_dir, heuristic_dir)
             skipped += 1
             continue
 
@@ -265,6 +296,7 @@ def main():
         if result["status"] in ("ok", "ok_relaxed"):
             print(f"  -> load_low={result['load_low']} (BP={result['bp_low']*100:.4f}%), "
                   f"load_high={result['load_high']} (BP={result['bp_high']*100:.4f}%)")
+            save_bracket_probes(name, result, probe_dir, heuristic_dir)
             completed += 1
         elif result["status"] in ("ultra-low-capacity", "ultra-high-capacity"):
             print(f"  -> {result['status']}: [{result.get('load_low', '?')}, {result.get('load_high', '?')}]")
@@ -275,6 +307,7 @@ def main():
 
     print(f"\nDone: {completed} discovered, {skipped} skipped (already done), {failed} failed")
     print(f"Results saved to {RESULTS_DIR / 'load_ranges.json'}")
+    print(f"Heuristic eval results saved to {heuristic_dir}/")
 
 
 if __name__ == "__main__":

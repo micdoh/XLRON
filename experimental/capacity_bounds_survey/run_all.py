@@ -4,13 +4,13 @@
 Usage:
     uv run python experimental/capacity_bounds_survey/run_all.py
 
-Runs all 6 phases sequentially. Resume-safe: each phase skips
+Runs all 5 phases sequentially. Resume-safe: each phase skips
 topologies that already have output files. Can be killed and
 restarted at any time.
 
 Individual phases can also be run standalone:
     uv run python experimental/capacity_bounds_survey/01_discover_load_ranges.py
-    uv run python experimental/capacity_bounds_survey/02_run_heuristic_eval.py
+    uv run python experimental/capacity_bounds_survey/03_run_cutset_bounds.py
     ...etc
 """
 
@@ -67,12 +67,11 @@ def main():
     total_start = time.time()
 
     phases = [
-        ("01_discover_load_ranges", 1, "Discover load ranges"),
-        ("02_run_heuristic_eval",   2, "Heuristic evaluation sweeps"),
-        ("03_run_cutset_bounds",    3, "Cut-set bounds sweeps"),
-        ("04_run_rr_bounds",        4, "Reconfigurable routing bounds sweeps"),
-        ("05_run_k_sensitivity",    5, "K-sensitivity experiment"),
-        ("06_analyze_results",      6, "Analysis and plotting"),
+        ("01_discover_load_ranges", 1, "Discover load ranges + heuristic eval"),
+        ("03_run_cutset_bounds",    2, "Cut-set bounds"),
+        ("04_run_rr_bounds",        3, "Reconfigurable routing bounds"),
+        ("05_run_k_sensitivity",    4, "K-sensitivity experiment"),
+        ("06_analyze_results",      5, "Analysis and plotting"),
     ]
 
     for module_name, phase_num, description in phases:
