@@ -322,8 +322,6 @@ if __name__ == '__main__':
     new_data_dir = Path(__file__).resolve().parents[4] / 'experiment_data' / 'bounds'
     new_reconfig_data = load_bounds_file(new_data_dir / 'experiment_results_reconfigurable_bounds.csv')
     new_cutset_data = load_bounds_file(new_data_dir / 'experiment_results_cutsets_bounds.csv')
-    new_cutset_no_cont_data = load_bounds_file(new_data_dir / 'experiment_results_cutsets_bounds_no_continuity.jsonl')
-
     # Process heuristic eval data - CSV has 42 data fields for 41 headers
     # (extra empty field at position 5), so pandas uses field[0] as index.
     # The index has the true NAME, columns NAME/HEUR/TOPOLOGY/LOAD are shifted,
@@ -355,7 +353,6 @@ if __name__ == '__main__':
     }
     new_reconfig_data = new_reconfig_data.rename(columns=_bounds_rename)
     new_cutset_data = new_cutset_data.rename(columns=_bounds_rename)
-    new_cutset_no_cont_data = new_cutset_no_cont_data.rename(columns=_bounds_rename)
 
     # Map individual experiment names to grouped publication names
     def get_publication_new(name):
@@ -365,7 +362,7 @@ if __name__ == '__main__':
             return 'PtrNet-RSA'
         return name
 
-    for df in [new_heur_data, new_reconfig_data, new_cutset_data, new_cutset_no_cont_data]:
+    for df in [new_heur_data, new_reconfig_data, new_cutset_data]:
         df['N_slots'] = df['NAME'].apply(get_n_slots)
         df['topology'] = df['TOPOLOGY'].apply(get_topology)
         df['publication'] = df['NAME'].apply(get_publication_new)
@@ -378,12 +375,9 @@ if __name__ == '__main__':
     new_heur_data = compute_bands(new_heur_data, n=2000)      # NUM_ENVS=2000
     new_reconfig_data = compute_bands(new_reconfig_data, n=10)  # num_trials=10
     new_cutset_data = compute_bands(new_cutset_data, n=10)      # num_trials=10
-    new_cutset_no_cont_data = compute_bands(new_cutset_no_cont_data, n=10)  # num_trials=10
-
     cutset_col = '#30A08E'
-    cutset_no_cont_col = '#E07B39'
 
-    def plot_case_new(ax, pub, topology, n_slots, heur_df, reconfig_df, cutset_df, cutset_no_cont_df):
+    def plot_case_new(ax, pub, topology, n_slots, heur_df, reconfig_df, cutset_df):
         pub_filter = 'PtrNet-RSA' if 'PtrNet-RSA' in pub else pub
 
         case_heur = heur_df[(heur_df['publication'] == pub_filter) &
@@ -395,9 +389,6 @@ if __name__ == '__main__':
         case_cutset = cutset_df[(cutset_df['publication'] == pub_filter) &
                                  (cutset_df['topology'] == topology) &
                                  (cutset_df['N_slots'] == n_slots)]
-        case_cutset_no_cont = cutset_no_cont_df[(cutset_no_cont_df['publication'] == pub_filter) &
-                                                 (cutset_no_cont_df['topology'] == topology) &
-                                                 (cutset_no_cont_df['N_slots'] == n_slots)]
 
         lines = []
         labels = []
@@ -426,19 +417,11 @@ if __name__ == '__main__':
             lines.append(line[0])
             labels.append('Cut-set bound')
 
-        if not case_cutset_no_cont.empty:
-            line = ax.plot(case_cutset_no_cont['load'], case_cutset_no_cont['mean'],
-                          marker='D', markerfacecolor=cutset_no_cont_col, linestyle='-', color=cutset_no_cont_col)
-            ax.fill_between(case_cutset_no_cont['load'], case_cutset_no_cont['band_lower'],
-                           case_cutset_no_cont['band_upper'], alpha=0.2, color=cutset_no_cont_col)
-            lines.append(line[0])
-            labels.append('Cut-set bound (no spectrum continuity)')
-
         # Dynamically adjust axis limits so at least one point per series is visible.
         # Start from the default limits and only expand.
         y_min, y_max = 0.01, 1
         x_min, x_max = ax.get_xlim()  # auto-scaled from plotted data
-        for case in [case_heur, case_reconfig, case_cutset, case_cutset_no_cont]:
+        for case in [case_heur, case_reconfig, case_cutset]:
             if case.empty:
                 continue
             visible = case[case['mean'] > 0]
@@ -461,7 +444,7 @@ if __name__ == '__main__':
         title = f'{pub_display}\n\n{topology}' if topology == 'NSFNET' else topology
         ax.set_title(title, fontsize=32)
 
-        has_data = not (case_heur.empty and case_reconfig.empty and case_cutset.empty and case_cutset_no_cont.empty)
+        has_data = not (case_heur.empty and case_reconfig.empty and case_cutset.empty)
         return has_data, lines, labels
 
     # Create new figure with same grid layout
@@ -481,7 +464,7 @@ if __name__ == '__main__':
 
             data_plotted, lines, labels = plot_case_new(
                 ax, publication, topology, n_slots,
-                new_heur_data, new_reconfig_data, new_cutset_data, new_cutset_no_cont_data
+                new_heur_data, new_reconfig_data, new_cutset_data
             )
 
             if not data_plotted:
