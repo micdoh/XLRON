@@ -1,6 +1,6 @@
 """Phase 6: Analyze results, interpolate to 0.1% blocking, generate summary table and plots.
 
-Reads all JSONL outputs from Phases 2-5, performs interpolation to find
+Reads all JSONL outputs from Phases 1-4, performs interpolation to find
 the load at 0.1% blocking for each method, and generates:
 - summary_table.csv: One row per topology with loads at 0.1% blocking
 - figures/bounds_comparison_scatter.png: Gap analysis
@@ -57,8 +57,12 @@ def load_all_jsonl(directory: Path) -> dict[str, list[dict]]:
                     "blocking_std": bp.get("std", 0),
                 })
         if entries:
-            # Sort by load and deduplicate
+            # Sort by load and deduplicate (keep last entry per load)
             entries.sort(key=lambda x: x["load"])
+            seen = {}
+            for e in entries:
+                seen[e["load"]] = e
+            entries = sorted(seen.values(), key=lambda x: x["load"])
             results[topo_name] = entries
     return results
 
