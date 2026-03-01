@@ -22,7 +22,7 @@ SHARED_FLAGS = {
     "values_bw": "100",
     "mean_service_holding_time": 25,
     "continuous_operation": True,
-    "ENV_WARMUP_STEPS": 3000,
+    "ENV_WARMUP_STEPS": 0,
     "modulations_csv_filepath": str(PROJECT_ROOT / "xlron" / "data" / "modulations" / "modulations_deeprmsa.csv"),
     "path_heuristic": "ksp_ff",
     "k": 50,
@@ -31,14 +31,14 @@ SHARED_FLAGS = {
 # Quick scan parameters (for load discovery)
 QUICK_SCAN_PARAMS = {
     "NUM_ENVS": 100,
-    "TOTAL_TIMESTEPS": 2_000_000,
+    "TOTAL_TIMESTEPS": 1_300_000,
     "ROLLOUT_LENGTH": 128,
 }
 
 # Full heuristic evaluation parameters
 FULL_HEURISTIC_PARAMS = {
     "NUM_ENVS": 100,
-    "TOTAL_TIMESTEPS": 5_000_000,
+    "TOTAL_TIMESTEPS": 1_300_000,
     "ROLLOUT_LENGTH": 128,
 }
 

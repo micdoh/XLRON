@@ -49,7 +49,7 @@ def run_sweep(topology, sweep_min, sweep_max, step, sweep_file, timeout=3600):
         extra_flags={
             **QUICK_SCAN_PARAMS,
             "EVAL_HEURISTIC": True,
-            "load": sweep_max,
+            "load": sweep_min,
             "min_load": sweep_min,
             "max_load": sweep_max,
             "step_load": step,
