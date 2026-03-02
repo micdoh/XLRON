@@ -41,7 +41,7 @@ MIN_LOAD = 2
 MAX_LOAD = 50000
 
 
-def run_sweep(topology, sweep_min, sweep_max, step, sweep_file, timeout=36000, extra_flags=None):
+def run_sweep(topology, sweep_min, sweep_max, step, sweep_file, timeout=12000, extra_flags=None):
     """Run a heuristic eval load sweep. Returns list of {load, blocking_mean, ...}."""
     flags = {
         **QUICK_SCAN_PARAMS,
