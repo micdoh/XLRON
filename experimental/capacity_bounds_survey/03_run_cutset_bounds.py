@@ -168,9 +168,6 @@ def main():
             if has_bracket(all_bps):
                 skipped += 1
                 continue
-            if len(all_bps) >= MAX_PROBES:
-                skipped += 1
-                continue
             print(f"\n[{completed + skipped + failed + 1}/{len(topologies)}] {name} "
                   f"(resuming from {len(all_bps)} existing probes)")
             for load, bp in all_bps:
@@ -183,7 +180,13 @@ def main():
         start_probe = len(all_bps) + 1
 
         # --- Probe loop ---
-        for probe_num in range(start_probe, MAX_PROBES + 1):
+        # Run up to MAX_PROBES, then up to 2 extra if still no bracket
+        max_this_run = MAX_PROBES + 2
+        for probe_num in range(start_probe, max_this_run + 1):
+            # Stop at MAX_PROBES if we have a bracket; otherwise continue
+            if probe_num > MAX_PROBES and has_bracket(all_bps):
+                break
+
             # Choose load for this probe
             if probe_num == 1:
                 load = load_high
