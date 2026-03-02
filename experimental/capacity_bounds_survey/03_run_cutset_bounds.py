@@ -136,12 +136,27 @@ def main():
 
         # --- Probe 3 (fallback if no bracket) ---
         if not (has_lower and has_upper) and len(all_bps) >= 2:
-            if not has_upper:
+            # Check if we have both zero-BP and high-BP probes (common case:
+            # 0% at one load, >>0.1% at another). Bisect between them.
+            zero_loads = [l for l, bp in all_bps if bp <= 0]
+            high_loads = [l for l, bp in all_bps if bp >= TARGET_BP]
+
+            if zero_loads and high_loads:
+                # Bisect between the highest zero-BP load and lowest high-BP load
+                lo = max(zero_loads)
+                hi = min(high_loads)
+                load3 = round((lo + hi) / 2)
+                # Ensure we're not re-probing the same load
+                if load3 == lo:
+                    load3 = lo + 1
+                elif load3 == hi:
+                    load3 = hi - 1
+            elif not has_upper:
                 # All below 0.1% - need higher load
                 highest_load = max(l for l, _ in all_bps)
                 load3 = round(highest_load * 2)
             elif not has_lower:
-                # All above 0.1% or zero - need lower load with 0 < BP < 0.1%
+                # All above 0.1% - need lower load
                 lowest_load = min(l for l, _ in all_bps)
                 load3 = max(round(lowest_load * 0.5), 1)
             else:

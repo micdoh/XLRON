@@ -260,8 +260,9 @@ def estimate_next_load(
     2x safety factor to overshoot rather than undershoot.
     """
     if bp_at_probe <= 0:
-        # Zero blocking - need much higher load, no gradient info
-        return round(probe_load * 3)
+        # Zero blocking - use gentle multiplier to avoid overshooting
+        # the narrow transition region
+        return round(probe_load * 1.5)
 
     if gradient is None or gradient <= 0:
         # No usable gradient - use multiplier
