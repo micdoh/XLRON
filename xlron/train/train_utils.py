@@ -1,0 +1,2195 @@
+import datetime
+import json
+import math
+import os
+import pathlib
+import pickle
+from typing import Any, Callable, Dict, Tuple, Union
+
+import chex
+import distrax
+import equinox as eqx
+import jax
+import jax.numpy as jnp
+import matplotlib.pyplot as plt
+import numpy as np
+import optax
+import pandas as pd
+from box import Box
+from jax import Array
+from optax import Schedule
+
+import wandb
+from xlron import dtype_config
+from xlron.environments.dataclasses import EnvState, RMSAGNModelEnvParams
+from xlron.environments.env_funcs import (
+    get_launch_power,
+    get_paths,
+    init_link_length_array,
+    make_graph,
+    mask_slots_rmsa_gn_model,
+    process_path_action,
+)
+from xlron.environments.make_env import make
+from xlron.environments.wrappers import TimeIt
+from xlron.heuristics.heuristics import (
+    bf_ksp,
+    ff_ksp,
+    kca_ff,
+    kmc_ff,
+    kme_ff,
+    kmf_ff,
+    ksp_bf,
+    ksp_ff,
+    ksp_lf,
+    ksp_mu,
+    mu_ksp,
+)
+from xlron.models.gnn import ActorCriticGNN
+from xlron.models.mlp import ActorCriticMLP, LaunchPowerActorCriticMLP
+from xlron.models.transformer import ActorCriticTransformer
+
+# TODO - Add all possible metrics here (they will all be registered in wandb) then just add a try except when adding them to processed data
+metrics = [
+    "returns",
+    "lengths",
+    "cum_returns",
+    "accepted_services",
+    "accepted_bitrate",
+    "total_bitrate",
+    "utilisation",
+    "service_blocking_probability",
+    "bitrate_blocking_probability",
+    "throughput",  # Only for RSA GN Model
+    "launch_power",
+    "path_snr",
+    "request_source",
+    "request_dest",
+    "request_data_rate",
+    "arrival_time",
+    "departure_time",
+    "path_indices",
+    "slot_indices",
+    "returns",
+    "path_links",
+    "path_spectral_efficiency",
+    "required_slots",
+    "path_length",
+    "num_hops",
+]
+loss_metrics = [
+    "loss/total_loss",
+    "loss/actor_loss",
+    "loss/value_loss",
+    "loss/entropy",
+    "loss/gae",
+    "loss/ratio",
+    "loss/log_prob",
+    "loss/entropy_loss_scaled",
+    "loss/value_loss_scaled",
+    "loss/validmass_loss",
+    "loss/validmass_loss_scaled",
+]
+
+# Reward centering metrics (only logged when REWARD_CENTERING=True)
+reward_centering_metrics = [
+    "reward_centering/avg_reward",
+    "reward_centering/value_mean",
+]
+
+# Enhanced diagnostics metrics (only logged when ENHANCED_LOGGING=True)
+diagnostics_metrics = [
+    "diagnostics/valid_frac",
+    "diagnostics/clip_frac",
+    "diagnostics/ratio_mean",
+    "diagnostics/ratio_std",
+    "diagnostics/ratio_min",
+    "diagnostics/ratio_max",
+    "diagnostics/valid_mass_mean",
+    "diagnostics/valid_mass_std",
+    "diagnostics/valid_mass_min",
+    "diagnostics/valid_mass_max",
+    "diagnostics/n_valid_mean",
+    "diagnostics/n_valid_min",
+    "diagnostics/n_valid_max",
+    "diagnostics/adv_mean_raw",
+    "diagnostics/adv_std_raw",
+    "diagnostics/gate_frac",
+    "diagnostics/log_prob_choice",
+    "diagnostics/entropy_choice",
+    "diagnostics/log_prob_min",
+    "diagnostics/invalid_taken_frac",
+    "diagnostics/taken_valid_min",
+]
+
+
+class TrainState(eqx.Module):
+    """Train state for Equinox models.
+
+    The model is stored but marked as non-pytree so JAX doesn't try to trace it.
+    """
+
+    step: Array
+    model_params: eqx.Module
+    model_static: eqx.Module = eqx.field(static=True)  # Mark as static/non-pytree
+    tx: optax.GradientTransformation = eqx.field(static=True)
+    opt_state: optax.OptState
+    lr_schedule: Schedule = eqx.field(static=True)
+    ent_schedule: Schedule = eqx.field(static=True)
+    vml_schedule: Schedule = eqx.field(static=True)
+    avg_reward: Array
+    reward_stepsize: Array
+    reward_stepsize_init: Array
+    reward_stepsize_offset: Array
+    prio_alpha: Array
+    prio_beta0: Array
+    prio_beta: Array
+
+    def apply_gradients(self, grads: Any) -> "TrainState":
+        """Updates model parameters and opt_state."""
+        model = eqx.combine(self.model_params, self.model_static)
+        updates, new_opt_state = self.tx.update(grads, self.opt_state, self.model_params)
+        new_model = eqx.apply_updates(model, updates)
+        new_model_params, new_model_static = eqx.partition(new_model, eqx.is_inexact_array)
+        # Can't use eqx.tree_at for static fields, create new instance
+        return TrainState(
+            step=self.step,
+            model_params=new_model_params,
+            model_static=new_model_static,
+            tx=self.tx,
+            opt_state=new_opt_state,
+            lr_schedule=self.lr_schedule,
+            ent_schedule=self.ent_schedule,
+            vml_schedule=self.vml_schedule,
+            avg_reward=self.avg_reward,
+            reward_stepsize=self.reward_stepsize,
+            reward_stepsize_init=self.reward_stepsize_init,
+            reward_stepsize_offset=self.reward_stepsize_offset,
+            prio_alpha=self.prio_alpha,
+            prio_beta0=self.prio_beta0,
+            prio_beta=self.prio_beta,
+        )
+
+    def update_step_size(self) -> "TrainState":
+        """Updates the step size used for reward centering."""
+        reward_stepsize_offset = self.reward_stepsize_offset + self.reward_stepsize_init * (
+            1 - self.reward_stepsize_offset
+        )
+        reward_stepsize = self.reward_stepsize_init / reward_stepsize_offset
+        return eqx.tree_at(
+            lambda state: (state.reward_stepsize, state.reward_stepsize_offset),
+            self,
+            (reward_stepsize, reward_stepsize_offset),
+        )
+
+    @staticmethod
+    def create(
+        model: eqx.Module | None,
+        tx: optax.GradientTransformation,
+        lr_schedule: Schedule = lambda x: jnp.array(0.0),
+        ent_schedule: Schedule = lambda x: jnp.array(0.0),
+        vml_schedule: Schedule = lambda x: jnp.array(0.0),
+        prio_alpha: float = 0.0,
+        prio_beta0: float = 1.0,
+        prio_beta: float = 1.0,
+        reward_stepsize_init: float = 0.001,
+        initial_avg_reward: float = 0.0,
+    ) -> "TrainState":
+        """Creates a new instance with step=0 and initialized opt_state."""
+        opt_state = tx.init(eqx.filter(model, eqx.is_inexact_array))
+        model_params, model_static = eqx.partition(model, eqx.is_inexact_array)
+        return TrainState(
+            step=jnp.array(0),
+            model_params=model_params,
+            model_static=model_static,
+            tx=tx,
+            opt_state=opt_state,
+            lr_schedule=lr_schedule,
+            ent_schedule=ent_schedule,
+            vml_schedule=vml_schedule,
+            avg_reward=jnp.array(initial_avg_reward, dtype=dtype_config.REWARD_DTYPE),
+            reward_stepsize=jnp.array(reward_stepsize_init, dtype=dtype_config.REWARD_DTYPE),
+            reward_stepsize_init=jnp.array(reward_stepsize_init, dtype=dtype_config.REWARD_DTYPE),
+            reward_stepsize_offset=jnp.array(1.0, dtype=dtype_config.REWARD_DTYPE),
+            prio_alpha=jnp.array(prio_alpha, dtype=dtype_config.REWARD_DTYPE),
+            prio_beta0=jnp.array(prio_beta0, dtype=dtype_config.REWARD_DTYPE),
+            prio_beta=jnp.array(prio_beta, dtype=dtype_config.REWARD_DTYPE),
+        )
+
+
+def scale_gradient(g: chex.Array, scale: float = 1) -> chex.Array:
+    """Scales the gradient of `g` by `scale` but keeps the original value unchanged."""
+    return g * scale + jax.lax.stop_gradient(g) * (1.0 - scale)
+
+
+def count_parameters(params: chex.ArrayTree) -> int:
+    """Counts the number of parameters in a parameter tree."""
+    return sum(x.size for x in jax.tree_util.tree_leaves(params))
+
+
+def print_experiment_summary(config: Box, env_params=None) -> None:
+    """Print a formatted summary of the experiment configuration."""
+    W = 70
+    sep = "=" * W
+
+    # --- Determine execution mode ---
+    if config.get("EVAL_HEURISTIC", False):
+        mode = f"Heuristic Evaluation ({config.get('path_heuristic', '?')})"
+    elif config.get("EVAL_MODEL", False):
+        mode = "Model Evaluation"
+    elif config.get("ACTION_OPTIMIZATION", False):
+        mode = "Action Optimization"
+    else:
+        mode = "RL Training (PPO)"
+
+    # --- Environment ---
+    env_type = config.get("env_type", "?")
+    topology = config.get("topology_name", "?")
+    if env_params:
+        num_nodes = env_params.num_nodes
+        num_links = env_params.num_links
+    elif config.get("NUM_NODES"):
+        num_nodes = config.NUM_NODES
+        num_links = config.NUM_LINKS
+    else:
+        graph = make_graph(topology, topology_directory=config.get("topology_directory", None))
+        num_nodes = len(graph.nodes)
+        num_links = len(graph.edges)
+    k = env_params.k_paths if env_params else config.get("k", "?")
+    link_resources = env_params.link_resources if env_params else config.get("link_resources", "?")
+    slot_size = env_params.slot_size if env_params else config.get("slot_size", 12.5)
+    guardband = env_params.guardband if env_params else config.get("guardband", 1)
+    directed = env_params.directed_graph if env_params else config.get("directed_graph", "?")
+    path_sort = config.get("path_sort_criteria", "hops")
+    total_bw = float(link_resources) * float(slot_size) if link_resources != "?" else "?"
+
+    # --- Traffic ---
+    load = env_params.load if env_params else config.get("load", "?")
+    holding_time = (
+        env_params.mean_service_holding_time
+        if env_params
+        else config.get("mean_service_holding_time", "?")
+    )
+    if env_params:
+        arrival_rate = env_params.arrival_rate
+    elif load != "?" and holding_time != "?":
+        arrival_rate = float(load) / float(holding_time)
+    else:
+        arrival_rate = "?"
+    continuous = (
+        env_params.continuous_operation if env_params else config.get("continuous_operation", False)
+    )
+    incremental = (
+        env_params.incremental_loading if env_params else config.get("incremental_loading", False)
+    )
+    max_requests = env_params.max_requests if env_params else config.get("max_requests", "?")
+    warmup = config.get("ENV_WARMUP_STEPS", 0)
+    reward_type = env_params.reward_type if env_params else config.get("reward_type", "service")
+    values_bw = env_params.values_bw if env_params else config.get("values_bw", None)
+    if hasattr(values_bw, "val"):
+        values_bw = values_bw.val
+    truncate_ht = (
+        env_params.truncate_holding_time
+        if env_params
+        else config.get("truncate_holding_time", False)
+    )
+
+    # --- Training / Execution ---
+    total_timesteps = config.get("TOTAL_TIMESTEPS", "?")
+    num_envs = config.get("NUM_ENVS", 1)
+    num_learners = config.get("NUM_LEARNERS", 1)
+    rollout_length = config.get("ROLLOUT_LENGTH", "?")
+    num_updates = config.get("NUM_UPDATES", "?")
+    num_minibatches = config.get("NUM_MINIBATCHES", 1)
+    update_epochs = config.get("UPDATE_EPOCHS", 1)
+    num_increments = config.get("NUM_INCREMENTS", 1)
+    steps_per_inc = config.get("STEPS_PER_INCREMENT", "?")
+    batch_size = config.get("MINIBATCH_SIZE", "?")
+
+    # --- Model ---
+    if config.get("USE_TRANSFORMER", False):
+        arch = "Transformer"
+        arch_detail = (
+            f"{config.get('transformer_num_layers', '?')}L / "
+            f"{config.get('transformer_num_heads', '?')}H / "
+            f"d={config.get('transformer_embedding_size', '?')}"
+        )
+    elif config.get("USE_GNN", False):
+        arch = "GNN"
+        arch_detail = (
+            f"{config.get('message_passing_steps', '?')} msg steps / "
+            f"edge_emb={config.get('edge_embedding_size', '?')}"
+        )
+    else:
+        arch = "MLP"
+        arch_detail = (
+            f"{config.get('NUM_LAYERS', '?')} layers x {config.get('NUM_UNITS', '?')} units"
+        )
+
+    # --- Print ---
+    print(f"\n{sep}")
+    print("EXPERIMENT SUMMARY")
+    print(sep)
+
+    print(f"  Mode:                     {mode}")
+    print(f"  Experiment name:          {config.get('EXPERIMENT_NAME', '-')}")
+
+    print(f"\n  {'--- Environment ---':^{W - 4}}")
+    print(f"  Type:                     {env_type}")
+    print(f"  Topology:                 {topology} ({'directed' if directed else 'undirected'})")
+    print(f"  Nodes / Links:            {num_nodes} / {num_links}")
+    print(f"  K-shortest paths:         {k}  (sort: {path_sort})")
+    print(
+        f"  Slots per link:           {link_resources}  ({slot_size} GHz each, guardband={guardband})"
+    )
+    if total_bw != "?":
+        print(f"  Total spectrum per link:  {total_bw:.0f} GHz")
+    consider_mod = env_params.consider_modulation_format if env_params else "?"
+    if consider_mod and consider_mod != "?":
+        print("  Modulation format:        enabled")
+    if config.get("aggregate_slots", 1) > 1:
+        print(f"  Slot aggregation:         {config.get('aggregate_slots')}x")
+
+    print(f"\n  {'--- Traffic ---':^{W - 4}}")
+    print(f"  Load:                     {load} Erlang")
+    print(f"  Arrival rate:             {arrival_rate}")
+    print(f"  Mean holding time:        {holding_time}{' (truncated)' if truncate_ht else ''}")
+    if values_bw is not None:
+        # Support values_bw provided as scalar, array, or comma-separated string.
+        if isinstance(values_bw, str):
+            parts = [p.strip() for p in values_bw.split(",") if p.strip()]
+            bw_list = []
+            for p in parts:
+                try:
+                    fv = float(p)
+                    bw_list.append(str(int(fv)) if fv.is_integer() else str(fv))
+                except ValueError:
+                    bw_list.append(p)
+        else:
+            flat = np.asarray(values_bw).reshape(-1)
+            bw_list = []
+            for v in flat:
+                try:
+                    fv = float(v)
+                    bw_list.append(str(int(fv)) if fv.is_integer() else str(fv))
+                except (TypeError, ValueError):
+                    bw_list.append(str(v))
+        bw_str = ", ".join(bw_list)
+        print(f"  Bandwidth values (Gbps):  [{bw_str}]")
+    print(f"  Reward type:              {reward_type}")
+    op_mode = "continuous" if continuous else ("incremental" if incremental else "episodic")
+    print(f"  Operation mode:           {op_mode}")
+    if not continuous:
+        print(f"  Max requests / episode:   {max_requests}")
+    if warmup > 0:
+        warmup_type = config.get("warmup_action_type", None) or "default"
+        print(f"  Warmup steps:             {warmup} ({warmup_type})")
+
+    print(f"\n  {'--- Execution ---':^{W - 4}}")
+    print(
+        f"  Total timesteps:          {total_timesteps:,}"
+        if isinstance(total_timesteps, int)
+        else f"  Total timesteps:          {total_timesteps}"
+    )
+    print(f"  Parallel envs:            {num_envs}")
+    if num_learners > 1:
+        print(f"  Independent learners:     {num_learners}")
+        print(f"  Grand total timesteps:    {total_timesteps * num_learners:,}")
+    print(
+        f"  Increments:               {num_increments}  ({steps_per_inc:,} steps each)"
+        if isinstance(steps_per_inc, int)
+        else f"  Increments:               {num_increments}"
+    )
+
+    if not config.get("EVAL_HEURISTIC", False):
+        print(f"  Rollout length:           {rollout_length}")
+        batch_total = num_envs * rollout_length if isinstance(rollout_length, int) else "?"
+        print(
+            f"  Batch size:               {batch_total}  (= {num_envs} envs x {rollout_length} steps)"
+        )
+        print(f"  Minibatches / epoch:      {num_minibatches}  (minibatch size: {batch_size})")
+        print(f"  Update epochs:            {update_epochs}")
+        total_updates = num_increments * num_updates * update_epochs * num_minibatches
+        print(
+            f"  Total gradient steps:     {total_updates:,}"
+            if isinstance(total_updates, int)
+            else f"  Total gradient steps:     {total_updates}"
+        )
+
+    if not (config.get("EVAL_HEURISTIC", False) or config.get("EVAL_MODEL", False)):
+        print(f"\n  {'--- Model & Optimiser ---':^{W - 4}}")
+        print(f"  Architecture:             {arch}  ({arch_detail})")
+        print(f"  Activation:               {config.get('ACTIVATION', '?')}")
+        print(
+            f"  Learning rate:            {config.get('LR', '?')}  (schedule: {config.get('LR_SCHEDULE', '?')})"
+        )
+        print(f"  Discount (gamma):         {config.get('GAMMA', '?')}")
+        gae = config.get("GAE_LAMBDA", None)
+        if gae is not None:
+            print(f"  GAE lambda:               {gae}")
+        else:
+            print(
+                f"  GAE lambda:               annealed ({config.get('INITIAL_LAMBDA', '?')} -> {config.get('FINAL_LAMBDA', '?')})"
+            )
+        print(f"  PPO clip:                 {config.get('CLIP_EPS', '?')}")
+        print(
+            f"  Entropy coef:             {config.get('ENT_COEF', '?')}  (schedule: {config.get('ENT_SCHEDULE', '?')})"
+        )
+        print(f"  VF coef:                  {config.get('VF_COEF', '?')}")
+        print(f"  Max grad norm:            {config.get('MAX_GRAD_NORM', '?')}")
+        if config.get("REWARD_CENTERING", False):
+            print(
+                f"  Reward centering:         enabled (stepsize={config.get('REWARD_STEPSIZE', '?')})"
+            )
+        if config.get("SEPARATE_VF_OPTIMIZER", False):
+            print(f"  Separate VF optimizer:    enabled (VF_LR={config.get('VF_LR', 'auto')})")
+
+    if config.get("EVAL_DURING_TRAINING", False):
+        print(
+            f"\n  Eval during training:     every {config.get('EVAL_FREQUENCY', '?')} increment(s)"
+        )
+
+    if config.get("WANDB", False):
+        print(f"  Logging:                  wandb ({config.get('PROJECT', '-')})")
+    if config.get("SAVE_MODEL", False):
+        print("  Model saving:             enabled")
+
+    print(sep + "\n")
+
+
+def ndim_at_least(x: chex.Array, num_dims: chex.Numeric) -> jax.Array:
+    """Check if the number of dimensions of `x` is at least `num_dims`."""
+    if not (isinstance(x, jax.Array) or isinstance(x, np.ndarray)):
+        x = jnp.asarray(x)
+    return x.ndim >= num_dims
+
+
+def merge_leading_dims(x: chex.Array, num_dims: chex.Numeric) -> chex.Array:
+    """Merge leading dimensions.
+
+    Note:
+        This implementation is a generic function for merging leading dimensions
+        extracted from Haiku.
+        For the original implementation, please refer to the following link:
+        (https://github.com/deepmind/dm-haiku/blob/main/haiku/_src/basic.py#L207)
+    """
+    # Don't merge if there aren't dimensions to merge.
+    if not ndim_at_least(x, num_dims):
+        return x
+
+    new_shape = (np.prod(x.shape[:num_dims]),) + x.shape[num_dims:]
+    return x.reshape(new_shape)
+
+
+def unreplicate_n_dims(x: chex.ArrayTree, unreplicate_depth: int = 2) -> chex.ArrayTree:
+    """Unreplicates a pytree by removing the first `unreplicate_depth` axes.
+
+    This function takes a pytree and removes some number of axes, associated with parameter
+    duplication for running multiple updates across devices and in parallel with `vmap`.
+    This is typically one axis for device replication, and one for the `update batch size`.
+    """
+    return jax.tree_util.tree_map(lambda x: x[(0,) * unreplicate_depth], x)
+
+
+def unreplicate_batch_dim(x: chex.ArrayTree) -> chex.ArrayTree:
+    """Unreplicated just the update batch dimension.
+    (The dimension that is vmapped over when acting and learning)
+
+    In stoix's case it is always the second dimension, after the device dimension.
+    We simply take element 0 as the params are identical across this dimension.
+    """
+    return jax.tree_util.tree_map(lambda x: x[:, 0, ...], x)
+
+
+def moving_average(x, w):
+    return jnp.convolve(x, jnp.ones(w), "valid") / w
+
+
+def save_model(model: eqx.Module, config: Box, first_save: bool = True) -> pathlib.Path:
+    # Get path to current file
+    model_path = (
+        pathlib.Path(config.MODEL_PATH)
+        if config.MODEL_PATH is not None
+        else (
+            pathlib.Path(__file__).resolve().parents[2] / "models" / f"{config.EXPERIMENT_NAME}.eqx"
+        )
+    )
+    if not config.OVERWRITE_MODEL:
+        # Never overwrite: always find a new unique filename
+        i = 1
+        candidate = model_path
+        while candidate.exists():
+            candidate = model_path.parent / f"{model_path.stem}_{i}.eqx"
+            i += 1
+        model_path = candidate
+    elif first_save and model_path.exists():
+        # First save of this run and file exists from a different run:
+        # find a unique filename with suffix
+        i = 1
+        candidate = model_path.parent / f"{model_path.stem}_{i}.eqx"
+        while candidate.exists():
+            i += 1
+            candidate = model_path.parent / f"{model_path.stem}_{i}.eqx"
+        model_path = candidate
+    # else: OVERWRITE_MODEL and not first_save — overwrite in place
+
+    print(f"Saving model to {model_path.absolute()}")
+    # Save leaves
+    with open(model_path, "wb") as f:
+        hyperparam_str = json.dumps(config.to_dict())
+        f.write((hyperparam_str + "\n").encode())
+        eqx.tree_serialise_leaves(f, model)
+
+    # Upload model to wandb
+    if config.WANDB:
+        wandb.save(model_path.absolute())
+
+    return model_path
+
+
+def init_network(config: Box, key: chex.PRNGKey) -> eqx.Module:
+    if config.env_type.lower() == "vone":
+        network = ActorCriticMLP(
+            config.ACTION_DIM + (1 * config.include_no_op),  # +1 for "no op"
+            config.INPUT_DIM,
+            activation=config.ACTIVATION,
+            num_layers=config.NUM_LAYERS,
+            num_units=config.NUM_UNITS,
+            layer_norm=config.mlp_layer_norm,
+            key=key,
+        )
+    elif config.env_type.lower() in [
+        "rsa",
+        "rmsa",
+        "rwa",
+        "deeprmsa",
+        "rwa_lightpath_reuse",
+        "rsa_gn_model",
+        "rmsa_gn_model",
+        "rsa_multiband",
+    ]:
+        if config.USE_TRANSFORMER:
+            # For transformer: input_size is the per-token feature dimension
+            # Column order: [wire | edge | traffic_marginals | request-specific...]
+            # Request-specific: [holding_time (departure only)] + request_size + link_relevance(4)
+            num_request_specific_cols = (
+                4  # link relevance
+                + 1  # request size
+                + int(config.transformer_obs_type == "departure")  # holding time
+            )
+            input_size = (
+                config.num_wire_features
+                + config.link_resources
+                + 2  # traffic marginals
+                + num_request_specific_cols
+            )
+            network = ActorCriticTransformer(
+                input_size=input_size,
+                embedding_size=config.transformer_embedding_size,
+                intermediate_size=config.transformer_intermediate_size,
+                num_slot_actions=config.ACTION_DIM // config.k,  # Number of slot actions per path
+                num_layers=config.transformer_num_layers,
+                num_heads=config.transformer_num_heads,
+                enable_dropout=config.transformer_enable_dropout,
+                dropout_rate=config.transformer_dropout_rate,
+                attention_dropout_rate=config.transformer_attention_dropout_rate,
+                share_layers=config.transformer_share_layers,
+                num_wire_features=config.num_wire_features,
+                actor_mlp_width=config.transformer_actor_mlp_width,
+                critic_mlp_width=config.transformer_critic_mlp_width,
+                actor_mlp_depth=config.transformer_actor_mlp_depth,
+                critic_mlp_depth=config.transformer_critic_mlp_depth,
+                num_request_specific_cols=num_request_specific_cols,
+                key=key,
+            )
+        elif config.USE_GNN:
+            if "gn_model" in config.env_type.lower() and config.output_globals_size_actor > 0:
+                global_output_size_actor = (
+                    int((config.max_power - config.min_power) / config.step_power) + 1
+                    if config.discrete_launch_power
+                    else 1
+                )
+            else:
+                global_output_size_actor = config.global_output_size_actor
+            input_node_feature_size = (
+                1
+                if config.DISABLE_NODE_FEATURES
+                else config.num_spectral_features + 2  # 2 for source/dest indicators
+            )
+            network = ActorCriticGNN(
+                config.link_resources,
+                input_node_feature_size,
+                1,  # Global input feature is just normalized requested datarate
+                activation=config.ACTIVATION,
+                num_layers=config.NUM_LAYERS,
+                num_units=config.NUM_UNITS,
+                message_passing_steps=config.message_passing_steps,
+                # output_edges_size must equal number of slot actions
+                mlp_layers=config.mlp_layers,
+                mlp_latent=config.mlp_latent,
+                edge_embedding_size=config.edge_embedding_size,
+                edge_mlp_layers=config.edge_mlp_layers,
+                edge_mlp_latent=config.edge_mlp_latent,
+                edge_output_size_actor=math.ceil(config.link_resources / config.aggregate_slots),
+                edge_output_size_critic=config.edge_output_size_critic,
+                global_embedding_size=config.global_embedding_size,
+                global_mlp_layers=config.global_mlp_layers,
+                global_mlp_latent=config.global_mlp_latent,
+                global_output_size_actor=global_output_size_actor,
+                global_output_size_critic=config.global_output_size_critic,
+                node_embedding_size=config.node_embedding_size,
+                node_mlp_layers=config.node_mlp_layers,
+                node_mlp_latent=config.node_mlp_latent,
+                node_output_size_actor=config.node_output_size_actor,
+                node_output_size_critic=config.node_output_size_critic,
+                attn_mlp_layers=config.attn_mlp_layers,
+                attn_mlp_latent=config.attn_mlp_latent,
+                use_attention=config.attn_mlp_layers > 0,
+                normalise_by_link_length=config.normalize_by_link_length,
+                gnn_layer_norm=config.gnn_layer_norm,
+                mlp_layer_norm=config.mlp_layer_norm,
+                temperature=config.temperature,
+                min_power_dbm=config.min_power,
+                max_power_dbm=config.max_power,
+                step_power_dbm=config.step_power,
+                discrete=config.discrete_launch_power,
+                min_concentration=config.min_concentration,
+                max_concentration=config.max_concentration,
+                epsilon=config.EPSILON,
+                vmap=False,
+                key=key,
+            )
+        elif "gn_model" in config.env_type.lower() and config.launch_power_type == 3:
+            network = LaunchPowerActorCriticMLP(
+                config.INPUT_DIM,
+                config.ACTION_DIM + (1 * config.include_no_op),  # +1 for "no op"
+                activation=config.ACTIVATION,
+                num_layers=config.NUM_LAYERS,
+                num_units=config.NUM_UNITS,
+                layer_norm=config.mlp_layer_norm,
+                discrete=config.discrete_launch_power,
+                min_power_dbm=config.min_power,
+                max_power_dbm=config.max_power,
+                step_power_dbm=config.step_power,
+                k_paths=config.k_paths,
+                key=key,
+            )
+        else:
+            network = ActorCriticMLP(
+                config.ACTION_DIM,
+                config.INPUT_DIM + (1 * config.include_no_op),  # +1 for "no op"
+                activation=config.ACTIVATION,
+                num_layers=config.NUM_LAYERS,
+                num_units=config.NUM_UNITS,
+                layer_norm=config.mlp_layer_norm,
+                key=key,
+            )
+    else:
+        raise ValueError(f"Invalid environment type {config.env_type}")
+    return network
+
+
+def load_model(config: Box, key: chex.PRNGKey) -> eqx.Module:
+    # N.B. that this just restores the model weights but not the optimizer state
+    try:
+        with open(config.MODEL_PATH, "rb") as f:
+            # First line of the file is hyperparams of model
+            hyperparams = Box(json.loads(f.readline().decode()))
+            model = init_network(config=hyperparams, key=key)
+            model_loaded = eqx.tree_deserialise_leaves(f, model)
+    except UnicodeDecodeError:
+        print("No hyperparameters in file")
+        model = init_network(config=config, key=key)
+        model_loaded = eqx.tree_deserialise_leaves(config.MODEL_PATH, model)
+    if config.KEEP_VF:
+        # Keep loaded critic weights, reinitialize actor.
+        # Start from a fresh model and replace critic sub-tree with loaded weights.
+        if hasattr(model_loaded, "critic"):
+            # ActorCriticMLP (.critic is MLP), ActorCriticGNN (.critic is CriticGNN)
+            model = eqx.tree_at(lambda m: m.critic, model, model_loaded.critic)
+        elif hasattr(model_loaded, "actor_critic"):
+            # ActorCriticTransformer: critic encoder is actor_critic[1], plus critic_mlp
+            model = eqx.tree_at(lambda m: m.actor_critic[1], model, model_loaded.actor_critic[1])
+            model = eqx.tree_at(lambda m: m.critic_mlp, model, model_loaded.critic_mlp)
+        elif hasattr(model_loaded, "critic_layers"):
+            # LaunchPowerActorCriticMLP
+            model = eqx.tree_at(lambda m: m.critic_layers, model, model_loaded.critic_layers)
+            model = eqx.tree_at(lambda m: m.critic_output, model, model_loaded.critic_output)
+        else:
+            print("WARNING: KEEP_VF enabled but could not identify critic sub-tree; loading full model")
+            model = model_loaded
+    else:
+        model = model_loaded
+    print(f"Loaded model: {config.MODEL_PATH}")
+    return model
+
+
+def _make_param_label_fn(model: eqx.Module) -> Callable:
+    """Return a *callable* that maps a parameter pytree to 'actor'/'critic' labels.
+
+    Passed as ``param_labels`` to :func:`optax.multi_transform`.  Using a callable
+    avoids the problem of Equinox modules (which are themselves callable) being
+    mistaken for label functions by optax when passed as a static pytree.
+
+    Works across ActorCriticMLP, ActorCriticGNN, and ActorCriticTransformer:
+    any leaf whose key-path contains ".critic" is labelled ``"critic"``;
+    everything else is ``"actor"``.
+    """
+    # Snapshot the pytree structure of the learnable parameters at build time.
+    params = eqx.filter(model, eqx.is_inexact_array)
+    _, treedef = jax.tree_util.tree_flatten(params)
+
+    # Pre-compute the label for every leaf position.
+    label_list: list[str] = []
+    jax.tree_util.tree_map_with_path(
+        lambda path, _: label_list.append(
+            "critic" if ".critic" in jax.tree_util.keystr(path) else "actor"
+        ),
+        params,
+    )
+
+    def label_fn(params_pytree):
+        """Return a pytree of 'actor'/'critic' strings with the same structure as *params_pytree*."""
+        flat, td = jax.tree_util.tree_flatten(params_pytree)
+        # Sanity: must have same number of leaves
+        assert len(flat) == len(label_list), (
+            f"Parameter tree has {len(flat)} leaves but label list has {len(label_list)}"
+        )
+        return td.unflatten(label_list)
+
+    return label_fn
+
+
+def _make_multi_transform_optimizer(config: Box, actor_lr_schedule, vf_lr_schedule):
+    """Build an optax.multi_transform optimizer with separate actor/critic optimizers."""
+    vf_adam_eps = config.VF_ADAM_EPS if config.VF_ADAM_EPS is not None else config.ADAM_EPS
+    vf_adam_b1 = config.VF_ADAM_BETA1 if config.VF_ADAM_BETA1 is not None else config.ADAM_BETA1
+    vf_adam_b2 = config.VF_ADAM_BETA2 if config.VF_ADAM_BETA2 is not None else config.ADAM_BETA2
+    vf_max_grad_norm = (
+        config.VF_MAX_GRAD_NORM if config.VF_MAX_GRAD_NORM is not None else config.MAX_GRAD_NORM
+    )
+    vf_weight_decay = (
+        config.VF_WEIGHT_DECAY if config.VF_WEIGHT_DECAY is not None else config.WEIGHT_DECAY
+    )
+
+    actor_optimizer = optax.chain(
+        optax.clip_by_global_norm(config.MAX_GRAD_NORM),
+        optax.adamw(
+            learning_rate=actor_lr_schedule,
+            eps=config.ADAM_EPS,
+            b1=config.ADAM_BETA1,
+            b2=config.ADAM_BETA2,
+            weight_decay=config.WEIGHT_DECAY,
+        ),
+    )
+
+    critic_optimizer = optax.chain(
+        optax.clip_by_global_norm(vf_max_grad_norm),
+        optax.adamw(
+            learning_rate=vf_lr_schedule,
+            eps=vf_adam_eps,
+            b1=vf_adam_b1,
+            b2=vf_adam_b2,
+            weight_decay=vf_weight_decay,
+        ),
+    )
+
+    return actor_optimizer, critic_optimizer
+
+
+def experiment_data_setup(config: Box, rng: chex.PRNGKey) -> Tuple:
+    # INIT ENV
+    env, env_params = make(config)
+    config.ACTION_DIM = env.num_actions(env_params)
+    config.INPUT_DIM = int(env.observation_space(env_params).n)
+    config.NUM_NODES = env_params.num_nodes
+    config.NUM_LINKS = env_params.num_links
+    rng, rng_step, rng_epoch, warmup_key, reset_key, network_key = jax.random.split(rng, 6)
+    reset_key = jax.random.split(reset_key, config.NUM_ENVS) if config.NUM_ENVS > 1 else reset_key
+    obsv, env_state = (
+        jax.vmap(env.reset, in_axes=(0, None))(reset_key, env_params)
+        if config.NUM_ENVS > 1
+        else env.reset(reset_key, env_params)
+    )
+    obsv = (
+        (env_state.env_state, env_params)
+        if config.USE_GNN or config.USE_TRANSFORMER
+        else tuple([obsv])
+    )
+
+    # TRAINING MODE
+    if config.RETRAIN_MODEL or config.EVAL_MODEL:
+        # N.B. that this just restores the model weights but not the optimizer state
+        model = load_model(config, network_key)
+    elif config.EVAL_HEURISTIC or config.ACTION_OPTIMIZATION:
+        model = None
+    else:
+        model = init_network(config, network_key)
+
+    # INIT LEARNING RATE SCHEDULE AND OPTIMIZER
+    lr_schedule = make_lr_schedule(config)
+    ent_schedule = make_ent_schedule(config)
+    vml_schedule = make_vml_schedule(config)
+
+    if config.get("SEPARATE_VF_OPTIMIZER", False) and model is not None:
+        # Build separate actor/critic optimizers via optax.multi_transform
+        vf_lr_schedule = make_vf_lr_schedule(config)
+        actor_opt, critic_opt = _make_multi_transform_optimizer(config, lr_schedule, vf_lr_schedule)
+        param_labels = _make_param_label_fn(model)
+        tx = optax.multi_transform(
+            transforms={"actor": actor_opt, "critic": critic_opt},
+            param_labels=param_labels,
+        )
+    else:
+        # Use single AdamW optimizer for all parameters
+        optimizer = optax.chain(
+            optax.clip_by_global_norm(config.MAX_GRAD_NORM),
+            optax.adamw(
+                learning_rate=lr_schedule,
+                eps=config.ADAM_EPS,
+                b1=config.ADAM_BETA1,
+                b2=config.ADAM_BETA2,
+                weight_decay=config.WEIGHT_DECAY,
+            ),
+        )
+
+        tx = optax.chain(
+            optax.clip_by_global_norm(config.MAX_GRAD_NORM),
+            optimizer,
+        )
+
+    runner_state = TrainState.create(
+        model=model,
+        tx=tx,
+        lr_schedule=lr_schedule,
+        ent_schedule=ent_schedule,
+        vml_schedule=vml_schedule,
+        prio_alpha=config.PRIO_ALPHA,
+        prio_beta0=config.PRIO_BETA0,
+        prio_beta=config.PRIO_BETA0,
+        reward_stepsize_init=config.REWARD_STEPSIZE,
+        initial_avg_reward=config.INITIAL_AVERAGE_REWARD,
+    )
+
+    # Recreate DeepRMSA warmup period
+    warmup_key = (
+        jax.random.split(warmup_key, config.NUM_ENVS) if config.NUM_ENVS > 1 else warmup_key
+    )
+    warmup_state = (warmup_key, env_state, obsv)
+    warmup_fn = get_warmup_fn(warmup_state, env, env_params, runner_state, config)
+    warmup_fn = jax.vmap(warmup_fn) if config.NUM_ENVS > 1 else warmup_fn
+    env_state, obsv = warmup_fn(warmup_state)
+
+    # Initialise eval state
+    init_runner_state = (runner_state, env_state, obsv, rng_step, rng_epoch)
+
+    return init_runner_state, env, env_params
+
+
+def select_action(select_action_state, env, env_params, train_state, config):
+    """Select an action from the policy.
+    If using VONE, the action is a tuple of (source, path, destination).
+    Otherwise, the action is a single lightpath.
+    Args:
+        select_action_state: Tuple of (rng_key, env_state, last_obs)
+        env: Environment
+        env_params: Environment parameters
+        train_state: TrainState
+        config: Configuration
+    Returns:
+        env_state: Environment state
+        action: Action
+        log_prob: Log probability of action
+        value: Value of state
+    """
+    action_key, env_state, last_obs = select_action_state
+    if config.USE_GNN or config.USE_TRANSFORMER:
+        last_obs = (env_state.env_state, env_params)
+    model = eqx.combine(train_state.model_params, train_state.model_static)
+    pi, value = model(*last_obs)
+    # Action masking
+    mask_result = env.action_mask(env_state.env_state, env_params)
+    if len(mask_result) == 3:
+        action_mask, full_action_mask, mod_format_mask = mask_result
+    else:
+        action_mask, full_action_mask = mask_result
+        mod_format_mask = None
+
+    # Always do action masking with VONE
+    if config.env_type.lower() == "vone":
+        # TODO - change this to work with single set of logits (probably just slice them)
+        vmap_mask_nodes = jax.vmap(env.action_mask_nodes, in_axes=(0, None))
+        vmap_mask_slots = jax.vmap(env.action_mask_slots, in_axes=(0, None, 0))
+        vmap_mask_dest_node = jax.vmap(env.action_mask_dest_node, in_axes=(0, None, 0))
+
+        env_state = env_state.replace(env_state=vmap_mask_nodes(env_state.env_state, env_params))
+        pi_source = distrax.Categorical(
+            logits=pi[0]._logits + (-1e8 * (1 - env_state.env_state.node_mask_s))
+        )
+
+        action_s = (
+            pi_source.sample(seed=action_key) if not config.deterministic else pi_source.mode()
+        )
+
+        # Update destination mask now source has been selected
+        env_state = env_state.replace(
+            env_state=vmap_mask_dest_node(env_state.env_state, env_params, action_s)
+        )
+        pi_dest = distrax.Categorical(
+            logits=pi[0]._logits + (-1e8 * (1 - env_state.env_state.node_mask_d))
+        )
+
+        action_p = jnp.full(action_s.shape, 0)
+        action_d = pi_dest.sample(seed=action_key) if not config.deterministic else pi_dest.mode()
+        action = jnp.stack((action_s, action_p, action_d), axis=1)
+
+        env_state = env_state.replace(
+            env_state=vmap_mask_slots(env_state.env_state, env_params, action)
+        )
+        pi_path = distrax.Categorical(
+            logits=pi[0]._logits + (-1e8 * (1 - env_state.env_state.link_slot_mask))
+        )
+        action_p = pi_path.sample(seed=action_key) if not config.deterministic else pi_path.mode()
+        action = jnp.stack((action_s, action_p, action_d), axis=1)
+
+        log_prob_source = pi_source.log_prob(action_s)
+        log_prob_path = pi_path.log_prob(action_p)
+        log_prob_dest = pi_dest.log_prob(action_d)
+        log_prob = log_prob_dest + log_prob_path + log_prob_source
+        probs = jax.nn.softmax(pi[0]._logits, axis=-1)
+        valid_mass = jnp.sum(probs * action_mask, axis=-1)
+
+    elif "gn_model" in config.env_type.lower() and config.launch_power_type == "rl":
+        pi_masked = distrax.Categorical(logits=pi[0]._logits + (-1e8 * (1 - action_mask)))
+        if config.GNN_OUTPUT_RSA and not config.GNN_OUTPUT_LP:
+            path_action, log_prob = train_state.sample_fn(
+                action_key, pi_masked, log_prob=True, deterministic=config.deterministic
+            )
+            power_action = jnp.array([env_params.default_launch_power])
+        elif config.GNN_OUTPUT_RSA and config.GNN_OUTPUT_LP:
+            path_action, power_action, log_prob = train_state.sample_fn(
+                action_key,
+                (pi_masked, pi[1]),
+                log_prob=True,
+                deterministic=config.deterministic,
+            )
+        else:
+            power_action, log_prob = train_state.sample_fn(
+                action_key, pi[1], log_prob=True, deterministic=config.deterministic
+            )
+            inner_state = env_state.env_state.replace(launch_power_array=power_action)
+            env_state = env_state.replace(env_state=inner_state)
+            path_action = (
+                ksp_lf(env_state.env_state, env_params)
+                if env_params.last_fit is True
+                else ksp_ff(env_state.env_state, env_params)
+            )
+        inner_state = env_state.env_state.replace(launch_power_array=power_action)
+        env_state = env_state.replace(env_state=inner_state)
+        if config.output_globals_size_actor == 0:
+            path_index, _ = process_path_action(env_state.env_state, env_params, path_action)
+            power_action, log_prob = power_action[path_index], log_prob[path_index]
+        action = jnp.concatenate([path_action.reshape((1,)), power_action.reshape((1,))], axis=0)
+        probs = jax.nn.softmax(pi[0]._logits, axis=-1)
+        valid_mass = jnp.sum(probs * action_mask, axis=-1)
+
+    else:
+        pi_masked = distrax.Categorical(logits=pi[0]._logits + (-1e8 * (1 - action_mask)))
+        action = pi_masked.sample(seed=action_key) if not config.deterministic else pi_masked.mode()
+        log_prob = pi_masked.log_prob(action)
+        probs = jax.nn.softmax(pi[0]._logits, axis=-1)
+        valid_mass = jnp.sum(probs * action_mask, axis=-1)
+
+    # Single state update at the end
+    replace_kwargs = dict(
+        link_slot_mask=action_mask,
+        full_link_slot_mask=full_action_mask,
+        valid_mass=valid_mass,
+    )
+    if mod_format_mask is not None:
+        replace_kwargs["mod_format_mask"] = mod_format_mask
+    inner_state = env_state.env_state.replace(**replace_kwargs)
+    env_state = env_state.replace(env_state=inner_state)
+
+    return env_state, action, log_prob, value
+
+
+def select_action_eval(select_action_state, env, env_params, eval_state, config):
+    rng, env_state, last_obs = select_action_state
+
+    if config.EVAL_HEURISTIC:
+        if config.env_type.lower() == "vone":
+            raise NotImplementedError("VONE heuristics not yet implemented")
+
+        elif config.env_type.lower() in [
+            "rsa",
+            "rwa",
+            "rmsa",
+            "deeprmsa",
+            "rwa_lightpath_reuse",
+            "rsa_gn_model",
+            "rmsa_gn_model",
+            "rsa_multiband",
+        ]:
+            # For RMSA GN model, update mod_format_mask on state before heuristic
+            # action selection so that implement_action_rmsa_gn_model sees the
+            # correct modulation format for the chosen slot.
+            if isinstance(env_params, RMSAGNModelEnvParams):
+                updated_inner = mask_slots_rmsa_gn_model(
+                    env_state.env_state, env_params, env_state.env_state.request_array
+                )
+                env_state = env_state.replace(env_state=updated_inner)
+
+            if config.path_heuristic.lower() == "ksp_ff":
+                action = ksp_ff(env_state.env_state, env_params)
+            elif config.path_heuristic.lower() == "ff_ksp":
+                action = ff_ksp(env_state.env_state, env_params)
+            elif config.path_heuristic.lower() == "kmc_ff":
+                action = kmc_ff(env_state.env_state, env_params)
+            elif config.path_heuristic.lower() == "kmf_ff":
+                action = kmf_ff(env_state.env_state, env_params)
+            elif config.path_heuristic.lower() == "ksp_mu":
+                action = ksp_mu(env_state.env_state, env_params, False, True)
+            elif config.path_heuristic.lower() == "ksp_mu_nonrel":
+                action = ksp_mu(env_state.env_state, env_params, False, False)
+            elif config.path_heuristic.lower() == "ksp_mu_unique":
+                action = ksp_mu(env_state.env_state, env_params, True, True)
+            elif config.path_heuristic.lower() == "mu_ksp":
+                action = mu_ksp(env_state.env_state, env_params, False, True)
+            elif config.path_heuristic.lower() == "mu_ksp_nonrel":
+                action = mu_ksp(env_state.env_state, env_params, False, False)
+            elif config.path_heuristic.lower() == "mu_ksp_unique":
+                action = mu_ksp(env_state.env_state, env_params, True, True)
+            elif config.path_heuristic.lower() == "kca_ff":
+                action = kca_ff(env_state.env_state, env_params)
+            elif config.path_heuristic.lower() == "kme_ff":
+                action = kme_ff(env_state.env_state, env_params)
+            elif config.path_heuristic.lower() == "ksp_bf":
+                action = ksp_bf(env_state.env_state, env_params)
+            elif config.path_heuristic.lower() == "bf_ksp":
+                action = bf_ksp(env_state.env_state, env_params)
+            elif config.path_heuristic.lower() == "ksp_lf":
+                action = ksp_lf(env_state.env_state, env_params)
+            else:
+                raise ValueError(f"Invalid path heuristic {config.path_heuristic}")
+            if env_params.__class__.__name__ in ["RSAGNModelEnvParams", "RMSAGNModelEnvParams"]:
+                if config.launch_power_type == "rl":
+                    raise ValueError(
+                        "launch_power_type cannot be 'rl' when --EVAL_HEURISTIC flag is True"
+                    )
+                _, initial_slot_index = process_path_action(env_state.env_state, env_params, action)
+                launch_power = get_launch_power(
+                    env_state.env_state, action, action, initial_slot_index, env_params
+                )
+                action = jnp.concatenate([action.reshape((1,)), launch_power.reshape((1,))], axis=0)
+        else:
+            raise ValueError(f"Invalid environment type {config.env_type}")
+        # For DeepRMSA env, the action can only be the path index (first-fit for spectrum always)
+        if config.env_type.lower() == "deeprmsa":
+            action = process_path_action(env_state.env_state, env_params, action)[0]
+    else:
+        env_state, action, _, _ = select_action(
+            select_action_state, env, env_params, eval_state, config
+        )
+    return env_state, action, None, None
+
+
+def get_warmup_fn(warmup_state, env, params, train_state, config) -> Callable[[Tuple], Tuple]:
+    """Warmup period to fill the network before training or eval.
+
+    The action selection method is controlled by ``config.warmup_action_type``:
+      - None  : use the default for the current run mode (RL policy or heuristic)
+      - "heuristic" : always use the heuristic specified by ``--path_heuristic``
+      - "random"    : sample uniformly from valid (masked) actions
+    """
+    warmup_action_type = getattr(config, "warmup_action_type", None)
+    if warmup_action_type is not None and warmup_action_type not in ("heuristic", "random"):
+        raise ValueError(
+            f"warmup_action_type must be None, 'heuristic', or 'random', got '{warmup_action_type}'"
+        )
+    use_heuristic_warmup = (
+        config.EVAL_HEURISTIC
+        or warmup_action_type == "heuristic"
+    )
+    use_random_warmup = warmup_action_type == "random"
+
+    def warmup_fn(warmup_state) -> Tuple[EnvState, chex.Array]:
+        rng, state, last_obs = warmup_state
+
+        def warmup_step(i, val) -> Tuple:
+            _rng, _state, _params, _train_state, _last_obs = val
+            # SELECT ACTION
+            _rng, action_key, step_key = jax.random.split(_rng, 3)
+
+            if use_random_warmup:
+                # Random valid action: sample uniformly from the action mask
+                mask_result = env.action_mask(_state.env_state, _params)
+                action_mask = mask_result[0]
+                action = jax.random.categorical(
+                    action_key, jnp.log(jnp.maximum(action_mask, 1e-8))
+                )
+            else:
+                select_action_state = (_rng, _state, _last_obs)
+                action_fn = select_action if not use_heuristic_warmup else select_action_eval
+                _state, action, log_prob, value = action_fn(
+                    select_action_state, env, _params, _train_state, config
+                )
+            if "gn_model" in config.env_type.lower() and config.launch_power_type == "rl":
+                # If the action is launch power, the action is this shape:
+                # jnp.concatenate([path_action.reshape((1,)), power_action.reshape((1,))], axis=0)
+                # We want to overwrite the launch power with a default launch_power
+                path_action = (
+                    ksp_lf(_state.env_state, _params)
+                    if _params.last_fit is True
+                    else ksp_ff(_state.env_state, _params)
+                )
+                action = jnp.concatenate(
+                    [
+                        path_action.reshape((1,)),
+                        jnp.array(
+                            [
+                                params.default_launch_power,
+                            ]
+                        ),
+                    ],
+                    axis=0,
+                )
+            elif (
+                "gn_model" in config.env_type.lower()
+                and config.launch_power_type != "rl"
+                and not use_heuristic_warmup
+                and not use_random_warmup
+            ):
+                raise ValueError("Check that EVAL_HEURISTIC is set to True if using a heuristic")
+            # STEP ENV
+            obsv, _state, reward, terminal, truncated, info = env.step(
+                step_key, _state, action, params
+            )
+            obsv = (
+                (_state.env_state, params)
+                if config.USE_GNN or config.USE_TRANSFORMER
+                else tuple([obsv])
+            )
+            return _rng, _state, _params, _train_state, obsv
+
+        vals = jax.lax.fori_loop(
+            0, config.ENV_WARMUP_STEPS, warmup_step, (rng, state, params, train_state, last_obs)
+        )
+
+        return vals[1], vals[4]
+
+    return warmup_fn
+
+
+def _make_schedule(
+    lr: float,
+    lr_end_fraction: float,
+    schedule_type: str,
+    warmup_multiplier: float,
+    warmup_steps_fraction: float,
+    config: Box,
+    schedule_multiplier: float = 1.0,
+) -> optax.Schedule:
+    """Generic schedule builder used by both actor and VF LR schedules."""
+    NUM_MINIBATCHES = config.NUM_MINIBATCHES
+    NUM_UPDATES = config.NUM_UPDATES * config.NUM_INCREMENTS
+    UPDATE_EPOCHS = config.UPDATE_EPOCHS
+    SCHEDULE_MULTIPLIER = schedule_multiplier
+    end_value = lr * lr_end_fraction
+
+    def schedule_fn(count: chex.Numeric) -> chex.Numeric:
+        total_steps = NUM_UPDATES * UPDATE_EPOCHS * NUM_MINIBATCHES * SCHEDULE_MULTIPLIER
+        if schedule_type == "warmup_cosine":
+            schedule = optax.warmup_cosine_decay_schedule(
+                init_value=lr,
+                peak_value=lr * warmup_multiplier,
+                warmup_steps=total_steps * warmup_steps_fraction,
+                decay_steps=total_steps,
+                end_value=end_value,
+            )
+        elif schedule_type == "cosine":
+            schedule = optax.cosine_decay_schedule(
+                init_value=lr,
+                decay_steps=total_steps,
+                alpha=end_value,
+            )
+        elif schedule_type == "linear":
+            schedule = optax.linear_schedule(
+                init_value=lr,
+                end_value=end_value,
+                transition_steps=total_steps,
+            )
+        elif schedule_type == "constant":
+            schedule = optax.constant_schedule(lr)
+        else:
+            raise ValueError(f"Invalid LR schedule {schedule_type}")
+        return schedule(count)
+
+    return schedule_fn
+
+
+def make_vf_lr_schedule(config: Box) -> optax.Schedule:
+    """Create a learning rate schedule for the value function optimizer."""
+    vf_lr = config.VF_LR if config.VF_LR is not None else config.LR / 3.0
+    vf_schedule_type = (
+        config.VF_LR_SCHEDULE if config.VF_LR_SCHEDULE is not None else config.LR_SCHEDULE
+    )
+    vf_end_fraction = (
+        config.VF_LR_END_FRACTION
+        if config.VF_LR_END_FRACTION is not None
+        else config.LR_END_FRACTION
+    )
+    vf_warmup_mult = (
+        config.VF_WARMUP_MULTIPLIER
+        if config.VF_WARMUP_MULTIPLIER is not None
+        else config.WARMUP_MULTIPLIER
+    )
+    vf_warmup_frac = (
+        config.VF_WARMUP_STEPS_FRACTION
+        if config.VF_WARMUP_STEPS_FRACTION is not None
+        else config.WARMUP_STEPS_FRACTION
+    )
+    return _make_schedule(
+        vf_lr,
+        vf_end_fraction,
+        vf_schedule_type,
+        vf_warmup_mult,
+        vf_warmup_frac,
+        config,
+        schedule_multiplier=config.VF_SCHEDULE_MULTIPLIER,
+    )
+
+
+def make_lr_schedule(config: Box) -> optax.Schedule:
+    """Create a learning rate schedule based on the configuration."""
+
+    LR = config.LR
+    LR_END_FRACTION = config.LR_END_FRACTION
+    NUM_MINIBATCHES = config.NUM_MINIBATCHES
+    NUM_UPDATES = config.NUM_UPDATES * config.NUM_INCREMENTS
+    UPDATE_EPOCHS = config.UPDATE_EPOCHS
+    SCHEDULE_MULTIPLIER = config.LR_SCHEDULE_MULTIPLIER
+    WARMUP_MULTIPLIER = config.WARMUP_MULTIPLIER
+    WARMUP_STEPS_FRACTION = config.WARMUP_STEPS_FRACTION
+    end_value = LR * LR_END_FRACTION
+
+    def lr_schedule(count: chex.Numeric) -> chex.Numeric:
+        total_steps = NUM_UPDATES * UPDATE_EPOCHS * NUM_MINIBATCHES * SCHEDULE_MULTIPLIER
+        if config.LR_SCHEDULE == "warmup_cosine":
+            schedule = optax.warmup_cosine_decay_schedule(
+                init_value=LR,
+                peak_value=LR * WARMUP_MULTIPLIER,
+                warmup_steps=total_steps * WARMUP_STEPS_FRACTION,
+                decay_steps=total_steps,
+                end_value=end_value,
+            )
+        elif config.LR_SCHEDULE == "cosine":
+            schedule = optax.cosine_decay_schedule(
+                init_value=LR,
+                decay_steps=total_steps,
+                alpha=end_value,
+            )
+        elif config.LR_SCHEDULE == "linear":
+            schedule = optax.linear_schedule(
+                init_value=LR,
+                end_value=end_value,
+                transition_steps=total_steps,
+            )
+        elif config.LR_SCHEDULE == "constant":
+            schedule = optax.constant_schedule(LR)
+        else:
+            raise ValueError(f"Invalid LR schedule {config.LR_SCHEDULE}")
+        return schedule(count)
+
+    return lr_schedule
+
+
+def make_ent_schedule(config: Box) -> optax.Schedule:
+    """Create an entropy coefficient schedule based on the configuration."""
+
+    ENT_COEF = config.ENT_COEF
+    ENT_END_FRACTION = config.ENT_END_FRACTION
+    NUM_MINIBATCHES = config.NUM_MINIBATCHES
+    NUM_UPDATES = config.NUM_UPDATES * config.NUM_INCREMENTS
+    UPDATE_EPOCHS = config.UPDATE_EPOCHS
+    SCHEDULE_MULTIPLIER = config.ENT_SCHEDULE_MULTIPLIER
+    end_value = ENT_COEF * ENT_END_FRACTION
+
+    def ent_schedule(count: chex.Numeric) -> chex.Numeric:
+        total_steps = NUM_UPDATES * UPDATE_EPOCHS * NUM_MINIBATCHES * SCHEDULE_MULTIPLIER
+        if config.ENT_SCHEDULE == "cosine":
+            schedule = optax.cosine_decay_schedule(
+                init_value=ENT_COEF,
+                decay_steps=total_steps,
+                alpha=end_value,
+            )
+        elif config.ENT_SCHEDULE == "linear":
+            schedule = optax.linear_schedule(
+                init_value=ENT_COEF,
+                end_value=end_value,
+                transition_steps=total_steps,
+            )
+        elif config.ENT_SCHEDULE == "constant":
+            schedule = optax.constant_schedule(ENT_COEF)
+        else:
+            raise ValueError(f"Invalid entropy schedule {config.ENT_SCHEDULE}")
+        return schedule(count)
+
+    return ent_schedule
+
+
+def make_vml_schedule(config: Box) -> optax.Schedule:
+    """Create a valid mass loss coefficient schedule based on the configuration."""
+
+    VML_COEF = config.VALID_MASS_LOSS_COEF
+    VML_END_FRACTION = config.VML_END_FRACTION
+    NUM_MINIBATCHES = config.NUM_MINIBATCHES
+    NUM_UPDATES = config.NUM_UPDATES * config.NUM_INCREMENTS
+    UPDATE_EPOCHS = config.UPDATE_EPOCHS
+    SCHEDULE_MULTIPLIER = config.VML_SCHEDULE_MULTIPLIER
+    end_value = VML_COEF * VML_END_FRACTION
+
+    def vml_schedule(count: chex.Numeric) -> chex.Numeric:
+        total_steps = NUM_UPDATES * UPDATE_EPOCHS * NUM_MINIBATCHES * SCHEDULE_MULTIPLIER
+        if config.VML_SCHEDULE == "cosine":
+            schedule = optax.cosine_decay_schedule(
+                init_value=VML_COEF,
+                decay_steps=total_steps,
+                alpha=end_value,
+            )
+        elif config.VML_SCHEDULE == "linear":
+            schedule = optax.linear_schedule(
+                init_value=VML_COEF,
+                end_value=end_value,
+                transition_steps=total_steps,
+            )
+        elif config.VML_SCHEDULE == "constant":
+            schedule = optax.constant_schedule(VML_COEF)
+        else:
+            raise ValueError(f"Invalid VML schedule {config.VML_SCHEDULE}")
+        return schedule(count)
+
+    return vml_schedule
+
+
+def reshape_keys(keys, size1, size2):
+    dimensions = (size1, size2)
+
+    def reshape(x):
+        return x.reshape(dimensions + x.shape[1:])
+
+    return reshape(jnp.stack(keys))
+
+
+def setup_wandb(config, project_name, experiment_name):
+    wandb.setup(wandb.Settings(program="train.py", program_relpath="train.py"))
+    run = wandb.init(
+        project=project_name,
+        save_code=True,  # optional
+    )
+    wandb.config.update(config)
+    run.name = experiment_name
+    wandb.define_metric("episode_count")
+    wandb.define_metric("env_step")
+    wandb.define_metric("increment")
+    for metric in metrics:
+        for agg in ["mean", "std", "iqr_upper", "iqr_lower"]:
+            wandb.define_metric(f"{metric}_{agg}", step_metric="env_step")
+            wandb.define_metric(
+                f"{metric}_episode_end_{agg}", step_metric="episode_count", summary="last"
+            )
+            wandb.define_metric(
+                f"{metric}_episode_end_{agg}", step_metric="episode_count", summary="mean"
+            )
+            wandb.define_metric(
+                f"{metric}_episode_end_{agg}", step_metric="episode_count", summary="min"
+            )
+            wandb.define_metric(
+                f"{metric}_episode_end_{agg}", step_metric="episode_count", summary="max"
+            )
+    for metric in loss_metrics:
+        wandb.define_metric(f"{metric}", step_metric="update_epoch")
+    # Register reward centering metrics if REWARD_CENTERING is enabled
+    if config.get("REWARD_CENTERING", False):
+        for metric in reward_centering_metrics:
+            wandb.define_metric(f"{metric}", step_metric="update_epoch")
+    # Register enhanced diagnostics metrics if ENHANCED_LOGGING is enabled
+    if config.get("ENHANCED_LOGGING", False):
+        for metric in diagnostics_metrics:
+            wandb.define_metric(f"{metric}", step_metric="update_epoch")
+    wandb.define_metric("training_time", step_metric="env_step")
+    # Eval during training metrics
+    for bp in ["service_blocking_probability", "bitrate_blocking_probability"]:
+        for stat in ["mean", "std"]:
+            wandb.define_metric(f"eval/{bp}_{stat}", step_metric="env_step")
+
+
+def run_eval_during_training(
+    config: Box,
+    run_eval: Callable,
+    eval_input: Tuple,
+    out: Dict,
+    best_eval_metric: float,
+    step_count: int,
+    first_save: bool = True,
+) -> Tuple:
+    """Run evaluation during training and save model if it improves.
+
+    Args:
+        config: Training configuration.
+        run_eval: Compiled eval function.
+        eval_input: Initial eval runner state (train_state, env_state, obsv, rng_step, rng_epoch).
+        out: Output from the current training increment.
+        best_eval_metric: Best eval metric seen so far.
+        step_count: Current training env step count (for wandb logging).
+        first_save: Whether this is the first save of the training run.
+
+    Returns:
+        Tuple of (updated best_eval_metric, updated first_save).
+    """
+    # Inject current model params into a copy of the eval runner state.
+    # Copy the eval inputs to prevent buffer donation from invalidating the
+    # original buffers, which need to be reused on subsequent eval runs.
+    current_train_state = out["runner_state"][0]
+    eval_runner_state = jax.tree.map(
+        jnp.copy,
+        (
+            current_train_state,
+            eval_input[1],  # fresh eval env_state
+            eval_input[2],  # fresh eval obsv
+            eval_input[3],  # eval rng_step
+            eval_input[4],  # eval rng_epoch
+        ),
+    )
+    eval_out = run_eval(eval_runner_state)
+    eval_out["metrics"]["returns"].block_until_ready()
+
+    # Compute eval blocking probability, discarding the warmup transient.
+    # Metrics shape: (NUM_EPISODES, steps_per_episode, NUM_ENVS) if NUM_ENVS > 1
+    #                (NUM_EPISODES, steps_per_episode) if NUM_ENVS == 1
+    # With continuous_operation, env_state counters (accepted_services,
+    # accepted_bitrate, total_bitrate) are cumulative and never reset.
+    # LogWrapper's `lengths` resets per episode so can't be used as a
+    # cumulative request count — use the step count directly instead.
+    def _flatten(metric):
+        """Flatten (NUM_EPISODES, steps_per_episode, ...) -> (total_steps, ...) keeping env dim."""
+        x = eval_out["metrics"][metric]
+        return x.reshape(-1, *x.shape[2:])  # (total_steps,) or (total_steps, NUM_ENVS)
+
+    accepted_services = _flatten("accepted_services")
+    accepted_bitrate = _flatten("accepted_bitrate")
+    total_bitrate = _flatten("total_bitrate")
+    total_steps = accepted_services.shape[0]
+
+    # Warmup index is per-env steps. Clamp to valid range.
+    warmup_idx = int(config.ENV_WARMUP_STEPS)
+
+    # Check ENV_WARMUP_STEPS does not exceed total_steps
+    assert warmup_idx < total_steps, (
+        f"ENV_WARMUP_STEPS ({config.ENV_WARMUP_STEPS}) must be less than "
+        f"the total evaluation steps ({total_steps})."
+    )
+
+    # Service BP: each step is one request, so denominator = steps after warmup
+    post_warmup_requests = max(total_steps - warmup_idx, 1)
+    post_warmup_accepted = accepted_services[-1] - accepted_services[warmup_idx]
+    service_bp_per_env = 1 - (post_warmup_accepted / post_warmup_requests)
+    service_bp_mean = float(jnp.mean(service_bp_per_env))
+    service_bp_std = float(jnp.std(service_bp_per_env))
+
+    # Bitrate BP: denominator is cumulative total_bitrate delta
+    post_warmup_total_br = total_bitrate[-1] - total_bitrate[warmup_idx]
+    post_warmup_total_br = jnp.where(post_warmup_total_br == 0, 1, post_warmup_total_br)
+    post_warmup_accepted_br = accepted_bitrate[-1] - accepted_bitrate[warmup_idx]
+    bitrate_bp_per_env = 1 - (post_warmup_accepted_br / post_warmup_total_br)
+    bitrate_bp_mean = float(jnp.mean(bitrate_bp_per_env))
+    bitrate_bp_std = float(jnp.std(bitrate_bp_per_env))
+
+    if config.reward_type == "bitrate":
+        eval_metric_mean = bitrate_bp_mean
+        eval_metric_std = bitrate_bp_std
+        eval_metric_name = "bitrate_blocking_probability"
+    else:
+        eval_metric_mean = service_bp_mean
+        eval_metric_std = service_bp_std
+        eval_metric_name = "service_blocking_probability"
+
+    print(
+        f"Eval {eval_metric_name}: {eval_metric_mean:.6f} \u00b1 {eval_metric_std:.6f}"
+        f" (best: {best_eval_metric:.6f})"
+    )
+
+    if config.WANDB:
+        wandb.log(
+            {
+                "eval/service_blocking_probability_mean": service_bp_mean,
+                "eval/service_blocking_probability_std": service_bp_std,
+                "eval/bitrate_blocking_probability_mean": bitrate_bp_mean,
+                "eval/bitrate_blocking_probability_std": bitrate_bp_std,
+                "env_step": step_count,
+            }
+        )
+
+    if eval_metric_mean <= best_eval_metric:
+        best_eval_metric = eval_metric_mean
+        print(f"New best eval {eval_metric_name}: {best_eval_metric:.6f}")
+        if config.SAVE_MODEL:
+            model = eqx.combine(current_train_state.model_params, current_train_state.model_static)
+            saved_path = save_model(model, config, first_save=first_save)
+            if first_save:
+                config.MODEL_PATH = str(saved_path)
+                first_save = False
+
+    return best_eval_metric, first_save
+
+
+def get_mean_std_iqr(x, y):
+    _mean = x[y].mean(axis=0).reshape(-1)
+    _std = x[y].std(axis=0).reshape(-1)
+    _iqr_upper = jnp.percentile(x[y], 75, axis=0).reshape(-1)
+    _iqr_lower = jnp.percentile(x[y], 25, axis=0).reshape(-1)
+    return jnp.array(_mean), jnp.array(_std), jnp.array(_iqr_upper), jnp.array(_iqr_lower)
+
+
+def get_episode_end_mean_std_iqr(
+    data: Array, episode_ends: Array, num_envs: int
+) -> Tuple[Array, Array, Array, Array]:
+    # Reshape to combine rollout and step dimensions
+    data = data.reshape(num_envs, -1)
+    episode_ends = episode_ends.reshape(num_envs, -1)
+    # Count True values per environment
+    counts = jnp.sum(episode_ends, axis=1)
+    max_length = jnp.max(counts)
+    diffs = max_length - counts
+    # Maximum difference in episode ends between envs
+    max_diff = jnp.max(diffs)
+    # Append nans equal to max diffs
+    data = jnp.hstack((data, jnp.full((num_envs, max_diff), jnp.nan)))
+    # Append trues equal to diffs
+    trues = jnp.tile(jnp.arange(max_diff), (num_envs, 1)) < diffs[:, None]
+    episode_ends = jnp.hstack((episode_ends, trues))
+    episode_ends = episode_ends.reshape(data.shape)
+    episode_end_values = data[episode_ends]
+    episode_end_values = episode_end_values.reshape((num_envs, -1))
+    # Calculate statistics efficiently using JAX's nanops
+    _end_mean = jnp.nanmean(episode_end_values, axis=0, dtype=jnp.float32)
+    _end_std = jnp.nanstd(episode_end_values, axis=0, dtype=jnp.float32)
+    _end_iqr_upper = jnp.nanpercentile(episode_end_values, 75, axis=0).astype(jnp.float32)
+    _end_iqr_lower = jnp.nanpercentile(episode_end_values, 25, axis=0).astype(jnp.float32)
+
+    return _end_mean, _end_std, _end_iqr_upper, _end_iqr_lower
+
+
+def process_metrics(config, out, merge_func):
+    """Calculate statistics from training or evaluation run."""
+    merged_out = {k: jax.tree.map(merge_func, v) for k, v in out["metrics"].items()}
+    if config.EVAL_HEURISTIC or config.EVAL_MODEL:
+        merged_out_loss = None
+    else:
+        # Average over minibatches and epochs to get one value per update
+        num_learners_or_1 = config.NUM_LEARNERS if config.NUM_LEARNERS > 1 else 1
+        merged_out_loss = {
+            k: jax.tree.map(
+                lambda x: x.reshape((num_learners_or_1, config.NUM_UPDATES, -1))
+                .mean(axis=-1)
+                .reshape((-1,)),
+                v,
+            )
+            for k, v in out.get("loss_info", {}).items()
+        }
+
+    # Calculate blocking probabilities
+    merged_out["service_blocking_probability"] = 1 - (
+        merged_out["accepted_services"]
+        / jnp.where(merged_out["lengths"] == 0, 1, merged_out["lengths"])
+    )
+    merged_out["bitrate_blocking_probability"] = 1 - (
+        merged_out["accepted_bitrate"]
+        / jnp.where(merged_out["total_bitrate"] == 0, 1, merged_out["total_bitrate"])
+    )
+
+    # Calculate episode ends
+    merged_out["done"] = jnp.logical_or(merged_out["terminal"], merged_out["truncated"])
+    episode_ends = merged_out["done"]
+
+    print(f"Created episode end mask with {np.sum(episode_ends)} episode endings")
+
+    processed_data = {}
+    print("Processing output metrics")
+    for metric in metrics:
+        ends = episode_ends
+        try:
+            episode_end_mean, episode_end_std, episode_end_iqr_upper, episode_end_iqr_lower = (
+                get_episode_end_mean_std_iqr(merged_out[metric], ends, config.NUM_ENVS)
+            )
+            mean, std, iqr_upper, iqr_lower = get_mean_std_iqr(merged_out, metric)
+            processed_data[metric] = {
+                "mean": mean,
+                "std": std,
+                "iqr_upper": iqr_upper,
+                "iqr_lower": iqr_lower,
+                "episode_end_mean": episode_end_mean,
+                "episode_end_std": episode_end_std,
+                "episode_end_iqr_upper": episode_end_iqr_upper,
+                "episode_end_iqr_lower": episode_end_iqr_lower,
+            }
+        except KeyError:
+            continue
+    return merged_out, merged_out_loss, processed_data, episode_ends
+
+
+def plot_metrics(
+    experiment_name: str, processed_data: Dict[str, Any], config: Union[Box, Dict[str, Any]]
+) -> None:
+    print("Plotting metrics")
+    if config.incremental_loading:
+        plot_metric = processed_data["accepted_services"]["episode_end_mean"]
+        plot_metric_upper = processed_data["accepted_services"]["episode_end_iqr_upper"]
+        plot_metric_lower = processed_data["accepted_services"]["episode_end_iqr_lower"]
+        plot_metric_name = "Accepted Services"
+    elif config.end_first_blocking:
+        plot_metric = processed_data["lengths"]["episode_end_mean"]
+        plot_metric_upper = processed_data["lengths"]["episode_end_iqr_upper"]
+        plot_metric_lower = processed_data["lengths"]["episode_end_iqr_lower"]
+        plot_metric_name = "Episode Length"
+    elif config.reward_type == "service":
+        plot_metric = processed_data["service_blocking_probability"]["mean"]
+        plot_metric_upper = processed_data["service_blocking_probability"]["iqr_upper"]
+        plot_metric_lower = processed_data["service_blocking_probability"]["iqr_lower"]
+        plot_metric_name = "Service Blocking Probability"
+    else:
+        plot_metric = processed_data["bitrate_blocking_probability"]["mean"]
+        plot_metric_upper = processed_data["bitrate_blocking_probability"]["iqr_upper"]
+        plot_metric_lower = processed_data["bitrate_blocking_probability"]["iqr_lower"]
+        plot_metric_name = "Bitrate Blocking Probability"
+
+    smoothing_factor = min(100, int(len(plot_metric) / 2))
+    step_factor = int(len(plot_metric)) / smoothing_factor
+    plot_metric = moving_average(plot_metric, smoothing_factor)
+    plot_metric_upper = moving_average(plot_metric_upper, smoothing_factor)
+    plot_metric_lower = moving_average(plot_metric_lower, smoothing_factor)
+    fig, ax = plt.subplots()
+    ax.plot(jnp.arange(len(plot_metric)) * config.DOWNSAMPLE_FACTOR * step_factor, plot_metric)
+    ax.fill_between(range(len(plot_metric)), plot_metric_lower, plot_metric_upper, alpha=0.2)
+    ax.set_xlabel("Environment Step" if not config.incremental_loading else "Episode Count")
+    ax.set_ylabel(plot_metric_name)
+    ax.set_title(experiment_name)
+
+    # Save to file; show interactively only if backend supports it
+    output_file = config.get("EPISODE_DATA_OUTPUT_FILE") or config.get("DATA_OUTPUT_FILE")
+    save_dir = os.path.dirname(output_file) if output_file else "."
+    save_path = os.path.join(save_dir, f"{experiment_name}_plot.png")
+    fig.savefig(save_path, dpi=150, bbox_inches="tight")
+    print(f"Plot saved to {save_path}")
+    if plt.get_backend().lower() not in ("agg", "pdf", "svg", "ps", "cairo"):
+        plt.show()
+    plt.close(fig)
+
+
+def log_actions(merged_out, processed_data, config):
+    print(
+        f"Logging actions. \
+        N.B. data is only logged from most recent increment. \
+        Total increments: {config.NUM_INCREMENTS}"
+    )
+    env, params = make(config)
+    request_source = merged_out["source"]
+    request_dest = merged_out["dest"]
+    request_data_rate = merged_out["data_rate"]
+    path_indices = merged_out["path_index"]
+    slot_indices = merged_out["slot_index"]
+    returns = merged_out["returns"]
+    arrival_time = merged_out["arrival_time"]
+    departure_time = merged_out["departure_time"]
+
+    # Reshape to combine episodes into a single trajectory. Only keep the first environment's output.
+    # TODO - keep all the actions from every episode
+    request_source = request_source.reshape((request_source.shape[0], -1))[0]
+    request_dest = request_dest.reshape((request_dest.shape[0], -1))[0]
+    request_data_rate = request_data_rate.reshape((request_data_rate.shape[0], -1))[0]
+    path_indices = path_indices.reshape((path_indices.shape[0], -1))[0]
+    slot_indices = slot_indices.reshape((slot_indices.shape[0], -1))[0]
+    arrival_time = arrival_time.reshape((arrival_time.shape[0], -1))[0]
+    departure_time = departure_time.reshape((departure_time.shape[0], -1))[0]
+    returns = returns.reshape((returns.shape[0], -1))[0]
+
+    # Get the link length array
+    topology_name = config.topology_name
+    graph = make_graph(topology_name, topology_directory=config.topology_directory)
+    link_length_array = init_link_length_array(graph)
+    # Get path, path lengths, number of hops
+    paths = jnp.take(params.path_link_array.val, path_indices, axis=0)
+    path_lengths = jax.vmap(lambda x: jnp.dot(x, link_length_array), in_axes=(0))(paths)
+    num_hops = jnp.sum(paths, axis=-1)
+
+    paths_list = []
+    spectral_efficiency_list = []
+    required_slots_list = []
+
+    for path_index, slot_index, source, dest, data_rate in zip(
+        path_indices, slot_indices, request_source, request_dest, request_data_rate
+    ):
+        source, dest = source.reshape(1), dest.reshape(1)
+        path_links = get_paths(params, jnp.concatenate([source, dest]))[path_index % params.k_paths]
+        # Make path links into a string
+        path_str = "".join([str(x.astype(dtype_config.LARGE_INT_DTYPE)) for x in path_links])
+        paths_list.append(path_str)
+        path_spectral_efficiency = params.path_se_array.val[path_index]
+        required_slots = int(jnp.ceil(data_rate / (path_spectral_efficiency * params.slot_size)))
+        required_slots_list.append(required_slots)
+        spectral_efficiency_list.append(path_spectral_efficiency)
+
+    if config.TRAJ_DATA_OUTPUT_FILE:
+        print(f"Saving trajectory metrics to {config.TRAJ_DATA_OUTPUT_FILE}")
+        # Save episode end metrics to file
+        log_dict = {
+            "request_source": request_source,
+            "request_dest": request_dest,
+            "request_data_rate": request_data_rate,
+            "arrival_time": arrival_time,
+            "departure_time": departure_time,
+            "path_indices": path_indices,
+            "slot_indices": slot_indices,
+            "returns": returns,
+            "path_links": paths_list,
+            "path_spectral_efficiency": spectral_efficiency_list,
+            "required_slots": required_slots_list,
+            "utilization": processed_data["utilisation"]["mean"],
+            "bitrate_blocking_probability": processed_data["bitrate_blocking_probability"]["mean"],
+            "service_blocking_probability": processed_data["service_blocking_probability"]["mean"],
+            "path_length": path_lengths,
+            "num_hops": num_hops,
+        }
+        if "gn_model" in config.env_type.lower():
+            log_dict["launch_power"] = processed_data["launch_power"]["mean"]
+            log_dict["path_snr"] = processed_data["path_snr"]["mean"]
+        df = pd.DataFrame(log_dict)
+        df.to_csv(config.TRAJ_DATA_OUTPUT_FILE)
+
+    if config.log_path_lengths:
+        path_lengths_mean = path_lengths.mean()
+        path_lengths_std = path_lengths.std()
+        path_lengths_iqr_upper = jnp.percentile(path_lengths, 75)
+        path_lengths_iqr_lower = jnp.percentile(path_lengths, 25)
+        num_hops_mean = num_hops.mean()
+        num_hops_std = num_hops.std()
+        print(f"Average path length mean: {path_lengths_mean:.0f}")
+        print(f"Average path length std: {path_lengths_std:.0f}")
+        print(f"Average path length IQR upper: {path_lengths_iqr_upper:.0f}")
+        print(f"Average path length IQR lower: {path_lengths_iqr_lower:.0f}")
+        print(f"Average number of hops mean: {num_hops_mean:.2f}")
+        print(f"Average number of hops std: {num_hops_std:.2f}")
+        print(f"Average number of hops IQR upper: {jnp.percentile(num_hops, 75):.2f}")
+        print(f"Average number of hops IQR lower: {jnp.percentile(num_hops, 25):.2f}")
+        # Get path lengths where returns are positive, 0 otherwise
+        utilised_path_lengths = jnp.where(returns > 0, jnp.take(path_lengths, path_indices), 0)
+        utilised_path_hops = jnp.where(returns > 0, jnp.take(num_hops, path_indices), 0)
+        print(
+            f"Average path length for successful actions mean: {utilised_path_lengths.mean():.0f}"
+        )
+        print(f"Average path length for successful actions std: {utilised_path_lengths.std():.0f}")
+        print(
+            f"Average path length for successful actions IQR upper: {jnp.percentile(utilised_path_lengths, 75):.0f}"
+        )
+        print(
+            f"Average path length for successful actions IQR lower: {jnp.percentile(utilised_path_lengths, 25):.0f}"
+        )
+        print(
+            f"Average number of hops for successful actions mean: {utilised_path_hops.mean():.2f}"
+        )
+        print(f"Average number of hops for successful actions std: {utilised_path_hops.std():.2f}")
+        print(
+            f"Average number of hops for successful actions IQR upper: {jnp.percentile(utilised_path_hops, 75):.2f}"
+        )
+        print(
+            f"Average number of hops for successful actions IQR lower: {jnp.percentile(utilised_path_hops, 25):.2f}"
+        )
+
+        request_source = jnp.squeeze(merged_out["source"])
+        request_dest = jnp.squeeze(merged_out["dest"])
+        request_data_rate = jnp.squeeze(merged_out["data_rate"])
+        path_indices = jnp.squeeze(merged_out["path_index"])
+        slot_indices = jnp.squeeze(merged_out["slot_index"])
+
+        # Compare the available paths
+        df_path_links = pd.DataFrame(params.path_link_array.val).reset_index(drop=True)
+        # Set config.weight = "weight" to use the length of the path for ordering else no. of hops
+        config.weight = "weight" if not config.weight else None
+        env, params = make(config)
+        df_path_links_alt = pd.DataFrame(params.path_link_array.val).reset_index(drop=True)
+        # Find rows that are unique to each dataframe
+        # First, make a unique identifer for each row
+        df_path_id = df_path_links.apply(lambda x: hash(tuple(x)), axis=1).reset_index(drop=True)
+        df_path_id_alt = df_path_links_alt.apply(lambda x: hash(tuple(x)), axis=1).reset_index(
+            drop=True
+        )
+        # Then check uniqueness (unique to the path ordering compared to alternate ordering)
+        unique_paths = df_path_id[~df_path_id.isin(df_path_id_alt)]
+        print(
+            f"Fraction of paths that are unique to ordering: {len(unique_paths) / len(df_path_id):.2f}"
+        )
+        # Then for each path index we have, see if it corresponds to a unique path
+        # Get indices of unique paths
+        unique_path_indices = jnp.array(unique_paths.index)
+        # Get the path indices of the requests
+        unique_paths_used = jnp.isin(path_indices, unique_path_indices)
+        # Remove elements from unique_paths_used that have negative returns
+        unique_paths_used = jnp.where(returns > 0, unique_paths_used, 0)
+        unique_paths_used_count = jnp.count_nonzero(unique_paths_used, axis=-1)
+        positive_return_count = jnp.count_nonzero(jnp.where(returns > 0, returns, 0), axis=-1)
+        unique_paths_used_mean = (
+            (unique_paths_used_count / positive_return_count).reshape(-1).mean()
+        )
+        unique_paths_used_std = (unique_paths_used_count / positive_return_count).reshape(-1).std()
+        unique_paths_used_iqr_upper = jnp.percentile(
+            unique_paths_used_count / positive_return_count, 75
+        )
+        unique_paths_used_iqr_lower = jnp.percentile(
+            unique_paths_used_count / positive_return_count, 25
+        )
+        print(
+            f"Fraction of successful actions that use unique paths mean: {unique_paths_used_mean:.3f}"
+        )
+        print(
+            f"Fraction of successful actions that use unique paths std: {unique_paths_used_std:.3f}"
+        )
+        print(
+            f"Fraction of successful actions that use unique paths IQR upper: {unique_paths_used_iqr_upper:.3f}"
+        )
+        print(
+            f"Fraction of successful actions that use unique paths IQR lower: {unique_paths_used_iqr_lower:.3f}"
+        )
+
+
+def get_user_flags(flags) -> dict:
+    """Extract only explicitly-set (non-default) flags from absl FlagValues.
+
+    Args:
+        flags: absl.flags.FlagValues instance.
+
+    Returns:
+        Dict of {flag_name: value} for flags that were set on the command line.
+    """
+    # Filter out absl internal flags (v, verbosity, etc.)
+    _ABSL_INTERNAL = {
+        "v",
+        "verbosity",
+        "logger_levels",
+        "stderrthreshold",
+        "showprefixforinfo",
+        "run_with_pdb",
+        "pdb_post_mortem",
+        "run_with_profiling",
+        "profile_file",
+        "use_cprofile_for_profiling",
+        "only_check_args",
+        "?",
+        "help",
+        "helpshort",
+        "helpfull",
+        "helpxml",
+        "flagfile",
+        "undefok",
+        "logtostderr",
+        "alsologtostderr",
+        "log_dir",
+    }
+    result = {}
+    for name in flags:
+        if flags[name].using_default_value or name in _ABSL_INTERNAL:
+            continue
+        val = flags[name].value
+        # Fix list flags that received a stringified Python list like "['0.35', '0.35']"
+        # absl DEFINE_list splits on commas producing fragments like ["['0.35'", " '0.35']"]
+        if isinstance(val, list) and val:
+            joined = ",".join(str(x) for x in val)
+            if "[" in joined or "'" in joined or '"' in joined:
+                cleaned = joined.replace("[", "").replace("]", "").replace("'", "").replace('"', "")
+                val = [p.strip() for p in cleaned.split(",") if p.strip()]
+        result[name] = val
+    return result
+
+
+def _to_python(val):
+    """Convert JAX/numpy scalars and arrays to plain Python types for JSON serialization."""
+    if hasattr(val, "item"):
+        return val.item()
+    if isinstance(val, (np.floating, np.integer)):
+        return val.item()
+    return val
+
+
+def build_run_summary(
+    run_type: str,
+    config: dict,
+    metrics_dict: Dict[str, Dict[str, float]],
+    timing: Dict[str, float] | None = None,
+) -> dict:
+    """Build a standardized run summary dictionary.
+
+    Args:
+        run_type: One of "rl_training", "heuristic_eval", "model_eval",
+                  "cutset_bound", "reconfigurable_routing_bound".
+        config: Dict of user-specified flags (from get_user_flags).
+        metrics_dict: {metric_name: {"mean": ..., "std": ..., "iqr_lower": ..., "iqr_upper": ...}}.
+        timing: Optional dict with "compilation_time_s", "execution_time_s", "fps".
+
+    Returns:
+        A dictionary ready for json.dumps serialization.
+    """
+    # Convert all config values to JSON-safe types
+    safe_config = {}
+    for k, v in config.items():
+        try:
+            json.dumps(v)
+            safe_config[k] = v
+        except (TypeError, ValueError):
+            safe_config[k] = str(v)
+
+    # Convert all metric values to plain Python floats
+    safe_metrics = {}
+    for metric_name, stats in metrics_dict.items():
+        safe_metrics[metric_name] = {
+            stat_name: _to_python(stat_val) for stat_name, stat_val in stats.items()
+        }
+
+    summary = {
+        "run_type": run_type,
+        "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "config": safe_config,
+        "metrics": safe_metrics,
+    }
+
+    if timing:
+        summary["timing"] = {k: _to_python(v) for k, v in timing.items()}
+
+    return summary
+
+
+def write_run_summary(
+    summary: dict,
+    output_file: str | None = None,
+    print_to_console: bool = True,
+) -> None:
+    """Print and/or write a run summary.
+
+    Args:
+        summary: The dict returned by build_run_summary().
+        output_file: If not None, append as one JSON line to this file.
+        print_to_console: If True, print a human-readable summary to stdout.
+    """
+    if print_to_console:
+        print("\n" + "=" * 70)
+        print("XLRON Run Summary")
+        print("=" * 70)
+        print(f"{'Run type:':<22s} {summary['run_type']}")
+        print(f"{'Timestamp:':<22s} {summary['timestamp']}")
+        if summary.get("timing"):
+            t = summary["timing"]
+            if t.get("compilation_time_s") is not None:
+                print(f"{'Compilation time:':<22s} {t['compilation_time_s']:.2f}s")
+            if t.get("execution_time_s") is not None:
+                print(f"{'Execution time:':<22s} {t['execution_time_s']:.2f}s")
+            if t.get("fps") is not None:
+                print(f"{'FPS:':<22s} {t['fps']:.2f}")
+        print("-" * 70)
+        print("Config:")
+        for k, v in summary["config"].items():
+            print(f"  {k:<28s} {v}")
+        print("-" * 70)
+        print(f"{'Metric':<40s} {'Mean':>12s} {'Std':>12s} {'IQR Lower':>12s} {'IQR Upper':>12s}")
+        print("-" * 70)
+        for metric_name, stats in summary["metrics"].items():
+            mean = stats.get("mean", float("nan"))
+            std = stats.get("std", float("nan"))
+            iqr_lower = stats.get("iqr_lower", float("nan"))
+            iqr_upper = stats.get("iqr_upper", float("nan"))
+            print(
+                f"{metric_name:<40s} {mean:>12.5f} {std:>12.5f} {iqr_lower:>12.5f} {iqr_upper:>12.5f}"
+            )
+        print("=" * 70)
+
+    if output_file:
+        os.makedirs(os.path.dirname(output_file) or ".", exist_ok=True)
+        with open(output_file, "a") as f:
+            f.write(json.dumps(summary) + "\n")
+        print(f"Run summary appended to {output_file}")
+
+
+def print_metrics(
+    processed_data: Dict[str, Dict[str, Array]],
+    config: Union[Box, Dict[str, Any]],
+    user_flags: dict | None = None,
+    timing: Dict[str, float] | None = None,
+) -> None:
+    """Print final metrics as a standardized run summary and optionally write JSONL."""
+    # Determine run type
+    if config.get("EVAL_HEURISTIC"):
+        run_type = "heuristic_eval"
+    elif config.get("EVAL_MODEL"):
+        run_type = "model_eval"
+    else:
+        run_type = "rl_training"
+
+    # Extract final scalar stats from processed_data
+    metrics_dict = {}
+    for metric in processed_data.keys():
+        if config.get("continuous_operation", False):
+            metrics_dict[metric] = {
+                "mean": float(processed_data[metric]["mean"][-1]),
+                "std": float(processed_data[metric]["std"][-1]),
+                "iqr_lower": float(processed_data[metric]["iqr_lower"][-1]),
+                "iqr_upper": float(processed_data[metric]["iqr_upper"][-1]),
+            }
+        else:
+            metrics_dict[metric] = {
+                "mean": float(processed_data[metric]["episode_end_mean"].mean()),
+                "std": float(processed_data[metric]["episode_end_std"].mean()),
+                "iqr_lower": float(processed_data[metric]["episode_end_iqr_lower"].mean()),
+                "iqr_upper": float(processed_data[metric]["episode_end_iqr_upper"].mean()),
+            }
+
+    run_config = user_flags if user_flags is not None else {}
+    summary = build_run_summary(run_type, run_config, metrics_dict, timing=timing)
+    write_run_summary(summary, config.get("DATA_OUTPUT_FILE"), print_to_console=True)
+
+
+def log_metrics(
+    config: Box,
+    out: Dict[str, Dict[str, Array]],
+    total_run_time: float,
+    increment_run_time: float,
+    merge_func: Callable,
+    episode_count: int = 0,
+    update_count: int = 0,
+    step_count: int = 0,
+) -> Tuple[Dict, Dict]:
+    """Log metrics to wandb and/or save episode end metrics to CSV."""
+
+    with TimeIt("Processing metrics"):
+        merged_out, merged_out_loss, processed_data, episode_ends = process_metrics(
+            config, out, merge_func
+        )
+
+    all_metrics = list(processed_data.keys())
+    if not config.LOG_ALL_INFO:
+        all_metrics = [
+            "service_blocking_probability",
+            "bitrate_blocking_probability",
+            "accepted_services",
+            "accepted_bitrate",
+        ]
+
+    with TimeIt("Logging metrics"):
+        if config.get("EPISODE_DATA_OUTPUT_FILE"):
+            print("Saving episode metrics to file")
+            # Save episode end metrics to file
+            episode_end_df = pd.DataFrame(
+                {
+                    f"{metric}_{stat}": processed_data[metric][stat]
+                    for metric in all_metrics
+                    for stat in [
+                        "episode_end_mean",
+                        "episode_end_std",
+                        "episode_end_iqr_upper",
+                        "episode_end_iqr_lower",
+                    ]
+                }
+            )
+            # Check if data output file exists
+            write_headers = not os.path.exists(config.EPISODE_DATA_OUTPUT_FILE)
+            episode_end_df.to_csv(
+                config.EPISODE_DATA_OUTPUT_FILE, mode="a", header=write_headers, index=False
+            )
+            # Pickle merged_out for further analysis
+            with open(config.EPISODE_DATA_OUTPUT_FILE.replace(".csv", ".pkl"), "wb") as f:
+                pickle.dump(merged_out, f)
+
+        if config.WANDB:
+            print("Logging metrics to wandb")
+
+            if not config.continuous_operation:
+                # Log metrics from every step
+                # Define the downsample factor to speed up upload to wandb
+                # Then reshape the array and compute the mean
+                training_time = (
+                    jnp.arange(len(processed_data[all_metrics[0]]["episode_end_mean"]))
+                    / len(processed_data[all_metrics[0]]["episode_end_mean"])
+                    * increment_run_time
+                ) + total_run_time
+                # Log episode end metrics
+                print(f"Logging episode end metrics for {np.sum(episode_ends)} episodes")
+                for i in range(len(processed_data[all_metrics[0]]["episode_end_mean"])):
+                    log_dict = {
+                        f"{metric}_{stat}": processed_data[metric][stat][i]
+                        for metric in all_metrics
+                        for stat in [
+                            "episode_end_mean",
+                            "episode_end_std",
+                            "episode_end_iqr_upper",
+                            "episode_end_iqr_lower",
+                        ]
+                    }
+                    log_dict["training_time"] = training_time[i]
+                    log_dict["episode_count"] = i + episode_count
+                    wandb.log(log_dict)
+
+            else:
+                # Log metrics from every step
+                # Define the downsample factor to speed up upload to wandb
+                # Then reshape the array and compute the mean
+                training_time = (
+                    jnp.arange(len(processed_data[all_metrics[0]]["mean"]))
+                    / len(processed_data[all_metrics[0]]["mean"])
+                    * increment_run_time
+                ) + total_run_time
+
+                chop = len(processed_data[all_metrics[0]]["mean"]) % config.DOWNSAMPLE_FACTOR
+
+                def downsample_mean(x: Array) -> Array:
+                    x = jnp.asarray(x)
+                    return x[chop:].reshape(-1, config.DOWNSAMPLE_FACTOR).mean(axis=1)
+
+                for key in all_metrics:
+                    processed_data[key]["mean"] = downsample_mean(processed_data[key]["mean"])
+                    processed_data[key]["std"] = downsample_mean(processed_data[key]["std"])
+                    processed_data[key]["iqr_upper"] = downsample_mean(
+                        processed_data[key]["iqr_upper"]
+                    )
+                    processed_data[key]["iqr_lower"] = downsample_mean(
+                        processed_data[key]["iqr_lower"]
+                    )
+                training_time = downsample_mean(training_time)
+
+                # Log per step metrics
+                print("Logging per step metrics")
+                for i in range(len(processed_data[all_metrics[0]]["mean"])):
+                    log_dict = {
+                        f"{metric}_{agg}": processed_data[metric][agg][i]
+                        for metric in all_metrics
+                        for agg in ["mean", "std", "iqr_upper", "iqr_lower"]
+                    }
+                    log_dict["training_time"] = training_time[i]
+                    log_dict["env_step"] = (i * config.DOWNSAMPLE_FACTOR) + step_count
+                    wandb.log(log_dict)
+
+            if config.LOG_LOSS_INFO and merged_out_loss is not None:
+                print("Logging loss info")
+                for i in range(len(merged_out_loss["loss/total_loss"])):
+                    log_dict = {f"{metric}": merged_out_loss[metric][i] for metric in loss_metrics}
+                    if config.REWARD_CENTERING:
+                        log_dict_rc = {
+                            f"{metric}": merged_out_loss[metric][i]
+                            for metric in reward_centering_metrics
+                        }
+                        log_dict = {**log_dict, **log_dict_rc}
+                    if config.ENHANCED_LOGGING:
+                        log_dict_diag = {
+                            f"{metric}": merged_out_loss[metric][i]
+                            for metric in diagnostics_metrics
+                        }
+                        log_dict = {**log_dict, **log_dict_diag}
+                    log_dict["update_epoch"] = i + update_count
+                    wandb.log(log_dict)
+
+    return merged_out, processed_data

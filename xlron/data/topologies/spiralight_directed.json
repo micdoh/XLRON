@@ -1,0 +1,259 @@
+{
+    "directed": true,
+    "multigraph": false,
+    "graph": {},
+    "nodes": [
+        {
+            "id": 1,
+            "name": "Milwaukee",
+            "latitude": 43.04,
+            "longitude": -87.91
+        },
+        {
+            "id": 2,
+            "name": "Rockford",
+            "latitude": 42.27,
+            "longitude": -89.09
+        },
+        {
+            "id": 3,
+            "name": "Janesville",
+            "latitude": 42.68,
+            "longitude": -89.02
+        },
+        {
+            "id": 4,
+            "name": "Waukesha",
+            "latitude": 43.01,
+            "longitude": -88.23
+        },
+        {
+            "id": 5,
+            "name": "Kenosha",
+            "latitude": 42.59,
+            "longitude": -87.82
+        },
+        {
+            "id": 6,
+            "name": "Madison",
+            "latitude": 43.07,
+            "longitude": -89.4
+        },
+        {
+            "id": 7,
+            "name": "New Lisbon",
+            "latitude": 43.92,
+            "longitude": -90.27
+        },
+        {
+            "id": 8,
+            "name": "Minneapolis",
+            "latitude": 44.98,
+            "longitude": -93.26
+        },
+        {
+            "id": 9,
+            "name": "Eau Claire",
+            "latitude": 44.81,
+            "longitude": -91.5
+        },
+        {
+            "id": 10,
+            "name": "Wausau",
+            "latitude": 44.96,
+            "longitude": -89.63
+        },
+        {
+            "id": 11,
+            "name": "Green Bay",
+            "latitude": 44.52,
+            "longitude": -88.02
+        },
+        {
+            "id": 12,
+            "name": "Appleton",
+            "latitude": 44.26,
+            "longitude": -88.42
+        },
+        {
+            "id": 13,
+            "name": "Oshkosh",
+            "latitude": 44.02,
+            "longitude": -88.54
+        },
+        {
+            "id": 14,
+            "name": "Fond du Lac",
+            "latitude": 43.77,
+            "longitude": -88.44
+        },
+        {
+            "id": 15,
+            "name": "Beaver Dam",
+            "latitude": 43.46,
+            "longitude": -88.84
+        }
+    ],
+    "links": [
+        {
+            "distance": 39,
+            "source": 1,
+            "target": 4
+        },
+        {
+            "distance": 76,
+            "source": 1,
+            "target": 5
+        },
+        {
+            "distance": 69,
+            "source": 2,
+            "target": 3
+        },
+        {
+            "distance": 165,
+            "source": 2,
+            "target": 5
+        },
+        {
+            "distance": 80,
+            "source": 3,
+            "target": 6
+        },
+        {
+            "distance": 143,
+            "source": 4,
+            "target": 6
+        },
+        {
+            "distance": 177,
+            "source": 6,
+            "target": 7
+        },
+        {
+            "distance": 94,
+            "source": 6,
+            "target": 15
+        },
+        {
+            "distance": 209,
+            "source": 7,
+            "target": 9
+        },
+        {
+            "distance": 210,
+            "source": 8,
+            "target": 9
+        },
+        {
+            "distance": 428,
+            "source": 8,
+            "target": 10
+        },
+        {
+            "distance": 204,
+            "source": 10,
+            "target": 11
+        },
+        {
+            "distance": 64,
+            "source": 11,
+            "target": 12
+        },
+        {
+            "distance": 43,
+            "source": 12,
+            "target": 13
+        },
+        {
+            "distance": 43,
+            "source": 13,
+            "target": 14
+        },
+        {
+            "distance": 71,
+            "source": 14,
+            "target": 15
+        },
+        {
+            "distance": 39,
+            "source": 4,
+            "target": 1
+        },
+        {
+            "distance": 76,
+            "source": 5,
+            "target": 1
+        },
+        {
+            "distance": 69,
+            "source": 3,
+            "target": 2
+        },
+        {
+            "distance": 165,
+            "source": 5,
+            "target": 2
+        },
+        {
+            "distance": 80,
+            "source": 6,
+            "target": 3
+        },
+        {
+            "distance": 143,
+            "source": 6,
+            "target": 4
+        },
+        {
+            "distance": 177,
+            "source": 7,
+            "target": 6
+        },
+        {
+            "distance": 94,
+            "source": 15,
+            "target": 6
+        },
+        {
+            "distance": 209,
+            "source": 9,
+            "target": 7
+        },
+        {
+            "distance": 210,
+            "source": 9,
+            "target": 8
+        },
+        {
+            "distance": 428,
+            "source": 10,
+            "target": 8
+        },
+        {
+            "distance": 204,
+            "source": 11,
+            "target": 10
+        },
+        {
+            "distance": 64,
+            "source": 12,
+            "target": 11
+        },
+        {
+            "distance": 43,
+            "source": 13,
+            "target": 12
+        },
+        {
+            "distance": 43,
+            "source": 14,
+            "target": 13
+        },
+        {
+            "distance": 71,
+            "source": 15,
+            "target": 14
+        }
+    ]
+}

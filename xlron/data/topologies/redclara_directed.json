@@ -1,0 +1,262 @@
+{
+    "directed": true,
+    "multigraph": false,
+    "graph": {},
+    "nodes": [
+        {
+            "id": 1,
+            "latitude": -35.119,
+            "longitude": -65.27
+        },
+        {
+            "id": 2,
+            "name": "sao paulo",
+            "latitude": -23.59,
+            "longitude": -46.57
+        },
+        {
+            "id": 3,
+            "name": "Sao Luis",
+            "latitude": -2.51,
+            "longitude": -44.26
+        },
+        {
+            "id": 4,
+            "latitude": -32.76,
+            "longitude": -55.94
+        },
+        {
+            "id": 5,
+            "latitude": -26.81,
+            "longitude": -70.5
+        },
+        {
+            "id": 6,
+            "latitude": -0.94,
+            "longitude": -78.93
+        },
+        {
+            "id": 7,
+            "latitude": 3.62,
+            "longitude": -73.48
+        },
+        {
+            "id": 8,
+            "latitude": 8.51,
+            "longitude": -80.78
+        },
+        {
+            "id": 9,
+            "latitude": 9.47,
+            "longitude": -85.61
+        },
+        {
+            "id": 10,
+            "latitude": 15.73,
+            "longitude": -90.18
+        },
+        {
+            "id": 11,
+            "latitude": 13.006,
+            "longitude": -83.59
+        },
+        {
+            "id": 12,
+            "latitude": 14.81,
+            "longitude": -87.3
+        },
+        {
+            "id": 13,
+            "latitude": 19.54,
+            "longitude": -99.28
+        },
+        {
+            "id": 14,
+            "name": "Miami",
+            "latitude": 25.88,
+            "longitude": -80.298
+        }
+    ],
+    "links": [
+        {
+            "distance": 708,
+            "source": 8,
+            "target": 9
+        },
+        {
+            "distance": 2334,
+            "source": 8,
+            "target": 14
+        },
+        {
+            "distance": 1134,
+            "source": 8,
+            "target": 11
+        },
+        {
+            "distance": 1500,
+            "source": 8,
+            "target": 12
+        },
+        {
+            "distance": 3676,
+            "source": 8,
+            "target": 13
+        },
+        {
+            "distance": 1733,
+            "source": 8,
+            "target": 10
+        },
+        {
+            "distance": 6295,
+            "source": 8,
+            "target": 5
+        },
+        {
+            "distance": 1135,
+            "source": 8,
+            "target": 7
+        },
+        {
+            "distance": 3845,
+            "source": 14,
+            "target": 6
+        },
+        {
+            "distance": 6228,
+            "source": 14,
+            "target": 3
+        },
+        {
+            "distance": 1249,
+            "source": 7,
+            "target": 6
+        },
+        {
+            "distance": 4284,
+            "source": 7,
+            "target": 3
+        },
+        {
+            "distance": 2938,
+            "source": 3,
+            "target": 2
+        },
+        {
+            "distance": 2938,
+            "source": 3,
+            "target": 2
+        },
+        {
+            "distance": 2883,
+            "source": 2,
+            "target": 1
+        },
+        {
+            "distance": 1675,
+            "source": 2,
+            "target": 4
+        },
+        {
+            "distance": 3435,
+            "source": 2,
+            "target": 5
+        },
+        {
+            "distance": 1149,
+            "source": 5,
+            "target": 1
+        },
+        {
+            "distance": 708,
+            "source": 9,
+            "target": 8
+        },
+        {
+            "distance": 2334,
+            "source": 14,
+            "target": 8
+        },
+        {
+            "distance": 1134,
+            "source": 11,
+            "target": 8
+        },
+        {
+            "distance": 1500,
+            "source": 12,
+            "target": 8
+        },
+        {
+            "distance": 3676,
+            "source": 13,
+            "target": 8
+        },
+        {
+            "distance": 1733,
+            "source": 10,
+            "target": 8
+        },
+        {
+            "distance": 6295,
+            "source": 5,
+            "target": 8
+        },
+        {
+            "distance": 1135,
+            "source": 7,
+            "target": 8
+        },
+        {
+            "distance": 3845,
+            "source": 6,
+            "target": 14
+        },
+        {
+            "distance": 6228,
+            "source": 3,
+            "target": 14
+        },
+        {
+            "distance": 1249,
+            "source": 6,
+            "target": 7
+        },
+        {
+            "distance": 4284,
+            "source": 3,
+            "target": 7
+        },
+        {
+            "distance": 2938,
+            "source": 2,
+            "target": 3
+        },
+        {
+            "distance": 2938,
+            "source": 2,
+            "target": 3
+        },
+        {
+            "distance": 2883,
+            "source": 1,
+            "target": 2
+        },
+        {
+            "distance": 1675,
+            "source": 4,
+            "target": 2
+        },
+        {
+            "distance": 3435,
+            "source": 5,
+            "target": 2
+        },
+        {
+            "distance": 1149,
+            "source": 1,
+            "target": 5
+        }
+    ]
+}

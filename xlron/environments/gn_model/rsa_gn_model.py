@@ -1,0 +1,125 @@
+import jax.numpy as jnp
+from gymnax.environments import spaces
+
+from xlron.environments.dataclasses import *
+from xlron.environments.env_funcs import (
+    init_active_lightpaths_array,
+    init_active_lightpaths_array_departure,
+    init_channel_centre_bw_array,
+    init_channel_centre_freq_array,
+    init_channel_power_array,
+    init_graph_tuple,
+    init_link_slot_array,
+    init_link_slot_departure_array,
+    init_link_slot_mask,
+    init_link_snr_array,
+    init_path_index_array,
+    init_rsa_request_array,
+    init_traffic_matrix,
+    set_band_gaps,
+)
+from xlron.environments.rsa.rsa import RSAEnv, RSAEnvParams
+from xlron.environments.wrappers import *
+
+
+class RSAGNModelEnv(RSAEnv):
+    """RMSA + GNN model environment."""
+
+    def __init__(
+        self,
+        key: chex.PRNGKey,
+        params: RSAGNModelEnvParams,
+        traffic_matrix: chex.Array | None = None,
+        launch_power_array: chex.Array | None = None,
+        list_of_requests: chex.Array | None = None,
+        laplacian_matrix: chex.Array | None = None,
+    ):
+        """Initialise the environment state and set as initial state.
+
+        Args:
+            key: PRNG key
+            params: Environment parameters
+            traffic_matrix (optional): Traffic matrix
+            launch_power_array (optional): Launch power array
+
+        Returns:
+            None
+        """
+        super().__init__(
+            key,
+            params,
+            traffic_matrix=traffic_matrix,
+            list_of_requests=list_of_requests,
+            laplacian_matrix=laplacian_matrix,
+        )
+        state = RSAGNModelEnvState(
+            current_time=0,
+            arrival_time=0,
+            holding_time=0,
+            total_timesteps=0,
+            total_requests=-1,
+            link_slot_array=set_band_gaps(init_link_slot_array(params), params, -1.0),
+            link_slot_departure_array=init_link_slot_departure_array(params),
+            request_array=init_rsa_request_array(),
+            link_slot_mask=init_link_slot_mask(params, agg=params.aggregate_slots),
+            traffic_matrix=traffic_matrix
+            if traffic_matrix is not None
+            else init_traffic_matrix(key, params),
+            graph=None,
+            full_link_slot_mask=init_link_slot_mask(params),
+            accepted_services=0,
+            accepted_bitrate=0.0,
+            total_bitrate=0.0,
+            list_of_requests=list_of_requests,
+            link_snr_array=init_link_snr_array(params),
+            path_index_array=init_path_index_array(params),
+            path_index_array_prev=init_path_index_array(params),
+            channel_centre_bw_array=init_channel_centre_bw_array(params),
+            channel_power_array=init_channel_power_array(params),
+            channel_centre_bw_array_prev=init_channel_centre_bw_array(params),
+            channel_power_array_prev=init_channel_power_array(params),
+            channel_centre_freq_array=init_channel_centre_freq_array(params),
+            channel_centre_freq_array_prev=init_channel_centre_freq_array(params),
+            launch_power_array=launch_power_array,
+            active_lightpaths_array=init_active_lightpaths_array(params),
+            active_lightpaths_array_departure=init_active_lightpaths_array_departure(params),
+            throughput=jnp.array(0.0, dtype=init_link_snr_array(params).dtype),
+            valid_mass=jnp.array(1.0, dtype=dtype_config.LARGE_FLOAT_DTYPE),
+            arrival_rate=jnp.array(params.arrival_rate, dtype=dtype_config.SMALL_FLOAT_DTYPE),
+            mean_service_holding_time=jnp.array(params.mean_service_holding_time, dtype=dtype_config.SMALL_FLOAT_DTYPE),
+        )
+        self.initial_state = state.replace(graph=init_graph_tuple(state, params, laplacian_matrix))
+
+
+
+    @partial(
+        jax.jit,
+        static_argnums=(
+            0,
+            2,
+        ),
+    )
+    def get_obs(self, state: RSAGNModelEnvState, params: RSAGNModelEnvParams) -> chex.Array:
+        # Return minimal observation since we're monitoring active lightpaths for throughput tracking
+        return jnp.array(0)
+
+    @staticmethod
+    def num_actions(params: RSAEnvParams) -> int:
+        """Number of actions possible in environment."""
+        return 1
+
+    def observation_space(self, params: RSAEnvParams):
+        """Observation space of the environment."""
+        return spaces.Discrete(
+            3  # Request array
+            + 1  # Holding time
+            + 7 * params.k_paths
+            # Path stats:
+            # Mean free block size
+            # Free slots
+            # Path length (100 km)
+            # Path length (hops)
+            # Number of connections on path
+            # Mean power of connection on path
+            # Mean SNR of connection on path
+        )

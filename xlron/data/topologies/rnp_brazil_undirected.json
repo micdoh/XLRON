@@ -1,0 +1,129 @@
+{
+    "directed": false,
+    "multigraph": false,
+    "graph": {},
+    "nodes": [
+        {
+            "id": 1,
+            "name": "Fortaleza",
+            "latitude": -3.7275,
+            "longitude": -38.5275
+        },
+        {
+            "id": 2,
+            "name": "Recife",
+            "latitude": -8.0539,
+            "longitude": -34.8808
+        },
+        {
+            "id": 3,
+            "name": "Salvador, Bahia",
+            "latitude": -12.9831,
+            "longitude": -38.4928
+        },
+        {
+            "id": 4,
+            "name": "Belo Horizonte",
+            "latitude": -19.9281,
+            "longitude": -43.9419
+        },
+        {
+            "id": 5,
+            "name": "Rio de Janeiro",
+            "latitude": -22.9111,
+            "longitude": -43.2056
+        },
+        {
+            "id": 6,
+            "name": "S\u00e3o Paulo",
+            "latitude": -23.5504,
+            "longitude": -46.6339
+        },
+        {
+            "id": 7,
+            "name": "Bras\u00edlia",
+            "latitude": -15.7939,
+            "longitude": -47.8828
+        },
+        {
+            "id": 8,
+            "name": "Curitiba",
+            "latitude": -25.4297,
+            "longitude": -49.2719
+        },
+        {
+            "id": 9,
+            "name": "Florian\u00f3polis",
+            "latitude": -27.5933,
+            "longitude": -48.553
+        },
+        {
+            "id": 10,
+            "name": "Porto Alegre",
+            "latitude": -30.0328,
+            "longitude": -51.23
+        }
+    ],
+    "links": [
+        {
+            "distance": 2025,
+            "source": 10,
+            "target": 7
+        },
+        {
+            "distance": 564,
+            "source": 10,
+            "target": 9
+        },
+        {
+            "distance": 376,
+            "source": 9,
+            "target": 8
+        },
+        {
+            "distance": 508,
+            "source": 6,
+            "target": 8
+        },
+        {
+            "distance": 1308,
+            "source": 6,
+            "target": 7
+        },
+        {
+            "distance": 536,
+            "source": 6,
+            "target": 5
+        },
+        {
+            "distance": 931,
+            "source": 7,
+            "target": 4
+        },
+        {
+            "distance": 511,
+            "source": 4,
+            "target": 5
+        },
+        {
+            "distance": 1514,
+            "source": 5,
+            "target": 3
+        },
+        {
+            "distance": 1013,
+            "source": 3,
+            "target": 2
+        },
+        {
+            "distance": 942,
+            "source": 2,
+            "target": 1
+        },
+        {
+            "distance": 2368,
+            "source": 1,
+            "target": 4
+        }
+    ]
+}

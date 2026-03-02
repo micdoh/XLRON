@@ -1,0 +1,607 @@
+{
+    "directed": false,
+    "multigraph": false,
+    "graph": {},
+    "nodes": [
+        {
+            "id": 1,
+            "name": "Cagliari",
+            "latitude": 39.21,
+            "longitude": 9.13
+        },
+        {
+            "id": 2,
+            "name": "Cagliari",
+            "latitude": 39.21,
+            "longitude": 9.13
+        },
+        {
+            "id": 3,
+            "name": "L'Aquila",
+            "latitude": 42.35,
+            "longitude": 13.4
+        },
+        {
+            "id": 4,
+            "name": "Sassari",
+            "latitude": 40.73,
+            "longitude": 8.56
+        },
+        {
+            "id": 5,
+            "name": "Palermo",
+            "latitude": 38.12,
+            "longitude": 13.36
+        },
+        {
+            "id": 6,
+            "name": "Pavia",
+            "latitude": 45.18,
+            "longitude": 9.16
+        },
+        {
+            "id": 7,
+            "name": "Vatican City",
+            "latitude": 41.89,
+            "longitude": 12.48
+        },
+        {
+            "id": 8,
+            "name": "Perugia",
+            "latitude": 43.1,
+            "longitude": 12.38
+        },
+        {
+            "id": 9,
+            "name": "Catanzaro",
+            "latitude": 38.89,
+            "longitude": 16.6
+        },
+        {
+            "id": 10,
+            "name": "Bologna",
+            "latitude": 44.49,
+            "longitude": 11.34
+        },
+        {
+            "id": 11,
+            "name": "Milano",
+            "latitude": 45.46,
+            "longitude": 9.19
+        },
+        {
+            "id": 12,
+            "name": "Trieste",
+            "latitude": 45.65,
+            "longitude": 13.78
+        },
+        {
+            "id": 13,
+            "name": "Napoli",
+            "latitude": 40.83,
+            "longitude": 14.25
+        },
+        {
+            "id": 14,
+            "name": "Messina",
+            "latitude": 38.19,
+            "longitude": 15.55
+        },
+        {
+            "id": 15,
+            "name": "Cosenza",
+            "latitude": 39.31,
+            "longitude": 16.25
+        },
+        {
+            "id": 16,
+            "name": "Catania",
+            "latitude": 37.5,
+            "longitude": 15.09
+        },
+        {
+            "id": 17,
+            "name": "Palermo",
+            "latitude": 38.12,
+            "longitude": 13.36
+        },
+        {
+            "id": 18,
+            "name": "Bologna",
+            "latitude": 44.49,
+            "longitude": 11.34
+        },
+        {
+            "id": 19,
+            "name": "Avezzano",
+            "latitude": 42.04,
+            "longitude": 13.44
+        },
+        {
+            "id": 20,
+            "name": "Florence",
+            "latitude": 43.77,
+            "longitude": 11.25
+        },
+        {
+            "id": 21,
+            "name": "Florence",
+            "latitude": 43.77,
+            "longitude": 11.25
+        },
+        {
+            "id": 22,
+            "name": "Padova",
+            "latitude": 45.42,
+            "longitude": 11.88
+        },
+        {
+            "id": 23,
+            "name": "Brindisi",
+            "latitude": 40.63,
+            "longitude": 17.94
+        },
+        {
+            "id": 24,
+            "name": "Venice",
+            "latitude": 45.44,
+            "longitude": 12.33
+        },
+        {
+            "id": 25,
+            "name": "Padova",
+            "latitude": 45.42,
+            "longitude": 11.88
+        },
+        {
+            "id": 26,
+            "name": "Milano",
+            "latitude": 45.46,
+            "longitude": 9.19
+        },
+        {
+            "id": 27,
+            "name": "Trento",
+            "latitude": 46.07,
+            "longitude": 11.12
+        },
+        {
+            "id": 28,
+            "name": "Milano",
+            "latitude": 45.46,
+            "longitude": 9.19
+        },
+        {
+            "id": 29,
+            "name": "Milano",
+            "latitude": 45.46,
+            "longitude": 9.19
+        },
+        {
+            "id": 30,
+            "name": "San Teodoro",
+            "latitude": 44.41,
+            "longitude": 8.93
+        },
+        {
+            "id": 31,
+            "name": "Turin",
+            "latitude": 45.07,
+            "longitude": 7.69
+        },
+        {
+            "id": 32,
+            "name": "Capezzano Inferiore",
+            "latitude": 40.68,
+            "longitude": 14.77
+        },
+        {
+            "id": 33,
+            "name": "Potenza",
+            "latitude": 40.64,
+            "longitude": 15.81
+        },
+        {
+            "id": 34,
+            "name": "Campobasso",
+            "latitude": 41.56,
+            "longitude": 14.67
+        },
+        {
+            "id": 35,
+            "name": "Frascati",
+            "latitude": 41.82,
+            "longitude": 12.67
+        },
+        {
+            "id": 36,
+            "name": "L'Aquila",
+            "latitude": 42.35,
+            "longitude": 13.4
+        },
+        {
+            "id": 37,
+            "name": "Le Grazie di Ancona",
+            "latitude": 43.6,
+            "longitude": 13.51
+        },
+        {
+            "id": 38,
+            "name": "Matera",
+            "latitude": 40.67,
+            "longitude": 16.6
+        },
+        {
+            "id": 39,
+            "name": "Lecce",
+            "latitude": 40.36,
+            "longitude": 18.17
+        },
+        {
+            "id": 40,
+            "name": "Bari",
+            "latitude": 41.12,
+            "longitude": 16.85
+        },
+        {
+            "id": 41,
+            "name": "Foggia",
+            "latitude": 41.46,
+            "longitude": 15.55
+        },
+        {
+            "id": 42,
+            "name": "Brescia",
+            "latitude": 45.52,
+            "longitude": 10.23
+        },
+        {
+            "id": 43,
+            "name": "Vatican City",
+            "latitude": 41.89,
+            "longitude": 12.48
+        },
+        {
+            "id": 44,
+            "name": "Milano",
+            "latitude": 45.46,
+            "longitude": 9.19
+        },
+        {
+            "id": 45,
+            "name": "Ferrara",
+            "latitude": 44.83,
+            "longitude": 11.62
+        },
+        {
+            "id": 46,
+            "name": "Pavia",
+            "latitude": 45.18,
+            "longitude": 9.16
+        },
+        {
+            "id": 47,
+            "name": "Pisa",
+            "latitude": 43.72,
+            "longitude": 10.4
+        },
+        {
+            "id": 48,
+            "name": "Urbino",
+            "latitude": 43.73,
+            "longitude": 12.64
+        }
+    ],
+    "links": [
+        {
+            "distance": 1,
+            "source": 1,
+            "target": 2
+        },
+        {
+            "distance": 616,
+            "source": 2,
+            "target": 7
+        },
+        {
+            "distance": 264,
+            "source": 2,
+            "target": 4
+        },
+        {
+            "distance": 616,
+            "source": 2,
+            "target": 43
+        },
+        {
+            "distance": 1,
+            "source": 3,
+            "target": 36
+        },
+        {
+            "distance": 137,
+            "source": 3,
+            "target": 43
+        },
+        {
+            "distance": 1,
+            "source": 5,
+            "target": 17
+        },
+        {
+            "distance": 1,
+            "source": 6,
+            "target": 46
+        },
+        {
+            "distance": 1,
+            "source": 7,
+            "target": 43
+        },
+        {
+            "distance": 26,
+            "source": 7,
+            "target": 35
+        },
+        {
+            "distance": 137,
+            "source": 7,
+            "target": 36
+        },
+        {
+            "distance": 805,
+            "source": 7,
+            "target": 16
+        },
+        {
+            "distance": 202,
+            "source": 8,
+            "target": 43
+        },
+        {
+            "distance": 83,
+            "source": 9,
+            "target": 15
+        },
+        {
+            "distance": 168,
+            "source": 10,
+            "target": 25
+        },
+        {
+            "distance": 301,
+            "source": 10,
+            "target": 26
+        },
+        {
+            "distance": 300,
+            "source": 10,
+            "target": 37
+        },
+        {
+            "distance": 877,
+            "source": 10,
+            "target": 40
+        },
+        {
+            "distance": 455,
+            "source": 10,
+            "target": 43
+        },
+        {
+            "distance": 66,
+            "source": 10,
+            "target": 45
+        },
+        {
+            "distance": 1,
+            "source": 10,
+            "target": 18
+        },
+        {
+            "distance": 121,
+            "source": 10,
+            "target": 20
+        },
+        {
+            "distance": 1,
+            "source": 11,
+            "target": 26
+        },
+        {
+            "distance": 122,
+            "source": 11,
+            "target": 42
+        },
+        {
+            "distance": 1,
+            "source": 11,
+            "target": 28
+        },
+        {
+            "distance": 537,
+            "source": 12,
+            "target": 44
+        },
+        {
+            "distance": 225,
+            "source": 12,
+            "target": 25
+        },
+        {
+            "distance": 70,
+            "source": 13,
+            "target": 32
+        },
+        {
+            "distance": 331,
+            "source": 13,
+            "target": 40
+        },
+        {
+            "distance": 133,
+            "source": 13,
+            "target": 34
+        },
+        {
+            "distance": 566,
+            "source": 13,
+            "target": 16
+        },
+        {
+            "distance": 283,
+            "source": 13,
+            "target": 43
+        },
+        {
+            "distance": 130,
+            "source": 14,
+            "target": 16
+        },
+        {
+            "distance": 338,
+            "source": 15,
+            "target": 16
+        },
+        {
+            "distance": 250,
+            "source": 16,
+            "target": 17
+        },
+        {
+            "distance": 122,
+            "source": 19,
+            "target": 43
+        },
+        {
+            "distance": 103,
+            "source": 20,
+            "target": 47
+        },
+        {
+            "distance": 1,
+            "source": 20,
+            "target": 21
+        },
+        {
+            "distance": 53,
+            "source": 22,
+            "target": 24
+        },
+        {
+            "distance": 1,
+            "source": 22,
+            "target": 25
+        },
+        {
+            "distance": 160,
+            "source": 23,
+            "target": 40
+        },
+        {
+            "distance": 315,
+            "source": 25,
+            "target": 26
+        },
+        {
+            "distance": 140,
+            "source": 25,
+            "target": 27
+        },
+        {
+            "distance": 1,
+            "source": 26,
+            "target": 28
+        },
+        {
+            "distance": 1,
+            "source": 26,
+            "target": 44
+        },
+        {
+            "distance": 247,
+            "source": 27,
+            "target": 28
+        },
+        {
+            "distance": 1,
+            "source": 28,
+            "target": 29
+        },
+        {
+            "distance": 178,
+            "source": 28,
+            "target": 30
+        },
+        {
+            "distance": 188,
+            "source": 28,
+            "target": 31
+        },
+        {
+            "distance": 715,
+            "source": 28,
+            "target": 43
+        },
+        {
+            "distance": 1,
+            "source": 28,
+            "target": 44
+        },
+        {
+            "distance": 47,
+            "source": 28,
+            "target": 46
+        },
+        {
+            "distance": 1,
+            "source": 29,
+            "target": 44
+        },
+        {
+            "distance": 210,
+            "source": 30,
+            "target": 47
+        },
+        {
+            "distance": 394,
+            "source": 31,
+            "target": 47
+        },
+        {
+            "distance": 154,
+            "source": 33,
+            "target": 40
+        },
+        {
+            "distance": 26,
+            "source": 35,
+            "target": 43
+        },
+        {
+            "distance": 107,
+            "source": 37,
+            "target": 48
+        },
+        {
+            "distance": 81,
+            "source": 38,
+            "target": 40
+        },
+        {
+            "distance": 210,
+            "source": 39,
+            "target": 40
+        },
+        {
+            "distance": 173,
+            "source": 40,
+            "target": 41
+        },
+        {
+            "distance": 397,
+            "source": 43,
+            "target": 47
+        }
+    ]
+}

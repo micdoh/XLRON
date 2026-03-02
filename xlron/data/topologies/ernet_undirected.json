@@ -1,0 +1,195 @@
+{
+    "directed": false,
+    "multigraph": false,
+    "graph": {},
+    "nodes": [
+        {
+            "id": 1,
+            "name": "Pune",
+            "latitude": 18.52,
+            "longitude": 73.86
+        },
+        {
+            "id": 2,
+            "name": "Indore",
+            "latitude": 22.72,
+            "longitude": 75.83
+        },
+        {
+            "id": 3,
+            "name": "Thiruvananthapuram",
+            "latitude": 8.48,
+            "longitude": 76.92
+        },
+        {
+            "id": 4,
+            "name": "Mumbai",
+            "latitude": 19.01,
+            "longitude": 72.85
+        },
+        {
+            "id": 5,
+            "name": "Ahmedabad",
+            "latitude": 23.03,
+            "longitude": 72.62
+        },
+        {
+            "id": 6,
+            "name": "Jaipur",
+            "latitude": 26.92,
+            "longitude": 75.82
+        },
+        {
+            "id": 7,
+            "name": "George Town",
+            "latitude": 13.09,
+            "longitude": 80.28
+        },
+        {
+            "id": 8,
+            "name": "Bangalore",
+            "latitude": 12.98,
+            "longitude": 77.6
+        },
+        {
+            "id": 9,
+            "name": "New Delhi",
+            "latitude": 28.64,
+            "longitude": 77.22
+        },
+        {
+            "id": 10,
+            "name": "Guwahati",
+            "latitude": 26.19,
+            "longitude": 91.75
+        },
+        {
+            "id": 11,
+            "name": "Gorakhpur",
+            "latitude": 29.45,
+            "longitude": 75.68
+        },
+        {
+            "id": 12,
+            "name": "Kanpur",
+            "latitude": 26.47,
+            "longitude": 80.35
+        },
+        {
+            "id": 13,
+            "name": "Allahabad",
+            "latitude": 25.45,
+            "longitude": 81.85
+        },
+        {
+            "id": 14,
+            "name": "Kolkata",
+            "latitude": 22.57,
+            "longitude": 88.37
+        },
+        {
+            "id": 15,
+            "name": "Bhubaneshwar",
+            "latitude": 20.23,
+            "longitude": 85.83
+        },
+        {
+            "id": 16,
+            "name": "Hyderabad",
+            "latitude": 17.38,
+            "longitude": 78.47
+        }
+    ],
+    "links": [
+        {
+            "distance": 179,
+            "source": 1,
+            "target": 4
+        },
+        {
+            "distance": 1102,
+            "source": 1,
+            "target": 8
+        },
+        {
+            "distance": 774,
+            "source": 2,
+            "target": 4
+        },
+        {
+            "distance": 759,
+            "source": 3,
+            "target": 8
+        },
+        {
+            "distance": 1500,
+            "source": 4,
+            "target": 9
+        },
+        {
+            "distance": 1163,
+            "source": 5,
+            "target": 9
+        },
+        {
+            "distance": 354,
+            "source": 6,
+            "target": 9
+        },
+        {
+            "distance": 436,
+            "source": 7,
+            "target": 8
+        },
+        {
+            "distance": 773,
+            "source": 7,
+            "target": 16
+        },
+        {
+            "distance": 2177,
+            "source": 8,
+            "target": 9
+        },
+        {
+            "distance": 747,
+            "source": 8,
+            "target": 16
+        },
+        {
+            "distance": 588,
+            "source": 9,
+            "target": 12
+        },
+        {
+            "distance": 1631,
+            "source": 9,
+            "target": 14
+        },
+        {
+            "distance": 793,
+            "source": 10,
+            "target": 14
+        },
+        {
+            "distance": 849,
+            "source": 11,
+            "target": 12
+        },
+        {
+            "distance": 282,
+            "source": 12,
+            "target": 13
+        },
+        {
+            "distance": 555,
+            "source": 14,
+            "target": 15
+        },
+        {
+            "distance": 1500,
+            "source": 14,
+            "target": 16
+        }
+    ]
+}

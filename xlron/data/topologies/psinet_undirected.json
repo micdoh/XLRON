@@ -1,0 +1,278 @@
+{
+    "directed": false,
+    "multigraph": false,
+    "graph": {},
+    "nodes": [
+        {
+            "id": 1,
+            "name": "Detroit",
+            "latitude": 42.33,
+            "longitude": -83.05
+        },
+        {
+            "id": 2,
+            "name": "Dublin",
+            "latitude": 32.54,
+            "longitude": -82.9
+        },
+        {
+            "id": 3,
+            "name": "Chicago",
+            "latitude": 41.85,
+            "longitude": -87.65
+        },
+        {
+            "id": 4,
+            "name": "Toledo",
+            "latitude": 41.66,
+            "longitude": -83.56
+        },
+        {
+            "id": 5,
+            "name": "Washington, D.C.",
+            "latitude": 38.9,
+            "longitude": -77.04
+        },
+        {
+            "id": 6,
+            "name": "Baltimore",
+            "latitude": 39.29,
+            "longitude": -76.61
+        },
+        {
+            "id": 7,
+            "name": "Herndon",
+            "latitude": 38.97,
+            "longitude": -77.39
+        },
+        {
+            "id": 8,
+            "name": "Atlanta",
+            "latitude": 33.75,
+            "longitude": -84.39
+        },
+        {
+            "id": 9,
+            "name": "Wilmington",
+            "latitude": 34.23,
+            "longitude": -77.94
+        },
+        {
+            "id": 10,
+            "name": "Philadelphia",
+            "latitude": 39.95,
+            "longitude": -75.16
+        },
+        {
+            "id": 11,
+            "name": "Boston",
+            "latitude": 42.36,
+            "longitude": -71.06
+        },
+        {
+            "id": 12,
+            "name": "Troy",
+            "latitude": 42.61,
+            "longitude": -83.15
+        },
+        {
+            "id": 13,
+            "name": "New York City",
+            "latitude": 40.71,
+            "longitude": -74.01
+        },
+        {
+            "id": 14,
+            "name": "Newark",
+            "latitude": 40.74,
+            "longitude": -74.17
+        },
+        {
+            "id": 15,
+            "name": "Kansas City",
+            "latitude": 39.11,
+            "longitude": -94.63
+        },
+        {
+            "id": 16,
+            "name": "St. Louis",
+            "latitude": 38.63,
+            "longitude": -90.2
+        },
+        {
+            "id": 17,
+            "name": "San Francisco",
+            "latitude": 37.77,
+            "longitude": -122.42
+        },
+        {
+            "id": 18,
+            "name": "Santa Clara",
+            "latitude": 37.35,
+            "longitude": -121.96
+        },
+        {
+            "id": 19,
+            "name": "Los Angeles",
+            "latitude": 34.05,
+            "longitude": -118.24
+        },
+        {
+            "id": 20,
+            "name": "Phoenix",
+            "latitude": 33.45,
+            "longitude": -112.07
+        },
+        {
+            "id": 21,
+            "name": "Austin",
+            "latitude": 30.27,
+            "longitude": -97.74
+        },
+        {
+            "id": 22,
+            "name": "Fort Worth",
+            "latitude": 32.73,
+            "longitude": -97.32
+        },
+        {
+            "id": 23,
+            "name": "Dallas",
+            "latitude": 32.78,
+            "longitude": -96.81
+        },
+        {
+            "id": 24,
+            "name": "Houston",
+            "latitude": 29.76,
+            "longitude": -95.36
+        }
+    ],
+    "links": [
+        {
+            "distance": 128,
+            "source": 1,
+            "target": 4
+        },
+        {
+            "distance": 1500,
+            "source": 2,
+            "target": 3
+        },
+        {
+            "distance": 1500,
+            "source": 2,
+            "target": 4
+        },
+        {
+            "distance": 1324,
+            "source": 2,
+            "target": 5
+        },
+        {
+            "distance": 510,
+            "source": 3,
+            "target": 4
+        },
+        {
+            "distance": 628,
+            "source": 3,
+            "target": 16
+        },
+        {
+            "distance": 86,
+            "source": 5,
+            "target": 6
+        },
+        {
+            "distance": 862,
+            "source": 6,
+            "target": 9
+        },
+        {
+            "distance": 521,
+            "source": 7,
+            "target": 13
+        },
+        {
+            "distance": 1281,
+            "source": 7,
+            "target": 8
+        },
+        {
+            "distance": 1500,
+            "source": 8,
+            "target": 24
+        },
+        {
+            "distance": 1023,
+            "source": 9,
+            "target": 10
+        },
+        {
+            "distance": 182,
+            "source": 10,
+            "target": 14
+        },
+        {
+            "distance": 460,
+            "source": 11,
+            "target": 13
+        },
+        {
+            "distance": 1182,
+            "source": 12,
+            "target": 13
+        },
+        {
+            "distance": 21,
+            "source": 13,
+            "target": 14
+        },
+        {
+            "distance": 2102,
+            "source": 15,
+            "target": 20
+        },
+        {
+            "distance": 1096,
+            "source": 15,
+            "target": 23
+        },
+        {
+            "distance": 581,
+            "source": 15,
+            "target": 16
+        },
+        {
+            "distance": 93,
+            "source": 17,
+            "target": 18
+        },
+        {
+            "distance": 839,
+            "source": 17,
+            "target": 19
+        },
+        {
+            "distance": 861,
+            "source": 19,
+            "target": 20
+        },
+        {
+            "distance": 354,
+            "source": 21,
+            "target": 24
+        },
+        {
+            "distance": 72,
+            "source": 22,
+            "target": 23
+        },
+        {
+            "distance": 544,
+            "source": 23,
+            "target": 24
+        }
+    ]
+}

@@ -1,0 +1,179 @@
+{
+    "directed": true,
+    "multigraph": false,
+    "graph": {},
+    "nodes": [
+        {
+            "id": 1,
+            "name": "Ruse",
+            "latitude": 43.835571,
+            "longitude": 25.965654
+        },
+        {
+            "id": 2,
+            "name": "Choumen",
+            "latitude": 42.696491,
+            "longitude": 23.32601
+        },
+        {
+            "id": 3,
+            "name": "Varna",
+            "latitude": 43.21405,
+            "longitude": 27.914734
+        },
+        {
+            "id": 4,
+            "name": "Burgas",
+            "latitude": 42.504791,
+            "longitude": 27.462637
+        },
+        {
+            "id": 5,
+            "name": "Trnovo",
+            "latitude": 43.0756647759984,
+            "longitude": 25.6181872309471
+        },
+        {
+            "id": 6,
+            "name": "Gabrovo",
+            "latitude": 42.8838819691562,
+            "longitude": 25.3149737976083
+        },
+        {
+            "id": 7,
+            "name": "StaraZagora",
+            "latitude": 42.4272119485047,
+            "longitude": 25.632925398511
+        },
+        {
+            "id": 8,
+            "name": "Pleven",
+            "latitude": 43.25,
+            "longitude": 24.37
+        },
+        {
+            "id": 9,
+            "name": "Sofia",
+            "latitude": 42.700196738745,
+            "longitude": 23.3218840373449
+        },
+        {
+            "id": 10,
+            "name": "Plovdiv",
+            "latitude": 42.1355852008223,
+            "longitude": 24.7470533705177
+        }
+    ],
+    "links": [
+        {
+            "distance": 373,
+            "source": 1,
+            "target": 2
+        },
+        {
+            "distance": 134,
+            "source": 1,
+            "target": 5
+        },
+        {
+            "distance": 567,
+            "source": 2,
+            "target": 3
+        },
+        {
+            "distance": 131,
+            "source": 3,
+            "target": 4
+        },
+        {
+            "distance": 225,
+            "source": 4,
+            "target": 7
+        },
+        {
+            "distance": 86,
+            "source": 7,
+            "target": 6
+        },
+        {
+            "distance": 120,
+            "source": 7,
+            "target": 10
+        },
+        {
+            "distance": 49,
+            "source": 6,
+            "target": 5
+        },
+        {
+            "distance": 136,
+            "source": 5,
+            "target": 8
+        },
+        {
+            "distance": 197,
+            "source": 8,
+            "target": 9
+        },
+        {
+            "distance": 199,
+            "source": 9,
+            "target": 10
+        },
+        {
+            "distance": 373,
+            "source": 2,
+            "target": 1
+        },
+        {
+            "distance": 134,
+            "source": 5,
+            "target": 1
+        },
+        {
+            "distance": 567,
+            "source": 3,
+            "target": 2
+        },
+        {
+            "distance": 131,
+            "source": 4,
+            "target": 3
+        },
+        {
+            "distance": 225,
+            "source": 7,
+            "target": 4
+        },
+        {
+            "distance": 86,
+            "source": 6,
+            "target": 7
+        },
+        {
+            "distance": 120,
+            "source": 10,
+            "target": 7
+        },
+        {
+            "distance": 49,
+            "source": 5,
+            "target": 6
+        },
+        {
+            "distance": 136,
+            "source": 8,
+            "target": 5
+        },
+        {
+            "distance": 197,
+            "source": 9,
+            "target": 8
+        },
+        {
+            "distance": 199,
+            "source": 10,
+            "target": 9
+        }
+    ]
+}

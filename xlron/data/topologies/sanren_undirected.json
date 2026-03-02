@@ -1,0 +1,86 @@
+{
+    "directed": false,
+    "multigraph": false,
+    "graph": {},
+    "nodes": [
+        {
+            "id": 1,
+            "name": "Johannesburg",
+            "latitude": -26.2,
+            "longitude": 28.04
+        },
+        {
+            "id": 2,
+            "name": "Pretoria",
+            "latitude": -25.74,
+            "longitude": 28.19
+        },
+        {
+            "id": 3,
+            "name": "Durban",
+            "latitude": -29.85,
+            "longitude": 31.02
+        },
+        {
+            "id": 4,
+            "name": "Bloemfontein",
+            "latitude": -29.13,
+            "longitude": 26.2
+        },
+        {
+            "id": 5,
+            "name": "East London",
+            "latitude": -33.02,
+            "longitude": 27.91
+        },
+        {
+            "id": 6,
+            "name": "Port Elizabeth",
+            "latitude": -33.97,
+            "longitude": 25.58
+        },
+        {
+            "id": 7,
+            "name": "Cape Town",
+            "latitude": -33.92,
+            "longitude": 18.42
+        }
+    ],
+    "links": [
+        {
+            "distance": 80,
+            "source": 1,
+            "target": 2
+        },
+        {
+            "distance": 559,
+            "source": 1,
+            "target": 4
+        },
+        {
+            "distance": 803,
+            "source": 2,
+            "target": 3
+        },
+        {
+            "distance": 689,
+            "source": 3,
+            "target": 5
+        },
+        {
+            "distance": 1364,
+            "source": 4,
+            "target": 7
+        },
+        {
+            "distance": 361,
+            "source": 5,
+            "target": 6
+        },
+        {
+            "distance": 991,
+            "source": 6,
+            "target": 7
+        }
+    ]
+}

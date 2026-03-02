@@ -1,0 +1,125 @@
+{
+    "directed": false,
+    "multigraph": false,
+    "graph": {},
+    "nodes": [
+        {
+            "id": 1,
+            "name": "Mihara",
+            "latitude": 34.5,
+            "longitude": 133.0
+        },
+        {
+            "id": 2,
+            "name": "Kameoka",
+            "latitude": 35.0,
+            "longitude": 135.5
+        },
+        {
+            "id": 3,
+            "name": "Aso",
+            "latitude": 33.0,
+            "longitude": 131.0
+        },
+        {
+            "id": 4,
+            "name": "Kochi-shi",
+            "latitude": 33.75,
+            "longitude": 133.5
+        },
+        {
+            "id": 5,
+            "name": "Shibetsu",
+            "latitude": 43.66,
+            "longitude": 145.13
+        },
+        {
+            "id": 6,
+            "name": "Obu",
+            "latitude": 35.03,
+            "longitude": 136.9
+        },
+        {
+            "id": 7,
+            "name": "Nyuzen",
+            "latitude": 37.0,
+            "longitude": 137.5
+        },
+        {
+            "id": 8,
+            "name": "Okinawa",
+            "latitude": 26.34,
+            "longitude": 127.8
+        },
+        {
+            "id": 9,
+            "name": "Sapporo",
+            "latitude": 43.06,
+            "longitude": 141.35
+        },
+        {
+            "id": 10,
+            "name": "Sendai-shi",
+            "latitude": 38.27,
+            "longitude": 140.87
+        },
+        {
+            "id": 11,
+            "name": "Chofugaoka",
+            "latitude": 35.61,
+            "longitude": 139.58
+        }
+    ],
+    "links": [
+        {
+            "distance": 353,
+            "source": 1,
+            "target": 2
+        },
+        {
+            "distance": 374,
+            "source": 1,
+            "target": 3
+        },
+        {
+            "distance": 345,
+            "source": 2,
+            "target": 4
+        },
+        {
+            "distance": 191,
+            "source": 2,
+            "target": 6
+        },
+        {
+            "distance": 1204,
+            "source": 3,
+            "target": 8
+        },
+        {
+            "distance": 1500,
+            "source": 5,
+            "target": 11
+        },
+        {
+            "distance": 377,
+            "source": 6,
+            "target": 11
+        },
+        {
+            "distance": 363,
+            "source": 7,
+            "target": 11
+        },
+        {
+            "distance": 801,
+            "source": 9,
+            "target": 10
+        },
+        {
+            "distance": 476,
+            "source": 10,
+            "target": 11
+        }
+    ]
+}

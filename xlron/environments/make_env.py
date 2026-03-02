@@ -1,0 +1,1159 @@
+import math
+import pathlib
+import warnings
+from typing import Any, Optional, Tuple, Union
+
+import absl
+import jax
+import jax.numpy as jnp
+import networkx as nx
+import numpy as np
+from absl.flags import FlagValues
+from box import Box
+from scipy.constants import c as speed_of_light
+from scipy.special import erfcinv
+
+from xlron import dtype_config
+from xlron.environments import (
+    DeepRMSAEnv,
+    RMSAGNModelEnv,
+    RSAEnv,
+    RSAGNModelEnv,
+    RSAMultibandEnv,
+    RWALightpathReuseEnv,
+    VONEEnv,
+)
+from xlron.environments.dataclasses import (
+    DeepRMSAEnvParams,
+    EnvParams,
+    HashableArrayWrapper,
+    RMSAGNModelEnvParams,
+    RSAEnvParams,
+    RSAGNModelEnvParams,
+    RSAMultibandEnvParams,
+    RWALightpathReuseEnvParams,
+    VONEEnvParams,
+)
+from xlron.environments.env_funcs import (
+    compute_band_gaps_from_csv,
+    compute_band_layout,
+    compute_band_slot_order,
+    convert_node_probs_to_traffic_matrix,
+    generate_source_dest_pairs,
+    get_line_graph_spectral_features,
+    init_link_length_array,
+    init_link_length_array_gn_model,
+    init_list_of_requests,
+    init_modulations_array,
+    init_path_capacity_array,
+    init_path_length_array,
+    init_path_link_array,
+    init_path_se_array,
+    init_transceiver_amplifier_noise_arrays,
+    init_values_bandwidth,
+    make_graph,
+    normalise_traffic_matrix,
+    pad_array,
+    required_slots,
+)
+from xlron.environments.gn_model.isrs_gn_model import from_dbm
+from xlron.environments.gn_model.isrs_gn_model_dra import (
+    fit_dra_params_jax,
+    fit_dra_params_triangular,
+)
+from xlron.environments.wrappers import LogWrapper
+
+
+def _gsnr_threshold_db(beta_fec: float, m_prime: int) -> float:
+    """GSNR threshold in dB for a given pre-FEC BER target and modulation level.
+
+    Parameters
+    ----------
+    beta_fec : float
+        Pre-FEC BER target (must be in (0, 1)).
+    m_prime : int
+        Modulation level in {1,2,3,4,5,6} where M = 2^m_prime.
+
+    Returns
+    -------
+    float
+        GSNR threshold in dB.
+    """
+    M = 2**m_prime
+    if m_prime in (1, 2):
+        gsnr_lin = float(m_prime * erfcinv(2.0 * beta_fec))
+    elif m_prime == 3:
+        gsnr_lin = float((2.0 * (M - 1.0) / 3.0) * erfcinv(1.5 * beta_fec))
+    else:  # m_prime in {4, 5, 6}
+        denom = 2.0 * (1.0 - np.sqrt(1.0 / M))
+        arg = (m_prime * beta_fec) / denom
+        gsnr_lin = float((2.0 * (M - 1.0) / 3.0) * erfcinv(arg))
+    return 10.0 * np.log10(gsnr_lin)
+
+
+def _calc_modulations_osnr(modulations_array: np.ndarray, beta_fec: float) -> np.ndarray:
+    """Replace the minimum_osnr column (index 2) in the modulations array
+    with values calculated from the GSNR threshold formula.
+
+    The spectral_efficiency column (index 1) gives m' (the modulation level),
+    since spectral_efficiency = log2(M) = m'.
+    """
+    for i in range(modulations_array.shape[0]):
+        m_prime = int(modulations_array[i, 1])
+        modulations_array[i, 2] = _gsnr_threshold_db(beta_fec, m_prime)
+    return modulations_array
+
+
+def convert_str_to_list_of_numerics(flag_val, num_type="float"):
+    if flag_val is not None:
+        if isinstance(flag_val, str):
+            items = flag_val.split(",")
+        else:
+            items = flag_val
+        return [float(x) if num_type == "float" else int(x) for x in items]
+    else:
+        return [0]
+
+
+def process_config(config: Optional[Union[dict, FlagValues]], **kwargs: Any) -> Box:
+    """Allow configuration to be a dict, absl.flags.FlagValues, or kwargs.
+    Return a Box that can be indexed like a dict or accessed like an object.
+    Additionally, set up incremental logging of metrics."""
+    config = config or {}
+    # Allow config to be a dict or absl.flags.FlagValues
+    if isinstance(config, FlagValues):
+        config = {k: v.value for k, v in config.__flags.items()}
+    # if kwargs are passed, then include them in config
+    config.update(kwargs)
+    config = Box(config)
+    # Backward compatibility: if EPISODE_DATA_OUTPUT_FILE is not set but DATA_OUTPUT_FILE
+    # points to a .csv file, treat it as the old per-episode CSV output path.
+    if (
+        not config.get("EPISODE_DATA_OUTPUT_FILE")
+        and config.get("DATA_OUTPUT_FILE")
+        and config.DATA_OUTPUT_FILE.endswith(".csv")
+    ):
+        import warnings
+
+        warnings.warn(
+            "--DATA_OUTPUT_FILE with .csv extension is deprecated for per-episode CSV output. "
+            "Use --EPISODE_DATA_OUTPUT_FILE instead. --DATA_OUTPUT_FILE now writes JSONL run summaries.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        config.EPISODE_DATA_OUTPUT_FILE = config.DATA_OUTPUT_FILE
+        config.DATA_OUTPUT_FILE = None
+    # This if statement is just to ensure compatibility with some tests that don't define all config options
+    if config.get("TOTAL_TIMESTEPS", False):
+        config.TOTAL_TIMESTEPS = int(config.TOTAL_TIMESTEPS)
+        # For incremental logging, we need to set the number of increments
+        config.STEPS_PER_INCREMENT = min(config.TOTAL_TIMESTEPS, config.STEPS_PER_INCREMENT)
+
+        is_eval = config.get("EVAL_HEURISTIC") or config.get("EVAL_MODEL")
+
+        # For episodic eval (EVAL_HEURISTIC/EVAL_MODEL without continuous_operation),
+        # ensure STEPS_PER_INCREMENT is large enough for at least one episode per increment.
+        # The eval scan runs max_requests*scale_factor steps per episode, and NUM_EPISODES
+        # = STEPS_PER_INCREMENT // (max_requests * scale_factor) // NUM_ENVS.
+        if is_eval and not config.get("continuous_operation", False):
+            max_requests = int(config.get("max_requests", 1000))
+            scale_factor = int(config.get("scale_factor", 1))
+            episode_length = max_requests * scale_factor
+            min_steps = episode_length * config.NUM_ENVS
+            if config.STEPS_PER_INCREMENT < min_steps:
+                config.STEPS_PER_INCREMENT = min_steps
+
+        n_increments = config.TOTAL_TIMESTEPS // config.STEPS_PER_INCREMENT
+        config.NUM_INCREMENTS = n_increments
+        config.TOTAL_TIMESTEPS = n_increments * config.STEPS_PER_INCREMENT
+        # Set derived config values for RL training (not used by eval, but kept consistent)
+        config.MINIBATCH_SIZE = config.ROLLOUT_LENGTH * config.NUM_ENVS // config.NUM_MINIBATCHES
+        config.NUM_UPDATES = config.STEPS_PER_INCREMENT // config.ROLLOUT_LENGTH // config.NUM_ENVS
+        if not is_eval:
+            # Only snap STEPS_PER_INCREMENT to ROLLOUT_LENGTH multiples for RL training.
+            # For eval, STEPS_PER_INCREMENT controls episode count and must not be overwritten.
+            config.STEPS_PER_INCREMENT = (
+                config.ROLLOUT_LENGTH * config.NUM_ENVS * config.NUM_UPDATES
+            )
+            config.TOTAL_TIMESTEPS = n_increments * config.STEPS_PER_INCREMENT
+    config.aggregate_slots = 1 if config.get("EVAL_HEURISTIC") else config.get("aggregate_slots", 1)
+    return config
+
+
+def make(
+    config: Optional[Union[dict, absl.flags.FlagValues]], **kwargs
+) -> Tuple[RSAEnv | VONEEnv, EnvParams]:
+    """Create RSA environment.
+
+    This function is the entry point to setting up any XLRON environment.
+    This function takes a dictionary of the commandline flag parameters and configures the RSA environment
+    and parameters accordingly.
+
+    See parameter_flags.py for a list of all possible parameters and their default values.
+
+    Passing the 'log_wrapper' parameter as False will disable logging of the environment.
+
+    Args:
+        config: Configuration dictionary
+
+    Kwargs:
+        Any of the parameters in the config dictionary can be passed as keyword arguments.
+
+    Returns:
+        env: Environment
+        params: Environment parameters
+    """
+    config = process_config(config, **kwargs)
+    env_type = config.get("env_type", "").lower()
+    if env_type not in [
+        "rsa",
+        "rmsa",
+        "rwa",
+        "deeprmsa",
+        "rwa_lightpath_reuse",
+        "rsa_gn_model",
+        "rmsa_gn_model",
+        "rsa_multiband",
+        "vone",
+    ]:
+        raise ValueError(f"Invalid environment type {env_type}")
+
+    seed = config.get("seed", 0)
+    topology_name = config.get("topology_name", "conus")
+    load = config.get("load", 100)
+    k = config.get("k", 5)
+    incremental_loading = config.get("incremental_loading", False)
+    end_first_blocking = config.get("end_first_blocking", False)
+    terminate_on_episode_end = config.get("terminate_on_episode_end", False)
+    random_traffic = config.get("random_traffic", False)
+    continuous_operation = config.get("continuous_operation", False)
+    total_timesteps = config.get("TOTAL_TIMESTEPS", 1e4)
+    max_requests = (
+        total_timesteps if continuous_operation else config.get("max_requests", total_timesteps)
+    )
+    link_resources = config.get("link_resources", 100)
+    values_bw = config.get("values_bw", None)
+    node_probabilities = config.get("node_probabilities", None)
+    if values_bw:
+        values_bw = convert_str_to_list_of_numerics(values_bw, num_type="int")
+    slot_size = config.get("slot_size", 12.5)
+    min_bw = config.get("min_bw", 25)
+    max_bw = config.get("max_bw", 100)
+    step_bw = config.get("step_bw", 1)
+    custom_traffic_matrix_csv_filepath = config.get("custom_traffic_matrix_csv_filepath", None)
+    traffic_requests_csv_filepath = config.get("traffic_requests_csv_filepath", None)
+    multiple_topologies_directory = config.get("multiple_topologies_directory", None)
+    aggregate_slots = config.get("aggregate_slots", 1)
+    disable_node_features = config.get("disable_node_features", False)
+    disjoint_paths = config.get("disjoint_paths", False)
+    log_actions = config.get("log_actions", False)
+    profile = config.get("PROFILE", False)
+    guardband = config.get("guardband", 1)
+    path_sort_criteria = config.get("path_sort_criteria", "hops")
+    remove_array_wrappers = config.get("remove_array_wrappers", False)
+    maximise_throughput = config.get("maximise_throughput", False)
+    reward_type = config.get("reward_type", "service")
+    truncate_holding_time = config.get("truncate_holding_time", False)
+    alpha = config.get("alpha", 0.2) * 1e-3
+    amplifier_noise_figure = config.get("amplifier_noise_figure", 4.5)
+    beta_2 = config.get("beta_2", -21.7) * 1e-27
+    gamma = config.get("gamma", 1.2) * 1e-3
+    span_length = config.get("span_length", 100) * 1e3
+    lambda0 = config.get("lambda0", 1550) * 1e-9
+
+    if config.get("aggregate_slots", 1) > 1 and config.get("EVAL_HEURISTIC", False):
+        raise ValueError("Cannot aggregate slots and evaluate heuristic")
+
+    # VONE specific parameters
+    node_resources = config.get("node_resources", 30)
+    min_node_resources = config.get("min_node_resources", 1)
+    max_node_resources = config.get("max_node_resources", 2)
+    virtual_topologies = config.get("virtual_topologies", "3_ring")
+    virtual_topologies = virtual_topologies.split(",") if isinstance(virtual_topologies, str) else virtual_topologies
+    # Automated calculation of max edges in virtual topologies
+    max_edges = 0
+    for topology in virtual_topologies:
+        num, shape = topology.split("_")
+        max_edges = max(max_edges, int(num) - (0 if shape == "ring" else 1))
+
+    # GN model parameters
+    max_span_length = config.get("span_length", 100) * 1e3
+    ref_lambda = config.get("ref_lambda", 1564e-9)  # 1577.5nm centre of C+L bands (1530-1625nm) or
+    # 1564nm for centre of 15THz of L,C,partial-S (1503-1625nm)
+    # 1447.5nm for centre of C-band (1530-1565nm)
+    # Partial S-band is 1503-1530nm = 195.94 - 199.46THz = 3.52THz
+    # C-band is 1530-1565nm = 191.56 - 195.94THz = 4.24THz
+    nonlinear_coeff = config.get("nonlinear_coefficient", 1.2 / 1e3)
+    raman_gain_slope = config.get("raman_gain_slope", 0.028 / 1e3 / 1e12)
+    if raman_gain_slope > 1e-10:
+        warnings.warn(
+            f"raman_gain_slope={raman_gain_slope:.2e} is unexpectedly large. "
+            f"Expected units are 1/(W*m*Hz); typical value is ~2.8e-17 "
+            f"(i.e. 0.028 1/(W*km*THz)). "
+            f"A value this large will cause numerical overflow (NaN/Inf) in the "
+            f"ISRS gain and ASE calculations, producing incorrect SNR and throughput.",
+            stacklevel=2,
+        )
+    attenuation = config.get("attenuation", 0.2 / 4.343 / 1e3)
+    attenuation_bar = config.get("attenuation_bar", 0.2 / 4.343 / 1e3)
+    dispersion_coeff = config.get("dispersion_coeff", 17 * 1e-12 / 1e-9 / 1e3)
+    dispersion_slope = config.get("dispersion_slope", 0.067 * 1e-12 / 1e-9 / 1e3 / 1e-9)
+    coherent = config.get("coherent", False)
+    config.get("noise_figure", 4)
+    uniform_spans = config.get("uniform_spans", True)
+    band_preference = config.get("band_preference", None)
+    inter_band_gap_ghz = config.get("inter_band_gap_ghz", 25.0)
+    use_raman_amp = config.get("use_raman_amp", False)
+    raman_fit_method = config.get("raman_fit_method", "jax")
+    _band_layout = None  # set when compute_band_layout is used
+    if band_preference is not None and env_type in ("rsa_gn_model", "rmsa_gn_model"):
+        # GN model envs always enforce band gaps via compute_band_layout
+        raman_max_bw_ghz = (
+            config.get("raman_max_bandwidth_thz", 15.0) * 1e3 if use_raman_amp else None
+        )
+        _band_layout = compute_band_layout(
+            slot_size,
+            band_preference,
+            inter_band_gap_ghz,
+            config.get("band_data_filepath", None),
+            max_bandwidth_ghz=raman_max_bw_ghz,
+            slots_per_band=config.get("slots_per_band", None),
+        )
+        user_link_resources = config.get("link_resources", None)
+        if (
+            user_link_resources is not None
+            and user_link_resources != _band_layout["link_resources"]
+        ):
+            print(
+                f"WARNING: --link_resources={user_link_resources} overridden to "
+                f"{_band_layout['link_resources']} (auto-computed from bands: {band_preference})"
+            )
+        link_resources = _band_layout["link_resources"]
+        ref_lambda = _band_layout["ref_lambda"]
+        gap_start_slots = _band_layout["gap_start_slots"]
+        gap_width_slots = _band_layout["gap_width_slots"]
+    elif config.get("enforce_band_gaps", False):
+        gap_start_slots, gap_width_slots = compute_band_gaps_from_csv(
+            link_resources, ref_lambda, slot_size, config.get("band_data_filepath", None)
+        )
+    else:
+        interband_gap_width = [200, 200] if config.get("interband_gap_width", None) is None else []
+        gap_width_slots = [int(math.ceil(width / slot_size)) for width in interband_gap_width]
+        interband_gap_start = (
+            [4425, 8425] if config.get("interband_gap_start", None) is None else []
+        )
+        gap_start_slots = [int(math.ceil(start / slot_size)) for start in interband_gap_start]
+    mod_format_correction = (
+        config.get("mod_format_correction", True) if env_type == "rmsa_gn_model" else False
+    )
+    num_roadms = config.get("num_roadms", 1)
+    roadm_loss = config.get("roadm_loss", 18)
+    span_lumped_loss_db = config.get("span_lumped_loss_db", None)
+    snr_margin = config.get("snr_margin", 1)
+    path_snr = True if env_type in ["rsa_gn_model", "rmsa_gn_model"] else False
+    max_snr = config.get("max_snr", 50.0)
+    min_snr = config.get("min_snr", 7.0)
+    max_power = config.get("max_power", 9)
+    min_power = config.get("min_power", -5)
+    step_power = config.get("step_power", 1)
+    max_power_per_fibre_dbm = config.get("max_power_per_fibre", 21.0)
+    max_power_per_fibre = float(from_dbm(max_power_per_fibre_dbm))  # linear Watts
+    power_per_channel_dbm = config.get("power_per_channel", None)
+    if power_per_channel_dbm is not None:
+        default_launch_power = float(from_dbm(power_per_channel_dbm))
+    else:
+        default_launch_power = max_power_per_fibre / link_resources
+    power_per_channel = default_launch_power  # linear Watts
+    optimise_launch_power = config.get("optimise_launch_power", False)
+    traffic_array = config.get("traffic_array", False)
+    launch_power_array = config.get("launch_power_array", None)
+    pack_path_bits = config.get("pack_path_bits", False)
+    relative_arrival_times = config.get("relative_arrival_times", False)
+
+    # Differentiable approximation params
+    temperature = config.get("temperature", 1.0)
+    differentiable = config.get("differentiable", False)
+
+    # optimize_launch_power.py parameters
+    num_spans = config.get("num_spans", 10)
+
+    rng = jax.random.PRNGKey(seed)
+    rng, _, _, _, _ = jax.random.split(rng, 5)
+    graph = make_graph(topology_name, topology_directory=config.get("topology_directory", None))
+    traffic_intensity = config.get("traffic_intensity", 0)
+    mean_service_holding_time = config.get("mean_service_holding_time", 10)
+
+    if mean_service_holding_time / load < 0.02 and isinstance(
+        dtype_config.LARGE_FLOAT_DTYPE, jnp.bfloat16
+    ):
+        raise ValueError(
+            f"Raio of mean service holding time ({mean_service_holding_time}) to load ({load}) is too small for bfloat16. "
+            f"Consider using float32 or increasing the mean service holding time."
+        )
+
+    # Set traffic intensity / load
+    if traffic_intensity:
+        arrival_rate = traffic_intensity / mean_service_holding_time
+    else:
+        arrival_rate = load / mean_service_holding_time
+
+    num_nodes = len(graph.nodes)
+    num_links = len(graph.edges)
+    scale_factor = config.get("scale_factor", 1.0)
+    path_link_array = init_path_link_array(
+        graph,
+        k,
+        disjoint=disjoint_paths,
+        path_sort_criteria=path_sort_criteria,
+        directed=graph.is_directed(),
+        rwa_lr=True if env_type == "rwa_lightpath_reuse" else False,
+        scale_factor=scale_factor,
+        path_snr=path_snr,
+    )
+
+    launch_power_type = config.get("launch_power_type", "fixed")
+    # The launch power type determines whether to use:
+    # "fixed"   - Same power for all channels
+    # "tabular" - Power depends on the path taken
+    # "rl"      - RL agent selects power per channel
+    # "scaled"  - Fixed power scaled by path length
+    if env_type in ["rmsa_gn_model", "rsa_gn_model"]:
+        default_launch_power_array = jnp.full(
+            (k,), default_launch_power, dtype=dtype_config.LARGE_FLOAT_DTYPE
+        )
+        if launch_power_type == "fixed":
+            launch_power_array = (
+                default_launch_power_array if launch_power_array is None else launch_power_array
+            )
+        elif launch_power_type == "tabular":
+            launch_power_array = (
+                jnp.zeros(path_link_array.shape[0], dtype=dtype_config.LARGE_FLOAT_DTYPE)
+                if launch_power_array is None
+                else launch_power_array
+            )
+        elif launch_power_type == "rl":
+            launch_power_array = default_launch_power_array
+        elif launch_power_type == "scaled":
+            launch_power_array = (
+                default_launch_power_array if launch_power_array is None else launch_power_array
+            )
+        else:
+            pass
+
+    if custom_traffic_matrix_csv_filepath:
+        random_traffic = False  # Set this False so that traffic matrix isn't replaced on reset
+        traffic_matrix = jnp.array(np.loadtxt(custom_traffic_matrix_csv_filepath, delimiter=","))
+        traffic_matrix = normalise_traffic_matrix(traffic_matrix)
+    elif node_probabilities:
+        random_traffic = False  # Set this False so that traffic matrix isn't replaced on reset
+        node_probabilities = convert_str_to_list_of_numerics(config.get("node_probs"))
+        traffic_matrix = convert_node_probs_to_traffic_matrix(node_probabilities)
+    elif traffic_array:
+        traffic_matrix = generate_source_dest_pairs(num_nodes, graph.is_directed())
+    else:
+        traffic_matrix = None
+
+    if config.get("deterministic_requests"):
+        deterministic_requests = True
+        # Remove headers from array
+        if traffic_requests_csv_filepath:
+            list_of_requests = np.loadtxt(traffic_requests_csv_filepath, delimiter=",")[1:, :]
+            list_of_requests = jnp.array(list_of_requests)
+        elif config.get("list_of_requests", None) is not None:
+            list_of_requests = jnp.array(config.get("list_of_requests", [0.0]), dtype=jnp.float32)
+        else:
+            list_of_requests = init_list_of_requests(int(max_requests))
+        max_requests = len(list_of_requests)
+    elif optimise_launch_power:
+        deterministic_requests = True
+        list_of_requests = jnp.array(config.get("list_of_requests", [0.0]))
+    else:
+        deterministic_requests = False
+        list_of_requests = jnp.array([0.0])
+
+    values_bw = init_values_bandwidth(min_bw, max_bw, step_bw, values_bw)
+
+    total_bandwidth = slot_size * link_resources * 1e9
+    if env_type == "rsa":
+        consider_modulation_format = False
+    elif env_type == "rwa":
+        guardband = 0
+        values_bw = jnp.array([slot_size], dtype=jnp.float32)
+        consider_modulation_format = False
+    elif env_type == "rwa_lightpath_reuse":
+        consider_modulation_format = False
+        # Set guardband to 0 and slot size to max bandwidth to ensure that requested slots is always 1 but
+        # that the bandwidth request is still considered when updating link_capacity_array
+        guardband = 0
+        slot_size = int(max(values_bw))
+    elif env_type == "vone" and slot_size == 1:
+        consider_modulation_format = False
+    else:
+        consider_modulation_format = True
+
+    max_bw = max(values_bw)
+
+    link_length_array = init_link_length_array(graph).reshape((num_links, 1))
+
+    # Automated calculation of max slots requested
+    path_capacity_array: jax.Array = jnp.array(0)
+    modulations_array: jax.Array = jnp.array(0)
+    # link_length_array is in km (from topology); convert to metres for max_span_length (metres)
+    max_spans = int(jnp.ceil(max(link_length_array) * 1e3 / max_span_length)[0])
+    if consider_modulation_format:
+        modulations_array = init_modulations_array(config.get("modulations_csv_filepath", None))
+        if config.get("calc_minimum_osnr", False):
+            beta_fec = config.get("beta_fec", 1.5e-2)
+            modulations_array = jnp.array(
+                _calc_modulations_osnr(np.array(modulations_array), beta_fec)
+            )
+        modulations_array = modulations_array.astype(dtype_config.LARGE_FLOAT_DTYPE)
+        if path_sort_criteria != "distance":  # If paths aren't to be sorted by distance alone
+            path_link_array = init_path_link_array(
+                graph,
+                k,
+                disjoint=disjoint_paths,
+                directed=graph.is_directed(),
+                path_sort_criteria=path_sort_criteria,
+                modulations_array=modulations_array,
+                path_snr=path_snr,
+            )
+        path_length_array = init_path_length_array(path_link_array, graph)
+        path_se_array = init_path_se_array(path_length_array, modulations_array)
+        min_se = min(path_se_array)  # if consider_modulation_format
+        max_slots = required_slots(
+            max_bw, min_se, slot_size, guardband=guardband, temperature=temperature
+        )
+        if env_type == "rmsa_gn_model" or env_type == "rsa_gn_model":
+            link_length_array = init_link_length_array_gn_model(graph, max_span_length, max_spans)
+    else:
+        path_se_array = jnp.array([1])
+        if env_type == "rwa_lightpath_reuse":
+            path_capacity_array = init_path_capacity_array(
+                link_length_array,
+                path_link_array,
+                min_request=min(values_bw),
+                R_s=100e9,
+                scale_factor=scale_factor,
+                alpha=alpha,
+                NF=amplifier_noise_figure,
+                beta_2=beta_2,
+                gamma=gamma,
+                L_s=span_length,
+                lambda0=lambda0,
+                B=total_bandwidth,
+            )
+            max_requests = int(scale_factor * max_requests)
+        else:
+            # If considering just RSA without physical layer considerations
+            link_length_array = jnp.ones((num_links, 1)).astype(dtype_config.LARGE_INT_DTYPE)
+        max_slots = required_slots(
+            max_bw, 1, slot_size, guardband=guardband, temperature=temperature
+        )
+
+    if env_type == "rsa_gn_model":
+        consider_modulation_format = False
+        path_se_array = jnp.array([1]).astype(dtype_config.LARGE_INT_DTYPE)
+        max_slots = required_slots(
+            max_bw, 1, slot_size, guardband=guardband, temperature=temperature
+        )
+
+    if incremental_loading:
+        mean_service_holding_time = load = 1e6
+
+    # Define edges for use with heuristics and GNNs
+    edges = jnp.array(sorted(graph.edges), dtype=dtype_config.LARGE_INT_DTYPE)
+
+    if pack_path_bits:  # This saves memory by packing the path link array into a bit array
+        path_link_array = path_link_array.astype(dtype_config.LARGE_INT_DTYPE)
+        path_link_array = jnp.packbits(path_link_array, axis=1)
+
+    laplacian_matrix = (
+        jnp.array(nx.directed_laplacian_matrix(graph))
+        if graph.is_directed()
+        else jnp.array(nx.laplacian_matrix(graph).todense())
+    )
+
+    # Compute line graph spectral features for transformer WiRE positional encodings
+    num_wire_features = config.get("num_wire_features", 8)
+    use_transformer = config.get("USE_TRANSFORMER", False)
+    if use_transformer:
+        line_graph_spectral_features = get_line_graph_spectral_features(graph, num_wire_features)
+        line_graph_spectral_features = (
+            HashableArrayWrapper(line_graph_spectral_features)
+            if not remove_array_wrappers
+            else line_graph_spectral_features
+        )
+    else:
+        line_graph_spectral_features = None
+
+    transformer_obs_type = config.get("transformer_obs_type", "")
+    if transformer_obs_type:
+        assert transformer_obs_type in ["departure", "occupancy", "capacity"], (
+            f"transformer_obs_type must be one of 'departure', 'occupancy', or 'capacity', got {transformer_obs_type}"
+        )
+        if transformer_obs_type == "capacity":
+            assert env_type == "rwa_lightpath_reuse", (
+                f"transformer_obs_type 'capacity' is only supported for env_type 'rwa_lightpath_reuse', got {env_type}"
+            )
+
+    # In your env params initialization (outside JIT):
+    unique_se_values = np.unique(np.asarray(path_se_array))  # Use numpy, not jax
+
+    params_dict = dict(
+        max_requests=max_requests,
+        mean_service_holding_time=mean_service_holding_time,
+        k_paths=k,
+        link_resources=link_resources,
+        num_nodes=num_nodes,
+        num_links=num_links,
+        load=load,
+        arrival_rate=arrival_rate,
+        path_link_array=HashableArrayWrapper(path_link_array)
+        if not remove_array_wrappers
+        else path_link_array,
+        incremental_loading=incremental_loading,
+        end_first_blocking=end_first_blocking,
+        terminate_on_episode_end=terminate_on_episode_end,
+        edges=HashableArrayWrapper(edges) if not remove_array_wrappers else edges,
+        random_traffic=random_traffic,
+        path_se_array=HashableArrayWrapper(path_se_array)
+        if not remove_array_wrappers
+        else path_se_array,
+        unique_se_values=HashableArrayWrapper(unique_se_values)
+        if not remove_array_wrappers
+        else unique_se_values,
+        link_length_array=HashableArrayWrapper(link_length_array)
+        if not remove_array_wrappers
+        else link_length_array,
+        max_slots=int(max_slots),
+        consider_modulation_format=consider_modulation_format,
+        slot_size=slot_size,
+        continuous_operation=continuous_operation,
+        aggregate_slots=aggregate_slots,
+        guardband=guardband,
+        deterministic_requests=deterministic_requests,
+        multiple_topologies=False,
+        directed_graph=graph.is_directed(),
+        maximise_throughput=maximise_throughput,
+        values_bw=HashableArrayWrapper(values_bw) if not remove_array_wrappers else values_bw,
+        reward_type=reward_type,
+        truncate_holding_time=truncate_holding_time,
+        log_actions=log_actions,
+        traffic_array=traffic_array,
+        disable_node_features=disable_node_features,
+        pack_path_bits=pack_path_bits,
+        relative_arrival_times=relative_arrival_times,
+        temperature=temperature,
+        differentiable=differentiable,
+        num_spectral_features=config.get("num_spectral_features", 3),
+        line_graph_spectral_features=line_graph_spectral_features,
+        include_no_op=config.get("include_no_op", True),
+        transformer_obs_type=transformer_obs_type,
+        use_gnn=config.get("USE_GNN"),
+        profile=profile,
+        render=str(config.get("RENDER_EVAL_MODE", "off")).lower() in {"save", "human"},
+    )
+
+    gap_starts = (
+        HashableArrayWrapper(jnp.array(gap_start_slots))
+        if not remove_array_wrappers
+        else jnp.array(gap_start_slots)
+    )
+    gap_widths = (
+        HashableArrayWrapper(jnp.array(gap_width_slots))
+        if not remove_array_wrappers
+        else jnp.array(gap_width_slots)
+    )
+
+    if env_type == "vone":
+        env_params = VONEEnvParams
+        params_dict.update(
+            node_resources=node_resources,
+            min_node_resources=min_node_resources,
+            max_node_resources=max_node_resources,
+            max_edges=max_edges,
+        )
+    elif env_type == "deeprmsa":
+        env_params = DeepRMSAEnvParams
+    elif env_type == "rwa_lightpath_reuse":
+        env_params = RWALightpathReuseEnvParams
+    elif env_type == "rsa_multiband":
+        env_params = RSAMultibandEnvParams
+        params_dict.update(gap_starts=gap_starts, gap_widths=gap_widths)
+    elif "gn_model" in env_type:
+        env_params = RSAGNModelEnvParams
+
+        # Build slot_centre_freq_array and band orderings
+        if _band_layout is not None:
+            # Auto-computed from compute_band_layout
+            slot_centre_freq_arr = jnp.array(_band_layout["slot_centre_freq_array"])
+            bso_ff = _band_layout["band_slot_order_ff"]
+            bso_lf = _band_layout["band_slot_order_lf"]
+            band_slot_order_ff = (
+                HashableArrayWrapper(jnp.array(bso_ff))
+                if not remove_array_wrappers
+                else jnp.array(bso_ff)
+            )
+            band_slot_order_lf = (
+                HashableArrayWrapper(jnp.array(bso_lf))
+                if not remove_array_wrappers
+                else jnp.array(bso_lf)
+            )
+        else:
+            # Legacy uniform formula
+            slot_centre_freq_arr = jnp.array(
+                (np.arange(link_resources) - (link_resources - 1) / 2) * slot_size,
+                dtype=jnp.float32,
+            )
+            if band_preference is not None:
+                bso_ff, bso_lf = compute_band_slot_order(
+                    link_resources,
+                    ref_lambda,
+                    slot_size,
+                    band_preference,
+                    config.get("band_data_filepath", None),
+                )
+                band_slot_order_ff = (
+                    HashableArrayWrapper(jnp.array(bso_ff))
+                    if not remove_array_wrappers
+                    else jnp.array(bso_ff)
+                )
+                band_slot_order_lf = (
+                    HashableArrayWrapper(jnp.array(bso_lf))
+                    if not remove_array_wrappers
+                    else jnp.array(bso_lf)
+                )
+            else:
+                empty = jnp.array([], dtype=jnp.int32)
+                band_slot_order_ff = (
+                    HashableArrayWrapper(empty) if not remove_array_wrappers else empty
+                )
+                band_slot_order_lf = (
+                    HashableArrayWrapper(empty) if not remove_array_wrappers else empty
+                )
+
+        slot_centre_freq_array = (
+            HashableArrayWrapper(slot_centre_freq_arr)
+            if not remove_array_wrappers
+            else slot_centre_freq_arr
+        )
+
+        # Compute absolute slot frequencies for transceiver/amplifier noise mapping
+        ref_freq_ghz = speed_of_light / ref_lambda / 1e9
+        slot_abs_freq_ghz = ref_freq_ghz + np.array(slot_centre_freq_arr)
+
+        (
+            transceiver_snr,
+            amplifier_noise_figure,
+            roadm_express_loss,
+            roadm_add_drop_loss,
+            roadm_noise_figure,
+        ) = init_transceiver_amplifier_noise_arrays(
+            link_resources,
+            ref_lambda,
+            slot_size,
+            config.get("noise_data_filepath", None),
+            slot_frequencies_ghz=slot_abs_freq_ghz,
+        )
+        if not remove_array_wrappers:
+            transceiver_snr = HashableArrayWrapper(transceiver_snr)
+            amplifier_noise_figure = HashableArrayWrapper(amplifier_noise_figure)
+            roadm_express_loss = HashableArrayWrapper(roadm_express_loss)
+            roadm_add_drop_loss = HashableArrayWrapper(roadm_add_drop_loss)
+            roadm_noise_figure = HashableArrayWrapper(roadm_noise_figure)
+
+        # Build per-slot launch power array
+        # Priority (highest first): --launch_power_csv > --power_per_channel_per_band > --power_per_channel > default
+        launch_power_csv_path = config.get("launch_power_csv", None)
+        power_per_channel_per_band_str = config.get("power_per_channel_per_band", None)
+        if launch_power_csv_path is not None:
+            import csv as _csv
+
+            slot_lp_np = np.full(link_resources, default_launch_power, dtype=np.float32)
+            with open(launch_power_csv_path, newline="") as _f:
+                reader = _csv.DictReader(_f)
+                if (
+                    reader.fieldnames is None
+                    or "slot_index" not in reader.fieldnames
+                    or "power_dbm" not in reader.fieldnames
+                ):
+                    raise ValueError(
+                        f"--launch_power_csv file must have at minimum columns 'slot_index' and 'power_dbm'. "
+                        f"Found: {reader.fieldnames}"
+                    )
+                for row in reader:
+                    idx = int(row["slot_index"])
+                    if 0 <= idx < link_resources:
+                        slot_lp_np[idx] = float(from_dbm(float(row["power_dbm"])))
+            slot_launch_power_array = jnp.array(slot_lp_np, dtype=dtype_config.LARGE_FLOAT_DTYPE)
+            print(
+                f"Loaded per-slot launch power from {launch_power_csv_path} ({link_resources} slots)"
+            )
+        elif power_per_channel_per_band_str is not None:
+            if _band_layout is None:
+                raise ValueError(
+                    "--power_per_channel_per_band requires --band_preference with a "
+                    "GN model environment (rsa_gn_model or rmsa_gn_model)"
+                )
+            per_band_dbm = convert_str_to_list_of_numerics(power_per_channel_per_band_str)
+            preference_list = [b.strip().upper() for b in band_preference.split(",")]
+            if len(per_band_dbm) != len(preference_list):
+                raise ValueError(
+                    f"power_per_channel_per_band has {len(per_band_dbm)} values but "
+                    f"band_preference has {len(preference_list)} bands"
+                )
+            per_band_watts = [float(from_dbm(dbm_val)) for dbm_val in per_band_dbm]
+            slot_to_band_index = _band_layout["slot_to_band_index"]
+            slot_lp_np = np.zeros(link_resources, dtype=np.float32)
+            for i in range(link_resources):
+                band_idx = slot_to_band_index[i]
+                if band_idx >= 0:
+                    slot_lp_np[i] = per_band_watts[band_idx]
+            slot_launch_power_array = jnp.array(slot_lp_np, dtype=dtype_config.LARGE_FLOAT_DTYPE)
+        else:
+            slot_launch_power_array = jnp.full(
+                (link_resources,), default_launch_power, dtype=dtype_config.LARGE_FLOAT_DTYPE
+            )
+        slot_launch_power_array = (
+            HashableArrayWrapper(slot_launch_power_array)
+            if not remove_array_wrappers
+            else slot_launch_power_array
+        )
+
+        params_dict.update(
+            ref_lambda=ref_lambda,
+            max_spans=max_spans,
+            max_span_length=max_span_length,
+            default_launch_power=default_launch_power,
+            power_per_channel=power_per_channel,
+            slot_launch_power_array=slot_launch_power_array,
+            max_power_per_fibre=max_power_per_fibre,
+            nonlinear_coeff=nonlinear_coeff,
+            raman_gain_slope=raman_gain_slope,
+            attenuation=attenuation,
+            attenuation_bar=attenuation_bar,
+            dispersion_coeff=dispersion_coeff,
+            dispersion_slope=dispersion_slope,
+            coherent=coherent,
+            gap_starts=gap_starts,
+            gap_widths=gap_widths,
+            roadm_loss=roadm_loss,
+            span_lumped_loss_db=span_lumped_loss_db,
+            num_roadms=num_roadms,
+            roadm_express_loss=roadm_express_loss,
+            roadm_add_drop_loss=roadm_add_drop_loss,
+            roadm_noise_figure=roadm_noise_figure,
+            num_spans=num_spans,
+            launch_power_type=launch_power_type,
+            snr_margin=snr_margin,
+            last_fit=config.get("last_fit", False),
+            max_power=max_power,
+            min_power=min_power,
+            step_power=step_power,
+            max_snr=max_snr,
+            min_snr=min_snr,
+            mod_format_correction=mod_format_correction,
+            fec_threshold=1.0 - config.get("fec_rate", 0.8),
+            transceiver_snr=transceiver_snr,
+            amplifier_noise_figure=amplifier_noise_figure,
+            uniform_spans=uniform_spans,
+            num_subchannels=config.get("num_subchannels", 1),
+            band_slot_order_ff=band_slot_order_ff,
+            band_slot_order_lf=band_slot_order_lf,
+            slot_centre_freq_array=slot_centre_freq_array,
+        )
+
+        # Distributed Raman Amplification configuration
+        if use_raman_amp:
+            # Parse pump power/frequency lists from CLI
+            pump_pow_fw = config.get("raman_pump_power_fw", None)
+            pump_pow_bw = config.get("raman_pump_power_bw", None)
+            pump_freq_fw = config.get("raman_pump_freq_fw", None)
+            pump_freq_bw = config.get("raman_pump_freq_bw", None)
+            pump_pow_fw = np.array(convert_str_to_list_of_numerics(pump_pow_fw))
+            pump_pow_bw = np.array(convert_str_to_list_of_numerics(pump_pow_bw))
+            pump_freq_fw = np.array(convert_str_to_list_of_numerics(pump_freq_fw))
+            pump_freq_bw = np.array(convert_str_to_list_of_numerics(pump_freq_bw))
+            # Tile to (max_spans, num_pumps) — uniform pumps per span
+            pump_pow_fw_arr = np.tile(pump_pow_fw, (max_spans, 1))
+            pump_pow_bw_arr = np.tile(pump_pow_bw, (max_spans, 1))
+            pump_freq_fw_arr = np.tile(pump_freq_fw, (max_spans, 1))
+            pump_freq_bw_arr = np.tile(pump_freq_bw, (max_spans, 1))
+
+            # Fit Raman params by matching semi-analytical model to exact Raman profile.
+            # Default is the historical scipy-based fitter; optional JAX fitter keeps
+            # the triangular model's 15 THz cutoff consistent with the DRA equations.
+            if raman_fit_method == "jax":
+                fit_fn = fit_dra_params_jax
+            elif raman_fit_method == "triangular":
+                fit_fn = fit_dra_params_triangular
+            else:
+                raise ValueError(
+                    f"Invalid raman_fit_method '{raman_fit_method}'. Must be 'triangular' or 'jax'."
+                )
+
+            raman_fit_params = fit_fn(
+                raman_gain_slope=raman_gain_slope,
+                attenuation=attenuation,
+                num_channels=link_resources,
+                max_spans=max_spans,
+                span_length=max_span_length,
+                ref_lambda=ref_lambda,
+                pump_pow_fw=pump_pow_fw,
+                pump_pow_bw=pump_pow_bw,
+                pump_freq_fw=pump_freq_fw,
+                pump_freq_bw=pump_freq_bw,
+                ch_centre_freq_ghz=np.array(slot_centre_freq_arr),
+                ch_power_w_i=np.array(slot_launch_power_array),
+            )
+
+            # Validate bandwidth when no band_preference is set
+            if band_preference is None:
+                total_bw_ghz = link_resources * slot_size
+                raman_max_bw_thz = config.get("raman_max_bandwidth_thz", 15.0)
+                if total_bw_ghz > raman_max_bw_thz * 1e3:
+                    print(
+                        f"WARNING: Raman amplification enabled but total bandwidth "
+                        f"({total_bw_ghz:.0f} GHz) exceeds "
+                        f"raman_max_bandwidth_thz ({raman_max_bw_thz} THz). "
+                        f"Triangular Raman approximation may be inaccurate."
+                    )
+        else:
+            # Sentinel defaults when Raman amplification is disabled
+            raman_fit_params = jnp.zeros((6, 1, 1))
+            pump_pow_fw_arr = np.zeros((1, 1))
+            pump_pow_bw_arr = np.zeros((1, 1))
+            pump_freq_fw_arr = np.zeros((1, 1))
+            pump_freq_bw_arr = np.zeros((1, 1))
+
+        params_dict.update(
+            use_raman_amp=use_raman_amp,
+            raman_fit_params=HashableArrayWrapper(jnp.array(raman_fit_params))
+            if not remove_array_wrappers
+            else jnp.array(raman_fit_params),
+            raman_pump_power_fw=HashableArrayWrapper(jnp.array(pump_pow_fw_arr))
+            if not remove_array_wrappers
+            else jnp.array(pump_pow_fw_arr),
+            raman_pump_power_bw=HashableArrayWrapper(jnp.array(pump_pow_bw_arr))
+            if not remove_array_wrappers
+            else jnp.array(pump_pow_bw_arr),
+            raman_pump_freq_fw=HashableArrayWrapper(jnp.array(pump_freq_fw_arr))
+            if not remove_array_wrappers
+            else jnp.array(pump_freq_fw_arr),
+            raman_pump_freq_bw=HashableArrayWrapper(jnp.array(pump_freq_bw_arr))
+            if not remove_array_wrappers
+            else jnp.array(pump_freq_bw_arr),
+        )
+
+        if env_type == "rmsa_gn_model":
+            env_params = RMSAGNModelEnvParams
+            params_dict.update(
+                modulations_array=HashableArrayWrapper(modulations_array)
+                if not remove_array_wrappers
+                else modulations_array,
+                fec_rate=config.get("fec_rate", 0.8),
+            )
+
+        # Print GN model power budget summary
+        per_channel_power_w = default_launch_power
+        per_channel_power_dbm = (
+            10 * math.log10(per_channel_power_w / 0.001)
+            if per_channel_power_w > 0
+            else float("-inf")
+        )
+        nf_vals = (
+            amplifier_noise_figure.val
+            if hasattr(amplifier_noise_figure, "val")
+            else amplifier_noise_figure
+        )
+        trx_vals = transceiver_snr.val if hasattr(transceiver_snr, "val") else transceiver_snr
+        print("\n" + "=" * 70)
+        print("GN MODEL POWER BUDGET SUMMARY")
+        print("=" * 70)
+        print(f"  Environment type:         {env_type}")
+        print(
+            f"  max_power_per_fibre:      {max_power_per_fibre_dbm:.1f} dBm ({max_power_per_fibre * 1e3:.2f} mW)"
+        )
+        print(f"  link_resources (slots):   {link_resources}")
+        print(f"  slot_size:                {slot_size} GHz")
+        print(
+            f"  Per-channel launch power: {per_channel_power_dbm:.2f} dBm ({per_channel_power_w * 1e3:.4f} mW)"
+        )
+        print(f"  launch_power_type:        {launch_power_type}")
+        roadm_el_vals = (
+            roadm_express_loss.val if hasattr(roadm_express_loss, "val") else roadm_express_loss
+        )
+        roadm_ad_vals = (
+            roadm_add_drop_loss.val if hasattr(roadm_add_drop_loss, "val") else roadm_add_drop_loss
+        )
+        roadm_nf_vals = (
+            roadm_noise_figure.val if hasattr(roadm_noise_figure, "val") else roadm_noise_figure
+        )
+        print(
+            f"  ROADM express loss range: {float(jnp.min(roadm_el_vals)):.1f} - {float(jnp.max(roadm_el_vals)):.1f} dB"
+        )
+        print(
+            f"  ROADM add/drop loss range: {float(jnp.min(roadm_ad_vals)):.1f} - {float(jnp.max(roadm_ad_vals)):.1f} dB"
+        )
+        print(
+            f"  ROADM NF range:           {float(jnp.min(roadm_nf_vals)):.1f} - {float(jnp.max(roadm_nf_vals)):.1f} dB"
+        )
+        print(
+            f"  Amplifier NF range:       {float(jnp.min(nf_vals)):.1f} - {float(jnp.max(nf_vals)):.1f} dB"
+        )
+        print(
+            f"  Transceiver SNR range:    {float(jnp.min(trx_vals)):.1f} - {float(jnp.max(trx_vals)):.1f} dB"
+        )
+        print(f"  SNR margin:               {snr_margin} dB")
+        if (
+            consider_modulation_format
+            and hasattr(modulations_array, "__len__")
+            and len(modulations_array) > 0
+        ):
+            mod_snr_thresholds = modulations_array[:, 2]
+            print(
+                f"  Modulation SNR thresholds: {[f'{float(s):.1f}' for s in mod_snr_thresholds]} dB"
+            )
+            print(
+                f"  (+ margin = {[f'{float(s) + snr_margin:.1f}' for s in mod_snr_thresholds]} dB)"
+            )
+        # Estimate single-channel ASE-limited SNR (no NLI) for representative link lengths
+        _h = 6.62607015e-34
+        _c = 299792458.0
+        _ref_freq = _c / ref_lambda
+        _B = slot_size * 1e9
+        _span_loss_db = attenuation * max_span_length * 4.343  # Np/m * m * (dB/Np) = dB
+        _G_inline = 10 ** (_span_loss_db / 10)
+        _nf_typical = float(jnp.median(nf_vals))
+        _NF_lin = 10 ** (_nf_typical / 10)
+        _N_sp = (_NF_lin * _G_inline) / (2.0 * (_G_inline - 1))
+        _p_ase_one = 2 * _N_sp * (_G_inline - 1) * _h * _ref_freq * _B
+        _roadm_nf_typical = float(jnp.median(roadm_nf_vals))
+        _roadm_el_typical = float(jnp.median(roadm_el_vals))
+        _roadm_ad_typical = float(jnp.median(roadm_ad_vals))
+        _NF_roadm_lin = 10 ** (_roadm_nf_typical / 10)
+        _G_express = 10 ** (_roadm_el_typical / 10)
+        _N_sp_express = (_NF_roadm_lin * _G_express) / (2.0 * (_G_express - 1))
+        _p_ase_express_one = 2 * _N_sp_express * (_G_express - 1) * _h * _ref_freq * _B
+        _G_ad = 10 ** (_roadm_ad_typical / 10)
+        _N_sp_ad = (_NF_roadm_lin * _G_ad) / (2.0 * (_G_ad - 1))
+        _p_ase_ad_one = 2 * _N_sp_ad * (_G_ad - 1) * _h * _ref_freq * _B
+        _trx_snr_typical = float(jnp.median(trx_vals))
+        _trx_noise = (
+            per_channel_power_w / (10 ** (_trx_snr_typical / 10)) if per_channel_power_w > 0 else 0
+        )
+        print("  --- Estimated single-channel ASE-limited SNR (no NLI) ---")
+        print("    (ROADM noise: 2x add/drop + N_intermediate x express per path)")
+        for _lkm in [300, 600, 1200, 2400]:
+            _nspans = math.ceil(_lkm * 1e3 / max_span_length)  # km -> m
+            # Estimate intermediate nodes: assume ~1 per 500 km (rough heuristic for diagnostic)
+            _n_intermediate = max(_nspans // 5, 0)
+            _roadm_noise = _n_intermediate * _p_ase_express_one + 2 * _p_ase_ad_one
+            _total_noise = _nspans * _p_ase_one + _roadm_noise + _trx_noise
+            if per_channel_power_w > 0 and _total_noise > 0:
+                _snr_db = 10 * math.log10(per_channel_power_w / _total_noise)
+            else:
+                _snr_db = float("-inf")
+            print(f"    Link {_lkm:4d} km ({_nspans:2d} spans): ~{_snr_db:.1f} dB")
+        print("=" * 70 + "\n")
+
+    else:
+        env_params = RSAEnvParams
+
+    params = env_params(**params_dict)
+
+    # If training single model on multiple topologies, must store params for each topology within top-level params
+    if multiple_topologies_directory:
+        # iterate through files in directory
+        params_list = []
+        p = pathlib.Path(multiple_topologies_directory).glob("**/*")
+        files = [x for x in p if x.is_file()]
+        config.update(multiple_topologies_directory=None, remove_array_wrappers=True)
+        for file in files:
+            # Get filename without extension
+            config.update(topology_name=file.stem, topology_directory=file.parent)
+            env, params = make(config)
+            params = params.replace(multiple_topologies=True)
+            params_list.append(params)
+        # for params in params_list, concatenate the field from each params into one array per field
+        # from https://stackoverflow.com/questions/73765064/jax-vmap-over-batch-of-dataclasses
+        cls = type(params_list[0])
+        fields = params_list[0].__dict__.keys()
+        field_dict = {}
+        for k in fields:
+            values = [getattr(v, k) for v in params_list]
+            # values = [list(v) if isinstance(v, chex.Array) else v for v in values]
+            # Pad arrays to same shape
+            padded_values = HashableArrayWrapper(jnp.array(pad_array(values, fill_value=0)))
+            field_dict[k] = padded_values
+        params = cls(**field_dict)
+
+    if remove_array_wrappers:
+        # Only remove array wrappers if multiple_topologies=True for the inner files loop above
+        env = None
+    else:
+        if env_type == "vone":
+            env = VONEEnv(
+                rng,
+                params,
+                virtual_topologies=virtual_topologies,
+                traffic_matrix=traffic_matrix,
+                list_of_requests=list_of_requests,
+                laplacian_matrix=laplacian_matrix,
+            )
+        elif env_type == "deeprmsa":
+            env = DeepRMSAEnv(
+                rng,
+                params,
+                traffic_matrix=traffic_matrix,
+                laplacian_matrix=laplacian_matrix,
+            )
+        elif env_type == "rwa_lightpath_reuse":
+            env = RWALightpathReuseEnv(
+                rng,
+                params,
+                traffic_matrix=traffic_matrix,
+                path_capacity_array=path_capacity_array,
+                list_of_requests=list_of_requests,
+                laplacian_matrix=laplacian_matrix,
+            )
+        elif env_type == "rsa_gn_model":
+            env = RSAGNModelEnv(
+                rng,
+                params,
+                traffic_matrix=traffic_matrix,
+                launch_power_array=launch_power_array,
+                list_of_requests=list_of_requests,
+                laplacian_matrix=laplacian_matrix,
+            )
+        elif env_type == "rmsa_gn_model":
+            env = RMSAGNModelEnv(
+                rng,
+                params,
+                traffic_matrix=traffic_matrix,
+                launch_power_array=launch_power_array,
+                list_of_requests=list_of_requests,
+                laplacian_matrix=laplacian_matrix,
+            )
+        elif env_type == "rsa_multiband":
+            env = RSAMultibandEnv(
+                rng,
+                params,
+                traffic_matrix=traffic_matrix,
+                list_of_requests=list_of_requests,
+                laplacian_matrix=laplacian_matrix,
+            )
+        else:
+            env = RSAEnv(
+                rng,
+                params,
+                traffic_matrix=traffic_matrix,
+                list_of_requests=list_of_requests,
+                laplacian_matrix=laplacian_matrix,
+            )
+
+    if config.get("log_wrapper", True):
+        env = LogWrapper(env)
+
+    return env, params

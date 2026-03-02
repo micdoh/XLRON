@@ -1,0 +1,445 @@
+{
+    "directed": true,
+    "multigraph": false,
+    "graph": {},
+    "nodes": [
+        {
+            "id": 1,
+            "name": "Warsaw",
+            "latitude": 52.23,
+            "longitude": 21.01
+        },
+        {
+            "id": 2,
+            "name": "Bialystok",
+            "latitude": 53.13,
+            "longitude": 23.15
+        },
+        {
+            "id": 3,
+            "name": "Wloclawek",
+            "latitude": 52.65,
+            "longitude": 19.07
+        },
+        {
+            "id": 4,
+            "name": "Plock",
+            "latitude": 52.55,
+            "longitude": 19.71
+        },
+        {
+            "id": 5,
+            "name": "Opole",
+            "latitude": 50.67,
+            "longitude": 17.95
+        },
+        {
+            "id": 6,
+            "name": "Wroclaw",
+            "latitude": 51.1,
+            "longitude": 17.03
+        },
+        {
+            "id": 7,
+            "name": "Lublin",
+            "latitude": 51.25,
+            "longitude": 22.57
+        },
+        {
+            "id": 8,
+            "name": "Rzeszow",
+            "latitude": 50.04,
+            "longitude": 22.0
+        },
+        {
+            "id": 9,
+            "name": "Kalisz",
+            "latitude": 51.76,
+            "longitude": 18.09
+        },
+        {
+            "id": 10,
+            "name": "Lodz",
+            "latitude": 51.75,
+            "longitude": 19.47
+        },
+        {
+            "id": 11,
+            "name": "Krakow",
+            "latitude": 50.08,
+            "longitude": 19.92
+        },
+        {
+            "id": 12,
+            "name": "Zielona Gora",
+            "latitude": 51.94,
+            "longitude": 15.51
+        },
+        {
+            "id": 13,
+            "name": "Gdansk",
+            "latitude": 54.35,
+            "longitude": 18.65
+        },
+        {
+            "id": 14,
+            "name": "Olsztyn",
+            "latitude": 53.78,
+            "longitude": 20.48
+        },
+        {
+            "id": 15,
+            "name": "Tarnow",
+            "latitude": 50.01,
+            "longitude": 20.99
+        },
+        {
+            "id": 16,
+            "name": "Katowice",
+            "latitude": 50.27,
+            "longitude": 19.02
+        },
+        {
+            "id": 17,
+            "name": "Kielce",
+            "latitude": 50.87,
+            "longitude": 20.63
+        },
+        {
+            "id": 18,
+            "name": "Radom",
+            "latitude": 51.4,
+            "longitude": 21.15
+        },
+        {
+            "id": 19,
+            "name": "Bydgoszcz",
+            "latitude": 53.12,
+            "longitude": 18.01
+        },
+        {
+            "id": 20,
+            "name": "Torun",
+            "latitude": 53.01,
+            "longitude": 18.6
+        },
+        {
+            "id": 21,
+            "name": "Slupsk",
+            "latitude": 54.46,
+            "longitude": 17.03
+        },
+        {
+            "id": 22,
+            "name": "Koszalin",
+            "latitude": 54.19,
+            "longitude": 16.17
+        },
+        {
+            "id": 23,
+            "name": "Kolobrzeg",
+            "latitude": 54.18,
+            "longitude": 15.58
+        },
+        {
+            "id": 24,
+            "name": "Szczecin",
+            "latitude": 53.43,
+            "longitude": 14.55
+        },
+        {
+            "id": 25,
+            "name": "Poznan",
+            "latitude": 52.42,
+            "longitude": 16.97
+        },
+        {
+            "id": 26,
+            "name": "Pila",
+            "latitude": 53.15,
+            "longitude": 16.74
+        }
+    ],
+    "links": [
+        {
+            "distance": 263,
+            "source": 1,
+            "target": 2
+        },
+        {
+            "distance": 143,
+            "source": 1,
+            "target": 4
+        },
+        {
+            "distance": 230,
+            "source": 1,
+            "target": 7
+        },
+        {
+            "distance": 177,
+            "source": 1,
+            "target": 10
+        },
+        {
+            "distance": 139,
+            "source": 1,
+            "target": 18
+        },
+        {
+            "distance": 286,
+            "source": 2,
+            "target": 14
+        },
+        {
+            "distance": 76,
+            "source": 3,
+            "target": 20
+        },
+        {
+            "distance": 67,
+            "source": 3,
+            "target": 4
+        },
+        {
+            "distance": 132,
+            "source": 5,
+            "target": 16
+        },
+        {
+            "distance": 120,
+            "source": 5,
+            "target": 6
+        },
+        {
+            "distance": 156,
+            "source": 6,
+            "target": 9
+        },
+        {
+            "distance": 211,
+            "source": 7,
+            "target": 8
+        },
+        {
+            "distance": 223,
+            "source": 8,
+            "target": 11
+        },
+        {
+            "distance": 142,
+            "source": 9,
+            "target": 10
+        },
+        {
+            "distance": 159,
+            "source": 9,
+            "target": 25
+        },
+        {
+            "distance": 152,
+            "source": 11,
+            "target": 17
+        },
+        {
+            "distance": 115,
+            "source": 11,
+            "target": 15
+        },
+        {
+            "distance": 169,
+            "source": 12,
+            "target": 25
+        },
+        {
+            "distance": 203,
+            "source": 13,
+            "target": 14
+        },
+        {
+            "distance": 215,
+            "source": 13,
+            "target": 19
+        },
+        {
+            "distance": 104,
+            "source": 17,
+            "target": 18
+        },
+        {
+            "distance": 62,
+            "source": 19,
+            "target": 20
+        },
+        {
+            "distance": 127,
+            "source": 19,
+            "target": 26
+        },
+        {
+            "distance": 95,
+            "source": 21,
+            "target": 22
+        },
+        {
+            "distance": 58,
+            "source": 22,
+            "target": 23
+        },
+        {
+            "distance": 161,
+            "source": 23,
+            "target": 24
+        },
+        {
+            "distance": 223,
+            "source": 24,
+            "target": 26
+        },
+        {
+            "distance": 124,
+            "source": 25,
+            "target": 26
+        },
+        {
+            "distance": 263,
+            "source": 2,
+            "target": 1
+        },
+        {
+            "distance": 143,
+            "source": 4,
+            "target": 1
+        },
+        {
+            "distance": 230,
+            "source": 7,
+            "target": 1
+        },
+        {
+            "distance": 177,
+            "source": 10,
+            "target": 1
+        },
+        {
+            "distance": 139,
+            "source": 18,
+            "target": 1
+        },
+        {
+            "distance": 286,
+            "source": 14,
+            "target": 2
+        },
+        {
+            "distance": 76,
+            "source": 20,
+            "target": 3
+        },
+        {
+            "distance": 67,
+            "source": 4,
+            "target": 3
+        },
+        {
+            "distance": 132,
+            "source": 16,
+            "target": 5
+        },
+        {
+            "distance": 120,
+            "source": 6,
+            "target": 5
+        },
+        {
+            "distance": 156,
+            "source": 9,
+            "target": 6
+        },
+        {
+            "distance": 211,
+            "source": 8,
+            "target": 7
+        },
+        {
+            "distance": 223,
+            "source": 11,
+            "target": 8
+        },
+        {
+            "distance": 142,
+            "source": 10,
+            "target": 9
+        },
+        {
+            "distance": 159,
+            "source": 25,
+            "target": 9
+        },
+        {
+            "distance": 152,
+            "source": 17,
+            "target": 11
+        },
+        {
+            "distance": 115,
+            "source": 15,
+            "target": 11
+        },
+        {
+            "distance": 169,
+            "source": 25,
+            "target": 12
+        },
+        {
+            "distance": 203,
+            "source": 14,
+            "target": 13
+        },
+        {
+            "distance": 215,
+            "source": 19,
+            "target": 13
+        },
+        {
+            "distance": 104,
+            "source": 18,
+            "target": 17
+        },
+        {
+            "distance": 62,
+            "source": 20,
+            "target": 19
+        },
+        {
+            "distance": 127,
+            "source": 26,
+            "target": 19
+        },
+        {
+            "distance": 95,
+            "source": 22,
+            "target": 21
+        },
+        {
+            "distance": 58,
+            "source": 23,
+            "target": 22
+        },
+        {
+            "distance": 161,
+            "source": 24,
+            "target": 23
+        },
+        {
+            "distance": 223,
+            "source": 26,
+            "target": 24
+        },
+        {
+            "distance": 124,
+            "source": 26,
+            "target": 25
+        }
+    ]
+}

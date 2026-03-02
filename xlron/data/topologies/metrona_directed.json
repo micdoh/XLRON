@@ -1,0 +1,617 @@
+{
+    "directed": true,
+    "multigraph": false,
+    "graph": {},
+    "nodes": [
+        {
+            "id": 1,
+            "name": "Plymouth",
+            "latitude": 50.3714122,
+            "longitude": -4.1424451
+        },
+        {
+            "id": 2,
+            "name": "Exmouth",
+            "latitude": 50.6190962,
+            "longitude": -3.4146801
+        },
+        {
+            "id": 3,
+            "name": "Taunton",
+            "latitude": 51.0147895,
+            "longitude": -3.1029086
+        },
+        {
+            "id": 4,
+            "name": "Bristol",
+            "latitude": 51.4538022,
+            "longitude": -2.5972985
+        },
+        {
+            "id": 5,
+            "name": "Southampton",
+            "latitude": 50.9025349,
+            "longitude": -1.404189
+        },
+        {
+            "id": 6,
+            "name": "Brighton",
+            "latitude": 50.8214626,
+            "longitude": -0.1400561
+        },
+        {
+            "id": 7,
+            "name": "Swansea",
+            "latitude": 51.6195955,
+            "longitude": -3.9459248
+        },
+        {
+            "id": 8,
+            "name": "Cardiff",
+            "latitude": 51.4816546,
+            "longitude": -3.1791934
+        },
+        {
+            "id": 9,
+            "name": "Reading",
+            "latitude": 51.4564242,
+            "longitude": -0.9700664
+        },
+        {
+            "id": 10,
+            "name": "Colchester",
+            "latitude": 51.8896903,
+            "longitude": 0.8994651
+        },
+        {
+            "id": 11,
+            "name": "Norwich",
+            "latitude": 52.6285576,
+            "longitude": 1.2923954
+        },
+        {
+            "id": 12,
+            "name": "London",
+            "latitude": 51.5074456,
+            "longitude": -0.1277653
+        },
+        {
+            "id": 13,
+            "name": "Bedford",
+            "latitude": 40.0271453,
+            "longitude": -78.5237447
+        },
+        {
+            "id": 14,
+            "name": "Northampton",
+            "latitude": 52.23433665,
+            "longitude": -0.902807276818582
+        },
+        {
+            "id": 15,
+            "name": "Peterborough",
+            "latitude": 52.5725769,
+            "longitude": -0.2427336
+        },
+        {
+            "id": 16,
+            "name": "Coventry",
+            "latitude": 52.4081812,
+            "longitude": -1.510477
+        },
+        {
+            "id": 17,
+            "name": "Lutterworth",
+            "latitude": 52.4552224,
+            "longitude": -1.1997815
+        },
+        {
+            "id": 18,
+            "name": "Leicester",
+            "latitude": 52.6362,
+            "longitude": -1.1331969
+        },
+        {
+            "id": 19,
+            "name": "Sheffield",
+            "latitude": 53.3806626,
+            "longitude": -1.4702278
+        },
+        {
+            "id": 20,
+            "name": "Birmingham",
+            "latitude": 52.4796992,
+            "longitude": -1.9026911
+        },
+        {
+            "id": 21,
+            "name": "Worcester",
+            "latitude": 52.1911849,
+            "longitude": -2.2206585
+        },
+        {
+            "id": 22,
+            "name": "Stoke-on-Trent",
+            "latitude": 53.0162014,
+            "longitude": -2.1812607
+        },
+        {
+            "id": 23,
+            "name": "Manchester",
+            "latitude": 53.4794892,
+            "longitude": -2.2451148
+        },
+        {
+            "id": 24,
+            "name": "Liverpool",
+            "latitude": 53.4071991,
+            "longitude": -2.99168
+        },
+        {
+            "id": 25,
+            "name": "Preston",
+            "latitude": 53.7593363,
+            "longitude": -2.6992717
+        },
+        {
+            "id": 26,
+            "name": "Bradford",
+            "latitude": 53.7944229,
+            "longitude": -1.7519186
+        },
+        {
+            "id": 27,
+            "name": "Leeds",
+            "latitude": 53.7974185,
+            "longitude": -1.5437941
+        },
+        {
+            "id": 28,
+            "name": "Middlesbrough",
+            "latitude": 54.5760419,
+            "longitude": -1.2344047
+        },
+        {
+            "id": 29,
+            "name": "Sunderland",
+            "latitude": 54.9058512,
+            "longitude": -1.3828727
+        },
+        {
+            "id": 30,
+            "name": "Newcastle",
+            "latitude": 54.9738474,
+            "longitude": -1.6131572
+        },
+        {
+            "id": 31,
+            "name": "Dumfries",
+            "latitude": 55.0691397,
+            "longitude": -3.6107936
+        },
+        {
+            "id": 32,
+            "name": "Edinburgh",
+            "latitude": 55.9533456,
+            "longitude": -3.1883749
+        },
+        {
+            "id": 33,
+            "name": "Glasgow",
+            "latitude": 55.861155,
+            "longitude": -4.2501687
+        }
+    ],
+    "links": [
+        {
+            "distance": 88,
+            "source": 1,
+            "target": 2
+        },
+        {
+            "distance": 303,
+            "source": 1,
+            "target": 5
+        },
+        {
+            "distance": 74,
+            "source": 2,
+            "target": 3
+        },
+        {
+            "distance": 90,
+            "source": 3,
+            "target": 4
+        },
+        {
+            "distance": 169,
+            "source": 4,
+            "target": 9
+        },
+        {
+            "distance": 129,
+            "source": 4,
+            "target": 21
+        },
+        {
+            "distance": 134,
+            "source": 5,
+            "target": 6
+        },
+        {
+            "distance": 114,
+            "source": 6,
+            "target": 12
+        },
+        {
+            "distance": 83,
+            "source": 7,
+            "target": 8
+        },
+        {
+            "distance": 202,
+            "source": 7,
+            "target": 21
+        },
+        {
+            "distance": 154,
+            "source": 8,
+            "target": 21
+        },
+        {
+            "distance": 178,
+            "source": 9,
+            "target": 21
+        },
+        {
+            "distance": 88,
+            "source": 9,
+            "target": 12
+        },
+        {
+            "distance": 124,
+            "source": 10,
+            "target": 12
+        },
+        {
+            "distance": 130,
+            "source": 10,
+            "target": 11
+        },
+        {
+            "distance": 156,
+            "source": 11,
+            "target": 15
+        },
+        {
+            "distance": 7392,
+            "source": 12,
+            "target": 13
+        },
+        {
+            "distance": 7332,
+            "source": 13,
+            "target": 15
+        },
+        {
+            "distance": 7295,
+            "source": 13,
+            "target": 14
+        },
+        {
+            "distance": 68,
+            "source": 14,
+            "target": 16
+        },
+        {
+            "distance": 33,
+            "source": 16,
+            "target": 17
+        },
+        {
+            "distance": 42,
+            "source": 16,
+            "target": 20
+        },
+        {
+            "distance": 31,
+            "source": 17,
+            "target": 18
+        },
+        {
+            "distance": 129,
+            "source": 18,
+            "target": 19
+        },
+        {
+            "distance": 70,
+            "source": 19,
+            "target": 27
+        },
+        {
+            "distance": 58,
+            "source": 20,
+            "target": 21
+        },
+        {
+            "distance": 94,
+            "source": 20,
+            "target": 22
+        },
+        {
+            "distance": 78,
+            "source": 22,
+            "target": 23
+        },
+        {
+            "distance": 75,
+            "source": 23,
+            "target": 24
+        },
+        {
+            "distance": 72,
+            "source": 23,
+            "target": 26
+        },
+        {
+            "distance": 65,
+            "source": 23,
+            "target": 25
+        },
+        {
+            "distance": 65,
+            "source": 24,
+            "target": 25
+        },
+        {
+            "distance": 236,
+            "source": 25,
+            "target": 31
+        },
+        {
+            "distance": 21,
+            "source": 26,
+            "target": 27
+        },
+        {
+            "distance": 140,
+            "source": 26,
+            "target": 28
+        },
+        {
+            "distance": 57,
+            "source": 28,
+            "target": 29
+        },
+        {
+            "distance": 25,
+            "source": 29,
+            "target": 30
+        },
+        {
+            "distance": 192,
+            "source": 30,
+            "target": 31
+        },
+        {
+            "distance": 221,
+            "source": 30,
+            "target": 32
+        },
+        {
+            "distance": 100,
+            "source": 32,
+            "target": 33
+        },
+        {
+            "distance": 145,
+            "source": 33,
+            "target": 31
+        },
+        {
+            "distance": 88,
+            "source": 2,
+            "target": 1
+        },
+        {
+            "distance": 303,
+            "source": 5,
+            "target": 1
+        },
+        {
+            "distance": 74,
+            "source": 3,
+            "target": 2
+        },
+        {
+            "distance": 90,
+            "source": 4,
+            "target": 3
+        },
+        {
+            "distance": 169,
+            "source": 9,
+            "target": 4
+        },
+        {
+            "distance": 129,
+            "source": 21,
+            "target": 4
+        },
+        {
+            "distance": 134,
+            "source": 6,
+            "target": 5
+        },
+        {
+            "distance": 114,
+            "source": 12,
+            "target": 6
+        },
+        {
+            "distance": 83,
+            "source": 8,
+            "target": 7
+        },
+        {
+            "distance": 202,
+            "source": 21,
+            "target": 7
+        },
+        {
+            "distance": 154,
+            "source": 21,
+            "target": 8
+        },
+        {
+            "distance": 178,
+            "source": 21,
+            "target": 9
+        },
+        {
+            "distance": 88,
+            "source": 12,
+            "target": 9
+        },
+        {
+            "distance": 124,
+            "source": 12,
+            "target": 10
+        },
+        {
+            "distance": 130,
+            "source": 11,
+            "target": 10
+        },
+        {
+            "distance": 156,
+            "source": 15,
+            "target": 11
+        },
+        {
+            "distance": 7392,
+            "source": 13,
+            "target": 12
+        },
+        {
+            "distance": 7332,
+            "source": 15,
+            "target": 13
+        },
+        {
+            "distance": 7295,
+            "source": 14,
+            "target": 13
+        },
+        {
+            "distance": 68,
+            "source": 16,
+            "target": 14
+        },
+        {
+            "distance": 33,
+            "source": 17,
+            "target": 16
+        },
+        {
+            "distance": 42,
+            "source": 20,
+            "target": 16
+        },
+        {
+            "distance": 31,
+            "source": 18,
+            "target": 17
+        },
+        {
+            "distance": 129,
+            "source": 19,
+            "target": 18
+        },
+        {
+            "distance": 70,
+            "source": 27,
+            "target": 19
+        },
+        {
+            "distance": 58,
+            "source": 21,
+            "target": 20
+        },
+        {
+            "distance": 94,
+            "source": 22,
+            "target": 20
+        },
+        {
+            "distance": 78,
+            "source": 23,
+            "target": 22
+        },
+        {
+            "distance": 75,
+            "source": 24,
+            "target": 23
+        },
+        {
+            "distance": 72,
+            "source": 26,
+            "target": 23
+        },
+        {
+            "distance": 65,
+            "source": 25,
+            "target": 23
+        },
+        {
+            "distance": 65,
+            "source": 25,
+            "target": 24
+        },
+        {
+            "distance": 236,
+            "source": 31,
+            "target": 25
+        },
+        {
+            "distance": 21,
+            "source": 27,
+            "target": 26
+        },
+        {
+            "distance": 140,
+            "source": 28,
+            "target": 26
+        },
+        {
+            "distance": 57,
+            "source": 29,
+            "target": 28
+        },
+        {
+            "distance": 25,
+            "source": 30,
+            "target": 29
+        },
+        {
+            "distance": 192,
+            "source": 31,
+            "target": 30
+        },
+        {
+            "distance": 221,
+            "source": 32,
+            "target": 30
+        },
+        {
+            "distance": 100,
+            "source": 33,
+            "target": 32
+        },
+        {
+            "distance": 145,
+            "source": 31,
+            "target": 33
+        }
+    ]
+}

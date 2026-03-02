@@ -1,0 +1,591 @@
+{
+    "directed": true,
+    "multigraph": false,
+    "graph": {},
+    "nodes": [
+        {
+            "id": 1,
+            "name": "Beijing",
+            "latitude": 39.9042,
+            "longitude": 116.4074
+        },
+        {
+            "id": 2,
+            "name": "Erwangzhuang",
+            "latitude": 39.3434,
+            "longitude": 117.3616
+        },
+        {
+            "id": 3,
+            "name": "Shijiazhuang",
+            "latitude": 38.0428,
+            "longitude": 114.5149
+        },
+        {
+            "id": 4,
+            "name": "Taiyuan",
+            "latitude": 37.8706,
+            "longitude": 112.5489
+        },
+        {
+            "id": 5,
+            "name": "Haoxinying",
+            "latitude": 40.8426,
+            "longitude": 111.7492
+        },
+        {
+            "id": 6,
+            "name": "Shenyang",
+            "latitude": 41.8057,
+            "longitude": 123.4315
+        },
+        {
+            "id": 7,
+            "name": "Changchun",
+            "latitude": 43.8163,
+            "longitude": 125.3235
+        },
+        {
+            "id": 8,
+            "name": "Harbin",
+            "latitude": 45.8038,
+            "longitude": 126.5349
+        },
+        {
+            "id": 9,
+            "name": "Zhengzhou",
+            "latitude": 34.7466,
+            "longitude": 113.6254
+        },
+        {
+            "id": 10,
+            "name": "Jinan",
+            "latitude": 36.6512,
+            "longitude": 117.1201
+        },
+        {
+            "id": 11,
+            "name": "Qingdao",
+            "latitude": 36.0671,
+            "longitude": 120.3826
+        },
+        {
+            "id": 12,
+            "name": "Zhangjiabao",
+            "latitude": 34.3416,
+            "longitude": 108.9398
+        },
+        {
+            "id": 13,
+            "name": "Lanzhou",
+            "latitude": 36.0611,
+            "longitude": 103.8343
+        },
+        {
+            "id": 14,
+            "name": "Xining",
+            "latitude": 36.6171,
+            "longitude": 101.7782
+        },
+        {
+            "id": 15,
+            "name": "Yinchuan",
+            "latitude": 38.4872,
+            "longitude": 106.2309
+        },
+        {
+            "id": 16,
+            "name": "Shuimogou",
+            "latitude": 43.8256,
+            "longitude": 87.6169
+        },
+        {
+            "id": 17,
+            "name": "Shanghai",
+            "latitude": 31.2304,
+            "longitude": 121.4737
+        },
+        {
+            "id": 18,
+            "name": "Hangzhou",
+            "latitude": 30.2741,
+            "longitude": 120.1551
+        },
+        {
+            "id": 19,
+            "name": "Hefei",
+            "latitude": 31.8612,
+            "longitude": 117.2855
+        },
+        {
+            "id": 20,
+            "name": "Meiyuan Xincun",
+            "latitude": 32.0603,
+            "longitude": 118.7969
+        },
+        {
+            "id": 21,
+            "name": "Jiang'an",
+            "latitude": 30.5928,
+            "longitude": 114.3055
+        },
+        {
+            "id": 22,
+            "name": "Chengdu",
+            "latitude": 30.5728,
+            "longitude": 104.0668
+        },
+        {
+            "id": 23,
+            "name": "Chongqing",
+            "latitude": 29.563,
+            "longitude": 106.5516
+        },
+        {
+            "id": 24,
+            "name": "Guiyang",
+            "latitude": 26.647,
+            "longitude": 106.6302
+        },
+        {
+            "id": 25,
+            "name": "Kunming",
+            "latitude": 25.0406,
+            "longitude": 102.7123
+        },
+        {
+            "id": 26,
+            "name": "Wangyue",
+            "latitude": 28.2282,
+            "longitude": 112.9388
+        },
+        {
+            "id": 27,
+            "name": "Nanchang",
+            "latitude": 28.682,
+            "longitude": 115.8579
+        },
+        {
+            "id": 28,
+            "name": "Antai",
+            "latitude": 26.0745,
+            "longitude": 119.2965
+        },
+        {
+            "id": 29,
+            "name": "Nanning",
+            "latitude": 22.817,
+            "longitude": 108.3669
+        },
+        {
+            "id": 30,
+            "name": "Guangzhou",
+            "latitude": 23.1291,
+            "longitude": 113.2644
+        },
+        {
+            "id": 31,
+            "name": "Shenzhen",
+            "latitude": 22.5431,
+            "longitude": 114.0579
+        },
+        {
+            "id": 32,
+            "name": "Changliu",
+            "latitude": 20.044,
+            "longitude": 110.1999
+        }
+    ],
+    "links": [
+        {
+            "distance": 154,
+            "source": 1,
+            "target": 2
+        },
+        {
+            "distance": 396,
+            "source": 1,
+            "target": 3
+        },
+        {
+            "distance": 605,
+            "source": 1,
+            "target": 4
+        },
+        {
+            "distance": 936,
+            "source": 1,
+            "target": 9
+        },
+        {
+            "distance": 551,
+            "source": 1,
+            "target": 10
+        },
+        {
+            "distance": 941,
+            "source": 1,
+            "target": 6
+        },
+        {
+            "distance": 1358,
+            "source": 1,
+            "target": 12
+        },
+        {
+            "distance": 450,
+            "source": 2,
+            "target": 10
+        },
+        {
+            "distance": 563,
+            "source": 3,
+            "target": 9
+        },
+        {
+            "distance": 260,
+            "source": 3,
+            "target": 4
+        },
+        {
+            "distance": 541,
+            "source": 4,
+            "target": 9
+        },
+        {
+            "distance": 506,
+            "source": 4,
+            "target": 5
+        },
+        {
+            "distance": 407,
+            "source": 6,
+            "target": 7
+        },
+        {
+            "distance": 361,
+            "source": 7,
+            "target": 8
+        },
+        {
+            "distance": 647,
+            "source": 9,
+            "target": 12
+        },
+        {
+            "distance": 752,
+            "source": 12,
+            "target": 13
+        },
+        {
+            "distance": 291,
+            "source": 13,
+            "target": 14
+        },
+        {
+            "distance": 666,
+            "source": 14,
+            "target": 15
+        },
+        {
+            "distance": 2079,
+            "source": 15,
+            "target": 16
+        },
+        {
+            "distance": 2640,
+            "source": 16,
+            "target": 12
+        },
+        {
+            "distance": 247,
+            "source": 17,
+            "target": 18
+        },
+        {
+            "distance": 488,
+            "source": 18,
+            "target": 19
+        },
+        {
+            "distance": 216,
+            "source": 19,
+            "target": 20
+        },
+        {
+            "distance": 800,
+            "source": 20,
+            "target": 10
+        },
+        {
+            "distance": 930,
+            "source": 12,
+            "target": 22
+        },
+        {
+            "distance": 396,
+            "source": 22,
+            "target": 23
+        },
+        {
+            "distance": 487,
+            "source": 23,
+            "target": 24
+        },
+        {
+            "distance": 646,
+            "source": 24,
+            "target": 25
+        },
+        {
+            "distance": 435,
+            "source": 26,
+            "target": 27
+        },
+        {
+            "distance": 670,
+            "source": 27,
+            "target": 28
+        },
+        {
+            "distance": 754,
+            "source": 29,
+            "target": 30
+        },
+        {
+            "distance": 156,
+            "source": 30,
+            "target": 31
+        },
+        {
+            "distance": 730,
+            "source": 31,
+            "target": 32
+        },
+        {
+            "distance": 1500,
+            "source": 1,
+            "target": 21
+        },
+        {
+            "distance": 1254,
+            "source": 21,
+            "target": 30
+        },
+        {
+            "distance": 1470,
+            "source": 21,
+            "target": 22
+        },
+        {
+            "distance": 685,
+            "source": 21,
+            "target": 20
+        },
+        {
+            "distance": 1031,
+            "source": 21,
+            "target": 17
+        },
+        {
+            "distance": 699,
+            "source": 21,
+            "target": 9
+        },
+        {
+            "distance": 154,
+            "source": 2,
+            "target": 1
+        },
+        {
+            "distance": 396,
+            "source": 3,
+            "target": 1
+        },
+        {
+            "distance": 605,
+            "source": 4,
+            "target": 1
+        },
+        {
+            "distance": 936,
+            "source": 9,
+            "target": 1
+        },
+        {
+            "distance": 551,
+            "source": 10,
+            "target": 1
+        },
+        {
+            "distance": 941,
+            "source": 6,
+            "target": 1
+        },
+        {
+            "distance": 1358,
+            "source": 12,
+            "target": 1
+        },
+        {
+            "distance": 450,
+            "source": 10,
+            "target": 2
+        },
+        {
+            "distance": 563,
+            "source": 9,
+            "target": 3
+        },
+        {
+            "distance": 260,
+            "source": 4,
+            "target": 3
+        },
+        {
+            "distance": 541,
+            "source": 9,
+            "target": 4
+        },
+        {
+            "distance": 506,
+            "source": 5,
+            "target": 4
+        },
+        {
+            "distance": 407,
+            "source": 7,
+            "target": 6
+        },
+        {
+            "distance": 361,
+            "source": 8,
+            "target": 7
+        },
+        {
+            "distance": 647,
+            "source": 12,
+            "target": 9
+        },
+        {
+            "distance": 752,
+            "source": 13,
+            "target": 12
+        },
+        {
+            "distance": 291,
+            "source": 14,
+            "target": 13
+        },
+        {
+            "distance": 666,
+            "source": 15,
+            "target": 14
+        },
+        {
+            "distance": 2079,
+            "source": 16,
+            "target": 15
+        },
+        {
+            "distance": 2640,
+            "source": 12,
+            "target": 16
+        },
+        {
+            "distance": 247,
+            "source": 18,
+            "target": 17
+        },
+        {
+            "distance": 488,
+            "source": 19,
+            "target": 18
+        },
+        {
+            "distance": 216,
+            "source": 20,
+            "target": 19
+        },
+        {
+            "distance": 800,
+            "source": 10,
+            "target": 20
+        },
+        {
+            "distance": 930,
+            "source": 22,
+            "target": 12
+        },
+        {
+            "distance": 396,
+            "source": 23,
+            "target": 22
+        },
+        {
+            "distance": 487,
+            "source": 24,
+            "target": 23
+        },
+        {
+            "distance": 646,
+            "source": 25,
+            "target": 24
+        },
+        {
+            "distance": 435,
+            "source": 27,
+            "target": 26
+        },
+        {
+            "distance": 670,
+            "source": 28,
+            "target": 27
+        },
+        {
+            "distance": 754,
+            "source": 30,
+            "target": 29
+        },
+        {
+            "distance": 156,
+            "source": 31,
+            "target": 30
+        },
+        {
+            "distance": 730,
+            "source": 32,
+            "target": 31
+        },
+        {
+            "distance": 1500,
+            "source": 21,
+            "target": 1
+        },
+        {
+            "distance": 1254,
+            "source": 30,
+            "target": 21
+        },
+        {
+            "distance": 1470,
+            "source": 22,
+            "target": 21
+        },
+        {
+            "distance": 685,
+            "source": 20,
+            "target": 21
+        },
+        {
+            "distance": 1031,
+            "source": 17,
+            "target": 21
+        },
+        {
+            "distance": 699,
+            "source": 9,
+            "target": 21
+        }
+    ]
+}

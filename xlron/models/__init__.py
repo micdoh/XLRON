@@ -1,11 +1,46 @@
-__DYNAMIC__ = True
-if __DYNAMIC__:
-    from mkinit import dynamic_mkinit
-    exec(dynamic_mkinit.dynamic_init(__name__))
-else:
-    # <AUTOGEN_INIT>
-    from mkinit import dynamic_mkinit
-    from mkinit import static_mkinit
-    from mkinit.dynamic_mkinit import (dynamic_init,)
-    from mkinit.static_mkinit import (autogen_init,)
-    # </AUTOGEN_INIT>
+"""Neural network models for reinforcement learning agents."""
+
+# Main actor-critic models
+from xlron.models.gnn import (  # Core GNN functions; GNN-based models
+    GAT,
+    ActorCriticGNN,
+    ActorGNN,
+    CriticGNN,
+    GraphNet,
+    GraphNetGAT,
+    GraphNetwork,
+    add_graphs_tuples,
+)
+from xlron.models.mlp import (  # Helper functions; MLP-based models
+    MLP,
+    LaunchPowerActorCriticMLP,
+    crelu,
+    make_linear_with_orthogonal_init,
+    orthogonal_init,
+    select_activation,
+)
+from xlron.models.transformer import ActorCriticTransformer
+
+__all__ = [
+    # MLP models
+    "ActorCriticMLP",
+    "LaunchPowerActorCriticMLP",
+    "MLP",
+    # GNN models
+    "ActorCriticGNN",
+    "ActorGNN",
+    "CriticGNN",
+    "GraphNet",
+    # Model helpers
+    "crelu",
+    "add_graphs_tuples",
+    "orthogonal_init",
+    "select_activation",
+    "make_linear_with_orthogonal_init",
+    # GNN layers
+    "GraphNetwork",
+    "GraphNetGAT",
+    "GAT",
+    # Transformer models
+    "ActorCriticTransformer",
+]

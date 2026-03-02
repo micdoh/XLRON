@@ -1,0 +1,409 @@
+{
+    "directed": true,
+    "multigraph": false,
+    "graph": {},
+    "nodes": [
+        {
+            "id": 1,
+            "name": "Canterbury",
+            "latitude": 51.28,
+            "longitude": 1.09
+        },
+        {
+            "id": 2,
+            "name": "Canterbury",
+            "latitude": 51.27,
+            "longitude": 1.09
+        },
+        {
+            "id": 3,
+            "name": "Gillingham",
+            "latitude": 51.39,
+            "longitude": 0.55
+        },
+        {
+            "id": 4,
+            "name": "Gillingham",
+            "latitude": 51.39,
+            "longitude": 0.55
+        },
+        {
+            "id": 5,
+            "name": "Ashford",
+            "latitude": 51.14,
+            "longitude": 0.86
+        },
+        {
+            "id": 6,
+            "name": "Maidstone",
+            "latitude": 51.27,
+            "longitude": 0.5
+        },
+        {
+            "id": 7,
+            "name": "Broadstairs",
+            "latitude": 51.35,
+            "longitude": 1.43
+        },
+        {
+            "id": 8,
+            "name": "Broadstairs",
+            "latitude": 51.36,
+            "longitude": 1.43
+        },
+        {
+            "id": 9,
+            "name": "Maidstone",
+            "latitude": 51.28,
+            "longitude": 0.52
+        },
+        {
+            "id": 10,
+            "name": "Hadlow",
+            "latitude": 51.22,
+            "longitude": 0.33
+        },
+        {
+            "id": 11,
+            "name": "Folkestone",
+            "latitude": 51.08,
+            "longitude": 1.18
+        },
+        {
+            "id": 12,
+            "name": "Blean",
+            "latitude": 51.3,
+            "longitude": 1.06
+        },
+        {
+            "id": 13,
+            "name": "Tonbridge",
+            "latitude": 51.19,
+            "longitude": 0.26
+        },
+        {
+            "id": 14,
+            "name": "Blackheath",
+            "latitude": 51.44,
+            "longitude": 0.03
+        },
+        {
+            "id": 15,
+            "name": "Canterbury",
+            "latitude": 51.28,
+            "longitude": 1.08
+        },
+        {
+            "id": 16,
+            "name": "Dartford",
+            "latitude": 51.45,
+            "longitude": 0.22
+        },
+        {
+            "id": 17,
+            "name": "Rochester",
+            "latitude": 51.38,
+            "longitude": 0.51
+        },
+        {
+            "id": 18,
+            "name": "Welling",
+            "latitude": 51.45,
+            "longitude": 0.08
+        },
+        {
+            "id": 19,
+            "name": "Welling",
+            "latitude": 51.45,
+            "longitude": 0.08
+        },
+        {
+            "id": 20,
+            "name": "Canterbury",
+            "latitude": 51.28,
+            "longitude": 1.09
+        },
+        {
+            "id": 21,
+            "name": "Wye",
+            "latitude": 51.18,
+            "longitude": 0.94
+        },
+        {
+            "id": 22,
+            "name": "Maidstone",
+            "latitude": 51.26,
+            "longitude": 0.55
+        },
+        {
+            "id": 23,
+            "name": "Royal Tunbridge Wells",
+            "latitude": 51.15,
+            "longitude": 0.24
+        },
+        {
+            "id": 24,
+            "name": "Ramsgate",
+            "latitude": 51.36,
+            "longitude": 1.41
+        },
+        {
+            "id": 25,
+            "name": "Kemsing",
+            "latitude": 51.29,
+            "longitude": 0.22
+        }
+    ],
+    "links": [
+        {
+            "distance": 5,
+            "source": 1,
+            "target": 12
+        },
+        {
+            "distance": 6,
+            "source": 2,
+            "target": 12
+        },
+        {
+            "distance": 50,
+            "source": 3,
+            "target": 19
+        },
+        {
+            "distance": 50,
+            "source": 4,
+            "target": 19
+        },
+        {
+            "distance": 11,
+            "source": 5,
+            "target": 21
+        },
+        {
+            "distance": 5,
+            "source": 6,
+            "target": 22
+        },
+        {
+            "distance": 3,
+            "source": 7,
+            "target": 24
+        },
+        {
+            "distance": 2,
+            "source": 8,
+            "target": 24
+        },
+        {
+            "distance": 54,
+            "source": 9,
+            "target": 19
+        },
+        {
+            "distance": 15,
+            "source": 10,
+            "target": 23
+        },
+        {
+            "distance": 30,
+            "source": 11,
+            "target": 21
+        },
+        {
+            "distance": 4,
+            "source": 12,
+            "target": 15
+        },
+        {
+            "distance": 105,
+            "source": 12,
+            "target": 19
+        },
+        {
+            "distance": 5,
+            "source": 12,
+            "target": 20
+        },
+        {
+            "distance": 24,
+            "source": 12,
+            "target": 21
+        },
+        {
+            "distance": 38,
+            "source": 12,
+            "target": 24
+        },
+        {
+            "distance": 7,
+            "source": 13,
+            "target": 23
+        },
+        {
+            "distance": 5,
+            "source": 14,
+            "target": 18
+        },
+        {
+            "distance": 15,
+            "source": 16,
+            "target": 18
+        },
+        {
+            "distance": 46,
+            "source": 17,
+            "target": 19
+        },
+        {
+            "distance": 1,
+            "source": 18,
+            "target": 19
+        },
+        {
+            "distance": 58,
+            "source": 19,
+            "target": 22
+        },
+        {
+            "distance": 30,
+            "source": 19,
+            "target": 25
+        },
+        {
+            "distance": 43,
+            "source": 21,
+            "target": 22
+        },
+        {
+            "distance": 37,
+            "source": 22,
+            "target": 23
+        },
+        {
+            "distance": 5,
+            "source": 12,
+            "target": 1
+        },
+        {
+            "distance": 6,
+            "source": 12,
+            "target": 2
+        },
+        {
+            "distance": 50,
+            "source": 19,
+            "target": 3
+        },
+        {
+            "distance": 50,
+            "source": 19,
+            "target": 4
+        },
+        {
+            "distance": 11,
+            "source": 21,
+            "target": 5
+        },
+        {
+            "distance": 5,
+            "source": 22,
+            "target": 6
+        },
+        {
+            "distance": 3,
+            "source": 24,
+            "target": 7
+        },
+        {
+            "distance": 2,
+            "source": 24,
+            "target": 8
+        },
+        {
+            "distance": 54,
+            "source": 19,
+            "target": 9
+        },
+        {
+            "distance": 15,
+            "source": 23,
+            "target": 10
+        },
+        {
+            "distance": 30,
+            "source": 21,
+            "target": 11
+        },
+        {
+            "distance": 4,
+            "source": 15,
+            "target": 12
+        },
+        {
+            "distance": 105,
+            "source": 19,
+            "target": 12
+        },
+        {
+            "distance": 5,
+            "source": 20,
+            "target": 12
+        },
+        {
+            "distance": 24,
+            "source": 21,
+            "target": 12
+        },
+        {
+            "distance": 38,
+            "source": 24,
+            "target": 12
+        },
+        {
+            "distance": 7,
+            "source": 23,
+            "target": 13
+        },
+        {
+            "distance": 5,
+            "source": 18,
+            "target": 14
+        },
+        {
+            "distance": 15,
+            "source": 18,
+            "target": 16
+        },
+        {
+            "distance": 46,
+            "source": 19,
+            "target": 17
+        },
+        {
+            "distance": 1,
+            "source": 19,
+            "target": 18
+        },
+        {
+            "distance": 58,
+            "source": 22,
+            "target": 19
+        },
+        {
+            "distance": 30,
+            "source": 25,
+            "target": 19
+        },
+        {
+            "distance": 43,
+            "source": 22,
+            "target": 21
+        },
+        {
+            "distance": 37,
+            "source": 23,
+            "target": 22
+        }
+    ]
+}

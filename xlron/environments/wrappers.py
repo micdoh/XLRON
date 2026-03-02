@@ -1,32 +1,29 @@
-from itertools import combinations, islice
+import time
+import timeit
+from collections import defaultdict
 from functools import partial
-from typing import Sequence, Union, Optional, Tuple
-from gymnax.environments import environment
-from gymnax.wrappers.purerl import GymnaxWrapper
-from absl import flags
-import math
-import pathlib
-import itertools
-import networkx as nx
-import jax.numpy as jnp
+from typing import Any, Optional, Tuple, Union
+
 import chex
 import jax
-import timeit
-import json
-import numpy as np
-import jraph
-from flax import struct
-from jax._src import core
-from jax._src import dtypes
-from jax._src import prng
-from jax._src.typing import Array, ArrayLike, DTypeLike
-from typing import Generic, TypeVar
-from collections import defaultdict
-from xlron.environments.dataclasses import *
+import jax.numpy as jnp
+from gymnax.environments import environment
+from gymnax.wrappers.purerl import GymnaxWrapper
+from jax import Array, tree_util
 
-
-Shape = Sequence[int]
-T = TypeVar('T')      # Declare type variable
+from xlron import dtype_config
+from xlron.environments.dataclasses import (
+    LogEnvState,
+    RSAEnvParams,
+    RSAEnvState,
+    RSAGNModelEnvParams,
+)
+from xlron.environments.env_funcs import (
+    get_path_indices,
+    get_snr_for_path,
+    process_path_action,
+    read_rsa_request,
+)
 
 
 class LogWrapper(GymnaxWrapper):
@@ -39,173 +36,125 @@ class LogWrapper(GymnaxWrapper):
 
     @partial(jax.jit, static_argnums=(0,))
     def reset(
-        self, key: chex.PRNGKey, params: Optional[environment.EnvParams] = None
-    ) -> Tuple[chex.Array, environment.EnvState]:
-        obs, env_state = self._env.reset(key, params)
-        state = LogEnvState(env_state, 0, 0, 0, 0, 0, 0, 0, False)
-        return obs, state
+        self,
+        key: chex.PRNGKey,
+        params: Optional[RSAEnvParams] = None,
+        state: Optional[RSAEnvState] = None,
+    ) -> Tuple[chex.Array, LogEnvState]:
+        obs, env_state = self._env.reset(key, params, state)
+        log_state = LogEnvState(
+            env_state=env_state,
+            lengths=jnp.array(0, dtype=dtype_config.LARGE_INT_DTYPE),
+            returns=jnp.array(0, dtype=dtype_config.REWARD_DTYPE),
+            cum_returns=jnp.array(0, dtype=dtype_config.LARGE_FLOAT_DTYPE),
+            accepted_services=jnp.array(0, dtype=dtype_config.LARGE_INT_DTYPE),
+            accepted_bitrate=jnp.array(0, dtype=dtype_config.LARGE_FLOAT_DTYPE),
+            total_bitrate=jnp.array(0, dtype=dtype_config.LARGE_FLOAT_DTYPE),
+            utilisation=jnp.array(0, dtype=dtype_config.LARGE_FLOAT_DTYPE),
+            terminal=jnp.array(False),
+            truncated=jnp.array(False),
+        )
+        return obs, log_state
 
     @partial(jax.jit, static_argnums=(0,))
     def step(
         self,
         key: chex.PRNGKey,
-        state: environment.EnvState,
-        action: Union[int, float],
-        params: Optional[environment.EnvParams] = None,
-    ) -> Tuple[chex.Array, environment.EnvState, float, bool, dict]:
-        obs, env_state, reward, done, info = self._env.step(
-            key, state.env_state, action, params
+        log_state: LogEnvState,
+        action: Union[int, float] | Tuple[Union[int, float], Union[int, float]],
+        params: RSAEnvParams,
+    ) -> Tuple[Array, LogEnvState, float, bool, bool, dict]:
+        obs, env_state, reward, terminal, truncated, info = self._env.step(
+            key, log_state.env_state, action, params
         )
-        new_episode_return = state.cum_returns + reward
-        new_episode_length = state.lengths + 1
-        state = LogEnvState(
+        done = jnp.logical_or(terminal, truncated)
+        # Use pre-reset metrics from info (stashed in step_env before auto-reset)
+        accepted_services = info.pop("_accepted_services")
+        accepted_bitrate = info.pop("_accepted_bitrate")
+        total_bitrate = info.pop("_total_bitrate")
+        utilisation = info.pop("_utilisation")
+        # Compute final episode length (for reporting) before resetting
+        episode_length = log_state.lengths + 1
+        cum_returns = log_state.cum_returns + reward
+        log_state = LogEnvState(
             env_state=env_state,
-            lengths=state.lengths * (1 - done) + 1,
-            returns=reward,
-            cum_returns=state.cum_returns * (1 - done) + reward,
-            episode_lengths=state.episode_lengths * (1 - done)
-            + new_episode_length * done,
-            episode_returns=state.episode_returns * (1 - done)
-            + new_episode_return * done,
-            accepted_services=env_state.accepted_services,
-            accepted_bitrate=env_state.accepted_bitrate,
-            done=done,
+            # Reset lengths for next episode on done, otherwise keep accumulating
+            lengths=episode_length * (1 - done),
+            returns=jnp.asarray(reward, dtype=dtype_config.REWARD_DTYPE),
+            cum_returns=cum_returns * (1 - done),
+            accepted_services=accepted_services,
+            accepted_bitrate=accepted_bitrate,
+            total_bitrate=total_bitrate,
+            utilisation=utilisation,
+            terminal=terminal,
+            truncated=truncated,
         )
-        info["lengths"] = state.lengths
-        info["returns"] = state.returns
-        info["cum_returns"] = state.cum_returns
-        info["episode_returns"] = state.episode_returns
-        info["episode_lengths"] = state.episode_lengths
-        info["accepted_services"] = state.accepted_services
-        info["accepted_bitrate"] = state.accepted_bitrate
-        info["done"] = done
-        return obs, state, reward, done, info
+        # Report the pre-reset values so the done step carries the correct
+        # final episode metrics (no shift workaround needed in process_metrics)
+        info["lengths"] = episode_length
+        info["returns"] = log_state.returns
+        info["cum_returns"] = cum_returns
+        info["accepted_services"] = log_state.accepted_services
+        info["accepted_bitrate"] = log_state.accepted_bitrate
+        info["total_bitrate"] = log_state.total_bitrate
+        info["utilisation"] = log_state.utilisation
+        info["terminal"] = terminal
+        info["truncated"] = truncated
+        # First check if we're dealing with RSAGNModelEnvParams
+        is_gn_params = isinstance(params, RSAGNModelEnvParams)
 
+        # For RSA params, unpack the action
+        if is_gn_params:
+            action, power_action = action
+            info["launch_power"] = power_action
 
-class HashableArrayWrapper(Generic[T]):
-    """Wrapper for making arrays hashable.
-    In order to access pre-computed data, such as shortest paths between node-pairs or the constituent links of a path,
-    within a jitted function, we need to make the arrays containing this data hashable. By defining this wrapper, we can
-    define a __hash__ method that returns a hash of the array's bytes, thus making the array hashable.
-    From: https://github.com/google/jax/issues/4572#issuecomment-709677518
-    """
-    def __init__(self, val: T):
-        self.val = val
+        # Now, if we need to log actions OR we have RSA params, compute the common fields
+        if is_gn_params or params.log_actions:
+            # Compute common fields
+            nodes_sd, dr_request = read_rsa_request(log_state.env_state.request_array)
+            source, dest = nodes_sd
+            i = get_path_indices(
+                params,
+                source,
+                dest,
+                params.k_paths,
+                params.num_nodes,
+                directed=params.directed_graph,
+            ).astype(jnp.int32)
+            path_index, slot_index = process_path_action(log_state.env_state, params, action)
 
-    def __getattribute__(self, prop):
-        if prop == 'val' or prop == "__hash__" or prop == "__eq__":
-            return super(HashableArrayWrapper, self).__getattribute__(prop)
-        return getattr(self.val, prop)
+            # Set common info
+            info["path_index"] = i + path_index
+            info["slot_index"] = slot_index
+            info["source"] = source
+            info["dest"] = dest
+            info["data_rate"] = dr_request
 
-    def __getitem__(self, key):
-        return self.val[key]
+            # RSA-specific throughput info (use pre-reset value from step_env)
+            if is_gn_params:
+                info["throughput"] = info.pop("_throughput")
 
-    def __setitem__(self, key, val):
-        self.val[key] = val
+            # Logging-specific info
+            if params.log_actions:
+                # RSA-specific logging
+                if is_gn_params:
+                    path = params.path_link_array.val[path_index.astype(jnp.int32)]
+                    info["path_snr"] = get_snr_for_path(path, env_state.link_snr_array, params)[
+                        slot_index.astype(jnp.int32)
+                    ]
+                # Common logging fields
+                info["arrival_time"] = env_state.current_time[0]
+                info["departure_time"] = env_state.current_time[0] + env_state.holding_time[0]
+        return obs, log_state, reward, terminal, truncated, info
 
-    def __hash__(self):
-        return hash(self.val.tobytes())
+    def _tree_flatten(self) -> Tuple[Tuple[Any, ...], Tuple[Any, ...]]:
+        children = ()  # arrays / dynamic values
+        aux_data = (self._env,)  # static values, e.g. env params
+        return (children, aux_data)
 
-    def __eq__(self, other):
-        if isinstance(other, HashableArrayWrapper):
-            return self.__hash__() == other.__hash__()
-
-        f = getattr(self.val, "__eq__")
-        return f(self, other)
-
-
-class RolloutWrapper:
-    """Wrapper to define batch evaluation for generation parameters. Used for genetic algorithm.
-    From: https://github.com/RobertTLange/gymnax/
-    """
-    def __init__(
-        self,
-        model_forward=None,
-        env: environment.Environment = None,
-        num_env_steps: Optional[int] = None,
-        env_params: EnvParams = None,
-    ):
-        """Wrapper to define batch evaluation for generation parameters."""
-        self.env = env
-        # Define the RL environment & network forward function
-        self.env_params = env_params
-        self.model_forward = model_forward
-
-        if num_env_steps is None:
-            self.num_env_steps = self.env_params.max_requests
-        else:
-            self.num_env_steps = num_env_steps
-
-    @partial(jax.jit, static_argnums=(0, 2))
-    def population_rollout(self, rng_eval, policy_params):
-        """Reshape parameter vector and evaluate the generation."""
-        # Evaluate population of nets on gymnax task - vmap over rng & params
-        pop_rollout = jax.vmap(self.batch_rollout, in_axes=(None, 0))
-        return pop_rollout(rng_eval, policy_params)
-
-    @partial(jax.jit, static_argnums=(0, 2))
-    def batch_rollout(self, rng_eval, policy_params):
-        """Evaluate a generation of networks on RL/Supervised/etc. task."""
-        # vmap over different MC fitness evaluations for single network
-        batch_rollout = jax.vmap(self.single_rollout, in_axes=(0, None))
-        return batch_rollout(rng_eval, policy_params)
-
-    @partial(jax.jit, static_argnums=(0, 2))
-    def single_rollout(self, rng_input, policy_params):
-        """Rollout a pendulum episode with lax.scan."""
-        # Reset the environment
-        rng_reset, rng_episode = jax.random.split(rng_input)
-        obs, state = self.env.reset(rng_reset, self.env_params)
-
-        def policy_step(state_input, tmp):
-            """lax.scan compatible step transition in jax env."""
-            obs, state, policy_params, rng, cum_reward, valid_mask = state_input
-            rng, rng_step, rng_net = jax.random.split(rng, 3)
-            if self.model_forward is not None:
-                action = self.model_forward(policy_params, obs, rng_net)
-            else:
-                action = self.env.action_space(self.env_params).sample(rng_net)
-            next_obs, next_state, reward, done, _ = self.env.step(
-                rng_step, state, action, self.env_params
-            )
-            new_cum_reward = cum_reward + reward * valid_mask
-            new_valid_mask = valid_mask * (1 - done)
-            carry = [
-                next_obs,
-                next_state,
-                policy_params,
-                rng,
-                new_cum_reward,
-                new_valid_mask,
-            ]
-            y = [obs, action, reward, next_obs, done]
-            return carry, y
-
-        # Scan over episode step loop
-        carry_out, scan_out = jax.lax.scan(
-            policy_step,
-            [
-                obs,
-                state,
-                policy_params,
-                rng_episode,
-                jnp.array([0.0]),
-                jnp.array([1.0]),
-            ],
-            (),
-            self.num_env_steps,
-        )
-        # Return the sum of rewards accumulated by agent in episode rollout
-        obs, action, reward, next_obs, done = scan_out
-        cum_return = carry_out[-2]
-        return obs, action, reward, next_obs, done, cum_return
-
-    @property
-    def input_shape(self):
-        """Get the shape of the observation."""
-        rng = jax.random.PRNGKey(0)
-        obs, state = self.env.reset(rng, self.env_params)
-        return obs.shape
+    @classmethod
+    def _tree_unflatten(cls, aux_data: Tuple[Any, ...], children: Tuple[Any, ...]) -> "LogWrapper":
+        return cls(*children, *aux_data)
 
 
 class TimeIt:
@@ -221,7 +170,339 @@ class TimeIt:
 
     def __exit__(self, *args):
         self.elapsed_secs = timeit.default_timer() - self.start
-        msg = self.tag + (': Elapsed time=%.2fs' % self.elapsed_secs)
+        msg = self.tag + (": Elapsed time=%.2fs" % self.elapsed_secs)
         if self.frames:
-            msg += ', FPS=%.2e' % (self.frames / self.elapsed_secs)
+            msg += ", FPS=%.2e" % (self.frames / self.elapsed_secs)
         print(msg)
+
+
+class Profiler:
+    """Simple wall-clock profiler that tracks named sections.
+
+    Usage:
+        profiler = Profiler()
+
+        with profiler.section("compilation"):
+            ...
+
+        for i in range(10):
+            with profiler.section("training_step", frames=1000):
+                ...
+
+        profiler.summary()
+    """
+
+    def __init__(self, enabled: bool = True):
+        self.enabled = enabled
+        # Each key maps to a list of (elapsed_secs, frames) tuples
+        self._records: dict[str, list[tuple[float, int | None]]] = {}
+        self._order: list[str] = []  # Insertion order of section names
+
+    def section(self, tag: str, frames: int | None = None) -> "_ProfileSection":
+        """Return a context manager that times the enclosed block.
+
+        Args:
+            tag: Name for this section. Repeated uses accumulate.
+            frames: Optional work-unit count (e.g. timesteps) for throughput.
+        """
+        return _ProfileSection(self, tag, frames)
+
+    def _record(self, tag: str, elapsed: float, frames: int | None):
+        if not self.enabled:
+            return
+        if tag not in self._records:
+            self._records[tag] = []
+            self._order.append(tag)
+        self._records[tag].append((elapsed, frames))
+
+    def summary(self):
+        """Print a table summarising all recorded sections."""
+        if not self._records:
+            return
+        total_wall = sum(e for entries in self._records.values() for e, _ in entries)
+        header = (
+            f"{'Section':<30} {'Calls':>6} {'Total (s)':>10} {'Mean (s)':>10} {'%':>6} {'FPS':>12}"
+        )
+        print("\n" + "=" * len(header))
+        print("PROFILER SUMMARY")
+        print("=" * len(header))
+        print(header)
+        print("-" * len(header))
+        for tag in self._order:
+            entries = self._records[tag]
+            n = len(entries)
+            total_t = sum(e for e, _ in entries)
+            mean_t = total_t / n
+            pct = 100.0 * total_t / total_wall if total_wall > 0 else 0.0
+            total_frames = sum(f for _, f in entries if f is not None)
+            fps_str = f"{total_frames / total_t:.2e}" if total_frames and total_t > 0 else ""
+            print(f"{tag:<30} {n:>6} {total_t:>10.2f} {mean_t:>10.4f} {pct:>5.1f}% {fps_str:>12}")
+        print("-" * len(header))
+        print(f"{'TOTAL':<30} {'':>6} {total_wall:>10.2f}")
+        print("=" * len(header) + "\n")
+
+
+class _ProfileSection:
+    """Context manager returned by Profiler.section()."""
+
+    def __init__(self, profiler: Profiler, tag: str, frames: int | None):
+        self._profiler = profiler
+        self._tag = tag
+        self._frames = frames
+        self.elapsed_secs = 0.0
+
+    def __enter__(self):
+        self._start = timeit.default_timer()
+        return self
+
+    def __exit__(self, *args):
+        self.elapsed_secs = timeit.default_timer() - self._start
+        self._profiler._record(self._tag, self.elapsed_secs, self._frames)
+        msg = self._tag + (": Elapsed time=%.2fs" % self.elapsed_secs)
+        if self._frames:
+            msg += ", FPS=%.2e" % (self._frames / self.elapsed_secs)
+        print(msg)
+
+
+class JitProfiler:
+    """Wall-clock profiler for JAX JIT-compiled code.
+
+    On CPU:
+        • Uses host callbacks for fine-grained section timing.
+
+    On GPU:
+        • Automatically switches to *first-call-only* timing.
+        • Measures compilation + first execution latency.
+        • Fine-grained per-call timings are intentionally disabled
+          to avoid misleading synchronization artifacts.
+
+    This profiler records host-side timestamps using `jax.debug.callback`,
+    allowing coarse wall-clock profiling of sections inside JIT-compiled code.
+    Profiling is designed to be gated by a *static* Python boolean (e.g.
+    `params.profile`) so that all profiling logic is resolved at trace time and
+    introduces zero runtime overhead when disabled.
+
+    Features
+    --------
+    • Manual markers via `mark()`, `start()`, and `end()`
+    • Function-level profiling via `call()`
+    • Automatic `jax.named_scope` integration for clearer JAX traces
+    • Safety checks to ensure the profiling flag is static at trace time
+    • Aggregation across repeated calls with a readable summary table
+
+    Basic usage inside JIT (manual markers):
+
+        if params.profile:
+            jit_profiler.mark("process_action:start")
+        with jax.named_scope("process_action"):
+            ...
+        if params.profile:
+            jit_profiler.mark("process_action:end")
+
+    Function-wrapping usage inside JIT (recommended):
+
+        action_mask = jit_profiler.call(
+            params.profile,
+            mask_slots,
+            state,
+            params,
+            name="mask_actions",  # optional, defaults to fn.__name__
+        )
+
+    Block-style usage inside JIT:
+
+        jit_profiler.start(params.profile, "action_logic")
+        ...
+        jit_profiler.end(params.profile, "action_logic")
+
+    Notes
+    -----
+    • The `enabled` flag *must* be a Python `bool` known at trace time
+        (e.g. `params.profile` with `pytree_node=False`).
+    • Passing a traced or JAX boolean will raise a `TypeError`.
+    • All timing is wall-clock time measured on the host, not device time.
+
+    After execution (outside JIT):
+
+        jit_profiler.summary()
+    """
+
+    def __init__(self):
+        self._timestamps: list[tuple[str, float]] = []
+        self._backend = jax.default_backend()
+        self._is_gpu = self._backend == "gpu"
+        self._warned_gpu = False
+        self._seen_first_call: set[str] = set()
+
+        if self._is_gpu and not self._warned_gpu:
+            print(
+                "JitProfiler warning:\n"
+                "  GPU backend detected. Fine-grained host-side timings inside JIT\n"
+                "  are unreliable due to asynchronous execution.\n"
+                "  `call()` will record ONLY first-call (compile + first execution)\n"
+                "  latency per section.\n"
+                "  Use jax.profiler / TensorBoard / Nsight for steady-state GPU timing."
+            )
+            self._warned_gpu = True
+
+    def _record(self, label):
+        self._timestamps.append((str(label), time.time()))
+
+    @staticmethod
+    def _assert_static_bool(x, name="enabled"):
+        if not isinstance(x, bool):
+            raise TypeError(
+                f"JitProfiler.call(): `{name}` must be a Python bool "
+                "(static at trace time), e.g. params.profile"
+            )
+
+    def mark(self, label: str):
+        """Insert a timing marker. Safe to call inside JIT."""
+        jax.debug.callback(self._record, label)
+
+    def reset(self):
+        """Clear all recorded timestamps and first-call tracking."""
+        self._timestamps.clear()
+        self._seen_first_call.clear()
+
+    def start(self, enabled: bool, name: str):
+        """Insert a start marker for a block."""
+        self._assert_static_bool(enabled)
+        if enabled:
+            self.mark(f"{name}:start")
+
+    def end(self, enabled: bool, name: str):
+        """Insert an end marker for a block."""
+        self._assert_static_bool(enabled)
+        if enabled:
+            self.mark(f"{name}:end")
+
+    # -----------------------
+    # GPU-only first-call path
+    # -----------------------
+
+    def _call_first_only(self, enabled: bool, fn, *args, name=None, **kwargs):
+        """Record compile + first execution latency (GPU only)."""
+        self._assert_static_bool(enabled)
+
+        section = name or fn.__name__
+
+        if section in self._seen_first_call or not enabled:
+            return fn(*args, **kwargs)
+
+        self._seen_first_call.add(section)
+
+        start_time = time.time()
+        out = fn(*args, **kwargs)
+        out = jax.block_until_ready(out)
+        elapsed = time.time() - start_time
+
+        # Append synthetic start/end entries so summary sees them
+        self._timestamps.append((f"{section}:start", start_time))
+        self._timestamps.append((f"{section}:end", start_time + elapsed))
+
+        # Also keep a :first entry for clarity
+        self._timestamps.append((f"{section}:first", elapsed))
+
+        return out
+
+    # -----------------------
+    # Public API
+    # -----------------------
+
+    def call(self, enabled: bool, fn, *args, name: str | None = None, **kwargs):
+        """Profile a function call inside JIT-compiled code.
+
+        CPU:
+            Fine-grained section timing via callbacks.
+
+        GPU:
+            Records only first-call (compile + first execution) latency.
+        """
+        self._assert_static_bool(enabled)
+
+        if self._is_gpu:
+            return self._call_first_only(enabled, fn, *args, name=name, **kwargs)
+
+        # CPU path
+        section = name or fn.__name__
+        if enabled:
+            self.mark(f"{section}:start")
+        with jax.named_scope(section):
+            out = fn(*args, **kwargs)
+        if enabled:
+            self.mark(f"{section}:end")
+        return out
+
+    # -----------------------
+    # Summary
+    # -----------------------
+
+    def summary(self):
+        """Print timing breakdown from collected start/end marker pairs.
+
+        Expects markers in the format "name:start" and "name:end".
+        Aggregates across repeated calls (e.g. many step_env invocations).
+
+        Also reports GPU `:first` entries if present.
+        """
+        if len(self._timestamps) < 2:
+            print("JitProfiler: not enough markers recorded.")
+            return
+
+        totals: dict[str, float] = defaultdict(float)
+        counts: dict[str, int] = defaultdict(int)
+        order: list[str] = []
+        pending: dict[str, float] = {}
+
+        # Aggregate :start / :end
+        for label, ts in self._timestamps:
+            if label.endswith(":start"):
+                name = label[: -len(":start")]
+                pending[name] = ts
+            elif label.endswith(":end"):
+                name = label[: -len(":end")]
+                if name in pending:
+                    elapsed = ts - pending.pop(name)
+                    totals[name] += elapsed
+                    counts[name] += 1
+                    if name not in order:
+                        order.append(name)
+
+        # Include any :first entries for GPU
+        for label, val in self._timestamps:
+            if label.endswith(":first"):
+                name = label[: -len(":first")]
+                totals[name] += val
+                counts[name] += 1
+                if name not in order:
+                    order.append(name)
+
+        if not totals:
+            print("JitProfiler: no matched start/end pairs found.")
+            return
+
+        total_wall = sum(totals.values())
+        header = f"{'Section':<30} {'Calls':>8} {'Total (s)':>10} {'Mean (us)':>10} {'%':>6}"
+        print("\n" + "=" * len(header))
+        print("JIT PROFILER SUMMARY")
+        if self._backend.upper() == "GPU":
+            print("  (GPU backend --> profile only indicates first-call latencies)")
+        print("=" * len(header))
+        print(header)
+        print("-" * len(header))
+        for name in order:
+            n = counts[name]
+            total_t = totals[name]
+            mean_us = 1e6 * total_t / n
+            pct = 100.0 * total_t / total_wall if total_wall > 0 else 0.0
+            print(f"{name:<30} {n:>8} {total_t:>10.4f} {mean_us:>10.1f} {pct:>5.1f}%")
+        print("-" * len(header))
+        print(f"{'TOTAL':<30} {'':>8} {total_wall:>10.4f}")
+        print("=" * len(header) + "\n")
+
+
+# Module-level singleton so rsa.py and train.py can share the same instance
+jit_profiler = JitProfiler()
+
+tree_util.register_pytree_node(LogWrapper, LogWrapper._tree_flatten, LogWrapper._tree_unflatten)

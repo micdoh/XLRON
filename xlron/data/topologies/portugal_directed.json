@@ -1,0 +1,525 @@
+{
+    "directed": true,
+    "multigraph": false,
+    "graph": {},
+    "nodes": [
+        {
+            "id": 1,
+            "name": "Ponta Delgada",
+            "latitude": 37.74757445,
+            "longitude": -25.6726782661463
+        },
+        {
+            "id": 2,
+            "name": "Funchal",
+            "latitude": 32.6496497,
+            "longitude": -16.9086783
+        },
+        {
+            "id": 3,
+            "name": "Faro",
+            "latitude": 37.0162727,
+            "longitude": -7.9351771
+        },
+        {
+            "id": 4,
+            "name": "Portimao",
+            "latitude": 37.1375808,
+            "longitude": -8.5368426
+        },
+        {
+            "id": 5,
+            "name": "Sines",
+            "latitude": 37.956549,
+            "longitude": -8.8689639
+        },
+        {
+            "id": 6,
+            "name": "Beja",
+            "latitude": 38.0154479,
+            "longitude": -7.8650368
+        },
+        {
+            "id": 7,
+            "name": "Evora",
+            "latitude": 38.5707742,
+            "longitude": -7.9092808
+        },
+        {
+            "id": 8,
+            "name": "Alcacer do Sal",
+            "latitude": 38.36584625,
+            "longitude": -8.53125903367014
+        },
+        {
+            "id": 9,
+            "name": "Setubal",
+            "latitude": 38.5241783,
+            "longitude": -8.8932341
+        },
+        {
+            "id": 10,
+            "name": "Elvas",
+            "latitude": 38.8806123,
+            "longitude": -7.1637237
+        },
+        {
+            "id": 11,
+            "name": "Lisboa",
+            "latitude": 38.7077507,
+            "longitude": -9.1365919
+        },
+        {
+            "id": 12,
+            "name": "Santarem",
+            "latitude": 39.2363637,
+            "longitude": -8.6867081
+        },
+        {
+            "id": 13,
+            "name": "Caldas da Rainha",
+            "latitude": 39.4071857,
+            "longitude": -9.1346004
+        },
+        {
+            "id": 14,
+            "name": "Leiria",
+            "latitude": 39.7437902,
+            "longitude": -8.8071119
+        },
+        {
+            "id": 15,
+            "name": "Portalegre",
+            "latitude": 39.2076447,
+            "longitude": -7.72151335401534
+        },
+        {
+            "id": 16,
+            "name": "Castelo Branco",
+            "latitude": 39.97675825,
+            "longitude": -7.4460599299667
+        },
+        {
+            "id": 17,
+            "name": "Coimbra",
+            "latitude": 40.2111931,
+            "longitude": -8.4294632
+        },
+        {
+            "id": 18,
+            "name": "Guarda",
+            "latitude": 40.7046066,
+            "longitude": -7.1951392360713
+        },
+        {
+            "id": 19,
+            "name": "Viseu",
+            "latitude": 40.6574713,
+            "longitude": -7.9138664
+        },
+        {
+            "id": 20,
+            "name": "Aveiro",
+            "latitude": 40.640496,
+            "longitude": -8.6537841
+        },
+        {
+            "id": 21,
+            "name": "Porto",
+            "latitude": 41.1494512,
+            "longitude": -8.6107884
+        },
+        {
+            "id": 22,
+            "name": "Sao Joao da Madeira",
+            "latitude": 40.9020813,
+            "longitude": -8.4896358
+        },
+        {
+            "id": 23,
+            "name": "Vila Real",
+            "latitude": 41.5229299,
+            "longitude": -7.54663124811733
+        },
+        {
+            "id": 24,
+            "name": "Braga",
+            "latitude": 41.5510583,
+            "longitude": -8.4280045
+        },
+        {
+            "id": 25,
+            "name": "Viana do Castelo",
+            "latitude": 41.8803257,
+            "longitude": -8.52325529355434
+        },
+        {
+            "id": 26,
+            "name": "Braganca",
+            "latitude": 41.5084468,
+            "longitude": -6.77330236053306
+        }
+    ],
+    "links": [
+        {
+            "distance": 1446,
+            "source": 1,
+            "target": 11
+        },
+        {
+            "distance": 977,
+            "source": 1,
+            "target": 2
+        },
+        {
+            "distance": 972,
+            "source": 2,
+            "target": 11
+        },
+        {
+            "distance": 912,
+            "source": 2,
+            "target": 4
+        },
+        {
+            "distance": 55,
+            "source": 3,
+            "target": 4
+        },
+        {
+            "distance": 111,
+            "source": 3,
+            "target": 6
+        },
+        {
+            "distance": 96,
+            "source": 4,
+            "target": 5
+        },
+        {
+            "distance": 54,
+            "source": 5,
+            "target": 8
+        },
+        {
+            "distance": 62,
+            "source": 6,
+            "target": 7
+        },
+        {
+            "distance": 73,
+            "source": 7,
+            "target": 10
+        },
+        {
+            "distance": 59,
+            "source": 7,
+            "target": 8
+        },
+        {
+            "distance": 36,
+            "source": 8,
+            "target": 9
+        },
+        {
+            "distance": 29,
+            "source": 9,
+            "target": 11
+        },
+        {
+            "distance": 60,
+            "source": 10,
+            "target": 15
+        },
+        {
+            "distance": 70,
+            "source": 11,
+            "target": 12
+        },
+        {
+            "distance": 78,
+            "source": 11,
+            "target": 13
+        },
+        {
+            "distance": 83,
+            "source": 12,
+            "target": 15
+        },
+        {
+            "distance": 111,
+            "source": 12,
+            "target": 17
+        },
+        {
+            "distance": 57,
+            "source": 12,
+            "target": 14
+        },
+        {
+            "distance": 47,
+            "source": 13,
+            "target": 14
+        },
+        {
+            "distance": 101,
+            "source": 14,
+            "target": 20
+        },
+        {
+            "distance": 89,
+            "source": 15,
+            "target": 16
+        },
+        {
+            "distance": 84,
+            "source": 16,
+            "target": 18
+        },
+        {
+            "distance": 66,
+            "source": 17,
+            "target": 19
+        },
+        {
+            "distance": 77,
+            "source": 17,
+            "target": 22
+        },
+        {
+            "distance": 51,
+            "source": 17,
+            "target": 20
+        },
+        {
+            "distance": 61,
+            "source": 18,
+            "target": 19
+        },
+        {
+            "distance": 101,
+            "source": 19,
+            "target": 23
+        },
+        {
+            "distance": 57,
+            "source": 20,
+            "target": 21
+        },
+        {
+            "distance": 29,
+            "source": 21,
+            "target": 22
+        },
+        {
+            "distance": 47,
+            "source": 21,
+            "target": 24
+        },
+        {
+            "distance": 82,
+            "source": 21,
+            "target": 25
+        },
+        {
+            "distance": 72,
+            "source": 22,
+            "target": 24
+        },
+        {
+            "distance": 64,
+            "source": 23,
+            "target": 26
+        },
+        {
+            "distance": 138,
+            "source": 24,
+            "target": 26
+        },
+        {
+            "distance": 37,
+            "source": 24,
+            "target": 25
+        },
+        {
+            "distance": 1446,
+            "source": 11,
+            "target": 1
+        },
+        {
+            "distance": 977,
+            "source": 2,
+            "target": 1
+        },
+        {
+            "distance": 972,
+            "source": 11,
+            "target": 2
+        },
+        {
+            "distance": 912,
+            "source": 4,
+            "target": 2
+        },
+        {
+            "distance": 55,
+            "source": 4,
+            "target": 3
+        },
+        {
+            "distance": 111,
+            "source": 6,
+            "target": 3
+        },
+        {
+            "distance": 96,
+            "source": 5,
+            "target": 4
+        },
+        {
+            "distance": 54,
+            "source": 8,
+            "target": 5
+        },
+        {
+            "distance": 62,
+            "source": 7,
+            "target": 6
+        },
+        {
+            "distance": 73,
+            "source": 10,
+            "target": 7
+        },
+        {
+            "distance": 59,
+            "source": 8,
+            "target": 7
+        },
+        {
+            "distance": 36,
+            "source": 9,
+            "target": 8
+        },
+        {
+            "distance": 29,
+            "source": 11,
+            "target": 9
+        },
+        {
+            "distance": 60,
+            "source": 15,
+            "target": 10
+        },
+        {
+            "distance": 70,
+            "source": 12,
+            "target": 11
+        },
+        {
+            "distance": 78,
+            "source": 13,
+            "target": 11
+        },
+        {
+            "distance": 83,
+            "source": 15,
+            "target": 12
+        },
+        {
+            "distance": 111,
+            "source": 17,
+            "target": 12
+        },
+        {
+            "distance": 57,
+            "source": 14,
+            "target": 12
+        },
+        {
+            "distance": 47,
+            "source": 14,
+            "target": 13
+        },
+        {
+            "distance": 101,
+            "source": 20,
+            "target": 14
+        },
+        {
+            "distance": 89,
+            "source": 16,
+            "target": 15
+        },
+        {
+            "distance": 84,
+            "source": 18,
+            "target": 16
+        },
+        {
+            "distance": 66,
+            "source": 19,
+            "target": 17
+        },
+        {
+            "distance": 77,
+            "source": 22,
+            "target": 17
+        },
+        {
+            "distance": 51,
+            "source": 20,
+            "target": 17
+        },
+        {
+            "distance": 61,
+            "source": 19,
+            "target": 18
+        },
+        {
+            "distance": 101,
+            "source": 23,
+            "target": 19
+        },
+        {
+            "distance": 57,
+            "source": 21,
+            "target": 20
+        },
+        {
+            "distance": 29,
+            "source": 22,
+            "target": 21
+        },
+        {
+            "distance": 47,
+            "source": 24,
+            "target": 21
+        },
+        {
+            "distance": 82,
+            "source": 25,
+            "target": 21
+        },
+        {
+            "distance": 72,
+            "source": 24,
+            "target": 22
+        },
+        {
+            "distance": 64,
+            "source": 26,
+            "target": 23
+        },
+        {
+            "distance": 138,
+            "source": 26,
+            "target": 24
+        },
+        {
+            "distance": 37,
+            "source": 25,
+            "target": 24
+        }
+    ]
+}

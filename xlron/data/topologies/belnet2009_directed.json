@@ -1,0 +1,323 @@
+{
+    "directed": true,
+    "multigraph": false,
+    "graph": {},
+    "nodes": [
+        {
+            "id": 1,
+            "name": "Brussels",
+            "latitude": 50.85,
+            "longitude": 4.35
+        },
+        {
+            "id": 2,
+            "name": "Arlon",
+            "latitude": 49.68,
+            "longitude": 5.82
+        },
+        {
+            "id": 3,
+            "name": "Liege",
+            "latitude": 50.64,
+            "longitude": 5.57
+        },
+        {
+            "id": 4,
+            "name": "Vilvoorde",
+            "latitude": 50.92,
+            "longitude": 4.41
+        },
+        {
+            "id": 5,
+            "name": "Leuven",
+            "latitude": 50.88,
+            "longitude": 4.7
+        },
+        {
+            "id": 6,
+            "name": "Diegem",
+            "latitude": 50.87,
+            "longitude": 4.4
+        },
+        {
+            "id": 7,
+            "name": "Leuven",
+            "latitude": 50.88,
+            "longitude": 4.7
+        },
+        {
+            "id": 8,
+            "name": "Hasselt",
+            "latitude": 50.93,
+            "longitude": 5.33
+        },
+        {
+            "id": 9,
+            "name": "Geel",
+            "latitude": 51.17,
+            "longitude": 5.0
+        },
+        {
+            "id": 10,
+            "name": "Louvain-la-Neuve",
+            "latitude": 50.67,
+            "longitude": 4.61
+        },
+        {
+            "id": 11,
+            "name": "Namur",
+            "latitude": 50.47,
+            "longitude": 4.83
+        },
+        {
+            "id": 12,
+            "name": "Brugge",
+            "latitude": 51.21,
+            "longitude": 3.22
+        },
+        {
+            "id": 13,
+            "name": "Gent",
+            "latitude": 51.05,
+            "longitude": 3.72
+        },
+        {
+            "id": 14,
+            "name": "Gent",
+            "latitude": 51.05,
+            "longitude": 3.72
+        },
+        {
+            "id": 15,
+            "name": "Antwerpen",
+            "latitude": 51.22,
+            "longitude": 4.42
+        },
+        {
+            "id": 16,
+            "name": "Antwerpen",
+            "latitude": 51.22,
+            "longitude": 4.42
+        },
+        {
+            "id": 17,
+            "name": "Kortrijk",
+            "latitude": 50.83,
+            "longitude": 3.26
+        },
+        {
+            "id": 18,
+            "name": "Mons",
+            "latitude": 50.45,
+            "longitude": 3.95
+        },
+        {
+            "id": 19,
+            "name": "Charleroi",
+            "latitude": 50.42,
+            "longitude": 4.43
+        }
+    ],
+    "links": [
+        {
+            "distance": 6,
+            "source": 1,
+            "target": 6
+        },
+        {
+            "distance": 162,
+            "source": 2,
+            "target": 3
+        },
+        {
+            "distance": 169,
+            "source": 2,
+            "target": 11
+        },
+        {
+            "distance": 75,
+            "source": 4,
+            "target": 9
+        },
+        {
+            "distance": 50,
+            "source": 4,
+            "target": 16
+        },
+        {
+            "distance": 8,
+            "source": 4,
+            "target": 6
+        },
+        {
+            "distance": 1,
+            "source": 5,
+            "target": 7
+        },
+        {
+            "distance": 32,
+            "source": 5,
+            "target": 6
+        },
+        {
+            "distance": 120,
+            "source": 6,
+            "target": 17
+        },
+        {
+            "distance": 85,
+            "source": 6,
+            "target": 18
+        },
+        {
+            "distance": 67,
+            "source": 7,
+            "target": 8
+        },
+        {
+            "distance": 53,
+            "source": 8,
+            "target": 9
+        },
+        {
+            "distance": 41,
+            "source": 10,
+            "target": 11
+        },
+        {
+            "distance": 46,
+            "source": 10,
+            "target": 19
+        },
+        {
+            "distance": 64,
+            "source": 12,
+            "target": 17
+        },
+        {
+            "distance": 59,
+            "source": 12,
+            "target": 13
+        },
+        {
+            "distance": 1,
+            "source": 13,
+            "target": 14
+        },
+        {
+            "distance": 79,
+            "source": 14,
+            "target": 15
+        },
+        {
+            "distance": 1,
+            "source": 15,
+            "target": 16
+        },
+        {
+            "distance": 51,
+            "source": 18,
+            "target": 19
+        },
+        {
+            "distance": 6,
+            "source": 6,
+            "target": 1
+        },
+        {
+            "distance": 162,
+            "source": 3,
+            "target": 2
+        },
+        {
+            "distance": 169,
+            "source": 11,
+            "target": 2
+        },
+        {
+            "distance": 75,
+            "source": 9,
+            "target": 4
+        },
+        {
+            "distance": 50,
+            "source": 16,
+            "target": 4
+        },
+        {
+            "distance": 8,
+            "source": 6,
+            "target": 4
+        },
+        {
+            "distance": 1,
+            "source": 7,
+            "target": 5
+        },
+        {
+            "distance": 32,
+            "source": 6,
+            "target": 5
+        },
+        {
+            "distance": 120,
+            "source": 17,
+            "target": 6
+        },
+        {
+            "distance": 85,
+            "source": 18,
+            "target": 6
+        },
+        {
+            "distance": 67,
+            "source": 8,
+            "target": 7
+        },
+        {
+            "distance": 53,
+            "source": 9,
+            "target": 8
+        },
+        {
+            "distance": 41,
+            "source": 11,
+            "target": 10
+        },
+        {
+            "distance": 46,
+            "source": 19,
+            "target": 10
+        },
+        {
+            "distance": 64,
+            "source": 17,
+            "target": 12
+        },
+        {
+            "distance": 59,
+            "source": 13,
+            "target": 12
+        },
+        {
+            "distance": 1,
+            "source": 14,
+            "target": 13
+        },
+        {
+            "distance": 79,
+            "source": 15,
+            "target": 14
+        },
+        {
+            "distance": 1,
+            "source": 16,
+            "target": 15
+        },
+        {
+            "distance": 51,
+            "source": 19,
+            "target": 18
+        }
+    ]
+}

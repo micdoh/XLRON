@@ -1,11 +1,26 @@
-__DYNAMIC__ = True
-if __DYNAMIC__:
-    from mkinit import dynamic_mkinit
-    exec(dynamic_mkinit.dynamic_init(__name__))
-else:
-    # <AUTOGEN_INIT>
-    from mkinit import dynamic_mkinit
-    from mkinit import static_mkinit
-    from mkinit.dynamic_mkinit import (dynamic_init,)
-    from mkinit.static_mkinit import (autogen_init,)
-    # </AUTOGEN_INIT>
+"""XLRON: Reinforcement learning for optical network optimization.
+
+A library for training and evaluating RL agents on optical network routing
+and spectrum allocation problems.
+"""
+
+__version__ = "0.1.0"
+
+_SUBMODULES = {"environments", "heuristics", "bounds", "models", "train"}
+
+
+def __getattr__(name):
+    if name in _SUBMODULES:
+        import importlib
+
+        return importlib.import_module(f"xlron.{name}")
+    raise AttributeError(f"module 'xlron' has no attribute {name}")
+
+
+__all__ = [
+    "environments",
+    "heuristics",
+    "bounds",
+    "models",
+    "train",
+]

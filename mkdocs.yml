@@ -1,14 +1,14 @@
 site_name: "XLRON - Accelerated Learning and Resource Allocation for Optical Networks"
 site_url: https://micdoh.github.io/XLRON/
 theme:
-    name: material
-    logo: images/xlron_nobackground.png
-    palette:
-      accent: green
-      primary: yellow
-    features:
-      - content.tabs.link
-      - search.suggest
+  name: material
+  logo: images/xlron_nobackground.png
+  palette:
+    accent: red
+    primary: red
+  features:
+    - content.tabs.link
+    - search.suggest
 markdown_extensions:
   - admonition
   - pymdownx.details
@@ -28,20 +28,25 @@ plugins:
       default_handler: python
       handlers:
         python:
-          paths: [xlron]
-          setup_commands:
-            - import sys
+          paths: []
           options:
             show_source: true
             show_root_heading: false
 nav:
-    - Home: 'index.md'
-    - 'Getting Started':
-        - 'Installation': 'installation.md'
-        - 'Quick Start': 'quickstart.md'
-    - 'User Guide':
-      - 'Understanding XLRON': 'understanding_xlron.md'
-      - Reference: 'reference.md'
-    - About:
-        - 'License and Support': 'license.md'
-        - 'Change Log': 'changelog.md'
+  - Home: "index.md"
+  - Getting Started:
+      - Installation: "installation.md"
+      - Quick Start: "quickstart.md"
+  - "User Guide":
+      - Understanding XLRON: "understanding_xlron.md"
+      - GN Model Physical Layer: "gn_model.md"
+      - Training with PPO: "training.md"
+      - Heuristic Evaluation: "heuristic_evaluation.md"
+      - Capacity Bound Estimation: "capacity_bounds.md"
+      - Command-line options: "flags_reference.md"
+      - Function reference: "reference.md"
+  - About:
+      - "License and Support": "license.md"
+      - "Change Log": "changelog.md"
+not_in_nav: |
+  /example_sweep_config.yml

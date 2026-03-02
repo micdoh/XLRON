@@ -1,0 +1,141 @@
+{
+    "directed": false,
+    "multigraph": false,
+    "graph": {},
+    "nodes": [
+        {
+            "id": 1,
+            "name": "Kerewan",
+            "latitude": 13.49,
+            "longitude": -16.09
+        },
+        {
+            "id": 2,
+            "name": "Banjul",
+            "latitude": 13.45,
+            "longitude": -16.58
+        },
+        {
+            "id": 3,
+            "name": "Basse Santa Su",
+            "latitude": 13.32,
+            "longitude": -14.22
+        },
+        {
+            "id": 4,
+            "name": "Bansang",
+            "latitude": 13.43,
+            "longitude": -14.65
+        },
+        {
+            "id": 5,
+            "name": "Abuko",
+            "latitude": 13.4,
+            "longitude": -16.66
+        },
+        {
+            "id": 6,
+            "name": "Bakau",
+            "latitude": 13.44,
+            "longitude": -16.68
+        },
+        {
+            "id": 7,
+            "name": "Bakau",
+            "latitude": 13.46,
+            "longitude": -16.71
+        },
+        {
+            "id": 8,
+            "name": "Bakau",
+            "latitude": 13.48,
+            "longitude": -16.68
+        },
+        {
+            "id": 9,
+            "name": "Brikama",
+            "latitude": 13.27,
+            "longitude": -16.65
+        },
+        {
+            "id": 10,
+            "name": "Sukuta",
+            "latitude": 13.36,
+            "longitude": -16.69
+        },
+        {
+            "id": 11,
+            "name": "Soma",
+            "latitude": 13.43,
+            "longitude": -15.53
+        },
+        {
+            "id": 12,
+            "name": "Farafenni",
+            "latitude": 13.57,
+            "longitude": -15.6
+        }
+    ],
+    "links": [
+        {
+            "distance": 80,
+            "source": 1,
+            "target": 2
+        },
+        {
+            "distance": 81,
+            "source": 1,
+            "target": 12
+        },
+        {
+            "distance": 16,
+            "source": 2,
+            "target": 6
+        },
+        {
+            "distance": 213,
+            "source": 3,
+            "target": 11
+        },
+        {
+            "distance": 72,
+            "source": 3,
+            "target": 4
+        },
+        {
+            "distance": 7,
+            "source": 5,
+            "target": 6
+        },
+        {
+            "distance": 6,
+            "source": 6,
+            "target": 7
+        },
+        {
+            "distance": 7,
+            "source": 6,
+            "target": 8
+        },
+        {
+            "distance": 29,
+            "source": 6,
+            "target": 9
+        },
+        {
+            "distance": 13,
+            "source": 6,
+            "target": 10
+        },
+        {
+            "distance": 189,
+            "source": 10,
+            "target": 11
+        },
+        {
+            "distance": 26,
+            "source": 11,
+            "target": 12
+        }
+    ]
+}

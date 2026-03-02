@@ -1,6 +1,52 @@
+from typing import Callable, Dict, Generic, Sequence, Tuple, TypeVar
+
 import chex
 import jraph
 from flax import struct
+from jax import Array
+
+Shape = Sequence[int]
+T = TypeVar("T")  # Declare type variable
+
+
+class HashableArrayWrapper(Generic[T]):
+    """Wrapper for making arrays hashable.
+    In order to access pre-computed data, such as shortest paths between node-pairs or the constituent links of a path,
+    within a jitted function, we need to make the arrays containing this data hashable. By defining this wrapper, we can
+    define a __hash__ method that returns a hash of the array's bytes, thus making the array hashable.
+    From: https://github.com/google/jax/issues/4572#issuecomment-709677518
+    """
+
+    def __init__(self, val: Array):
+        self.val = val
+
+    def __getattribute__(self, prop):
+        if prop == "val" or prop == "__hash__" or prop == "__eq__":
+            return super(HashableArrayWrapper, self).__getattribute__(prop)
+        return getattr(self.val, prop)
+
+    def __getitem__(self, key):
+        return self.val[key]
+
+    def __setitem__(self, key, val):
+        self.val[key] = val
+
+    def __hash__(self):
+        return hash(self.val.tobytes())
+
+    def __eq__(self, other):
+        if isinstance(other, HashableArrayWrapper):
+            return self.__hash__() == other.__hash__()
+
+        f = getattr(self.val, "__eq__")
+        return f(self, other)
+
+
+@struct.dataclass
+class EvalState:
+    apply_fn: Callable
+    sample_fn: Callable
+    params: chex.Array
 
 
 @struct.dataclass
@@ -16,15 +62,29 @@ class EnvState:
         full_link_slot_mask (chex.Array): Action mask for link slot action (including if slot actions are aggregated)
         accepted_services (chex.Array): Number of accepted services
         accepted_bitrate (chex.Array): Accepted bitrate
-        """
-    current_time: chex.Scalar
-    holding_time: chex.Scalar
-    total_timesteps: chex.Scalar
-    total_requests: chex.Scalar
+        arrival_rate (chex.Scalar): Arrival rate (load / mean_service_holding_time), traced for recompilation-free load sweeps
+        mean_service_holding_time (chex.Scalar): Mean service holding time, traced for recompilation-free load sweeps
+    """
+
+    current_time: chex.Array
+    holding_time: chex.Array
+    arrival_time: chex.Array
+    total_timesteps: chex.Array
+    total_requests: chex.Array
     graph: jraph.GraphsTuple
     full_link_slot_mask: chex.Array
     accepted_services: chex.Array
     accepted_bitrate: chex.Array
+    total_bitrate: chex.Array
+    list_of_requests: chex.Array
+    link_slot_array: chex.Array
+    request_array: chex.Array
+    link_slot_departure_array: chex.Array
+    link_slot_mask: chex.Array
+    traffic_matrix: chex.Array
+    valid_mass: chex.Array
+    arrival_rate: chex.Array
+    mean_service_holding_time: chex.Array
 
 
 @struct.dataclass
@@ -33,7 +93,6 @@ class EnvParams:
 
     Args:
         max_requests (chex.Scalar): Maximum number of requests in an episode
-        max_timesteps (chex.Scalar): Maximum number of timesteps in an episode (which may not equal max_requests for VONE)
         incremental_loading (chex.Scalar): Incremental increase in traffic load (non-expiring requests)
         end_first_blocking (chex.Scalar): End episode on first blocking event
         continuous_operation (chex.Scalar): If True, do not reset the environment at the end of an episode
@@ -44,19 +103,50 @@ class EnvParams:
         aggregate_slots (chex.Scalar): Number of slots to aggregate into a single action (First-Fit with aggregation)
         guardband (chex.Scalar): Guard band in slots
         directed_graph (bool): Whether graph is directed (one fibre per link per transmission direction)
+        temperature (chex.Scalar): Temp. used for softmax differentiable approximation
+        window_size (chex.Scalar): Window size for weighted average of neighbouring cells in differentiable indexing
     """
-    max_requests: chex.Scalar = struct.field(pytree_node=False)
-    max_timesteps: chex.Scalar = struct.field(pytree_node=False)
-    incremental_loading: chex.Scalar = struct.field(pytree_node=False)
-    end_first_blocking: chex.Scalar = struct.field(pytree_node=False)
-    continuous_operation: chex.Scalar = struct.field(pytree_node=False)
-    edges: chex.Array = struct.field(pytree_node=False)
-    slot_size: chex.Scalar = struct.field(pytree_node=False)
-    consider_modulation_format: chex.Scalar = struct.field(pytree_node=False)
-    link_length_array: chex.Array = struct.field(pytree_node=False)
-    aggregate_slots: chex.Scalar = struct.field(pytree_node=False)
-    guardband: chex.Scalar = struct.field(pytree_node=False)
+
+    num_nodes: int = struct.field(pytree_node=False)
+    num_links: int = struct.field(pytree_node=False)
+    max_requests: int = struct.field(pytree_node=False)
+    incremental_loading: bool = struct.field(pytree_node=False)
+    end_first_blocking: bool = struct.field(pytree_node=False)
+    terminate_on_episode_end: bool = struct.field(pytree_node=False)
+    continuous_operation: bool = struct.field(pytree_node=False)
+    edges: HashableArrayWrapper = struct.field(pytree_node=False)
+    slot_size: int = struct.field(pytree_node=False)
+    consider_modulation_format: bool = struct.field(pytree_node=False)
+    link_length_array: HashableArrayWrapper = struct.field(pytree_node=False)
+    aggregate_slots: int = struct.field(pytree_node=False)
+    guardband: int = struct.field(pytree_node=False)
     directed_graph: bool = struct.field(pytree_node=False)
+    maximise_throughput: bool = struct.field(pytree_node=False)
+    reward_type: str = struct.field(pytree_node=False)
+    values_bw: HashableArrayWrapper = struct.field(pytree_node=False)
+    truncate_holding_time: bool = struct.field(pytree_node=False)
+    traffic_array: bool = struct.field(pytree_node=False)
+    pack_path_bits: bool = struct.field(pytree_node=False)
+    relative_arrival_times: bool = struct.field(pytree_node=False)
+    temperature: float = struct.field(pytree_node=False)
+    differentiable: bool = struct.field(pytree_node=False)
+    num_spectral_features: int = struct.field(pytree_node=False)
+    line_graph_spectral_features: HashableArrayWrapper | None = struct.field(pytree_node=False)
+    path_link_array: HashableArrayWrapper = struct.field(pytree_node=False)
+    path_se_array: HashableArrayWrapper = struct.field(pytree_node=False)
+    unique_se_values: HashableArrayWrapper = struct.field(pytree_node=False)
+    k_paths: int = struct.field(pytree_node=False)
+    link_resources: int = struct.field(pytree_node=False)
+    k_paths: int = struct.field(pytree_node=False)
+    mean_service_holding_time: float = struct.field(pytree_node=False)
+    load: float = struct.field(pytree_node=False)
+    arrival_rate: float = struct.field(pytree_node=False)
+    random_traffic: bool = struct.field(pytree_node=False)
+    include_no_op: bool = struct.field(pytree_node=False)  # Include a "no op" action
+    transformer_obs_type: str = struct.field(pytree_node=False)
+    use_gnn: bool = struct.field(pytree_node=False)
+    profile: bool = struct.field(pytree_node=False)
+    render: bool = struct.field(pytree_node=False)
 
 
 @struct.dataclass
@@ -68,21 +158,24 @@ class LogEnvState:
         lengths (chex.Scalar): Lengths
         returns (chex.Scalar): Returns
         cum_returns (chex.Scalar): Cumulative returns
-        episode_lengths (chex.Scalar): Episode lengths
-        episode_returns (chex.Scalar): Episode returns
         accepted_services (chex.Scalar): Accepted services
         accepted_bitrate (chex.Scalar): Accepted bitrate
-        done (chex.Scalar): Done
+        total_bitrate (chex.Scalar): Total bitrate requested
+        utilisation (chex.Scalar): Network utilisation
+        terminal (chex.Scalar): Terminal flag (true termination condition met)
+        truncated (chex.Scalar): Truncated flag (max steps reached)
     """
+
     env_state: EnvState
-    lengths: float
-    returns: float
-    cum_returns: float
-    episode_lengths: int
-    episode_returns: float
-    accepted_services: int
-    accepted_bitrate: float
-    done: bool
+    lengths: chex.Array
+    returns: chex.Array
+    cum_returns: chex.Array
+    accepted_services: chex.Array
+    accepted_bitrate: chex.Array
+    total_bitrate: chex.Array
+    utilisation: chex.Array
+    terminal: chex.Array
+    truncated: chex.Array
 
 
 @struct.dataclass
@@ -95,14 +188,9 @@ class RSAEnvState(EnvState):
         link_slot_departure_array (chex.Array): Link slot departure array
         link_slot_mask (chex.Array): Link slot mask
         traffic_matrix (chex.Array): Traffic matrix
-        values_bw (chex.Array): Values for bandwidth
     """
-    link_slot_array: chex.Array
-    request_array: chex.Array
-    link_slot_departure_array: chex.Array
-    link_slot_mask: chex.Array
-    traffic_matrix: chex.Array
-    values_bw: chex.Array
+
+    pass
 
 
 @struct.dataclass
@@ -122,23 +210,14 @@ class RSAEnvParams(EnvParams):
         max_slots (chex.Scalar): Maximum number of slots
         path_se_array (chex.Array): Path spectral efficiency array
         deterministic_requests (bool): If True, use deterministic requests
-        list_of_requests (chex.Array): List of requests
         multiple_topologies (bool): If True, use multiple topologies
     """
-    num_nodes: chex.Scalar = struct.field(pytree_node=False)
-    num_links: chex.Scalar = struct.field(pytree_node=False)
-    link_resources: chex.Scalar = struct.field(pytree_node=False)
-    k_paths: chex.Scalar = struct.field(pytree_node=False)
-    mean_service_holding_time: chex.Scalar = struct.field(pytree_node=False)
-    load: chex.Scalar = struct.field(pytree_node=False)
-    arrival_rate: chex.Scalar = struct.field(pytree_node=False)
-    path_link_array: chex.Array = struct.field(pytree_node=False)
-    random_traffic: bool = struct.field(pytree_node=False)
+
     max_slots: chex.Scalar = struct.field(pytree_node=False)
-    path_se_array: chex.Array = struct.field(pytree_node=False)
     deterministic_requests: bool = struct.field(pytree_node=False)
-    list_of_requests: chex.Array = struct.field(pytree_node=False)
     multiple_topologies: bool = struct.field(pytree_node=False)
+    log_actions: bool = struct.field(pytree_node=False)
+    disable_node_features: bool = struct.field(pytree_node=False)
 
 
 @struct.dataclass
@@ -152,6 +231,7 @@ class DeepRMSAEnvState(RSAEnvState):
         3. Size of 1st free spectrum block
         4. Avg. free block size
     """
+
     path_stats: chex.Array
 
 
@@ -169,9 +249,11 @@ class RWALightpathReuseEnvState(RSAEnvState):
         path_capacity_array (chex.Array): Contains remaining capacity of each lightpath
         link_capacity_array (chex.Array): Contains remaining capacity of lightpath on each link-slot
     """
+
     path_index_array: chex.Array  # Contains indices of lightpaths in use on slots
     path_capacity_array: chex.Array  # Contains remaining capacity of each lightpath
     link_capacity_array: chex.Array  # Contains remaining capacity of lightpath on each link-slot
+    time_since_last_departure: chex.Array  # Time since last departure
 
 
 @struct.dataclass
@@ -180,72 +262,272 @@ class RWALightpathReuseEnvParams(RSAEnvParams):
 
 
 @struct.dataclass
-class VONEEnvState(EnvState):
-    """Dataclass to hold environment state for VONE.
+class MultiBandRSAEnvState(RSAEnvState):
+    """Dataclass to hold environment state for MultiBandRSA (RBSA)."""
 
-    Args:
-        link_slot_array (chex.Array): Link slot array
-        node_capacity_array (chex.Array): Node capacity array
-        node_resource_array (chex.Array): Node resource array
-        node_departure_array (chex.Array): Node departure array
-        link_slot_departure_array (chex.Array): Link slot departure array
-        request_array (chex.Array): Request array
-        action_counter (chex.Array): Action counter
-        action_history (chex.Array): Action history
-        node_mask_s (chex.Array): Node mask for source node
-        link_slot_mask (chex.Array): Link slot mask
-        node_mask_d (chex.Array): Node mask for destination node
-        virtual_topology_patterns (chex.Array): Virtual topology patterns
-        values_nodes (chex.Array): Values for nodes
-        values_bw (chex.Array): Values for bandwidth
-    """
-    link_slot_array: chex.Array
-    node_capacity_array: chex.Array
-    node_resource_array: chex.Array
-    node_departure_array: chex.Array
-    link_slot_departure_array: chex.Array
-    request_array: chex.Array
-    action_counter: chex.Array
-    action_history: chex.Array
-    node_mask_s: chex.Array
-    link_slot_mask: chex.Array
-    node_mask_d: chex.Array
-    virtual_topology_patterns: chex.Array
-    values_nodes: chex.Array
-    values_bw: chex.Array
+    pass
 
 
 @struct.dataclass
-class VONEEnvParams(EnvParams):
+class MultiBandRSAEnvParams(RSAEnvParams):
+    """Dataclass to hold environment parameters for MultiBandRSA (RBSA)."""
+
+    gap_start: chex.Scalar = struct.field(pytree_node=False)
+    gap_width: chex.Scalar = struct.field(pytree_node=False)
+
+
+@struct.dataclass
+class GNModelEnvParams(RSAEnvParams):
+    """Dataclass to hold environment state for GN model environments."""
+
+    ref_lambda: chex.Scalar = struct.field(pytree_node=False)
+    max_spans: chex.Scalar = struct.field(pytree_node=False)
+    max_span_length: chex.Scalar = struct.field(pytree_node=False)
+    nonlinear_coeff: chex.Scalar = struct.field(pytree_node=False)
+    raman_gain_slope: chex.Scalar = struct.field(pytree_node=False)
+    attenuation: chex.Scalar = struct.field(pytree_node=False)
+    attenuation_bar: chex.Scalar = struct.field(pytree_node=False)
+    dispersion_coeff: chex.Scalar = struct.field(pytree_node=False)
+    dispersion_slope: chex.Scalar = struct.field(pytree_node=False)
+    transceiver_snr: HashableArrayWrapper = struct.field(pytree_node=False)
+    amplifier_noise_figure: HashableArrayWrapper = struct.field(pytree_node=False)
+    coherent: bool = struct.field(pytree_node=False)
+    num_roadms: chex.Scalar = struct.field(pytree_node=False)
+    roadm_loss: chex.Scalar = struct.field(pytree_node=False)
+    span_lumped_loss_db: chex.Scalar | None = struct.field(pytree_node=False)
+    roadm_express_loss: HashableArrayWrapper = struct.field(pytree_node=False)
+    roadm_add_drop_loss: HashableArrayWrapper = struct.field(pytree_node=False)
+    roadm_noise_figure: HashableArrayWrapper = struct.field(pytree_node=False)
+    num_spans: chex.Scalar = struct.field(pytree_node=False)
+    launch_power_type: str = struct.field(pytree_node=False)
+    snr_margin: chex.Scalar = struct.field(pytree_node=False)
+    max_snr: chex.Scalar = struct.field(pytree_node=False)
+    max_power: chex.Scalar = struct.field(pytree_node=False)
+    min_power: chex.Scalar = struct.field(pytree_node=False)
+    step_power: chex.Scalar = struct.field(pytree_node=False)
+    last_fit: bool = struct.field(pytree_node=False)
+    max_power_per_fibre: chex.Scalar = struct.field(pytree_node=False)
+    default_launch_power: chex.Scalar = struct.field(pytree_node=False)
+    power_per_channel: chex.Scalar = struct.field(pytree_node=False)  # linear Watts
+    slot_launch_power_array: HashableArrayWrapper = struct.field(
+        pytree_node=False
+    )  # (link_resources,): per-slot launch power in linear Watts
+    mod_format_correction: bool = struct.field(pytree_node=False)
+    gap_starts: HashableArrayWrapper = struct.field(pytree_node=False)
+    gap_widths: HashableArrayWrapper = struct.field(pytree_node=False)
+    uniform_spans: bool = struct.field(pytree_node=False)
+    min_snr: chex.Scalar = struct.field(pytree_node=False)
+    fec_threshold: chex.Scalar = struct.field(pytree_node=False)
+    band_slot_order_ff: HashableArrayWrapper = struct.field(
+        pytree_node=False
+    )  # Slot permutation for band-preference first-fit (empty if unused)
+    band_slot_order_lf: HashableArrayWrapper = struct.field(
+        pytree_node=False
+    )  # Slot permutation for band-preference last-fit (empty if unused)
+    slot_centre_freq_array: HashableArrayWrapper = struct.field(
+        pytree_node=False
+    )  # Per-slot centre frequencies in relative GHz offset from ref_lambda
+    num_subchannels: int = struct.field(pytree_node=False)  # Nyquist subchannels per slot for SPM
+    # Distributed Raman Amplification fields
+    use_raman_amp: bool = struct.field(pytree_node=False)
+    raman_fit_params: HashableArrayWrapper = struct.field(
+        pytree_node=False
+    )  # (6, num_channels, max_spans) — [C_f, a_f, C_b, a_b, a, raman_gain] Neper-scale + linear
+    raman_pump_power_fw: HashableArrayWrapper = struct.field(
+        pytree_node=False
+    )  # (max_spans, num_pumps_fw) — forward pump powers [W]
+    raman_pump_power_bw: HashableArrayWrapper = struct.field(
+        pytree_node=False
+    )  # (max_spans, num_pumps_bw) — backward pump powers [W]
+    raman_pump_freq_fw: HashableArrayWrapper = struct.field(
+        pytree_node=False
+    )  # (max_spans, num_pumps_fw) — forward pump frequencies [Hz]
+    raman_pump_freq_bw: HashableArrayWrapper = struct.field(
+        pytree_node=False
+    )  # (max_spans, num_pumps_bw) — backward pump frequencies [Hz]
+
+
+@struct.dataclass
+class GNModelEnvState(RSAEnvState):
+    """Dataclass to hold environment state for RSA with GN model."""
+
+    link_snr_array: chex.Array  # Available SNR on each link
+    channel_centre_bw_array: chex.Array  # Channel centre bandwidth for each active connection
+    path_index_array: (
+        chex.Array
+    )  # Contains indices of lightpaths in use on slots (used for lightpath SNR calculation)
+    channel_power_array: chex.Array  # Channel power for each active connection
+    channel_centre_bw_array_prev: (
+        chex.Array
+    )  # Channel centre bandwidth for each active connection in previous timestep
+    path_index_array_prev: (
+        chex.Array
+    )  # Contains indices of lightpaths in use on slots in previous timestep
+    channel_power_array_prev: (
+        chex.Array
+    )  # Channel power for each active connection in previous timestep
+    channel_centre_freq_array: chex.Array  # Per-slot centre frequency in GHz
+    channel_centre_freq_array_prev: chex.Array  # Previous timestep centre frequency for undo
+    launch_power_array: chex.Array  # Launch power array
+
+
+@struct.dataclass
+class RSAGNModelEnvParams(GNModelEnvParams):
+    """Dataclass to hold environment params for RSA with GN model."""
+
+    pass
+
+
+@struct.dataclass
+class RSAGNModelEnvState(GNModelEnvState):
+    """Dataclass to hold environment state for RSA with GN model."""
+
+    active_lightpaths_array: chex.Array  # Active lightpath array. 1 x M array. Each value is a lightpath index. Used to calculate total throughput.
+    active_lightpaths_array_departure: chex.Array  # Active lightpath array departure time.
+    throughput: chex.Array  # Current network throughput
+
+
+@struct.dataclass
+class RMSAGNModelEnvParams(GNModelEnvParams):
+    """Dataclass to hold environment params for RMSA with GN model.
+
+    Args:
+        link_snr_array (chex.Array): Link SNR array
+    """
+
+    modulations_array: HashableArrayWrapper = struct.field(pytree_node=False)
+    fec_rate: chex.Scalar = struct.field(pytree_node=False)
+
+
+@struct.dataclass
+class RMSAGNModelEnvState(GNModelEnvState):
+    """Dataclass to hold environment state for RMSA with GN model.
+
+    Args:
+        link_snr_array (chex.Array): Link SNR array
+    """
+
+    modulation_format_index_array: chex.Array  # Modulation format index for each active connection
+    modulation_format_index_array_prev: (
+        chex.Array
+    )  # Modulation format index for each active connection in previous timestep
+    mod_format_mask: chex.Array  # Modulation format mask
+
+
+@struct.dataclass
+class RSAMultibandEnvState(RSAEnvState):
+    """Dataclass to hold environment state for MultiBandRSA (RBSA)."""
+
+    pass
+
+
+@struct.dataclass
+class RSAMultibandEnvParams(RSAEnvParams):
+    """Dataclass to hold environment parameters for MultiBandRSA (RBSA)."""
+
+    gap_starts: HashableArrayWrapper = struct.field(pytree_node=False)
+    gap_widths: HashableArrayWrapper = struct.field(pytree_node=False)
+
+
+@struct.dataclass
+class VONEEnvState(RSAEnvState):
+    """Dataclass to hold environment state for VONE.
+
+    Args:
+        node_capacity_array (chex.Array): Node capacity array
+        node_resource_array (chex.Array): Node resource array
+        node_departure_array (chex.Array): Node departure array
+        action_counter (chex.Array): Action counter
+        action_history (chex.Array): Action history
+        node_mask_s (chex.Array): Node mask for source node
+        node_mask_d (chex.Array): Node mask for destination node
+        virtual_topology_patterns (chex.Array): Virtual topology patterns
+        values_nodes (chex.Array): Values for nodes
+    """
+
+    node_capacity_array: chex.Array
+    node_resource_array: chex.Array
+    node_departure_array: chex.Array
+    action_counter: chex.Array
+    action_history: chex.Array
+    node_mask_s: chex.Array
+    node_mask_d: chex.Array
+    virtual_topology_patterns: chex.Array
+    values_nodes: chex.Array
+
+
+@struct.dataclass
+class VONEEnvParams(RSAEnvParams):
     """Dataclass to hold environment parameters for VONE.
 
     Args:
-        num_nodes (chex.Scalar): Number of nodes
-        num_links (chex.Scalar): Number of links
         node_resources (chex.Scalar): Number of node resources
-        k_paths (chex.Scalar): Number of paths
-        load (chex.Scalar): Load
-        mean_service_holding_time (chex.Scalar): Mean service holding time
-        arrival_rate (chex.Scalar): Arrival rate
         max_edges (chex.Scalar): Maximum number of edges
         min_node_resources (chex.Scalar): Minimum number of node resources
         max_node_resources (chex.Scalar): Maximum number of node resources
-        path_link_array (chex.Array): Path link array
-        max_slots (chex.Scalar): Maximum number of slots
-        path_se_array (chex.Array): Path spectral efficiency array
     """
-    num_nodes: chex.Scalar = struct.field(pytree_node=False)
-    num_links: chex.Scalar = struct.field(pytree_node=False)
+
     node_resources: chex.Scalar = struct.field(pytree_node=False)
-    link_resources: chex.Scalar = struct.field(pytree_node=False)
-    k_paths: chex.Scalar = struct.field(pytree_node=False)
-    load: chex.Scalar = struct.field(pytree_node=False)
-    mean_service_holding_time: chex.Scalar = struct.field(pytree_node=False)
-    arrival_rate: chex.Scalar = struct.field(pytree_node=False)
     max_edges: chex.Scalar = struct.field(pytree_node=False)
     min_node_resources: chex.Scalar = struct.field(pytree_node=False)
     max_node_resources: chex.Scalar = struct.field(pytree_node=False)
-    path_link_array: chex.Array = struct.field(pytree_node=False)
-    max_slots: chex.Scalar = struct.field(pytree_node=False)
-    path_se_array: chex.Array = struct.field(pytree_node=False)
     # TODO - Add Laplacian matrix (for node heuristics)
+
+
+Obsv = Tuple[EnvState, EnvParams] | Tuple[Array]
+SelectActionState = Tuple[chex.PRNGKey, LogEnvState, Obsv]
+
+
+@struct.dataclass
+class Transition:
+    terminal: Array
+    truncated: Array
+    action: Array
+    reward: Array
+    obs: Obsv
+    info: Dict[str, Array]
+
+
+@struct.dataclass
+class VONETransition:
+    terminal: Array
+    truncated: Array
+    action: chex.Array
+    value: chex.Array
+    reward: chex.Array
+    log_prob: chex.Array
+    obs: Obsv
+    info: Dict[str, Array]
+    action_mask_s: chex.Array
+    action_mask_p: chex.Array
+    action_mask_d: chex.Array
+    valid_mass: chex.Array
+
+
+@struct.dataclass
+class RSATransition:
+    terminal: Array
+    truncated: Array
+    action: chex.Array
+    value: chex.Array
+    reward: chex.Array
+    log_prob: chex.Array
+    obs: Obsv
+    info: Dict[str, Array]
+    action_mask: chex.Array
+    valid_mass: chex.Array
+
+
+# action, path index, initial slot index, requested datarate, required slots, path, se, current time, holding time]
+@struct.dataclass
+class ActionInfo:
+    action: chex.Array
+    path_index: chex.Array
+    initial_slot_index: chex.Array
+    nodes_sd: chex.Array
+    requested_datarate: chex.Array
+    num_slots: chex.Array
+    path: chex.Array
+    se: chex.Array
+    affected_slots_mask: Array
+    power_action: chex.Array

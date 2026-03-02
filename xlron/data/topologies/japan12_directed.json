@@ -1,0 +1,251 @@
+{
+    "directed": true,
+    "multigraph": false,
+    "graph": {},
+    "nodes": [
+        {
+            "id": 1,
+            "name": "Sapporo",
+            "latitude": 43.075,
+            "longitude": 141.34
+        },
+        {
+            "id": 2,
+            "name": "Sendai",
+            "latitude": 38.27,
+            "longitude": 140.85
+        },
+        {
+            "id": 3,
+            "name": "Tokyo",
+            "latitude": 35.68,
+            "longitude": 139.77
+        },
+        {
+            "id": 4,
+            "name": "Hachioji",
+            "latitude": 35.66,
+            "longitude": 139.28
+        },
+        {
+            "id": 5,
+            "name": "Kanazawa",
+            "latitude": 36.58,
+            "longitude": 136.65
+        },
+        {
+            "id": 6,
+            "name": "Nagano",
+            "latitude": 36.66,
+            "longitude": 138.19
+        },
+        {
+            "id": 7,
+            "name": "Nagoya",
+            "latitude": 35.149,
+            "longitude": 136.91
+        },
+        {
+            "id": 8,
+            "name": "Osaka",
+            "latitude": 34.67,
+            "longitude": 135.5
+        },
+        {
+            "id": 9,
+            "name": "Hiroshima",
+            "latitude": 34.39,
+            "longitude": 132.449
+        },
+        {
+            "id": 10,
+            "name": "Matsuyama",
+            "latitude": 33.84,
+            "longitude": 132.75
+        },
+        {
+            "id": 11,
+            "name": "Hakata",
+            "latitude": 33.57,
+            "longitude": 130.35
+        },
+        {
+            "id": 12,
+            "name": "Naha",
+            "latitude": 26.21,
+            "longitude": 127.68
+        }
+    ],
+    "links": [
+        {
+            "distance": 890,
+            "source": 1,
+            "target": 2
+        },
+        {
+            "distance": 1570,
+            "source": 1,
+            "target": 4
+        },
+        {
+            "distance": 528,
+            "source": 2,
+            "target": 3
+        },
+        {
+            "distance": 71,
+            "source": 3,
+            "target": 4
+        },
+        {
+            "distance": 549,
+            "source": 3,
+            "target": 7
+        },
+        {
+            "distance": 376,
+            "source": 4,
+            "target": 6
+        },
+        {
+            "distance": 378,
+            "source": 6,
+            "target": 5
+        },
+        {
+            "distance": 376,
+            "source": 6,
+            "target": 7
+        },
+        {
+            "distance": 280,
+            "source": 7,
+            "target": 8
+        },
+        {
+            "distance": 396,
+            "source": 5,
+            "target": 8
+        },
+        {
+            "distance": 736,
+            "source": 7,
+            "target": 10
+        },
+        {
+            "distance": 512,
+            "source": 8,
+            "target": 9
+        },
+        {
+            "distance": 99,
+            "source": 9,
+            "target": 10
+        },
+        {
+            "distance": 421,
+            "source": 9,
+            "target": 11
+        },
+        {
+            "distance": 1500,
+            "source": 10,
+            "target": 12
+        },
+        {
+            "distance": 548,
+            "source": 10,
+            "target": 11
+        },
+        {
+            "distance": 1368,
+            "source": 11,
+            "target": 12
+        },
+        {
+            "distance": 890,
+            "source": 2,
+            "target": 1
+        },
+        {
+            "distance": 1570,
+            "source": 4,
+            "target": 1
+        },
+        {
+            "distance": 528,
+            "source": 3,
+            "target": 2
+        },
+        {
+            "distance": 71,
+            "source": 4,
+            "target": 3
+        },
+        {
+            "distance": 549,
+            "source": 7,
+            "target": 3
+        },
+        {
+            "distance": 376,
+            "source": 6,
+            "target": 4
+        },
+        {
+            "distance": 378,
+            "source": 5,
+            "target": 6
+        },
+        {
+            "distance": 376,
+            "source": 7,
+            "target": 6
+        },
+        {
+            "distance": 280,
+            "source": 8,
+            "target": 7
+        },
+        {
+            "distance": 396,
+            "source": 8,
+            "target": 5
+        },
+        {
+            "distance": 736,
+            "source": 10,
+            "target": 7
+        },
+        {
+            "distance": 512,
+            "source": 9,
+            "target": 8
+        },
+        {
+            "distance": 99,
+            "source": 10,
+            "target": 9
+        },
+        {
+            "distance": 421,
+            "source": 11,
+            "target": 9
+        },
+        {
+            "distance": 1500,
+            "source": 12,
+            "target": 10
+        },
+        {
+            "distance": 548,
+            "source": 11,
+            "target": 10
+        },
+        {
+            "distance": 1368,
+            "source": 12,
+            "target": 11
+        }
+    ]
+}

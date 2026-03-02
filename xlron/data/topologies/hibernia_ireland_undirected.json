@@ -1,0 +1,75 @@
+{
+    "directed": false,
+    "multigraph": false,
+    "graph": {},
+    "nodes": [
+        {
+            "id": 1,
+            "name": "Rathmines",
+            "latitude": 53.34,
+            "longitude": -6.27
+        },
+        {
+            "id": 2,
+            "name": "Gaillimh",
+            "latitude": 53.27,
+            "longitude": -9.05
+        },
+        {
+            "id": 3,
+            "name": "Luimneach",
+            "latitude": 52.66,
+            "longitude": -8.62
+        },
+        {
+            "id": 4,
+            "name": "Cork",
+            "latitude": 51.9,
+            "longitude": -8.5
+        },
+        {
+            "id": 5,
+            "name": "Waterford",
+            "latitude": 52.26,
+            "longitude": -7.11
+        },
+        {
+            "id": 6,
+            "name": "Portlaoise",
+            "latitude": 53.03,
+            "longitude": -7.3
+        }
+    ],
+    "links": [
+        {
+            "distance": 199,
+            "source": 1,
+            "target": 5
+        },
+        {
+            "distance": 115,
+            "source": 1,
+            "target": 6
+        },
+        {
+            "distance": 111,
+            "source": 2,
+            "target": 3
+        },
+        {
+            "distance": 127,
+            "source": 3,
+            "target": 4
+        },
+        {
+            "distance": 147,
+            "source": 3,
+            "target": 6
+        },
+        {
+            "distance": 155,
+            "source": 4,
+            "target": 5
+        }
+    ]
+}

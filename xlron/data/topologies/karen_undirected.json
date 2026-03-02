@@ -1,0 +1,277 @@
+{
+    "directed": false,
+    "multigraph": false,
+    "graph": {},
+    "nodes": [
+        {
+            "id": 1,
+            "name": "Wellington",
+            "latitude": -41.29,
+            "longitude": 174.78
+        },
+        {
+            "id": 2,
+            "name": "Dunedin",
+            "latitude": -45.87,
+            "longitude": 170.5
+        },
+        {
+            "id": 3,
+            "name": "Lower Hutt",
+            "latitude": -41.2,
+            "longitude": 174.92
+        },
+        {
+            "id": 4,
+            "name": "Palmerston North",
+            "latitude": -40.35,
+            "longitude": 175.62
+        },
+        {
+            "id": 5,
+            "name": "Lincoln",
+            "latitude": -43.65,
+            "longitude": 172.48
+        },
+        {
+            "id": 6,
+            "name": "Christchurch",
+            "latitude": -43.53,
+            "longitude": 172.63
+        },
+        {
+            "id": 7,
+            "name": "Dunedin",
+            "latitude": -45.85,
+            "longitude": 170.38
+        },
+        {
+            "id": 8,
+            "name": "Invercargill",
+            "latitude": -46.4,
+            "longitude": 168.35
+        },
+        {
+            "id": 9,
+            "name": "Pleasant Point",
+            "latitude": -44.02,
+            "longitude": 170.5
+        },
+        {
+            "id": 10,
+            "name": "Nelson",
+            "latitude": -41.28,
+            "longitude": 173.28
+        },
+        {
+            "id": 11,
+            "name": "Auckland",
+            "latitude": -36.88,
+            "longitude": 174.72
+        },
+        {
+            "id": 12,
+            "name": "New Plymouth",
+            "latitude": -39.07,
+            "longitude": 174.08
+        },
+        {
+            "id": 13,
+            "name": "Wanganui",
+            "latitude": -39.93,
+            "longitude": 175.05
+        },
+        {
+            "id": 14,
+            "name": "Palmerston North",
+            "latitude": -40.35,
+            "longitude": 175.62
+        },
+        {
+            "id": 15,
+            "name": "North Shore",
+            "latitude": -36.8,
+            "longitude": 174.75
+        },
+        {
+            "id": 16,
+            "name": "Warkworth",
+            "latitude": -36.4,
+            "longitude": 174.67
+        },
+        {
+            "id": 17,
+            "name": "Tauranga",
+            "latitude": -37.69,
+            "longitude": 176.17
+        },
+        {
+            "id": 18,
+            "name": "Gisborne",
+            "latitude": -38.65,
+            "longitude": 178.0
+        },
+        {
+            "id": 19,
+            "name": "Porirua",
+            "latitude": -41.13,
+            "longitude": 174.85
+        },
+        {
+            "id": 20,
+            "name": "Napier",
+            "latitude": -39.48,
+            "longitude": 176.92
+        },
+        {
+            "id": 21,
+            "name": "Rotorua",
+            "latitude": -38.14,
+            "longitude": 176.25
+        },
+        {
+            "id": 22,
+            "name": "Hamilton",
+            "latitude": -37.78,
+            "longitude": 175.28
+        },
+        {
+            "id": 23,
+            "name": "Auckland",
+            "latitude": -36.87,
+            "longitude": 174.77
+        }
+    ],
+    "links": [
+        {
+            "distance": 922,
+            "source": 1,
+            "target": 2
+        },
+        {
+            "distance": 23,
+            "source": 1,
+            "target": 3
+        },
+        {
+            "distance": 189,
+            "source": 1,
+            "target": 4
+        },
+        {
+            "distance": 458,
+            "source": 1,
+            "target": 6
+        },
+        {
+            "distance": 188,
+            "source": 1,
+            "target": 10
+        },
+        {
+            "distance": 438,
+            "source": 2,
+            "target": 5
+        },
+        {
+            "distance": 14,
+            "source": 2,
+            "target": 7
+        },
+        {
+            "distance": 264,
+            "source": 2,
+            "target": 8
+        },
+        {
+            "distance": 15,
+            "source": 3,
+            "target": 19
+        },
+        {
+            "distance": 167,
+            "source": 3,
+            "target": 14
+        },
+        {
+            "distance": 591,
+            "source": 4,
+            "target": 23
+        },
+        {
+            "distance": 291,
+            "source": 4,
+            "target": 12
+        },
+        {
+            "distance": 101,
+            "source": 4,
+            "target": 13
+        },
+        {
+            "distance": 1,
+            "source": 4,
+            "target": 14
+        },
+        {
+            "distance": 27,
+            "source": 5,
+            "target": 6
+        },
+        {
+            "distance": 269,
+            "source": 6,
+            "target": 9
+        },
+        {
+            "distance": 384,
+            "source": 6,
+            "target": 10
+        },
+        {
+            "distance": 7,
+            "source": 11,
+            "target": 23
+        },
+        {
+            "distance": 221,
+            "source": 14,
+            "target": 20
+        },
+        {
+            "distance": 68,
+            "source": 15,
+            "target": 16
+        },
+        {
+            "distance": 12,
+            "source": 15,
+            "target": 23
+        },
+        {
+            "distance": 76,
+            "source": 17,
+            "target": 21
+        },
+        {
+            "distance": 197,
+            "source": 18,
+            "target": 20
+        },
+        {
+            "distance": 240,
+            "source": 20,
+            "target": 21
+        },
+        {
+            "distance": 141,
+            "source": 21,
+            "target": 22
+        },
+        {
+            "distance": 166,
+            "source": 22,
+            "target": 23
+        }
+    ]
+}

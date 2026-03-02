@@ -1,37 +1,42 @@
 
 # Environments
 
-::: environments.rsa
-
-::: environments.vone
+::: xlron.environments
 
 ___
 
 # Dataclasses
 
-::: environments.dataclasses
-
+::: xlron.environments.dataclasses
 
 ___
 
 # Environment wrappers
 
-::: environments.wrappers
+::: xlron.environments.wrappers
 
 ___
 
-# Constituent functions of environments
+# Environment functions
 
-::: environments.env_funcs
+::: xlron.environments.env_funcs
+
+___
+
+# Training Utilities
+
+::: xlron.train.train_utils
 
 ___
 
 # Models
 
-::: models.models
+::: xlron.models.mlp
+::: xlron.models.gnn
+::: xlron.models.transformer
 
 ___
 
 # Heuristics
 
-::: heuristics.heuristics
+::: xlron.heuristics.heuristics

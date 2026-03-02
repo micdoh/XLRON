@@ -1,0 +1,315 @@
+{
+    "directed": true,
+    "multigraph": false,
+    "graph": {},
+    "nodes": [
+        {
+            "id": 1,
+            "name": "Seattle",
+            "latitude": 47.61,
+            "longitude": -122.33
+        },
+        {
+            "id": 2,
+            "name": "Tampa",
+            "latitude": 27.95,
+            "longitude": -82.46
+        },
+        {
+            "id": 3,
+            "name": "Chicago",
+            "latitude": 41.85,
+            "longitude": -87.65
+        },
+        {
+            "id": 4,
+            "name": "Vancouver",
+            "latitude": 49.25,
+            "longitude": -123.12
+        },
+        {
+            "id": 5,
+            "name": "Miami",
+            "latitude": 25.77,
+            "longitude": -80.19
+        },
+        {
+            "id": 6,
+            "name": "Austin",
+            "latitude": 30.27,
+            "longitude": -97.74
+        },
+        {
+            "id": 7,
+            "name": "New York City",
+            "latitude": 40.71,
+            "longitude": -74.01
+        },
+        {
+            "id": 8,
+            "name": "Atlanta",
+            "latitude": 33.75,
+            "longitude": -84.39
+        },
+        {
+            "id": 9,
+            "name": "Bucharest",
+            "latitude": 44.43,
+            "longitude": 26.11
+        },
+        {
+            "id": 10,
+            "name": "Seoul",
+            "latitude": 37.57,
+            "longitude": 126.98
+        },
+        {
+            "id": 11,
+            "name": "Sydney",
+            "latitude": -33.87,
+            "longitude": 151.21
+        },
+        {
+            "id": 12,
+            "name": "Hannover",
+            "latitude": 52.37,
+            "longitude": 9.73
+        },
+        {
+            "id": 13,
+            "name": "Amsterdam",
+            "latitude": 52.37,
+            "longitude": 4.89
+        },
+        {
+            "id": 14,
+            "name": "Antwerpen",
+            "latitude": 51.22,
+            "longitude": 4.42
+        },
+        {
+            "id": 15,
+            "name": "Frankfurt am Main",
+            "latitude": 50.12,
+            "longitude": 8.68
+        },
+        {
+            "id": 16,
+            "name": "London",
+            "latitude": 51.51,
+            "longitude": -0.13
+        }
+    ],
+    "links": [
+        {
+            "distance": 3486,
+            "source": 1,
+            "target": 3
+        },
+        {
+            "distance": 287,
+            "source": 1,
+            "target": 4
+        },
+        {
+            "distance": 3560,
+            "source": 1,
+            "target": 6
+        },
+        {
+            "distance": 496,
+            "source": 2,
+            "target": 5
+        },
+        {
+            "distance": 1006,
+            "source": 2,
+            "target": 8
+        },
+        {
+            "distance": 1966,
+            "source": 3,
+            "target": 6
+        },
+        {
+            "distance": 1417,
+            "source": 3,
+            "target": 8
+        },
+        {
+            "distance": 18783,
+            "source": 5,
+            "target": 11
+        },
+        {
+            "distance": 2196,
+            "source": 5,
+            "target": 7
+        },
+        {
+            "distance": 1463,
+            "source": 5,
+            "target": 8
+        },
+        {
+            "distance": 19985,
+            "source": 7,
+            "target": 11
+        },
+        {
+            "distance": 1500,
+            "source": 7,
+            "target": 8
+        },
+        {
+            "distance": 6963,
+            "source": 7,
+            "target": 16
+        },
+        {
+            "distance": 9915,
+            "source": 9,
+            "target": 10
+        },
+        {
+            "distance": 1818,
+            "source": 9,
+            "target": 15
+        },
+        {
+            "distance": 10412,
+            "source": 10,
+            "target": 11
+        },
+        {
+            "distance": 493,
+            "source": 12,
+            "target": 13
+        },
+        {
+            "distance": 391,
+            "source": 12,
+            "target": 15
+        },
+        {
+            "distance": 198,
+            "source": 13,
+            "target": 14
+        },
+        {
+            "distance": 536,
+            "source": 13,
+            "target": 16
+        },
+        {
+            "distance": 486,
+            "source": 14,
+            "target": 15
+        },
+        {
+            "distance": 3486,
+            "source": 3,
+            "target": 1
+        },
+        {
+            "distance": 287,
+            "source": 4,
+            "target": 1
+        },
+        {
+            "distance": 3560,
+            "source": 6,
+            "target": 1
+        },
+        {
+            "distance": 496,
+            "source": 5,
+            "target": 2
+        },
+        {
+            "distance": 1006,
+            "source": 8,
+            "target": 2
+        },
+        {
+            "distance": 1966,
+            "source": 6,
+            "target": 3
+        },
+        {
+            "distance": 1417,
+            "source": 8,
+            "target": 3
+        },
+        {
+            "distance": 18783,
+            "source": 11,
+            "target": 5
+        },
+        {
+            "distance": 2196,
+            "source": 7,
+            "target": 5
+        },
+        {
+            "distance": 1463,
+            "source": 8,
+            "target": 5
+        },
+        {
+            "distance": 19985,
+            "source": 11,
+            "target": 7
+        },
+        {
+            "distance": 1500,
+            "source": 8,
+            "target": 7
+        },
+        {
+            "distance": 6963,
+            "source": 16,
+            "target": 7
+        },
+        {
+            "distance": 9915,
+            "source": 10,
+            "target": 9
+        },
+        {
+            "distance": 1818,
+            "source": 15,
+            "target": 9
+        },
+        {
+            "distance": 10412,
+            "source": 11,
+            "target": 10
+        },
+        {
+            "distance": 493,
+            "source": 13,
+            "target": 12
+        },
+        {
+            "distance": 391,
+            "source": 15,
+            "target": 12
+        },
+        {
+            "distance": 198,
+            "source": 14,
+            "target": 13
+        },
+        {
+            "distance": 536,
+            "source": 16,
+            "target": 13
+        },
+        {
+            "distance": 486,
+            "source": 15,
+            "target": 14
+        }
+    ]
+}

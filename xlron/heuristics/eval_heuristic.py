@@ -1,130 +1,120 @@
-import orbax.checkpoint
-import pathlib
-import optax
-from flax.training import orbax_utils
-from typing import NamedTuple
+from typing import Callable
+
+import jax
+import jax.numpy as jnp
 from absl import flags
+from box import Box
 from flax.training.train_state import TrainState
-from xlron.environments.env_funcs import *
-from xlron.train.ppo import make_train, define_env, init_network, select_action
-from xlron.environments.vone import *
-from xlron.environments.rsa import *
-from xlron.heuristics.heuristics import *
+from gymnax.environments import environment
+
+from xlron.environments.dataclasses import EnvParams, Transition
+from xlron.train.train_utils import select_action_eval
 
 
-class Transition(NamedTuple):
-    done: jnp.ndarray
-    action: jnp.ndarray
-    reward: jnp.ndarray
-    obs: jnp.ndarray
-    info: jnp.ndarray
+def get_eval_fn(
+    env: environment.Environment,
+    env_params: EnvParams,
+    eval_state: TrainState,
+    config: flags.FlagValues | Box | dict,
+) -> Callable:
+    # COLLECT TRAJECTORIES
+    def _env_episode(runner_state, unused):
+        def _env_step(runner_state, unused):
+            eval_state, env_state, last_obs, step_key, rng_epoch = runner_state
 
+            action_key, next_step_key = jax.random.split(step_key)
 
-def make_eval(config):
-
-    # INIT ENV
-    env, env_params = define_env(config)
-
-    def evaluate(rng):
-
-        # RESET ENV
-        rng, _rng = jax.random.split(rng)
-        reset_rng = jax.random.split(_rng, config.NUM_ENVS)
-        obsv, env_state = jax.vmap(env.reset, in_axes=(0, None))(reset_rng, env_params)
-        obsv = (env_state.env_state, env_params) if config.USE_GNN else tuple([obsv])
-
-        # # LOAD MODEL
-        if config.EVAL_MODEL:
-            # orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
-            # # This isn't working - is it because it's in JIT? or should I use restore_args?
-            # # https://flax.readthedocs.io/en/latest/guides/training_techniques/use_checkpointing.html#multi-host-multi-process-checkpointing
-            # #network, last_obs = init_network(config, env_params, model)
-            # #network, last_obs = init_network(rng, config, env, env_state, env_params)
-            # network, last_obs = init_network(rng, config, env, env_state, env_params)
-            # network_params = network.init(_rng, *init_x)
-            # tx = optax.chain(
-            #     optax.clip_by_global_norm(config.MAX_GRAD_NORM),
-            #     optax.adam(learning_rate=lambda x: x, eps=1e-5),
-            # )
-            # train_state = TrainState.create(
-            #     apply_fn=network.apply,
-            #     params=network_params,
-            #     tx=tx,
-            # )
-            # save_data = {"model": train_state, "config": config}
-            # restore_args = orbax_utils.restore_args_from_target(save_data)
-            # model = orbax_checkpointer.restore(pathlib.Path(config.MODEL_PATH))#, restore_args)
-            # network_params = model["model"].params
-
-            network, last_obs = init_network(rng, config, env, env_state, env_params)
-            network_params = config.model["model"]["params"]
-            print('wow')
-
-        # COLLECT TRAJECTORIES
-        def _env_episode(runner_state, unused):
-
-            def _env_step(runner_state, unused):
-
-                env_state, last_obs, rng = runner_state
-
-                # SELECT ACTION
-                if config.EVAL_HEURISTIC:
-                    if config.env_type.lower() == "vone":
-                        raise NotImplementedError(f"VONE heuristics not yet implemented")
-
-                    elif config.env_type.lower() in ["rsa", "rwa", "rmsa", "deeprmsa", "rwa_lightpath_reuse"]:
-                        if config.path_heuristic.lower() == "ksp_ff":
-                            action = jax.vmap(ksp_ff, in_axes=(0, None))(env_state.env_state, env_params)
-                        elif config.path_heuristic.lower() == "ff_ksp":
-                            action = jax.vmap(ff_ksp, in_axes=(0, None))(env_state.env_state, env_params)
-                        elif config.path_heuristic.lower() == "kmc_ff":
-                            action = jax.vmap(kmc_ff, in_axes=(0, None))(env_state.env_state, env_params)
-                        elif config.path_heuristic.lower() == "kmf_ff":
-                            action = jax.vmap(kmf_ff, in_axes=(0, None))(env_state.env_state, env_params)
-                        else:
-                            raise ValueError(f"Invalid path heuristic {config.path_heuristic}")
-
-                    else:
-                        raise ValueError(f"Invalid environment type {config.env_type}")
-                else:
-                    action, _, _, rng = select_action(
-                        rng, env, env_state, env_params, network, network_params, config, last_obs, deterministic=config.deterministic
-                    )
-
-                # STEP ENV
-                rng, _rng = jax.random.split(rng)
-                rng_step = jax.random.split(_rng, config.NUM_ENVS)
-                obsv, env_state, reward, done, info = jax.vmap(env.step, in_axes=(0,0,0,None))(
-                    rng_step, env_state, action, env_params
-                )
-                obsv = (env_state.env_state, env_params) if config.USE_GNN else tuple([obsv])
-                transition = Transition(
-                    done, action, reward, last_obs, info
-                )
-                runner_state = (env_state, obsv, rng)
-
-                if config.DEBUG:
-                    jax.debug.print("link_slot_array {}", env_state.env_state.link_slot_array, ordered=config.ORDERED)
-                    jax.debug.print("link_slot_mask {}", env_state.env_state.link_slot_mask, ordered=config.ORDERED)
-                    jax.debug.print("action {}", action, ordered=config.ORDERED)
-                    jax.debug.print("reward {}", reward, ordered=config.ORDERED)
-
-                return runner_state, transition
-
-            runner_state, traj_episode = jax.lax.scan(
-                _env_step, runner_state, None, config.max_timesteps
+            # SELECT ACTION
+            select_action_state = (action_key, env_state, last_obs)
+            env_state, action, _, _ = select_action_eval(
+                select_action_state, env, env_params, eval_state, config
             )
 
-            metric = traj_episode.info
+            # STEP ENV
+            obsv, env_state, reward, terminal, truncated, info = env.step(
+                step_key, env_state, action, env_params
+            )
 
-            return runner_state, metric
+            obsv = (
+                (env_state.env_state, env_params)
+                if config.USE_GNN or config.USE_TRANSFORMER
+                else tuple([obsv])
+            )
+            transition = Transition(terminal, truncated, action, reward, last_obs, info)
+            runner_state = (eval_state, env_state, obsv, next_step_key, rng_epoch)
 
-        rng, _rng = jax.random.split(rng)
-        runner_state = (env_state, obsv, _rng)
-        NUM_EPISODES = config.TOTAL_TIMESTEPS // config.max_timesteps // config.NUM_ENVS
-        runner_state, metric = jax.lax.scan(
-            _env_episode, runner_state, None, NUM_EPISODES
+            if getattr(config, "DEBUG", False):
+                ordered = getattr(config, "ORDERED", False)
+                jax.debug.print("request {}", env_state.env_state.request_array, ordered=ordered)
+                jax.debug.print(
+                    "link_slot_array {}",
+                    env_state.env_state.link_slot_array,
+                    ordered=ordered,
+                )
+                if env_params.__class__.__name__ == "RSAGNModelEnvParams":
+                    jax.debug.print(
+                        "link_snr_array {}",
+                        env_state.env_state.link_snr_array,
+                        ordered=ordered,
+                    )
+                    jax.debug.print(
+                        "channel_power_array {}",
+                        env_state.env_state.channel_power_array,
+                        ordered=ordered,
+                    )
+                    jax.debug.print(
+                        "modulation_format_index_array {}",
+                        env_state.env_state.modulation_format_index_array,
+                        ordered=ordered,
+                    )
+                    jax.debug.print(
+                        "channel_centre_bw_array {}",
+                        env_state.env_state.channel_centre_bw_array,
+                        ordered=ordered,
+                    )
+                jax.debug.print(
+                    "link_slot_mask {}", env_state.env_state.link_slot_mask, ordered=ordered
+                )
+                jax.debug.print("action {}", action, ordered=ordered)
+                jax.debug.print("reward {}", reward, ordered=ordered)
+
+            return runner_state, transition
+
+        # VECTORISE ENV STEP
+        _env_step_vmap = (
+            jax.vmap(
+                _env_step,
+                in_axes=((None, 0, 0, 0, None), None),
+                out_axes=((None, 0, 0, 0, None), 0),
+            )
+            if getattr(config, "NUM_ENVS", 1) > 1
+            else _env_step
         )
+
+        rng_step = runner_state[3]
+        num_envs = getattr(config, "NUM_ENVS", 1)
+        rng_step, *step_keys = jax.random.split(rng_step, num_envs + 1)
+        step_keys = jnp.array(step_keys) if num_envs > 1 else step_keys[0]
+        runner_state = runner_state[:3] + (step_keys,) + runner_state[4:]
+        runner_state, traj_episode = jax.lax.scan(
+            _env_step_vmap,
+            runner_state,
+            None,
+            getattr(config, "max_requests", 1000) * getattr(config, "scale_factor", 1),
+        )
+        runner_state = runner_state[:3] + (rng_step,) + runner_state[4:]
+
+        metric = traj_episode.info
+
+        return runner_state, metric
+
+    def eval_fn(runner_state):
+        NUM_EPISODES = (
+            getattr(config, "STEPS_PER_INCREMENT", 1000)
+            // (getattr(config, "max_requests", 1000) * getattr(config, "scale_factor", 1))
+            // getattr(config, "NUM_ENVS", 1)
+        )
+        runner_state, metric = jax.lax.scan(_env_episode, runner_state, None, NUM_EPISODES)
         return {"runner_state": runner_state, "metrics": metric}
 
-    return evaluate
+    return eval_fn

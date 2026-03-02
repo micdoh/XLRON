@@ -1,0 +1,115 @@
+{
+    "directed": true,
+    "multigraph": false,
+    "graph": {},
+    "nodes": [
+        {
+            "id": 1,
+            "name": "Seattle",
+            "latitude": 47.61,
+            "longitude": -122.33
+        },
+        {
+            "id": 2,
+            "name": "San Francisco",
+            "latitude": 37.77,
+            "longitude": -122.42
+        },
+        {
+            "id": 3,
+            "name": "Los Angeles",
+            "latitude": 34.05,
+            "longitude": -118.24
+        },
+        {
+            "id": 4,
+            "name": "Chicago",
+            "latitude": 41.85,
+            "longitude": -87.65
+        },
+        {
+            "id": 5,
+            "name": "New York City",
+            "latitude": 40.71,
+            "longitude": -74.01
+        },
+        {
+            "id": 6,
+            "name": "Washington, D.C.",
+            "latitude": 38.9,
+            "longitude": -77.04
+        }
+    ],
+    "links": [
+        {
+            "distance": 1500,
+            "source": 1,
+            "target": 2
+        },
+        {
+            "distance": 839,
+            "source": 2,
+            "target": 3
+        },
+        {
+            "distance": 3730,
+            "source": 2,
+            "target": 4
+        },
+        {
+            "distance": 4898,
+            "source": 2,
+            "target": 6
+        },
+        {
+            "distance": 1500,
+            "source": 4,
+            "target": 5
+        },
+        {
+            "distance": 1434,
+            "source": 4,
+            "target": 6
+        },
+        {
+            "distance": 492,
+            "source": 5,
+            "target": 6
+        },
+        {
+            "distance": 1500,
+            "source": 2,
+            "target": 1
+        },
+        {
+            "distance": 839,
+            "source": 3,
+            "target": 2
+        },
+        {
+            "distance": 3730,
+            "source": 4,
+            "target": 2
+        },
+        {
+            "distance": 4898,
+            "source": 6,
+            "target": 2
+        },
+        {
+            "distance": 1500,
+            "source": 5,
+            "target": 4
+        },
+        {
+            "distance": 1434,
+            "source": 6,
+            "target": 4
+        },
+        {
+            "distance": 492,
+            "source": 6,
+            "target": 5
+        }
+    ]
+}
