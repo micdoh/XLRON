@@ -7,6 +7,9 @@ estimate where the cut-set method crosses 0.1% blocking.
 Unlike the heuristic, cut-set bounds may have either higher or lower capacity,
 so the search adapts to whichever direction is needed.
 
+Uses up to MAX_PROBES adaptive probes per topology. Resumes from existing
+probe data if the output file already contains partial results.
+
 Selects CUTSET_EXHAUSTIVE for topologies with <= 30 nodes,
 shortest-paths method for larger topologies.
 """
@@ -26,6 +29,7 @@ from config import (
 
 
 CUTSET_EXHAUSTIVE_MAX_NODES = 30
+MAX_PROBES = 5
 
 
 def run_cutset_probe(name, load, topo, probe_file, timeout=14400):
@@ -59,9 +63,72 @@ def run_cutset_probe(name, load, topo, probe_file, timeout=14400):
     return results[0]["blocking_mean"]
 
 
+def has_bracket(all_bps):
+    """Check if we have probes on both sides of TARGET_BP."""
+    has_lower = any(0 < bp < TARGET_BP for _, bp in all_bps)
+    has_upper = any(bp >= TARGET_BP for _, bp in all_bps)
+    return has_lower and has_upper
+
+
+def choose_next_load(all_bps, gradient):
+    """Choose the next load to probe based on existing results.
+
+    Strategy:
+    - If we have both zero-BP and high-BP probes: bisect between them.
+    - If all probes are zero or below target: increase load.
+    - If all probes are at/above target: decrease load.
+    - For the first adaptive probe, use gradient-based estimate.
+    """
+    zero_loads = [l for l, bp in all_bps if bp <= 0]
+    high_loads = [l for l, bp in all_bps if bp >= TARGET_BP]
+    below_loads = [l for l, bp in all_bps if 0 < bp < TARGET_BP]
+
+    # Bisect between zero/below and high
+    if high_loads and (zero_loads or below_loads):
+        # Use the highest load that's below target as the lower bound
+        below_all = zero_loads + below_loads
+        lo = max(below_all)
+        hi = min(high_loads)
+        load = round((lo + hi) / 2)
+        # Ensure we're not re-probing the same load
+        if load <= lo:
+            load = lo + 1
+        elif load >= hi:
+            load = hi - 1
+        if load <= 0:
+            load = 1
+        return load
+
+    if not high_loads:
+        # All below target or zero — need higher load
+        highest_load = max(l for l, _ in all_bps)
+        highest_bp = max(bp for l, bp in all_bps if l == highest_load)
+        if highest_bp <= 0:
+            # All zero — double the highest
+            return round(highest_load * 2)
+        else:
+            # Have some non-zero BP — use gradient if available
+            return estimate_next_load(highest_load, highest_bp, gradient)
+
+    # All at/above target — need lower load
+    lowest_load = min(l for l, _ in all_bps)
+    lowest_bp = min(bp for l, bp in all_bps if l == lowest_load)
+    return estimate_next_load(lowest_load, lowest_bp, gradient)
+
+
+def load_existing_probes(output_file):
+    """Load (load, bp) pairs from an existing output file."""
+    all_bps = []
+    results = parse_jsonl_blocking(output_file)
+    for r in results:
+        all_bps.append((r["load"], r["blocking_mean"]))
+    return all_bps
+
+
 def main():
     print("=" * 60)
     print("Phase 3: Running cut-set bounds (adaptive load selection)")
+    print(f"  Max probes per topology: {MAX_PROBES}")
     print("=" * 60)
 
     topologies = get_topology_list()
@@ -78,11 +145,6 @@ def main():
     for topo in topologies:
         name = topo["topology_name"]
 
-        output_file = output_dir / f"{name}.jsonl"
-        if output_file.exists() and output_file.stat().st_size > 0:
-            skipped += 1
-            continue
-
         if name not in ranges or ranges[name].get("status") == "failed":
             print(f"  Skipping {name}: no load range discovered")
             failed += 1
@@ -96,99 +158,77 @@ def main():
             failed += 1
             continue
 
-        print(f"\n[{completed + skipped + failed + 1}/{len(topologies)}] {name}")
+        # --- Load existing probes if output file exists ---
+        output_file = output_dir / f"{name}.jsonl"
+        all_bps = []
+        probe_files = []
+
+        if output_file.exists() and output_file.stat().st_size > 0:
+            all_bps = load_existing_probes(output_file)
+            if has_bracket(all_bps):
+                skipped += 1
+                continue
+            if len(all_bps) >= MAX_PROBES:
+                skipped += 1
+                continue
+            print(f"\n[{completed + skipped + failed + 1}/{len(topologies)}] {name} "
+                  f"(resuming from {len(all_bps)} existing probes)")
+            for load, bp in all_bps:
+                print(f"  Existing: load={load} -> BP={bp*100:.4f}%")
+        else:
+            print(f"\n[{completed + skipped + failed + 1}/{len(topologies)}] {name}")
 
         gradient = compute_heuristic_gradient(entry)
-        probe_files = []
-        all_bps = []  # (load, bp) pairs
+        probed_loads = {l for l, _ in all_bps}
+        start_probe = len(all_bps) + 1
 
-        # --- Probe 1: run at heuristic's load_high ---
-        p1_file = probe_dir / f"{name}_p1.jsonl"
-        print(f"  Probe 1: load={load_high}", end=" ", flush=True)
-        bp1 = run_cutset_probe(name, load_high, topo, p1_file)
-
-        if bp1 is None:
-            print("-> FAILED")
-            p1_file.unlink(missing_ok=True)
-            failed += 1
-            continue
-        print(f"-> BP={bp1*100:.4f}%")
-        probe_files.append(p1_file)
-        all_bps.append((load_high, bp1))
-
-        # --- Probe 2: estimate load on other side of 0.1% ---
-        load2 = estimate_next_load(load_high, bp1, gradient)
-        p2_file = probe_dir / f"{name}_p2.jsonl"
-        print(f"  Probe 2: load={load2}", end=" ", flush=True)
-        bp2 = run_cutset_probe(name, load2, topo, p2_file)
-
-        if bp2 is not None:
-            print(f"-> BP={bp2*100:.4f}%")
-            probe_files.append(p2_file)
-            all_bps.append((load2, bp2))
-        else:
-            print("-> FAILED")
-            p2_file.unlink(missing_ok=True)
-
-        # --- Check bracket ---
-        has_lower = any(0 < bp < TARGET_BP for _, bp in all_bps)
-        has_upper = any(bp >= TARGET_BP for _, bp in all_bps)
-
-        # --- Probe 3 (fallback if no bracket) ---
-        if not (has_lower and has_upper) and len(all_bps) >= 2:
-            # Check if we have both zero-BP and high-BP probes (common case:
-            # 0% at one load, >>0.1% at another). Bisect between them.
-            zero_loads = [l for l, bp in all_bps if bp <= 0]
-            high_loads = [l for l, bp in all_bps if bp >= TARGET_BP]
-
-            if zero_loads and high_loads:
-                # Bisect between the highest zero-BP load and lowest high-BP load
-                lo = max(zero_loads)
-                hi = min(high_loads)
-                load3 = round((lo + hi) / 2)
-                # Ensure we're not re-probing the same load
-                if load3 == lo:
-                    load3 = lo + 1
-                elif load3 == hi:
-                    load3 = hi - 1
-            elif not has_upper:
-                # All below 0.1% - need higher load
-                highest_load = max(l for l, _ in all_bps)
-                load3 = round(highest_load * 2)
-            elif not has_lower:
-                # All above 0.1% - need lower load
-                lowest_load = min(l for l, _ in all_bps)
-                load3 = max(round(lowest_load * 0.5), 1)
+        # --- Probe loop ---
+        for probe_num in range(start_probe, MAX_PROBES + 1):
+            # Choose load for this probe
+            if probe_num == 1:
+                load = load_high
+            elif probe_num == 2 and len(all_bps) == 1:
+                # First adaptive probe — use gradient-based estimate
+                prev_load, prev_bp = all_bps[0]
+                load = estimate_next_load(prev_load, prev_bp, gradient)
             else:
-                load3 = None
+                load = choose_next_load(all_bps, gradient)
 
-            if load3 is not None:
-                p3_file = probe_dir / f"{name}_p3.jsonl"
-                print(f"  Probe 3: load={load3}", end=" ", flush=True)
-                bp3 = run_cutset_probe(name, load3, topo, p3_file)
-                if bp3 is not None:
-                    print(f"-> BP={bp3*100:.4f}%")
-                    probe_files.append(p3_file)
-                    all_bps.append((load3, bp3))
-                else:
-                    print("-> FAILED")
-                    p3_file.unlink(missing_ok=True)
+            # Skip if we've already probed this load
+            if load in probed_loads:
+                # Nudge slightly
+                load = load + 1
+            probed_loads.add(load)
 
-        # --- Combine probes into output ---
-        with open(output_file, "w") as f_out:
+            p_file = probe_dir / f"{name}_p{probe_num}.jsonl"
+            print(f"  Probe {probe_num}: load={load}", end=" ", flush=True)
+            bp = run_cutset_probe(name, load, topo, p_file)
+
+            if bp is not None:
+                print(f"-> BP={bp*100:.4f}%")
+                probe_files.append(p_file)
+                all_bps.append((load, bp))
+            else:
+                print("-> FAILED")
+                p_file.unlink(missing_ok=True)
+
+            # Check if we have a bracket
+            if has_bracket(all_bps):
+                break
+
+        # --- Append new probes to output file ---
+        with open(output_file, "a") as f_out:
             for pf in probe_files:
-                with open(pf) as f_in:
-                    for line in f_in:
-                        f_out.write(line)
+                if pf.exists():
+                    with open(pf) as f_in:
+                        for line in f_in:
+                            f_out.write(line)
 
         # Clean up probe files
         for pf in probe_files:
             pf.unlink(missing_ok=True)
 
-        has_lower = any(0 < bp < TARGET_BP for _, bp in all_bps)
-        has_upper = any(bp >= TARGET_BP for _, bp in all_bps)
-
-        if has_lower and has_upper:
+        if has_bracket(all_bps):
             print(f"  -> Brackets 0.1%")
         else:
             print(f"  -> WARNING: Does not bracket 0.1% ({len(all_bps)} probes)")
