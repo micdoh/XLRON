@@ -35,6 +35,7 @@ QUICK_SCAN_PARAMS = {
     "TOTAL_TIMESTEPS": 1_300_000,
     "STEPS_PER_INCREMENT": 1_300_000,
     "ROLLOUT_LENGTH": 128,
+    "max_requests": 13_000,  # = TOTAL_TIMESTEPS / NUM_ENVS
 }
 
 # Full heuristic evaluation parameters
@@ -43,6 +44,7 @@ FULL_HEURISTIC_PARAMS = {
     "TOTAL_TIMESTEPS": 1_300_000,
     "STEPS_PER_INCREMENT": 1_300_000,
     "ROLLOUT_LENGTH": 128,
+    "max_requests": 13_000,  # = TOTAL_TIMESTEPS / NUM_ENVS
 }
 
 # Cut-set bounds parameters
