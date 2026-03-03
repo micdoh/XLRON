@@ -185,15 +185,32 @@ def build_command(
     return cmd
 
 
-def run_command(cmd: list[str], timeout: int = 3600) -> subprocess.CompletedProcess:
-    """Run a command and return the result. Prints stdout/stderr on failure."""
-    result = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-        cwd=str(PROJECT_ROOT),
-    )
+def run_command(cmd: list[str], timeout: int = 3600, verbose: bool = True) -> subprocess.CompletedProcess:
+    """Run a command and return the result.
+
+    Args:
+        cmd: Command to run.
+        timeout: Timeout in seconds.
+        verbose: If True, stream subprocess stdout to terminal in real-time.
+                 If False, capture stdout silently (old behaviour).
+    """
+    if verbose:
+        # Stream stdout to terminal, only capture stderr for error reporting
+        result = subprocess.run(
+            cmd,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=timeout,
+            cwd=str(PROJECT_ROOT),
+        )
+    else:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            cwd=str(PROJECT_ROOT),
+        )
     if result.returncode != 0:
         print(f"  FAILED: {' '.join(cmd[:8])}...", file=sys.stderr)
         if result.stderr:
