@@ -13,7 +13,10 @@ from config import (
     K_SENSITIVITY_VALUES,
     RESULTS_DIR,
     SHARED_FLAGS,
+    ProgressTracker,
     build_command,
+    format_duration,
+    format_timing_breakdown,
     get_topology_list,
     load_heuristic_selection,
     load_load_ranges,
@@ -49,9 +52,7 @@ def main():
     print(f"Running K-sensitivity for {len(large_topos)} topologies with >{K_SENSITIVITY_MIN_NODES} nodes")
     print(f"K values: {K_SENSITIVITY_VALUES}")
 
-    completed = 0
-    skipped = 0
-    failed = 0
+    progress = ProgressTracker(len(large_topos), "Phase 5")
 
     for topo in large_topos:
         name = topo["topology_name"]
@@ -62,18 +63,21 @@ def main():
             # Check if all K values are present
             existing = parse_jsonl_blocking(output_file)
             if len(existing) >= len(K_SENSITIVITY_VALUES):
-                skipped += 1
+                progress.item_done(progress.item_start(), "skipped")
                 continue
 
         target_load = get_target_load(name, ranges)
         if target_load is None:
             print(f"  Skipping {name}: no load range discovered")
-            failed += 1
+            progress.item_done(progress.item_start(), "failed")
             continue
 
         best_heuristic = heur_selection.get(name, "ksp_ff")
-        print(f"\n[{completed + skipped + failed + 1}/{len(large_topos)}] {name} "
-              f"(nodes={topo['num_nodes']}), load={target_load}, heuristic={best_heuristic}")
+        t_start = progress.item_start()
+        print(progress.header(
+            progress.processed + 1, name,
+            f"(nodes={topo['num_nodes']}), load={target_load}, heuristic={best_heuristic}"
+        ))
 
         # Clear the output file for a fresh run
         if output_file.exists():
@@ -106,7 +110,9 @@ def main():
                 results = parse_jsonl_blocking(temp_file)
                 if results:
                     bp = results[0]["blocking_mean"]
-                    print(f"-> BP={bp*100:.4f}%")
+                    timing_str = format_timing_breakdown(temp_file)
+                    timing_part = f"  [{timing_str}]" if timing_str else ""
+                    print(f"-> BP={bp*100:.4f}%{timing_part}")
 
                     # Append to consolidated output file
                     with open(temp_file) as f_in, open(output_file, "a") as f_out:
@@ -122,11 +128,12 @@ def main():
                 temp_file.unlink(missing_ok=True)
 
         if topo_failed:
-            failed += 1
+            progress.item_done(t_start, "failed")
         else:
-            completed += 1
+            progress.item_done(t_start, "completed")
+        print(f"  [wall={format_duration(progress._durations[-1])}]")
 
-    print(f"\nDone: {completed} completed, {skipped} skipped, {failed} failed")
+    print(f"\n{progress.summary_line()}")
 
 
 if __name__ == "__main__":

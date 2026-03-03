@@ -18,9 +18,12 @@ from config import (
     FULL_CUTSET_PARAMS,
     RESULTS_DIR,
     TARGET_BP,
+    ProgressTracker,
     build_command,
     compute_heuristic_gradient,
     estimate_next_load,
+    format_duration,
+    format_timing_breakdown,
     get_topology_list,
     load_load_ranges,
     parse_jsonl_blocking,
@@ -143,118 +146,101 @@ def main():
     output_dir.mkdir(parents=True, exist_ok=True)
     probe_dir.mkdir(parents=True, exist_ok=True)
 
-    completed = 0
-    skipped = 0
-    failed = 0
+    progress = ProgressTracker(len(topologies), "Phase 3")
 
     for topo in topologies:
         name = topo["topology_name"]
 
         if name not in ranges or ranges[name].get("status") == "failed":
             print(f"  Skipping {name}: no load range discovered")
-            failed += 1
+            progress.item_done(progress.item_start(), "failed")
             continue
 
         entry = ranges[name]
-        load_high = entry["load_high"]
+        load_high = entry.get("load_high", 0)
 
         if load_high <= 0:
             print(f"  Skipping {name}: invalid load_high={load_high}")
-            failed += 1
+            progress.item_done(progress.item_start(), "failed")
             continue
 
-        # --- Load existing probes if output file exists ---
-        output_file = output_dir / f"{name}.jsonl"
-        all_bps = []
-        probe_files = []
-
-        if output_file.exists() and output_file.stat().st_size > 0:
-            all_bps = load_existing_probes(output_file)
-            if has_bracket(all_bps):
-                skipped += 1
-                continue
-            print(f"\n[{completed + skipped + failed + 1}/{len(topologies)}] {name} "
-                  f"(resuming from {len(all_bps)} existing probes)")
-            for load, bp in all_bps:
-                print(f"  Existing: load={load} -> BP={bp*100:.4f}%")
-        else:
-            print(f"\n[{completed + skipped + failed + 1}/{len(topologies)}] {name}")
+        t_start = progress.item_start()
+        method = "exhaustive" if topo["num_nodes"] <= CUTSET_EXHAUSTIVE_MAX_NODES else "shortest-paths"
+        print(progress.header(progress.processed + 1, name, f"({method})"))
 
         gradient = compute_heuristic_gradient(entry)
-        probed_loads = {l for l, _ in all_bps}
-        start_probe = len(all_bps) + 1
+        output_file = output_dir / f"{name}.jsonl"
+        probe_files = []
 
-        # --- Probe loop ---
-        # Run up to MAX_PROBES, then up to 2 extra if still no bracket
-        max_this_run = MAX_PROBES + 2
+        # Resume: load existing probes from output file
+        all_bps = load_existing_probes(output_file)
+        existing_count = len(all_bps)
+        if existing_count > 0:
+            print(f"  Resuming with {existing_count} existing probes")
+            if has_bracket(all_bps):
+                print(f"  -> Already brackets 0.1%")
+                progress.item_done(t_start, "completed")
+                continue
+
+        # Adaptive probe loop
         consecutive_failures = 0
-        for probe_num in range(start_probe, max_this_run + 1):
-            # Stop at MAX_PROBES if we have a bracket; otherwise continue
-            if probe_num > MAX_PROBES and has_bracket(all_bps):
+        for probe_num in range(existing_count + 1, MAX_PROBES + 1):
+            if has_bracket(all_bps):
                 break
 
-            # Bail out if all probes so far have failed (topology is broken)
-            if consecutive_failures >= 2 and not all_bps:
-                print(f"  Giving up on {name}: {consecutive_failures} consecutive failures with no successful probes")
-                break
+            # Choose load
+            next_load = choose_next_load(all_bps, gradient)
+            if next_load is None:
+                next_load = load_high  # Fallback for first probe or empty results
 
-            # Choose load for this probe
-            if not all_bps:
-                # No successful probes yet — fall back to load_high
-                load = load_high
-            elif probe_num == 1:
-                load = load_high
-            elif len(all_bps) == 1:
-                # First adaptive probe — use gradient-based estimate
-                prev_load, prev_bp = all_bps[0]
-                load = estimate_next_load(prev_load, prev_bp, gradient)
-            else:
-                load = choose_next_load(all_bps, gradient)
+            # Skip if we already have this load
+            existing_loads = {l for l, _ in all_bps}
+            if next_load in existing_loads:
+                next_load = next_load + 1
 
-            # Skip if we've already probed this load
-            if load in probed_loads:
-                # Nudge slightly
-                load = load + 1
-            probed_loads.add(load)
+            probe_file = probe_dir / f"{name}_p{probe_num}.jsonl"
+            print(f"  Probe {probe_num}: load={next_load}", end=" ", flush=True)
 
-            p_file = probe_dir / f"{name}_p{probe_num}.jsonl"
-            print(f"  Probe {probe_num}: load={load}", end=" ", flush=True)
-            bp = run_cutset_probe(name, load, topo, p_file)
-
+            bp = run_cutset_probe(name, next_load, topo, probe_file)
             if bp is not None:
                 print(f"-> BP={bp*100:.4f}%")
-                probe_files.append(p_file)
-                all_bps.append((load, bp))
+                timing_str = format_timing_breakdown(probe_file)
+                if timing_str:
+                    print(f"    [{timing_str}]")
+                probe_files.append(probe_file)
+                all_bps.append((next_load, bp))
                 consecutive_failures = 0
             else:
                 print("-> FAILED")
-                p_file.unlink(missing_ok=True)
+                probe_file.unlink(missing_ok=True)
                 consecutive_failures += 1
+                if consecutive_failures >= 2 and not all_bps:
+                    print(f"  -> Bailing out after {consecutive_failures} consecutive failures with no data")
+                    break
 
-            # Check if we have a bracket
-            if has_bracket(all_bps):
-                break
-
-        # --- Append new probes to output file ---
-        with open(output_file, "a") as f_out:
-            for pf in probe_files:
-                if pf.exists():
+        # Append new probe data to output file
+        if probe_files:
+            with open(output_file, "a") as f_out:
+                for pf in probe_files:
                     with open(pf) as f_in:
                         for line in f_in:
                             f_out.write(line)
 
-        # Clean up probe files
-        for pf in probe_files:
-            pf.unlink(missing_ok=True)
+            # Clean up probe files
+            for pf in probe_files:
+                pf.unlink(missing_ok=True)
 
         if has_bracket(all_bps):
             print(f"  -> Brackets 0.1%")
-        else:
+        elif all_bps:
             print(f"  -> WARNING: Does not bracket 0.1% ({len(all_bps)} probes)")
+        else:
+            print(f"  -> No successful probes")
 
-        completed += 1
+        progress.item_done(t_start, "completed" if all_bps else "failed")
+        print(f"  [wall={format_duration(progress._durations[-1])}]")
 
-    print(f"\nDone: {completed} completed, {skipped} skipped, {failed} failed")
+    print(f"\n{progress.summary_line()}")
 
 
 if __name__ == "__main__":

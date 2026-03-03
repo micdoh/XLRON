@@ -16,8 +16,11 @@ from pathlib import Path
 from config import (
     QUICK_SCAN_PARAMS,
     RESULTS_DIR,
+    ProgressTracker,
     build_command,
     estimate_initial_load,
+    format_duration,
+    format_timing_breakdown,
     get_topology_list,
     load_heuristic_selection,
     load_load_ranges,
@@ -238,47 +241,52 @@ def main():
     probe_dir.mkdir(parents=True, exist_ok=True)
     heuristic_dir.mkdir(parents=True, exist_ok=True)
 
-    completed = 0
-    skipped = 0
-    failed = 0
+    progress = ProgressTracker(len(topologies), "Phase 1")
 
     for topo in topologies:
         name = topo["topology_name"]
 
         heuristic_file = heuristic_dir / f"{name}.jsonl"
         if name in ranges and heuristic_file.exists() and heuristic_file.stat().st_size > 0:
-            skipped += 1
+            progress.item_done(progress.item_start(), "skipped")
             continue
 
         # Respect existing heuristic selection from Phase 2 (e.g. ff_ksp)
         extra_flags = None
         selected = heur_selection.get(name)
+        extra = f"(nodes={topo['num_nodes']}, edges={topo['num_edges']})"
         if selected and selected != "ksp_ff":
             extra_flags = {"path_heuristic": selected}
-            print(f"\n[{completed + skipped + failed + 1}/{len(topologies)}] {name} "
-                  f"(nodes={topo['num_nodes']}, edges={topo['num_edges']}) "
-                  f"[using {selected} from Phase 2]")
-        else:
-            print(f"\n[{completed + skipped + failed + 1}/{len(topologies)}] {name} "
-                  f"(nodes={topo['num_nodes']}, edges={topo['num_edges']})")
+            extra += f" [using {selected} from Phase 2]"
+        print(progress.header(progress.processed + 1, name, extra))
 
+        t_start = progress.item_start()
         result = discover_bracket(name, topo, probe_dir, heuristic_dir,
                                   extra_flags=extra_flags)
         ranges[name] = result
         save_load_ranges(ranges)
 
+        # Print timing breakdown from the heuristic eval output
+        timing_str = format_timing_breakdown(heuristic_file)
+
         if result["status"] in ("ok", "ok_relaxed"):
             print(f"  -> load_low={result['load_low']} (BP={result['bp_low']*100:.4f}%), "
                   f"load_high={result['load_high']} (BP={result['bp_high']*100:.4f}%)")
-            completed += 1
+            progress.item_done(t_start, "completed")
         elif result["status"] in ("ultra-low-capacity", "ultra-high-capacity"):
             print(f"  -> {result['status']}: [{result.get('load_low', '?')}, {result.get('load_high', '?')}]")
-            completed += 1
+            progress.item_done(t_start, "completed")
         else:
             print(f"  -> FAILED")
-            failed += 1
+            progress.item_done(t_start, "failed")
 
-    print(f"\nDone: {completed} discovered, {skipped} skipped (already done), {failed} failed")
+        wall = format_duration(progress._durations[-1])
+        timing_parts = [f"wall={wall}"]
+        if timing_str:
+            timing_parts.append(timing_str)
+        print(f"  [{' | '.join(timing_parts)}]")
+
+    print(f"\n{progress.summary_line()}")
     print(f"Results saved to {RESULTS_DIR / 'load_ranges.json'}")
     print(f"Heuristic eval results saved to {heuristic_dir}/")
 

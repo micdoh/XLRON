@@ -3,6 +3,7 @@
 import json
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import numpy as np
@@ -228,6 +229,130 @@ def parse_jsonl_blocking(jsonl_path: str | Path) -> list[dict]:
                 "blocking_std": bp.get("std", 0),
             })
     return results
+
+
+def parse_jsonl_timing(jsonl_path: str | Path) -> dict:
+    """Extract compilation and execution times from a JSONL output file.
+
+    Returns dict with keys: compile_s, exec_s, fps (any may be None).
+    Sums across all entries in the file (e.g. multiple loads in a sweep).
+    """
+    compile_total = 0.0
+    exec_total = 0.0
+    fps_values = []
+    path = Path(jsonl_path)
+    if not path.exists():
+        return {"compile_s": None, "exec_s": None, "fps": None}
+
+    with open(path) as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            obj = json.loads(line)
+            timing = obj.get("timing", {})
+            if "compilation_time_s" in timing:
+                compile_total += timing["compilation_time_s"]
+            if "execution_time_s" in timing:
+                exec_total += timing["execution_time_s"]
+            if "fps" in timing:
+                fps_values.append(timing["fps"])
+
+    return {
+        "compile_s": compile_total or None,
+        "exec_s": exec_total or None,
+        "fps": np.mean(fps_values) if fps_values else None,
+    }
+
+
+def format_duration(seconds: float) -> str:
+    """Format seconds into a readable string like '2m 35s' or '1h 12m'."""
+    if seconds < 60:
+        return f"{seconds:.0f}s"
+    elif seconds < 3600:
+        m, s = divmod(int(seconds), 60)
+        return f"{m}m {s:02d}s"
+    else:
+        h, remainder = divmod(int(seconds), 3600)
+        m = remainder // 60
+        return f"{h}h {m:02d}m"
+
+
+def format_timing_breakdown(jsonl_path: str | Path) -> str:
+    """Return a compact timing string from JSONL output, e.g. 'compile=45s exec=12s 1.2M fps'."""
+    t = parse_jsonl_timing(jsonl_path)
+    parts = []
+    if t["compile_s"]:
+        parts.append(f"compile={format_duration(t['compile_s'])}")
+    if t["exec_s"]:
+        parts.append(f"exec={format_duration(t['exec_s'])}")
+    if t["fps"]:
+        if t["fps"] >= 1e6:
+            parts.append(f"{t['fps']/1e6:.1f}M fps")
+        elif t["fps"] >= 1e3:
+            parts.append(f"{t['fps']/1e3:.0f}K fps")
+        else:
+            parts.append(f"{t['fps']:.0f} fps")
+    return " | ".join(parts) if parts else ""
+
+
+class ProgressTracker:
+    """Track progress through a list of items with ETA estimation."""
+
+    def __init__(self, total: int, label: str = ""):
+        self.total = total
+        self.label = label
+        self.completed = 0
+        self.skipped = 0
+        self.failed = 0
+        self.start_time = time.time()
+        self._durations: list[float] = []
+
+    @property
+    def processed(self):
+        return self.completed + self.skipped + self.failed
+
+    def item_start(self) -> float:
+        """Call before processing an item. Returns start timestamp."""
+        return time.time()
+
+    def item_done(self, start: float, status: str = "completed"):
+        """Call after processing an item. Updates counters and records duration."""
+        duration = time.time() - start
+        if status == "completed":
+            self.completed += 1
+            self._durations.append(duration)
+        elif status == "skipped":
+            self.skipped += 1
+        elif status == "failed":
+            self.failed += 1
+            self._durations.append(duration)
+
+    def eta_str(self) -> str:
+        """Return ETA string based on average non-skipped item duration."""
+        remaining = self.total - self.processed
+        if not self._durations or remaining <= 0:
+            return ""
+        avg = np.mean(self._durations)
+        eta_s = avg * remaining
+        return f"ETA {format_duration(eta_s)}"
+
+    def summary_line(self) -> str:
+        """Return a one-line progress summary."""
+        elapsed = time.time() - self.start_time
+        parts = [f"Elapsed: {format_duration(elapsed)}"]
+        parts.append(f"{self.completed} completed, {self.skipped} skipped, {self.failed} failed")
+        eta = self.eta_str()
+        if eta:
+            parts.append(eta)
+        return " | ".join(parts)
+
+    def header(self, index: int, name: str, extra: str = "") -> str:
+        """Format a topology header line with progress counter and ETA."""
+        eta = self.eta_str()
+        eta_part = f"  {eta}" if eta else ""
+        extra_part = f" {extra}" if extra else ""
+        return f"\n[{index}/{self.total}] {name}{extra_part}{eta_part}"
 
 
 TARGET_BP = 0.001  # 0.1% blocking probability as a fraction

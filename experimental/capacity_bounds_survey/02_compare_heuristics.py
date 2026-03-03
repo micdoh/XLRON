@@ -13,7 +13,9 @@ import json
 from config import (
     QUICK_SCAN_PARAMS,
     RESULTS_DIR,
+    ProgressTracker,
     build_command,
+    format_duration,
     get_topology_list,
     load_heuristic_selection,
     load_load_ranges,
@@ -67,9 +69,7 @@ def main():
     # Build topology stats lookup (needed for Phase 1 re-run)
     topo_stats = {t["topology_name"]: t for t in topologies}
 
-    completed = 0
-    skipped = 0
-    failed = 0
+    progress = ProgressTracker(len(topologies), "Phase 2")
     switched = 0
 
     for topo in topologies:
@@ -77,13 +77,13 @@ def main():
 
         # Resume: skip if already selected
         if name in selection:
-            skipped += 1
+            progress.item_done(progress.item_start(), "skipped")
             continue
 
         # Need load_ranges entry from Phase 1
         if name not in ranges or ranges[name].get("status") == "failed":
             print(f"  Skipping {name}: no load range from Phase 1")
-            failed += 1
+            progress.item_done(progress.item_start(), "failed")
             continue
 
         entry = ranges[name]
@@ -94,10 +94,11 @@ def main():
             # Default to ksp_ff for edge cases
             selection[name] = "ksp_ff"
             save_heuristic_selection(selection)
-            completed += 1
+            progress.item_done(progress.item_start(), "completed")
             continue
 
-        print(f"\n[{completed + skipped + failed + 1}/{len(topologies)}] {name}")
+        t_start = progress.item_start()
+        print(progress.header(progress.processed + 1, name))
         print(f"  KSP-FF at load={load_high}: BP={bp_high*100:.4f}%")
 
         # Run FF-KSP probe at load_high
@@ -109,7 +110,8 @@ def main():
             selection[name] = "ksp_ff"
             save_heuristic_selection(selection)
             probe_file.unlink(missing_ok=True)
-            failed += 1
+            progress.item_done(t_start, "failed")
+            print(f"  [wall={format_duration(progress._durations[-1])}]")
             continue
 
         print(f"  FF-KSP at load={load_high}: BP={ff_ksp_bp*100:.4f}%")
@@ -152,9 +154,10 @@ def main():
             selection[name] = "ksp_ff"
 
         save_heuristic_selection(selection)
-        completed += 1
+        progress.item_done(t_start, "completed")
+        print(f"  [wall={format_duration(progress._durations[-1])}]")
 
-    print(f"\nDone: {completed} compared, {skipped} skipped, {failed} failed")
+    print(f"\n{progress.summary_line()}")
     print(f"Switched to FF-KSP: {switched} topologies")
     print(f"Selection saved to {RESULTS_DIR / 'heuristic_selection.json'}")
 

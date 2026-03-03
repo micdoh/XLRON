@@ -10,9 +10,12 @@ from config import (
     FULL_RR_PARAMS,
     RESULTS_DIR,
     TARGET_BP,
+    ProgressTracker,
     build_command,
     compute_heuristic_gradient,
     estimate_next_load,
+    format_duration,
+    format_timing_breakdown,
     get_topology_list,
     load_heuristic_selection,
     load_load_ranges,
@@ -58,21 +61,19 @@ def main():
     output_dir.mkdir(parents=True, exist_ok=True)
     probe_dir.mkdir(parents=True, exist_ok=True)
 
-    completed = 0
-    skipped = 0
-    failed = 0
+    progress = ProgressTracker(len(topologies), "Phase 4")
 
     for topo in topologies:
         name = topo["topology_name"]
 
         output_file = output_dir / f"{name}.jsonl"
         if output_file.exists() and output_file.stat().st_size > 0:
-            skipped += 1
+            progress.item_done(progress.item_start(), "skipped")
             continue
 
         if name not in ranges or ranges[name].get("status") == "failed":
             print(f"  Skipping {name}: no load range discovered")
-            failed += 1
+            progress.item_done(progress.item_start(), "failed")
             continue
 
         entry = ranges[name]
@@ -80,11 +81,12 @@ def main():
 
         if load_high <= 0:
             print(f"  Skipping {name}: invalid load_high={load_high}")
-            failed += 1
+            progress.item_done(progress.item_start(), "failed")
             continue
 
         best_heuristic = heur_selection.get(name, "ksp_ff")
-        print(f"\n[{completed + skipped + failed + 1}/{len(topologies)}] {name} (heuristic={best_heuristic})")
+        t_start = progress.item_start()
+        print(progress.header(progress.processed + 1, name, f"(heuristic={best_heuristic})"))
 
         gradient = compute_heuristic_gradient(entry)
         probe_files = []
@@ -98,9 +100,13 @@ def main():
         if bp1 is None:
             print("-> FAILED")
             p1_file.unlink(missing_ok=True)
-            failed += 1
+            progress.item_done(t_start, "failed")
+            print(f"  [wall={format_duration(progress._durations[-1])}]")
             continue
         print(f"-> BP={bp1*100:.4f}%")
+        timing_str = format_timing_breakdown(p1_file)
+        if timing_str:
+            print(f"    [{timing_str}]")
         probe_files.append(p1_file)
         all_bps.append((load_high, bp1))
 
@@ -112,6 +118,9 @@ def main():
 
         if bp2 is not None:
             print(f"-> BP={bp2*100:.4f}%")
+            timing_str = format_timing_breakdown(p2_file)
+            if timing_str:
+                print(f"    [{timing_str}]")
             probe_files.append(p2_file)
             all_bps.append((load2, bp2))
         else:
@@ -139,6 +148,9 @@ def main():
                 bp3 = run_rr_probe(name, load3, p3_file, heuristic=best_heuristic)
                 if bp3 is not None:
                     print(f"-> BP={bp3*100:.4f}%")
+                    timing_str = format_timing_breakdown(p3_file)
+                    if timing_str:
+                        print(f"    [{timing_str}]")
                     probe_files.append(p3_file)
                     all_bps.append((load3, bp3))
                 else:
@@ -164,9 +176,10 @@ def main():
         else:
             print(f"  -> WARNING: Does not bracket 0.1% ({len(all_bps)} probes)")
 
-        completed += 1
+        progress.item_done(t_start, "completed")
+        print(f"  [wall={format_duration(progress._durations[-1])}]")
 
-    print(f"\nDone: {completed} completed, {skipped} skipped, {failed} failed")
+    print(f"\n{progress.summary_line()}")
 
 
 if __name__ == "__main__":
