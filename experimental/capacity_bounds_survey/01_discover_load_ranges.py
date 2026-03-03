@@ -19,6 +19,7 @@ from config import (
     build_command,
     estimate_initial_load,
     get_topology_list,
+    load_heuristic_selection,
     load_load_ranges,
     parse_jsonl_blocking,
     run_command,
@@ -231,6 +232,7 @@ def main():
 
     topologies = get_topology_list()
     ranges = load_load_ranges()
+    heur_selection = load_heuristic_selection()
     probe_dir = RESULTS_DIR / "probes"
     heuristic_dir = RESULTS_DIR / "heuristic_eval"
     probe_dir.mkdir(parents=True, exist_ok=True)
@@ -248,10 +250,20 @@ def main():
             skipped += 1
             continue
 
-        print(f"\n[{completed + skipped + failed + 1}/{len(topologies)}] {name} "
-              f"(nodes={topo['num_nodes']}, edges={topo['num_edges']})")
+        # Respect existing heuristic selection from Phase 2 (e.g. ff_ksp)
+        extra_flags = None
+        selected = heur_selection.get(name)
+        if selected and selected != "ksp_ff":
+            extra_flags = {"path_heuristic": selected}
+            print(f"\n[{completed + skipped + failed + 1}/{len(topologies)}] {name} "
+                  f"(nodes={topo['num_nodes']}, edges={topo['num_edges']}) "
+                  f"[using {selected} from Phase 2]")
+        else:
+            print(f"\n[{completed + skipped + failed + 1}/{len(topologies)}] {name} "
+                  f"(nodes={topo['num_nodes']}, edges={topo['num_edges']})")
 
-        result = discover_bracket(name, topo, probe_dir, heuristic_dir)
+        result = discover_bracket(name, topo, probe_dir, heuristic_dir,
+                                  extra_flags=extra_flags)
         ranges[name] = result
         save_load_ranges(ranges)
 
