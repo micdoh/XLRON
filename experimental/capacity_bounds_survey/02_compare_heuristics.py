@@ -121,9 +121,11 @@ def main():
             selection[name] = "ff_ksp"
             switched += 1
 
-            # Delete old heuristic_eval data
+            # Rename old KSP-FF heuristic_eval data (keep for reference)
             old_heuristic_file = heuristic_dir / f"{name}.jsonl"
-            old_heuristic_file.unlink(missing_ok=True)
+            ksp_ff_archive = heuristic_dir / f"{name}_ksp_ff.jsonl"
+            if old_heuristic_file.exists():
+                old_heuristic_file.rename(ksp_ff_archive)
 
             # Remove old load_ranges entry so discover_bracket runs fresh
             del ranges[name]
