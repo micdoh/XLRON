@@ -78,7 +78,12 @@ def choose_next_load(all_bps, gradient):
     - If all probes are zero or below target: increase load.
     - If all probes are at/above target: decrease load.
     - For the first adaptive probe, use gradient-based estimate.
+
+    Returns None if all_bps is empty (caller should fall back to load_high).
     """
+    if not all_bps:
+        return None
+
     zero_loads = [l for l, bp in all_bps if bp <= 0]
     high_loads = [l for l, bp in all_bps if bp >= TARGET_BP]
     below_loads = [l for l, bp in all_bps if 0 < bp < TARGET_BP]
@@ -182,15 +187,24 @@ def main():
         # --- Probe loop ---
         # Run up to MAX_PROBES, then up to 2 extra if still no bracket
         max_this_run = MAX_PROBES + 2
+        consecutive_failures = 0
         for probe_num in range(start_probe, max_this_run + 1):
             # Stop at MAX_PROBES if we have a bracket; otherwise continue
             if probe_num > MAX_PROBES and has_bracket(all_bps):
                 break
 
+            # Bail out if all probes so far have failed (topology is broken)
+            if consecutive_failures >= 2 and not all_bps:
+                print(f"  Giving up on {name}: {consecutive_failures} consecutive failures with no successful probes")
+                break
+
             # Choose load for this probe
-            if probe_num == 1:
+            if not all_bps:
+                # No successful probes yet — fall back to load_high
                 load = load_high
-            elif probe_num == 2 and len(all_bps) == 1:
+            elif probe_num == 1:
+                load = load_high
+            elif len(all_bps) == 1:
                 # First adaptive probe — use gradient-based estimate
                 prev_load, prev_bp = all_bps[0]
                 load = estimate_next_load(prev_load, prev_bp, gradient)
@@ -211,9 +225,11 @@ def main():
                 print(f"-> BP={bp*100:.4f}%")
                 probe_files.append(p_file)
                 all_bps.append((load, bp))
+                consecutive_failures = 0
             else:
                 print("-> FAILED")
                 p_file.unlink(missing_ok=True)
+                consecutive_failures += 1
 
             # Check if we have a bracket
             if has_bracket(all_bps):
