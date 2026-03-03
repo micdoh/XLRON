@@ -191,7 +191,7 @@ def get_eval_fn(config, env, env_params, compile_defrag=False) -> Callable:
 
     if compile_defrag:
         # --- Compiled path: full main loop as jax.lax.scan ---
-        max_active = max(1, int(config.load * 3))
+        max_active = max(1, int(config.load * 2))
 
         total_ts = int(config.TOTAL_TIMESTEPS)
 
@@ -224,31 +224,32 @@ def get_eval_fn(config, env, env_params, compile_defrag=False) -> Callable:
                 [trimmed[:, :3], arrival_times, holding_times, current_times], axis=1
             )
 
-        def _env_episode_defrag(runner_state):
-            """Defrag episode: scan for max_active steps."""
+        def _env_episode_defrag(runner_state, trimmed_requests):
+            """Defrag episode: while_loop that exits early on first blocking
+            event or when all active requests (bitrate > 0) have been placed."""
 
-            def _env_step(runner_state, unused):
-                env_state, last_obs, rng = runner_state
-                rng, action_key, step_key = jax.random.split(rng, 3)
+            def cond_fn(state):
+                env_state, obs, rng, step_idx, any_blocked = state
+                within_bounds = step_idx < max_active
+                has_active_request = trimmed_requests[step_idx, 1] > 0
+                return within_bounds & (~any_blocked) & has_active_request
+
+            def body_fn(state):
+                env_state, obs, rng, step_idx, any_blocked = state
+                rng, _action_key, step_key = jax.random.split(rng, 3)
                 inner_state = env_state.env_state
-                action = jit_profiler.call(
-                    profile, select_action, inner_state, env_params, name="select_action_defrag"
-                )
-                obsv, new_inner_state, reward, terminal, truncated, info = jit_profiler.call(
-                    profile,
-                    raw_env.step_env,
-                    step_key,
-                    inner_state,
-                    action,
-                    env_params,
-                    name="step_env_defrag",
+                action = select_action(inner_state, env_params)
+                obsv, new_inner_state, reward, terminal, truncated, info = (
+                    raw_env.step_env(step_key, inner_state, action, env_params)
                 )
                 env_state = env_state.replace(env_state=new_inner_state)
-                blocking = reward < 0
-                return (env_state, obsv, rng), blocking
+                blocked = reward < 0
+                return (env_state, obsv, rng, step_idx + 1, any_blocked | blocked)
 
-            runner_state, blocking_events = jax.lax.scan(_env_step, runner_state, None, max_active)
-            return runner_state[0], blocking_events
+            env_state, obs, rng = runner_state
+            init_state = (env_state, obs, rng, jnp.int32(0), jnp.bool_(False))
+            final_state = jax.lax.while_loop(cond_fn, body_fn, init_state)
+            return final_state[0], final_state[4]  # env_state, any_blocked
 
         def run_defrag_trimmed(rng, sorted_requests, sort_index, init_obs, defrag_initial_state):
             """Run defrag with trimmed active requests (max_active steps).
@@ -286,8 +287,7 @@ def get_eval_fn(config, env, env_params, compile_defrag=False) -> Callable:
                 )
             )
             runner_state = (defrag_state, init_obs, rng)
-            final_state, blocking_events = _env_episode_defrag(runner_state)
-            blocking = jnp.any(blocking_events)
+            final_state, blocking = _env_episode_defrag(runner_state, trimmed)
 
             val = jnp.where(blocking, 0, sorted_requests[sort_index, 1])
             sorted_requests = sorted_requests.at[sort_index, 1].set(val)
@@ -571,7 +571,7 @@ def main(argv):
             main_loop_fn, defrag_fn = get_eval_fn(FLAGS, env, env_params, compile_defrag=compile_defrag)
             FLAGS.__setattr__("load", load_val)  # Restore actual load
             if compile_defrag:
-                max_active = max(1, int(effective_max_load * 3))
+                max_active = max(1, int(effective_max_load * 2))
                 defrag_list = jnp.zeros((max_active, 6), dtype=request_array.dtype)
                 defrag_initial_state = initial_state.replace(
                     env_state=initial_state.env_state.replace(list_of_requests=defrag_list)
