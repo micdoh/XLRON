@@ -110,7 +110,7 @@ def main():
                 output_file=str(temp_file),
             )
 
-            result = run_command(cmd, timeout=7200)
+            result = run_command(cmd, timeout=14400)
 
             if result.returncode == 0:
                 # Read the result and append to the main output file

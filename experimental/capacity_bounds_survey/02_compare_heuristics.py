@@ -32,7 +32,7 @@ def save_heuristic_selection(selection: dict):
         json.dump(selection, f, indent=2)
 
 
-def run_single_probe(topology, load, heuristic, probe_file, timeout=3600):
+def run_single_probe(topology, load, heuristic, probe_file, timeout=12000):
     """Run heuristic eval at a single load point. Returns blocking_mean or None."""
     cmd = build_command(
         script="xlron.train.train",
