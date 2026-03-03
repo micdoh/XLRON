@@ -530,67 +530,69 @@ def main(argv):
         total_compilation_time = 0.0
         total_execution_time = 0.0
 
+        # --- One-time setup: create env/params, eval functions, compile ---
+        print("  Setting up environment (once)...", flush=True)
+        FLAGS.__setattr__("deterministic_requests", False)
+        FLAGS.__setattr__("load", load_val)
+        env, env_params = make(FLAGS)
+        raw_env = env._env if hasattr(env, "_env") else env
+        # Create deterministic params via replace (avoids recomputing k-shortest paths)
+        env_params_det = env_params.replace(deterministic_requests=True)
+
+        compile_defrag = bool(FLAGS.COMPILE_RR_BOUNDS)
+        # Use effective_max_load for max_active sizing
+        FLAGS.__setattr__("load", effective_max_load)
+        main_loop_fn, defrag_fn = get_eval_fn(FLAGS, env, env_params_det, compile_defrag=compile_defrag)
+        FLAGS.__setattr__("load", load_val)  # Restore actual load
+
+        compiled_main = None  # AOT-compiled on first seed
+
         num_seeds = 1 if profile else FLAGS.num_trials
         for seed in range(num_seeds):
-            print(f"  Seed {seed + 1}/{num_seeds}: setting up environment...", flush=True)
+            print(f"  Seed {seed + 1}/{num_seeds}: generating requests...", flush=True)
 
-            # Define environment
-            FLAGS.__setattr__("deterministic_requests", False)
-            # Set load for request generation (affects arrival_rate in state)
-            FLAGS.__setattr__("load", load_val)
-            env, env_params = make(FLAGS)
-
-            # Generate requests for parallel envs
+            # Generate requests with random params
             rng = jax.random.PRNGKey(seed)
             setup_key = jax.random.split(rng, 1)[0]
             init_obs, env_state = env.reset(setup_key, env_params)
             request_array = generate_request_list(
                 setup_key, FLAGS.TOTAL_TIMESTEPS, env_state, env_params
             )
-            # Define env again but this time with deterministic requests
-            FLAGS.__setattr__("deterministic_requests", True)
-            env, env_params = make(FLAGS)
-            raw_env = env._env if hasattr(env, "_env") else env
-            # Set the requests arrays for each state
+            # Set the requests arrays for each state (using deterministic params)
             inner_state = env_state.env_state.replace(list_of_requests=request_array)
-            inner_state = generate_request_rsa(setup_key, inner_state, env_params)
+            inner_state = generate_request_rsa(setup_key, inner_state, env_params_det)
             env_state = env_state.replace(env_state=inner_state)
             initial_state = copy.deepcopy(env_state)
 
-            sorted_requests, sort_indices = sort_requests(request_array, env_params)
+            sorted_requests, sort_indices = sort_requests(request_array, env_params_det)
 
-            # Define the heuristic evaluation function
             env_key = jax.random.split(rng, 1)[0]
-            compile_defrag = bool(FLAGS.COMPILE_RR_BOUNDS)
-            print(
-                f"  Seed {seed + 1}/{num_seeds}: compiling (compile_defrag={compile_defrag})...",
-                flush=True,
-            )
-            # Use effective_max_load for max_active sizing
-            FLAGS.__setattr__("load", effective_max_load)
-            main_loop_fn, defrag_fn = get_eval_fn(FLAGS, env, env_params, compile_defrag=compile_defrag)
-            FLAGS.__setattr__("load", load_val)  # Restore actual load
             if compile_defrag:
                 max_active = max(1, int(effective_max_load * 2))
                 defrag_list = jnp.zeros((max_active, 6), dtype=request_array.dtype)
                 defrag_initial_state = initial_state.replace(
                     env_state=initial_state.env_state.replace(list_of_requests=defrag_list)
                 )
-                with TimeIt(tag="MAIN LOOP COMPILATION") as comp_timer:
-                    compiled_main = (
-                        jax.jit(main_loop_fn)
-                        .lower(
-                            env_key,
-                            env_state,
-                            sorted_requests,
-                            init_obs,
-                            request_array,
-                            defrag_initial_state,
-                            sort_indices,
-                        )
-                        .compile()
+                if compiled_main is None:
+                    print(
+                        f"  Seed {seed + 1}/{num_seeds}: compiling main loop (once)...",
+                        flush=True,
                     )
-                total_compilation_time += comp_timer.elapsed_secs
+                    with TimeIt(tag="MAIN LOOP COMPILATION") as comp_timer:
+                        compiled_main = (
+                            jax.jit(main_loop_fn)
+                            .lower(
+                                env_key,
+                                env_state,
+                                sorted_requests,
+                                init_obs,
+                                request_array,
+                                defrag_initial_state,
+                                sort_indices,
+                            )
+                            .compile()
+                        )
+                    total_compilation_time += comp_timer.elapsed_secs
 
                 print(
                     f"  Seed {seed + 1}/{num_seeds}: running {int(FLAGS.TOTAL_TIMESTEPS)} timesteps (compiled)...",
@@ -623,7 +625,7 @@ def main(argv):
             else:
                 run_defrag = defrag_fn
                 with TimeIt(tag="STEP ENV COMPILATION") as comp_timer:
-                    step_env.lower(env_key, raw_env, env_state, env_params, profile).compile()
+                    step_env.lower(env_key, raw_env, env_state, env_params_det, profile).compile()
                 total_compilation_time += comp_timer.elapsed_secs
 
                 jit_profiler.reset()
@@ -646,7 +648,7 @@ def main(argv):
                     for i in pbar:
                         t0 = _time.time()
                         obsv, env_state, reward, terminal, truncated, info = step_env(
-                            env_key, raw_env, env_state, env_params, profile
+                            env_key, raw_env, env_state, env_params_det, profile
                         )
                         step_time_total += _time.time() - t0
                         blocking = 1 if reward < 0 else 0

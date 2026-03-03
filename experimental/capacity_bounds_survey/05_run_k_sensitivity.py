@@ -57,12 +57,21 @@ def main():
     for topo in large_topos:
         name = topo["topology_name"]
 
-        # Check if already done
+        # Check which K values are already done
         output_file = output_dir / f"{name}.jsonl"
+        completed_k = set()
         if output_file.exists() and output_file.stat().st_size > 0:
-            # Check if all K values are present
-            existing = parse_jsonl_blocking(output_file)
-            if len(existing) >= len(K_SENSITIVITY_VALUES):
+            with open(output_file) as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    obj = json.loads(line)
+                    k_done = obj.get("config", {}).get("k")
+                    if k_done is not None:
+                        completed_k.add(int(k_done))
+
+            if completed_k >= set(K_SENSITIVITY_VALUES):
                 progress.item_done(progress.item_start(), "skipped")
                 continue
 
@@ -74,17 +83,15 @@ def main():
 
         best_heuristic = heur_selection.get(name, "ksp_ff")
         t_start = progress.item_start()
+        remaining_k = [k for k in K_SENSITIVITY_VALUES if k not in completed_k]
         print(progress.header(
             progress.processed + 1, name,
             f"(nodes={topo['num_nodes']}), load={target_load}, heuristic={best_heuristic}"
+            + (f", resuming ({len(completed_k)}/{len(K_SENSITIVITY_VALUES)} done)" if completed_k else "")
         ))
 
-        # Clear the output file for a fresh run
-        if output_file.exists():
-            output_file.unlink()
-
         topo_failed = False
-        for k_val in K_SENSITIVITY_VALUES:
+        for k_val in remaining_k:
             # Each K value is a separate run (different compilation)
             temp_file = output_dir / f"{name}_k{k_val}.jsonl"
 

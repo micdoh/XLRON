@@ -1,9 +1,11 @@
 """Phase 4: Run reconfigurable routing bounds with adaptive load selection.
 
-RR bounds always have higher capacity than the heuristic (lower blocking
-at the same load). The first probe at heuristic's load_high will typically
-show blocking below 0.1%, and we use the heuristic gradient to estimate
-where RR bounds cross 0.1%.
+Strategy:
+1. Single-trial probes starting at heuristic's load_high, incrementing ~10%.
+2. Any probe with blocking > 0% but <= 1% is selected for a full 10-trial run.
+3. If a probe shows blocking > 1%, scale back (too expensive due to defrag).
+4. Stop probing once blocking exceeds 0.1% (TARGET_BP).
+5. Full 10-trial runs at selected loads produce the actual data.
 """
 
 from config import (
@@ -12,8 +14,6 @@ from config import (
     TARGET_BP,
     ProgressTracker,
     build_command,
-    compute_heuristic_gradient,
-    estimate_next_load,
     format_duration,
     format_timing_breakdown,
     get_topology_list,
@@ -23,25 +23,31 @@ from config import (
     run_command,
 )
 
+MAX_PROBES = 30
+LOAD_INCREMENT = 1.10  # 10% increment between probes
+SCALE_BACK_FACTOR = 0.95  # 5% reduction when blocking > 1%
+MAX_BLOCKING_FOR_FULL_RUN = 0.01  # 1% - don't do full runs above this
 
-def run_rr_probe(name, load, probe_file, heuristic="ksp_ff", timeout=14400):
+
+def run_rr(name, load, output_file, heuristic="ksp_ff", num_trials=1, timeout=14400):
     """Run RR bounds at a single load and return blocking probability."""
     extra_flags = dict(FULL_RR_PARAMS)
     extra_flags["load"] = load
     extra_flags["path_heuristic"] = heuristic
+    extra_flags["num_trials"] = num_trials
 
     cmd = build_command(
         script="xlron/bounds/reconfigurable_routing_bounds.py",
         topology=name,
         extra_flags=extra_flags,
-        output_file=str(probe_file),
+        output_file=str(output_file),
     )
 
     result = run_command(cmd, timeout=timeout)
     if result.returncode != 0:
         return None
 
-    results = parse_jsonl_blocking(probe_file)
+    results = parse_jsonl_blocking(output_file)
     if not results:
         return None
 
@@ -88,95 +94,107 @@ def main():
         t_start = progress.item_start()
         print(progress.header(progress.processed + 1, name, f"(heuristic={best_heuristic})"))
 
-        gradient = compute_heuristic_gradient(entry)
-        probe_files = []
-        all_bps = []  # (load, bp) pairs
+        # =============================================================
+        # Phase 1: Cheap single-trial probes to find loads with blocking
+        # =============================================================
+        print("  --- Phase 1: Single-trial probes ---")
+        current_load = load_high
+        probe_num = 0
+        selected_loads = []  # loads to do full 10-trial runs at
+        probed_loads = set()  # prevent re-probing the same rounded load
+        phase1_failed = False
 
-        # --- Probe 1: run at heuristic's load_high ---
-        p1_file = probe_dir / f"{name}_p1.jsonl"
-        print(f"  Probe 1: load={load_high}", end=" ", flush=True)
-        bp1 = run_rr_probe(name, load_high, p1_file, heuristic=best_heuristic)
+        while probe_num < MAX_PROBES:
+            # Avoid re-probing the same load (rounding can cause duplicates)
+            if current_load in probed_loads:
+                current_load = round(current_load * 1.05)
+                if current_load in probed_loads:
+                    break
+            probed_loads.add(current_load)
 
-        if bp1 is None:
-            print("-> FAILED")
-            p1_file.unlink(missing_ok=True)
+            probe_num += 1
+            pfile = probe_dir / f"{name}_probe{probe_num}.jsonl"
+            print(f"  Probe {probe_num}: load={current_load}", end=" ", flush=True)
+            bp = run_rr(name, current_load, pfile, heuristic=best_heuristic, num_trials=1)
+
+            if bp is None:
+                print("-> FAILED")
+                pfile.unlink(missing_ok=True)
+                phase1_failed = True
+                break
+
+            print(f"-> BP={bp*100:.4f}%")
+            pfile.unlink(missing_ok=True)
+
+            if bp > MAX_BLOCKING_FOR_FULL_RUN:
+                # > 1% blocking - too expensive for defrag, scale back
+                print(f"    Blocking > 1%, scaling back")
+                current_load = max(round(current_load * SCALE_BACK_FACTOR), 1)
+                continue
+
+            if bp > 0:
+                # Blocking detected but <= 1% - select for full run
+                selected_loads.append(current_load)
+
+            if bp >= TARGET_BP:
+                # Found our target - done probing
+                print(f"    Found load above {TARGET_BP*100:.1f}% target")
+                break
+
+            # Not at target yet - increment load by ~10%
+            current_load = round(current_load * LOAD_INCREMENT)
+
+        if phase1_failed and not selected_loads:
             progress.item_done(t_start, "failed")
             print(f"  [wall={format_duration(progress._durations[-1])}]")
             continue
-        print(f"-> BP={bp1*100:.4f}%")
-        timing_str = format_timing_breakdown(p1_file)
-        if timing_str:
-            print(f"    [{timing_str}]")
-        probe_files.append(p1_file)
-        all_bps.append((load_high, bp1))
 
-        # --- Probe 2: estimate load on other side of 0.1% ---
-        load2 = estimate_next_load(load_high, bp1, gradient)
-        p2_file = probe_dir / f"{name}_p2.jsonl"
-        print(f"  Probe 2: load={load2}", end=" ", flush=True)
-        bp2 = run_rr_probe(name, load2, p2_file, heuristic=best_heuristic)
+        if not selected_loads:
+            print(f"  WARNING: No loads with blocking > 0% found in {probe_num} probes")
+            progress.item_done(t_start, "failed")
+            print(f"  [wall={format_duration(progress._durations[-1])}]")
+            continue
 
-        if bp2 is not None:
-            print(f"-> BP={bp2*100:.4f}%")
-            timing_str = format_timing_breakdown(p2_file)
-            if timing_str:
-                print(f"    [{timing_str}]")
-            probe_files.append(p2_file)
-            all_bps.append((load2, bp2))
-        else:
-            print("-> FAILED")
-            p2_file.unlink(missing_ok=True)
+        # =============================================================
+        # Phase 2: Full 10-trial runs at selected loads
+        # =============================================================
+        selected_loads = sorted(set(selected_loads))
+        print(f"  --- Phase 2: Full 10-trial runs at {len(selected_loads)} load(s): {selected_loads} ---")
+        full_files = []
 
-        # --- Check bracket ---
-        has_lower = any(0 < bp < TARGET_BP for _, bp in all_bps)
-        has_upper = any(bp >= TARGET_BP for _, bp in all_bps)
+        for load in selected_loads:
+            full_file = probe_dir / f"{name}_full_{load}.jsonl"
+            print(f"  Full run: load={load} (10 trials)", end=" ", flush=True)
+            bp = run_rr(name, load, full_file, heuristic=best_heuristic, num_trials=10)
 
-        # --- Probe 3 (fallback if no bracket) ---
-        if not (has_lower and has_upper) and len(all_bps) >= 2:
-            if not has_upper:
-                highest_load = max(l for l, _ in all_bps)
-                load3 = round(highest_load * 2)
-            elif not has_lower:
-                lowest_load = min(l for l, _ in all_bps)
-                load3 = max(round(lowest_load * 0.5), 1)
+            if bp is not None:
+                print(f"-> BP={bp*100:.4f}%")
+                timing_str = format_timing_breakdown(full_file)
+                if timing_str:
+                    print(f"    [{timing_str}]")
+                full_files.append(full_file)
             else:
-                load3 = None
+                print("-> FAILED")
+                full_file.unlink(missing_ok=True)
 
-            if load3 is not None:
-                p3_file = probe_dir / f"{name}_p3.jsonl"
-                print(f"  Probe 3: load={load3}", end=" ", flush=True)
-                bp3 = run_rr_probe(name, load3, p3_file, heuristic=best_heuristic)
-                if bp3 is not None:
-                    print(f"-> BP={bp3*100:.4f}%")
-                    timing_str = format_timing_breakdown(p3_file)
-                    if timing_str:
-                        print(f"    [{timing_str}]")
-                    probe_files.append(p3_file)
-                    all_bps.append((load3, bp3))
-                else:
-                    print("-> FAILED")
-                    p3_file.unlink(missing_ok=True)
+        # Combine full run results into output
+        if full_files:
+            with open(output_file, "w") as f_out:
+                for ff in full_files:
+                    with open(ff) as f_in:
+                        for line in f_in:
+                            f_out.write(line)
 
-        # --- Combine probes into output ---
-        with open(output_file, "w") as f_out:
-            for pf in probe_files:
-                with open(pf) as f_in:
-                    for line in f_in:
-                        f_out.write(line)
+            # Clean up
+            for ff in full_files:
+                ff.unlink(missing_ok=True)
 
-        # Clean up probe files
-        for pf in probe_files:
-            pf.unlink(missing_ok=True)
-
-        has_lower = any(0 < bp < TARGET_BP for _, bp in all_bps)
-        has_upper = any(bp >= TARGET_BP for _, bp in all_bps)
-
-        if has_lower and has_upper:
-            print(f"  -> Brackets 0.1%")
+            print(f"  -> Wrote {len(full_files)} load(s) to {output_file.name}")
+            progress.item_done(t_start, "completed")
         else:
-            print(f"  -> WARNING: Does not bracket 0.1% ({len(all_bps)} probes)")
+            print(f"  -> All full runs failed")
+            progress.item_done(t_start, "failed")
 
-        progress.item_done(t_start, "completed")
         print(f"  [wall={format_duration(progress._durations[-1])}]")
 
     print(f"\n{progress.summary_line()}")
