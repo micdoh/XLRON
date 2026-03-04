@@ -850,7 +850,7 @@ def init_path_se_array(path_length_array: Array, modulations_array: Array) -> Ar
     indices = np.searchsorted(max_lengths, path_lengths, side="left")
     # Clamp to valid range (paths longer than all modulations get the last one)
     indices = np.clip(indices, 0, len(se_values) - 1)
-    return jnp.array(se_values[indices], dtype=dtype_config.SMALL_INT_DTYPE)
+    return se_values[indices].astype(np.int8)
 
 
 def init_list_of_requests(num_requests: int = 1000) -> Array:
