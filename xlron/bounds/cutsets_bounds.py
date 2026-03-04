@@ -40,20 +40,27 @@ FLAGS = flags.FLAGS
 
 def get_weighted_traffic_matrix(graph, params):
     n_nodes = len(graph.nodes())
-    traffic_matrix = jnp.zeros((n_nodes, n_nodes))
-    for s in range(n_nodes):
-        for d in range(n_nodes):
-            if s != d:
-                nodes = jnp.array([s, d])
-                se = get_paths_se(params, nodes)
-                traffic_matrix = jax.lax.dynamic_update_slice(
-                    traffic_matrix, jnp.array(1 / se[0]).reshape((1, 1)), (s, d)
-                )
-            else:
-                traffic_matrix = jax.lax.dynamic_update_slice(
-                    traffic_matrix, jnp.array(0.0).reshape((1, 1)), (s, d)
-                )
-    return traffic_matrix
+
+    # path_se_array is flat with one SE per path, grouped in blocks of k.
+    # We want the SE of the first (shortest) path for each (s,d) pair.
+    se_array = np.asarray(params.path_se_array.val)
+    k = params.k_paths
+    num_pairs = se_array.shape[0] // k
+    first_se_per_pair = se_array.reshape(num_pairs, k)[:, 0]  # (num_pairs,)
+
+    # Upper-triangular (s < d) pairs in row-major order
+    src_upper, dst_upper = np.triu_indices(n_nodes, k=1)
+
+    traffic_matrix = np.zeros((n_nodes, n_nodes), dtype=np.float64)
+    if params.directed_graph:
+        half = num_pairs // 2
+        traffic_matrix[src_upper, dst_upper] = 1.0 / first_se_per_pair[:half]
+        traffic_matrix[dst_upper, src_upper] = 1.0 / first_se_per_pair[half:]
+    else:
+        traffic_matrix[src_upper, dst_upper] = 1.0 / first_se_per_pair
+        traffic_matrix[dst_upper, src_upper] = 1.0 / first_se_per_pair
+
+    return jnp.array(traffic_matrix)
 
 
 @partial(jax.jit, static_argnums=(1,))
@@ -320,18 +327,32 @@ def build_best_se_matrix(params):
         best_se: (num_nodes, num_nodes) int array of SE values.
     """
     num_nodes = params.num_nodes
-    best_se = np.ones((num_nodes, num_nodes), dtype=np.int32)
 
     if not params.consider_modulation_format:
-        return jnp.array(best_se)
+        return jnp.ones((num_nodes, num_nodes), dtype=jnp.int32)
 
-    for s in range(num_nodes):
-        for d in range(num_nodes):
-            if s == d:
-                continue
-            nodes = jnp.array([s, d])
-            se_vals = get_paths_se(params, nodes)  # (k,)
-            best_se[s, d] = int(jnp.max(se_vals))
+    # path_se_array is a flat 1D array with one SE value per path.
+    # For undirected: N*(N-1)/2 * k paths; for directed: N*(N-1) * k paths.
+    # Reshape to (num_pairs, k) and take max over k to get best SE per pair.
+    se_array = np.asarray(params.path_se_array.val)
+    k = params.k_paths
+    num_pairs = se_array.shape[0] // k
+    se_per_pair = se_array.reshape(num_pairs, k).max(axis=1)  # (num_pairs,)
+
+    # Build (src, dst) index arrays matching get_path_indices triangular ordering
+    # Upper-triangular pairs (s < d) in row-major order
+    src_upper, dst_upper = np.triu_indices(num_nodes, k=1)
+
+    best_se = np.ones((num_nodes, num_nodes), dtype=np.int32)
+    if params.directed_graph:
+        # First half: s<d pairs (forward), second half: s>d pairs (backward)
+        half = num_pairs // 2
+        best_se[src_upper, dst_upper] = se_per_pair[:half]
+        best_se[dst_upper, src_upper] = se_per_pair[half:]
+    else:
+        # Symmetric: same SE for (s,d) and (d,s)
+        best_se[src_upper, dst_upper] = se_per_pair
+        best_se[dst_upper, src_upper] = se_per_pair
 
     return jnp.array(best_se, dtype=jnp.int32)
 
@@ -1053,12 +1074,14 @@ def run_capacity_bound_simulation(
             neglect_spectrum_continuity,
         )
 
+    print("Lowering and compiling simulation (this may take a while)...")
     with profiler.section("COMPILATION"):
         jitted_single = (
             jax.jit(jax.vmap(single, in_axes=(0, None)))
             .lower(trial_rngs, base_initial_state)
             .compile()
         )
+    print("  Compilation done.")
 
     results = {}
     for load_idx, load_val in enumerate(loads):
@@ -1168,7 +1191,9 @@ def main(argv):
     destination_nodes_np = jnp.array([edge[1] for edge in edges])
     adj_matrix = nx.adjacency_matrix(graph, weight="").todense()
 
+    print("Building weighted traffic matrix...")
     traffic_matrix_weighted = get_weighted_traffic_matrix(graph, params)
+    print("  Done.")
     traffic_matrix_weighted = normalise_traffic_matrix(traffic_matrix_weighted)
     traffic_matrix_haw = HashableArrayWrapper(traffic_matrix_weighted)
     adj_matrix_haw = HashableArrayWrapper(jnp.array(adj_matrix))
@@ -1323,6 +1348,7 @@ def main(argv):
     # --- Build best SE matrix for RMSA ---
     print("Building best spectral efficiency matrix...")
     best_se_matrix = build_best_se_matrix(params)
+    print("  Done building SE matrix.")
     if params.consider_modulation_format:
         print(
             f"  SE range: {int(jnp.min(best_se_matrix[best_se_matrix > 0]))} - {int(jnp.max(best_se_matrix))}"
