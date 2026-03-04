@@ -10,11 +10,12 @@ so the search adapts to whichever direction is needed.
 Uses up to MAX_PROBES adaptive probes per topology. Resumes from existing
 probe data if the output file already contains partial results.
 
-Selects CUTSET_EXHAUSTIVE for topologies with <= 30 nodes,
+Selects CUTSET_EXHAUSTIVE for topologies with <= CUTSET_EXHAUSTIVE_MAX_NODES nodes,
 shortest-paths method for larger topologies.
 """
 
 from config import (
+    CUTSET_EXHAUSTIVE_MAX_NODES,
     FULL_CUTSET_PARAMS,
     RESULTS_DIR,
     TARGET_BP,
@@ -29,9 +30,6 @@ from config import (
     parse_jsonl_blocking,
     run_command,
 )
-
-
-CUTSET_EXHAUSTIVE_MAX_NODES = 30
 MAX_PROBES = 5
 
 

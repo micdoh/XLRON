@@ -48,6 +48,7 @@ FULL_HEURISTIC_PARAMS = {
 }
 
 # Cut-set bounds parameters
+CUTSET_EXHAUSTIVE_MAX_NODES = 15  # Use exhaustive search for topologies with <= this many nodes
 FULL_CUTSET_PARAMS = {
     "max_requests": 13000,
     "num_trials": 10,
