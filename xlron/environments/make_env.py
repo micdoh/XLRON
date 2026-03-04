@@ -532,6 +532,7 @@ def make(
             )
         modulations_array = modulations_array.astype(dtype_config.LARGE_FLOAT_DTYPE)
         if path_sort_criteria != "distance":  # If paths aren't to be sorted by distance alone
+            print("  Computing modulation-aware path sort...")
             path_link_array = init_path_link_array(
                 graph,
                 k,
@@ -543,6 +544,7 @@ def make(
                 topology_name=topology_name,
                 cache_dir=KSP_CACHE_DIR,
             )
+        print("  Computing path lengths and SE array...")
         path_length_array = init_path_length_array(path_link_array, graph)
         path_se_array = init_path_se_array(path_length_array, modulations_array)
         min_se = min(path_se_array)  # if consider_modulation_format
@@ -593,11 +595,13 @@ def make(
         path_link_array = path_link_array.astype(dtype_config.LARGE_INT_DTYPE)
         path_link_array = jnp.packbits(path_link_array, axis=1)
 
+    print("  Computing Laplacian matrix...")
     laplacian_matrix = (
         jnp.array(nx.directed_laplacian_matrix(graph))
         if graph.is_directed()
         else jnp.array(nx.laplacian_matrix(graph).todense())
     )
+    print("  Done.")
 
     # Compute line graph spectral features for transformer WiRE positional encodings
     num_wire_features = config.get("num_wire_features", 8)
