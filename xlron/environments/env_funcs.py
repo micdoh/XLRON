@@ -495,7 +495,7 @@ def init_path_link_array(
         if cache_path.exists():
             print(f"  Loading cached KSP array from {cache_path.name}")
             data = np.load(cache_path)
-            return jnp.array(data["arr"], dtype=dtype_config.BINARY_DTYPE)
+            return np.array(data["arr"], dtype=np.int8)
         print(f"  KSP cache miss — computing paths (will save to {cache_path.name})")
         
     assert path_sort_criteria in [
@@ -618,7 +618,7 @@ def init_path_link_array(
         np.savez_compressed(cache_path, arr=all_link_usage)
         print(f"  Saved KSP cache to {cache_path.name} ({cache_path.stat().st_size / 1e6:.1f} MB)")
 
-    return jnp.array(all_link_usage, dtype=dtype_config.BINARY_DTYPE)
+    return np.array(all_link_usage, dtype=np.int8)
 
 
 def _sort_key(

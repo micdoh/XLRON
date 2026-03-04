@@ -592,6 +592,9 @@ def make(
     # Define edges for use with heuristics and GNNs
     edges = jnp.array(sorted(graph.edges), dtype=dtype_config.LARGE_INT_DTYPE)
 
+    # Convert path_link_array to JAX (it's kept as numpy during setup for efficiency)
+    path_link_array = jnp.array(path_link_array, dtype=dtype_config.BINARY_DTYPE)
+
     if pack_path_bits:  # This saves memory by packing the path link array into a bit array
         path_link_array = path_link_array.astype(dtype_config.LARGE_INT_DTYPE)
         path_link_array = jnp.packbits(path_link_array, axis=1)
