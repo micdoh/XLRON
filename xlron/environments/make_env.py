@@ -63,6 +63,9 @@ from xlron.environments.gn_model.isrs_gn_model_dra import (
 )
 from xlron.environments.wrappers import LogWrapper
 
+# Default KSP cache directory (next to the topology JSON files)
+KSP_CACHE_DIR = pathlib.Path(__file__).resolve().parent.parent / "data" / "topologies" / "ksp"
+
 
 def _gsnr_threshold_db(beta_fec: float, m_prime: int) -> float:
     """GSNR threshold in dB for a given pre-FEC BER target and modulation level.
@@ -400,6 +403,7 @@ def make(
     num_nodes = len(graph.nodes)
     num_links = len(graph.edges)
     scale_factor = config.get("scale_factor", 1.0)
+    topology_name = config.get("topology_name", None)
     path_link_array = init_path_link_array(
         graph,
         k,
@@ -409,6 +413,8 @@ def make(
         rwa_lr=True if env_type == "rwa_lightpath_reuse" else False,
         scale_factor=scale_factor,
         path_snr=path_snr,
+        topology_name=topology_name,
+        cache_dir=KSP_CACHE_DIR,
     )
 
     launch_power_type = config.get("launch_power_type", "fixed")
@@ -517,6 +523,8 @@ def make(
                 path_sort_criteria=path_sort_criteria,
                 modulations_array=modulations_array,
                 path_snr=path_snr,
+                topology_name=topology_name,
+                cache_dir=KSP_CACHE_DIR,
             )
         path_length_array = init_path_length_array(path_link_array, graph)
         path_se_array = init_path_se_array(path_length_array, modulations_array)

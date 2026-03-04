@@ -8,6 +8,7 @@ from collections import defaultdict
 from functools import partial
 from itertools import combinations, islice
 from typing import Dict, List, Optional, Sequence, Tuple, TypeVar, Union
+from concurrent.futures import ProcessPoolExecutor
 
 import box
 import chex
@@ -342,6 +343,98 @@ def init_link_length_array(graph: nx.Graph) -> chex.Array:
     for edge in sorted(graph.edges):
         link_lengths.append(graph.edges[edge]["distance"])
     return jnp.array(link_lengths, dtype=dtype_config.LARGE_INT_DTYPE)
+    
+    
+def _path_weight(g: nx.Graph, path: list, weight: str) -> float:
+    """Calculate the total weight of a path."""
+    return sum(g[u][v].get(weight, 1) for u, v in zip(path, path[1:]))
+
+
+def _path_hash(p: list) -> int:
+    """Deterministic hash for tie-breaking in path sorting."""
+    return int(hashlib.sha256(str(p).encode()).hexdigest(), 16)
+
+
+def _get_k_shortest_paths(
+    g: nx.Graph, source: int, target: int, k: int, weight: str | None
+) -> List[List[int]]:
+    """Get k shortest simple paths with deterministic sorting."""
+    paths = list(islice(nx.shortest_simple_paths(g, source, target, weight=weight), k))
+    paths.sort(
+        key=lambda p: (
+            _path_weight(g, p, weight) if weight else len(p),
+            len(p),
+            _path_hash(p),
+        )
+    )
+    return paths
+
+
+def _get_k_disjoint_shortest_paths(
+    g: nx.Graph, source: int, target: int, k: int, weight: str | None
+) -> List[List[int]]:
+    """Get k edge-disjoint paths, topped up with shortest paths if needed."""
+    k_paths_disjoint = list(nx.edge_disjoint_paths(g, source, target))
+    k_paths_shortest = _get_k_shortest_paths(g, source, target, k, weight=weight)
+    disjoint_ids = {tuple(path) for path in k_paths_disjoint}
+    k_paths = list(k_paths_disjoint)
+    for path in k_paths_shortest:
+        if tuple(path) not in disjoint_ids:
+            k_paths.append(path)
+    return k_paths[:k]
+
+
+def _compute_paths_for_pair(args):
+    """Worker function for parallel path computation."""
+    graph, source, target, k, weight, disjoint = args
+    get_paths = _get_k_disjoint_shortest_paths if disjoint else _get_k_shortest_paths
+    return get_paths(graph, source, target, k, weight=weight)
+
+
+def _build_edge_index(graph: nx.Graph, directed: bool) -> Tuple[dict, list]:
+    """Build O(1) edge-to-index lookup dictionary.
+
+    Returns:
+        edge_to_index: dict mapping (u, v) -> edge index
+        edges: sorted list of edges
+    """
+    edges = sorted(graph.edges)
+    edge_to_index = {}
+    for idx, (u, v) in enumerate(edges):
+        edge_to_index[(u, v)] = idx
+        if not directed:
+            edge_to_index[(v, u)] = idx
+    return edge_to_index, edges
+
+
+def _ksp_cache_key(
+    graph: nx.Graph,
+    k: int,
+    disjoint: bool,
+    path_sort_criteria: str,
+    directed: bool,
+    modulations_array,
+    rwa_lr: bool,
+    scale_factor: float,
+    path_snr: bool,
+) -> str:
+    """Build a deterministic hash of all parameters that affect init_path_link_array output."""
+    h = hashlib.sha256()
+    # Graph structure (sorted edge list with weights)
+    edges_data = sorted(
+        (u, v, d.get("distance", 0)) for u, v, d in graph.edges(data=True)
+    )
+    h.update(json.dumps(edges_data).encode())
+    h.update(json.dumps(sorted(graph.nodes)).encode())
+    # Scalar params
+    h.update(f"k={k},disjoint={disjoint},sort={path_sort_criteria},"
+             f"directed={directed},rwa_lr={rwa_lr},"
+             f"scale_factor={scale_factor},path_snr={path_snr}".encode())
+    # Modulations array
+    if modulations_array is not None:
+        mod_bytes = np.asarray(modulations_array).tobytes()
+        h.update(mod_bytes)
+    return h.hexdigest()[:12]
 
 
 def init_path_link_array(
@@ -354,26 +447,57 @@ def init_path_link_array(
     rwa_lr: bool = False,
     scale_factor: float = 1.0,
     path_snr: bool = False,
+    n_workers: int = 1,
+    topology_name: str | None = None,
+    cache_dir: str | pathlib.Path | None = None,
 ) -> chex.Array:
-    """Initialise path-link array.
+    """Optimized init_path_link_array.
+
+    Key optimizations over the original:
+    1. O(1) edge lookup via dictionary instead of O(E) linear scan per hop
+    2. Parallel path computation across node pairs via multiprocessing
+    3. Pre-allocated numpy array instead of list-of-lists append
+    4. Vectorized link_usage construction with numpy advanced indexing
+    5. Optional disk caching of computed arrays (cache_dir parameter)
+
     Each path is defined by a link utilisation array (one row in the path-link array).
     1 indicates link corresponding to index is used, 0 indicates not used.
 
     Args:
-        graph (nx.Graph): NetworkX graph
-        k (int): Number of paths
-        disjoint (bool, optional): Whether to use edge-disjoint paths. Defaults to False.
-        weight (str, optional): Sort paths by edge attribute. Defaults to "".
-        directed (bool, optional): Whether graph is directed. Defaults to False.
-        modulations_array (chex.Array, optional): Array of maximum spectral efficiency for modulation format on path. Defaults to None.
-        rwa_lr (bool, optional): Whether the environment is RWA with lightpath reuse (affects path ordering).
-        path_snr (bool, optional): If GN model is used, include extra row of zeroes for unutilised paths
-        to ensure correct SNR calculation for empty paths (path index -1).
+        graph: NetworkX graph
+        k: Number of paths per node pair
+        disjoint: Whether to use edge-disjoint paths
+        path_sort_criteria: Sort paths by criterion
+        directed: Whether graph is directed
+        modulations_array: Array of maximum spectral efficiency for modulation format on path
+        rwa_lr: Whether the environment is RWA with lightpath reuse
+        scale_factor: Scale factor for capacity calculation
+        path_snr: If GN model is used, include extra row of zeroes for unutilised paths
+        n_workers: Number of parallel workers for path computation (1 = sequential)
+        topology_name: Topology name for cache filename (required if cache_dir is set)
+        cache_dir: Directory for caching computed arrays. None disables caching.
 
     Returns:
-        chex.Array: Path-link array (N(N-1)*k x E) where N is number of nodes, E is number of edges, k is number of shortest paths
+        Path-link array (N(N-1)*k x E) where N is number of nodes,
+        E is number of edges, k is number of shortest paths
     """
-    # Assert that sort_criteria is one of the allowed values
+    # --- Disk cache lookup ---
+    cache_path = None
+    if cache_dir is not None:
+        cache_dir = pathlib.Path(cache_dir)
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        params_hash = _ksp_cache_key(
+            graph, k, disjoint, path_sort_criteria, directed,
+            modulations_array, rwa_lr, scale_factor, path_snr,
+        )
+        name = topology_name or "unknown"
+        cache_path = cache_dir / f"{name}_k{k}_{path_sort_criteria}_{params_hash}.npz"
+        if cache_path.exists():
+            print(f"  Loading cached KSP array from {cache_path.name}")
+            data = np.load(cache_path)
+            return jnp.array(data["arr"], dtype=dtype_config.BINARY_DTYPE)
+        print(f"  KSP cache miss — computing paths (will save to {cache_path.name})")
+        
     assert path_sort_criteria in [
         "spectral_resources",
         "hops",
@@ -381,163 +505,146 @@ def init_path_link_array(
         "hops_distance",
         "capacity",
     ], (
-        f"path_sort_criteria must be one of 'spectral_resources', 'hops', 'distance', 'hops_distance', or 'capacity' got '{path_sort_criteria}'"
+        f"path_sort_criteria must be one of 'spectral_resources', 'hops', 'distance', "
+        f"'hops_distance', or 'capacity' got '{path_sort_criteria}'"
     )
 
-    # Set weight based on sort_criteria
+    # Determine weight parameter for shortest path computation
     weight = (
-        ""
+        None
         if path_sort_criteria in ["spectral_resources", "hops", "hops_distance", "capacity"]
         else "distance"
     )
 
-    def path_weight(g, path, weight):
-        return sum(g[u][v].get(weight, 1) for u, v in zip(path, path[1:]))
+    # --- Optimization 1: Build O(1) edge lookup once ---
+    edge_to_index, edges = _build_edge_index(graph, directed)
+    num_edges = len(edges)
 
-    def path_hash(p):
-        return int(hashlib.sha256(str(p).encode()).hexdigest(), 16)
+    # --- Optimization 2: Compute paths (optionally in parallel) ---
+    node_pairs = list(combinations(graph.nodes, 2))
+    if directed:
+        node_pairs_rev = [(t, s) for s, t in combinations(graph.nodes, 2)]
+        node_pairs = node_pairs + node_pairs_rev
 
-    def get_k_shortest_paths(
-        g: nx.Graph, source: int, target: int, k: int, weight: str | None
-    ) -> List[List[Tuple[int, int]]]:
-        paths = list(islice(nx.shortest_simple_paths(g, source, target, weight=weight), k))
-        # Ensure deterministic sorting. Sort first by weight (if any), then hops, then hash of path (random)
-        paths.sort(
-            key=lambda p: (
-                path_weight(g, p, weight),
-                len(p),
-                path_hash(
-                    p
-                ),  # N.B. that code used for JOCN "Hype or Hope?" did not include this criterion.
-            )
-        )
-        return paths
+    work_items = [
+        (graph, source, target, k, weight, disjoint)
+        for source, target in node_pairs
+    ]
 
-    def get_k_disjoint_shortest_paths(
-        g: nx.Graph, source: int, target: int, k: int, weight: str | None
-    ) -> List[List[Tuple[int, int]]]:
-        k_paths_disjoint_unsorted = list(nx.edge_disjoint_paths(g, source, target))
-        k_paths_shortest = get_k_shortest_paths(g, source, target, k, weight=weight)
+    if n_workers > 1 and len(work_items) > 1:
+        with ProcessPoolExecutor(max_workers=n_workers) as executor:
+            k_path_collections = list(executor.map(_compute_paths_for_pair, work_items))
+    else:
+        k_path_collections = [_compute_paths_for_pair(item) for item in work_items]
 
-        # Keep disjoint paths and add unique shortest paths until k paths reached
-        disjoint_ids = [tuple(path) for path in k_paths_disjoint_unsorted]
-        k_paths = k_paths_disjoint_unsorted
-        for path in k_paths_shortest:
-            if tuple(path) not in disjoint_ids:
-                k_paths.append(path)
-        k_paths = k_paths[:k]
-        return k_paths
+    # --- Precompute modulations lookup (reversed once) ---
+    if modulations_array is not None:
+        modulations_reversed = modulations_array[::-1]
 
-    paths = []
-    edges = sorted(graph.edges)
+    def _get_spectral_efficiency(distance: float) -> float:
+        if modulations_array is None:
+            return 1.0
+        for modulation in modulations_reversed:
+            if distance <= modulation[0]:
+                return float(modulation[1])
+        return 1.0  # fallback
 
-    # Get the k-shortest paths for each node pair
-    k_path_collections = []
-    get_paths = get_k_disjoint_shortest_paths if disjoint else get_k_shortest_paths
-    for node_pair in combinations(graph.nodes, 2):
-        k_paths = get_paths(graph, node_pair[0], node_pair[1], k, weight=weight)
-        k_path_collections.append(k_paths)
+    # --- Optimization 3: Pre-allocate output array ---
+    num_pairs = len(k_path_collections)
+    total_rows = num_pairs * k + (1 if path_snr else 0)
+    all_link_usage = np.zeros((total_rows, num_edges), dtype=np.int8)
 
-    if directed:  # Get paths in reverse direction
-        for node_pair in combinations(graph.nodes, 2):
-            k_paths_rev = get_paths(graph, node_pair[1], node_pair[0], k, weight=weight)
-            k_path_collections.append(k_paths_rev)
-
-    # Sort the paths for each node pair
+    # --- Process each node pair's paths ---
+    row = 0
     for k_paths in k_path_collections:
-        source, dest = k_paths[0][0], k_paths[0][-1]
+        if not k_paths:
+            # No paths found — fill k rows with zeros (already zero)
+            row += k
+            continue
 
-        # Get path lengths
-        path_distance = [nx.path_weight(graph, path, weight="distance") for path in k_paths]
-
-        # Get path num hops
+        # Compute per-path metrics
+        num_actual_paths = len(k_paths)
+        path_distances = [
+            nx.path_weight(graph, path, weight="distance") for path in k_paths
+        ]
         path_hops = [len(path) - 1 for path in k_paths]
-
-        # Get spectral efficiency of each path
-        if modulations_array is not None:
-            path_se = []
-            modulations_array = modulations_array[::-1]
-            for length in path_distance:
-                for modulation in modulations_array:
-                    if length <= modulation[0]:
-                        path_se.append(modulation[1])
-                        break
-        else:
-            path_se = [1] * len(path_distance)
+        path_se = [_get_spectral_efficiency(d) for d in path_distances]
 
         if rwa_lr:
             path_capacity = [
-                float(calculate_path_capacity(path_length, scale_factor=scale_factor)) + 1e-6
-                for path_length in path_distance
+                float(calculate_path_capacity(d, scale_factor=scale_factor)) + 1e-6
+                for d in path_distances
             ]
         else:
-            path_capacity = [1] * len(path_distance)
+            path_capacity = [1.0] * num_actual_paths
 
-        # If less then k unique paths, add dummy paths (just so each node pair still has K rows in the array)
-        empty_path = [0] * len(graph.edges)
-        num_missing_paths = k - len(k_paths)
-        k_paths = k_paths + [empty_path] * num_missing_paths
-        path_distance = path_distance + [1e6] * num_missing_paths
-        path_hops = path_hops + [1e6] * num_missing_paths
-        path_se = path_se + [0] * num_missing_paths
-        path_capacity = path_capacity + [0] * num_missing_paths
+        # Pad to k entries for sorting
+        num_missing = k - num_actual_paths
+        k_paths_padded = k_paths + [None] * num_missing
+        path_distances += [1e6] * num_missing
+        path_hops += [1e6] * num_missing
+        path_se += [0.0] * num_missing
+        path_capacity += [0.0] * num_missing
 
-        # Zip the paths with potential sort criteria
-        unsorted_paths = zip(k_paths, path_distance, path_hops, path_se, path_capacity)
+        # Sort by criteria
+        indices = list(range(len(k_paths_padded)))
+        indices.sort(key=lambda i: _sort_key(
+            path_sort_criteria, path_distances[i], path_hops[i],
+            path_se[i], path_capacity[i], rwa_lr
+        ))
 
-        def determine_sort_criteria(x, path_sort_criteria):
-            if path_sort_criteria == "spectral_resources":
-                # Sort by ratio of hops/se or hops/capacity
-                # Use max(..., 1) to avoid division by zero for dummy/padded paths
-                return (x[2] / max(x[3], 1)) if not rwa_lr else (x[2] / max(x[4], 1))
-            elif path_sort_criteria == "distance":
-                return x[1]
-            elif path_sort_criteria == "hops":
-                return x[2]
-            elif path_sort_criteria == "hops_distance":
-                return (x[2], x[1])
-            elif path_sort_criteria == "capacity":
-                return x[4]
+        # --- Optimization 4: Vectorized link usage with advanced indexing ---
+        for rank, idx in enumerate(indices[:k]):
+            path = k_paths_padded[idx]
+            if path is None:
+                # Dummy path — already zero
+                pass
             else:
-                raise ValueError(f"Path sort criteria: {path_sort_criteria}")
+                # Use numpy advanced indexing for the entire path at once
+                edge_indices = [
+                    edge_to_index[(path[i], path[i + 1])]
+                    for i in range(len(path) - 1)
+                    if (path[i], path[i + 1]) in edge_to_index
+                ]
+                if edge_indices:
+                    all_link_usage[row + rank, edge_indices] = 1
 
-        k_paths_sorted = [
-            (source, dest, distance, hops, se, capacity, path)
-            for path, distance, hops, se, capacity in sorted(
-                unsorted_paths, key=lambda x: determine_sort_criteria(x, path_sort_criteria)
-            )
-        ]
+        row += k
 
-        # Keep only first k paths
-        k_paths_sorted = k_paths_sorted[:k]
+    # path_snr extra row is already zero from pre-allocation
 
-        for k_path in k_paths_sorted:
-            k_path = k_path[-1]
-            link_usage = [0] * len(graph.edges)  # Initialise empty path
-            if sum(k_path) == 0:
-                link_usage = empty_path
-            else:
-                for i in range(len(k_path) - 1):
-                    s, d = k_path[i], k_path[i + 1]
-                    for edge_index, edge in enumerate(edges):
-                        condition = (
-                            (edge[0] == s and edge[1] == d)
-                            if directed
-                            else (
-                                (edge[0] == s and edge[1] == d) or (edge[0] == d and edge[1] == s)
-                            )
-                        )
-                        if condition:
-                            link_usage[edge_index] = 1
-            path = link_usage
-            paths.append(path)
+    # --- Save to disk cache ---
+    if cache_path is not None:
+        np.savez_compressed(cache_path, arr=all_link_usage)
+        print(f"  Saved KSP cache to {cache_path.name} ({cache_path.stat().st_size / 1e6:.1f} MB)")
 
-    # If using GN model, add extra row of zeroes for empty paths for SNR calculation
-    if path_snr:
-        empty_path = [0] * len(graph.edges)
-        paths.append(empty_path)
+    return jnp.array(all_link_usage, dtype=dtype_config.BINARY_DTYPE)
 
-    return jnp.array(paths, dtype=dtype_config.BINARY_DTYPE)
+
+def _sort_key(
+    criteria: str,
+    distance: float,
+    hops: float,
+    se: float,
+    capacity: float,
+    rwa_lr: bool,
+):
+    """Return sort key for a path based on the chosen criteria."""
+    if criteria == "spectral_resources":
+        if rwa_lr:
+            return hops / max(capacity, 1)
+        else:
+            return hops / max(se, 1)
+    elif criteria == "distance":
+        return distance
+    elif criteria == "hops":
+        return hops
+    elif criteria == "hops_distance":
+        return (hops, distance)
+    elif criteria == "capacity":
+        return capacity
+    else:
+        raise ValueError(f"Unknown path sort criteria: {criteria}")
 
 
 def get_link_relevance_array(

@@ -23,6 +23,7 @@ debug_*
 *.png
 experimental/benchmarks/results
 experimental/benchmarks/figures
+xlron/data/topologies/ksp/*.npz
 archive
 misc
 *_results
