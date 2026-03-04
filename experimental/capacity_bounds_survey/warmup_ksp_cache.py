@@ -3,9 +3,10 @@
 Runs the same topology+K combinations as 05_run_k_sensitivity.py but with
 minimal resources (link_resources=2, 10 timesteps) so each run compiles
 and exits quickly, leaving behind the cached KSP arrays.
+
+Skips any topology+K combination that already has a cache file.
 """
 
-import sys
 import subprocess
 from pathlib import Path
 
@@ -19,6 +20,13 @@ from config import (
 )
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+KSP_CACHE_DIR = PROJECT_ROOT / "xlron" / "data" / "topologies" / "ksp"
+
+
+def cache_exists(topology_name: str, k: int) -> bool:
+    """Check if a KSP cache file already exists for this topology+K."""
+    pattern = f"{topology_name}_k{k}_spectral_resources_*.npz"
+    return any(KSP_CACHE_DIR.glob(pattern))
 
 
 def main():
@@ -31,6 +39,7 @@ def main():
     print(f"Warming KSP cache: {len(large_topos)} topologies x {len(K_SENSITIVITY_VALUES)} K values = {total} runs")
 
     done = 0
+    skipped = 0
     failed = 0
     for topo in large_topos:
         name = topo["topology_name"]
@@ -38,6 +47,12 @@ def main():
 
         for k_val in K_SENSITIVITY_VALUES:
             done += 1
+
+            if cache_exists(name, k_val):
+                skipped += 1
+                print(f"[{done}/{total}] {name}  K={k_val} -> cached, skipping")
+                continue
+
             print(f"[{done}/{total}] {name}  K={k_val}", end=" ", flush=True)
 
             # Minimal flags: same topology/env_type/modulations but tiny resources
@@ -88,7 +103,8 @@ def main():
                     for line in result.stderr.strip().split("\n")[-5:]:
                         print(f"    {line}")
 
-    print(f"\nDone: {done - failed}/{done} succeeded, {failed} failed")
+    computed = done - skipped - failed
+    print(f"\nDone: {computed} computed, {skipped} cached, {failed} failed (of {done} total)")
 
 
 if __name__ == "__main__":
