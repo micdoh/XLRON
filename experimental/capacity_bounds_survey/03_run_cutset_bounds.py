@@ -72,11 +72,10 @@ def compute_sweep_range(sweep_num, entry, all_probes):
     load_high = entry.get("load_high", 0)
 
     if sweep_num == 0:
-        # Initial sweep: wide range around heuristic bracket.
-        # Cutset capacity can be higher or lower than heuristic.
-        margin = max(load_high - load_low, round(load_high * 0.3))
-        sweep_min = max(MIN_LOAD, round(load_low - margin))
-        sweep_max = min(MAX_LOAD, round(load_high + margin))
+        # Broad initial sweep: 0.5x lower heuristic load to 2x upper.
+        # Cutset capacity can be significantly higher or lower than heuristic.
+        sweep_min = max(MIN_LOAD, round(load_low * 0.5))
+        sweep_max = min(MAX_LOAD, round(load_high * 2))
         return sweep_min, sweep_max
 
     # Targeted sweep based on previous results
