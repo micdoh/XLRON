@@ -833,15 +833,20 @@ def init_path_se_array(path_length_array: Array, modulations_array: Array) -> Ar
     Returns:
         jnp.array: Array of maximum spectral efficiency for on path
     """
-    se_list = []
-    # Flip the modulation array so that the shortest path length is first
-    modulations_array = modulations_array[::-1]
-    for length in path_length_array:
-        for modulation in modulations_array:
-            if length <= modulation[0]:
-                se_list.append(modulation[1])
-                break
-    return jnp.array(se_list, dtype=dtype_config.SMALL_INT_DTYPE)
+    # Flip so that max_length is ascending (shortest reach first)
+    modulations_array = np.asarray(modulations_array[::-1])
+    max_lengths = modulations_array[:, 0]  # ascending
+    se_values = modulations_array[:, 1]
+
+    path_lengths = np.asarray(path_length_array).ravel()
+
+    # For each path, find the first modulation where path_length <= max_length.
+    # searchsorted with side='left' on max_lengths gives the index of the first
+    # max_length that is >= path_length (since we want length <= max_length).
+    indices = np.searchsorted(max_lengths, path_lengths, side="left")
+    # Clamp to valid range (paths longer than all modulations get the last one)
+    indices = np.clip(indices, 0, len(se_values) - 1)
+    return jnp.array(se_values[indices], dtype=dtype_config.SMALL_INT_DTYPE)
 
 
 def init_list_of_requests(num_requests: int = 1000) -> Array:
