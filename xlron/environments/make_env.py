@@ -404,18 +404,35 @@ def make(
     num_links = len(graph.edges)
     scale_factor = config.get("scale_factor", 1.0)
     topology_name = config.get("topology_name", None)
-    path_link_array = init_path_link_array(
-        graph,
-        k,
-        disjoint=disjoint_paths,
-        path_sort_criteria=path_sort_criteria,
-        directed=graph.is_directed(),
-        rwa_lr=True if env_type == "rwa_lightpath_reuse" else False,
-        scale_factor=scale_factor,
-        path_snr=path_snr,
-        topology_name=topology_name,
-        cache_dir=KSP_CACHE_DIR,
+    # For modulation-aware env types, init_path_link_array is called again
+    # below with modulations (which changes path sort order). Skip the
+    # expensive KSP computation here for env types that don't need it,
+    # UNLESS it's a GN model type that reads path_link_array.shape before
+    # the second call.
+    _needs_modulation_resort = (
+        env_type not in ("rsa", "rwa", "rwa_lightpath_reuse")
+        and path_sort_criteria != "distance"
     )
+    _needs_first_call = (
+        not _needs_modulation_resort
+        or env_type in ("rmsa_gn_model", "rsa_gn_model")
+    )
+    if _needs_first_call:
+        path_link_array = init_path_link_array(
+            graph,
+            k,
+            disjoint=disjoint_paths,
+            path_sort_criteria=path_sort_criteria,
+            directed=graph.is_directed(),
+            rwa_lr=True if env_type == "rwa_lightpath_reuse" else False,
+            scale_factor=scale_factor,
+            path_snr=path_snr,
+            topology_name=topology_name,
+            cache_dir=KSP_CACHE_DIR if not _needs_modulation_resort else None,
+        )
+    else:
+        # Placeholder — will be replaced by the modulation-aware call below
+        path_link_array = None
 
     launch_power_type = config.get("launch_power_type", "fixed")
     # The launch power type determines whether to use:
