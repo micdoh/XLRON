@@ -1356,11 +1356,11 @@ def main(argv):
     }
 
     print(f"\nSelected {len(congestions)} cut-sets:")
-    for i, (cong, ce) in enumerate(
-        zip(heavy_cut_sets["congestion"], heavy_cut_sets["cutset_edges"])
-    ):
+    congestions_np = np.asarray(heavy_cut_sets["congestion"])
+    cutset_edges_np = np.asarray(heavy_cut_sets["cutset_edges"])
+    for i, (cong, ce) in enumerate(zip(congestions_np, cutset_edges_np)):
         links = [int(j) for j, v in enumerate(ce) if v > 0]
-        print(f"  Cut-set {i}: congestion={float(cong):.4f}, links={links}")
+        print(f"  Cut-set {i}: congestion={cong:.4f}, links={links}")
 
     # --- Build best SE matrix for RMSA ---
     print("Building best spectral efficiency matrix...")
