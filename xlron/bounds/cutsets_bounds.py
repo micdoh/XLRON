@@ -236,21 +236,38 @@ def find_congested_cuts_exhaustive(
     return congestions, partition1, partition2
 
 
+def _has_gpu():
+    """Check if any GPU backend is available."""
+    try:
+        return any(d.platform == "gpu" for d in jax.devices())
+    except Exception:
+        return False
+
+
 def find_congested_cuts_simple(
-    path_link_array, source_nodes, dest_nodes, adjacency_matrix, traffic_matrix, directed=False
+    path_link_array, source_nodes, dest_nodes, adjacency_matrix, traffic_matrix, directed=False,
 ):
-    def get_cutset_partitions_and_congestion(_, i):
+    def compute_single(i):
         path = path_link_array.val[i]
         p1, p2 = get_cutset_from_path(path, adjacency_matrix, source_nodes, dest_nodes, directed)
         congestion = calculate_congestion(
             p1, adjacency_matrix, traffic_matrix, source_nodes, dest_nodes, directed
         )
-        return None, (congestion, p1, p2)
+        return congestion, p1, p2
 
     path_indices = jnp.arange(path_link_array.shape[0])
-    _, (congestions, partition1, partition2) = jax.lax.scan(
-        get_cutset_partitions_and_congestion, None, path_indices
-    )
+
+    if _has_gpu():
+        # On GPU, vmap parallelises independent iterations across cores
+        congestions, partition1, partition2 = jax.vmap(compute_single)(path_indices)
+    else:
+        # On CPU, scan avoids materialising all intermediate results at once
+        def scan_body(_, i):
+            return None, compute_single(i)
+
+        _, (congestions, partition1, partition2) = jax.lax.scan(
+            scan_body, None, path_indices
+        )
     return congestions, partition1, partition2
 
 
