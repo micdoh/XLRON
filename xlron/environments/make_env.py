@@ -544,8 +544,9 @@ def make(
                 topology_name=topology_name,
                 cache_dir=KSP_CACHE_DIR,
             )
-        print("  Computing path lengths and SE array...")
+        print("  Computing path lengths...")
         path_length_array = init_path_length_array(path_link_array, graph)
+        print("  Computing SE array...")
         path_se_array = init_path_se_array(path_length_array, modulations_array)
         min_se = min(path_se_array)  # if consider_modulation_format
         max_slots = required_slots(

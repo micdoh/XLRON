@@ -794,8 +794,12 @@ def init_path_length_array(path_link_array: chex.Array, graph: nx.Graph) -> chex
         chex.Array: Path length array
     """
     link_length_array = init_link_length_array(graph)
-    path_lengths = jnp.dot(path_link_array, link_length_array)
-    return path_lengths
+    # Use numpy for this one-time setup dot product — avoids JAX overhead
+    # and works with a compact dtype for the large binary path_link_array.
+    pla = np.asarray(path_link_array, dtype=np.int8)
+    lla = np.asarray(link_length_array, dtype=np.float64)
+    path_lengths = pla.astype(np.float64) @ lla
+    return jnp.array(path_lengths)
 
 
 def init_modulations_array(modulations_filepath: str | None = None) -> Array:
