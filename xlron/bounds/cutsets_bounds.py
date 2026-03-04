@@ -1318,14 +1318,18 @@ def main(argv):
                 heavy_cut_sets_raw[0].block_until_ready()
 
     # Post-process: reshape, deduplicate, select top-k
+    print("Post-processing cut-sets...")
+    print("  Reshaping...")
     congestions = jnp.reshape(heavy_cut_sets_raw[0], (-1,))
     partition1 = jnp.reshape(heavy_cut_sets_raw[1], (-1, params.num_nodes))
     partition2 = jnp.reshape(heavy_cut_sets_raw[2], (-1, params.num_nodes))
+    print("  Finding cutset edges...")
     cutset_edges = jax.vmap(find_cutset_edges, in_axes=(0, 0, None, None))(
         partition1, partition2, source_nodes_haw, destination_nodes_haw
     )
 
     # Deduplicate
+    print("  Deduplicating...")
     _, unique_indices = jnp.unique(cutset_edges, axis=0, return_index=True)
     cutset_edges = cutset_edges[unique_indices]
     congestions = congestions[unique_indices]
@@ -1333,6 +1337,7 @@ def main(argv):
     partition2 = partition2[unique_indices]
 
     # Filter out zero-congestion cutsets
+    print("  Filtering zero-congestion cutsets...")
     nonzero_mask = congestions > 0
     cutset_edges = cutset_edges[nonzero_mask]
     congestions = congestions[nonzero_mask]
@@ -1341,6 +1346,7 @@ def main(argv):
     print(f"\nUnique cutsets with congestion > 0: {len(congestions)}")
 
     # Select top-k
+    print(f"  Selecting top-{top_k}...")
     top_k_indices = jnp.argsort(congestions)[-top_k:]
     cutset_edges = cutset_edges[top_k_indices]
     congestions = congestions[top_k_indices]
