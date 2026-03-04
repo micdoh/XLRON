@@ -87,7 +87,6 @@ def main():
                 cmd,
                 capture_output=True,
                 text=True,
-                timeout=600,
                 cwd=str(PROJECT_ROOT),
             )
 
