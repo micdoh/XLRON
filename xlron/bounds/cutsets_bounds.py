@@ -1203,9 +1203,12 @@ def main(argv):
     graph = make_graph(FLAGS.topology_name, FLAGS.topology_directory)
     env, params = make(FLAGS)
 
+    # Map node IDs to 0-based positional indices to match nx.adjacency_matrix
+    node_list = sorted(graph.nodes())
+    node_to_idx = {node: i for i, node in enumerate(node_list)}
     edges = sorted(graph.edges())
-    source_nodes_np = jnp.array([edge[0] for edge in edges])
-    destination_nodes_np = jnp.array([edge[1] for edge in edges])
+    source_nodes_np = jnp.array([node_to_idx[edge[0]] for edge in edges])
+    destination_nodes_np = jnp.array([node_to_idx[edge[1]] for edge in edges])
     adj_matrix = nx.adjacency_matrix(graph, weight="").todense()
 
     print("Building weighted traffic matrix...")
