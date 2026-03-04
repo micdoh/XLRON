@@ -1,14 +1,9 @@
-"""Phase 3: Run cut-set bounds with adaptive load selection.
+"""Phase 3: Run cut-set bounds with sweep-based load selection.
 
-For each topology, probes at the heuristic's load_high to find the cut-set
-blocking at that load, then uses the heuristic gradient (dBP/dLoad) to
-estimate where the cut-set method crosses 0.1% blocking.
-
-Unlike the heuristic, cut-set bounds may have either higher or lower capacity,
-so the search adapts to whichever direction is needed.
-
-Uses up to MAX_PROBES adaptive probes per topology. Resumes from existing
-probe data if the output file already contains partial results.
+For each topology, runs a sweep of ~10 loads in a single subprocess call,
+so JAX compiles only once per sweep. Uses load ranges from Phase 1 to
+determine the initial sweep range, then runs targeted follow-up sweeps
+if the first doesn't bracket 0.1% blocking.
 
 Selects CUTSET_EXHAUSTIVE for topologies with <= CUTSET_EXHAUSTIVE_MAX_NODES nodes,
 shortest-paths method for larger topologies.
@@ -21,8 +16,6 @@ from config import (
     TARGET_BP,
     ProgressTracker,
     build_command,
-    compute_heuristic_gradient,
-    estimate_next_load,
     format_duration,
     format_timing_breakdown,
     get_topology_list,
@@ -30,13 +23,19 @@ from config import (
     parse_jsonl_blocking,
     run_command,
 )
-MAX_PROBES = 5
+
+MAX_SWEEPS = 3
+N_POINTS = 10
+MIN_LOAD = 2
+MAX_LOAD = 50000
 
 
-def run_cutset_probe(name, load, topo, probe_file, timeout=14400):
-    """Run cut-set bounds at a single load and return blocking probability."""
+def run_cutset_sweep(name, sweep_min, sweep_max, step, topo, sweep_file, timeout=14400):
+    """Run cut-set bounds across a load sweep. Returns list of {load, blocking_mean, ...}."""
     extra_flags = dict(FULL_CUTSET_PARAMS)
-    extra_flags["load"] = load
+    extra_flags["min_load"] = sweep_min
+    extra_flags["max_load"] = sweep_max
+    extra_flags["step_load"] = step
 
     if topo["num_nodes"] <= CUTSET_EXHAUSTIVE_MAX_NODES:
         extra_flags["CUTSET_EXHAUSTIVE"] = True
@@ -50,99 +49,79 @@ def run_cutset_probe(name, load, topo, probe_file, timeout=14400):
         script="xlron.bounds.cutsets_bounds",
         topology=name,
         extra_flags=extra_flags,
-        output_file=str(probe_file),
+        output_file=str(sweep_file),
     )
 
     result = run_command(cmd, timeout=timeout)
     if result.returncode != 0:
         return None
 
-    results = parse_jsonl_blocking(probe_file)
-    if not results:
-        return None
-
-    return results[0]["blocking_mean"]
+    return parse_jsonl_blocking(sweep_file)
 
 
-def has_bracket(all_bps):
+def has_bracket(all_probes):
     """Check if we have probes on both sides of TARGET_BP."""
-    has_lower = any(0 < bp < TARGET_BP for _, bp in all_bps)
-    has_upper = any(bp >= TARGET_BP for _, bp in all_bps)
+    has_lower = any(0 < bp < TARGET_BP for bp in all_probes.values())
+    has_upper = any(bp >= TARGET_BP for bp in all_probes.values())
     return has_lower and has_upper
 
 
-def choose_next_load(all_bps, gradient):
-    """Choose the next load to probe based on existing results.
+def compute_sweep_range(sweep_num, entry, all_probes):
+    """Determine the min/max for the next sweep based on results so far."""
+    load_low = entry.get("load_low", 0)
+    load_high = entry.get("load_high", 0)
 
-    Strategy:
-    - If we have both zero-BP and high-BP probes: bisect between them.
-    - If all probes are zero or below target: increase load.
-    - If all probes are at/above target: decrease load.
-    - For the first adaptive probe, use gradient-based estimate.
+    if sweep_num == 0:
+        # Initial sweep: wide range around heuristic bracket.
+        # Cutset capacity can be higher or lower than heuristic.
+        margin = max(load_high - load_low, round(load_high * 0.3))
+        sweep_min = max(MIN_LOAD, round(load_low - margin))
+        sweep_max = min(MAX_LOAD, round(load_high + margin))
+        return sweep_min, sweep_max
 
-    Returns None if all_bps is empty (caller should fall back to load_high).
-    """
-    if not all_bps:
-        return None
+    # Targeted sweep based on previous results
+    sorted_probes = sorted(all_probes.items())
+    bps = [b for _, b in sorted_probes]
+    loads = [l for l, _ in sorted_probes]
 
-    zero_loads = [l for l, bp in all_bps if bp <= 0]
-    high_loads = [l for l, bp in all_bps if bp >= TARGET_BP]
-    below_loads = [l for l, bp in all_bps if 0 < bp < TARGET_BP]
+    if all(b == 0 for b in bps):
+        # All zero blocking — need much higher loads
+        return max(loads), min(MAX_LOAD, max(loads) * 3)
 
-    # Bisect between zero/below and high
-    if high_loads and (zero_loads or below_loads):
-        # Use the highest load that's below target as the lower bound
-        below_all = zero_loads + below_loads
-        lo = max(below_all)
-        hi = min(high_loads)
-        load = round((lo + hi) / 2)
-        # Ensure we're not re-probing the same load
-        if load <= lo:
-            load = lo + 1
-        elif load >= hi:
-            load = hi - 1
-        if load <= 0:
-            load = 1
-        return load
+    if all(b >= TARGET_BP for b in bps):
+        # All at/above target — need lower loads
+        return max(MIN_LOAD, round(min(loads) / 3)), min(loads)
 
-    if not high_loads:
-        # All below target or zero — need higher load
-        highest_load = max(l for l, _ in all_bps)
-        highest_bp = max(bp for l, bp in all_bps if l == highest_load)
-        if highest_bp <= 0:
-            # All zero — double the highest
-            return round(highest_load * 2)
-        else:
-            # Have some non-zero BP — use gradient if available
-            return estimate_next_load(highest_load, highest_bp, gradient)
+    if all(b < TARGET_BP for b in bps):
+        # All below target — need higher loads
+        return max(loads), min(MAX_LOAD, round(max(loads) * 2))
 
-    # All at/above target — need lower load
-    lowest_load = min(l for l, _ in all_bps)
-    lowest_bp = min(bp for l, bp in all_bps if l == lowest_load)
-    return estimate_next_load(lowest_load, lowest_bp, gradient)
+    # Mixed results — zoom into the transition region
+    below_target = [l for l, b in all_probes.items() if b < TARGET_BP]
+    above_target = [l for l, b in all_probes.items() if b >= TARGET_BP]
 
+    if below_target and above_target:
+        lo = max(below_target)
+        hi = min(above_target)
+        margin = max(1, round((hi - lo) * 0.2))
+        return max(MIN_LOAD, lo - margin), min(MAX_LOAD, hi + margin)
 
-def load_existing_probes(output_file):
-    """Load (load, bp) pairs from an existing output file."""
-    all_bps = []
-    results = parse_jsonl_blocking(output_file)
-    for r in results:
-        all_bps.append((r["load"], r["blocking_mean"]))
-    return all_bps
+    # Fallback
+    return max(MIN_LOAD, round(min(loads) * 0.5)), min(MAX_LOAD, round(max(loads) * 2))
 
 
 def main():
     print("=" * 60)
-    print("Phase 3: Running cut-set bounds (adaptive load selection)")
-    print(f"  Max probes per topology: {MAX_PROBES}")
+    print("Phase 3: Running cut-set bounds (sweep-based)")
+    print(f"  Max sweeps per topology: {MAX_SWEEPS}, ~{N_POINTS} loads per sweep")
     print("=" * 60)
 
     topologies = get_topology_list()
     ranges = load_load_ranges()
     output_dir = RESULTS_DIR / "cutset_bounds"
-    probe_dir = output_dir / "probes"
+    sweep_dir = output_dir / "sweeps"
     output_dir.mkdir(parents=True, exist_ok=True)
-    probe_dir.mkdir(parents=True, exist_ok=True)
+    sweep_dir.mkdir(parents=True, exist_ok=True)
 
     progress = ProgressTracker(len(topologies), "Phase 3")
 
@@ -162,80 +141,72 @@ def main():
             progress.item_done(progress.item_start(), "failed")
             continue
 
+        # Check for existing complete results
+        output_file = output_dir / f"{name}.jsonl"
+        existing_probes = {}
+        if output_file.exists() and output_file.stat().st_size > 0:
+            results = parse_jsonl_blocking(output_file)
+            existing_probes = {r["load"]: r["blocking_mean"] for r in results}
+            if has_bracket(existing_probes):
+                progress.item_done(progress.item_start(), "skipped")
+                continue
+
         t_start = progress.item_start()
         method = "exhaustive" if topo["num_nodes"] <= CUTSET_EXHAUSTIVE_MAX_NODES else "shortest-paths"
         print(progress.header(progress.processed + 1, name, f"({method})"))
 
-        gradient = compute_heuristic_gradient(entry)
-        output_file = output_dir / f"{name}.jsonl"
-        probe_files = []
+        all_probes = dict(existing_probes)
+        sweep_files = []
 
-        # Resume: load existing probes from output file
-        all_bps = load_existing_probes(output_file)
-        existing_count = len(all_bps)
-        if existing_count > 0:
-            print(f"  Resuming with {existing_count} existing probes")
-            if has_bracket(all_bps):
-                print(f"  -> Already brackets 0.1%")
-                progress.item_done(t_start, "completed")
-                continue
+        if existing_probes:
+            print(f"  Resuming with {len(existing_probes)} existing probes")
 
-        # Adaptive probe loop
-        consecutive_failures = 0
-        for probe_num in range(existing_count + 1, MAX_PROBES + 1):
-            if has_bracket(all_bps):
+        for sweep_num in range(MAX_SWEEPS):
+            if has_bracket(all_probes):
                 break
 
-            # Choose load
-            next_load = choose_next_load(all_bps, gradient)
-            if next_load is None:
-                next_load = load_high  # Fallback for first probe or empty results
+            sweep_min, sweep_max = compute_sweep_range(sweep_num, entry, all_probes)
 
-            # Skip if we already have this load
-            existing_loads = {l for l, _ in all_bps}
-            if next_load in existing_loads:
-                next_load = next_load + 1
+            if sweep_max <= sweep_min:
+                sweep_max = sweep_min + N_POINTS
 
-            probe_file = probe_dir / f"{name}_p{probe_num}.jsonl"
-            print(f"  Probe {probe_num}: load={next_load}", end=" ", flush=True)
+            step = max(round((sweep_max - sweep_min) / (N_POINTS - 1)), 1)
+            sweep_max = sweep_min + step * (N_POINTS - 1)  # exact N_POINTS
 
-            bp = run_cutset_probe(name, next_load, topo, probe_file)
-            if bp is not None:
-                print(f"-> BP={bp*100:.4f}%")
-                timing_str = format_timing_breakdown(probe_file)
-                if timing_str:
-                    print(f"    [{timing_str}]")
-                probe_files.append(probe_file)
-                all_bps.append((next_load, bp))
-                consecutive_failures = 0
-            else:
-                print("-> FAILED")
-                probe_file.unlink(missing_ok=True)
-                consecutive_failures += 1
-                if consecutive_failures >= 2 and not all_bps:
-                    print(f"  -> Bailing out after {consecutive_failures} consecutive failures with no data")
-                    break
+            print(f"  Sweep {sweep_num + 1}: [{sweep_min}, {sweep_max}] step={step}")
 
-        # Append new probe data to output file
-        if probe_files:
+            sweep_file = sweep_dir / f"{name}_sweep{sweep_num}.jsonl"
+            entries = run_cutset_sweep(name, sweep_min, sweep_max, step, topo, sweep_file)
+
+            if entries is None:
+                print(f"  -> Sweep FAILED")
+                break
+
+            sweep_files.append(sweep_file)
+            for e in entries:
+                all_probes[e["load"]] = e["blocking_mean"]
+                print(f"    load={e['load']:>6} -> BP={e['blocking_mean']*100:.4f}%")
+
+            timing_str = format_timing_breakdown(sweep_file)
+            if timing_str:
+                print(f"    [{timing_str}]")
+
+        # Append new sweep data to output file
+        if sweep_files:
             with open(output_file, "a") as f_out:
-                for pf in probe_files:
-                    with open(pf) as f_in:
-                        for line in f_in:
-                            f_out.write(line)
+                for sf in sweep_files:
+                    if sf.exists():
+                        with open(sf) as f_in:
+                            f_out.write(f_in.read())
 
-            # Clean up probe files
-            for pf in probe_files:
-                pf.unlink(missing_ok=True)
-
-        if has_bracket(all_bps):
+        if has_bracket(all_probes):
             print(f"  -> Brackets 0.1%")
-        elif all_bps:
-            print(f"  -> WARNING: Does not bracket 0.1% ({len(all_bps)} probes)")
+        elif all_probes:
+            print(f"  -> WARNING: Does not bracket 0.1% ({len(all_probes)} probes)")
         else:
             print(f"  -> No successful probes")
 
-        progress.item_done(t_start, "completed" if all_bps else "failed")
+        progress.item_done(t_start, "completed" if all_probes else "failed")
         print(f"  [wall={format_duration(progress._durations[-1])}]")
 
     print(f"\n{progress.summary_line()}")
