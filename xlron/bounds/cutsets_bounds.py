@@ -1328,21 +1328,17 @@ def main(argv):
         partition1, partition2, source_nodes_haw, destination_nodes_haw
     )
 
-    # Deduplicate
+    # Deduplicate and filter on CPU (avoids slow jnp.unique on GPU)
     print("  Deduplicating...")
-    _, unique_indices = jnp.unique(cutset_edges, axis=0, return_index=True)
-    cutset_edges = cutset_edges[unique_indices]
-    congestions = congestions[unique_indices]
+    cutset_edges_np = np.asarray(cutset_edges)
+    congestions_np = np.asarray(congestions)
+    _, unique_indices = np.unique(cutset_edges_np, axis=0, return_index=True)
+    nonzero_mask = congestions_np[unique_indices] > 0
+    unique_indices = unique_indices[nonzero_mask]
+    cutset_edges = jnp.array(cutset_edges_np[unique_indices])
+    congestions = jnp.array(congestions_np[unique_indices])
     partition1 = partition1[unique_indices]
     partition2 = partition2[unique_indices]
-
-    # Filter out zero-congestion cutsets
-    print("  Filtering zero-congestion cutsets...")
-    nonzero_mask = congestions > 0
-    cutset_edges = cutset_edges[nonzero_mask]
-    congestions = congestions[nonzero_mask]
-    partition1 = partition1[nonzero_mask]
-    partition2 = partition2[nonzero_mask]
     print(f"\nUnique cutsets with congestion > 0: {len(congestions)}")
 
     # Select top-k
