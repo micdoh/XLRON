@@ -166,6 +166,14 @@ def process_config(config: Optional[Union[dict, FlagValues]], **kwargs: Any) -> 
             if config.STEPS_PER_INCREMENT < min_steps:
                 config.STEPS_PER_INCREMENT = min_steps
 
+        if is_eval and config.get("continuous_operation", False):
+            # For eval with continuous_operation, set max_requests so that at least
+            # one episode fits per increment. The eval scan runs max_requests steps
+            # per env, so total steps per episode = max_requests * NUM_ENVS.
+            num_envs = config.get("NUM_ENVS", 1)
+            scale_factor = int(config.get("scale_factor", 1))
+            config.max_requests = int(config.STEPS_PER_INCREMENT) // num_envs // scale_factor
+
         n_increments = config.TOTAL_TIMESTEPS // config.STEPS_PER_INCREMENT
         config.NUM_INCREMENTS = n_increments
         config.TOTAL_TIMESTEPS = n_increments * config.STEPS_PER_INCREMENT
@@ -231,19 +239,9 @@ def make(
     random_traffic = config.get("random_traffic", False)
     continuous_operation = config.get("continuous_operation", False)
     total_timesteps = config.get("TOTAL_TIMESTEPS", 1e4)
-    is_eval = config.get("EVAL_HEURISTIC") or config.get("EVAL_MODEL")
-    if continuous_operation:
-        if is_eval:
-            # For eval, each episode runs max_requests steps (vmapped over NUM_ENVS).
-            # NUM_EPISODES = STEPS_PER_INCREMENT // (max_requests * scale_factor) // NUM_ENVS.
-            # Use STEPS_PER_INCREMENT // NUM_ENVS so at least one episode fits per increment.
-            num_envs = config.get("NUM_ENVS", 1)
-            scale_factor = config.get("scale_factor", 1)
-            max_requests = int(config.get("STEPS_PER_INCREMENT", total_timesteps)) // num_envs // scale_factor
-        else:
-            max_requests = total_timesteps
-    else:
-        max_requests = config.get("max_requests", total_timesteps)
+    max_requests = (
+        total_timesteps if continuous_operation else config.get("max_requests", total_timesteps)
+    )
     link_resources = config.get("link_resources", 100)
     values_bw = config.get("values_bw", None)
     node_probabilities = config.get("node_probabilities", None)
