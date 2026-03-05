@@ -231,9 +231,19 @@ def make(
     random_traffic = config.get("random_traffic", False)
     continuous_operation = config.get("continuous_operation", False)
     total_timesteps = config.get("TOTAL_TIMESTEPS", 1e4)
-    max_requests = (
-        total_timesteps if continuous_operation else config.get("max_requests", total_timesteps)
-    )
+    is_eval = config.get("EVAL_HEURISTIC") or config.get("EVAL_MODEL")
+    if continuous_operation:
+        if is_eval:
+            # For eval, each episode runs max_requests steps (vmapped over NUM_ENVS).
+            # NUM_EPISODES = STEPS_PER_INCREMENT // (max_requests * scale_factor) // NUM_ENVS.
+            # Use STEPS_PER_INCREMENT // NUM_ENVS so at least one episode fits per increment.
+            num_envs = config.get("NUM_ENVS", 1)
+            scale_factor = config.get("scale_factor", 1)
+            max_requests = int(config.get("STEPS_PER_INCREMENT", total_timesteps)) // num_envs // scale_factor
+        else:
+            max_requests = total_timesteps
+    else:
+        max_requests = config.get("max_requests", total_timesteps)
     link_resources = config.get("link_resources", 100)
     values_bw = config.get("values_bw", None)
     node_probabilities = config.get("node_probabilities", None)
