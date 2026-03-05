@@ -256,10 +256,34 @@ def find_congested_cuts_simple(
         return congestion, p1, p2
 
     path_indices = jnp.arange(path_link_array.shape[0])
+    num_paths = path_link_array.shape[0]
+    num_nodes = adjacency_matrix.val.shape[0]
 
-    if _has_gpu():
+    # Estimate peak vmap memory: num_paths * num_nodes^2 * 4 bytes (int32)
+    _GPU_VMAP_MEMORY_LIMIT = 2 * 1024**3  # 2 GiB
+    estimated_bytes = num_paths * num_nodes * num_nodes * 4
+
+    if _has_gpu() and estimated_bytes <= _GPU_VMAP_MEMORY_LIMIT:
         # On GPU, vmap parallelises independent iterations across cores
         congestions, partition1, partition2 = jax.vmap(compute_single)(path_indices)
+    elif _has_gpu():
+        # On GPU with large tensors, batch the vmap to stay within memory
+        batch_size = max(1, _GPU_VMAP_MEMORY_LIMIT // (num_nodes * num_nodes * 4))
+        # Pad to make divisible by batch_size
+        num_batches = (num_paths + batch_size - 1) // batch_size
+        padded_size = num_batches * batch_size
+        padded_indices = jnp.zeros(padded_size, dtype=jnp.int32)
+        padded_indices = padded_indices.at[:num_paths].set(path_indices)
+
+        def batch_body(_, batch_indices):
+            return None, jax.vmap(compute_single)(batch_indices)
+
+        _, (congestions, partition1, partition2) = jax.lax.scan(
+            batch_body, None, padded_indices.reshape(num_batches, batch_size)
+        )
+        congestions = congestions.reshape(-1)[:num_paths]
+        partition1 = partition1.reshape(-1, num_nodes)[:num_paths]
+        partition2 = partition2.reshape(-1, num_nodes)[:num_paths]
     else:
         # On CPU, scan avoids materialising all intermediate results at once
         def scan_body(_, i):
