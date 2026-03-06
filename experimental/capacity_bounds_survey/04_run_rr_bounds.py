@@ -10,7 +10,13 @@ Strategy:
 
 Retry mode (--retry): re-processes topologies whose existing output
 doesn't have valid interpolation at TARGET_BP.
+
+Resume-safe: probe state is persisted to a sidecar JSON file after each
+probe. If interrupted and restarted, probing resumes from where it left off.
+Full 10-trial results are appended to the output file incrementally.
 """
+
+import json
 
 import numpy as np
 from scipy import interpolate as scipy_interpolate
@@ -35,6 +41,50 @@ MAX_REFINE_PROBES = 8
 LOAD_INCREMENT = 1.10  # 10% increment between probes
 SCALE_BACK_FACTOR = 0.95  # 5% reduction when blocking > 1%
 MAX_BLOCKING_FOR_FULL_RUN = 0.01  # 1% - don't do full runs above this
+
+
+def _probe_state_path(probe_dir, name):
+    """Path to the sidecar JSON that persists probe results across interruptions."""
+    return probe_dir / f"{name}_probe_state.json"
+
+
+def save_probe_state(probe_dir, name, probe_results, completed_full_loads=None):
+    """Persist probe results (and which full runs are done) to a sidecar JSON.
+
+    Called after each probe/full-run so progress survives interruption.
+    """
+    state = {
+        "probe_results": {str(k): v for k, v in probe_results.items()},
+    }
+    if completed_full_loads is not None:
+        state["completed_full_loads"] = sorted(completed_full_loads)
+    path = _probe_state_path(probe_dir, name)
+    # Write atomically: write to temp then rename
+    tmp = path.with_suffix(".tmp")
+    with open(tmp, "w") as f:
+        json.dump(state, f, indent=2)
+    tmp.rename(path)
+
+
+def load_probe_state(probe_dir, name):
+    """Load persisted probe state. Returns (probe_results, completed_full_loads) or (None, None)."""
+    path = _probe_state_path(probe_dir, name)
+    if not path.exists():
+        return None, None
+    try:
+        with open(path) as f:
+            state = json.load(f)
+        probe_results = {int(k): v for k, v in state["probe_results"].items()}
+        completed_full_loads = set(state.get("completed_full_loads", []))
+        return probe_results, completed_full_loads
+    except (json.JSONDecodeError, KeyError, ValueError):
+        return None, None
+
+
+def clear_probe_state(probe_dir, name):
+    """Remove the sidecar JSON after successful completion."""
+    path = _probe_state_path(probe_dir, name)
+    path.unlink(missing_ok=True)
 
 
 def run_rr(name, load, output_file, heuristic="ksp_ff", num_trials=1, timeout=14400):
@@ -91,10 +141,11 @@ def categorize_probes(probe_results):
     return zero_loads, below_target, above_target, too_high
 
 
-def refine_probes(name, probe_results, heuristic, probe_dir):
+def refine_probes(name, probe_results, heuristic, probe_dir, save_fn=None):
     """Do targeted binary-search probes to bracket TARGET_BP.
 
     Modifies probe_results in place. Returns True if refinement succeeded.
+    save_fn: optional callback called after each successful probe to persist state.
     """
     zero_loads, below_target, above_target, too_high = categorize_probes(probe_results)
     has_below = len(below_target) > 0
@@ -117,6 +168,8 @@ def refine_probes(name, probe_results, heuristic, probe_dir):
             return None
         print(f"-> BP={bp*100:.4f}%")
         probe_results[load] = bp
+        if save_fn:
+            save_fn()
         return bp
 
     # Case A: Have above-target loads but no below-target (need lower bracket)
@@ -213,23 +266,40 @@ def main(retry=False):
 
         output_file = output_dir / f"{name}.jsonl"
 
+        # ---------------------------------------------------------
+        # Check for persisted probe state from a previous interrupted run
+        # ---------------------------------------------------------
+        saved_probes, saved_full_loads = load_probe_state(probe_dir, name)
+        has_saved_state = saved_probes is not None
+
+        # ---------------------------------------------------------
         # Skip / retry logic
-        if output_file.exists() and output_file.stat().st_size > 0:
+        # ---------------------------------------------------------
+        if has_saved_state:
+            # Interrupted previous run — resume from saved probe state
+            print(f"\n  Resuming {name}: found saved probe state "
+                  f"({len(saved_probes)} probes, {len(saved_full_loads)} full runs done)")
+        elif output_file.exists() and output_file.stat().st_size > 0:
             if retry:
                 # Check if existing output has valid interpolation
                 existing = parse_jsonl_blocking(output_file)
                 if has_valid_interpolation(existing):
                     progress.item_done(progress.item_start(), "skipped")
                     continue
-                # Invalid interpolation — load existing results as seed data and re-process
+                # Invalid interpolation — load existing results as seed data
                 print(f"\n  Retrying {name}: existing output lacks valid interpolation")
-                existing_probes = {e["load"]: e["blocking_mean"] for e in existing}
-                output_file.unlink()
+                saved_probes = {e["load"]: e["blocking_mean"] for e in existing}
+                saved_full_loads = set()
+                # Persist seed data to sidecar, then delete old output.
+                # If interrupted after this, the sidecar has the seed data.
+                save_probe_state(probe_dir, name, saved_probes, saved_full_loads)
+                output_file.unlink(missing_ok=True)
             else:
                 progress.item_done(progress.item_start(), "skipped")
                 continue
         else:
-            existing_probes = {}
+            saved_probes = None
+            saved_full_loads = set()
 
         if name not in ranges or ranges[name].get("status") == "failed":
             print(f"  Skipping {name}: no load range discovered")
@@ -249,12 +319,20 @@ def main(retry=False):
         print(progress.header(progress.processed + 1, name, f"(heuristic={best_heuristic})"))
 
         # Track all probe results: load -> bp
-        probe_results = dict(existing_probes)
+        probe_results = dict(saved_probes) if saved_probes else {}
+        completed_full_loads = set(saved_full_loads) if saved_full_loads else set()
+
+        # Helper to persist state after each probe
+        def _save():
+            save_probe_state(probe_dir, name, probe_results, completed_full_loads)
 
         # =============================================================
         # Phase 1: Cheap single-trial probes to find loads with blocking
         # =============================================================
-        if not retry or not existing_probes:
+        # Skip Phase 1 if we already have probe data (from saved state or retry seed)
+        skip_phase1 = (saved_probes is not None and len(saved_probes) > 0)
+
+        if not skip_phase1:
             print("  --- Phase 1: Single-trial probes ---")
             current_load = load_high
             probe_num = 0
@@ -279,6 +357,7 @@ def main(retry=False):
                 print(f"-> BP={bp*100:.4f}%")
                 pfile.unlink(missing_ok=True)
                 probe_results[current_load] = bp
+                _save()
 
                 if bp > MAX_BLOCKING_FOR_FULL_RUN:
                     print(f"    Blocking > 1%, scaling back")
@@ -304,7 +383,7 @@ def main(retry=False):
 
         if needs_refine and any(bp > 0 for bp in probe_results.values()):
             print("  --- Phase 1b: Refinement probes (bracketing) ---")
-            refine_probes(name, probe_results, best_heuristic, probe_dir)
+            refine_probes(name, probe_results, best_heuristic, probe_dir, save_fn=_save)
 
         # Build selected_loads from all probes with 0 < bp <= MAX_BLOCKING
         selected_loads = sorted(
@@ -319,6 +398,7 @@ def main(retry=False):
                 print(f"  WARNING: No loads with blocking > 0% found")
             else:
                 print(f"  WARNING: All non-zero blocking > {MAX_BLOCKING_FOR_FULL_RUN*100:.0f}%")
+            clear_probe_state(probe_dir, name)
             progress.item_done(t_start, "failed")
             print(f"  [wall={format_duration(progress._durations[-1])}]")
             continue
@@ -326,10 +406,15 @@ def main(retry=False):
         # =============================================================
         # Phase 2: Full 10-trial runs at selected loads
         # =============================================================
-        print(f"  --- Phase 2: Full 10-trial runs at {len(selected_loads)} load(s): {selected_loads} ---")
-        full_files = []
+        remaining_loads = [l for l in selected_loads if l not in completed_full_loads]
+        if remaining_loads:
+            print(f"  --- Phase 2: Full 10-trial runs at {len(remaining_loads)} load(s): {remaining_loads} ---")
+            if completed_full_loads:
+                print(f"    (skipping {len(completed_full_loads)} already-completed load(s))")
+        else:
+            print(f"  --- Phase 2: All {len(selected_loads)} full runs already completed ---")
 
-        for load in selected_loads:
+        for load in remaining_loads:
             full_file = probe_dir / f"{name}_full_{load}.jsonl"
             print(f"  Full run: load={load} (10 trials)", end=" ", flush=True)
             bp = run_rr(name, load, full_file, heuristic=best_heuristic, num_trials=10)
@@ -339,27 +424,26 @@ def main(retry=False):
                 timing_str = format_timing_breakdown(full_file)
                 if timing_str:
                     print(f"    [{timing_str}]")
-                full_files.append(full_file)
+                # Append this full run's results to the output file immediately
+                with open(output_file, "a") as f_out:
+                    with open(full_file) as f_in:
+                        for line in f_in:
+                            f_out.write(line)
+                full_file.unlink(missing_ok=True)
+                completed_full_loads.add(load)
+                _save()
             else:
                 print("-> FAILED")
                 full_file.unlink(missing_ok=True)
 
-        # Combine full run results into output
-        if full_files:
-            with open(output_file, "w") as f_out:
-                for ff in full_files:
-                    with open(ff) as f_in:
-                        for line in f_in:
-                            f_out.write(line)
-
-            # Clean up
-            for ff in full_files:
-                ff.unlink(missing_ok=True)
-
-            print(f"  -> Wrote {len(full_files)} load(s) to {output_file.name}")
+        # Check final result
+        if completed_full_loads:
+            print(f"  -> Wrote {len(completed_full_loads)} load(s) to {output_file.name}")
+            clear_probe_state(probe_dir, name)
             progress.item_done(t_start, "completed")
         else:
             print(f"  -> All full runs failed")
+            clear_probe_state(probe_dir, name)
             progress.item_done(t_start, "failed")
 
         print(f"  [wall={format_duration(progress._durations[-1])}]")
