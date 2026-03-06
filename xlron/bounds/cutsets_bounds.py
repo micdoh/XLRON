@@ -171,8 +171,13 @@ def calculate_congestion(
     masked2 = jnp.where(jnp.outer(partition2, partition2) > 0, partitioned_adj, 0)
     check1 = jnp.where(partition1 > 0, jnp.sum(masked1, axis=0) > 0, True)
     check2 = jnp.where(partition2 > 0, jnp.sum(masked2, axis=0) > 0, True)
-    connected1 = jnp.all(check1)
-    connected2 = jnp.all(check2)
+    # A singleton partition (1 node) is trivially connected but has no
+    # internal edges, so the per-node neighbour check above incorrectly
+    # rejects it.  Override: any partition with <= 1 node is connected.
+    size1 = jnp.sum(partition1)
+    size2 = jnp.sum(partition2)
+    connected1 = jnp.where(size1 <= 1, True, jnp.all(check1))
+    connected2 = jnp.where(size2 <= 1, True, jnp.all(check2))
     both_connected = (connected1 & connected2).astype(jnp.float32)
     return congestion * both_connected
 
@@ -313,7 +318,7 @@ def find_congested_cuts_simple(
 # =====================================================================
 
 
-def precompute_cutset_data(heavy_cut_sets, num_links):
+def precompute_cutset_data(heavy_cut_sets, num_links, source_nodes=None, dest_nodes=None):
     """Precompute data structures for the capacity-bound simulation.
 
     From the heavy_cut_sets dict, build:
@@ -322,9 +327,14 @@ def precompute_cutset_data(heavy_cut_sets, num_links):
         cut-set to its member links *within the compressed index space*.
       - partition1, partition2: (num_cutsets, num_nodes) binary partition arrays.
 
+    When source_nodes/dest_nodes are provided (directed graphs), also builds
+    directional masks:
+      - cutset_link_mask_1to2: links going from partition1 to partition2
+      - cutset_link_mask_2to1: links going from partition2 to partition1
+
     Returns a dict with keys:
         unique_link_indices, cutset_link_mask, partition1, partition2, num_cutsets,
-        num_unique_links
+        num_unique_links, and optionally cutset_link_mask_1to2, cutset_link_mask_2to1.
     """
     cutset_edges = heavy_cut_sets["cutset_edges"]  # (num_cutsets, num_links)
     partition1 = heavy_cut_sets["partition1"]  # (num_cutsets, num_nodes)
@@ -352,7 +362,7 @@ def precompute_cutset_data(heavy_cut_sets, num_links):
 
     num_cutsets = cutset_edges.shape[0]
 
-    return {
+    result = {
         "unique_link_indices": unique_link_indices,  # (num_unique_links,)
         "cutset_link_mask": cutset_link_mask.astype(jnp.int32),  # (num_cutsets, num_unique_links)
         "partition1": partition1.astype(jnp.int32),  # (num_cutsets, num_nodes)
@@ -361,6 +371,36 @@ def precompute_cutset_data(heavy_cut_sets, num_links):
         "num_unique_links": num_unique_links,
         "link_to_compressed": link_to_compressed,  # (num_links,)
     }
+
+    # Build directional masks for directed graphs
+    if source_nodes is not None and dest_nodes is not None:
+        src = np.asarray(source_nodes.val)
+        dst = np.asarray(dest_nodes.val)
+        p1 = np.asarray(partition1)  # (num_cutsets, num_nodes)
+        p2 = np.asarray(partition2)
+
+        # For each unique link, get its source and destination node
+        uli = np.asarray(unique_link_indices)
+        link_src = src[uli]  # (num_unique_links,)
+        link_dst = dst[uli]  # (num_unique_links,)
+
+        # For each cutset c and unique link l:
+        #   1to2: source in partition1[c] AND dest in partition2[c]
+        #   2to1: source in partition2[c] AND dest in partition1[c]
+        # p1[:, link_src] -> (num_cutsets, num_unique_links): is link's src in partition1?
+        src_in_p1 = p1[:, link_src]  # (C, L)
+        dst_in_p2 = p2[:, link_dst]  # (C, L)
+        src_in_p2 = p2[:, link_src]  # (C, L)
+        dst_in_p1 = p1[:, link_dst]  # (C, L)
+
+        mask_np = np.asarray(cutset_link_mask)
+        mask_1to2 = mask_np * (src_in_p1 * dst_in_p2)  # (C, L)
+        mask_2to1 = mask_np * (src_in_p2 * dst_in_p1)  # (C, L)
+
+        result["cutset_link_mask_1to2"] = jnp.array(mask_1to2, dtype=jnp.int32)
+        result["cutset_link_mask_2to1"] = jnp.array(mask_2to1, dtype=jnp.int32)
+
+    return result
 
 
 # -------------------------------------------------------------------
@@ -388,10 +428,18 @@ def build_best_se_matrix(params):
     # path_se_array is a flat 1D array with one SE value per path.
     # For undirected: N*(N-1)/2 * k paths; for directed: N*(N-1) * k paths.
     # Reshape to (num_pairs, k) and take max over k to get best SE per pair.
+    # IMPORTANT: Only consider paths that actually have links (non-empty).
+    # Empty/padded paths can have bogus SE values that would inflate the bound.
     se_array = np.asarray(params.path_se_array.val)
+    link_array = np.asarray(params.path_link_array.val)
     k = params.k_paths
     num_pairs = se_array.shape[0] // k
-    se_per_pair = se_array.reshape(num_pairs, k).max(axis=1)  # (num_pairs,)
+    se_reshaped = se_array.reshape(num_pairs, k)
+    # A path is valid if it uses at least one link
+    path_has_links = link_array.reshape(num_pairs, k, -1).any(axis=2)  # (num_pairs, k)
+    # Mask out empty paths by setting their SE to 0
+    se_masked = np.where(path_has_links, se_reshaped, 0)
+    se_per_pair = se_masked.max(axis=1)  # (num_pairs,)
 
     # Build (src, dst) index arrays matching get_path_indices triangular ordering
     # Upper-triangular pairs (s < d) in row-major order
@@ -794,6 +842,8 @@ def _simulation_step(
     params,
     link_selection_mode,
     neglect_spectrum_continuity=False,
+    cutset_link_mask_1to2=None,
+    cutset_link_mask_2to1=None,
 ):
     """One timestep of the capacity-bound simulation.
 
@@ -803,6 +853,10 @@ def _simulation_step(
     When neglect_spectrum_continuity is True, feasibility is based on total
     free capacity per link (not slot-level), and each assigned link uses its
     own independent first-fit start slot for the actual allocation.
+
+    When cutset_link_mask_1to2/2to1 are provided (directed graphs), the link
+    mask is filtered per-request so that only links in the correct direction
+    (matching the source/dest partition membership) are considered.
 
     carry = (state, always_accepted_count, blocked_count,
              always_accepted_bitrate, blocked_bitrate)
@@ -833,20 +887,36 @@ def _simulation_step(
     traversed = _find_traversed_cutsets(source, dest, partition1, partition2)
     any_traversed = jnp.any(traversed)
 
+    # --- 3b. Build direction-filtered cutset link mask ---
+    # For directed graphs, only allow links in the correct direction per cutset.
+    # If s∈partition1[c] and d∈partition2[c], only partition1→partition2 links
+    # are valid for cutset c (and vice versa).
+    if cutset_link_mask_1to2 is not None and cutset_link_mask_2to1 is not None:
+        s_in_p1 = partition1[:, source]  # (C,) bool
+        d_in_p2 = partition2[:, dest]    # (C,) bool
+        goes_1to2 = (s_in_p1 & d_in_p2).astype(jnp.int32)  # (C,)
+        # Per cutset, select the correct directional mask
+        effective_cutset_link_mask = (
+            goes_1to2[:, None] * cutset_link_mask_1to2
+            + (1 - goes_1to2[:, None]) * cutset_link_mask_2to1
+        )
+    else:
+        effective_cutset_link_mask = cutset_link_mask
+
     # --- 4-7. Feasibility, link assignment, and mask construction ---
     slot_array_subset = state.link_slot_array[unique_link_indices]
 
     if neglect_spectrum_continuity:
         # Capacity-based feasibility (no spectrum continuity)
         has_feasible = _check_feasibility_no_continuity(
-            traversed, cutset_link_mask, slot_array_subset, num_slots
+            traversed, effective_cutset_link_mask, slot_array_subset, num_slots
         )
 
         # Capacity-based link assignment
         assigned_links_compressed, _ = _assign_links_no_continuity(
             num_slots,
             traversed,
-            cutset_link_mask,
+            effective_cutset_link_mask,
             slot_array_subset,
             max_links_to_assign,
             link_selection_mode,
@@ -885,7 +955,7 @@ def _simulation_step(
     else:
         # Original spectrum-continuity mode
         feasible_starts = _find_feasible_start_slots(
-            traversed, cutset_link_mask, slot_array_subset, num_slots
+            traversed, effective_cutset_link_mask, slot_array_subset, num_slots
         )
         start_slot = jnp.argmax(feasible_starts)
         has_feasible = feasible_starts[start_slot]
@@ -894,7 +964,7 @@ def _simulation_step(
             start_slot,
             num_slots,
             traversed,
-            cutset_link_mask,
+            effective_cutset_link_mask,
             slot_array_subset,
             max_links_to_assign,
             link_selection_mode,
@@ -983,6 +1053,8 @@ def run_single_trial(
     max_links_to_assign,
     link_selection_mode,
     neglect_spectrum_continuity=False,
+    cutset_link_mask_1to2=None,
+    cutset_link_mask_2to1=None,
 ):
     """Run a single trial of the capacity-bound simulation.
 
@@ -1017,6 +1089,8 @@ def run_single_trial(
             params,
             link_selection_mode,
             neglect_spectrum_continuity,
+            cutset_link_mask_1to2,
+            cutset_link_mask_2to1,
         )
         return (state, aa, bc, aabr, bbr, step_idx + 1), None
 
@@ -1056,6 +1130,8 @@ def run_capacity_bound_simulation(
     seed=0,
     link_selection_mode="least_congested",
     neglect_spectrum_continuity=False,
+    source_nodes=None,
+    dest_nodes=None,
 ):
     """Run the full capacity-bound simulation across multiple loads and trials.
 
@@ -1070,6 +1146,8 @@ def run_capacity_bound_simulation(
         seed: int, base random seed.
         link_selection_mode: str — secondary link selection heuristic.
         neglect_spectrum_continuity: bool — if True, use capacity-counter mode.
+        source_nodes: HashableArrayWrapper — source node per link (for directional filtering).
+        dest_nodes: HashableArrayWrapper — dest node per link (for directional filtering).
 
     Returns:
         results: dict mapping load -> {accepted, blocked, always_accepted, blocking_prob}
@@ -1078,14 +1156,16 @@ def run_capacity_bound_simulation(
     mean_service_holding_time = params.mean_service_holding_time
     values_bw = jnp.array(params.values_bw.val, dtype=jnp.float32)
 
-    # Precompute cut-set data
-    cs_data = precompute_cutset_data(heavy_cut_sets, num_links)
+    # Precompute cut-set data (with directional masks for directed graphs)
+    cs_data = precompute_cutset_data(heavy_cut_sets, num_links, source_nodes, dest_nodes)
     partition1 = cs_data["partition1"]
     partition2 = cs_data["partition2"]
     cutset_link_mask = cs_data["cutset_link_mask"]
     unique_link_indices = cs_data["unique_link_indices"]
     num_unique_links = cs_data["num_unique_links"]
     num_cutsets = cs_data["num_cutsets"]
+    cutset_link_mask_1to2 = cs_data.get("cutset_link_mask_1to2")
+    cutset_link_mask_2to1 = cs_data.get("cutset_link_mask_2to1")
 
     max_links_to_assign = min(num_cutsets, num_unique_links, 20)
 
@@ -1111,6 +1191,11 @@ def run_capacity_bound_simulation(
     _, base_initial_state = env.reset(reset_key, params)
     trial_rngs = jax.random.split(jax.random.PRNGKey(seed + 1), num_trials)
 
+    if cutset_link_mask_1to2 is not None:
+        print(f"  Directional link filtering: ENABLED")
+    else:
+        print(f"  Directional link filtering: DISABLED (undirected graph)")
+
     # Compile once with initial_state as a traced argument (not closed over)
     def single(rng, initial_state):
         return run_single_trial(
@@ -1126,6 +1211,8 @@ def run_capacity_bound_simulation(
             max_links_to_assign,
             link_selection_mode,
             neglect_spectrum_continuity,
+            cutset_link_mask_1to2,
+            cutset_link_mask_2to1,
         )
 
     print("Lowering and compiling simulation (this may take a while)...")
@@ -1436,6 +1523,8 @@ def main(argv):
         seed=FLAGS.SEED,
         link_selection_mode=FLAGS.cutset_link_selection_mode,
         neglect_spectrum_continuity=FLAGS.NEGLECT_SPECTRUM_CONTINUITY,
+        source_nodes=source_nodes_haw if params.directed_graph else None,
+        dest_nodes=destination_nodes_haw if params.directed_graph else None,
     )
 
     print_results_table(results)
