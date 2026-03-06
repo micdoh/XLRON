@@ -45,11 +45,24 @@ def get_weighted_traffic_matrix(graph, params):
     # We want the SE of the first (shortest) path for each (s,d) pair.
     se_array = np.asarray(params.path_se_array.val)
     k = params.k_paths
-    num_pairs = se_array.shape[0] // k
-    first_se_per_pair = se_array.reshape(num_pairs, k)[:, 0]  # (num_pairs,)
 
     # Upper-triangular (s < d) pairs in row-major order
     src_upper, dst_upper = np.triu_indices(n_nodes, k=1)
+    num_upper_pairs = len(src_upper)
+
+    # For env_type=rsa (no modulation), path_se_array is [1] (uniform SE=1).
+    # In that case, all pairs have equal weight.
+    if se_array.size < num_upper_pairs * k:
+        first_se_per_pair_upper = np.full(num_upper_pairs, se_array.flat[0], dtype=np.float64)
+        if params.directed_graph:
+            first_se_per_pair_lower = first_se_per_pair_upper.copy()
+        traffic_matrix = np.zeros((n_nodes, n_nodes), dtype=np.float64)
+        traffic_matrix[src_upper, dst_upper] = 1.0 / first_se_per_pair_upper
+        traffic_matrix[dst_upper, src_upper] = 1.0 / first_se_per_pair_upper
+        return jnp.array(traffic_matrix)
+
+    num_pairs = se_array.shape[0] // k
+    first_se_per_pair = se_array.reshape(num_pairs, k)[:, 0]  # (num_pairs,)
 
     traffic_matrix = np.zeros((n_nodes, n_nodes), dtype=np.float64)
     if params.directed_graph:

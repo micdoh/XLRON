@@ -5,8 +5,15 @@ Strategy:
 2. Any probe with blocking > 0% but <= 1% is selected for a full 10-trial run.
 3. If a probe shows blocking > 1%, scale back (too expensive due to defrag).
 4. Stop probing once blocking exceeds 0.1% (TARGET_BP).
-5. Full 10-trial runs at selected loads produce the actual data.
+5. Refinement phase: binary search to ensure bracketing of TARGET_BP.
+6. Full 10-trial runs at selected loads produce the actual data.
+
+Retry mode (--retry): re-processes topologies whose existing output
+doesn't have valid interpolation at TARGET_BP.
 """
+
+import numpy as np
+from scipy import interpolate as scipy_interpolate
 
 from config import (
     FULL_RR_PARAMS,
@@ -24,6 +31,7 @@ from config import (
 )
 
 MAX_PROBES = 30
+MAX_REFINE_PROBES = 8
 LOAD_INCREMENT = 1.10  # 10% increment between probes
 SCALE_BACK_FACTOR = 0.95  # 5% reduction when blocking > 1%
 MAX_BLOCKING_FOR_FULL_RUN = 0.01  # 1% - don't do full runs above this
@@ -54,9 +62,140 @@ def run_rr(name, load, output_file, heuristic="ksp_ff", num_trials=1, timeout=14
     return results[0]["blocking_mean"]
 
 
-def main():
+def has_valid_interpolation(entries, target_bp=TARGET_BP):
+    """Check if a list of {load, blocking_mean} entries can interpolate to target_bp."""
+    if len(entries) < 2:
+        return False
+    bps = np.array([e["blocking_mean"] for e in entries])
+    valid = bps > 0
+    if valid.sum() < 2:
+        return False
+    bps_valid = bps[valid]
+    return bps_valid.min() < target_bp < bps_valid.max()
+
+
+def categorize_probes(probe_results):
+    """Categorize probe results into below/above target and zero/too-high groups.
+
+    Args:
+        probe_results: dict mapping load -> bp
+
+    Returns:
+        (zero_loads, below_target, above_target, too_high) as sorted lists of loads.
+    """
+    zero_loads = sorted(l for l, bp in probe_results.items() if bp == 0)
+    below_target = sorted(l for l, bp in probe_results.items() if 0 < bp < TARGET_BP)
+    above_target = sorted(l for l, bp in probe_results.items()
+                          if TARGET_BP <= bp <= MAX_BLOCKING_FOR_FULL_RUN)
+    too_high = sorted(l for l, bp in probe_results.items() if bp > MAX_BLOCKING_FOR_FULL_RUN)
+    return zero_loads, below_target, above_target, too_high
+
+
+def refine_probes(name, probe_results, heuristic, probe_dir):
+    """Do targeted binary-search probes to bracket TARGET_BP.
+
+    Modifies probe_results in place. Returns True if refinement succeeded.
+    """
+    zero_loads, below_target, above_target, too_high = categorize_probes(probe_results)
+    has_below = len(below_target) > 0
+    has_above = len(above_target) > 0
+
+    refine_num = 0
+
+    def do_probe(load):
+        nonlocal refine_num
+        load = round(load)
+        if load in probe_results or load <= 0:
+            return probe_results.get(load)
+        refine_num += 1
+        pfile = probe_dir / f"{name}_refine{refine_num}.jsonl"
+        print(f"  Refine {refine_num}: load={load}", end=" ", flush=True)
+        bp = run_rr(name, load, pfile, heuristic=heuristic, num_trials=1)
+        pfile.unlink(missing_ok=True)
+        if bp is None:
+            print("-> FAILED")
+            return None
+        print(f"-> BP={bp*100:.4f}%")
+        probe_results[load] = bp
+        return bp
+
+    # Case A: Have above-target loads but no below-target (need lower bracket)
+    if has_above and not has_below:
+        lowest_above = min(above_target)
+        if zero_loads:
+            # Binary search between highest zero and lowest above
+            lo, hi = max(zero_loads), lowest_above
+            for _ in range(MAX_REFINE_PROBES):
+                if hi - lo <= 1:
+                    break
+                mid = round((lo + hi) / 2)
+                bp = do_probe(mid)
+                if bp is None:
+                    break
+                if bp == 0:
+                    lo = mid
+                elif bp < TARGET_BP:
+                    break  # Found a below-target point
+                else:
+                    hi = mid
+        else:
+            # No zero loads — try progressively lower loads
+            base = lowest_above
+            for frac in [0.90, 0.80, 0.70, 0.60, 0.50]:
+                load = round(base * frac)
+                bp = do_probe(load)
+                if bp is not None and 0 < bp < TARGET_BP:
+                    break
+
+    # Re-categorize after Case A refinement
+    zero_loads, below_target, above_target, too_high = categorize_probes(probe_results)
+    has_below = len(below_target) > 0
+    has_above = len(above_target) > 0
+
+    # Case B: Have below-target loads but no above-target (need upper bracket)
+    if has_below and not has_above:
+        highest_below = max(below_target)
+        current = highest_below
+        for _ in range(MAX_REFINE_PROBES):
+            current = round(current * LOAD_INCREMENT)
+            bp = do_probe(current)
+            if bp is None:
+                break
+            if bp >= TARGET_BP:
+                break
+
+    # Re-categorize after Case B refinement
+    zero_loads, below_target, above_target, too_high = categorize_probes(probe_results)
+    has_below = len(below_target) > 0
+    has_above = len(above_target) > 0
+
+    # Case C: Only zeros and too-high (>1%) — binary search between them
+    if not has_below and not has_above and zero_loads and too_high:
+        lo, hi = max(zero_loads), min(too_high)
+        for _ in range(MAX_REFINE_PROBES):
+            if hi - lo <= 1:
+                break
+            mid = round((lo + hi) / 2)
+            bp = do_probe(mid)
+            if bp is None:
+                break
+            if bp == 0:
+                lo = mid
+            elif bp > MAX_BLOCKING_FOR_FULL_RUN:
+                hi = mid
+            else:
+                # Found something in range — continue to try to bracket
+                _, below_target, above_target, _ = categorize_probes(probe_results)
+                if below_target and above_target:
+                    break
+
+    return refine_num > 0
+
+
+def main(retry=False):
+    label = "Phase 4b: Retrying RR bounds" if retry else "Phase 4: Running RR bounds (adaptive load selection)"
     print("=" * 60)
-    print("Phase 4: Running RR bounds (adaptive load selection)")
+    print(label)
     print("=" * 60)
 
     topologies = get_topology_list()
@@ -67,15 +206,30 @@ def main():
     output_dir.mkdir(parents=True, exist_ok=True)
     probe_dir.mkdir(parents=True, exist_ok=True)
 
-    progress = ProgressTracker(len(topologies), "Phase 4")
+    progress = ProgressTracker(len(topologies), "Phase 4b" if retry else "Phase 4")
 
     for topo in topologies:
         name = topo["topology_name"]
 
         output_file = output_dir / f"{name}.jsonl"
+
+        # Skip / retry logic
         if output_file.exists() and output_file.stat().st_size > 0:
-            progress.item_done(progress.item_start(), "skipped")
-            continue
+            if retry:
+                # Check if existing output has valid interpolation
+                existing = parse_jsonl_blocking(output_file)
+                if has_valid_interpolation(existing):
+                    progress.item_done(progress.item_start(), "skipped")
+                    continue
+                # Invalid interpolation — load existing results as seed data and re-process
+                print(f"\n  Retrying {name}: existing output lacks valid interpolation")
+                existing_probes = {e["load"]: e["blocking_mean"] for e in existing}
+                output_file.unlink()
+            else:
+                progress.item_done(progress.item_start(), "skipped")
+                continue
+        else:
+            existing_probes = {}
 
         if name not in ranges or ranges[name].get("status") == "failed":
             print(f"  Skipping {name}: no load range discovered")
@@ -94,63 +248,77 @@ def main():
         t_start = progress.item_start()
         print(progress.header(progress.processed + 1, name, f"(heuristic={best_heuristic})"))
 
+        # Track all probe results: load -> bp
+        probe_results = dict(existing_probes)
+
         # =============================================================
         # Phase 1: Cheap single-trial probes to find loads with blocking
         # =============================================================
-        print("  --- Phase 1: Single-trial probes ---")
-        current_load = load_high
-        probe_num = 0
-        selected_loads = []  # loads to do full 10-trial runs at
-        probed_loads = set()  # prevent re-probing the same rounded load
-        phase1_failed = False
+        if not retry or not existing_probes:
+            print("  --- Phase 1: Single-trial probes ---")
+            current_load = load_high
+            probe_num = 0
+            phase1_failed = False
 
-        while probe_num < MAX_PROBES:
-            # Avoid re-probing the same load (rounding can cause duplicates)
-            if current_load in probed_loads:
-                current_load = round(current_load * 1.05)
-                if current_load in probed_loads:
+            while probe_num < MAX_PROBES:
+                if current_load in probe_results:
+                    current_load = round(current_load * 1.05)
+                    if current_load in probe_results:
+                        break
+                probe_num += 1
+                pfile = probe_dir / f"{name}_probe{probe_num}.jsonl"
+                print(f"  Probe {probe_num}: load={current_load}", end=" ", flush=True)
+                bp = run_rr(name, current_load, pfile, heuristic=best_heuristic, num_trials=1)
+
+                if bp is None:
+                    print("-> FAILED")
+                    pfile.unlink(missing_ok=True)
+                    phase1_failed = True
                     break
-            probed_loads.add(current_load)
 
-            probe_num += 1
-            pfile = probe_dir / f"{name}_probe{probe_num}.jsonl"
-            print(f"  Probe {probe_num}: load={current_load}", end=" ", flush=True)
-            bp = run_rr(name, current_load, pfile, heuristic=best_heuristic, num_trials=1)
-
-            if bp is None:
-                print("-> FAILED")
+                print(f"-> BP={bp*100:.4f}%")
                 pfile.unlink(missing_ok=True)
-                phase1_failed = True
-                break
+                probe_results[current_load] = bp
 
-            print(f"-> BP={bp*100:.4f}%")
-            pfile.unlink(missing_ok=True)
+                if bp > MAX_BLOCKING_FOR_FULL_RUN:
+                    print(f"    Blocking > 1%, scaling back")
+                    current_load = max(round(current_load * SCALE_BACK_FACTOR), 1)
+                    continue
 
-            if bp > MAX_BLOCKING_FOR_FULL_RUN:
-                # > 1% blocking - too expensive for defrag, scale back
-                print(f"    Blocking > 1%, scaling back")
-                current_load = max(round(current_load * SCALE_BACK_FACTOR), 1)
+                if bp >= TARGET_BP:
+                    print(f"    Found load above {TARGET_BP*100:.1f}% target")
+                    break
+
+                current_load = round(current_load * LOAD_INCREMENT)
+
+            if phase1_failed and not any(bp > 0 for bp in probe_results.values()):
+                progress.item_done(t_start, "failed")
+                print(f"  [wall={format_duration(progress._durations[-1])}]")
                 continue
 
-            if bp > 0:
-                # Blocking detected but <= 1% - select for full run
-                selected_loads.append(current_load)
+        # =============================================================
+        # Phase 1b: Refinement probes to ensure bracketing of TARGET_BP
+        # =============================================================
+        _, below_target, above_target, _ = categorize_probes(probe_results)
+        needs_refine = not (below_target and above_target)
 
-            if bp >= TARGET_BP:
-                # Found our target - done probing
-                print(f"    Found load above {TARGET_BP*100:.1f}% target")
-                break
+        if needs_refine and any(bp > 0 for bp in probe_results.values()):
+            print("  --- Phase 1b: Refinement probes (bracketing) ---")
+            refine_probes(name, probe_results, best_heuristic, probe_dir)
 
-            # Not at target yet - increment load by ~10%
-            current_load = round(current_load * LOAD_INCREMENT)
-
-        if phase1_failed and not selected_loads:
-            progress.item_done(t_start, "failed")
-            print(f"  [wall={format_duration(progress._durations[-1])}]")
-            continue
+        # Build selected_loads from all probes with 0 < bp <= MAX_BLOCKING
+        selected_loads = sorted(
+            l for l, bp in probe_results.items()
+            if 0 < bp <= MAX_BLOCKING_FOR_FULL_RUN
+        )
 
         if not selected_loads:
-            print(f"  WARNING: No loads with blocking > 0% found in {probe_num} probes")
+            # Check if any probe had non-zero blocking at all
+            any_blocking = any(bp > 0 for bp in probe_results.values())
+            if not any_blocking:
+                print(f"  WARNING: No loads with blocking > 0% found")
+            else:
+                print(f"  WARNING: All non-zero blocking > {MAX_BLOCKING_FOR_FULL_RUN*100:.0f}%")
             progress.item_done(t_start, "failed")
             print(f"  [wall={format_duration(progress._durations[-1])}]")
             continue
@@ -158,7 +326,6 @@ def main():
         # =============================================================
         # Phase 2: Full 10-trial runs at selected loads
         # =============================================================
-        selected_loads = sorted(set(selected_loads))
         print(f"  --- Phase 2: Full 10-trial runs at {len(selected_loads)} load(s): {selected_loads} ---")
         full_files = []
 
@@ -201,4 +368,9 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--retry", action="store_true",
+                        help="Re-process topologies with invalid interpolation")
+    args = parser.parse_args()
+    main(retry=args.retry)

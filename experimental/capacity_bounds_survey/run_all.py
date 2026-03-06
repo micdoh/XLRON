@@ -24,7 +24,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 
-def run_phase(module_name: str, phase_num: int, description: str):
+def run_phase(module_name: str, phase_num, description: str, **main_kwargs):
     """Import and run a phase module's main() function."""
     print()
     print("#" * 60)
@@ -34,7 +34,7 @@ def run_phase(module_name: str, phase_num: int, description: str):
 
     start = time.time()
     module = importlib.import_module(module_name)
-    module.main()
+    module.main(**main_kwargs)
     elapsed = time.time() - start
 
     hours = int(elapsed // 3600)
@@ -67,16 +67,17 @@ def main():
     total_start = time.time()
 
     phases = [
-        ("01_discover_load_ranges", 1, "Discover load ranges + heuristic eval"),
-        ("02_compare_heuristics",   2, "Compare KSP-FF vs FF-KSP heuristics"),
-        ("03_run_cutset_bounds",    3, "Cut-set bounds"),
-        ("04_run_rr_bounds",        4, "Reconfigurable routing bounds"),
-        ("05_run_k_sensitivity",    5, "K-sensitivity experiment"),
-        ("06_analyze_results",      6, "Analysis and plotting"),
+        ("01_discover_load_ranges", 1, "Discover load ranges + heuristic eval", {}),
+        ("02_compare_heuristics",   2, "Compare KSP-FF vs FF-KSP heuristics", {}),
+        ("03_run_cutset_bounds",    3, "Cut-set bounds", {}),
+        ("04_run_rr_bounds",        4, "Reconfigurable routing bounds", {}),
+        ("04_run_rr_bounds",       "4b", "Retry failed RR bounds", {"retry": True}),
+        ("05_run_k_sensitivity",    5, "K-sensitivity experiment", {}),
+        ("06_analyze_results",      6, "Analysis and plotting", {}),
     ]
 
-    for module_name, phase_num, description in phases:
-        run_phase(module_name, phase_num, description)
+    for module_name, phase_num, description, kwargs in phases:
+        run_phase(module_name, phase_num, description, **kwargs)
 
     total_elapsed = time.time() - total_start
     hours = int(total_elapsed // 3600)

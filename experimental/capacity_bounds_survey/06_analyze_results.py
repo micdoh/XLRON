@@ -227,6 +227,65 @@ def plot_bounds_overview(df: pd.DataFrame, figures_dir: Path):
     print(f"  Saved {figures_dir / 'bounds_overview.png'}")
 
 
+def plot_bounds_overview_normalized(df: pd.DataFrame, figures_dir: Path, sort_by: str = "topology"):
+    """Plot normalized bounds overview: bars show % difference from heuristic load.
+
+    Args:
+        sort_by: "topology" to sort alphabetically, "edges" to sort by num edges.
+    """
+    # Need heuristic + at least one bound
+    valid = df.dropna(subset=["heuristic_load_01pct"]).copy()
+    has_cutset = valid["cutset_load_01pct"].notna()
+    has_rr = valid["rr_load_01pct"].notna()
+    valid = valid[has_cutset | has_rr]
+    if valid.empty:
+        print(f"  No data for normalized bounds overview ({sort_by})")
+        return
+
+    if sort_by == "edges":
+        valid = valid.sort_values("edges").reset_index(drop=True)
+        suffix = "by_edges"
+    else:
+        valid = valid.sort_values("topology").reset_index(drop=True)
+        suffix = "by_name"
+
+    # Compute normalized gaps (%)
+    cutset_gap = (valid["cutset_load_01pct"] - valid["heuristic_load_01pct"]) / valid["heuristic_load_01pct"] * 100
+    rr_gap = (valid["rr_load_01pct"] - valid["heuristic_load_01pct"]) / valid["heuristic_load_01pct"] * 100
+
+    fig, ax = plt.subplots(figsize=(max(14, len(valid) * 0.4), 8))
+
+    x = np.arange(len(valid))
+    width = 0.35
+
+    if cutset_gap.notna().any():
+        ax.bar(x - width / 2, cutset_gap, width,
+               label="Cut-set bound", color=PALETTE[1], edgecolor="white", linewidth=0.5)
+    if rr_gap.notna().any():
+        ax.bar(x + width / 2, rr_gap, width,
+               label="Resource-prioritized defragmentation", color=PALETTE[2], edgecolor="white", linewidth=0.5)
+
+    ax.axhline(y=0, color="black", linewidth=0.8, linestyle="-")
+    ax.set_xlabel("Topology")
+    ax.set_ylabel("Load difference from heuristic (%)")
+    order_label = "(by number of edges)" if sort_by == "edges" else "(alphabetical)"
+    ax.set_title(f"Bound Gap Relative to Best Heuristic {order_label}")
+    ax.set_xticks(x)
+    ax.set_xticklabels(
+        [n.replace("_directed", "") for n in valid["topology"]],
+        rotation=75,
+        ha="right",
+        fontsize=8,
+    )
+    ax.legend()
+
+    plt.tight_layout()
+    fname = f"bounds_overview_normalized_{suffix}.png"
+    plt.savefig(figures_dir / fname)
+    plt.close()
+    print(f"  Saved {figures_dir / fname}")
+
+
 def load_k_sensitivity_data(k_sens_dir: Path) -> dict[str, list[dict]]:
     """Load K-sensitivity results.
 
@@ -360,6 +419,40 @@ def plot_k_sensitivity(k_data: dict, figures_dir: Path):
     print(f"  Saved {figures_dir / 'k_sensitivity_summary.png'}")
 
 
+def plot_k_best_bar(k_data: dict, figures_dir: Path):
+    """Bar chart showing the value of K that gives lowest mean blocking per topology."""
+    if not k_data:
+        print("  No K-sensitivity data for best-K bar chart")
+        return
+
+    topos = []
+    best_ks = []
+    for topo_name in sorted(k_data.keys()):
+        entries = k_data[topo_name]
+        if not entries:
+            continue
+        best = min(entries, key=lambda e: e["blocking_mean"])
+        topos.append(topo_name.replace("_directed", ""))
+        best_ks.append(best["k"])
+
+    if not topos:
+        return
+
+    fig, ax = plt.subplots(figsize=(max(10, len(topos) * 0.5), 6))
+    x = np.arange(len(topos))
+    ax.bar(x, best_ks, color=PALETTE[0], edgecolor="white", linewidth=0.5)
+    ax.set_xlabel("Topology")
+    ax.set_ylabel("Best K (lowest blocking)")
+    ax.set_title("Optimal K per Topology")
+    ax.set_xticks(x)
+    ax.set_xticklabels(topos, rotation=75, ha="right", fontsize=8)
+
+    plt.tight_layout()
+    plt.savefig(figures_dir / "k_sensitivity_best_k.png")
+    plt.close()
+    print(f"  Saved {figures_dir / 'k_sensitivity_best_k.png'}")
+
+
 def print_heuristic_selection_table(df: pd.DataFrame):
     """Print a detailed table of heuristic selections."""
     sel = df[["topology", "heuristic_used", "nodes", "edges", "avg_degree",
@@ -411,7 +504,6 @@ def plot_heuristic_selection(df: pd.DataFrame, figures_dir: Path):
     for bar, count in zip(bars, [n_ksp, n_ff]):
         ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.5,
                 str(count), ha="center", va="bottom", fontweight="bold")
-    ax.set_ylabel("Number of topologies")
     ax.set_title("Best Heuristic Selection")
     ax.set_ylim(0, max(n_ksp, n_ff, 1) * 1.15)
 
@@ -420,12 +512,11 @@ def plot_heuristic_selection(df: pd.DataFrame, figures_dir: Path):
     bins = np.arange(0, df["nodes"].max() + 10, 10)
     if not ksp_ff.empty:
         ax.hist(ksp_ff["nodes"], bins=bins, alpha=0.6, color=color_ksp,
-                label=f"KSP-FF (n={n_ksp})", edgecolor="white", linewidth=0.5)
+                label="KSP-FF", edgecolor="white", linewidth=0.5)
     if not ff_ksp.empty:
         ax.hist(ff_ksp["nodes"], bins=bins, alpha=0.6, color=color_ff,
-                label=f"FF-KSP (n={n_ff})", edgecolor="white", linewidth=0.5)
+                label="FF-KSP", edgecolor="white", linewidth=0.5)
     ax.set_xlabel("Number of nodes")
-    ax.set_ylabel("Count")
     ax.set_title("Node Count Distribution by Heuristic")
     ax.legend()
 
@@ -434,14 +525,16 @@ def plot_heuristic_selection(df: pd.DataFrame, figures_dir: Path):
     bins_deg = np.arange(0, df["avg_degree"].max() + 1, 0.5)
     if not ksp_ff.empty:
         ax.hist(ksp_ff["avg_degree"], bins=bins_deg, alpha=0.6, color=color_ksp,
-                label=f"KSP-FF (n={n_ksp})", edgecolor="white", linewidth=0.5)
+                label="KSP-FF", edgecolor="white", linewidth=0.5)
     if not ff_ksp.empty:
         ax.hist(ff_ksp["avg_degree"], bins=bins_deg, alpha=0.6, color=color_ff,
-                label=f"FF-KSP (n={n_ff})", edgecolor="white", linewidth=0.5)
+                label="FF-KSP", edgecolor="white", linewidth=0.5)
     ax.set_xlabel("Average node degree")
-    ax.set_ylabel("Count")
     ax.set_title("Avg Degree Distribution by Heuristic")
     ax.legend()
+
+    # Shared y-axis label
+    fig.supylabel("Number of topologies")
 
     plt.tight_layout()
     plt.savefig(figures_dir / "heuristic_selection.png")
@@ -513,6 +606,8 @@ def main():
     # Generate plots
     print("\nGenerating plots...")
     plot_bounds_overview(df, figures_dir)
+    plot_bounds_overview_normalized(df, figures_dir, sort_by="topology")
+    plot_bounds_overview_normalized(df, figures_dir, sort_by="edges")
     plot_gap_scatter(df, figures_dir)
     plot_heuristic_selection(df, figures_dir)
 
@@ -521,6 +616,7 @@ def main():
     k_data = load_k_sensitivity_data(RESULTS_DIR / "k_sensitivity")
     print(f"  K-sensitivity data: {len(k_data)} topologies")
     plot_k_sensitivity(k_data, figures_dir)
+    plot_k_best_bar(k_data, figures_dir)
 
     print("\nAnalysis complete!")
 
