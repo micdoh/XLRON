@@ -453,6 +453,52 @@ def plot_k_best_bar(k_data: dict, figures_dir: Path):
     print(f"  Saved {figures_dir / 'k_sensitivity_best_k.png'}")
 
 
+def plot_k_best_improvement(k_data: dict, figures_dir: Path):
+    """Bar chart showing % blocking reduction at optimal K vs K=50 per topology."""
+    if not k_data:
+        print("  No K-sensitivity data for best-K improvement chart")
+        return
+
+    topos = []
+    improvements = []
+    for topo_name in sorted(k_data.keys()):
+        entries = k_data[topo_name]
+        if not entries:
+            continue
+
+        k50_bp = None
+        for e in entries:
+            if e["k"] == 50:
+                k50_bp = e["blocking_mean"]
+                break
+        if k50_bp is None or k50_bp == 0:
+            continue
+
+        best = min(entries, key=lambda e: e["blocking_mean"])
+        pct_diff = (best["blocking_mean"] - k50_bp) / k50_bp * 100
+        topos.append(topo_name.replace("_directed", ""))
+        improvements.append(pct_diff)
+
+    if not topos:
+        return
+
+    fig, ax = plt.subplots(figsize=(max(10, len(topos) * 0.5), 6))
+    x = np.arange(len(topos))
+    colors = [PALETTE[0] if v <= 0 else PALETTE[1] for v in improvements]
+    ax.bar(x, improvements, color=colors, edgecolor="white", linewidth=0.5)
+    ax.axhline(y=0, color="black", linewidth=0.8, linestyle="-")
+    ax.set_xlabel("Topology")
+    ax.set_ylabel("Blocking change vs K=50 (%)")
+    ax.set_title("Blocking Improvement at Optimal K Relative to K=50")
+    ax.set_xticks(x)
+    ax.set_xticklabels(topos, rotation=75, ha="right", fontsize=8)
+
+    plt.tight_layout()
+    plt.savefig(figures_dir / "k_sensitivity_best_k_improvement.png")
+    plt.close()
+    print(f"  Saved {figures_dir / 'k_sensitivity_best_k_improvement.png'}")
+
+
 def print_heuristic_selection_table(df: pd.DataFrame):
     """Print a detailed table of heuristic selections."""
     sel = df[["topology", "heuristic_used", "nodes", "edges", "avg_degree",
@@ -617,6 +663,7 @@ def main():
     print(f"  K-sensitivity data: {len(k_data)} topologies")
     plot_k_sensitivity(k_data, figures_dir)
     plot_k_best_bar(k_data, figures_dir)
+    plot_k_best_improvement(k_data, figures_dir)
 
     print("\nAnalysis complete!")
 
