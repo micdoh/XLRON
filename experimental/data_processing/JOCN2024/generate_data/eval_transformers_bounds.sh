@@ -27,8 +27,8 @@ run_experiment() {
         --k=$k \
         --topology_name=$topology \
         --continuous_operation \
-        --ENV_WARMUP_STEPS=3000 \
-        --TOTAL_TIMESTEPS 2000000 \
+        --ENV_WARMUP_STEPS=0 \
+        --TOTAL_TIMESTEPS 2600000 \
         --NUM_ENVS 200 \
         --EVAL_MODEL \
         --MODEL_PATH "$model_path" \

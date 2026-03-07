@@ -372,12 +372,76 @@ if __name__ == '__main__':
                            'service_blocking_probability_iqr_lower': 'iqr_lower',
                            'service_blocking_probability_iqr_upper': 'iqr_upper'}, inplace=True)
 
+    # Load transformer model evaluation data
+    new_transformer_data = load_bounds_file(new_data_dir / 'experiment_results_transformer_eval_bounds.jsonl')
+    new_transformer_data = new_transformer_data.rename(columns=_bounds_rename)
+    # The JSONL loader doesn't extract link_resources, so reload to get it
+    _transformer_records = []
+    with open(new_data_dir / 'experiment_results_transformer_eval_bounds.jsonl') as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            obj = json.loads(line)
+            config = obj.get('config', {})
+            _transformer_records.append(config.get('link_resources', 100))
+    new_transformer_data['link_resources'] = _transformer_records
+
+    # Map (topology_name, link_resources) -> NAME to match existing publication scheme
+    def _map_transformer_name(row):
+        topo = row['TOPOLOGY']
+        lr = row['link_resources']
+        if 'directed' in topo and 'undirected' not in topo:
+            if 'usnet' in topo:
+                return 'GCN-RMSA'
+            return 'DeepRMSA'
+        if 'jpn48' in topo:
+            return 'MaskRSA'
+        if lr == 40:
+            return 'PtrNet-RSA-40'
+        if lr == 80:
+            if 'nsfnet' in topo:
+                return None  # handled by duplication below
+            return 'PtrNet-RSA-80'
+        return 'DeepRMSA'
+
+    new_transformer_data['NAME'] = new_transformer_data.apply(_map_transformer_name, axis=1)
+    # Split nsfnet_deeprmsa_undirected/80 by load range:
+    # low loads (<=180) → MaskRSA, high loads (>180) → PtrNet-RSA-80
+    nsfnet_80 = new_transformer_data[
+        (new_transformer_data['TOPOLOGY'].str.contains('nsfnet')) &
+        (new_transformer_data['link_resources'] == 80) &
+        (new_transformer_data['NAME'].isna())
+    ]
+    mask_rows = nsfnet_80[nsfnet_80['LOAD'] <= 180].copy()
+    mask_rows['NAME'] = 'MaskRSA'
+    ptr80_rows = nsfnet_80[nsfnet_80['LOAD'] > 180].copy()
+    ptr80_rows['NAME'] = 'PtrNet-RSA-80'
+    new_transformer_data = pd.concat([
+        new_transformer_data.dropna(subset=['NAME']),
+        mask_rows, ptr80_rows
+    ], ignore_index=True)
+    new_transformer_data.drop(columns=['link_resources'], inplace=True)
+
+    for df in [new_transformer_data]:
+        df['N_slots'] = df['NAME'].apply(get_n_slots)
+        df['topology'] = df['TOPOLOGY'].apply(get_topology)
+        df['publication'] = df['NAME'].apply(get_publication_new)
+        df.rename(columns={'LOAD': 'load', 'K': 'k',
+                           'service_blocking_probability_mean': 'mean',
+                           'service_blocking_probability_std': 'stddev',
+                           'service_blocking_probability_iqr_lower': 'iqr_lower',
+                           'service_blocking_probability_iqr_upper': 'iqr_upper'}, inplace=True)
+
     new_heur_data = compute_bands(new_heur_data, n=2000)      # NUM_ENVS=2000
     new_reconfig_data = compute_bands(new_reconfig_data, n=10)  # num_trials=10
     new_cutset_data = compute_bands(new_cutset_data, n=10)      # num_trials=10
+    new_transformer_data = compute_bands(new_transformer_data, n=200)  # NUM_ENVS=200
     cutset_col = '#30A08E'
+    transformer_col = '#d62728'  # red
 
-    def plot_case_new(ax, pub, topology, n_slots, heur_df, reconfig_df, cutset_df):
+    def plot_case_new(ax, pub, topology, n_slots, heur_df, reconfig_df, cutset_df,
+                      transformer_df=None):
         pub_filter = 'PtrNet-RSA' if 'PtrNet-RSA' in pub else pub
 
         case_heur = heur_df[(heur_df['publication'] == pub_filter) &
@@ -389,6 +453,12 @@ if __name__ == '__main__':
         case_cutset = cutset_df[(cutset_df['publication'] == pub_filter) &
                                  (cutset_df['topology'] == topology) &
                                  (cutset_df['N_slots'] == n_slots)]
+        case_transformer = pd.DataFrame()
+        if transformer_df is not None:
+            case_transformer = transformer_df[
+                (transformer_df['publication'] == pub_filter) &
+                (transformer_df['topology'] == topology) &
+                (transformer_df['N_slots'] == n_slots)]
 
         lines = []
         labels = []
@@ -400,6 +470,15 @@ if __name__ == '__main__':
                            case_heur['band_upper'], alpha=0.2, color=heur_col)
             lines.append(line[0])
             labels.append('Best heuristic')
+
+        if not case_transformer.empty:
+            line = ax.plot(case_transformer['load'], case_transformer['mean'],
+                          marker='D', markerfacecolor=transformer_col, linestyle='-',
+                          color=transformer_col)
+            ax.fill_between(case_transformer['load'], case_transformer['band_lower'],
+                           case_transformer['band_upper'], alpha=0.2, color=transformer_col)
+            lines.append(line[0])
+            labels.append('Transformer')
 
         if not case_reconfig.empty:
             line = ax.plot(case_reconfig['load'], case_reconfig['mean'],
@@ -421,7 +500,7 @@ if __name__ == '__main__':
         # Start from the default limits and only expand.
         y_min, y_max = 0.01, 1
         x_min, x_max = ax.get_xlim()  # auto-scaled from plotted data
-        for case in [case_heur, case_reconfig, case_cutset]:
+        for case in [case_heur, case_reconfig, case_cutset, case_transformer]:
             if case.empty:
                 continue
             visible = case[case['mean'] > 0]
@@ -433,6 +512,8 @@ if __name__ == '__main__':
             best_x = visible.loc[best_idx, 'load']
             if best_y < y_min:
                 y_min = best_y * 0.5  # margin below on log scale
+            if best_y > y_max:
+                y_max = best_y * 2.0  # margin above on log scale
             if best_x > x_max:
                 x_max = best_x + 25
             if best_x < x_min:
@@ -444,7 +525,8 @@ if __name__ == '__main__':
         title = f'{pub_display}\n\n{topology}' if topology == 'NSFNET' else topology
         ax.set_title(title, fontsize=32)
 
-        has_data = not (case_heur.empty and case_reconfig.empty and case_cutset.empty)
+        has_data = not (case_heur.empty and case_reconfig.empty and
+                        case_cutset.empty and case_transformer.empty)
         return has_data, lines, labels
 
     # Create new figure with same grid layout
@@ -464,7 +546,8 @@ if __name__ == '__main__':
 
             data_plotted, lines, labels = plot_case_new(
                 ax, publication, topology, n_slots,
-                new_heur_data, new_reconfig_data, new_cutset_data
+                new_heur_data, new_reconfig_data, new_cutset_data,
+                new_transformer_data
             )
 
             if not data_plotted:
