@@ -253,7 +253,7 @@ def plot_bounds_overview_normalized(df: pd.DataFrame, figures_dir: Path, sort_by
     cutset_gap = (valid["cutset_load_01pct"] - valid["heuristic_load_01pct"]) / valid["heuristic_load_01pct"] * 100
     rr_gap = (valid["rr_load_01pct"] - valid["heuristic_load_01pct"]) / valid["heuristic_load_01pct"] * 100
 
-    fig, ax = plt.subplots(figsize=(max(14, len(valid) * 0.4), 8))
+    fig, ax = plt.subplots(figsize=(14, 8))
 
     x = np.arange(len(valid))
     width = 0.35
