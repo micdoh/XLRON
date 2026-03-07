@@ -48,7 +48,7 @@ k=50
 # Deep/Reward/GCN-RMSA Experiments (env_type=rmsa, link_resources=100)
 args="--env_type rmsa --link_resources 100 --mean_service_holding_time 20 --truncate_holding_time"
 
-# NSFNET DeepRMSA (nsfnet_deeprmsa_directed)
+# NSFNET DeepRMSA (nsfnet_deeprmsa_directed) - note: 4 heads for this model
 run_experiment "DeepRMSA" "nsfnet_deeprmsa_directed" 150 300 10 "$k" "./episodic_20_8_10.eqx" 4 "$args"
 
 # COST239 DeepRMSA (cost239_deeprmsa_directed)
