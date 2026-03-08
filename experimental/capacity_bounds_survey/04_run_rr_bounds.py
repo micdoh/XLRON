@@ -284,7 +284,13 @@ def main(retry=False):
         # Skip / retry logic
         # ---------------------------------------------------------
         if has_saved_state:
-            # Interrupted previous run — resume from saved probe state
+            # Interrupted previous run — resume from saved probe state.
+            # Also merge actual full-run results from the output file, since
+            # 10-trial values are more accurate than the original 1-trial probes.
+            if output_file.exists() and output_file.stat().st_size > 0:
+                for e in parse_jsonl_blocking(output_file):
+                    saved_probes[e["load"]] = e["blocking_mean"]
+                    saved_full_loads.add(e["load"])
             print(f"\n  Resuming {name}: found saved probe state "
                   f"({len(saved_probes)} probes, {len(saved_full_loads)} full runs done)")
         elif output_file.exists() and output_file.stat().st_size > 0:
