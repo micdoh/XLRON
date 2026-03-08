@@ -433,6 +433,12 @@ if __name__ == '__main__':
                            'service_blocking_probability_iqr_lower': 'iqr_lower',
                            'service_blocking_probability_iqr_upper': 'iqr_upper'}, inplace=True)
 
+    # Sort all dataframes by load before computing bands and plotting
+    new_heur_data = new_heur_data.sort_values('load').reset_index(drop=True)
+    new_reconfig_data = new_reconfig_data.sort_values('load').reset_index(drop=True)
+    new_cutset_data = new_cutset_data.sort_values('load').reset_index(drop=True)
+    new_transformer_data = new_transformer_data.sort_values('load').reset_index(drop=True)
+
     new_heur_data = compute_bands(new_heur_data, n=2000)      # NUM_ENVS=2000
     new_reconfig_data = compute_bands(new_reconfig_data, n=10)  # num_trials=10
     new_cutset_data = compute_bands(new_cutset_data, n=10)      # num_trials=10
