@@ -176,13 +176,18 @@ def refine_probes(name, probe_results, heuristic, probe_dir, save_fn=None):
     if has_above and not has_below:
         lowest_above = min(above_target)
         if not zero_loads:
-            # No zero loads — try progressively lower loads to find a zero or below-target
+            # No zero loads — try one lower load to find a zero or below-target.
+            # If we get zero, stop immediately and binary search upward.
             base = lowest_above
             for frac in [0.90, 0.80, 0.70, 0.60, 0.50]:
                 load = round(base * frac)
                 bp = do_probe(load)
-                if bp is not None and 0 < bp < TARGET_BP:
+                if bp is None:
                     break
+                if bp == 0:
+                    break  # Found zero — binary search will narrow from here
+                if 0 < bp < TARGET_BP:
+                    break  # Found below-target — we have our bracket
             # Re-categorize: the probes above may have created zero_loads
             zero_loads, below_target, above_target, too_high = categorize_probes(probe_results)
 
