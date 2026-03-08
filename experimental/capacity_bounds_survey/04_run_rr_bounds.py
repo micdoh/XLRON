@@ -42,6 +42,7 @@ MAX_RETRY_ROUNDS = 10  # Max probe→refine→fullrun cycles per topology in ret
 LOAD_INCREMENT = 1.10  # 10% increment between probes
 SCALE_BACK_FACTOR = 0.95  # 5% reduction when blocking > 1%
 MAX_BLOCKING_FOR_FULL_RUN = 0.01  # 1% - don't do full runs above this
+MIN_REFINE_STEP_FRAC = 0.05  # Minimum 5% step between refinement probes
 
 
 def _probe_state_path(probe_dir, name):
@@ -143,15 +144,17 @@ def categorize_probes(probe_results):
 
 
 def refine_probes(name, probe_results, heuristic, probe_dir, save_fn=None):
-    """Do targeted binary-search probes to bracket TARGET_BP.
+    """Do targeted probes to bracket TARGET_BP.
 
-    Modifies probe_results in place. Returns True if refinement succeeded.
+    Uses a two-phase strategy:
+    1. **Gallop**: from zero-blocking loads, take big multiplicative jumps
+       (LOAD_INCREMENT) upward to quickly find any non-zero blocking.
+    2. **Narrow**: binary search between the last zero and the first
+       non-zero to bracket TARGET_BP precisely.
+
+    Modifies probe_results in place. Returns True if any probes were run.
     save_fn: optional callback called after each successful probe to persist state.
     """
-    zero_loads, below_target, above_target, too_high = categorize_probes(probe_results)
-    has_below = len(below_target) > 0
-    has_above = len(above_target) > 0
-
     refine_num = 0
 
     def do_probe(load):
@@ -173,12 +176,64 @@ def refine_probes(name, probe_results, heuristic, probe_dir, save_fn=None):
             save_fn()
         return bp
 
+    def gallop_up(start, ceiling=None):
+        """Gallop upward from start by LOAD_INCREMENT until we find non-zero blocking.
+
+        Returns (last_zero, first_nonzero_load) or (last_zero, None) if ceiling hit.
+        """
+        current = start
+        last_zero = start
+        for _ in range(MAX_REFINE_PROBES):
+            current = round(current * LOAD_INCREMENT)
+            if ceiling is not None and current >= ceiling:
+                current = round((last_zero + ceiling) / 2)
+                if current <= last_zero:
+                    break
+            bp = do_probe(current)
+            if bp is None:
+                return last_zero, None
+            if bp > 0:
+                return last_zero, current
+            last_zero = current
+        return last_zero, None
+
+    def narrow_down(lo, hi):
+        """Binary search between lo (zero/below-target) and hi (above-target/non-zero).
+
+        Stops when a below-target point is found or the gap is exhausted.
+        Uses MIN_REFINE_STEP_FRAC to avoid tiny steps.
+        """
+        for _ in range(MAX_REFINE_PROBES):
+            min_step = max(round(lo * MIN_REFINE_STEP_FRAC), 1)
+            if hi - lo <= min_step:
+                break  # Gap too small to subdivide further
+            mid = round((lo + hi) / 2)
+            # Enforce minimum step from lo
+            mid = max(mid, lo + min_step)
+            mid = min(mid, hi - 1)
+            if mid <= lo or mid >= hi:
+                break
+            bp = do_probe(mid)
+            if bp is None:
+                break
+            if bp == 0:
+                lo = mid
+            elif bp < TARGET_BP:
+                break  # Found a below-target point — bracket achieved
+            elif bp <= MAX_BLOCKING_FOR_FULL_RUN:
+                hi = mid  # Above target but usable — tighten upper bound
+            else:
+                hi = mid  # Too high (>1%) — tighten upper bound
+
+    zero_loads, below_target, above_target, too_high = categorize_probes(probe_results)
+    has_below = len(below_target) > 0
+    has_above = len(above_target) > 0
+
     # Case A: Have above-target loads but no below-target (need lower bracket)
     if has_above and not has_below:
         lowest_above = min(above_target)
         if not zero_loads:
-            # No zero loads — try one lower load to find a zero or below-target.
-            # If we get zero, stop immediately and binary search upward.
+            # No zero loads — search downward from above-target to find zero/below
             base = lowest_above
             for frac in [0.90, 0.80, 0.70, 0.60, 0.50]:
                 load = round(base * frac)
@@ -186,30 +241,21 @@ def refine_probes(name, probe_results, heuristic, probe_dir, save_fn=None):
                 if bp is None:
                     break
                 if bp == 0:
-                    break  # Found zero — binary search will narrow from here
+                    break  # Found zero — gallop will handle it
                 if 0 < bp < TARGET_BP:
-                    break  # Found below-target — we have our bracket
-            # Re-categorize: the probes above may have created zero_loads
+                    break  # Found below-target — bracket done
             zero_loads, below_target, above_target, too_high = categorize_probes(probe_results)
 
-        # Binary search between highest zero and lowest above-target
+        # Gallop up from highest zero, then narrow to find below-target
         if zero_loads and above_target and not below_target:
-            lo, hi = max(zero_loads), min(above_target)
-            for _ in range(MAX_REFINE_PROBES):
-                if hi - lo <= 1:
-                    break
-                mid = round((lo + hi) / 2)
-                bp = do_probe(mid)
-                if bp is None:
-                    break
-                if bp == 0:
-                    lo = mid
-                elif bp < TARGET_BP:
-                    break  # Found a below-target point
-                else:
-                    hi = mid
+            last_zero, first_nonzero = gallop_up(
+                max(zero_loads), ceiling=min(above_target)
+            )
+            zero_loads, below_target, above_target, _ = categorize_probes(probe_results)
+            if not below_target and above_target:
+                narrow_down(max(zero_loads), min(above_target))
 
-    # Re-categorize after Case A refinement
+    # Re-categorize after Case A
     zero_loads, below_target, above_target, too_high = categorize_probes(probe_results)
     has_below = len(below_target) > 0
     has_above = len(above_target) > 0
@@ -226,30 +272,21 @@ def refine_probes(name, probe_results, heuristic, probe_dir, save_fn=None):
             if bp >= TARGET_BP:
                 break
 
-    # Re-categorize after Case B refinement
+    # Re-categorize after Case B
     zero_loads, below_target, above_target, too_high = categorize_probes(probe_results)
     has_below = len(below_target) > 0
     has_above = len(above_target) > 0
 
-    # Case C: Only zeros and too-high (>1%) — binary search between them
+    # Case C: Only zeros and too-high (>1%) — gallop up then narrow
     if not has_below and not has_above and zero_loads and too_high:
-        lo, hi = max(zero_loads), min(too_high)
-        for _ in range(MAX_REFINE_PROBES):
-            if hi - lo <= 1:
-                break
-            mid = round((lo + hi) / 2)
-            bp = do_probe(mid)
-            if bp is None:
-                break
-            if bp == 0:
-                lo = mid
-            elif bp > MAX_BLOCKING_FOR_FULL_RUN:
-                hi = mid
-            else:
-                # Found something in range — continue to try to bracket
-                _, below_target, above_target, _ = categorize_probes(probe_results)
-                if below_target and above_target:
-                    break
+        last_zero, first_nonzero = gallop_up(
+            max(zero_loads), ceiling=min(too_high)
+        )
+        zero_loads, below_target, above_target, too_high = categorize_probes(probe_results)
+        # Narrow between highest zero and lowest usable non-zero
+        upper_bound = above_target + too_high
+        if zero_loads and upper_bound and not (below_target and above_target):
+            narrow_down(max(zero_loads), min(upper_bound))
 
     return refine_num > 0
 
