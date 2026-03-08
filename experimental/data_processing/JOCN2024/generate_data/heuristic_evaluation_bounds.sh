@@ -1,6 +1,5 @@
 #!/bin/bash
 
-PYTHON_PATH="./.venv/bin/python"
 EVAL_PATH="./xlron/train/train.py"
 OUTPUT_FILE="experiment_results_eval_bounds.jsonl"
 
@@ -10,20 +9,24 @@ OUTPUT_FILE="experiment_results_eval_bounds.jsonl"
 run_experiment() {
     local name=$1
     local topology=$2
-    local traffic_load=$3
-    local k=$4
-    local heur=$5
-    local additional_args=$6
+    local min_load=$3
+    local max_load=$4
+    local step_load=$5
+    local k=$6
+    local heur=$7
+    local additional_args=$8
 
-    echo "Running $name: topology=$topology, load=$traffic_load, k=$k"
+    echo "Running $name: topology=$topology, load=$min_load-$max_load (step $step_load), k=$k"
 
-    $PYTHON_PATH $EVAL_PATH \
-        --load=$traffic_load \
+    uv run $EVAL_PATH \
+        --min_load=$min_load \
+        --max_load=$max_load \
+        --step_load=$step_load \
         --k=$k \
         --topology_name=$topology \
         --continuous_operation \
-        --ENV_WARMUP_STEPS=3000 \
-        --TOTAL_TIMESTEPS 20000000 \
+        --ENV_WARMUP_STEPS=0 \
+        --TOTAL_TIMESTEPS 26000000 \
         --NUM_ENVS 2000 \
         --EVAL_HEURISTIC \
         --path_heuristic $heur \
@@ -37,58 +40,50 @@ k=50
 
 # Deep/Reward/GCN-RMSA Experiments
 args="--env_type rmsa --link_resources 100 --mean_service_holding_time 20 --truncate_holding_time"
-for traffic_load in 150 160 170 180 190 200 210 220 230 240 250 260 270 280 290 300; do
-    run_experiment "DeepRMSA" "nsfnet_deeprmsa_directed" "$traffic_load" "$k" "ksp_ff" "$args"
-done
-args="--env_type rmsa --link_resources 100 --mean_service_holding_time 20 --truncate_holding_time"
-for traffic_load in 400 410 420 430 440 450 460 470 480 490 500 510 520 530 540 550 560 570 580 590 600 610 620 630; do
-    run_experiment "DeepRMSA" "cost239_deeprmsa_directed" "$traffic_load" "$k" "ksp_ff" "$args"
-done
-args="--env_type rmsa --link_resources 100 --mean_service_holding_time 20 --truncate_holding_time"
-for traffic_load in 310 320 330 340 350 360 370 380 390 400 410 420 430 440 450 460 470 480 490 500 510; do
-    run_experiment "GCN-RMSA" "usnet_gcnrnn_directed" "$traffic_load" "$k" "ksp_ff" "$args"
-done
+
+# NSFNET DeepRMSA
+run_experiment "DeepRMSA" "nsfnet_deeprmsa_directed" 150 300 10 "$k" "ksp_ff" "$args"
+
+# COST239 DeepRMSA
+run_experiment "DeepRMSA" "cost239_deeprmsa_directed" 400 630 10 "$k" "ksp_ff" "$args"
+
+# USNET GCN-RMSA
+run_experiment "GCN-RMSA" "usnet_gcnrnn_directed" 310 540 10 "$k" "ksp_ff" "$args"
 
 # MaskRSA Experiments
 args="--env_type rmsa --link_resources 80 --max_bw 50 --guardband 0 --slot_size 12.5 --mean_service_holding_time 12"
-for traffic_load in 90 95 100 105 110 115 120 125 130 135 140 145; do
-    run_experiment "MaskRSA" "nsfnet_deeprmsa_undirected" "$traffic_load" "$k" "ksp_ff" "$args"
-done
-for traffic_load in 160 170 180 190 200 210 220 230 240 250 260; do
-    run_experiment "MaskRSA" "jpn48_undirected" "$traffic_load" "$k" "ff_ksp" "$args"
-done
+
+# NSFNET MaskRSA
+run_experiment "MaskRSA" "nsfnet_deeprmsa_undirected" 80 175 5 "$k" "ksp_ff" "$args"
+
+# JPN48 MaskRSA
+run_experiment "MaskRSA" "jpn48_undirected" 150 280 10 "$k" "ff_ksp" "$args"
 
 # PtrNet-RSA-40 Experiments
 base_args="--env_type rsa --slot_size 1 --guardband 0 --mean_service_holding_time 10"
 var_bw="1,1,1,1,1,1,1,1,1,1,1,1,1,1,2,2,2,3,3,4"
+
 # NSFNET PtrNet-RSA-40
 args="$base_args --link_resources 40 --values_bw 1"
-for traffic_load in 200 210 220 230 240 250 260 270; do
-    run_experiment "PtrNet-RSA-40" "nsfnet_deeprmsa_undirected" "$traffic_load" "$k" "ksp_ff" "$args"
-done
+run_experiment "PtrNet-RSA-40" "nsfnet_deeprmsa_undirected" 200 270 10 "$k" "ksp_ff" "$args"
+
 # COST239 PtrNet-RSA-40
 args="$base_args --link_resources 40 --values_bw 1"
-for traffic_load in 420 430 440 450 460 470 480 490 500; do
-    run_experiment "PtrNet-RSA-40" "cost239_ptrnet_real_undirected" "$traffic_load" "$k" "ksp_ff" "$args"
-done
+run_experiment "PtrNet-RSA-40" "cost239_ptrnet_real_undirected" 420 500 10 "$k" "ksp_ff" "$args"
+
 # USNET PtrNet-RSA-40
 args="$base_args --link_resources 40 --values_bw 1"
-for traffic_load in 210 220 230 240 250 260 270 280 290 300 310; do
-    run_experiment "PtrNet-RSA-40" "usnet_ptrnet_undirected" "$traffic_load" "$k" "ksp_ff" "$args"
-done
+run_experiment "PtrNet-RSA-40" "usnet_ptrnet_undirected" 210 310 10 "$k" "ksp_ff" "$args"
 
+# PtrNet-RSA-80 Experiments
 # NSFNET PtrNet-RSA-80
 args="$base_args --link_resources 80 --values_bw $var_bw"
-for traffic_load in 210 220 230 240 250 260 270 280 290 300 310 320 330 340; do
-    run_experiment "PtrNet-RSA-80" "nsfnet_deeprmsa_undirected" "$traffic_load" "$k" "ksp_ff" "$args"
-done
+run_experiment "PtrNet-RSA-80" "nsfnet_deeprmsa_undirected" 210 340 10 "$k" "ksp_ff" "$args"
+
 # COST239 PtrNet-RSA-80
 args="$base_args --link_resources 80 --values_bw $var_bw"
-for traffic_load in 450 460 470 480 490 500 510 520 530 540 550 560 570 580 590 600 610 620 630 640 650 660 670; do
-    run_experiment "PtrNet-RSA-80" "cost239_ptrnet_real_undirected" "$traffic_load" "$k" "ksp_ff" "$args"
-done
+run_experiment "PtrNet-RSA-80" "cost239_ptrnet_real_undirected" 450 670 10 "$k" "ksp_ff" "$args"
+
 # USNET PtrNet-RSA-80
 args="$base_args --link_resources 80 --values_bw $var_bw"
-for traffic_load in 220 230 240 250 260 270 280 290 300 310 320 330 340 350 360 370 380; do
-    run_experiment "PtrNet-RSA-80" "usnet_ptrnet_undirected" "$traffic_load" "$k" "ksp_ff" "$args"
-done
+run_experiment "PtrNet-RSA-80" "usnet_ptrnet_undirected" 220 380 10 "$k" "ksp_ff" "$args"

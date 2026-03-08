@@ -56,16 +56,16 @@ run_experiment "DeepRMSA" "nsfnet_deeprmsa_directed" 150 300 10 "$k" "./episodic
 run_experiment "DeepRMSA" "cost239_deeprmsa_directed" 400 630 10 "$k" "./cost239_deeprmsa_13.eqx" 8 50 "$args"
 
 # USNET GCN-RMSA (usnet_gcnrnn_directed)
-run_experiment "GCN-RMSA" "usnet_gcnrnn_directed" 310 510 10 "$k" "./usnet_2.eqx" 8 20 "$args"
+run_experiment "GCN-RMSA" "usnet_gcnrnn_directed" 310 540 10 "$k" "./usnet_2.eqx" 8 20 "$args"
 
 # MaskRSA Experiments (env_type=rmsa, link_resources=80)
 args="--env_type rmsa --link_resources 80 --max_bw 50 --guardband 0 --slot_size 12.5 --mean_service_holding_time 12"
 
 # NSFNET MaskRSA (nsfnet_deeprmsa_undirected) - note: 4 heads for this model
-run_experiment "MaskRSA" "nsfnet_deeprmsa_undirected" 90 145 5 "$k" "./nsfnet_maskrsa_43_1.eqx" 4 20 "$args"
+run_experiment "MaskRSA" "nsfnet_deeprmsa_undirected" 80 175 5 "$k" "./nsfnet_maskrsa_43_1.eqx" 4 20 "$args"
 
 # JPN48 MaskRSA (jpn48_undirected)
-run_experiment "MaskRSA" "jpn48_undirected" 160 260 10 "$k" "./jpn48_maskrsa.eqx" 8 20 "$args"
+run_experiment "MaskRSA" "jpn48_undirected" 150 280 10 "$k" "./jpn48_maskrsa.eqx" 8 20 "$args"
 
 # PtrNet-RSA-40 Experiments (env_type=rsa, link_resources=40)
 base_args="--env_type rsa --slot_size 1 --guardband 0 --mean_service_holding_time 10"

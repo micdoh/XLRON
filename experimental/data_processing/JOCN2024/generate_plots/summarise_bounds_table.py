@@ -569,3 +569,271 @@ if __name__ == '__main__':
     increase_legend_line_thickness(legend2, line_width=6, marker_size=15)
     plt.tight_layout(rect=[0.03, 0.105, 1, 1])
     plt.savefig(PLOTS_DIR / 'bounds_comparison_new.png')
+
+    # ---- bounds_comparison_new_with_rl: same as bounds_comparison_new + RL series ----
+    # Published RL results digitised from the original papers (already in %)
+    csv_data_rl = """
+publication,topology,N_slots,load,mean,stddev
+DeepRMSA,NSFNET,100,250,4.00,0
+DeepRMSA,COST239,100,600,5.75,0
+Reward-RMSA,NSFNET,100,168,0.35,0
+Reward-RMSA,NSFNET,100,182,0.70,0
+Reward-RMSA,NSFNET,100,196,1.20,0
+Reward-RMSA,NSFNET,100,210,1.80,0
+GCN-RMSA,NSFNET,100,154,0.51,0
+GCN-RMSA,NSFNET,100,168,0.66,0
+GCN-RMSA,NSFNET,100,182,0.98,0
+GCN-RMSA,NSFNET,100,196,1.50,0
+GCN-RMSA,NSFNET,100,210,2.10,0
+GCN-RMSA,COST239,100,368,0.71,0
+GCN-RMSA,COST239,100,391,0.85,0
+GCN-RMSA,COST239,100,414,1.25,0
+GCN-RMSA,COST239,100,437,1.75,0
+GCN-RMSA,COST239,100,460,2.10,0
+GCN-RMSA,USNET,100,320,0.65,0
+GCN-RMSA,USNET,100,340,0.83,0
+GCN-RMSA,USNET,100,360,1.05,0
+GCN-RMSA,USNET,100,380,1.60,0
+GCN-RMSA,USNET,100,400,2.20,0
+MaskRSA,NSFNET,80,80,0.01,0
+MaskRSA,NSFNET,80,90,0.05,0
+MaskRSA,NSFNET,80,100,0.20,0
+MaskRSA,NSFNET,80,110,0.50,0
+MaskRSA,NSFNET,80,120,0.79,0
+MaskRSA,NSFNET,80,130,1.80,0
+MaskRSA,NSFNET,80,140,3.00,0
+MaskRSA,NSFNET,80,150,4.30,0
+MaskRSA,NSFNET,80,160,5.30,0
+MaskRSA,JPN48,80,120,0.05,0
+MaskRSA,JPN48,80,130,0.20,0
+MaskRSA,JPN48,80,140,0.55,0
+MaskRSA,JPN48,80,150,0.90,0
+MaskRSA,JPN48,80,160,1.60,0
+PtrNet-RSA,NSFNET,40,180,0.01,0
+PtrNet-RSA,NSFNET,40,190,0.03,0
+PtrNet-RSA,NSFNET,40,200,0.08,0
+PtrNet-RSA,NSFNET,40,210,0.19,0
+PtrNet-RSA,NSFNET,40,220,0.23,0
+PtrNet-RSA,NSFNET,40,230,0.75,0
+PtrNet-RSA,NSFNET,40,240,1.30,0
+PtrNet-RSA,COST239,40,340,0.01,0
+PtrNet-RSA,COST239,40,360,0.04,0
+PtrNet-RSA,COST239,40,380,0.12,0
+PtrNet-RSA,COST239,40,400,0.24,0
+PtrNet-RSA,COST239,40,420,0.39,0
+PtrNet-RSA,USNET,40,210,0.01,0
+PtrNet-RSA,USNET,40,220,0.08,0
+PtrNet-RSA,USNET,40,230,0.22,0
+PtrNet-RSA,USNET,40,240,0.38,0
+PtrNet-RSA,USNET,40,250,0.68,0
+PtrNet-RSA,USNET,40,260,1.10,0
+PtrNet-RSA,USNET,40,270,1.80,0
+PtrNet-RSA,USNET,40,280,2.20,0
+PtrNet-RSA,NSFNET,80,200,0.01,0
+PtrNet-RSA,NSFNET,80,210,0.03,0
+PtrNet-RSA,NSFNET,80,220,0.11,0
+PtrNet-RSA,NSFNET,80,230,0.16,0
+PtrNet-RSA,NSFNET,80,240,0.50,0
+PtrNet-RSA,COST239,80,420,0.01,0
+PtrNet-RSA,COST239,80,440,0.16,0
+PtrNet-RSA,COST239,80,460,0.65,0
+PtrNet-RSA,USNET,80,260,0.03,0
+PtrNet-RSA,USNET,80,270,0.09,0
+PtrNet-RSA,USNET,80,280,0.15,0
+PtrNet-RSA,USNET,80,290,0.29,0
+PtrNet-RSA,USNET,80,300,0.52,0
+PtrNet-RSA,USNET,80,310,0.66,0
+PtrNet-RSA,USNET,80,320,1.00,0
+PtrNet-RSA,USNET,80,330,1.50,0
+"""
+    df_rl = pd.read_csv(StringIO(csv_data_rl))
+    # Data is already in %; add band columns for consistency
+    df_rl['band_lower'] = df_rl['mean']
+    df_rl['band_upper'] = df_rl['mean']
+
+    rl_col = '#d62728'  # red
+
+    # Map RL publication names to the grouped scheme used in bounds_comparison_new
+    # Map RL publication names to pub_filter-style keys used in filtering
+    _rl_pub_to_group = {
+        'DeepRMSA': 'DeepRMSA~Reward-RMSA~GCN-RMSA',
+        'Reward-RMSA': 'DeepRMSA~Reward-RMSA~GCN-RMSA',
+        'GCN-RMSA': 'DeepRMSA~Reward-RMSA~GCN-RMSA',
+        'MaskRSA': 'MaskRSA',
+        'PtrNet-RSA': 'PtrNet-RSA',
+    }
+    df_rl['group'] = df_rl['publication'].map(_rl_pub_to_group)
+
+    def plot_case_new_with_rl(ax, pub, topology, n_slots, heur_df, reconfig_df,
+                              cutset_df, transformer_df, rl_df,
+                              cutset_max_load=None):
+        """Like plot_case_new but also plots the RL series."""
+        pub_filter = 'PtrNet-RSA' if 'PtrNet-RSA' in pub else pub
+
+        case_heur = heur_df[(heur_df['publication'] == pub_filter) &
+                            (heur_df['topology'] == topology) &
+                            (heur_df['N_slots'] == n_slots)]
+        case_reconfig = reconfig_df[(reconfig_df['publication'] == pub_filter) &
+                                     (reconfig_df['topology'] == topology) &
+                                     (reconfig_df['N_slots'] == n_slots)]
+        case_cutset = cutset_df[(cutset_df['publication'] == pub_filter) &
+                                 (cutset_df['topology'] == topology) &
+                                 (cutset_df['N_slots'] == n_slots)]
+        if cutset_max_load is not None and not case_cutset.empty:
+            case_cutset = case_cutset[case_cutset['load'] <= cutset_max_load]
+        case_transformer = pd.DataFrame()
+        if transformer_df is not None:
+            case_transformer = transformer_df[
+                (transformer_df['publication'] == pub_filter) &
+                (transformer_df['topology'] == topology) &
+                (transformer_df['N_slots'] == n_slots)]
+
+        # RL data: match using pub_filter (e.g. 'PtrNet-RSA' for both -40/-80)
+        case_rl = rl_df[(rl_df['group'] == pub_filter) &
+                        (rl_df['topology'] == topology) &
+                        (rl_df['N_slots'] == n_slots)]
+
+        lines = []
+        labels = []
+
+        # Plot RL series (one line per individual publication in group, single legend entry)
+        if not case_rl.empty:
+            rl_pubs = case_rl['publication'].unique()
+            rl_markers = {'DeepRMSA': 'x', 'Reward-RMSA': '+', 'GCN-RMSA': '1'}
+            first_rl = True
+            for rl_pub in sorted(rl_pubs):
+                sub = case_rl[case_rl['publication'] == rl_pub]
+                marker = rl_markers.get(rl_pub, 'x')
+                line = ax.plot(sub['load'], sub['mean'],
+                               marker=marker, linestyle='-', color=rl_col,
+                               markersize=12, linewidth=2)
+                if first_rl:
+                    lines.append(line[0])
+                    labels.append('RL')
+                    first_rl = False
+
+        if not case_heur.empty:
+            line = ax.plot(case_heur['load'], case_heur['mean'],
+                           marker='o', markerfacecolor=heur_col, linestyle='-', color=heur_col)
+            ax.fill_between(case_heur['load'], case_heur['band_lower'],
+                            case_heur['band_upper'], alpha=0.2, color=heur_col)
+            lines.append(line[0])
+            labels.append('Best heuristic')
+
+        if not case_transformer.empty:
+            line = ax.plot(case_transformer['load'], case_transformer['mean'],
+                           marker='D', markerfacecolor=transformer_col, linestyle='-',
+                           color=transformer_col)
+            ax.fill_between(case_transformer['load'], case_transformer['band_lower'],
+                            case_transformer['band_upper'], alpha=0.2, color=transformer_col)
+            lines.append(line[0])
+            labels.append('Transformer RL')
+
+        if not case_reconfig.empty:
+            line = ax.plot(case_reconfig['load'], case_reconfig['mean'],
+                           marker='s', markerfacecolor=bounds_col, linestyle='-', color=bounds_col)
+            ax.fill_between(case_reconfig['load'], case_reconfig['band_lower'],
+                            case_reconfig['band_upper'], alpha=0.2, color=bounds_col)
+            lines.append(line[0])
+            labels.append('Defragmentation bound')
+
+        if not case_cutset.empty:
+            line = ax.plot(case_cutset['load'], case_cutset['mean'],
+                           marker='^', markerfacecolor=cutset_col, linestyle='-', color=cutset_col)
+            ax.fill_between(case_cutset['load'], case_cutset['band_lower'],
+                            case_cutset['band_upper'], alpha=0.2, color=cutset_col)
+            lines.append(line[0])
+            labels.append('Cut-set bound')
+
+        # Dynamically adjust axis limits
+        y_min, y_max = 0.01, 1
+        x_min, x_max = ax.get_xlim()
+        for case in [case_heur, case_reconfig, case_cutset, case_transformer, case_rl]:
+            if case.empty:
+                continue
+            visible = case[case['mean'] > 0]
+            if visible.empty:
+                continue
+            best_idx = visible['mean'].idxmax()
+            best_y = visible.loc[best_idx, 'mean']
+            best_x = visible.loc[best_idx, 'load']
+            if best_y < y_min:
+                y_min = best_y * 0.5
+            if best_y > y_max:
+                y_max = best_y * 2.0
+            if best_x > x_max:
+                x_max = best_x + 25
+            if best_x < x_min:
+                x_min = best_x - 25
+        ax.set_ylim(y_min, y_max)
+        ax.set_xlim(x_min, x_max)
+
+        pub_display = 'Deep/Reward/GCN-RMSA' if pub == 'DeepRMSA~Reward-RMSA~GCN-RMSA' else pub
+        title = f'{pub_display}\n\n{topology}' if topology == 'NSFNET' else topology
+        ax.set_title(title, fontsize=32)
+
+        has_data = not (case_heur.empty and case_reconfig.empty and
+                        case_cutset.empty and case_transformer.empty and case_rl.empty)
+        return has_data, lines, labels
+
+    # Create figure with same grid layout
+    fig3 = plt.figure(figsize=(30, 18))
+    all_lines3 = []
+    all_labels3 = []
+
+    for col, publication in enumerate(publications):
+        n_slots = get_n_slots(publication)
+        col_def = grid[col]
+
+        for n, topology in enumerate(col_def):
+            ax = fig3.add_subplot(max_rows, len(publications), col + 1 + n * len(publications))
+            ax.set_yscale('log')
+            ax.yaxis.grid(True)
+
+            # Per-subplot x-tick spacing: use 50 for wide-range subplots
+            pub_display = 'Deep/Reward/GCN-RMSA' if publication == 'DeepRMSA~Reward-RMSA~GCN-RMSA' else publication
+            wide_tick_cases = (
+                (pub_display == 'Deep/Reward/GCN-RMSA' and topology in ('COST239', 'USNET')),
+                (publication == 'PtrNet-RSA-80' and topology in ('COST239', 'USNET')),
+            )
+            if any(wide_tick_cases):
+                ax.set_xticks(np.arange(0, 1000, 50))
+            else:
+                ax.set_xticks(np.arange(0, 1000, 25))
+
+            # Per-subplot cutset max load and x-axis limit overrides
+            cutset_max_load = None
+            xlim_max = None
+            if publication == 'MaskRSA' and topology == 'JPN48':
+                cutset_max_load = 280
+                xlim_max = 290
+
+            data_plotted, lines, labels = plot_case_new_with_rl(
+                ax, publication, topology, n_slots,
+                new_heur_data, new_reconfig_data, new_cutset_data,
+                new_transformer_data, df_rl,
+                cutset_max_load=cutset_max_load
+            )
+
+            if xlim_max is not None:
+                ax.set_xlim(right=xlim_max)
+
+            if not data_plotted:
+                fig3.delaxes(ax)
+            else:
+                all_lines3.extend(lines)
+                all_labels3.extend(labels)
+
+    unique_labels3 = []
+    unique_lines3 = []
+    for label, line in zip(all_labels3, all_lines3):
+        if label not in unique_labels3:
+            unique_labels3.append(label)
+            unique_lines3.append(line)
+
+    fig3.text(0.51, 0.09, 'Traffic Load (Erlang)', ha='center', va='center', fontsize=36)
+    fig3.text(0.025, 0.48, 'Service Blocking Probability (%)', ha='center', va='center', rotation='vertical', fontsize=36)
+    legend3 = fig3.legend(unique_lines3, unique_labels3, loc='lower center', ncol=5)
+    increase_legend_line_thickness(legend3, line_width=6, marker_size=15)
+    plt.tight_layout(rect=[0.03, 0.105, 1, 1])
+    plt.savefig(PLOTS_DIR / 'bounds_comparison_new_with_rl.png')
