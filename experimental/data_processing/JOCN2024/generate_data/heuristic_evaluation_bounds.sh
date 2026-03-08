@@ -27,6 +27,7 @@ run_experiment() {
         --continuous_operation \
         --ENV_WARMUP_STEPS=0 \
         --TOTAL_TIMESTEPS 26000000 \
+        --STEPS_PER_INCREMENT 1300000 \
         --NUM_ENVS 2000 \
         --EVAL_HEURISTIC \
         --path_heuristic $heur \
