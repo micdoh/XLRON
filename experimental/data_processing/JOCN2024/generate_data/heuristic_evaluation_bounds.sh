@@ -46,7 +46,7 @@ args="--env_type rmsa --link_resources 100 --mean_service_holding_time 20 --trun
 run_experiment "DeepRMSA" "nsfnet_deeprmsa_directed" 150 300 10 "$k" "ksp_ff" "$args"
 
 # COST239 DeepRMSA
-run_experiment "DeepRMSA" "cost239_deeprmsa_directed" 400 630 10 "$k" "ksp_ff" "$args"
+run_experiment "DeepRMSA" "cost239_deeprmsa_directed" 400 670 10 "$k" "ksp_ff" "$args"
 
 # USNET GCN-RMSA
 run_experiment "GCN-RMSA" "usnet_gcnrnn_directed" 310 540 10 "$k" "ksp_ff" "$args"

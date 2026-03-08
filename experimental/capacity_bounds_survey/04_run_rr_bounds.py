@@ -38,6 +38,7 @@ from config import (
 
 MAX_PROBES = 30
 MAX_REFINE_PROBES = 8
+MAX_RETRY_ROUNDS = 10  # Max probe→refine→fullrun cycles per topology in retry mode
 LOAD_INCREMENT = 1.10  # 10% increment between probes
 SCALE_BACK_FACTOR = 0.95  # 5% reduction when blocking > 1%
 MAX_BLOCKING_FOR_FULL_RUN = 0.01  # 1% - don't do full runs above this
@@ -400,71 +401,96 @@ def main(retry=False):
                 continue
 
         # =============================================================
-        # Phase 1b: Refinement probes to ensure bracketing of TARGET_BP
+        # Probe → Refine → Full-run loop
+        # In retry mode, repeat until output has valid interpolation.
+        # In normal mode, run once.
         # =============================================================
-        _, below_target, above_target, _ = categorize_probes(probe_results)
-        needs_refine = not (below_target and above_target)
+        max_rounds = MAX_RETRY_ROUNDS if retry else 1
+        for round_num in range(max_rounds):
+            if round_num > 0:
+                print(f"  --- Round {round_num + 1}: re-probing after full-run results ---")
+                # Update probe_results with actual full-run values from the
+                # output file, since they supersede stale 1-trial probes.
+                if output_file.exists() and output_file.stat().st_size > 0:
+                    for e in parse_jsonl_blocking(output_file):
+                        probe_results[e["load"]] = e["blocking_mean"]
 
-        if needs_refine and any(bp > 0 for bp in probe_results.values()):
-            print("  --- Phase 1b: Refinement probes (bracketing) ---")
-            refine_probes(name, probe_results, best_heuristic, probe_dir, save_fn=_save)
+            # ---------------------------------------------------------
+            # Refinement probes to ensure bracketing of TARGET_BP
+            # ---------------------------------------------------------
+            _, below_target, above_target, _ = categorize_probes(probe_results)
+            needs_refine = not (below_target and above_target)
 
-        # Build selected_loads from all probes with 0 < bp <= MAX_BLOCKING
-        selected_loads = sorted(
-            l for l, bp in probe_results.items()
-            if 0 < bp <= MAX_BLOCKING_FOR_FULL_RUN
-        )
+            if needs_refine and any(bp > 0 for bp in probe_results.values()):
+                print("  --- Refinement probes (bracketing) ---")
+                refine_probes(name, probe_results, best_heuristic, probe_dir, save_fn=_save)
 
-        if not selected_loads:
-            # Check if any probe had non-zero blocking at all
-            any_blocking = any(bp > 0 for bp in probe_results.values())
-            if not any_blocking:
-                print(f"  WARNING: No loads with blocking > 0% found")
+            # Build selected_loads from all probes with 0 < bp <= MAX_BLOCKING
+            selected_loads = sorted(
+                l for l, bp in probe_results.items()
+                if 0 < bp <= MAX_BLOCKING_FOR_FULL_RUN
+            )
+
+            if not selected_loads:
+                any_blocking = any(bp > 0 for bp in probe_results.values())
+                if not any_blocking:
+                    print(f"  WARNING: No loads with blocking > 0% found")
+                else:
+                    print(f"  WARNING: All non-zero blocking > {MAX_BLOCKING_FOR_FULL_RUN*100:.0f}%")
+                break  # Can't make progress — exit the round loop
+
+            # ---------------------------------------------------------
+            # Full 10-trial runs at selected loads
+            # ---------------------------------------------------------
+            remaining_loads = [l for l in selected_loads if l not in completed_full_loads]
+            if remaining_loads:
+                print(f"  --- Full 10-trial runs at {len(remaining_loads)} load(s): {remaining_loads} ---")
+                if completed_full_loads:
+                    print(f"    (skipping {len(completed_full_loads)} already-completed load(s))")
             else:
-                print(f"  WARNING: All non-zero blocking > {MAX_BLOCKING_FOR_FULL_RUN*100:.0f}%")
-            # Keep probe state so next retry can build on accumulated probes
-            progress.item_done(t_start, "failed")
-            print(f"  [wall={format_duration(progress._durations[-1])}]")
-            continue
+                if round_num == 0:
+                    print(f"  --- All {len(selected_loads)} full runs already completed ---")
 
-        # =============================================================
-        # Phase 2: Full 10-trial runs at selected loads
-        # =============================================================
-        remaining_loads = [l for l in selected_loads if l not in completed_full_loads]
-        if remaining_loads:
-            print(f"  --- Phase 2: Full 10-trial runs at {len(remaining_loads)} load(s): {remaining_loads} ---")
-            if completed_full_loads:
-                print(f"    (skipping {len(completed_full_loads)} already-completed load(s))")
-        else:
-            print(f"  --- Phase 2: All {len(selected_loads)} full runs already completed ---")
+            for load in remaining_loads:
+                full_file = probe_dir / f"{name}_full_{load}.jsonl"
+                print(f"  Full run: load={load} (10 trials)", end=" ", flush=True)
+                bp = run_rr(name, load, full_file, heuristic=best_heuristic, num_trials=10)
 
-        for load in remaining_loads:
-            full_file = probe_dir / f"{name}_full_{load}.jsonl"
-            print(f"  Full run: load={load} (10 trials)", end=" ", flush=True)
-            bp = run_rr(name, load, full_file, heuristic=best_heuristic, num_trials=10)
+                if bp is not None:
+                    print(f"-> BP={bp*100:.4f}%")
+                    timing_str = format_timing_breakdown(full_file)
+                    if timing_str:
+                        print(f"    [{timing_str}]")
+                    with open(output_file, "a") as f_out:
+                        with open(full_file) as f_in:
+                            for line in f_in:
+                                f_out.write(line)
+                    full_file.unlink(missing_ok=True)
+                    # Update probe_results with the actual full-run value
+                    probe_results[load] = bp
+                    completed_full_loads.add(load)
+                    _save()
+                else:
+                    print("-> FAILED")
+                    full_file.unlink(missing_ok=True)
 
-            if bp is not None:
-                print(f"-> BP={bp*100:.4f}%")
-                timing_str = format_timing_breakdown(full_file)
-                if timing_str:
-                    print(f"    [{timing_str}]")
-                # Append this full run's results to the output file immediately
-                with open(output_file, "a") as f_out:
-                    with open(full_file) as f_in:
-                        for line in f_in:
-                            f_out.write(line)
-                full_file.unlink(missing_ok=True)
-                completed_full_loads.add(load)
-                _save()
-            else:
-                print("-> FAILED")
-                full_file.unlink(missing_ok=True)
+            # Check if we now have valid interpolation
+            if output_file.exists() and output_file.stat().st_size > 0:
+                final_entries = parse_jsonl_blocking(output_file)
+                if has_valid_interpolation(final_entries):
+                    break  # Success — exit the round loop
+
+            if not remaining_loads:
+                # No new full runs were done and still no valid interpolation.
+                # Next round will re-probe with updated data.
+                if round_num + 1 >= max_rounds:
+                    break
+                # Continue to next round — refinement will find new loads
+                continue
 
         # Check final result
         if completed_full_loads:
             print(f"  -> Wrote {len(completed_full_loads)} load(s) to {output_file.name}")
-            # Only clear probe state if we now have valid interpolation.
-            # Otherwise, keep accumulated probe data for the next retry.
             final_entries = parse_jsonl_blocking(output_file)
             if has_valid_interpolation(final_entries):
                 clear_probe_state(probe_dir, name)
