@@ -289,11 +289,11 @@ def main(retry=False):
                 # Invalid interpolation — load existing results as seed data
                 print(f"\n  Retrying {name}: existing output lacks valid interpolation")
                 saved_probes = {e["load"]: e["blocking_mean"] for e in existing}
-                saved_full_loads = set()
-                # Persist seed data to sidecar, then delete old output.
-                # If interrupted after this, the sidecar has the seed data.
+                # Mark existing loads as already having full-run data so we
+                # don't repeat the same 10-trial runs on every retry.
+                saved_full_loads = set(e["load"] for e in existing)
+                # Keep existing output file — new full runs will be appended.
                 save_probe_state(probe_dir, name, saved_probes, saved_full_loads)
-                output_file.unlink(missing_ok=True)
             else:
                 progress.item_done(progress.item_start(), "skipped")
                 continue
@@ -398,7 +398,7 @@ def main(retry=False):
                 print(f"  WARNING: No loads with blocking > 0% found")
             else:
                 print(f"  WARNING: All non-zero blocking > {MAX_BLOCKING_FOR_FULL_RUN*100:.0f}%")
-            clear_probe_state(probe_dir, name)
+            # Keep probe state so next retry can build on accumulated probes
             progress.item_done(t_start, "failed")
             print(f"  [wall={format_duration(progress._durations[-1])}]")
             continue
@@ -439,11 +439,18 @@ def main(retry=False):
         # Check final result
         if completed_full_loads:
             print(f"  -> Wrote {len(completed_full_loads)} load(s) to {output_file.name}")
-            clear_probe_state(probe_dir, name)
-            progress.item_done(t_start, "completed")
+            # Only clear probe state if we now have valid interpolation.
+            # Otherwise, keep accumulated probe data for the next retry.
+            final_entries = parse_jsonl_blocking(output_file)
+            if has_valid_interpolation(final_entries):
+                clear_probe_state(probe_dir, name)
+                progress.item_done(t_start, "completed")
+            else:
+                print(f"  -> Still lacks valid interpolation — probe state preserved for next retry")
+                progress.item_done(t_start, "completed")
         else:
             print(f"  -> All full runs failed")
-            clear_probe_state(probe_dir, name)
+            # Keep probe state so next retry can build on accumulated probes
             progress.item_done(t_start, "failed")
 
         print(f"  [wall={format_duration(progress._durations[-1])}]")
