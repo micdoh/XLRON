@@ -26,9 +26,9 @@ run_experiment() {
         --topology_name=$topology \
         --continuous_operation \
         --ENV_WARMUP_STEPS=0 \
-        --TOTAL_TIMESTEPS 26000000 \
-        --STEPS_PER_INCREMENT 1300000 \
-        --NUM_ENVS 2000 \
+        --TOTAL_TIMESTEPS 2600000 \
+        --STEPS_PER_INCREMENT 130000 \
+        --NUM_ENVS 200 \
         --EVAL_HEURISTIC \
         --path_heuristic $heur \
         --modulations_csv_filepath "./xlron/data/modulations/modulations_deeprmsa.csv" \
