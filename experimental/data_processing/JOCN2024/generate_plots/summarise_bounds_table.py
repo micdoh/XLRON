@@ -19,48 +19,41 @@ from plot_style import configure_style, increase_legend_line_thickness
 
 
 def load_bounds_file(path):
-    """Load a bounds results file, supporting both legacy CSV and JSONL formats.
+    """Load a bounds results JSONL file (produced by --DATA_OUTPUT_FILE).
 
-    For JSONL files (produced by --DATA_OUTPUT_FILE), flattens the nested
-    JSON structure into a flat DataFrame with columns matching the legacy
-    CSV format (experiment, topology, load, k, plus metric columns).
+    Flattens the nested JSON structure into a flat DataFrame with columns:
+    experiment, topology, load, k, heur, plus metric columns
+    (e.g. service_blocking_probability_mean).
 
     Returns a pandas DataFrame.
     """
     path = Path(path)
-
-    # Try JSONL first if it exists, then fall back to CSV
     jsonl_path = path.with_suffix('.jsonl') if path.suffix != '.jsonl' else path
-    csv_path = path.with_suffix('.csv') if path.suffix != '.csv' else path
 
-    if jsonl_path.exists():
-        records = []
-        with open(jsonl_path) as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                obj = json.loads(line)
-                row = {}
-                config = obj.get('config', {})
-                # Map config fields to legacy CSV column names
-                row['experiment'] = config.get('PROJECT', '')
-                row['topology'] = config.get('topology_name', '')
-                row['load'] = config.get('load', 0)
-                row['k'] = config.get('k', 0)
-                row['heur'] = config.get('path_heuristic', '')
-                # Flatten metrics: {metric_name: {stat: val}} -> metric_stat columns
-                for metric_name, stats in obj.get('metrics', {}).items():
-                    for stat_name, stat_val in stats.items():
-                        row[f'{metric_name}_{stat_name}'] = stat_val
-                records.append(row)
-        return pd.DataFrame(records)
-    elif csv_path.exists():
-        return pd.read_csv(csv_path)
-    else:
-        raise FileNotFoundError(
-            f"No bounds data file found at {jsonl_path} or {csv_path}"
-        )
+    if not jsonl_path.exists():
+        raise FileNotFoundError(f"No bounds data file found at {jsonl_path}")
+
+    records = []
+    with open(jsonl_path) as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            obj = json.loads(line)
+            row = {}
+            config = obj.get('config', {})
+            row['experiment'] = config.get('PROJECT', '')
+            row['topology'] = config.get('topology_name', '')
+            row['load'] = config.get('load', 0)
+            row['k'] = config.get('k', 0)
+            row['heur'] = config.get('path_heuristic', '')
+            row['link_resources'] = config.get('link_resources', 0)
+            # Flatten metrics: {metric_name: {stat: val}} -> metric_stat columns
+            for metric_name, stats in obj.get('metrics', {}).items():
+                for stat_name, stat_val in stats.items():
+                    row[f'{metric_name}_{stat_name}'] = stat_val
+            records.append(row)
+    return pd.DataFrame(records)
 
 PLOTS_DIR = Path(__file__).resolve().parent / "plots"
 
@@ -186,26 +179,32 @@ def plot_case(ax, pub, topology, n_slots, heur_data, bounds_data):
 if __name__ == '__main__':
     configure_style()
 
-    data_dir = Path(__file__).resolve().parents[4] / 'experiment_data' / 'JOCN2024'
-    heur_data = pd.read_csv(data_dir / 'experiment_results_eval_bounds.csv')
-    bounds_data = pd.read_csv(data_dir / 'experiment_results_bounds.csv')
-
-    # Filter to only have these columns: NAME,TOPOLOGY,LOAD,K,service_blocking_probability_mean/std/iqr_lower/iqr_upper
-    heur_data = heur_data[['NAME', 'TOPOLOGY', 'LOAD', 'K', 'service_blocking_probability_mean', 'service_blocking_probability_std',
-                'service_blocking_probability_iqr_lower', 'service_blocking_probability_iqr_upper']]
-    # Rename bounds_data columns to match heur_data
-    bounds_data = bounds_data.rename(columns={'experiment': 'NAME', 'topology': 'TOPOLOGY', 'load': 'LOAD', 'k': 'K',
-                                              'heur': 'HEUR', 'blocking_prob_mean': 'service_blocking_probability_mean',
-                                              'blocking_prob_std': 'service_blocking_probability_std',
-                                              'blocking_prob_iqr_lower': 'service_blocking_probability_iqr_lower',
-                                              'blocking_prob_iqr_upper': 'service_blocking_probability_iqr_upper'})
+    data_dir = Path(__file__).resolve().parents[4] / 'experiment_data' / 'bounds'
+    heur_data = load_bounds_file(data_dir / 'experiment_results_eval_bounds')
+    bounds_data = load_bounds_file(data_dir / 'experiment_results_reconfigurable_bounds')
+    _rename = {
+        'experiment': 'NAME', 'topology': 'TOPOLOGY', 'load': 'LOAD', 'k': 'K',
+        'heur': 'HEUR',
+    }
+    heur_data = heur_data.rename(columns=_rename)
+    bounds_data = bounds_data.rename(columns=_rename)
+    # Keep only the columns needed
+    _keep_cols = ['NAME', 'TOPOLOGY', 'LOAD', 'K', 'service_blocking_probability_mean',
+                  'service_blocking_probability_std', 'service_blocking_probability_iqr_lower',
+                  'service_blocking_probability_iqr_upper']
+    heur_data = heur_data[[c for c in _keep_cols if c in heur_data.columns]]
+    bounds_data = bounds_data[[c for c in _keep_cols + ['HEUR'] if c in bounds_data.columns]]
 
     def get_n_slots(name):
         return 40 if name == 'PtrNet-RSA-40' else 80 if name in ['PtrNet-RSA-80', 'MaskRSA'] else 100
     def get_topology(name):
         return 'JPN48' if 'JPN48' in name.upper() else 'COST239' if 'COST239' in name.upper() else 'USNET' if 'USNET' in name.upper() else 'NSFNET'
     def get_publication(name):
-        return 'PtrNet-RSA' if 'PtrNet-RSA' in name else name
+        if name in ['DeepRMSA', 'Reward-RMSA', 'GCN-RMSA']:
+            return 'DeepRMSA~Reward-RMSA~GCN-RMSA'
+        if 'PtrNet-RSA' in name:
+            return 'PtrNet-RSA'
+        return name
     # Add in the number of slots
     heur_data['N_slots'] = heur_data['NAME'].apply(get_n_slots)
     bounds_data['N_slots'] = bounds_data['NAME'].apply(get_n_slots)
@@ -320,39 +319,17 @@ if __name__ == '__main__':
 
     # ---- New bounds comparison plot (experiment_data/bounds/) ----
     new_data_dir = Path(__file__).resolve().parents[4] / 'experiment_data' / 'bounds'
-    new_reconfig_data = load_bounds_file(new_data_dir / 'experiment_results_reconfigurable_bounds.csv')
-    new_cutset_data = load_bounds_file(new_data_dir / 'experiment_results_cutsets_bounds.csv')
-    # Process heuristic eval data - CSV has 42 data fields for 41 headers
-    # (extra empty field at position 5), so pandas uses field[0] as index.
-    # The index has the true NAME, columns NAME/HEUR/TOPOLOGY/LOAD are shifted,
-    # but metric columns (returns_mean onward) are correct due to offsets canceling.
-    _raw_heur = pd.read_csv(new_data_dir / 'experiment_results_eval_bounds.csv')
-    new_heur_data = pd.DataFrame({
-        'NAME': _raw_heur.index,
-        'TOPOLOGY': _raw_heur['HEUR'].values,
-        'LOAD': _raw_heur['TOPOLOGY'].values,
-        'K': _raw_heur['LOAD'].values,
-        'service_blocking_probability_mean': _raw_heur['service_blocking_probability_mean'].values,
-        'service_blocking_probability_std': _raw_heur['service_blocking_probability_std'].values,
-        'service_blocking_probability_iqr_lower': _raw_heur['service_blocking_probability_iqr_lower'].values,
-        'service_blocking_probability_iqr_upper': _raw_heur['service_blocking_probability_iqr_upper'].values,
-    })
+    new_reconfig_data = load_bounds_file(new_data_dir / 'experiment_results_reconfigurable_bounds')
+    new_cutset_data = load_bounds_file(new_data_dir / 'experiment_results_cutsets_bounds')
+    new_heur_data = load_bounds_file(new_data_dir / 'experiment_results_eval_bounds')
 
-    # Rename columns to canonical names. Both old CSV columns (blocking_prob_*)
-    # and new JSONL columns (service_blocking_probability_*) are handled;
-    # pandas rename silently ignores columns that don't exist.
     _bounds_rename = {
-        # common fields (CSV uses these; JSONL loader already produces them)
         'experiment': 'NAME', 'topology': 'TOPOLOGY', 'load': 'LOAD', 'k': 'K',
         'heur': 'HEUR',
-        # old CSV metric columns -> canonical
-        'blocking_prob_mean': 'service_blocking_probability_mean',
-        'blocking_prob_std': 'service_blocking_probability_std',
-        'blocking_prob_iqr_lower': 'service_blocking_probability_iqr_lower',
-        'blocking_prob_iqr_upper': 'service_blocking_probability_iqr_upper',
     }
     new_reconfig_data = new_reconfig_data.rename(columns=_bounds_rename)
     new_cutset_data = new_cutset_data.rename(columns=_bounds_rename)
+    new_heur_data = new_heur_data.rename(columns=_bounds_rename)
 
     # Map individual experiment names to grouped publication names
     def get_publication_new(name):
@@ -373,19 +350,8 @@ if __name__ == '__main__':
                            'service_blocking_probability_iqr_upper': 'iqr_upper'}, inplace=True)
 
     # Load transformer model evaluation data
-    new_transformer_data = load_bounds_file(new_data_dir / 'experiment_results_transformer_eval_bounds.jsonl')
+    new_transformer_data = load_bounds_file(new_data_dir / 'experiment_results_transformer_eval_bounds')
     new_transformer_data = new_transformer_data.rename(columns=_bounds_rename)
-    # The JSONL loader doesn't extract link_resources, so reload to get it
-    _transformer_records = []
-    with open(new_data_dir / 'experiment_results_transformer_eval_bounds.jsonl') as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            obj = json.loads(line)
-            config = obj.get('config', {})
-            _transformer_records.append(config.get('link_resources', 100))
-    new_transformer_data['link_resources'] = _transformer_records
 
     # Map (topology_name, link_resources) -> NAME to match existing publication scheme
     def _map_transformer_name(row):

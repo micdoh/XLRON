@@ -175,9 +175,20 @@ def refine_probes(name, probe_results, heuristic, probe_dir, save_fn=None):
     # Case A: Have above-target loads but no below-target (need lower bracket)
     if has_above and not has_below:
         lowest_above = min(above_target)
-        if zero_loads:
-            # Binary search between highest zero and lowest above
-            lo, hi = max(zero_loads), lowest_above
+        if not zero_loads:
+            # No zero loads — try progressively lower loads to find a zero or below-target
+            base = lowest_above
+            for frac in [0.90, 0.80, 0.70, 0.60, 0.50]:
+                load = round(base * frac)
+                bp = do_probe(load)
+                if bp is not None and 0 < bp < TARGET_BP:
+                    break
+            # Re-categorize: the probes above may have created zero_loads
+            zero_loads, below_target, above_target, too_high = categorize_probes(probe_results)
+
+        # Binary search between highest zero and lowest above-target
+        if zero_loads and above_target and not below_target:
+            lo, hi = max(zero_loads), min(above_target)
             for _ in range(MAX_REFINE_PROBES):
                 if hi - lo <= 1:
                     break
@@ -191,14 +202,6 @@ def refine_probes(name, probe_results, heuristic, probe_dir, save_fn=None):
                     break  # Found a below-target point
                 else:
                     hi = mid
-        else:
-            # No zero loads — try progressively lower loads
-            base = lowest_above
-            for frac in [0.90, 0.80, 0.70, 0.60, 0.50]:
-                load = round(base * frac)
-                bp = do_probe(load)
-                if bp is not None and 0 < bp < TARGET_BP:
-                    break
 
     # Re-categorize after Case A refinement
     zero_loads, below_target, above_target, too_high = categorize_probes(probe_results)
