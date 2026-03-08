@@ -176,19 +176,22 @@ def refine_probes(name, probe_results, heuristic, probe_dir, save_fn=None):
             save_fn()
         return bp
 
-    def gallop_up(start, ceiling=None):
+    def gallop_up(start):
         """Gallop upward from start by LOAD_INCREMENT until we find non-zero blocking.
 
-        Returns (last_zero, first_nonzero_load) or (last_zero, None) if ceiling hit.
+        Takes big multiplicative jumps (10% each). No ceiling — if previous
+        1-trial probes showed above-target blocking at some load, gallop may
+        jump past it. If it lands on a cached load, do_probe returns the
+        cached result and gallop stops naturally. If it jumps over it,
+        it finds the real transition at a wider spacing.
+
+        Returns (last_zero, first_nonzero_load) or (last_zero, None) if
+        probes exhausted.
         """
         current = start
         last_zero = start
         for _ in range(MAX_REFINE_PROBES):
             current = round(current * LOAD_INCREMENT)
-            if ceiling is not None and current >= ceiling:
-                current = round((last_zero + ceiling) / 2)
-                if current <= last_zero:
-                    break
             bp = do_probe(current)
             if bp is None:
                 return last_zero, None
@@ -247,13 +250,13 @@ def refine_probes(name, probe_results, heuristic, probe_dir, save_fn=None):
             zero_loads, below_target, above_target, too_high = categorize_probes(probe_results)
 
         # Gallop up from highest zero, then narrow to find below-target
-        if zero_loads and above_target and not below_target:
-            last_zero, first_nonzero = gallop_up(
-                max(zero_loads), ceiling=min(above_target)
-            )
-            zero_loads, below_target, above_target, _ = categorize_probes(probe_results)
-            if not below_target and above_target:
-                narrow_down(max(zero_loads), min(above_target))
+        if zero_loads and not below_target:
+            last_zero, first_nonzero = gallop_up(max(zero_loads))
+            zero_loads, below_target, above_target, too_high = categorize_probes(probe_results)
+            # Narrow between highest zero and lowest non-zero (of any kind)
+            nonzero = above_target + too_high
+            if not below_target and zero_loads and nonzero:
+                narrow_down(max(zero_loads), min(nonzero))
 
     # Re-categorize after Case A
     zero_loads, below_target, above_target, too_high = categorize_probes(probe_results)
@@ -279,9 +282,7 @@ def refine_probes(name, probe_results, heuristic, probe_dir, save_fn=None):
 
     # Case C: Only zeros and too-high (>1%) — gallop up then narrow
     if not has_below and not has_above and zero_loads and too_high:
-        last_zero, first_nonzero = gallop_up(
-            max(zero_loads), ceiling=min(too_high)
-        )
+        last_zero, first_nonzero = gallop_up(max(zero_loads))
         zero_loads, below_target, above_target, too_high = categorize_probes(probe_results)
         # Narrow between highest zero and lowest usable non-zero
         upper_bound = above_target + too_high
