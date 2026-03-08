@@ -411,7 +411,7 @@ def _ksp_cache_key(
     graph: nx.Graph,
     k: int,
     disjoint: bool,
-    path_sor_tcriteria: str,
+    path_sort_criteria: str,
     directed: bool,
     modulations_array,
     rwa_lr: bool,

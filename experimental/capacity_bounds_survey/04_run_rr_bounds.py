@@ -332,12 +332,22 @@ def main(retry=False):
         # =============================================================
         # Phase 1: Cheap single-trial probes to find loads with blocking
         # =============================================================
-        # Skip Phase 1 if we already have probe data (from saved state or retry seed)
-        skip_phase1 = (saved_probes is not None and len(saved_probes) > 0)
+        # Skip Phase 1 if we already have probe data with non-zero blocking
+        # (from saved state or retry seed). If all probes are zero, Phase 1
+        # must run to find loads where blocking actually occurs.
+        has_nonzero_probes = (saved_probes is not None and len(saved_probes) > 0
+                              and any(bp > 0 for bp in saved_probes.values()))
+        skip_phase1 = has_nonzero_probes
 
         if not skip_phase1:
             print("  --- Phase 1: Single-trial probes ---")
-            current_load = load_high
+            # Start above the highest known zero-blocking load (if any),
+            # since those loads are already known to have no blocking.
+            if probe_results:
+                max_zero = max((l for l, bp in probe_results.items() if bp == 0), default=0)
+                current_load = max(load_high, round(max_zero * LOAD_INCREMENT))
+            else:
+                current_load = load_high
             probe_num = 0
             phase1_failed = False
 
