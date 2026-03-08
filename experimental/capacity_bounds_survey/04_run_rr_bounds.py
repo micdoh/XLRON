@@ -41,7 +41,7 @@ MAX_REFINE_PROBES = 8
 MAX_RETRY_ROUNDS = 10  # Max probe→refine→fullrun cycles per topology in retry mode
 LOAD_INCREMENT = 1.10  # 10% increment between probes
 SCALE_BACK_FACTOR = 0.95  # 5% reduction when blocking > 1%
-MAX_BLOCKING_FOR_FULL_RUN = 0.01  # 1% - don't do full runs above this
+MAX_BLOCKING_FOR_FULL_RUN = 0.02  # 2% - don't do full runs above this
 MIN_REFINE_STEP_FRAC = 0.05  # Minimum 5% step between refinement probes
 
 
