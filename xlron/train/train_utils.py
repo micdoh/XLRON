@@ -800,6 +800,8 @@ def _make_multi_transform_optimizer(config: Box, actor_lr_schedule, vf_lr_schedu
 def experiment_data_setup(config: Box, rng: chex.PRNGKey) -> Tuple:
     # INIT ENV
     env, env_params = make(config)
+    # Sync config.k with env_params.k_paths (may differ when maximum_path_length_km trims paths)
+    config.k = env_params.k_paths
     config.ACTION_DIM = env.num_actions(env_params)
     config.INPUT_DIM = int(env.observation_space(env_params).n)
     config.NUM_NODES = env_params.num_nodes

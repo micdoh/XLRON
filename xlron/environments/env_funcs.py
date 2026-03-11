@@ -449,11 +449,10 @@ def _apply_max_path_length_filter(
 ) -> np.ndarray:
     """Filter paths exceeding maximum_path_length_km.
 
-    Paths that exceed the distance limit are replaced with the last valid path
-    for that node pair (duplicated). If all paths for a pair exceed the limit,
-    only the shortest path (index 0) is kept.
-
-    Applied after cache load/save so the cache always stores unfiltered paths.
+    Valid paths are compacted to the top of each pair's block; remaining slots
+    are zero-filled (treated as dummy paths by mask_slots/check_real_path).
+    If all paths for a pair exceed the limit, only the shortest path (index 0)
+    is kept. The array is then trimmed to max_effective_k across all pairs.
     """
     all_link_usage = all_link_usage.copy()
     link_lengths_km = np.array(
@@ -498,14 +497,11 @@ def _apply_max_path_length_filter(
         num_valid = len(valid_indices)
         max_effective_k = max(max_effective_k, num_valid)
 
-        # Compact valid paths to the top of the pair's block, then fill
-        # remaining slots with the last valid path (duplicated)
+        # Compact valid paths to the top of the pair's block;
+        # remaining slots are zero-filled (dummy paths masked out by mask_slots)
         new_block = np.zeros((k, all_link_usage.shape[1]), dtype=all_link_usage.dtype)
         for write_idx, src_idx in enumerate(valid_indices):
             new_block[write_idx] = all_link_usage[start + src_idx]
-        fill_row = new_block[num_valid - 1]
-        for write_idx in range(num_valid, k):
-            new_block[write_idx] = fill_row
         all_link_usage[start:start + k] = new_block
 
     # Trim array to max_effective_k paths per pair
