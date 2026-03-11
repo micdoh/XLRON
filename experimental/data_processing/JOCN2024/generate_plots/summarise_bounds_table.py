@@ -226,6 +226,10 @@ if __name__ == '__main__':
                             'service_blocking_probability_iqr_lower': 'iqr_lower',
                             'service_blocking_probability_iqr_upper': 'iqr_upper'})
 
+    # Sort by load before computing bands and plotting
+    heur_data = heur_data.sort_values('load').reset_index(drop=True)
+    bounds_data = bounds_data.sort_values('load').reset_index(drop=True)
+
     # Scale to percentages and compute mean ± SEM shaded band
     # n = number of independent samples (NUM_ENVS for heuristic, num_trials for bounds)
     def compute_bands(df, n):

@@ -70,6 +70,7 @@ def main():
         ("01_discover_load_ranges", 1, "Discover load ranges + heuristic eval", {}),
         ("02_compare_heuristics",   2, "Compare KSP-FF vs FF-KSP heuristics", {}),
         ("03_run_cutset_bounds",    3, "Cut-set bounds", {}),
+        ("03b_run_cutset_bounds_top1pct", "3b", "Cut-set bounds (top 1% cutsets)", {}),
         ("04_run_rr_bounds",        4, "Reconfigurable routing bounds", {}),
         ("04_run_rr_bounds",       "4b", "Retry failed RR bounds", {"retry": True}),
         ("05_run_k_sensitivity",    5, "K-sensitivity experiment", {}),

@@ -35,10 +35,11 @@ from config import (
 TARGET_BP = 0.001  # 0.1% blocking probability (as fraction)
 
 
-def load_all_jsonl(directory: Path) -> dict[str, list[dict]]:
+def load_all_jsonl(directory: Path, strip_suffix: str = "") -> dict[str, list[dict]]:
     """Load all JSONL files from a directory.
 
     Returns dict mapping topology_name -> list of {load, blocking_mean, blocking_std}.
+    If strip_suffix is provided, it is removed from the filename stem to get the topology name.
     """
     results = {}
     if not directory.exists():
@@ -46,6 +47,8 @@ def load_all_jsonl(directory: Path) -> dict[str, list[dict]]:
 
     for jsonl_file in sorted(directory.glob("*.jsonl")):
         topo_name = jsonl_file.stem
+        if strip_suffix and topo_name.endswith(strip_suffix):
+            topo_name = topo_name[: -len(strip_suffix)]
         entries = []
         with open(jsonl_file) as f:
             for line in f:
@@ -84,21 +87,28 @@ def find_load_at_blocking(entries: list[dict], target_bp: float = TARGET_BP) -> 
     loads = np.array([e["load"] for e in entries])
     bps = np.array([e["blocking_mean"] for e in entries])
 
-    # Filter out zero blocking (can't interpolate with these on log scale)
-    valid = bps > 0
-    if valid.sum() < 2:
+    # Keep the highest zero-blocking entry as a valid lower bracket.
+    # Multiple zeros create duplicate x-values for interp1d, so keep only
+    # the one at the highest load.
+    zero_mask = bps == 0
+    if zero_mask.sum() > 1:
+        zero_loads = loads[zero_mask]
+        max_zero_load = zero_loads.max()
+        # Drop all zeros except the one at the highest load
+        keep = ~zero_mask | (loads == max_zero_load)
+        loads = loads[keep]
+        bps = bps[keep]
+
+    if len(loads) < 2:
         return None
 
-    loads_valid = loads[valid]
-    bps_valid = bps[valid]
-
-    # Check that target is within range
-    if target_bp < bps_valid.min() or target_bp > bps_valid.max():
+    # Check that target is within range (zeros count as below-target)
+    if target_bp > bps.max() or target_bp < bps.min():
         return None
 
     try:
         # Interpolate: blocking -> load (inverse function)
-        f = interpolate.interp1d(bps_valid, loads_valid, bounds_error=False)
+        f = interpolate.interp1d(bps, loads, bounds_error=False)
         result = f(target_bp)
         if np.isnan(result):
             return None
@@ -163,31 +173,50 @@ def generate_summary_table(
 
 
 def plot_gap_scatter(df: pd.DataFrame, figures_dir: Path):
-    """Plot gap analysis: scatter of gap vs topology properties."""
+    """Plot gap analysis: separate scatter figures for RR and cut-set bounds."""
+    # Figure 1: RR bound gap vs topology properties
     fig, axes = plt.subplots(1, 3, figsize=(18, 6))
-
-    scatter_configs = [
-        (axes[0], "gap_cutset_pct", "Cut-set bound gap (%)", "nodes", "Number of nodes", "Gap vs Network Size"),
-        (axes[1], "gap_rr_pct", "RR bound gap (%)", "avg_degree", "Average degree", "Gap vs Connectivity"),
-        (axes[2], "gap_cutset_pct", "Cut-set bound gap (%)", "avg_path_length", "Average path length (hops)", "Gap vs Path Length"),
+    rr_configs = [
+        (axes[0], "nodes", "Number of nodes", "RR Gap vs Network Size"),
+        (axes[1], "avg_degree", "Average degree", "RR Gap vs Connectivity"),
+        (axes[2], "avg_path_length", "Average path length (hops)", "RR Gap vs Path Length"),
     ]
-
-    for i, (ax, gap_col, ylabel, xcol, xlabel, title) in enumerate(scatter_configs):
-        valid = df.dropna(subset=[gap_col])
+    for i, (ax, xcol, xlabel, title) in enumerate(rr_configs):
+        valid = df.dropna(subset=["gap_rr_pct"])
         if valid.empty:
             ax.set_title("No data")
             continue
-
-        ax.scatter(valid[xcol], valid[gap_col], alpha=0.7, s=60,
+        ax.scatter(valid[xcol], valid["gap_rr_pct"], alpha=0.7, s=60,
                    color=PALETTE[i], edgecolor="white", linewidth=0.5)
         ax.set_xlabel(xlabel)
-        ax.set_ylabel(ylabel)
+        ax.set_ylabel("RR bound gap (%)")
         ax.set_title(title)
-
     plt.tight_layout()
-    plt.savefig(figures_dir / "bounds_gap_scatter.png")
+    plt.savefig(figures_dir / "bounds_gap_scatter_rr.png")
     plt.close()
-    print(f"  Saved {figures_dir / 'bounds_gap_scatter.png'}")
+    print(f"  Saved {figures_dir / 'bounds_gap_scatter_rr.png'}")
+
+    # Figure 2: Cut-set bound gap vs topology properties
+    fig, axes = plt.subplots(1, 3, figsize=(18, 6))
+    cutset_configs = [
+        (axes[0], "nodes", "Number of nodes", "Cut-set Gap vs Network Size"),
+        (axes[1], "avg_degree", "Average degree", "Cut-set Gap vs Connectivity"),
+        (axes[2], "avg_path_length", "Average path length (hops)", "Cut-set Gap vs Path Length"),
+    ]
+    for i, (ax, xcol, xlabel, title) in enumerate(cutset_configs):
+        valid = df.dropna(subset=["gap_cutset_pct"])
+        if valid.empty:
+            ax.set_title("No data")
+            continue
+        ax.scatter(valid[xcol], valid["gap_cutset_pct"], alpha=0.7, s=60,
+                   color=PALETTE[i], edgecolor="white", linewidth=0.5)
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel("Cut-set bound gap (%)")
+        ax.set_title(title)
+    plt.tight_layout()
+    plt.savefig(figures_dir / "bounds_gap_scatter_cutset.png")
+    plt.close()
+    print(f"  Saved {figures_dir / 'bounds_gap_scatter_cutset.png'}")
 
 
 def plot_bounds_overview(df: pd.DataFrame, figures_dir: Path):
@@ -281,6 +310,176 @@ def plot_bounds_overview_normalized(df: pd.DataFrame, figures_dir: Path, sort_by
 
     plt.tight_layout()
     fname = f"bounds_overview_normalized_{suffix}.png"
+    plt.savefig(figures_dir / fname)
+    plt.close()
+    print(f"  Saved {figures_dir / fname}")
+
+
+def plot_cutset_topk_vs_top1pct(
+    cutset_data: dict,
+    cutset_top1pct_data: dict,
+    heuristic_data: dict,
+    figures_dir: Path,
+    sort_by: str = "topology",
+):
+    """Plot normalized comparison of cut-set bounds: top-256 vs top-1% cutsets.
+
+    Bars show % difference from heuristic load, similar to bounds_overview_normalized.
+    """
+    # Build a DataFrame with loads at 0.1% for each method
+    rows = []
+    all_topos = set(cutset_data.keys()) | set(cutset_top1pct_data.keys())
+    for name in sorted(all_topos):
+        heur_load = find_load_at_blocking(heuristic_data[name]) if name in heuristic_data else None
+        cutset_load = find_load_at_blocking(cutset_data[name]) if name in cutset_data else None
+        cutset_1pct_load = find_load_at_blocking(cutset_top1pct_data[name]) if name in cutset_top1pct_data else None
+        if heur_load is None:
+            continue
+        rows.append({
+            "topology": name,
+            "heuristic_load": heur_load,
+            "cutset_256_load": cutset_load,
+            "cutset_1pct_load": cutset_1pct_load,
+        })
+
+    df = pd.DataFrame(rows)
+    has_256 = df["cutset_256_load"].notna()
+    has_1pct = df["cutset_1pct_load"].notna()
+    valid = df[has_256 | has_1pct].copy()
+
+    if valid.empty:
+        print(f"  No data for cutset top-k vs top-1% comparison ({sort_by})")
+        return
+
+    if sort_by == "edges":
+        # Merge in edge count for sorting
+        topo_stats = load_topology_stats()
+        edge_map = dict(zip(topo_stats["topology_name"], topo_stats["num_edges"]))
+        valid["edges"] = valid["topology"].map(edge_map)
+        valid = valid.sort_values("edges").reset_index(drop=True)
+        suffix = "by_edges"
+    else:
+        valid = valid.sort_values("topology").reset_index(drop=True)
+        suffix = "by_name"
+
+    gap_256 = (valid["cutset_256_load"] - valid["heuristic_load"]) / valid["heuristic_load"] * 100
+    gap_1pct = (valid["cutset_1pct_load"] - valid["heuristic_load"]) / valid["heuristic_load"] * 100
+
+    fig, ax = plt.subplots(figsize=(14, 8))
+
+    x = np.arange(len(valid))
+    width = 0.35
+
+    if gap_256.notna().any():
+        ax.bar(x - width / 2, gap_256, width,
+               label="Cut-set (top 256)", color=PALETTE[1], edgecolor="white", linewidth=0.5)
+    if gap_1pct.notna().any():
+        ax.bar(x + width / 2, gap_1pct, width,
+               label="Cut-set (top 1%)", color=PALETTE[3], edgecolor="white", linewidth=0.5)
+
+    ax.axhline(y=0, color="black", linewidth=0.8, linestyle="-")
+    ax.set_xlabel("Topology")
+    ax.set_ylabel("Load difference from heuristic (%)")
+    order_label = "(by number of edges)" if sort_by == "edges" else "(alphabetical)"
+    ax.set_title(f"Cut-set Bound: Top-256 vs Top-1% Cutsets {order_label}")
+    ax.set_xticks(x)
+    ax.set_xticklabels(
+        [n.replace("_directed", "") for n in valid["topology"]],
+        rotation=75,
+        ha="right",
+        fontsize=8,
+    )
+    ax.legend()
+
+    plt.tight_layout()
+    fname = f"cutset_topk_vs_top1pct_{suffix}.png"
+    plt.savefig(figures_dir / fname)
+    plt.close()
+    print(f"  Saved {figures_dir / fname}")
+
+
+def plot_all_bounds_normalized(
+    cutset_data: dict,
+    cutset_top1pct_data: dict,
+    rr_data: dict,
+    heuristic_data: dict,
+    figures_dir: Path,
+    sort_by: str = "topology",
+):
+    """Plot normalized comparison of all three bounds: cutset top-256, cutset top-1%, and RR.
+
+    Bars show % difference from heuristic load, similar to bounds_overview_normalized.
+    """
+    all_topos = set(cutset_data.keys()) | set(cutset_top1pct_data.keys()) | set(rr_data.keys())
+    rows = []
+    for name in sorted(all_topos):
+        heur_load = find_load_at_blocking(heuristic_data[name]) if name in heuristic_data else None
+        if heur_load is None:
+            continue
+        cutset_load = find_load_at_blocking(cutset_data[name]) if name in cutset_data else None
+        cutset_1pct_load = find_load_at_blocking(cutset_top1pct_data[name]) if name in cutset_top1pct_data else None
+        rr_load = find_load_at_blocking(rr_data[name]) if name in rr_data else None
+        rows.append({
+            "topology": name,
+            "heuristic_load": heur_load,
+            "cutset_256_load": cutset_load,
+            "cutset_1pct_load": cutset_1pct_load,
+            "rr_load": rr_load,
+        })
+
+    df = pd.DataFrame(rows)
+    has_any = df["cutset_256_load"].notna() | df["cutset_1pct_load"].notna() | df["rr_load"].notna()
+    valid = df[has_any].copy()
+
+    if valid.empty:
+        print(f"  No data for all-bounds comparison ({sort_by})")
+        return
+
+    if sort_by == "edges":
+        topo_stats = load_topology_stats()
+        edge_map = dict(zip(topo_stats["topology_name"], topo_stats["num_edges"]))
+        valid["edges"] = valid["topology"].map(edge_map)
+        valid = valid.sort_values("edges").reset_index(drop=True)
+        suffix = "by_edges"
+    else:
+        valid = valid.sort_values("topology").reset_index(drop=True)
+        suffix = "by_name"
+
+    gap_256 = (valid["cutset_256_load"] - valid["heuristic_load"]) / valid["heuristic_load"] * 100
+    gap_1pct = (valid["cutset_1pct_load"] - valid["heuristic_load"]) / valid["heuristic_load"] * 100
+    gap_rr = (valid["rr_load"] - valid["heuristic_load"]) / valid["heuristic_load"] * 100
+
+    fig, ax = plt.subplots(figsize=(16, 8))
+
+    x = np.arange(len(valid))
+    width = 0.25
+
+    if gap_256.notna().any():
+        ax.bar(x - width, gap_256, width,
+               label="Cut-set (top 256)", color=PALETTE[1], edgecolor="white", linewidth=0.5)
+    if gap_1pct.notna().any():
+        ax.bar(x, gap_1pct, width,
+               label="Cut-set (top 1%)", color=PALETTE[3], edgecolor="white", linewidth=0.5)
+    if gap_rr.notna().any():
+        ax.bar(x + width, gap_rr, width,
+               label="Resource-prioritized defragmentation", color=PALETTE[2], edgecolor="white", linewidth=0.5)
+
+    ax.axhline(y=0, color="black", linewidth=0.8, linestyle="-")
+    ax.set_xlabel("Topology")
+    ax.set_ylabel("Load difference from heuristic (%)")
+    order_label = "(by number of edges)" if sort_by == "edges" else "(alphabetical)"
+    ax.set_title(f"All Bounds Relative to Best Heuristic {order_label}")
+    ax.set_xticks(x)
+    ax.set_xticklabels(
+        [n.replace("_directed", "") for n in valid["topology"]],
+        rotation=75,
+        ha="right",
+        fontsize=8,
+    )
+    ax.legend()
+
+    plt.tight_layout()
+    fname = f"all_bounds_normalized_{suffix}.png"
     plt.savefig(figures_dir / fname)
     plt.close()
     print(f"  Saved {figures_dir / fname}")
@@ -610,11 +809,13 @@ def main():
     print("Loading results...")
     heuristic_data = load_all_jsonl(RESULTS_DIR / "heuristic_eval")
     cutset_data = load_all_jsonl(RESULTS_DIR / "cutset_bounds")
+    cutset_top1pct_data = load_all_jsonl(RESULTS_DIR / "cutset_bounds_top1pct", strip_suffix="_top1pct")
     rr_data = load_all_jsonl(RESULTS_DIR / "rr_bounds")
 
-    print(f"  Heuristic: {len(heuristic_data)} topologies")
-    print(f"  Cut-set:   {len(cutset_data)} topologies")
-    print(f"  RR bounds: {len(rr_data)} topologies")
+    print(f"  Heuristic:       {len(heuristic_data)} topologies")
+    print(f"  Cut-set (256):   {len(cutset_data)} topologies")
+    print(f"  Cut-set (top1%): {len(cutset_top1pct_data)} topologies")
+    print(f"  RR bounds:       {len(rr_data)} topologies")
 
     # Generate summary table
     print("\nGenerating summary table...")
@@ -656,6 +857,18 @@ def main():
     plot_bounds_overview_normalized(df, figures_dir, sort_by="edges")
     plot_gap_scatter(df, figures_dir)
     plot_heuristic_selection(df, figures_dir)
+
+    # Cut-set top-k vs top-1% comparison
+    if cutset_top1pct_data:
+        print("\nCut-set top-256 vs top-1% comparison...")
+        plot_cutset_topk_vs_top1pct(cutset_data, cutset_top1pct_data, heuristic_data, figures_dir, sort_by="topology")
+        plot_cutset_topk_vs_top1pct(cutset_data, cutset_top1pct_data, heuristic_data, figures_dir, sort_by="edges")
+
+    # All three bounds comparison
+    if cutset_top1pct_data or rr_data:
+        print("\nAll bounds comparison (cutset 256, cutset 1%, RR)...")
+        plot_all_bounds_normalized(cutset_data, cutset_top1pct_data, rr_data, heuristic_data, figures_dir, sort_by="topology")
+        plot_all_bounds_normalized(cutset_data, cutset_top1pct_data, rr_data, heuristic_data, figures_dir, sort_by="edges")
 
     # K-sensitivity analysis
     print("\nK-sensitivity analysis...")

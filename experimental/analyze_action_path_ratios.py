@@ -97,7 +97,7 @@ def analyze():
 
     # Filter valid actions (non-zero hops)
     valid = num_hops > 0
-    accepted = returns > 0
+    accepted = returns >= 0  # continuous_operation: 0=accept, -1=block
 
     rpi = relative_path_indices[valid]
     dr = dist_ratio[valid]
@@ -119,6 +119,9 @@ def analyze():
         h = hr[mask]
 
         print(f"\n--- {label} ({mask.sum()} actions) ---")
+        if mask.sum() == 0:
+            print("  (no actions)")
+            continue
 
         print(f"\nRelative path index chosen:")
         print(f"  Mean: {r.mean():.2f}, Median: {np.median(r):.0f}, "

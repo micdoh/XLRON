@@ -19,8 +19,6 @@ Full 10-trial results are appended to the output file incrementally.
 import json
 
 import numpy as np
-from scipy import interpolate as scipy_interpolate
-
 from config import (
     FULL_RR_PARAMS,
     RESULTS_DIR,
@@ -42,7 +40,6 @@ MAX_RETRY_ROUNDS = 10  # Max probe→refine→fullrun cycles per topology in ret
 LOAD_INCREMENT = 1.10  # 10% increment between probes
 SCALE_BACK_FACTOR = 0.95  # 5% reduction when blocking > 1%
 MAX_BLOCKING_FOR_FULL_RUN = 0.02  # 2% - don't do full runs above this
-MIN_REFINE_STEP_FRAC = 0.05  # Minimum 5% step between refinement probes
 
 
 def _probe_state_path(probe_dir, name):
@@ -115,15 +112,18 @@ def run_rr(name, load, output_file, heuristic="ksp_ff", num_trials=1, timeout=14
 
 
 def has_valid_interpolation(entries, target_bp=TARGET_BP):
-    """Check if a list of {load, blocking_mean} entries can interpolate to target_bp."""
+    """Check if a list of {load, blocking_mean} entries can interpolate to target_bp.
+
+    A valid interpolation requires at least one entry below target_bp and one
+    above.  Zero-blocking entries count as valid lower brackets — they represent
+    known loads where blocking is below the target.
+    """
     if len(entries) < 2:
         return False
     bps = np.array([e["blocking_mean"] for e in entries])
-    valid = bps > 0
-    if valid.sum() < 2:
-        return False
-    bps_valid = bps[valid]
-    return bps_valid.min() < target_bp < bps_valid.max()
+    has_below = np.any(bps < target_bp)  # includes bp==0
+    has_above = np.any(bps > target_bp)
+    return has_below and has_above
 
 
 def categorize_probes(probe_results):
@@ -179,17 +179,24 @@ def refine_probes(name, probe_results, heuristic, probe_dir, save_fn=None):
     def gallop_up(start):
         """Gallop upward from start by LOAD_INCREMENT until we find non-zero blocking.
 
-        Takes big multiplicative jumps (10% each). No ceiling — if previous
-        1-trial probes showed above-target blocking at some load, gallop may
-        jump past it. If it lands on a cached load, do_probe returns the
-        cached result and gallop stops naturally. If it jumps over it,
-        it finds the real transition at a wider spacing.
+        Takes big multiplicative jumps (10% each). Fast-forwards past any
+        already-probed zero loads so that cached results don't consume the
+        limited probe budget.
 
         Returns (last_zero, first_nonzero_load) or (last_zero, None) if
         probes exhausted.
         """
         current = start
         last_zero = start
+        # Fast-forward past already-known zero loads
+        while True:
+            next_load = round(current * LOAD_INCREMENT)
+            cached = probe_results.get(next_load)
+            if cached is not None and cached == 0:
+                current = next_load
+                last_zero = next_load
+            else:
+                break
         for _ in range(MAX_REFINE_PROBES):
             current = round(current * LOAD_INCREMENT)
             bp = do_probe(current)
@@ -204,15 +211,11 @@ def refine_probes(name, probe_results, heuristic, probe_dir, save_fn=None):
         """Binary search between lo (zero/below-target) and hi (above-target/non-zero).
 
         Stops when a below-target point is found or the gap is exhausted.
-        Uses MIN_REFINE_STEP_FRAC to avoid tiny steps.
         """
         for _ in range(MAX_REFINE_PROBES):
-            min_step = max(round(lo * MIN_REFINE_STEP_FRAC), 1)
-            if hi - lo <= min_step:
+            if hi - lo <= 1:
                 break  # Gap too small to subdivide further
             mid = round((lo + hi) / 2)
-            # Enforce minimum step from lo
-            mid = max(mid, lo + min_step)
             mid = min(mid, hi - 1)
             if mid <= lo or mid >= hi:
                 break
@@ -288,6 +291,20 @@ def refine_probes(name, probe_results, heuristic, probe_dir, save_fn=None):
         upper_bound = above_target + too_high
         if zero_loads and upper_bound and not (below_target and above_target):
             narrow_down(max(zero_loads), min(upper_bound))
+
+    # Re-categorize after Case C
+    zero_loads, below_target, above_target, too_high = categorize_probes(probe_results)
+    has_below = len(below_target) > 0
+    has_above = len(above_target) > 0
+
+    # Case D: Only zeros — gallop up to find any blocking at all
+    if not has_below and not has_above and not too_high and zero_loads:
+        last_zero, first_nonzero = gallop_up(max(zero_loads))
+        zero_loads, below_target, above_target, too_high = categorize_probes(probe_results)
+        # If we found non-zero, narrow to bracket TARGET_BP
+        nonzero = below_target + above_target + too_high
+        if zero_loads and nonzero and not (below_target and above_target):
+            narrow_down(max(zero_loads), min(nonzero))
 
     return refine_num > 0
 
@@ -459,9 +476,10 @@ def main(retry=False):
             _, below_target, above_target, _ = categorize_probes(probe_results)
             needs_refine = not (below_target and above_target)
 
+            did_refine = False
             if needs_refine and any(bp > 0 for bp in probe_results.values()):
                 print("  --- Refinement probes (bracketing) ---")
-                refine_probes(name, probe_results, best_heuristic, probe_dir, save_fn=_save)
+                did_refine = refine_probes(name, probe_results, best_heuristic, probe_dir, save_fn=_save)
 
             # Build selected_loads from all probes with 0 < bp <= MAX_BLOCKING
             selected_loads = sorted(
@@ -512,24 +530,54 @@ def main(retry=False):
                     print("-> FAILED")
                     full_file.unlink(missing_ok=True)
 
-            # Check if we now have valid interpolation
+            # Check if we now have valid interpolation (include zero probes
+            # as potential lower brackets)
             if output_file.exists() and output_file.stat().st_size > 0:
                 final_entries = parse_jsonl_blocking(output_file)
+                zero_loads = [l for l, bp in probe_results.items() if bp == 0]
+                if zero_loads:
+                    max_zero = max(zero_loads)
+                    if max_zero not in [e["load"] for e in final_entries]:
+                        final_entries.append({"load": max_zero, "blocking_mean": 0.0})
                 if has_valid_interpolation(final_entries):
                     break  # Success — exit the round loop
 
             if not remaining_loads:
-                # No new full runs were done and still no valid interpolation.
-                # Next round will re-probe with updated data.
+                if not did_refine:
+                    # No new probes AND no new full runs — no progress possible
+                    print(f"  -> No further progress possible (no new probes or full runs)")
+                    break
+                # Refinement found new probes but they didn't produce new
+                # full-run candidates. Try another round.
                 if round_num + 1 >= max_rounds:
                     break
-                # Continue to next round — refinement will find new loads
                 continue
 
-        # Check final result
+        # Check final result — merge full-run entries with probe data so that
+        # zero-blocking probes can serve as lower bracket points.
         if completed_full_loads:
-            print(f"  -> Wrote {len(completed_full_loads)} load(s) to {output_file.name}")
             final_entries = parse_jsonl_blocking(output_file)
+
+            # Include the highest zero-blocking probe as a lower bracket.
+            # Write it to the output file so analysis code can use it.
+            zero_probe_loads = [l for l, bp in probe_results.items() if bp == 0]
+            if zero_probe_loads:
+                max_zero_load = max(zero_probe_loads)
+                full_loads = [e["load"] for e in final_entries]
+                if not full_loads or max_zero_load not in full_loads:
+                    zero_entry = {
+                        "run_type": "reconfigurable_routing_bound",
+                        "config": {"load": max_zero_load},
+                        "metrics": {
+                            "service_blocking_probability": {"mean": 0.0, "std": 0.0},
+                        },
+                    }
+                    with open(output_file, "a") as f_out:
+                        f_out.write(json.dumps(zero_entry) + "\n")
+                    final_entries.append({"load": max_zero_load, "blocking_mean": 0.0})
+                    print(f"  -> Added zero-blocking bracket at load={max_zero_load}")
+
+            print(f"  -> Wrote {len(completed_full_loads)} load(s) to {output_file.name}")
             if has_valid_interpolation(final_entries):
                 clear_probe_state(probe_dir, name)
                 progress.item_done(t_start, "completed")

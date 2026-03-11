@@ -1468,8 +1468,12 @@ def main(argv):
     partition2 = partition2[unique_indices]
     print(f"\nUnique cutsets with congestion > 0: {len(congestions)}")
 
-    # Select top-k
-    print(f"  Selecting top-{top_k}...")
+    # Select top-k (or top-pct if specified)
+    if FLAGS.CUTSET_TOP_PCT > 0:
+        top_k = max(1, round(len(congestions) * FLAGS.CUTSET_TOP_PCT / 100))
+        print(f"  Selecting top {FLAGS.CUTSET_TOP_PCT}% = {top_k} of {len(congestions)} cutsets...")
+    else:
+        print(f"  Selecting top-{top_k}...")
     top_k_indices = jnp.argsort(congestions)[-top_k:]
     cutset_edges = cutset_edges[top_k_indices]
     congestions = congestions[top_k_indices]
