@@ -260,6 +260,7 @@ def make(
     log_actions = config.get("log_actions", False)
     profile = config.get("PROFILE", False)
     guardband = config.get("guardband", 1)
+    maximum_path_length_km = config.get("maximum_path_length_km", None)
     path_sort_criteria = config.get("path_sort_criteria", "hops")
     remove_array_wrappers = config.get("remove_array_wrappers", False)
     maximise_throughput = config.get("maximise_throughput", False)
@@ -426,7 +427,7 @@ def make(
         or env_type in ("rmsa_gn_model", "rsa_gn_model")
     )
     if _needs_first_call:
-        path_link_array = init_path_link_array(
+        _pla_result = init_path_link_array(
             graph,
             k,
             disjoint=disjoint_paths,
@@ -437,7 +438,15 @@ def make(
             path_snr=path_snr,
             topology_name=topology_name,
             cache_dir=KSP_CACHE_DIR if not _needs_modulation_resort else None,
+            maximum_path_length_km=maximum_path_length_km,
         )
+        if isinstance(_pla_result, tuple):
+            path_link_array, effective_k = _pla_result
+            print(f"  Updating K: {k} -> {effective_k} (trimmed by max path length filter)")
+            k = effective_k
+            config.k = effective_k
+        else:
+            path_link_array = _pla_result
     else:
         # Placeholder — will be replaced by the modulation-aware call below
         path_link_array = None
@@ -541,7 +550,7 @@ def make(
         modulations_array = modulations_array.astype(dtype_config.LARGE_FLOAT_DTYPE)
         if path_sort_criteria != "distance":  # If paths aren't to be sorted by distance alone
             print("  Computing modulation-aware path sort...")
-            path_link_array = init_path_link_array(
+            _pla_result = init_path_link_array(
                 graph,
                 k,
                 disjoint=disjoint_paths,
@@ -551,7 +560,15 @@ def make(
                 path_snr=path_snr,
                 topology_name=topology_name,
                 cache_dir=KSP_CACHE_DIR,
+                maximum_path_length_km=maximum_path_length_km,
             )
+            if isinstance(_pla_result, tuple):
+                path_link_array, effective_k = _pla_result
+                print(f"  Updating K: {k} -> {effective_k} (trimmed by max path length filter)")
+                k = effective_k
+                config.k = effective_k
+            else:
+                path_link_array = _pla_result
         print("  Computing path lengths...")
         path_length_array = init_path_length_array(path_link_array, graph)
         print("  Computing SE array...")

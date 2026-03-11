@@ -417,6 +417,7 @@ def _ksp_cache_key(
     rwa_lr: bool,
     scale_factor: float,
     path_snr: bool,
+    maximum_path_length_km: float | None = None,
 ) -> str:
     """Build a deterministic hash of all parameters that affect init_path_link_array output."""
     h = hashlib.sha256()
@@ -430,11 +431,112 @@ def _ksp_cache_key(
     h.update(f"k={k},disjoint={disjoint},sort={path_sort_criteria},"
              f"directed={directed},rwa_lr={rwa_lr},"
              f"scale_factor={scale_factor},path_snr={path_snr}".encode())
+    if maximum_path_length_km is not None:
+        h.update(f",max_path_km={maximum_path_length_km}".encode())
     # Modulations array
     if modulations_array is not None:
         mod_bytes = np.asarray(modulations_array).tobytes()
         h.update(mod_bytes)
     return h.hexdigest()[:12]
+
+
+def _apply_max_path_length_filter(
+    all_link_usage: np.ndarray,
+    graph: nx.Graph,
+    k: int,
+    maximum_path_length_km: float,
+    path_snr: bool = False,
+) -> np.ndarray:
+    """Filter paths exceeding maximum_path_length_km.
+
+    Paths that exceed the distance limit are replaced with the last valid path
+    for that node pair (duplicated). If all paths for a pair exceed the limit,
+    only the shortest path (index 0) is kept.
+
+    Applied after cache load/save so the cache always stores unfiltered paths.
+    """
+    all_link_usage = all_link_usage.copy()
+    link_lengths_km = np.array(
+        [graph.edges[e]["distance"] for e in sorted(graph.edges)], dtype=np.float64
+    )
+    num_edges = len(link_lengths_km)
+    data_rows = all_link_usage.shape[0] - (1 if path_snr else 0)
+    num_pairs = data_rows // k
+
+    path_distances = all_link_usage[:data_rows].astype(np.float64) @ link_lengths_km
+    path_hops = all_link_usage[:data_rows].sum(axis=1)
+
+    total_removed = 0
+    pairs_affected = 0
+    pairs_shortest_exceeds = 0
+    max_effective_k = 1  # at least 1 path per pair
+
+    for pair_idx in range(num_pairs):
+        start = pair_idx * k
+        dists = path_distances[start:start + k]
+        real = path_hops[start:start + k] > 0
+
+        # Collect valid path indices (within distance limit or shortest path kept)
+        valid_indices = []
+        removed_this_pair = 0
+        for j in range(k):
+            if real[j] and dists[j] <= maximum_path_length_km:
+                valid_indices.append(j)
+            elif real[j] and dists[j] > maximum_path_length_km:
+                removed_this_pair += 1
+
+        if removed_this_pair > 0:
+            total_removed += removed_this_pair
+            pairs_affected += 1
+
+        # If ALL paths exceed the limit, keep the shortest path (index 0)
+        if len(valid_indices) == 0:
+            valid_indices = [0]
+            if real[0]:
+                pairs_shortest_exceeds += 1
+
+        num_valid = len(valid_indices)
+        max_effective_k = max(max_effective_k, num_valid)
+
+        # Compact valid paths to the top of the pair's block, then fill
+        # remaining slots with the last valid path (duplicated)
+        new_block = np.zeros((k, all_link_usage.shape[1]), dtype=all_link_usage.dtype)
+        for write_idx, src_idx in enumerate(valid_indices):
+            new_block[write_idx] = all_link_usage[start + src_idx]
+        fill_row = new_block[num_valid - 1]
+        for write_idx in range(num_valid, k):
+            new_block[write_idx] = fill_row
+        all_link_usage[start:start + k] = new_block
+
+    # Trim array to max_effective_k paths per pair
+    # This is the max across all pairs — pairs with fewer valid paths are
+    # already fill-padded with their last valid path above.
+    if max_effective_k < k:
+        trimmed = np.zeros(
+            (num_pairs * max_effective_k + (1 if path_snr else 0), all_link_usage.shape[1]),
+            dtype=all_link_usage.dtype,
+        )
+        for pair_idx in range(num_pairs):
+            old_start = pair_idx * k
+            new_start = pair_idx * max_effective_k
+            trimmed[new_start:new_start + max_effective_k] = (
+                all_link_usage[old_start:old_start + max_effective_k]
+            )
+        if path_snr:
+            trimmed[-1] = all_link_usage[-1]
+        all_link_usage = trimmed
+
+    print(f"  Maximum path length filter ({maximum_path_length_km} km):")
+    print(f"    Paths removed: {total_removed} / {data_rows}")
+    print(f"    Node pairs affected: {pairs_affected} / {num_pairs}")
+    print(f"    Pairs where shortest path exceeds limit: {pairs_shortest_exceeds}")
+    print(f"    Max effective K across all pairs: {max_effective_k}")
+    if max_effective_k < k:
+        print(f"    Trimmed K: {k} -> {max_effective_k} "
+              f"(array: {data_rows}x{all_link_usage.shape[1]} -> "
+              f"{num_pairs * max_effective_k}x{all_link_usage.shape[1]})")
+
+    return all_link_usage, max_effective_k
 
 
 def init_path_link_array(
@@ -450,6 +552,7 @@ def init_path_link_array(
     n_workers: int = 1,
     topology_name: str | None = None,
     cache_dir: str | pathlib.Path | None = None,
+    maximum_path_length_km: float | None = None,
 ) -> chex.Array:
     """Optimized init_path_link_array.
 
@@ -489,13 +592,23 @@ def init_path_link_array(
         params_hash = _ksp_cache_key(
             graph, k, disjoint, path_sort_criteria, directed,
             modulations_array, rwa_lr, scale_factor, path_snr,
+            maximum_path_length_km=maximum_path_length_km,
         )
         name = topology_name or "unknown"
         cache_path = cache_dir / f"{name}_k{k}_{path_sort_criteria}_{params_hash}.npz"
         if cache_path.exists():
             print(f"  Loading cached KSP array from {cache_path.name}")
             data = np.load(cache_path)
-            return np.array(data["arr"], dtype=np.int8)
+            arr = np.array(data["arr"], dtype=np.int8)
+            if maximum_path_length_km is not None:
+                # Cache already contains filtered+trimmed array; read effective_k from shape
+                num_pairs = graph.number_of_nodes() * (graph.number_of_nodes() - 1) if graph.is_directed() else (
+                    graph.number_of_nodes() * (graph.number_of_nodes() - 1) // 2
+                )
+                data_rows = arr.shape[0] - (1 if path_snr else 0)
+                effective_k = data_rows // num_pairs
+                return arr, effective_k
+            return arr
         print(f"  KSP cache miss — computing paths (will save to {cache_path.name})")
         
     assert path_sort_criteria in [
@@ -613,12 +726,18 @@ def init_path_link_array(
 
     # path_snr extra row is already zero from pre-allocation
 
-    # --- Save to disk cache ---
+    result = np.array(all_link_usage, dtype=np.int8)
+    if maximum_path_length_km is not None:
+        result, effective_k = _apply_max_path_length_filter(result, graph, k, maximum_path_length_km, path_snr)
+
+    # --- Save to disk cache (stores filtered result when filter is active) ---
     if cache_path is not None:
-        np.savez_compressed(cache_path, arr=all_link_usage)
+        np.savez_compressed(cache_path, arr=result)
         print(f"  Saved KSP cache to {cache_path.name} ({cache_path.stat().st_size / 1e6:.1f} MB)")
 
-    return np.array(all_link_usage, dtype=np.int8)
+    if maximum_path_length_km is not None:
+        return result, effective_k
+    return result
 
 
 def _sort_key(

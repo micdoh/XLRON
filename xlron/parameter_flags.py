@@ -406,6 +406,12 @@ flags.DEFINE_string(
     "spectral_resources",
     "How paths should be sorted. Must be one of 'spectral_resources' (default), 'hops', 'distance', 'hops_distance', 'capacity' (for RWA-LR only)",
 )
+flags.DEFINE_float(
+    "maximum_path_length_km",
+    None,
+    "Maximum allowed path length in km. Paths exceeding this distance are replaced with "
+    "duplicates of the last valid path (or zero-filled if none exist). None disables filtering.",
+)
 flags.DEFINE_string(
     "modulations_csv_filepath",
     "./xlron/data/modulations/modulations_deeprmsa.csv",
@@ -823,6 +829,12 @@ flags.DEFINE_integer(
     "Number of iterations per parallel process (only relevant when finding cutsets exhaustively for larger networks (40+ nodes) on GPU)",
 )
 flags.DEFINE_integer("CUTSET_TOP_K", 256, "Number of top congested cutsets to return")
+flags.DEFINE_float(
+    "CUTSET_TOP_PCT",
+    0,
+    "If > 0, keep top this percentage of congested cutsets (overrides CUTSET_TOP_K). "
+    "The actual count is max(1, round(total_unique_cutsets * CUTSET_TOP_PCT / 100)).",
+)
 flags.DEFINE_boolean(
     "NEGLECT_SPECTRUM_CONTINUITY",
     False,

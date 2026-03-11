@@ -218,8 +218,9 @@ DEFAULTS = {
     "C_CLIP": -1.0,
     "REWARD_SCALE": 1.0,
     "SEPARATE_VF_OPTIMIZER": False,
-    # Path sorting
+    # Path sorting / filtering
     "path_sort_criteria": "spectral_resources",
+    "maximum_path_length_km": None,
     # Heuristics
     "path_heuristic": "ksp_ff",
     "EVAL_HEURISTIC": False,
@@ -575,6 +576,16 @@ def environment_section() -> dict:
         "Path Sort Criteria", sort_options, index=sort_idx, help=_h("path_sort_criteria")
     )
     _emit(flags, "path_sort_criteria", path_sort)
+
+    max_path_len = st.number_input(
+        "Maximum Path Length (km)",
+        min_value=0.0,
+        value=float(_get_preset_val("maximum_path_length_km") or 0),
+        step=1000.0,
+        help=_h("maximum_path_length_km")
+        + " Set to 0 to disable.",
+    )
+    _emit(flags, "maximum_path_length_km", max_path_len if max_path_len > 0 else None)
 
     # Store env_type in session state for other sections to read
     st.session_state["_env_type"] = env_type
