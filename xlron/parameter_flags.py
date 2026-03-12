@@ -602,6 +602,16 @@ flags.DEFINE_integer("transformer_critic_mlp_depth", 2, "Depth of critic MLP hea
 flags.DEFINE_boolean(
     "transformer_enable_dropout", False, "Enable dropout during training in transformer"
 )
+flags.DEFINE_string(
+    "transformer_critic_pooling",
+    "mean",
+    "Pooling strategy for critic: 'mean' (default) or 'attention' (learned single-query attention)",
+)
+flags.DEFINE_string(
+    "transformer_actor_pooling",
+    "sum",
+    "Pooling strategy for actor: 'sum' (default) or 'min_mean_max' (concatenate min/mean/max then project)",
+)
 
 # Eval during training parameters
 flags.DEFINE_boolean(

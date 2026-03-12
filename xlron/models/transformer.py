@@ -415,6 +415,12 @@ class ActorCriticTransformer(eqx.Module):
     num_slot_actions: int
     num_request_specific_cols: int = eqx.field(static=True)
     embedding_size: int = eqx.field(static=True)
+    critic_pooling: str = eqx.field(static=True)
+    actor_pooling: str = eqx.field(static=True)
+    # Attention pooling for critic (only used when critic_pooling == "attention")
+    value_query: Array | None
+    # Projection for actor min_mean_max pooling (only used when actor_pooling == "min_mean_max")
+    actor_pool_proj: eqx.nn.Linear | None
 
     def __init__(
         self,
@@ -435,15 +441,21 @@ class ActorCriticTransformer(eqx.Module):
         critic_mlp_depth: int,
         num_request_specific_cols: int,
         key: chex.PRNGKey,
+        critic_pooling: str = "mean",
+        actor_pooling: str = "sum",
     ):
         (
             encoder_key,
             actor_key,
             critic_key,
-        ) = jax.random.split(key, 3)
+            vq_key,
+            proj_key,
+        ) = jax.random.split(key, 5)
         self.share_layers = share_layers
         self.num_request_specific_cols = num_request_specific_cols
         self.embedding_size = embedding_size
+        self.critic_pooling = critic_pooling
+        self.actor_pooling = actor_pooling
         actor = Encoder(
             input_size=input_size,
             intermediate_size=intermediate_size,
@@ -487,6 +499,22 @@ class ActorCriticTransformer(eqx.Module):
         )
         self.num_slot_actions = num_slot_actions
 
+        # Attention pooling for critic
+        if critic_pooling == "attention":
+            self.value_query = jax.random.normal(vq_key, (embedding_size,)) * 0.02
+        else:
+            self.value_query = None
+
+        # min_mean_max projection for actor: 3 * num_slot_actions -> num_slot_actions
+        if actor_pooling == "min_mean_max":
+            self.actor_pool_proj = eqx.nn.Linear(
+                in_features=3 * num_slot_actions,
+                out_features=num_slot_actions,
+                key=proj_key,
+            )
+        else:
+            self.actor_pool_proj = None
+
     def __call__(
         self,
         state: EnvState,
@@ -527,28 +555,54 @@ class ActorCriticTransformer(eqx.Module):
         # Project per-link embeddings to slot logits, then pool across path links
         action_tokens = jax.vmap(self.actor_mlp)(action_tokens)
 
-        # POOLING - sum edges per path
+        # ACTOR POOLING
         nodes_sd, requested_bw = read_rsa_request(state.request_array)
-        def path_action_dist(i):
-            return get_path_slots(
-                action_tokens,
-                params,
-                nodes_sd,
-                i,
-                agg_func="sum",
+        if self.actor_pooling == "min_mean_max":
+            def path_action_min_mean_max(i):
+                # Gather per-link features for this path using min, mean, max
+                path_min = get_path_slots(action_tokens, params, nodes_sd, i, agg_func="min")
+                path_mean = get_path_slots(action_tokens, params, nodes_sd, i, agg_func="mean")
+                path_max = get_path_slots(action_tokens, params, nodes_sd, i, agg_func="max")
+                concatenated = jnp.concatenate([path_min, path_mean, path_max])
+                return self.actor_pool_proj(concatenated)
+
+            path_action_logits = jax.vmap(path_action_min_mean_max)(
+                jnp.arange(params.k_paths)
             )
-        path_action_logits = jax.vmap(path_action_dist)(
-            jnp.arange(params.k_paths)
-        )
+        else:
+            # Default: sum pooling
+            def path_action_dist(i):
+                return get_path_slots(
+                    action_tokens,
+                    params,
+                    nodes_sd,
+                    i,
+                    agg_func="sum",
+                )
+            path_action_logits = jax.vmap(path_action_dist)(
+                jnp.arange(params.k_paths)
+            )
         action_logits = path_action_logits.reshape((-1,))
 
         if params.include_no_op:
             action_logits = jnp.hstack([action_logits, jnp.array([-1e4])])
         action_dist = distrax.Categorical(logits=action_logits)
 
-        # Pool and Value
-        value_tokens_mean = jnp.mean(value_tokens, axis=0)
-        value = self.critic_mlp(value_tokens_mean).squeeze()
+        # CRITIC POOLING
+        if self.critic_pooling == "attention":
+            # Single-query attention pooling
+            d = self.embedding_size
+            # weights: (num_links,) = softmax(value_tokens @ value_query / sqrt(d))
+            attn_logits = value_tokens @ self.value_query / jnp.sqrt(d)
+            attn_weights = jax.nn.softmax(attn_logits)
+            # pooled: (d,) = weighted sum of link embeddings
+            pooled = attn_weights[:, None] * value_tokens
+            pooled = jnp.sum(pooled, axis=0)
+        else:
+            # Default: mean pooling
+            pooled = jnp.mean(value_tokens, axis=0)
+
+        value = self.critic_mlp(pooled).squeeze()
 
         return action_dist, value
 

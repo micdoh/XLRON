@@ -601,6 +601,8 @@ def init_network(config: Box, key: chex.PRNGKey) -> eqx.Module:
                 critic_mlp_depth=config.transformer_critic_mlp_depth,
                 num_request_specific_cols=num_request_specific_cols,
                 key=key,
+                critic_pooling=config.transformer_critic_pooling,
+                actor_pooling=config.transformer_actor_pooling,
             )
         elif config.USE_GNN:
             if "gn_model" in config.env_type.lower() and config.output_globals_size_actor > 0:
