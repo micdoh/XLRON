@@ -763,39 +763,30 @@ def _sort_key(
 
 
 def get_link_relevance_array(
-    paths: Array, paths_se: Array, requested_datarate: Array, params: RSAEnvParams
+    paths: Array, paths_quality: Array, params: RSAEnvParams
 ):
     """Compute 4 link relevance features for the current request.
 
     Args:
         paths: (k, E) binary path-link indicators
-        paths_se: (k, 1) spectral efficiency per path
-        requested_datarate: (1,)
+        paths_quality: (k,) per-path quality score (higher = better).
+            For RMSA: 1/required_slots (SE-derived). For RWA-LR: path capacity.
         params: environment parameters
 
     Returns:
         (E, 4) array with columns:
-            0: weighted_relevance - combined rank/SE weighted sum across paths
+            0: weighted_relevance - combined rank/quality weighted sum across paths
             1: path_count - fraction of k paths using each link
             2: best_rank - 1 - min_rank/k for links on any path, 0 otherwise
-            3: best_se - max SE among paths through link, normalized
+            3: best_quality - max quality among paths through link, normalized
     """
     k = params.k_paths
+    quality = paths_quality.flatten()  # (k,)
 
-    # --- Feature 1: Weighted relevance (existing logic) ---
+    # --- Feature 1: Weighted relevance ---
     ranks = jnp.arange(k)
     rank_weights = 1.0 / (ranks + 1.0)
-    num_slots = jax.vmap(
-        lambda x: required_slots(
-            requested_datarate,
-            x,
-            params.slot_size,
-            guardband=params.guardband,
-            temperature=params.temperature,
-        )
-    )(paths_se.flatten())
-    slot_weights = 1.0 / num_slots
-    weights = rank_weights * slot_weights.flatten()
+    weights = rank_weights * quality
     weights = weights / (jnp.sum(weights) + 1e-8)
     weighted_paths = paths * weights[:, None]
     weighted_relevance = jnp.sum(weighted_paths, axis=0)  # (E,)
@@ -811,13 +802,12 @@ def get_link_relevance_array(
     on_any_path = (path_count > 0).astype(jnp.float32)  # (E,)
     best_rank = on_any_path * (1.0 - min_rank / k)  # (E,)
 
-    # --- Feature 4: Best SE - max SE among paths through link, normalized ---
-    se_vals = paths_se.flatten()  # (k,)
-    max_se = jnp.max(se_vals) + 1e-8
-    se_masked = jnp.where(paths > 0, se_vals[:, None], 0.0)  # (k, E)
-    best_se = jnp.max(se_masked, axis=0) / max_se  # (E,)
+    # --- Feature 4: Best quality - max quality among paths through link, normalized ---
+    max_quality = jnp.max(quality) + 1e-8
+    quality_masked = jnp.where(paths > 0, quality[:, None], 0.0)  # (k, E)
+    best_quality = jnp.max(quality_masked, axis=0) / max_quality  # (E,)
 
-    return jnp.stack([weighted_relevance, path_count, best_rank, best_se], axis=-1)  # (E, 4)
+    return jnp.stack([weighted_relevance, path_count, best_rank, best_quality], axis=-1)  # (E, 4)
 
 
 @partial(jax.jit, static_argnums=(1,))
@@ -876,10 +866,27 @@ def get_obs_transformer(state: RSAEnvState, params: RSAEnvParams) -> chex.Array:
     )  # (E, 1)
 
     # Link relevance (4 features)
-    paths_se = get_paths_se(params, nodes_sd)
     paths = get_paths(params, nodes_sd)
+    if params.transformer_obs_type == "capacity":
+        # RWA-LR: use path capacity as quality (SE is always 1, meaningless)
+        index_array = get_path_index_array(params, nodes_sd)
+        paths_quality = jnp.take(state.path_capacity_array.flatten(), index_array.flatten())
+        paths_quality = paths_quality / (jnp.max(paths_quality) + 1e-8)  # normalize
+    else:
+        # SE-based envs: quality = 1/required_slots
+        paths_se = get_paths_se(params, nodes_sd)
+        num_slots = jax.vmap(
+            lambda x: required_slots(
+                requested_datarate,
+                x,
+                params.slot_size,
+                guardband=params.guardband,
+                temperature=params.temperature,
+            )
+        )(paths_se.flatten())
+        paths_quality = 1.0 / num_slots
     link_relevance_features = get_link_relevance_array(
-        paths, paths_se, requested_datarate, params
+        paths, paths_quality, params
     )  # (E, 4)
 
     # Concatenation: shared features first, request-specific features last
