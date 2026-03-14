@@ -299,6 +299,18 @@ flags.DEFINE_boolean(
     False,
     "Use off-policy invalid action masking i.e. log prob ratio is unmasked policy / masked",
 )
+flags.DEFINE_boolean(
+    "IAM_DAMPING",
+    True,
+    "Enable soft damping of actor/entropy losses based on valid mass "
+    "(weight w = gate_choice * clip(valid_mass / VALID_MASS_TARGET, 0, 1))",
+)
+flags.DEFINE_boolean(
+    "IAM_RATIO_CORRECTION",
+    False,
+    "Enable ratio correction for invalid action masking: multiply PPO ratio by "
+    "old_valid_mass / new_valid_mass to correct for shifting action masks",
+)
 flags.DEFINE_float(
     "VALID_MASS_TARGET",
     0.05,

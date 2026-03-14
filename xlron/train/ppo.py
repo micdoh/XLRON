@@ -557,18 +557,37 @@ def _loss_fn(
     gate_any = (mask_sum > 0).astype(jnp.float32)  # at least 1 valid action
     gate_choice = (mask_sum > 1).astype(jnp.float32)  # at least 2 valid actions
 
-    # --- Soft damping using valid-mass ------------------------------------------
-    # valid_mass must be computed from the *unmasked* behavior policy at rollout time:
-    # valid_mass[t] = sum_a softmax(logits_unmasked_old)[a] * action_mask[a]
+    # --- Valid mass from rollout (behavior policy) --------------------------------
     valid_mass = traj_batch.valid_mass.astype(jnp.float32)  # shape like [N], in [0, 1]
-    valid_mass0 = config.VALID_MASS_TARGET  # default 0.05 (tune 0.02–0.1)
 
-    # Linear damping (use sqrt for gentler damping if you prefer)
-    damp = jnp.clip(valid_mass / valid_mass0, 0.0, 1.0)
-    # damp = jnp.sqrt(jnp.clip(I / I0, 0.0, 1.0))  # optional, gentler
+    # --- Ratio correction using valid-mass ratio ---------------------------------
+    # Corrects PPO ratio for shifting action masks: ratio *= I_old / I_new
+    if config.IAM_RATIO_CORRECTION:
+        # Compute current valid mass from *current* logits
+        if config.env_type.lower() == "vone":
+            _rc_probs = jax.nn.softmax(pi._logits, axis=-1)
+            _rc_valid_mass = jnp.sum(_rc_probs * traj_batch.action_mask_p, axis=-1)
+        elif config.env_type.lower() == "rsa_gn_model" and config.launch_power_type == "rl":
+            _rc_probs = jax.nn.softmax(pi[0]._logits, axis=-1)
+            _rc_valid_mass = jnp.sum(_rc_probs * traj_batch.action_mask, axis=-1)
+        elif config.OFF_POLICY_IAM:
+            _rc_probs = jax.nn.softmax(pi._logits, axis=-1)
+            _rc_valid_mass = jnp.sum(_rc_probs * traj_batch.action_mask, axis=-1)
+        else:
+            _rc_probs = jax.nn.softmax(pi[0]._logits, axis=-1)
+            _rc_valid_mass = jnp.sum(_rc_probs * traj_batch.action_mask, axis=-1)
 
-    # Combined per-step weight for actor + entropy (must have at least 2 valid actions)
-    w = gate_choice * damp
+        ratio_valid = valid_mass / (_rc_valid_mass + 1e-8)
+        ratio_valid = jnp.clip(ratio_valid, 0.0, 10.0)
+        ratio = ratio * ratio_valid
+
+    # --- Soft damping using valid-mass ------------------------------------------
+    if config.IAM_DAMPING:
+        valid_mass0 = config.VALID_MASS_TARGET  # default 0.05 (tune 0.02–0.1)
+        damp = jnp.clip(valid_mass / valid_mass0, 0.0, 1.0)
+        w = gate_choice * damp
+    else:
+        w = gate_choice
     w_sum = jnp.maximum(w.sum(), 1e-8)  # just for numerical stability
 
     # --- Advantage normalization (weighted stats) --------------------------------
