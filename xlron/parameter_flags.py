@@ -299,11 +299,24 @@ flags.DEFINE_boolean(
     False,
     "Use off-policy invalid action masking i.e. log prob ratio is unmasked policy / masked",
 )
+flags.DEFINE_boolean(
+    "IAM_DAMPING",
+    True,
+    "Enable soft damping of actor/entropy losses based on valid mass "
+    "(weight w *= clip(valid_mass / VALID_MASS_TARGET, 0, 1))",
+)
+flags.DEFINE_boolean(
+    "IAM_GATING",
+    True,
+    "Enable hard gating of actor/entropy losses: zero weight for steps "
+    "with fewer than 2 valid actions",
+)
 flags.DEFINE_float(
     "VALID_MASS_TARGET",
     0.05,
     "Target valid mass threshold for soft damping of actor and entropy losses "
-    "(valid mass below this value linearly damps the loss contribution)",
+    "(valid mass below this value linearly damps the loss contribution). "
+    "Only used when IAM_DAMPING is True.",
 )
 flags.DEFINE_float(
     "VALID_MASS_LOSS_COEF",

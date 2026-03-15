@@ -550,25 +550,21 @@ def _loss_fn(
             (adv, traj_batch, value, ratio),
         )
 
-    # --- Hard gate for "no valid actions" ---------------------------------------
-    # gate[t]=1 if there exists at least one or two valid actions at s_t, else 0.
-    # (Assumes traj_batch.action_mask is boolean or {0,1}.)
+    # --- Per-step weight for actor + entropy losses ------------------------------
     mask_sum = jnp.sum(traj_batch.action_mask, axis=-1)
     gate_any = (mask_sum > 0).astype(jnp.float32)  # at least 1 valid action
-    gate_choice = (mask_sum > 1).astype(jnp.float32)  # at least 2 valid actions
 
-    # --- Soft damping using valid-mass ------------------------------------------
-    # valid_mass must be computed from the *unmasked* behavior policy at rollout time:
-    # valid_mass[t] = sum_a softmax(logits_unmasked_old)[a] * action_mask[a]
-    valid_mass = traj_batch.valid_mass.astype(jnp.float32)  # shape like [N], in [0, 1]
-    valid_mass0 = config.VALID_MASS_TARGET  # default 0.05 (tune 0.02–0.1)
+    # Hard gate: zero weight for steps with < 2 valid actions
+    if config.IAM_GATING:
+        w = (mask_sum > 1).astype(jnp.float32)
+    else:
+        w = jnp.ones_like(mask_sum, dtype=jnp.float32)
 
-    # Linear damping (use sqrt for gentler damping if you prefer)
-    damp = jnp.clip(valid_mass / valid_mass0, 0.0, 1.0)
-    # damp = jnp.sqrt(jnp.clip(I / I0, 0.0, 1.0))  # optional, gentler
-
-    # Combined per-step weight for actor + entropy (must have at least 2 valid actions)
-    w = gate_choice * damp
+    # Soft damping: linearly reduce weight when valid mass < VALID_MASS_TARGET
+    valid_mass = traj_batch.valid_mass.astype(jnp.float32)
+    if config.IAM_DAMPING:
+        damp = jnp.clip(valid_mass / config.VALID_MASS_TARGET, 0.0, 1.0)
+        w = w * damp
     w_sum = jnp.maximum(w.sum(), 1e-8)  # just for numerical stability
 
     # --- Advantage normalization (weighted stats) --------------------------------
@@ -658,6 +654,7 @@ def _loss_fn(
         adv_mean_raw = adv.mean()
         adv_std_raw = adv.std()
         # gate_frac: fraction of steps with >= 2 valid actions
+        gate_choice = (mask_sum > 1).astype(jnp.float32)
         gate_frac = gate_choice.mean()
         # log_prob and entropy weighted by gate_choice (steps with >= 2 valid actions)
         log_prob_choice = (log_prob * gate_choice).sum() / jnp.maximum(gate_choice.sum(), 1.0)
