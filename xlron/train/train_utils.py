@@ -1726,22 +1726,15 @@ def log_actions(merged_out, processed_data, config):
     path_lengths = jax.vmap(lambda x: jnp.dot(x, link_length_array), in_axes=(0))(paths)
     num_hops = jnp.sum(paths, axis=-1)
 
-    paths_list = []
-    spectral_efficiency_list = []
-    required_slots_list = []
+    # Vectorized spectral efficiency and required slots
+    spectral_efficiencies = params.path_se_array.val[path_indices]
+    required_slots = jnp.ceil(request_data_rate / (spectral_efficiencies * params.slot_size)).astype(jnp.int32)
 
-    for path_index, slot_index, source, dest, data_rate in zip(
-        path_indices, slot_indices, request_source, request_dest, request_data_rate
-    ):
-        source, dest = source.reshape(1), dest.reshape(1)
-        path_links = get_paths(params, jnp.concatenate([source, dest]))[path_index % params.k_paths]
-        # Make path links into a string
-        path_str = "".join([str(x.astype(dtype_config.LARGE_INT_DTYPE)) for x in path_links])
+    # Vectorized path link strings
+    paths_list = []
+    for p in paths:
+        path_str = "".join([str(int(x)) for x in p])
         paths_list.append(path_str)
-        path_spectral_efficiency = params.path_se_array.val[path_index]
-        required_slots = int(jnp.ceil(data_rate / (path_spectral_efficiency * params.slot_size)))
-        required_slots_list.append(required_slots)
-        spectral_efficiency_list.append(path_spectral_efficiency)
 
     if config.TRAJ_DATA_OUTPUT_FILE:
         print(f"Saving trajectory metrics to {config.TRAJ_DATA_OUTPUT_FILE}")
@@ -1756,8 +1749,8 @@ def log_actions(merged_out, processed_data, config):
             "slot_indices": slot_indices,
             "returns": returns,
             "path_links": paths_list,
-            "path_spectral_efficiency": spectral_efficiency_list,
-            "required_slots": required_slots_list,
+            "path_spectral_efficiency": spectral_efficiencies,
+            "required_slots": required_slots,
             "utilization": processed_data["utilisation"]["mean"],
             "bitrate_blocking_probability": processed_data["bitrate_blocking_probability"]["mean"],
             "service_blocking_probability": processed_data["service_blocking_probability"]["mean"],
