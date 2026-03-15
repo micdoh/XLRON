@@ -554,9 +554,9 @@ def _loss_fn(
     mask_sum = jnp.sum(traj_batch.action_mask, axis=-1)
     gate_any = (mask_sum > 0).astype(jnp.float32)  # at least 1 valid action
 
-    # Hard gate: zero weight for steps with < 2 valid actions
+    # Hard gate: zero weight for steps with fewer than IAM_GATING_MIN_ACTIONS valid actions
     if config.IAM_GATING:
-        w = (mask_sum > 1).astype(jnp.float32)
+        w = (mask_sum >= config.IAM_GATING_MIN_ACTIONS).astype(jnp.float32)
     else:
         w = jnp.ones_like(mask_sum, dtype=jnp.float32)
 

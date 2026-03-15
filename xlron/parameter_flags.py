@@ -309,7 +309,13 @@ flags.DEFINE_boolean(
     "IAM_GATING",
     True,
     "Enable hard gating of actor/entropy losses: zero weight for steps "
-    "with fewer than 2 valid actions",
+    "with fewer than IAM_GATING_MIN_ACTIONS valid actions",
+)
+flags.DEFINE_integer(
+    "IAM_GATING_MIN_ACTIONS",
+    2,
+    "Minimum number of valid actions for a step to pass the hard gate "
+    "(2 = need choice, 1 = need any valid action)",
 )
 flags.DEFINE_float(
     "VALID_MASS_TARGET",
