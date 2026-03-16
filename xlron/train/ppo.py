@@ -606,10 +606,7 @@ def _loss_fn(
         else:
             current_probs = jax.nn.softmax(pi[0]._logits, axis=-1)
             current_valid_mass = jnp.sum(current_probs * traj_batch.action_mask, axis=-1)
-        # Must have at least one valid action, else 0
-        validmass_loss = -jnp.log(current_valid_mass * gate_any + 1e-8).sum() / jnp.maximum(
-            gate_any.sum(), 1.0
-        )
+        validmass_loss = -jnp.log(current_valid_mass + 1e-8).mean()
     else:
         validmass_loss = jnp.array(0.0)
 
