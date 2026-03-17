@@ -96,11 +96,15 @@ def get_eval_fn(
         rng_step, *step_keys = jax.random.split(rng_step, num_envs + 1)
         step_keys = jnp.array(step_keys) if num_envs > 1 else step_keys[0]
         runner_state = runner_state[:3] + (step_keys,) + runner_state[4:]
+        steps_per_env = (
+            getattr(config, "STEPS_PER_INCREMENT", 1000)
+            // getattr(config, "NUM_ENVS", 1)
+        )
         runner_state, traj_episode = jax.lax.scan(
             _env_step_vmap,
             runner_state,
             None,
-            getattr(config, "max_requests", 1000) * getattr(config, "scale_factor", 1),
+            steps_per_env,
         )
         runner_state = runner_state[:3] + (rng_step,) + runner_state[4:]
 
@@ -109,12 +113,7 @@ def get_eval_fn(
         return runner_state, metric
 
     def eval_fn(runner_state):
-        NUM_EPISODES = (
-            getattr(config, "STEPS_PER_INCREMENT", 1000)
-            // (getattr(config, "max_requests", 1000) * getattr(config, "scale_factor", 1))
-            // getattr(config, "NUM_ENVS", 1)
-        )
-        runner_state, metric = jax.lax.scan(_env_episode, runner_state, None, NUM_EPISODES)
+        runner_state, metric = jax.lax.scan(_env_episode, runner_state, None, 1)
         return {"runner_state": runner_state, "metrics": metric}
 
     return eval_fn
