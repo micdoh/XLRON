@@ -664,7 +664,6 @@ def train(argv: list[str], config: Dict[str, Any] = {}) -> None:
         merged_out: Dict[str, Dict[str, jax.Array]] = {}
         processed_data: Dict[str, Dict[str, jax.Array]] = {}
         processed_data_all: Dict[str, Dict[str, jax.Array]] = {}
-        print(f"Running {config.NUM_INCREMENTS} increments of training")
         for i in range(config.NUM_INCREMENTS):
             print(f"\n---INCREMENT {i + 1}/{config.NUM_INCREMENTS}---")
             # Run the increment
