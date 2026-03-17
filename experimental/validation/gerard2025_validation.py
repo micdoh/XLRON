@@ -28,11 +28,17 @@ import os
 
 import jax
 import jax.numpy as jnp
+import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
 import numpy as np
 from scipy.constants import c as speed_of_light
 
-from experimental.plot_style import configure_style
+from experimental.plot_style import (
+    ACCENT_COLORS,
+    PALETTE,
+    PRIMARY_COLORS,
+    configure_style,
+)
 
 from xlron.environments.env_funcs import (
     calculate_throughput_from_active_lightpaths,
@@ -52,7 +58,6 @@ configure_style(font_size=16, axes_label_size=18, tick_size=14, legend_size=12)
 # ---------------------------------------------------------------------------
 
 BASELINE_DATA_FILE = "baseline_data.npz"
-SWEEP_DATA_FILE = "sweep_data.npz"
 
 
 def save_baseline_data(data_dir, freqs, path_d, occ, c_mask, l_mask, throughput_gbps):
@@ -99,31 +104,12 @@ def load_baseline_data(data_dir):
     return d["freqs"], path_d, d["occ"], d["c_mask"], d["l_mask"], float(d["throughput_gbps"])
 
 
-def save_sweep_data(data_dir, power_dbm_values, avg_gosnr_values):
-    """Save launch power sweep results to disk."""
-    os.makedirs(data_dir, exist_ok=True)
-    np.savez(
-        os.path.join(data_dir, SWEEP_DATA_FILE),
-        power_dbm_values=power_dbm_values,
-        avg_gosnr_values=avg_gosnr_values,
-    )
-    print(f"  Saved sweep data to {data_dir}/{SWEEP_DATA_FILE}")
-
-
-def load_sweep_data(data_dir):
-    """Load cached sweep data. Returns (power_dbm_values, avg_gosnr_values) or None."""
-    path = os.path.join(data_dir, SWEEP_DATA_FILE)
-    if not os.path.exists(path):
-        return None
-    d = np.load(path)
-    return d["power_dbm_values"], d["avg_gosnr_values"]
-
 
 # Band colors consistent with plot_style palette
-C_COLOR = "#1f77b4"  # Blue
-L_COLOR = "#d62728"  # Red
-C_COLOR_LIGHT = "#aec7e8"
-L_COLOR_LIGHT = "#ff9896"
+C_COLOR = PRIMARY_COLORS[0]   # Teal
+L_COLOR = ACCENT_COLORS[1]   # Coral
+C_COLOR_LIGHT = PRIMARY_COLORS[2]  # Medium mint
+L_COLOR_LIGHT = "#F5B8C4"         # Light coral
 GERARD_MARKER = "D"
 
 # ---------------------------------------------------------------------------
@@ -425,10 +411,10 @@ def _qam_fec_thresholds(beta_fec=1.5e-2):
 
 
 QAM_COLORS = {
-    "32QAM": "#2ca02c",
-    "64QAM": "#ff7f0e",
-    "128QAM": "#9467bd",
-    "256QAM": "#8c564b",
+    "32QAM": ACCENT_COLORS[0],   # Purple
+    "64QAM": ACCENT_COLORS[3],   # Orange
+    "128QAM": PRIMARY_COLORS[3], # Dark teal
+    "256QAM": ACCENT_COLORS[2],  # Seafoam
 }
 
 
@@ -444,9 +430,9 @@ def plot1_2_combined_snr_metrics(freqs, path_d, c_mask, l_mask, occ, out_dir):
 
     # Metrics with Gerard reference lines (3 original metrics)
     metric_defs = [
-        ("GOSNR", "GOSNR_dB", gosnr, "#1f77b4", "o"),
-        ("OSNR$_{ASE}$", "OSNR_ASE_dB", osnr_ase, "#d62728", "o"),
-        ("OSNR$_{NL}$", "OSNR_NL_dB", osnr_nl, "#2ca02c", "o"),
+        ("GOSNR", "GOSNR_dB", gosnr, PRIMARY_COLORS[0], "o"),
+        ("OSNR$_{ASE}$", "OSNR_ASE_dB", osnr_ase, ACCENT_COLORS[1], "o"),
+        ("OSNR$_{NL}$", "OSNR_NL_dB", osnr_nl, ACCENT_COLORS[0], "o"),
     ]
 
     metric_handles = {}
@@ -647,7 +633,7 @@ def plot3_band_comparison(path_d, c_mask, l_mask, occ, out_dir):
                     textcoords="offset points",
                     ha="center",
                     va="bottom",
-                    fontsize=10,
+                    fontsize=16,
                 )
 
     ax.set_xticks(x)
@@ -655,6 +641,7 @@ def plot3_band_comparison(path_d, c_mask, l_mask, occ, out_dir):
         ["GOSNR", "OSNR$_{ASE}$", "OSNR$_{NL}$"],
     )
     ax.set_ylabel("Value (dB)")
+    ax.set_ylim(bottom=15)
 
     ax.legend(loc="upper left")
 
@@ -665,74 +652,6 @@ def plot3_band_comparison(path_d, c_mask, l_mask, occ, out_dir):
 
     return xlron_c, xlron_l
 
-
-def run_launch_power_sweep():
-    """Run sweep of total fibre launch power with uniform per-channel power.
-
-    For each sweep point, per-channel power = max_power_per_fibre / num_channels.
-    CSV and per-band launch power overrides are disabled so all channels get equal power.
-
-    Returns (power_dbm_values, avg_gosnr_values).
-    """
-    print("\n--- Launch Power Sweep ---")
-    power_dbm_values = np.concatenate([
-        np.arange(18.0, 22.0, 0.25),
-        np.arange(22.0, 26.0, 0.1),
-    ])
-    avg_gosnr_values = []
-
-    for pdbm in power_dbm_values:
-        print(f"  Power = {pdbm:.2f} dBm...", end="", flush=True)
-        try:
-            cfg = {
-                "max_power_per_fibre": float(pdbm),
-                "launch_power_csv": None,
-                "power_per_channel_per_band": None,
-            }
-            state, params, _, _ = run_simulation(cfg, quiet=True)
-            diag = compute_snr_diagnostics(state, params)
-            pd_ = compute_path_diagnostics(diag, state, params)
-            occ = np.array(pd_["occupied"])
-            g = np.array(pd_["gosnr_db"])
-            avg = float(np.nanmean(g[occ])) if np.any(occ) else np.nan
-            avg_gosnr_values.append(avg)
-            print(f" avg GOSNR = {avg:.2f} dB, {int(np.sum(occ))} ch")
-        except Exception as e:
-            print(f" ERROR: {e}")
-            avg_gosnr_values.append(np.nan)
-
-    return power_dbm_values, np.array(avg_gosnr_values)
-
-
-def plot4_launch_power_sweep(power_dbm_values, avg_gosnr_values, out_dir):
-    """Plot average GOSNR vs total fibre launch power."""
-    fig, ax = plt.subplots(figsize=(12, 7))
-    ax.plot(power_dbm_values, avg_gosnr_values, "ko-", markersize=3)
-
-    valid = ~np.isnan(avg_gosnr_values)
-    if np.any(valid):
-        opt_idx = int(np.nanargmax(avg_gosnr_values))
-        ax.scatter(
-            [power_dbm_values[opt_idx]],
-            [avg_gosnr_values[opt_idx]],
-            c="red",
-            s=200,
-            zorder=5,
-            marker="*",
-            label=f"Optimum: {power_dbm_values[opt_idx]:.1f} dBm, "
-            f"{avg_gosnr_values[opt_idx]:.1f} dB",
-        )
-
-    ax.axvline(21.2, color="green", linestyle=":", linewidth=1.5, label="Gerard optimal (21.2 dBm)")
-    ax.set_xlabel("Total Fibre Launch Power (dBm)")
-    ax.set_ylabel("Average GOSNR (dB)")
-
-    ax.legend()
-
-    plt.tight_layout()
-    plt.savefig(os.path.join(out_dir, "plot4_launch_power_sweep.png"))
-    plt.close()
-    print("  Saved plot4_launch_power_sweep.png")
 
 
 # ---------------------------------------------------------------------------
@@ -825,7 +744,7 @@ def plot5_ablation_sweep(ablation_results, out_dir):
     """Plot ablation study: power sweep curves for different configurations."""
     fig, ax = plt.subplots(figsize=(12, 7))
 
-    colors = ["#1f77b4", "#d62728", "#2ca02c", "#ff7f0e", "#9467bd"]
+    colors = PALETTE[:5]
     markers = ["o", "s", "^", "D", "v"]
 
     for i, (name, (powers, gosnrs)) in enumerate(ablation_results.items()):
@@ -847,7 +766,7 @@ def plot5_ablation_sweep(ablation_results, out_dir):
                 linewidths=0.5,
             )
 
-    ax.axvline(21.2, color="green", linestyle=":", linewidth=1.5, label="Gerard optimal (21.2 dBm)")
+    ax.axvline(21.2, color="red", linestyle=":", linewidth=1.5, label="Gerard optimal (21.2 dBm)")
     ax.set_xlabel("Total Fibre Launch Power (dBm)")
     ax.set_ylabel("Average GOSNR (dB)")
     ax.legend(loc="lower center", bbox_to_anchor=(0.75, 0.0))
@@ -1048,7 +967,7 @@ def plot_raman_gain_profile(freqs, c_mask, l_mask, occ, params, out_dir):
     ax.plot(
         f_occ[order],
         g_ode_occ[order],
-        color="0.4",
+        color=PRIMARY_COLORS[3],
         lw=1.2,
         alpha=0.8,
         label=r"ODE Raman gain  $G_\mathrm{ODE} = P(L)\,/\,[P(0)\,e^{-\alpha L}]$",
@@ -1056,7 +975,7 @@ def plot_raman_gain_profile(freqs, c_mask, l_mask, occ, params, out_dir):
     ax.plot(
         f_occ[order],
         g_fit_occ[order],
-        color="#2ca02c",
+        color=PRIMARY_COLORS[0],
         lw=1.6,
         alpha=0.95,
         label=r"Semi-analytical  $\rho(L)\,/\,e^{-\alpha L}$  (rows 0-4)",
@@ -1136,21 +1055,21 @@ def plot_gain_budget(freqs, state, c_mask, l_mask, occ, params, out_dir):
     ax.plot(
         f_occ[order],
         raman_gain_db[occ][order],
-        color="#2ca02c",
+        color=PRIMARY_COLORS[0],
         lw=1.8,
         label=f"Raman gain (mean {np.mean(raman_gain_db[occ]):.1f} dB)",
     )
     ax.plot(
         f_occ[order],
         edfa_gain_db[occ][order],
-        color="#1f77b4",
+        color=ACCENT_COLORS[0],
         lw=1.8,
         label=f"EDFA gain (mean {np.mean(edfa_gain_db[occ]):.1f} dB)",
     )
     ax.plot(
         f_occ[order],
         total_gain_db[occ][order],
-        color="#d62728",
+        color=ACCENT_COLORS[1],
         lw=2.0,
         label=f"Total gain (mean {np.mean(total_gain_db[occ]):.1f} dB)",
     )
@@ -1430,21 +1349,54 @@ def plot_power_evolution_3d(freqs, state, c_mask, l_mask, occ, params, out_dir):
     p_min, p_max = float(P_grid.min()), float(P_grid.max())
     p_range = p_max - p_min if p_max > p_min else 1.0
 
-    c_cmap = plt.cm.Blues_r
-    l_cmap = plt.cm.Reds_r
+    c_cmap = mcolors.LinearSegmentedColormap.from_list(
+        "c_band", [PRIMARY_COLORS[1], PRIMARY_COLORS[0], PRIMARY_COLORS[3]]
+    )
+    l_cmap = mcolors.LinearSegmentedColormap.from_list(
+        "l_band", [L_COLOR_LIGHT, ACCENT_COLORS[1], "#9E2B3A"]
+    )
+
+    def _insert_nan_at_gaps(idx, power_jump_threshold_db=1.0):
+        """Insert NaN rows where adjacent channels have a large power discontinuity.
+
+        Detects jumps by comparing the mean absolute power difference between
+        adjacent channels (across all distance points) to a threshold in dB.
+        """
+        if len(idx) < 2:
+            return F_grid[idx, :], Z_grid[idx, :], P_grid[idx, :]
+        F_sub = F_grid[idx, :]
+        Z_sub = Z_grid[idx, :]
+        P_sub = P_grid[idx, :]
+        # Detect large power jumps between adjacent channels at end of span
+        # where Raman gain differences are most pronounced
+        max_power_diff = np.max(np.abs(np.diff(P_sub, axis=0)), axis=1)
+        median_diff = np.median(max_power_diff)
+        gap_positions = np.where(max_power_diff > max(power_jump_threshold_db, 3 * median_diff))[0]
+        if len(gap_positions) == 0:
+            return F_sub, Z_sub, P_sub
+        # Insert NaN rows at each gap (work backwards to keep indices valid)
+        nan_row_f = np.full((1, F_sub.shape[1]), np.nan)
+        nan_row_z = np.full((1, Z_sub.shape[1]), np.nan)
+        nan_row_p = np.full((1, P_sub.shape[1]), np.nan)
+        for gap_idx in reversed(gap_positions):
+            F_sub = np.insert(F_sub, gap_idx + 1, nan_row_f, axis=0)
+            Z_sub = np.insert(Z_sub, gap_idx + 1, nan_row_z, axis=0)
+            P_sub = np.insert(P_sub, gap_idx + 1, nan_row_p, axis=0)
+        return F_sub, Z_sub, P_sub
 
     # Plot C-band surface patch
     c_idx = np.where(c_sorted)[0]
     if len(c_idx) >= 2:
-        F_c = F_grid[c_idx, :]
-        Z_c = Z_grid[c_idx, :]
-        P_c = P_grid[c_idx, :]
-        norm_c = (P_c - p_min) / p_range
+        F_c, Z_c, P_c = _insert_nan_at_gaps(c_idx)
+        norm_c = np.clip((P_c - p_min) / p_range, 0, 1)
         face_colors_c = c_cmap(norm_c)
+        # Set alpha to 0 for NaN faces so gaps are fully transparent
+        nan_mask = np.isnan(P_c)
+        face_colors_c[nan_mask, 3] = 0.0
         ax.plot_surface(
             Z_c,
             F_c,
-            P_c,
+            np.nan_to_num(P_c, nan=p_min),
             facecolors=face_colors_c,
             alpha=0.85,
             linewidth=0,
@@ -1455,15 +1407,15 @@ def plot_power_evolution_3d(freqs, state, c_mask, l_mask, occ, params, out_dir):
     # Plot L-band surface patch
     l_idx = np.where(l_sorted)[0]
     if len(l_idx) >= 2:
-        F_l = F_grid[l_idx, :]
-        Z_l = Z_grid[l_idx, :]
-        P_l = P_grid[l_idx, :]
-        norm_l = (P_l - p_min) / p_range
+        F_l, Z_l, P_l = _insert_nan_at_gaps(l_idx)
+        norm_l = np.clip((P_l - p_min) / p_range, 0, 1)
         face_colors_l = l_cmap(norm_l)
+        nan_mask = np.isnan(P_l)
+        face_colors_l[nan_mask, 3] = 0.0
         ax.plot_surface(
             Z_l,
             F_l,
-            P_l,
+            np.nan_to_num(P_l, nan=p_min),
             facecolors=face_colors_l,
             alpha=0.85,
             linewidth=0,
@@ -1520,65 +1472,6 @@ def plot_power_evolution_3d(freqs, state, c_mask, l_mask, occ, params, out_dir):
     print("  Saved plot_power_evolution_3d.png")
 
 
-def plot_optimised_launch_power(freqs, c_mask, l_mask, occ, params, out_dir):
-    """Plot the optimised per-channel launch power loaded from CSV (or per-band settings).
-
-    Shows the per-slot launch power profile in dBm vs frequency, coloured by band.
-    Only plotted when a non-uniform launch power source is configured (CSV or per-band).
-    """
-    slot_lp_w = np.array(params.slot_launch_power_array.val)
-    slot_lp_dbm = 10 * np.log10(slot_lp_w / 0.001)
-
-    fig, ax = plt.subplots(figsize=(14, 7))
-
-    c_occ = occ & c_mask
-    l_occ = occ & l_mask
-    if np.any(c_occ):
-        ax.scatter(
-            freqs[c_occ],
-            slot_lp_dbm[c_occ],
-            c=C_COLOR,
-            s=60,
-            marker="o",
-            label="C-band",
-            zorder=3,
-            edgecolors="k",
-            linewidths=0.3,
-        )
-    if np.any(l_occ):
-        ax.scatter(
-            freqs[l_occ],
-            slot_lp_dbm[l_occ],
-            c=L_COLOR,
-            s=60,
-            marker="o",
-            label="L-band",
-            zorder=3,
-            edgecolors="k",
-            linewidths=0.3,
-        )
-
-    # Show the uniform (max_power / N_ch) level for reference
-    num_ch = int(np.sum(occ))
-    if num_ch > 0:
-        uniform_w = params.max_power_per_fibre / num_ch
-        uniform_dbm = 10 * np.log10(uniform_w / 0.001)
-        ax.axhline(
-            uniform_dbm,
-            color="grey",
-            ls="--",
-            alpha=0.7,
-            label=f"Uniform ({uniform_dbm:.2f} dBm)",
-        )
-
-    ax.set_xlabel("Frequency (THz)")
-    ax.set_ylabel("Launch Power per Channel (dBm)")
-    ax.legend(loc="best")
-
-    plt.tight_layout()
-    plt.savefig(os.path.join(out_dir, "plot_optimised_launch_power.png"))
-    plt.close()
-    print("  Saved plot_optimised_launch_power.png")
 
 
 # ---------------------------------------------------------------------------
@@ -1647,20 +1540,6 @@ def main():
         plot_gain_budget(freqs, state, c_mask, l_mask, occ, params, out_dir)
         plot_power_evolution(freqs, state, c_mask, l_mask, occ, params, out_dir)
         plot_power_evolution_3d(freqs, state, c_mask, l_mask, occ, params, out_dir)
-    if params is not None:
-        plot_optimised_launch_power(freqs, c_mask, l_mask, occ, params, out_dir)
-
-    # --- Sweep: load cached or run ---
-    sweep_cached = load_sweep_data(data_dir)
-    if sweep_cached is not None:
-        print("\nLoaded cached sweep data.")
-        power_dbm_values, avg_gosnr_values = sweep_cached
-    else:
-        power_dbm_values, avg_gosnr_values = run_launch_power_sweep()
-        save_sweep_data(data_dir, power_dbm_values, avg_gosnr_values)
-
-    plot4_launch_power_sweep(power_dbm_values, avg_gosnr_values, out_dir)
-
     # --- Ablation study: load cached or run ---
     ablation_cached = load_ablation_data(data_dir)
     if ablation_cached is not None:
