@@ -2286,6 +2286,8 @@ def mask_slots(state: EnvState, params: EnvParams) -> Array:
 
     # Get path indices ONCE, reuse for both paths and SEs
     path_indices = get_path_index_array(params, nodes_sd)  # (k,)
+    # Cast to int for indexing (differentiable mode returns float indices)
+    path_indices = path_indices.astype(dtype_config.INDEX_DTYPE)
 
     # Direct take - no recomputing indices
     paths = jnp.take(params.path_link_array.val, path_indices, axis=0)  # (k, num_links)
@@ -2323,7 +2325,7 @@ def mask_slots(state: EnvState, params: EnvParams) -> Array:
 
     # 5. Broadcast window sums - NO LOOPS
     slot_indices = jnp.arange(params.link_resources)
-    end_indices = slot_indices[None, :] + all_req_slots[:, None]  # (num_mods, link_resources)
+    end_indices = (slot_indices[None, :] + all_req_slots[:, None]).astype(dtype_config.INDEX_DTYPE)  # (num_mods, link_resources)
 
     cumsum_at_end = cumsum[:, end_indices]  # (k, num_mods, link_resources)
     cumsum_at_start = cumsum[:, slot_indices]  # (k, link_resources)

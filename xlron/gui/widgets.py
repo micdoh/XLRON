@@ -279,9 +279,20 @@ DEFAULTS = {
     "raman_pump_freq_fw": None,
     "raman_pump_freq_bw": None,
     "raman_max_bandwidth_thz": 15.0,
-    # Differentiable
+    # Differentiable Simulation
     "differentiable": False,
     "temperature": 1.0,
+    "ACTION_OPTIMIZATION": False,
+    "OPTIMIZATION_LEARNING_RATE": 0.05,
+    "OPTIMIZATION_ITERATIONS": 1000,
+    "PATH_SLOT_ACTIONS": False,
+    "GAUSSIAN_SMOOTHING": False,
+    "GAUSSIAN_SIGMA": 0.8,
+    "INITIALIZE_ACTIONS_HEURISTIC": False,
+    "INITIALIZE_ACTIONS_RANDOM": False,
+    "INITIALIZE_ACTIONS_ASCENDING": False,
+    "INITIALIZE_ACTIONS_DESCENDING": False,
+    "INITIALIZE_ACTIONS_MAX": False,
     # Aggregate
     "aggregate_slots": 1,
     # Capacity bounds
@@ -355,10 +366,13 @@ def execution_mode_section() -> dict:
         "Heuristic Evaluation",
         "Model Evaluation",
         "Capacity Bound Estimation",
+        "Differentiable Simulation",
     ]
     preset = st.session_state.get("_loaded_preset", {})
 
-    if preset.get("_bounds_method"):
+    if preset.get("ACTION_OPTIMIZATION"):
+        default_idx = 4
+    elif preset.get("_bounds_method"):
         default_idx = 3
     elif preset.get("EVAL_HEURISTIC"):
         default_idx = 1
@@ -373,6 +387,10 @@ def execution_mode_section() -> dict:
     if mode != "Capacity Bound Estimation":
         st.session_state["_bounds_mode"] = False
         st.session_state.pop("_bounds_method", None)
+
+    # Clear diff sim session state when not in diff sim mode
+    if mode != "Differentiable Simulation":
+        st.session_state["_diff_sim_mode"] = False
 
     if mode == "RL Training":
         retrain = st.checkbox(
@@ -506,6 +524,106 @@ def execution_mode_section() -> dict:
                 help=_h("COMPILE_RR_BOUNDS"),
             )
             _emit(flags, "COMPILE_RR_BOUNDS", compile_rr)
+
+    elif mode == "Differentiable Simulation":
+        st.session_state["_diff_sim_mode"] = True
+        flags["differentiable"] = True
+        flags["ACTION_OPTIMIZATION"] = True
+
+        st.markdown("**Optimization Settings**")
+        col1, col2 = st.columns(2)
+        with col1:
+            opt_lr = st.number_input(
+                "Optimization Learning Rate",
+                min_value=1e-6,
+                value=float(_get_preset_val("OPTIMIZATION_LEARNING_RATE")),
+                step=0.01,
+                format="%.4f",
+                help=_h("OPTIMIZATION_LEARNING_RATE"),
+            )
+            _emit(flags, "OPTIMIZATION_LEARNING_RATE", opt_lr)
+
+            opt_iters = st.number_input(
+                "Optimization Iterations",
+                min_value=1,
+                value=int(_get_preset_val("OPTIMIZATION_ITERATIONS")),
+                step=100,
+                help=_h("OPTIMIZATION_ITERATIONS"),
+            )
+            _emit(flags, "OPTIMIZATION_ITERATIONS", int(opt_iters))
+
+            temp = st.number_input(
+                "Temperature",
+                min_value=0.01,
+                value=float(_get_preset_val("temperature")),
+                step=0.1,
+                help=_h("temperature"),
+            )
+            _emit(flags, "temperature", temp)
+
+        with col2:
+            path_slot = st.checkbox(
+                "Path-Slot Action Decomposition",
+                value=bool(_get_preset_val("PATH_SLOT_ACTIONS")),
+                help=_h("PATH_SLOT_ACTIONS"),
+            )
+            _emit(flags, "PATH_SLOT_ACTIONS", path_slot)
+
+            gaussian = st.checkbox(
+                "Gaussian Smoothing",
+                value=bool(_get_preset_val("GAUSSIAN_SMOOTHING")),
+                help=_h("GAUSSIAN_SMOOTHING"),
+            )
+            _emit(flags, "GAUSSIAN_SMOOTHING", gaussian)
+
+            if gaussian:
+                sigma = st.number_input(
+                    "Gaussian Sigma",
+                    min_value=0.01,
+                    value=float(_get_preset_val("GAUSSIAN_SIGMA")),
+                    step=0.1,
+                    help=_h("GAUSSIAN_SIGMA"),
+                )
+                _emit(flags, "GAUSSIAN_SIGMA", sigma)
+
+        st.markdown("**Action Initialization**")
+        init_options = [
+            "Zeros",
+            "Heuristic",
+            "Random",
+            "Ascending",
+            "Descending",
+            "Max",
+        ]
+        init_flag_map = {
+            "Heuristic": "INITIALIZE_ACTIONS_HEURISTIC",
+            "Random": "INITIALIZE_ACTIONS_RANDOM",
+            "Ascending": "INITIALIZE_ACTIONS_ASCENDING",
+            "Descending": "INITIALIZE_ACTIONS_DESCENDING",
+            "Max": "INITIALIZE_ACTIONS_MAX",
+        }
+        # Determine default from preset
+        init_default = 0
+        for i, opt in enumerate(init_options):
+            flag_name = init_flag_map.get(opt)
+            if flag_name and _get_preset_val(flag_name):
+                init_default = i
+                break
+        init_choice = st.selectbox(
+            "Initialize Actions",
+            init_options,
+            index=init_default,
+        )
+        if init_choice in init_flag_map:
+            flags[init_flag_map[init_choice]] = True
+
+        heuristic = st.selectbox(
+            "Comparison Heuristic",
+            PATH_HEURISTICS,
+            index=PATH_HEURISTICS.index(_get_preset_val("path_heuristic")),
+            help="Heuristic used to generate baseline actions for comparison.",
+        )
+        _emit(flags, "path_heuristic", heuristic)
 
     return flags
 
@@ -1297,22 +1415,6 @@ def advanced_training_section() -> dict:
             help=_h("C_CLIP"),
         )
         _emit(flags, "C_CLIP", c_clip)
-
-    diff = st.checkbox(
-        "Differentiable Mode",
-        value=bool(_get_preset_val("differentiable")),
-        help=_h("differentiable"),
-    )
-    _emit(flags, "differentiable", diff)
-    if diff:
-        temp = st.number_input(
-            "Temperature",
-            min_value=0.01,
-            value=float(_get_preset_val("temperature")),
-            step=0.1,
-            help=_h("temperature"),
-        )
-        _emit(flags, "temperature", temp)
 
     return flags
 

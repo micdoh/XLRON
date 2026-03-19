@@ -187,6 +187,95 @@ def plot_topology_stats(
     print(f"  Saved {out_path}")
 
 
+def plot_heatmap_topology_stats(
+    topo_stats_path: str | Path,
+    output_dir: str | Path = _BENCHMARKS_DIR / "figures",
+):
+    """Render a topology table for only the topologies shown in the heatmap."""
+    from experimental.plot_style import get_topology_order
+
+    topo_stats_path = Path(topo_stats_path)
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    if not topo_stats_path.exists():
+        print(f"  No topology_stats.csv found at {topo_stats_path}, skipping heatmap topology table")
+        return
+
+    topo_stats = pd.read_csv(topo_stats_path)
+
+    # Filter to heatmap topologies in their display order
+    heatmap_topos = get_topology_order()
+    merged = topo_stats[topo_stats["topology_name"].isin(heatmap_topos)].copy()
+    if merged.empty:
+        print("  No heatmap topologies found in stats")
+        return
+
+    # Preserve heatmap order
+    merged["_order"] = merged["topology_name"].map({t: i for i, t in enumerate(heatmap_topos)})
+    merged = merged.sort_values("_order")
+
+    # Build table data
+    col_labels = ["Topology", "Nodes", "Links", "Avg Deg.",
+                  "Avg Path\nLength (hops)", "Avg Path\nLength (km)"]
+    cell_text = []
+    for _, row in merged.iterrows():
+        name = row["topology_name"]
+        fallback = name.replace("_directed", "").replace("_", " ").upper()
+        display = TOPOLOGY_DISPLAY.get(name, fallback)
+        avg_path_km = row["avg_path_length"] * row["avg_link_distance_km"]
+        cell_text.append([
+            display,
+            str(int(row["num_nodes"])),
+            str(int(row["num_edges"])),
+            f"{row['avg_degree']:.2f}",
+            f"{row['avg_path_length']:.2f}",
+            f"{avg_path_km:.0f}",
+        ])
+
+    fig, ax = plt.subplots(figsize=(6, 1.4 + 0.22 * len(cell_text)))
+    ax.axis("off")
+
+    table = ax.table(
+        cellText=cell_text,
+        colLabels=col_labels,
+        loc="center",
+        cellLoc="center",
+    )
+    table.auto_set_font_size(False)
+    table.set_fontsize(8)
+    table.scale(1, 1.2)
+
+    # Compact column widths
+    col_widths = [0.18, 0.10, 0.10, 0.14, 0.18, 0.18]
+    n_rows = len(cell_text) + 1  # +1 for header
+    for j, w in enumerate(col_widths):
+        for i in range(n_rows):
+            table[i, j].set_width(w)
+
+    # Make header row taller for two-line labels
+    for j in range(len(col_labels)):
+        table[0, j].set_height(table[0, j].get_height() * 1.8)
+
+    # Style header row
+    for j in range(len(col_labels)):
+        cell = table[0, j]
+        cell.set_facecolor(TABLE_HEADER_COLOR)
+        cell.set_text_props(color="white", fontweight="bold")
+
+    # Alternate row shading
+    for i in range(len(cell_text)):
+        color = TABLE_ROW_ALT_COLOR if i % 2 == 0 else "white"
+        for j in range(len(col_labels)):
+            table[i + 1, j].set_facecolor(color)
+
+    fig.tight_layout()
+    out_path = output_dir / "heatmap_topology_table.png"
+    fig.savefig(out_path)
+    plt.close(fig)
+    print(f"  Saved {out_path}")
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Compute XLRON topology graph statistics")
     parser.add_argument("--output", default="experimental/benchmarks/results/topology_stats.csv", help="Output CSV path")
@@ -204,3 +293,4 @@ if __name__ == "__main__":
 
     configure_style()
     plot_topology_stats(topo_stats_path=args.output, output_dir=args.figures_dir)
+    plot_heatmap_topology_stats(topo_stats_path=args.output, output_dir=args.figures_dir)

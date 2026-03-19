@@ -379,6 +379,8 @@ def plot_gn_band_scaling(df: pd.DataFrame, output_dir: Path, device: str | None 
         for env_type in env_types:
             series.append((env_type, dev))
 
+    import matplotlib.patches as mpatches
+
     env_hatches = {et: h for et, h in zip(sorted(env_types), ["", "//", "\\\\", "xx"])}
 
     fig, ax = plt.subplots(figsize=(14, 10))
@@ -387,10 +389,7 @@ def plot_gn_band_scaling(df: pd.DataFrame, output_dir: Path, device: str | None 
     width = 0.8 / max(n, 1)
 
     for i, (env_type, dev) in enumerate(series):
-        display = ENV_TYPE_DISPLAY.get(env_type, env_type)
         color = DEVICE_COLORS.get(dev, "black") if dev else "black"
-        dev_label = dev.upper() if dev else ""
-        label = f"{dev_label} {display}" if dev and len(dev_order) > 1 else display
         hatch = env_hatches.get(env_type, "")
 
         fps_means = []
@@ -408,7 +407,7 @@ def plot_gn_band_scaling(df: pd.DataFrame, output_dir: Path, device: str | None 
 
         offset = (i - (n - 1) / 2) * width
         ax.bar(x + offset, fps_means, width, yerr=fps_stds,
-               label=label, color=color, hatch=hatch, capsize=4,
+               color=color, hatch=hatch, capsize=4,
                edgecolor="white" if hatch else None)
 
     ax.set_xlabel("Band Configuration")
@@ -416,7 +415,21 @@ def plot_gn_band_scaling(df: pd.DataFrame, output_dir: Path, device: str | None 
     ax.set_ylabel("FPS")
     ax.set_xticks(x)
     ax.set_xticklabels([BAND_DISPLAY.get(b, b) for b in bands])
-    ax.legend()
+
+    # Two-section legend: solid color for device, B&W hatch for env type
+    legend_handles = []
+    for dev in dev_order:
+        if dev is None:
+            continue
+        color = DEVICE_COLORS.get(dev, "black")
+        legend_handles.append(mpatches.Patch(facecolor=color, edgecolor=color, label=dev.upper()))
+    for env_type in env_types:
+        hatch = env_hatches.get(env_type, "")
+        display = ENV_TYPE_DISPLAY.get(env_type, env_type)
+        legend_handles.append(mpatches.Patch(
+            facecolor="white", edgecolor="black", hatch=hatch, label=display,
+        ))
+    ax.legend(handles=legend_handles)
     fig.tight_layout()
     _save(fig, output_dir, "gn_band_scaling")
 
@@ -467,7 +480,12 @@ def plot_heatmap(df: pd.DataFrame, output_dir: Path, device: str | None = None):
     dev_cmaps = {"gpu": cmap_gpu, "cpu": cmap_cpu}
 
     # Collect all env types and topologies across devices for consistent axes
-    all_env_types = sorted(data["config_env_type"].unique())
+    # Fixed order: RWA, RMSA, RWA-LR, RSA-GN, RMSA-GN
+    _ENV_TYPE_ORDER = ["rwa", "rmsa", "rwa_lightpath_reuse", "rsa_gn_model", "rmsa_gn_model"]
+    present_env_types = set(data["config_env_type"].unique())
+    all_env_types = [et for et in _ENV_TYPE_ORDER if et in present_env_types]
+    # Append any unexpected env types at the end
+    all_env_types += sorted(present_env_types - set(_ENV_TYPE_ORDER))
     all_topos = [t for t in get_topology_order()
                  if t in data["config_topology_name"].values]
     topo_labels = [TOPOLOGY_DISPLAY.get(t, t) for t in all_topos]

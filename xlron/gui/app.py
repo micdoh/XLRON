@@ -117,10 +117,13 @@ st.markdown(
 def build_command(all_flags: dict) -> str:
     """Build a CLI command string from the collected flags, omitting defaults."""
     bounds_method = st.session_state.get("_bounds_method")
+    is_diff_sim = st.session_state.get("_diff_sim_mode", False)
     if bounds_method == "cutsets":
         parts = ["python", "-m", "xlron.bounds.cutsets_bounds"]
     elif bounds_method == "reconfigurable":
         parts = ["python", "xlron/bounds/reconfigurable_routing_bounds.py"]
+    elif is_diff_sim:
+        parts = ["python", "-m", "xlron.diff_sim.run_direct_optimization"]
     else:
         parts = ["python", "-m", "xlron.train.train"]
     for key, value in sorted(all_flags.items()):
@@ -231,9 +234,42 @@ with col_widgets:
         traffic_flags = traffic_section()
         all_flags.update(traffic_flags)
 
-        if not st.session_state.get("_bounds_mode", False):
+        is_diff_sim = st.session_state.get("_diff_sim_mode", False)
+        if not st.session_state.get("_bounds_mode", False) and not is_diff_sim:
             st.header("Execution")
             exec_flags = execution_section()
+            all_flags.update(exec_flags)
+        elif is_diff_sim:
+            st.header("Execution")
+            exec_flags = {}
+            col1, col2 = st.columns(2)
+            with col1:
+                max_req = st.number_input(
+                    "Number of Requests to Optimise",
+                    min_value=1,
+                    value=int(_get_preset_val("max_requests")),
+                    step=10,
+                    format="%d",
+                    help=_h("max_requests"),
+                )
+                _emit(exec_flags, "max_requests", int(max_req))
+            with col2:
+                total = st.number_input(
+                    "Total Timesteps",
+                    min_value=1,
+                    value=int(_get_preset_val("TOTAL_TIMESTEPS")),
+                    step=1000,
+                    format="%d",
+                    help=_h("TOTAL_TIMESTEPS"),
+                )
+                _emit(exec_flags, "TOTAL_TIMESTEPS", int(total))
+            seed = st.number_input(
+                "Seed",
+                min_value=0,
+                value=int(_get_preset_val("SEED")),
+                help=_h("SEED"),
+            )
+            _emit(exec_flags, "SEED", int(seed))
             all_flags.update(exec_flags)
         else:
             st.header("Execution")
@@ -270,8 +306,12 @@ with col_widgets:
             all_flags.update(exec_flags)
 
     is_bounds_mode = st.session_state.get("_bounds_mode", False)
+    is_diff_sim_mode = st.session_state.get("_diff_sim_mode", False)
     is_rl_mode = (
-        "EVAL_HEURISTIC" not in all_flags and "EVAL_MODEL" not in all_flags and not is_bounds_mode
+        "EVAL_HEURISTIC" not in all_flags
+        and "EVAL_MODEL" not in all_flags
+        and not is_bounds_mode
+        and not is_diff_sim_mode
     )
     env_type = st.session_state.get("_env_type", "rmsa")
 

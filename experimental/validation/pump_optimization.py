@@ -1081,10 +1081,18 @@ def plot_optimisation_history(history, out_dir):
     try:
         import matplotlib.pyplot as plt
 
+        from experimental.plot_style import ACCENT_COLORS, PRIMARY_COLORS, configure_style
+
+        configure_style(font_size=16, axes_label_size=18, tick_size=14, legend_size=12)
+
         steps, tps = zip(*history)
+        tps = np.array(tps)
+        # Running best (cumulative max)
+        running_best = np.maximum.accumulate(tps)
         fig, ax = plt.subplots(figsize=(10, 5))
-        ax.plot(steps, tps, "b-", lw=1.5)
-        ax.axhline(tps[0], color="gray", ls="--", alpha=0.7, label=f"Baseline {tps[0]:.2f} Gb/s")
+        ax.plot(steps, tps, color=PRIMARY_COLORS[2], lw=0.8, alpha=0.5, label="Per-step")
+        ax.plot(steps, running_best, color=PRIMARY_COLORS[0], lw=2.0, label="Running best")
+        ax.axhline(tps[0], color=ACCENT_COLORS[1], ls="--", alpha=0.7, label=f"Baseline {tps[0]:.2f} Gb/s")
         ax.set_xlabel("Optimisation step")
         ax.set_ylabel("Shannon-Hartley throughput (Gb/s)")
         ax.legend()
@@ -1170,6 +1178,18 @@ def main():
         help="Random seed for generating starting points (default: 0)",
     )
     parser.add_argument(
+        "--equal_pump_power",
+        action="store_true",
+        help="Override preset pump powers with equal power per pump (total preserved)",
+    )
+    parser.add_argument(
+        "--pump_tilt",
+        type=float,
+        default=None,
+        help="Ratio of highest to lowest pump power (e.g. 2.0 means first pump is 2x last). "
+        "Total power is preserved. Implies --equal_pump_power base.",
+    )
+    parser.add_argument(
         "--snr_variance_penalty",
         type=float,
         default=0.0,
@@ -1177,18 +1197,56 @@ def main():
         "Penalises the worst low-SNR channel relative to the mean. "
         "Higher values enforce a flatter gain spectrum (default: 0.0 = disabled)",
     )
+    parser.add_argument(
+        "--launch_power_csv",
+        type=str,
+        default=None,
+        help="Path to CSV with per-slot launch powers (columns: slot_index, freq_ghz, power_dbm)",
+    )
     args = parser.parse_args()
 
     out_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "gerard2025_results")
 
     from experimental.validation.gerard2025_validation import run_simulation
 
+    sim_overrides = {}
+    if args.launch_power_csv:
+        sim_overrides["launch_power_csv"] = args.launch_power_csv
     print("Running baseline simulation (Gerard 2025 preset)...")
-    state, params, env, config = run_simulation(quiet=False)
+    state, params, env, config = run_simulation(sim_overrides or None, quiet=False)
 
     if not params.use_raman_amp:
         print("ERROR: use_raman_amp must be True.")
         sys.exit(1)
+
+    if args.equal_pump_power or args.pump_tilt is not None:
+        pump_bw = np.array(params.raman_pump_power_bw.val)  # shape (num_links, num_pumps)
+        num_links, num_pumps = pump_bw.shape
+        # Work per-link: apply tilt/equal across the num_pumps dimension
+        # Use first link as reference (all links have same pump config)
+        link0 = pump_bw[0]
+        active_mask_1d = link0 > 0
+        num_active = int(np.sum(active_mask_1d))
+        if num_active > 0:
+            total_power_per_link = float(np.sum(link0[active_mask_1d]))
+            if args.pump_tilt is not None and num_active > 1:
+                weights = np.linspace(args.pump_tilt, 1.0, num_active)
+                weights = weights / weights.sum() * num_active
+                equal_power = total_power_per_link / num_active
+                new_link = np.zeros_like(link0)
+                new_link[active_mask_1d] = (equal_power * weights).astype(pump_bw.dtype)
+                print(f"\nOverriding pump powers with tilt {args.pump_tilt:.1f}:1 "
+                      f"(total {total_power_per_link*1e3:.1f} mW per link preserved)")
+                print(f"  Powers per link (mW): {new_link[active_mask_1d]*1e3}")
+            else:
+                equal_power = total_power_per_link / num_active
+                new_link = np.where(active_mask_1d, equal_power, 0.0).astype(pump_bw.dtype)
+                print(f"\nOverriding pump powers to equal: {equal_power*1e3:.2f} mW each "
+                      f"(total {total_power_per_link*1e3:.1f} mW per link preserved)")
+            # Broadcast to all links
+            new_powers = np.tile(new_link, (num_links, 1))
+            from xlron.environments.dataclasses import HashableArrayWrapper
+            params = params.replace(raman_pump_power_bw=HashableArrayWrapper(new_powers))
 
     best_params, history = optimise_pump_powers(
         state,

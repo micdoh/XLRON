@@ -917,3 +917,13 @@ flags.DEFINE_float(
     "OPTIMIZATION_LEARNING_RATE", 0.05, "Learning rate for gradient-based action optimization"
 )
 flags.DEFINE_boolean("PATH_SLOT_ACTIONS", False, "Use 2-part path-slot actions for optimization")
+flags.DEFINE_boolean(
+    "GAUSSIAN_SMOOTHING",
+    False,
+    "Use Gaussian-smoothed reward for action optimization (evaluates nearby integer actions weighted by Gaussian kernel)",
+)
+flags.DEFINE_float(
+    "GAUSSIAN_SIGMA",
+    0.8,
+    "Sigma for Gaussian smoothing kernel (larger = smoother landscape)",
+)
