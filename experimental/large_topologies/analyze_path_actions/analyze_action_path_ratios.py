@@ -19,6 +19,10 @@ TOPOLOGY = "usa100_directed"
 K = 70
 TRAJ_FILE = "experimental/usa100_k70_ff_ksp_traj.csv"
 
+TOPOLOGY = "tataind_directed"
+K = 90
+TRAJ_FILE = "experimental/tataind_k90_ff_ksp_traj.csv"
+
 
 def run_heuristic():
     """Run the heuristic eval and save trajectory data."""

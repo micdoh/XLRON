@@ -5,6 +5,7 @@ import networkx as nx
 from xlron.environments.env_funcs import init_path_link_array, init_link_length_array, make_graph
 
 TOPOLOGY = "usa100_directed"
+TOPOLOGY = "tataind_directed"
 K_VALUES = [50, 100]
 
 
