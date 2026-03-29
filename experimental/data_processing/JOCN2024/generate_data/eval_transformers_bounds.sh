@@ -50,7 +50,7 @@ k=50
 args="--env_type rmsa --link_resources 100 --mean_service_holding_time 20 --truncate_holding_time"
 
 # # NSFNET DeepRMSA (nsfnet_deeprmsa_directed) - note: 4 heads for this model
-run_experiment "DeepRMSA" "nsfnet_deeprmsa_directed" 150 300 10 "$k" "./Transformer_42.eqx" 4 25 "$args"
+run_experiment "DeepRMSA" "nsfnet_deeprmsa_directed" 150 300 10 "$k" "./Transformer_40.eqx" 4 25 "$args"
 
 # # COST239 DeepRMSA (cost239_deeprmsa_directed)
 # run_experiment "DeepRMSA" "cost239_deeprmsa_directed" 400 670 10 "$k" "./cost239_deeprmsa_13.eqx" 8 50 "$args"
