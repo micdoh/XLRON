@@ -1,7 +1,7 @@
 #!/bin/bash
 
 EVAL_PATH="./xlron/train/train.py"
-OUTPUT_FILE="experiment_results_transformer_eval_bounds.jsonl"
+OUTPUT_FILE="experiment_results_transformer_eval_bounds_nsfnet.jsonl"
 
 # Clear output file
 > $OUTPUT_FILE
@@ -47,10 +47,10 @@ run_experiment() {
 k=50
 
 # # Deep/Reward/GCN-RMSA Experiments (env_type=rmsa, link_resources=100)
-# args="--env_type rmsa --link_resources 100 --mean_service_holding_time 20 --truncate_holding_time"
+args="--env_type rmsa --link_resources 100 --mean_service_holding_time 20 --truncate_holding_time"
 
 # # NSFNET DeepRMSA (nsfnet_deeprmsa_directed) - note: 4 heads for this model
-# run_experiment "DeepRMSA" "nsfnet_deeprmsa_directed" 150 300 10 "$k" "./episodic_20_8_10_2.eqx" 4 20 "$args"
+run_experiment "DeepRMSA" "nsfnet_deeprmsa_directed" 150 300 10 "$k" "./Transformer_42.eqx" 4 20 "$args"
 
 # # COST239 DeepRMSA (cost239_deeprmsa_directed)
 # run_experiment "DeepRMSA" "cost239_deeprmsa_directed" 400 670 10 "$k" "./cost239_deeprmsa_13.eqx" 8 50 "$args"
@@ -59,13 +59,13 @@ k=50
 # run_experiment "GCN-RMSA" "usnet_gcnrnn_directed" 310 540 10 "$k" "./usnet_2.eqx" 8 20 "$args"
 
 # MaskRSA Experiments (env_type=rmsa, link_resources=80)
-args="--env_type rmsa --link_resources 80 --max_bw 50 --guardband 0 --slot_size 12.5 --mean_service_holding_time 12"
+# args="--env_type rmsa --link_resources 80 --max_bw 50 --guardband 0 --slot_size 12.5 --mean_service_holding_time 12"
 
 # # NSFNET MaskRSA (nsfnet_deeprmsa_undirected) - note: 4 heads for this model
 # run_experiment "MaskRSA" "nsfnet_deeprmsa_undirected" 80 175 5 "$k" "./nsfnet_maskrsa_43_1.eqx" 4 20 "$args"
 
 # JPN48 MaskRSA (jpn48_undirected)
-run_experiment "MaskRSA" "jpn48_undirected" 150 280 10 "$k" "./jpn48_maskrsa_20_4.eqx" 8 20 "$args"
+# run_experiment "MaskRSA" "jpn48_undirected" 150 280 10 "$k" "./jpn48_maskrsa_20_4.eqx" 8 20 "$args"
 
 # # PtrNet-RSA-40 Experiments (env_type=rsa, link_resources=40)
 # base_args="--env_type rsa --slot_size 1 --guardband 0 --mean_service_holding_time 10"
