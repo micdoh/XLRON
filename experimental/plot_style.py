@@ -80,6 +80,8 @@ TOPOLOGY_DISPLAY = {
     "usnet_ptrnet_directed": "USNET",
     "jpn48_directed": "JPN48",
     "conus_directed": "CONUS",
+    "usa100_directed": "USA100",
+    "tataind_directed": "TATAIND",
 }
 
 ENV_TYPE_DISPLAY = {

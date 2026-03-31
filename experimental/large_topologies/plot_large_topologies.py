@@ -21,6 +21,12 @@ from plot_style import (
 
 configure_style()
 
+# Font sizes for single-column paper figures
+FS_TITLE = 42
+FS_LABEL = 38
+FS_TICK = 32
+FS_LEGEND = 32
+
 # Custom colormaps aligned with project palette
 _OCCUPANCY_CMAP = mcolors.LinearSegmentedColormap.from_list(
     "occupancy", ["#FFFFFF", PRIMARY_COLORS[1], ACCENT_COLORS[2], PRIMARY_COLORS[0], PRIMARY_COLORS[3]],
@@ -73,7 +79,7 @@ def load_traj(topo: str, method: str) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 
 def plot_blocking_vs_load():
-    fig, axes = plt.subplots(1, 2, figsize=(20, 8), sharey=True)
+    fig, axes = plt.subplots(1, 2, figsize=(20, 10), sharey=True)
 
     for ax, (topo, tinfo) in zip(axes, TOPOLOGIES.items()):
         for method, minfo in METHODS.items():
@@ -102,15 +108,17 @@ def plot_blocking_vs_load():
                 alpha=0.2, color=minfo["color"],
             )
 
-        ax.set_xlabel("Traffic Load (Erlang)")
-        ax.set_title(tinfo["display"])
+        ax.set_xlabel("Traffic Load (Erlang)", fontsize=FS_LABEL)
+        ax.set_title(tinfo["display"], fontsize=FS_TITLE)
         ax.set_yscale("log")
         ax.set_ylim(bottom=1e-2)
         if topo == "tataind":
             ax.set_xlim(left=400)
-        ax.legend()
+        ax.tick_params(labelsize=FS_TICK)
+        if topo == "usa100":
+            ax.legend(fontsize=FS_LEGEND)
 
-    axes[0].set_ylabel("Service Blocking Probability (%)")
+    axes[0].set_ylabel("Bitrate Blocking Probability (%)", fontsize=FS_LABEL)
     plt.tight_layout()
     fig.savefig(FIGURES / "blocking_vs_load.png")
     plt.close(fig)
@@ -134,7 +142,7 @@ def plot_path_boxplots():
         print("  -> SKIPPED path_boxplots (no traj data)")
         return
 
-    fig, axes = plt.subplots(1, 2, figsize=(20, 8))
+    fig, axes = plt.subplots(1, 2, figsize=(20, 10))
 
     labels = []
     path_lengths = []
@@ -160,16 +168,16 @@ def plot_path_boxplots():
     for patch, c in zip(bp1["boxes"], colors):
         patch.set_facecolor(c)
         patch.set_alpha(0.7)
-    axes[0].set_ylabel("Path Length (km)")
-    axes[0].set_title("Path Length Distribution")
+    axes[0].set_ylabel("Path Length (km)", fontsize=FS_LABEL)
+    axes[0].tick_params(labelsize=FS_TICK)
 
     # Hops box plot
     bp2 = axes[1].boxplot(num_hops, **boxplot_kw)
     for patch, c in zip(bp2["boxes"], colors):
         patch.set_facecolor(c)
         patch.set_alpha(0.7)
-    axes[1].set_ylabel("Number of Hops")
-    axes[1].set_title("Path Hops Distribution")
+    axes[1].set_ylabel("Path Length (hops)", fontsize=FS_LABEL)
+    axes[1].tick_params(labelsize=FS_TICK)
 
     plt.tight_layout()
     fig.savefig(FIGURES / "path_boxplots.png")
@@ -182,7 +190,7 @@ def plot_path_boxplots():
 # ---------------------------------------------------------------------------
 
 def plot_utilisation_over_steps():
-    fig, axes = plt.subplots(1, 2, figsize=(20, 8), sharey=True)
+    fig, axes = plt.subplots(1, 2, figsize=(20, 10), sharey=True)
 
     has_data = [False, False]
     for idx, (topo, tinfo) in enumerate(TOPOLOGIES.items()):
@@ -200,12 +208,14 @@ def plot_utilisation_over_steps():
                 steps[::window], util_smooth.values[::window],
                 color=minfo["color"], label=minfo["display"], linewidth=2,
             )
-        ax.set_xlabel(r"Traffic Request (x10$^3$)")
-        ax.set_title(tinfo["display"])
+        ax.set_xlabel("Training Episode", fontsize=FS_LABEL)
+        ax.set_title(tinfo["display"], fontsize=FS_TITLE)
         ax.xaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{x / 1e3:.0f}"))
-        ax.legend()
+        ax.tick_params(labelsize=FS_TICK)
+        if topo == "usa100":
+            ax.legend(fontsize=FS_LEGEND)
 
-    axes[0].set_ylabel("Utilisation")
+    axes[0].set_ylabel("Utilisation", fontsize=FS_LABEL)
     # Only save if we have some data
     if any(has_data):
         plt.tight_layout()
@@ -221,7 +231,7 @@ def plot_utilisation_over_steps():
 # ---------------------------------------------------------------------------
 
 def plot_bitrate_blocking_over_steps():
-    fig, axes = plt.subplots(1, 2, figsize=(20, 8), sharey=True)
+    fig, axes = plt.subplots(1, 2, figsize=(20, 10), sharey=True)
 
     has_data = [False, False]
     for idx, (topo, tinfo) in enumerate(TOPOLOGIES.items()):
@@ -238,12 +248,14 @@ def plot_bitrate_blocking_over_steps():
                 steps[::window], bbp_smooth.values[::window] * 100,
                 color=minfo["color"], label=minfo["display"], linewidth=2,
             )
-        ax.set_xlabel(r"Traffic Request (x10$^3$)")
-        ax.set_title(tinfo["display"])
+        ax.set_xlabel(r"Request Index ($\times 10^3$)", fontsize=FS_LABEL)
+        ax.set_title(tinfo["display"], fontsize=FS_TITLE)
         ax.xaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{x / 1e3:.0f}"))
-        ax.legend()
+        ax.tick_params(labelsize=FS_TICK)
+        if topo == "usa100":
+            ax.legend(fontsize=FS_LEGEND)
 
-    axes[0].set_ylabel("Bitrate Blocking Probability (%)")
+    axes[0].set_ylabel("Bitrate Blocking Probability (%)", fontsize=FS_LABEL)
     if any(has_data):
         plt.tight_layout()
         fig.savefig(FIGURES / "bitrate_blocking_over_steps.png")
@@ -269,7 +281,7 @@ def plot_se_slots_boxplots():
         print("  -> SKIPPED se_slots_boxplots (no traj data)")
         return
 
-    fig, axes = plt.subplots(1, 2, figsize=(20, 8))
+    fig, axes = plt.subplots(1, 2, figsize=(20, 10))
 
     labels = []
     se_data = []
@@ -295,16 +307,18 @@ def plot_se_slots_boxplots():
     for patch, c in zip(bp1["boxes"], colors):
         patch.set_facecolor(c)
         patch.set_alpha(0.7)
-    axes[0].set_ylabel("Spectral Efficiency (b/s/Hz)")
-    axes[0].set_title("Spectral Efficiency Distribution")
+    axes[0].set_ylabel("Spectral Efficiency (b/s/Hz)", fontsize=FS_LABEL)
+    axes[0].set_title("Spectral Efficiency Distribution", fontsize=FS_TITLE)
+    axes[0].tick_params(labelsize=FS_TICK)
 
     # Required slots box plot
     bp2 = axes[1].boxplot(slots_data, **boxplot_kw)
     for patch, c in zip(bp2["boxes"], colors):
         patch.set_facecolor(c)
         patch.set_alpha(0.7)
-    axes[1].set_ylabel("Required Slots")
-    axes[1].set_title("Required Slots Distribution")
+    axes[1].set_ylabel("Required Slots", fontsize=FS_LABEL)
+    axes[1].set_title("Required Slots Distribution", fontsize=FS_TITLE)
+    axes[1].tick_params(labelsize=FS_TICK)
 
     plt.tight_layout()
     fig.savefig(FIGURES / "se_slots_boxplots.png")
@@ -317,7 +331,7 @@ def plot_se_slots_boxplots():
 # ---------------------------------------------------------------------------
 
 def plot_path_comparison():
-    fig, axes = plt.subplots(2, 2, figsize=(24, 12), sharex="col")
+    fig, axes = plt.subplots(2, 2, figsize=(24, 16), sharex="col")
 
     window = 1000  # smoothing window for readability
 
@@ -342,14 +356,14 @@ def plot_path_comparison():
                 color=minfo["color"], label=minfo["display"], linewidth=2,
             )
 
-        axes[0, col].set_title(tinfo["display"])
-        axes[1, col].set_xlabel(r"Traffic Request (x10$^3$)")
+        axes[0, col].set_title(tinfo["display"], fontsize=FS_TITLE)
+        axes[1, col].set_xlabel(r"Request Index ($\times 10^3$)", fontsize=FS_LABEL)
         for row in range(2):
             axes[row, col].xaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{x / 1e3:.0f}"))
-        # Legend only on right-hand figures
+            axes[row, col].tick_params(labelsize=FS_TICK)
+        # Legend only on upper USA100
         if col == 1:
-            axes[0, col].legend()
-            axes[1, col].legend()
+            axes[0, col].legend(fontsize=FS_LEGEND)
 
         # Tighten y-axis to data range for better differentiation
         for row in range(2):
@@ -358,8 +372,8 @@ def plot_path_comparison():
             axes[row, col].set_ylim(ymin - margin, ymax + margin)
             axes[row, col].margins(y=0.02)
 
-    axes[0, 0].set_ylabel("Path Length (km)")
-    axes[1, 0].set_ylabel("Path Length (hops)")
+    axes[0, 0].set_ylabel("Path Length (km)", fontsize=FS_LABEL)
+    axes[1, 0].set_ylabel("Path Length (hops)", fontsize=FS_LABEL)
 
     plt.tight_layout()
     fig.savefig(FIGURES / "path_comparison.png")
@@ -372,7 +386,7 @@ def plot_path_comparison():
 # ---------------------------------------------------------------------------
 
 def plot_path_delta():
-    fig, axes = plt.subplots(2, 2, figsize=(24, 12), sharex="col")
+    fig, axes = plt.subplots(2, 2, figsize=(24, 16), sharex="col")
 
     window = 500  # smooth the delta for readability
 
@@ -416,15 +430,16 @@ def plot_path_delta():
             alpha=0.3, color=ACCENT_COLORS[0], label="Transformer shorter",
         )
 
-        axes[0, col].set_title(tinfo["display"])
-        axes[1, col].set_xlabel(r"Traffic Request (x10$^3$)")
+        axes[0, col].set_title(tinfo["display"], fontsize=FS_TITLE)
+        axes[1, col].set_xlabel(r"Request Index ($\times 10^3$)", fontsize=FS_LABEL)
         for row in range(2):
             axes[row, col].xaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{x / 1e3:.0f}"))
+            axes[row, col].tick_params(labelsize=FS_TICK)
         if col == 1:
-            axes[0, col].legend()
+            axes[0, col].legend(fontsize=FS_LEGEND)
 
-    axes[0, 0].set_ylabel(r"$\Delta$ Path Length (km)")
-    axes[1, 0].set_ylabel(r"$\Delta$ Path Length (hops)")
+    axes[0, 0].set_ylabel(r"$\Delta$ Path Length (km)", fontsize=FS_LABEL)
+    axes[1, 0].set_ylabel(r"$\Delta$ Path Length (hops)", fontsize=FS_LABEL)
 
     plt.tight_layout()
     fig.savefig(FIGURES / "path_delta.png")
@@ -510,15 +525,18 @@ def plot_slot_occupancy():
                 occupancy, aspect="auto", origin="lower",
                 interpolation="nearest", cmap=_OCCUPANCY_CMAP, norm=norm,
             )
-            ax.set_title(f"{tinfo['display']} \u2014 {minfo['display']}")
+            ax.set_title(f"{tinfo['display']} \u2014 {minfo['display']}", fontsize=FS_TITLE)
             _set_heatmap_axes(ax, occupancy.shape[0], occupancy.shape[1])
+            ax.tick_params(labelsize=FS_TICK)
             if row == 1:
-                ax.set_xlabel("FSU Index")
+                ax.set_xlabel("FSU Index", fontsize=FS_LABEL)
             if col == 0:
-                ax.set_ylabel("Link ID")
+                ax.set_ylabel("Link ID", fontsize=FS_LABEL)
 
         # One colorbar per topology column
-        fig.colorbar(im, ax=axes[:, col], label="Relative FSU Occupancy", shrink=0.6)
+        cbar = fig.colorbar(im, ax=axes[:, col], label="Relative FSU Occupancy", shrink=0.6)
+        cbar.set_label("Relative FSU Occupancy", fontsize=FS_LABEL)
+        cbar.ax.tick_params(labelsize=FS_TICK)
     fig.savefig(FIGURES / "slot_occupancy.png", bbox_inches="tight")
     plt.close(fig)
     print("  -> slot_occupancy")
@@ -529,7 +547,7 @@ def plot_slot_occupancy():
 # ---------------------------------------------------------------------------
 
 def plot_slot_occupancy_diff():
-    fig, axes = plt.subplots(1, 2, figsize=(28, 14), gridspec_kw={"wspace": 0.08})
+    fig, axes = plt.subplots(1, 2, figsize=(28, 14), gridspec_kw={"wspace": 0.15})
 
     diffs = {}
     all_labels = {}
@@ -554,25 +572,26 @@ def plot_slot_occupancy_diff():
             diffs[topo], aspect="auto", origin="lower",
             interpolation="nearest", cmap=_DIFF_CMAP, norm=norm,
         )
-        ax.set_title(tinfo["display"])
+        ax.set_title(tinfo["display"], fontsize=FS_TITLE)
         _set_heatmap_axes(ax, diffs[topo].shape[0], diffs[topo].shape[1])
-        ax.set_xlabel("FSU Index")
+        ax.tick_params(labelsize=FS_TICK)
+        ax.set_xlabel("FSU Index", fontsize=FS_LABEL)
         if col == 0:
-            ax.set_ylabel("Link ID")
+            ax.set_ylabel("Link ID", fontsize=FS_LABEL)
 
         # Only add colorbar on the right subplot
         if col == len(topo_list) - 1:
             cbar = fig.colorbar(im, ax=ax, shrink=0.8, pad=0.02)
             cbar.set_ticks([])
-            cbar.set_label(r"$\Delta$ Relative FSU Occupancy", labelpad=15)
+            cbar.set_label(r"$\Delta$ Relative FSU Occupancy", labelpad=15, fontsize=FS_LABEL)
             # Place text labels at top and bottom of colorbar
             cbar.ax.text(
-                1.5, 1.02, "FF-KSP", transform=cbar.ax.transAxes,
-                ha="center", va="bottom", fontsize=22, fontweight="bold",
+                1.8, 1.02, "FF-KSP", transform=cbar.ax.transAxes,
+                ha="center", va="bottom", fontsize=30, fontweight="bold",
             )
             cbar.ax.text(
-                1.5, -0.02, "Transformer", transform=cbar.ax.transAxes,
-                ha="center", va="top", fontsize=22, fontweight="bold",
+                1.2, -0.02, "RL", transform=cbar.ax.transAxes,
+                ha="center", va="top", fontsize=30, fontweight="bold",
             )
 
     fig.savefig(FIGURES / "slot_occupancy_diff.png", bbox_inches="tight")
@@ -589,68 +608,97 @@ def plot_slot_occupancy_diff():
 # ---------------------------------------------------------------------------
 
 ABLATIONS = {
-    "original": {"display": "Original", "color": PRIMARY_COLORS[3]},
-    "gating1": {"display": "No Gating", "color": ACCENT_COLORS[1]},
+    "original": {"display": "All Features", "color": ACCENT_COLORS[1], "linestyle": "dashdot"},
+    "onpolicy": {"display": "No Off-Policy IAM", "color": ACCENT_COLORS[0]},
     "nodamping": {"display": "No Damping", "color": PRIMARY_COLORS[0]},
-    "onpolicy": {"display": "On-Policy IAM", "color": ACCENT_COLORS[0]},
+    "nogating": {"display": "No Gating", "color": ACCENT_COLORS[3]},
+    "nogating_nodamping": {"display": "No Gating +\nNo Damping", "color": PRIMARY_COLORS[2]},
+    "novml": {"display": "No VML", "color": "#4A2870"},
 }
 
-ABLATION_DIR = RESULTS / "usa100" / "ablations"
+FFKSP_LABELS = {
+    "usa100": "FF-KSP",
+    "tataind": "FF-KSP",
+}
 
 
-def _load_ablation(name: str):
+def _load_ablation(ablation_dir, name: str, smooth: int = 3):
     """Load mean, iqr_lower, iqr_upper CSVs for an ablation variant."""
-    d = ABLATION_DIR / name
+    d = ablation_dir / name
     mean_df = pd.read_csv(d / f"{name}_mean.csv")
     lo_df = pd.read_csv(d / f"{name}_iqr_lower.csv")
     hi_df = pd.read_csv(d / f"{name}_iqr_upper.csv")
-    # Step column has the run name prefix — grab by position (col index 4)
-    steps = mean_df.iloc[:, 4].values.astype(float)
+    # Use episode_count (col 0) as x-axis
+    episodes = mean_df.iloc[:, 0].values.astype(float)
     mean_vals = mean_df.iloc[:, 1].values.astype(float) * 100
     lo_vals = lo_df.iloc[:, 1].values.astype(float) * 100
     hi_vals = hi_df.iloc[:, 1].values.astype(float) * 100
-    return steps, mean_vals, lo_vals, hi_vals
+    # Running average to smooth (use pandas for proper edge handling)
+    if smooth > 1:
+        mean_vals = pd.Series(mean_vals).rolling(smooth, min_periods=1).mean().values
+        lo_vals = pd.Series(lo_vals).rolling(smooth, min_periods=1).mean().values
+        hi_vals = pd.Series(hi_vals).rolling(smooth, min_periods=1).mean().values
+    return episodes, mean_vals, lo_vals, hi_vals
 
 
-def plot_ablation_blocking():
-    if not ABLATION_DIR.exists():
-        print("  -> SKIPPED ablation_blocking (no ablation data)")
+def _plot_ablation_panel(ax, topo: str):
+    """Plot ablation series for a single topology on the given axes."""
+    ablation_dir = RESULTS / topo / "ablations"
+    if not ablation_dir.exists():
         return
 
-    fig, ax = plt.subplots(figsize=(14, 8))
+    # Plot FF-KSP as horizontal band
+    ffksp_dir = ablation_dir / "ffksp"
+    if ffksp_dir.exists():
+        steps, mean_vals, lo_vals, hi_vals = _load_ablation(ablation_dir, "ffksp")
+        ax.plot(
+            steps, mean_vals,
+            color=PRIMARY_COLORS[3], label=FFKSP_LABELS[topo],
+            linestyle="--",
+        )
+        ax.fill_between(steps, lo_vals, hi_vals, alpha=0.2, color=PRIMARY_COLORS[3])
 
+    # Plot each ablation variant
     for name, info in ABLATIONS.items():
-        d = ABLATION_DIR / name
+        d = ablation_dir / name
         if not d.exists():
             continue
-        steps, mean_vals, lo_vals, hi_vals = _load_ablation(name)
+        steps, mean_vals, lo_vals, hi_vals = _load_ablation(ablation_dir, name)
         ax.plot(
             steps, mean_vals,
             color=info["color"], label=info["display"],
+            linestyle=info.get("linestyle", "-"),
         )
         ax.fill_between(steps, lo_vals, hi_vals, alpha=0.2, color=info["color"])
 
     ax.set_yscale("log")
     ax.yaxis.set_major_locator(mticker.LogLocator(base=10, numticks=20))
     ax.yaxis.set_minor_locator(mticker.LogLocator(base=10, subs=[2, 3, 4, 5, 6], numticks=20))
-    ax.yaxis.set_minor_formatter(mticker.ScalarFormatter())
-    ax.yaxis.set_major_formatter(mticker.ScalarFormatter())
-    ax.yaxis.get_major_formatter().set_scientific(False)
-    ax.yaxis.get_minor_formatter().set_scientific(False)
-    ax.set_xlabel("Training Step")
-    ax.set_ylabel("Service Blocking Probability (%)")
-    ax.set_title("USA100")
-    ax.xaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{x / 1e3:.0f}k"))
+    _fmt = mticker.FuncFormatter(lambda x, _: f"{x:g}")
+    ax.yaxis.set_minor_formatter(_fmt)
+    ax.yaxis.set_major_formatter(_fmt)
     ax.grid(axis="y", which="both", linewidth=0.5, alpha=0.4)
-    ax.legend(loc="upper right", ncol=2)
+    ax.set_title(TOPOLOGIES[topo]["display"])
+
+
+def plot_ablation_blocking():
+    fig, axes = plt.subplots(1, 2, figsize=(28, 8), sharey=True)
+
+    for col, topo in enumerate(["tataind", "usa100"]):
+        _plot_ablation_panel(axes[col], topo)
+        axes[col].set_xlabel("Training Episode")
+
+    axes[0].set_ylabel("Bitrate Blocking Probability (%)")
+    axes[1].legend(loc="upper left", bbox_to_anchor=(1.02, 1.0))
     plt.tight_layout()
-    fig.savefig(FIGURES / "usa100_ablation_blocking.png")
+    fig.subplots_adjust(right=0.82)
+    fig.savefig(FIGURES / "ablation_blocking.png")
     plt.close(fig)
-    print("  -> usa100_ablation_blocking")
+    print("  -> ablation_blocking")
 
 
 def plot_link_usage_delta():
-    fig, axes = plt.subplots(1, 2, figsize=(24, 8), sharey=True)
+    fig, axes = plt.subplots(1, 2, figsize=(24, 10), sharey=True)
 
     for col, (topo, tinfo) in enumerate(TOPOLOGIES.items()):
         ff_path = RESULTS / topo / f"{topo}_ff_ksp_link_usage.npy"
@@ -669,8 +717,9 @@ def plot_link_usage_delta():
         colors = [ACCENT_COLORS[0] if d < 0 else PRIMARY_COLORS[3] for d in delta_pct]
         ax.bar(link_ids, delta_pct, color=colors, width=1.0, edgecolor="none")
         ax.axhline(0, color="black", linewidth=1, linestyle="-")
-        ax.set_xlabel("Link ID")
-        ax.set_title(tinfo["display"])
+        ax.set_xlabel("Link ID", fontsize=FS_LABEL)
+        ax.set_title(tinfo["display"], fontsize=FS_TITLE)
+        ax.tick_params(labelsize=FS_TICK)
 
         # Custom legend
         from matplotlib.patches import Patch
@@ -679,13 +728,72 @@ def plot_link_usage_delta():
             Patch(facecolor=ACCENT_COLORS[0], label="Transformer uses less"),
         ]
         if col == 1:
-            ax.legend(handles=legend_elements)
+            ax.legend(handles=legend_elements, fontsize=FS_LEGEND)
 
-    axes[0].set_ylabel(r"$\Delta$ Link Usage (%)")
+    axes[0].set_ylabel(r"$\Delta$ Link Usage (%)", fontsize=FS_LABEL)
     plt.tight_layout()
     fig.savefig(FIGURES / "link_usage_delta.png")
     plt.close(fig)
     print("  -> link_usage_delta")
+
+
+LOSS_COMPONENTS = {
+    "total_loss": {"display": "Total Loss", "color": "black", "linestyle": "--"},
+    "actor_loss": {"display": "Actor Loss", "color": "red"},
+    "validmass_loss": {"display": "Valid Mass Loss", "color": ACCENT_COLORS[2]},
+    "value_loss": {"display": "Value Loss", "color": ACCENT_COLORS[0]},
+    "entropy_loss": {"display": "Entropy Loss", "color": PRIMARY_COLORS[0]},
+}
+
+
+def _load_loss(loss_dir, name: str, smooth: int = 50):
+    """Load a loss CSV and return (steps, values)."""
+    path = loss_dir / f"{name}.csv"
+    df = pd.read_csv(path)
+    steps = df.iloc[:, 4].values.astype(float)
+    vals = df.iloc[:, 1].values.astype(float)
+    if name == "entropy_loss":
+        vals = -vals
+    if name == "total_loss":
+        steps, vals = steps[5:], vals[5:]
+    if smooth > 1:
+        vals = pd.Series(vals).rolling(smooth, min_periods=1).mean().values
+    return steps, vals
+
+
+def _plot_loss_panel(ax, topo: str):
+    """Plot all loss components for a single topology on the given axes."""
+    loss_dir = RESULTS / topo / "loss"
+    if not loss_dir.exists():
+        return
+    for name, info in LOSS_COMPONENTS.items():
+        path = loss_dir / f"{name}.csv"
+        if not path.exists():
+            continue
+        steps, vals = _load_loss(loss_dir, name)
+        ax.plot(
+            steps, vals,
+            color=info["color"], label=info["display"],
+            linestyle=info.get("linestyle", "-"),
+        )
+    ax.set_yscale("symlog", linthresh=1e-2)
+    ax.grid(axis="y", which="both", linewidth=0.5, alpha=0.4)
+    ax.set_title(TOPOLOGIES[topo]["display"])
+
+
+def plot_loss_components():
+    fig, axes = plt.subplots(1, 2, figsize=(28, 8), sharey=True)
+    for col, topo in enumerate(["tataind", "usa100"]):
+        _plot_loss_panel(axes[col], topo)
+    axes[0].set_xlabel("Update Step")
+    axes[0].set_ylabel("Loss")
+    axes[1].set_xlabel("Update Step")
+    axes[1].legend(loc="upper left", bbox_to_anchor=(1.02, 1.0))
+    plt.tight_layout()
+    fig.subplots_adjust(right=0.82)
+    fig.savefig(FIGURES / "loss_components.png")
+    plt.close(fig)
+    print("  -> loss_components")
 
 
 # ---------------------------------------------------------------------------
@@ -705,4 +813,5 @@ if __name__ == "__main__":
     plot_slot_occupancy_diff()
     plot_link_usage_delta()
     plot_ablation_blocking()
+    plot_loss_components()
     print("\nAll plots saved to:", FIGURES)

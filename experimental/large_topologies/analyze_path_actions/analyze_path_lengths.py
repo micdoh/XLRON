@@ -1,12 +1,9 @@
-"""Analyze shortest/longest path lengths (hops and distance) per node pair for usa100_directed."""
+"""Analyze shortest/longest path lengths (hops and distance) per node pair."""
 
+import argparse
 import numpy as np
 import networkx as nx
 from xlron.environments.env_funcs import init_path_link_array, init_link_length_array, make_graph
-
-TOPOLOGY = "usa100_directed"
-TOPOLOGY = "tataind_directed"
-K_VALUES = [50, 100]
 
 
 def analyze(topology_name, k):
@@ -38,18 +35,21 @@ def analyze(topology_name, k):
     valid = hops > 0
 
     print(f"\n{'='*70}")
-    print(f"Topology: {topology_name}, K={k}")
-    print(f"Nodes: {num_nodes}, Edges: {num_edges}, Node pairs: {num_pairs}")
-    print(f"Path-link array shape: {pla.shape}")
+    print(f"PATH LENGTH ANALYSIS: {topology_name}, K={k}")
     print(f"{'='*70}")
+    print(f"Nodes: {num_nodes}, Edges: {num_edges}, Node pairs (src!=dst): {num_pairs}")
+    print(f"Path-link array shape: {pla.shape} (num_pairs*K rows x num_edges cols)")
+    print(f"\nFor each source-destination pair, up to K={k} shortest paths are computed")
+    print(f"(Yen's algorithm, sorted by spectral_resources). A 'valid' path is one")
+    print(f"with >0 hops (zero rows indicate fewer than K paths exist for that pair).")
 
     # Count how many valid paths per pair
     valid_counts = valid.sum(axis=1)
-    print(f"\nPaths found per node pair:")
+    print(f"\nVALID PATHS PER NODE PAIR (out of K={k} slots):")
     print(f"  Min: {valid_counts.min()}, Max: {valid_counts.max()}, "
           f"Mean: {valid_counts.mean():.1f}, Median: {np.median(valid_counts):.0f}")
     pairs_with_fewer = (valid_counts < k).sum()
-    print(f"  Pairs with fewer than {k} paths: {pairs_with_fewer}/{num_pairs}")
+    print(f"  Pairs with fewer than K={k} valid paths: {pairs_with_fewer}/{num_pairs}")
 
     # Per-pair min/max hops
     hops_masked = np.where(valid, hops, np.nan)
@@ -57,12 +57,14 @@ def analyze(topology_name, k):
     max_hops = np.nanmax(hops_masked, axis=1)
     hop_ratios = max_hops / min_hops
 
-    print(f"\nHops (per node pair):")
-    print(f"  Shortest path hops — Min: {np.nanmin(min_hops):.0f}, Max: {np.nanmax(min_hops):.0f}, "
-          f"Mean: {np.nanmean(min_hops):.1f}")
-    print(f"  Longest path hops  — Min: {np.nanmin(max_hops):.0f}, Max: {np.nanmax(max_hops):.0f}, "
-          f"Mean: {np.nanmean(max_hops):.1f}")
-    print(f"  Ratio (longest/shortest) — Min: {np.nanmin(hop_ratios):.2f}, "
+    print(f"\nHOP COUNT — shortest vs longest path per node pair:")
+    print(f"  (For each pair, 'shortest' = fewest hops among its K paths,")
+    print(f"   'longest' = most hops among its K paths)")
+    print(f"  Shortest path hops across all pairs — Min: {np.nanmin(min_hops):.0f}, "
+          f"Max: {np.nanmax(min_hops):.0f}, Mean: {np.nanmean(min_hops):.1f}")
+    print(f"  Longest path hops across all pairs  — Min: {np.nanmin(max_hops):.0f}, "
+          f"Max: {np.nanmax(max_hops):.0f}, Mean: {np.nanmean(max_hops):.1f}")
+    print(f"  Ratio (longest/shortest hops per pair) — Min: {np.nanmin(hop_ratios):.2f}, "
           f"Max: {np.nanmax(hop_ratios):.2f}, Mean: {np.nanmean(hop_ratios):.2f}")
 
     # Per-pair min/max distance
@@ -71,21 +73,24 @@ def analyze(topology_name, k):
     max_dist = np.nanmax(dist_masked, axis=1)
     dist_ratios = max_dist / min_dist
 
-    print(f"\nDistance (per node pair):")
-    print(f"  Shortest path dist — Min: {np.nanmin(min_dist):.0f}, Max: {np.nanmax(min_dist):.0f}, "
-          f"Mean: {np.nanmean(min_dist):.0f}")
-    print(f"  Longest path dist  — Min: {np.nanmin(max_dist):.0f}, Max: {np.nanmax(max_dist):.0f}, "
-          f"Mean: {np.nanmean(max_dist):.0f}")
-    print(f"  Ratio (longest/shortest) — Min: {np.nanmin(dist_ratios):.2f}, "
+    print(f"\nPATH DISTANCE (km) — shortest vs longest path per node pair:")
+    print(f"  (Distance = sum of link lengths along the path)")
+    print(f"  Shortest path distance across all pairs — Min: {np.nanmin(min_dist):.0f} km, "
+          f"Max: {np.nanmax(min_dist):.0f} km, Mean: {np.nanmean(min_dist):.0f} km")
+    print(f"  Longest path distance across all pairs  — Min: {np.nanmin(max_dist):.0f} km, "
+          f"Max: {np.nanmax(max_dist):.0f} km, Mean: {np.nanmean(max_dist):.0f} km")
+    print(f"  Ratio (longest/shortest dist per pair) — Min: {np.nanmin(dist_ratios):.2f}, "
           f"Max: {np.nanmax(dist_ratios):.2f}, Mean: {np.nanmean(dist_ratios):.2f}")
 
     # Distribution of hop ratios
-    print(f"\nHop ratio distribution:")
+    print(f"\nHOP RATIO DISTRIBUTION (longest K-th path hops / shortest path hops per pair):")
+    print(f"  Shows how many node pairs have a longest-to-shortest hop ratio exceeding each threshold.")
     for threshold in [1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 10.0]:
         count = (hop_ratios > threshold).sum()
         print(f"  Pairs with ratio > {threshold:4.1f}: {count:5d} ({100*count/num_pairs:.1f}%)")
 
-    print(f"\nDistance ratio distribution:")
+    print(f"\nDISTANCE RATIO DISTRIBUTION (longest path dist / shortest path dist per pair):")
+    print(f"  Shows how many node pairs have a longest-to-shortest distance ratio exceeding each threshold.")
     for threshold in [1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 10.0]:
         count = (dist_ratios > threshold).sum()
         print(f"  Pairs with ratio > {threshold:4.1f}: {count:5d} ({100*count/num_pairs:.1f}%)")
@@ -93,7 +98,8 @@ def analyze(topology_name, k):
     # Worst 10 node pairs by hop ratio
     worst_idx = np.argsort(hop_ratios)[::-1][:10]
     nodes = sorted(graph.nodes)
-    print(f"\nTop 10 worst node pairs by hop ratio:")
+    print(f"\nTOP 10 NODE PAIRS WITH HIGHEST HOP RATIO (longest path / shortest path):")
+    print(f"  These pairs have the greatest diversity between their shortest and K-th longest path.")
     print(f"  {'Src':>4} {'Dst':>4} {'MinHops':>8} {'MaxHops':>8} {'Ratio':>7} {'MinDist':>9} {'MaxDist':>9}")
     for idx in worst_idx:
         src = idx // (num_nodes - 1)
@@ -107,6 +113,11 @@ def analyze(topology_name, k):
     print(f"\n{'='*70}")
     print(f"DISTANCE CAP ANALYSIS (K={k})")
     print(f"{'='*70}")
+    print(f"What if we discard paths exceeding a maximum distance cap?")
+    print(f"For each cap, paths longer than the cap are removed. If ALL paths for a")
+    print(f"pair exceed the cap, the shortest path is kept regardless (to maintain")
+    print(f"connectivity). This shows how many paths would be pruned and how the")
+    print(f"longest-to-shortest ratios change after filtering.")
     for cap in [5000, 7500, 10000, 12500, 15000]:
         # For each pair: keep paths under cap, or just the shortest if shortest > cap
         # Count surviving paths per pair
@@ -170,6 +181,16 @@ def analyze(topology_name, k):
     print(f"\n{'='*70}")
     print(f"PATH DIVERSITY BY SHORTEST HOP COUNT (K={k})")
     print(f"{'='*70}")
+    print(f"Node pairs grouped by their shortest-path hop count (SP Hops).")
+    print(f"For each group:")
+    print(f"  Pairs       = number of node pairs whose shortest path has that many hops")
+    print(f"  MeanValid   = avg number of valid paths (out of K={k}) for pairs in this group")
+    print(f"  MeanMaxHops = avg hop count of the longest path for pairs in this group")
+    print(f"  MeanHopRatio  = avg ratio of longest/shortest path hops")
+    print(f"  MeanDistRatio = avg ratio of longest/shortest path distance")
+    print(f"  Paths<=Nx   = avg number of paths per pair within N times the shortest distance")
+    print(f"                (measures how many 'reasonable-length' alternatives exist)")
+    print()
     print(f"  {'SP Hops':>7} {'Pairs':>6} {'MeanValid':>10} {'MeanMaxHops':>12} "
           f"{'MeanHopRatio':>13} {'MeanDistRatio':>14} "
           f"{'Paths<=1.5x':>12} {'Paths<=2x':>10} {'Paths<=3x':>10}")
@@ -205,5 +226,13 @@ def analyze(topology_name, k):
 
 
 if __name__ == "__main__":
-    for k in K_VALUES:
-        analyze(TOPOLOGY, k)
+    parser = argparse.ArgumentParser(description="Analyze path lengths for topologies")
+    parser.add_argument("--topology", "-t", nargs="+", required=True,
+                        help="Topology names (e.g. usa100_directed tataind_directed)")
+    parser.add_argument("--k", nargs="+", type=int, default=[50, 100],
+                        help="K values to analyze (default: 50 100)")
+    args = parser.parse_args()
+
+    for topology_name in args.topology:
+        for k in args.k:
+            analyze(topology_name, k)

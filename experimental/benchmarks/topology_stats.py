@@ -132,7 +132,7 @@ def plot_topology_stats(
 
     # Build table data
     col_labels = ["Topology", "Nodes", "Links", "Avg Degree",
-                  "Avg Path Length (hops)", "Avg Path Length (km)"]
+                  "Avg Shortest Path Length (hops)", "Avg Shortest Path Length (km)"]
     cell_text = []
     for _, row in merged.iterrows():
         name = row["topology_name"]
@@ -217,7 +217,7 @@ def plot_heatmap_topology_stats(
 
     # Build table data
     col_labels = ["Topology", "Nodes", "Links", "Avg Deg.",
-                  "Avg Path\nLength (hops)", "Avg Path\nLength (km)"]
+                  "Avg Shortest\nPath Length (hops)", "Avg Shortest\nPath Length (km)"]
     cell_text = []
     for _, row in merged.iterrows():
         name = row["topology_name"]
@@ -276,6 +276,100 @@ def plot_heatmap_topology_stats(
     print(f"  Saved {out_path}")
 
 
+def plot_large_topology_table(
+    topo_stats_path: str | Path,
+    output_dir: str | Path = _BENCHMARKS_DIR / "figures",
+):
+    """Render a topology table for the large-topology experiments."""
+    topo_stats_path = Path(topo_stats_path)
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    if not topo_stats_path.exists():
+        print(f"  No topology_stats.csv found at {topo_stats_path}, skipping large topology table")
+        return
+
+    topo_stats = pd.read_csv(topo_stats_path)
+
+    # Fixed topology list in desired order
+    large_topos = [
+        "nsfnet_deeprmsa_directed",
+        "cost239_deeprmsa_directed",
+        "usnet_ptrnet_directed",
+        "jpn48_directed",
+        "usa100_directed",
+        "tataind_directed",
+    ]
+    merged = topo_stats[topo_stats["topology_name"].isin(large_topos)].copy()
+    if merged.empty:
+        print("  No large topologies found in stats")
+        return
+
+    # Preserve specified order
+    merged["_order"] = merged["topology_name"].map({t: i for i, t in enumerate(large_topos)})
+    merged = merged.sort_values("_order")
+
+    # Build table data
+    col_labels = ["Topology", "Nodes", "Directed\nLinks", "Avg\nDegree",
+                  "Avg Shortest\nPath Length\n(hops)", "Avg Shortest\nPath Length\n(km)"]
+    cell_text = []
+    for _, row in merged.iterrows():
+        name = row["topology_name"]
+        fallback = name.replace("_directed", "").replace("_", " ").upper()
+        display = TOPOLOGY_DISPLAY.get(name, fallback)
+        avg_path_km = row["avg_path_length"] * row["avg_link_distance_km"]
+        cell_text.append([
+            display,
+            str(int(row["num_nodes"])),
+            str(int(row["num_edges"])),
+            f"{row['avg_degree'] / 2:.2f}",
+            f"{row['avg_path_length']:.2f}",
+            f"{avg_path_km:.0f}",
+        ])
+
+    fig, ax = plt.subplots(figsize=(6, 1.4 + 0.22 * len(cell_text)))
+    ax.axis("off")
+
+    table = ax.table(
+        cellText=cell_text,
+        colLabels=col_labels,
+        loc="center",
+        cellLoc="center",
+    )
+    table.auto_set_font_size(False)
+    table.set_fontsize(8)
+    table.scale(1, 1.2)
+
+    # Compact column widths
+    col_widths = [0.14, 0.08, 0.10, 0.10, 0.18, 0.18]
+    n_rows = len(cell_text) + 1  # +1 for header
+    for j, w in enumerate(col_widths):
+        for i in range(n_rows):
+            table[i, j].set_width(w)
+
+    # Make header row taller for three-line labels
+    for j in range(len(col_labels)):
+        table[0, j].set_height(table[0, j].get_height() * 2.4)
+
+    # Style header row
+    for j in range(len(col_labels)):
+        cell = table[0, j]
+        cell.set_facecolor(TABLE_HEADER_COLOR)
+        cell.set_text_props(color="white", fontweight="bold")
+
+    # Alternate row shading
+    for i in range(len(cell_text)):
+        color = TABLE_ROW_ALT_COLOR if i % 2 == 0 else "white"
+        for j in range(len(col_labels)):
+            table[i + 1, j].set_facecolor(color)
+
+    fig.tight_layout()
+    out_path = output_dir / "large_topology_table.png"
+    fig.savefig(out_path)
+    plt.close(fig)
+    print(f"  Saved {out_path}")
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Compute XLRON topology graph statistics")
     parser.add_argument("--output", default="experimental/benchmarks/results/topology_stats.csv", help="Output CSV path")
@@ -294,3 +388,4 @@ if __name__ == "__main__":
     configure_style()
     plot_topology_stats(topo_stats_path=args.output, output_dir=args.figures_dir)
     plot_heatmap_topology_stats(topo_stats_path=args.output, output_dir=args.figures_dir)
+    plot_large_topology_table(topo_stats_path=args.output, output_dir=args.figures_dir)

@@ -1,10 +1,10 @@
-"""Run FF-KSP heuristic on usa100_directed with K=70 and analyze
-the hop/distance ratios of chosen paths vs shortest paths.
+"""Run heuristic and analyze the hop/distance ratios of chosen paths vs shortest paths.
 
 Step 1: Run the heuristic eval with --log_actions --TRAJ_DATA_OUTPUT_FILE
 Step 2: Analyze the output CSV
 """
 
+import argparse
 import subprocess
 import sys
 import numpy as np
@@ -15,37 +15,44 @@ from xlron.environments.env_funcs import (
     init_path_link_array, init_link_length_array, make_graph,
 )
 
-TOPOLOGY = "usa100_directed"
-K = 70
-TRAJ_FILE = "experimental/usa100_k70_ff_ksp_traj.csv"
+BASE_DIR = "experimental/large_topologies/analyze_path_actions"
 
-TOPOLOGY = "tataind_directed"
-K = 90
-TRAJ_FILE = "experimental/tataind_k90_ff_ksp_traj.csv"
+TOPOLOGIES = {
+    "usa100": {"name": "usa100_directed", "k": 70, "load": 620},
+    "tataind": {"name": "tataind_directed", "k": 90, "load": 450},
+}
+
+HEURISTICS = ["ff_ksp", "ksp_ff"]
 
 
-def run_heuristic():
+def traj_filename(topo_key, heuristic):
+    """Return trajectory file path for a topology/heuristic combo."""
+    topo = TOPOLOGIES[topo_key]
+    return f"{BASE_DIR}/{topo['name'].replace('_directed', '')}_k{topo['k']}_{heuristic}_traj.csv"
+
+
+def run_heuristic(topology_name, k, heuristic, load, traj_file):
     """Run the heuristic eval and save trajectory data."""
     cmd = [
         sys.executable, "-m", "xlron.train.train",
         "--env_type=rmsa",
-        f"--topology_name={TOPOLOGY}",
+        f"--topology_name={topology_name}",
         "--link_resources=320",
         "--slot_size=12.5",
         "--guardband=1",
         "--values_bw=100",
         "--mean_service_holding_time=25",
         "--continuous_operation",
-        f"--k={K}",
-        "--path_heuristic=ff_ksp",
+        f"--k={k}",
+        f"--path_heuristic={heuristic}",
         "--EVAL_HEURISTIC",
-        "--load=250",
+        f"--load={load}",
         "--NUM_ENVS=1",
         "--TOTAL_TIMESTEPS=100000",
         "--STEPS_PER_INCREMENT=100000",
         "--ROLLOUT_LENGTH=128",
         "--log_actions",
-        f"--TRAJ_DATA_OUTPUT_FILE={TRAJ_FILE}",
+        f"--TRAJ_DATA_OUTPUT_FILE={traj_file}",
     ]
     print(f"Running: {' '.join(cmd)}")
     result = subprocess.run(cmd, capture_output=False)
@@ -54,17 +61,17 @@ def run_heuristic():
         sys.exit(1)
 
 
-def analyze():
+def analyze(topology_name, k, traj_file, heuristic="ff_ksp"):
     """Analyze the trajectory data."""
-    df = pd.read_csv(TRAJ_FILE)
+    df = pd.read_csv(traj_file)
     print(f"\nLoaded trajectory data: {len(df)} actions")
     print(f"Columns: {list(df.columns)}")
 
     # Get path arrays for shortest path comparison
-    graph = make_graph(TOPOLOGY)
+    graph = make_graph(topology_name)
     link_length_array = np.asarray(init_link_length_array(graph), dtype=np.float64)
     pla_full = init_path_link_array(
-        graph, K, directed=True, topology_name=TOPOLOGY,
+        graph, k, directed=True, topology_name=topology_name,
         cache_dir="xlron/data/topologies/ksp",
         path_sort_criteria="spectral_resources",
     )
@@ -76,8 +83,8 @@ def analyze():
 
     num_nodes = graph.number_of_nodes()
     num_pairs = num_nodes * (num_nodes - 1)
-    all_distances_by_pair = all_distances.reshape(num_pairs, K)
-    all_hops_by_pair = all_hops.reshape(num_pairs, K)
+    all_distances_by_pair = all_distances.reshape(num_pairs, k)
+    all_hops_by_pair = all_hops.reshape(num_pairs, k)
     shortest_dist_by_pair = all_distances_by_pair[:, 0]
     shortest_hops_by_pair = all_hops_by_pair[:, 0]
 
@@ -88,8 +95,8 @@ def analyze():
     num_hops = df["num_hops"].values
 
     # Compute pair index and relative path index
-    pair_indices = path_indices // K
-    relative_path_indices = path_indices % K
+    pair_indices = path_indices // k
+    relative_path_indices = path_indices % k
 
     # Get shortest path stats for each action
     sp_dist = shortest_dist_by_pair[pair_indices]
@@ -114,7 +121,7 @@ def analyze():
     print(f"Accepted actions: {accepted.sum()} ({100*accepted.sum()/len(path_indices):.1f}%)")
 
     print(f"\n{'='*70}")
-    print(f"ACTION PATH RATIO ANALYSIS (FF-KSP, K={K})")
+    print(f"ACTION PATH RATIO ANALYSIS ({heuristic.upper().replace('_', '-')}, {topology_name}, K={k})")
     print(f"{'='*70}")
 
     for label, mask in [("All valid", np.ones(len(rpi), dtype=bool)), ("Accepted only", acc)]:
@@ -141,9 +148,11 @@ def analyze():
 
         # Distribution of relative path index
         print(f"\nRelative path index distribution:")
-        for threshold in [0, 1, 2, 3, 4, 5, 10, 15, 20, 30, 40, 50, 60, 69]:
-            if threshold >= K:
-                break
+        rpi_thresholds = sorted(set([0, 1, 2, 3, 4, 5, 10, 15, 20, 30, 40, 50, 60, 70, 80, 90, 100]) & set(range(k)))
+        if k - 1 not in rpi_thresholds:
+            rpi_thresholds.append(k - 1)
+            rpi_thresholds.sort()
+        for threshold in rpi_thresholds:
             count = (r == threshold).sum()
             cum_count = (r <= threshold).sum()
             print(f"  Path {threshold:>3}: {count:>7} ({100*count/len(r):.2f}%)  "
@@ -180,18 +189,76 @@ def analyze():
     print(f"\n{'='*70}")
     print(f"ACCEPTED ACTIONS USING PATH INDEX >= K_THRESHOLD")
     print(f"{'='*70}")
-    for k_thresh in [5, 10, 15, 20, 30, 40, 50, 60, 70]:
-        if k_thresh > K:
-            break
+    thresholds = sorted(set([5, 10, 15, 20, 30, 40, 50, 60, 70, 80, 90, 100]) & set(range(1, k + 1)))
+    if k not in thresholds:
+        thresholds.append(k)
+        thresholds.sort()
+    for k_thresh in thresholds:
         count = (rpi_acc >= k_thresh).sum()
         print(f"  Actions using path >= {k_thresh:>3}: {count:>7} ({100*count/len(rpi_acc):.2f}%)")
 
+    # Distance distribution of accepted actions (250 km buckets)
+    acc_dist = path_lengths[valid][acc]
+    acc_hops = num_hops[valid][acc]
+    n_acc = len(acc_dist)
+
+    print(f"\n{'='*70}")
+    print(f"ACCEPTED PATH DISTANCE DISTRIBUTION (250 km buckets)")
+    print(f"{'='*70}")
+    dist_bucket_size = 250
+    max_dist = int(np.ceil(acc_dist.max() / dist_bucket_size) * dist_bucket_size)
+    cum = 0
+    print(f"  {'Distance (km)':>20} {'Count':>8} {'%':>7} {'Cumul %':>8}")
+    for lo in range(0, max_dist, dist_bucket_size):
+        hi = lo + dist_bucket_size
+        count = ((acc_dist >= lo) & (acc_dist < hi)).sum()
+        cum += count
+        if count > 0:
+            print(f"  {lo:>8} - {hi:>6}    {count:>8} {100*count/n_acc:>6.2f}% {100*cum/n_acc:>7.1f}%")
+    print(f"\n  Summary: Min={acc_dist.min():.0f} km, Max={acc_dist.max():.0f} km, "
+          f"Mean={acc_dist.mean():.0f} km, Median={np.median(acc_dist):.0f} km, "
+          f"P95={np.percentile(acc_dist, 95):.0f} km, P99={np.percentile(acc_dist, 99):.0f} km")
+
+    # Hop count distribution of accepted actions
+    print(f"\n{'='*70}")
+    print(f"ACCEPTED PATH HOP COUNT DISTRIBUTION")
+    print(f"{'='*70}")
+    cum = 0
+    print(f"  {'Hops':>6} {'Count':>8} {'%':>7} {'Cumul %':>8}")
+    for h in range(1, int(acc_hops.max()) + 1):
+        count = (acc_hops == h).sum()
+        cum += count
+        if count > 0:
+            print(f"  {h:>6}   {count:>8} {100*count/n_acc:>6.2f}% {100*cum/n_acc:>7.1f}%")
+    print(f"\n  Summary: Min={acc_hops.min():.0f}, Max={acc_hops.max():.0f}, "
+          f"Mean={acc_hops.mean():.1f}, Median={np.median(acc_hops):.0f}, "
+          f"P95={np.percentile(acc_hops, 95):.0f}, P99={np.percentile(acc_hops, 99):.0f}")
+
 
 if __name__ == "__main__":
-    traj_path = Path(TRAJ_FILE)
-    if not traj_path.exists():
-        print("Trajectory file not found, running heuristic eval first...")
-        run_heuristic()
-    else:
-        print(f"Using existing trajectory file: {TRAJ_FILE}")
-    analyze()
+    parser = argparse.ArgumentParser(description="Analyze heuristic action path ratios")
+    parser.add_argument("--topology", "-t", nargs="+", choices=list(TOPOLOGIES.keys()),
+                        default=list(TOPOLOGIES.keys()),
+                        help="Topologies to analyze (default: all)")
+    parser.add_argument("--heuristic", "-H", nargs="+", choices=HEURISTICS,
+                        default=HEURISTICS,
+                        help="Heuristics to analyze (default: all)")
+    parser.add_argument("--rerun", action="store_true",
+                        help="Force re-run heuristic even if trajectory file exists")
+    args = parser.parse_args()
+
+    for topo_key in args.topology:
+        topo = TOPOLOGIES[topo_key]
+        topo_name, k, load = topo["name"], topo["k"], topo["load"]
+        for heuristic in args.heuristic:
+            traj_file = traj_filename(topo_key, heuristic)
+            print(f"\n{'#'*70}")
+            print(f"# {topo_name} (K={k}) — {heuristic.upper().replace('_', '-')}, load={load}")
+            print(f"{'#'*70}")
+            traj_path = Path(traj_file)
+            if args.rerun or not traj_path.exists():
+                print("Trajectory file not found (or --rerun), running heuristic eval...")
+                run_heuristic(topo_name, k, heuristic, load, traj_file)
+            else:
+                print(f"Using existing trajectory file: {traj_file}")
+            analyze(topo_name, k, traj_file, heuristic)

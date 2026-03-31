@@ -409,7 +409,7 @@ if __name__ == '__main__':
     new_cutset_data = new_cutset_data.sort_values('load').reset_index(drop=True)
     new_transformer_data = new_transformer_data.sort_values('load').reset_index(drop=True)
 
-    new_heur_data = compute_bands(new_heur_data, n=2000)      # NUM_ENVS=2000
+    new_heur_data = compute_bands(new_heur_data, n=200)       # NUM_ENVS=200
     new_reconfig_data = compute_bands(new_reconfig_data, n=10)  # num_trials=10
     new_cutset_data = compute_bands(new_cutset_data, n=10)      # num_trials=10
     new_transformer_data = compute_bands(new_transformer_data, n=200)  # NUM_ENVS=200

@@ -122,8 +122,11 @@ def generate_summary_table(
     cutset_data: dict,
     rr_data: dict,
     topologies: list[dict],
+    cutset_top1pct_data: dict | None = None,
 ) -> pd.DataFrame:
     """Generate the main summary table with interpolated loads at 0.1% blocking."""
+    if cutset_top1pct_data is None:
+        cutset_top1pct_data = {}
     heur_selection = load_heuristic_selection()
     rows = []
     for topo in topologies:
@@ -149,6 +152,11 @@ def generate_summary_table(
             cutset_load = find_load_at_blocking(cutset_data[name])
         row["cutset_load_01pct"] = round(cutset_load, 1) if cutset_load else None
 
+        cutset_1pct_load = None
+        if name in cutset_top1pct_data:
+            cutset_1pct_load = find_load_at_blocking(cutset_top1pct_data[name])
+        row["cutset_1pct_load_01pct"] = round(cutset_1pct_load, 1) if cutset_1pct_load else None
+
         rr_load = None
         if name in rr_data:
             rr_load = find_load_at_blocking(rr_data[name])
@@ -159,6 +167,11 @@ def generate_summary_table(
             row["gap_cutset_pct"] = round(100 * (cutset_load - heur_load) / heur_load, 1)
         else:
             row["gap_cutset_pct"] = None
+
+        if heur_load and cutset_1pct_load:
+            row["gap_cutset_1pct_pct"] = round(100 * (cutset_1pct_load - heur_load) / heur_load, 1)
+        else:
+            row["gap_cutset_1pct_pct"] = None
 
         if heur_load and rr_load:
             row["gap_rr_pct"] = round(100 * (rr_load - heur_load) / heur_load, 1)
@@ -173,50 +186,37 @@ def generate_summary_table(
 
 
 def plot_gap_scatter(df: pd.DataFrame, figures_dir: Path):
-    """Plot gap analysis: separate scatter figures for RR and cut-set bounds."""
-    # Figure 1: RR bound gap vs topology properties
-    fig, axes = plt.subplots(1, 3, figsize=(18, 6))
-    rr_configs = [
-        (axes[0], "nodes", "Number of nodes", "RR Gap vs Network Size"),
-        (axes[1], "avg_degree", "Average degree", "RR Gap vs Connectivity"),
-        (axes[2], "avg_path_length", "Average path length (hops)", "RR Gap vs Path Length"),
+    """Plot gap analysis: combined scatter with RR, cutset-256, and cutset top-1% bounds."""
+    series = [
+        ("gap_rr_pct", "Resource-prioritized\ndefragmentation", PALETTE[2]),  # purple
+        ("gap_cutset_pct", "Cut-set (top 256)", PALETTE[1]),  # coral
+        ("gap_cutset_1pct_pct", "Cut-set (top 1%)", PALETTE[3]),  # orange
     ]
-    for i, (ax, xcol, xlabel, title) in enumerate(rr_configs):
-        valid = df.dropna(subset=["gap_rr_pct"])
-        if valid.empty:
-            ax.set_title("No data")
-            continue
-        ax.scatter(valid[xcol], valid["gap_rr_pct"], alpha=0.7, s=60,
-                   color=PALETTE[i], edgecolor="white", linewidth=0.5)
-        ax.set_xlabel(xlabel)
-        ax.set_ylabel("RR bound gap (%)")
-        ax.set_title(title)
-    plt.tight_layout()
-    plt.savefig(figures_dir / "bounds_gap_scatter_rr.png")
-    plt.close()
-    print(f"  Saved {figures_dir / 'bounds_gap_scatter_rr.png'}")
+    x_configs = [
+        ("nodes", "Number of nodes"),
+        ("avg_degree", "Average node degree"),
+        ("avg_path_length", "Average path length (hops)"),
+    ]
 
-    # Figure 2: Cut-set bound gap vs topology properties
-    fig, axes = plt.subplots(1, 3, figsize=(18, 6))
-    cutset_configs = [
-        (axes[0], "nodes", "Number of nodes", "Cut-set Gap vs Network Size"),
-        (axes[1], "avg_degree", "Average degree", "Cut-set Gap vs Connectivity"),
-        (axes[2], "avg_path_length", "Average path length (hops)", "Cut-set Gap vs Path Length"),
-    ]
-    for i, (ax, xcol, xlabel, title) in enumerate(cutset_configs):
-        valid = df.dropna(subset=["gap_cutset_pct"])
-        if valid.empty:
-            ax.set_title("No data")
-            continue
-        ax.scatter(valid[xcol], valid["gap_cutset_pct"], alpha=0.7, s=60,
-                   color=PALETTE[i], edgecolor="white", linewidth=0.5)
-        ax.set_xlabel(xlabel)
-        ax.set_ylabel("Cut-set bound gap (%)")
-        ax.set_title(title)
+    fig, axes = plt.subplots(1, 3, figsize=(18, 6), sharey=True)
+    for j, (xcol, xlabel) in enumerate(x_configs):
+        ax = axes[j]
+        for gap_col, label, color in series:
+            valid = df.dropna(subset=[gap_col])
+            if valid.empty:
+                continue
+            ax.scatter(valid[xcol], valid[gap_col], alpha=0.5, s=30,
+                       color=color, edgecolor="white", linewidth=0.3, label=label)
+        ax.set_xlabel(xlabel, fontsize=16)
+        ax.tick_params(labelsize=14)
+        if j == 0:
+            ax.set_ylabel(r"$\Delta$ Network Capacity (%)", fontsize=16)
+        if j == 2:
+            ax.legend(fontsize=14)
     plt.tight_layout()
-    plt.savefig(figures_dir / "bounds_gap_scatter_cutset.png")
+    plt.savefig(figures_dir / "bounds_gap_scatter.png")
     plt.close()
-    print(f"  Saved {figures_dir / 'bounds_gap_scatter_cutset.png'}")
+    print(f"  Saved {figures_dir / 'bounds_gap_scatter.png'}")
 
 
 def plot_bounds_overview(df: pd.DataFrame, figures_dir: Path):
@@ -465,10 +465,7 @@ def plot_all_bounds_normalized(
                label="Resource-prioritized defragmentation", color=PALETTE[2], edgecolor="white", linewidth=0.5)
 
     ax.axhline(y=0, color="black", linewidth=0.8, linestyle="-")
-    ax.set_xlabel("Topology")
-    ax.set_ylabel("Load difference from heuristic (%)")
-    order_label = "(by number of edges)" if sort_by == "edges" else "(alphabetical)"
-    ax.set_title(f"All Bounds Relative to Best Heuristic {order_label}")
+    ax.set_ylabel(r"$\Delta$ Network Capacity (%)", fontsize=16)
     ax.set_xticks(x)
     ax.set_xticklabels(
         [n.replace("_directed", "") for n in valid["topology"]],
@@ -476,7 +473,7 @@ def plot_all_bounds_normalized(
         ha="right",
         fontsize=8,
     )
-    ax.legend()
+    ax.legend(fontsize=14)
 
     plt.tight_layout()
     fname = f"all_bounds_normalized_{suffix}.png"
@@ -730,7 +727,7 @@ def print_heuristic_selection_table(df: pd.DataFrame):
 
 
 def plot_heuristic_selection(df: pd.DataFrame, figures_dir: Path):
-    """Plot heuristic selection summary: bar chart + topology property comparison."""
+    """Plot heuristic selection: histograms of topology properties by best heuristic."""
     ff_ksp = df[df["heuristic_used"] == "ff_ksp"]
     ksp_ff = df[df["heuristic_used"] == "ksp_ff"]
     n_ff = len(ff_ksp)
@@ -739,47 +736,32 @@ def plot_heuristic_selection(df: pd.DataFrame, figures_dir: Path):
     color_ksp = PALETTE[0]  # teal
     color_ff = PALETTE[1]   # coral
 
-    fig, axes = plt.subplots(1, 3, figsize=(18, 6),
-                             gridspec_kw={"width_ratios": [1, 1.5, 1.5]})
+    hist_configs = [
+        ("nodes", "Number of nodes", np.arange(0, df["nodes"].max() + 10, 10)),
+        ("avg_degree", "Average node degree", np.arange(0, df["avg_degree"].max() + 1, 0.5)),
+        ("avg_path_length", "Average path length (hops)",
+         np.arange(0, df["avg_path_length"].max() + 0.5, 0.5)),
+    ]
 
-    # Panel 1: Count bar chart
-    ax = axes[0]
-    bars = ax.bar(["KSP-FF", "FF-KSP"], [n_ksp, n_ff],
-                  color=[color_ksp, color_ff], edgecolor="white", linewidth=0.5)
-    for bar, count in zip(bars, [n_ksp, n_ff]):
-        ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.5,
-                str(count), ha="center", va="bottom", fontweight="bold")
-    ax.set_title("Best Heuristic Selection")
-    ax.set_ylim(0, max(n_ksp, n_ff, 1) * 1.15)
-
-    # Panel 2: Node count distribution by heuristic
-    ax = axes[1]
-    bins = np.arange(0, df["nodes"].max() + 10, 10)
-    if not ksp_ff.empty:
-        ax.hist(ksp_ff["nodes"], bins=bins, alpha=0.6, color=color_ksp,
-                label="KSP-FF", edgecolor="white", linewidth=0.5)
-    if not ff_ksp.empty:
-        ax.hist(ff_ksp["nodes"], bins=bins, alpha=0.6, color=color_ff,
-                label="FF-KSP", edgecolor="white", linewidth=0.5)
-    ax.set_xlabel("Number of nodes")
-    ax.set_title("Node Count Distribution by Heuristic")
-    ax.legend()
-
-    # Panel 3: Avg degree distribution by heuristic
-    ax = axes[2]
-    bins_deg = np.arange(0, df["avg_degree"].max() + 1, 0.5)
-    if not ksp_ff.empty:
-        ax.hist(ksp_ff["avg_degree"], bins=bins_deg, alpha=0.6, color=color_ksp,
-                label="KSP-FF", edgecolor="white", linewidth=0.5)
-    if not ff_ksp.empty:
-        ax.hist(ff_ksp["avg_degree"], bins=bins_deg, alpha=0.6, color=color_ff,
-                label="FF-KSP", edgecolor="white", linewidth=0.5)
-    ax.set_xlabel("Average node degree")
-    ax.set_title("Avg Degree Distribution by Heuristic")
-    ax.legend()
-
-    # Shared y-axis label
-    fig.supylabel("Number of topologies")
+    fig, axes = plt.subplots(1, 3, figsize=(18, 6))
+    for j, (col, xlabel, bins) in enumerate(hist_configs):
+        ax = axes[j]
+        if bins is None:
+            bins = 15
+        if not ksp_ff.empty:
+            ax.hist(ksp_ff[col], bins=bins, alpha=0.6, color=color_ksp,
+                    edgecolor="white", linewidth=0.5,
+                    label=f"KSP-FF ({n_ksp} topologies)")
+        if not ff_ksp.empty:
+            ax.hist(ff_ksp[col], bins=bins, alpha=0.6, color=color_ff,
+                    edgecolor="white", linewidth=0.5,
+                    label=f"FF-KSP ({n_ff} topologies)")
+        ax.set_xlabel(xlabel, fontsize=16)
+        ax.tick_params(labelsize=14)
+        if j == 0:
+            ax.set_ylabel("Number of topologies", fontsize=16)
+        if j == 2:
+            ax.legend(fontsize=14)
 
     plt.tight_layout()
     plt.savefig(figures_dir / "heuristic_selection.png")
@@ -819,7 +801,7 @@ def main():
 
     # Generate summary table
     print("\nGenerating summary table...")
-    df = generate_summary_table(heuristic_data, cutset_data, rr_data, topologies)
+    df = generate_summary_table(heuristic_data, cutset_data, rr_data, topologies, cutset_top1pct_data)
     table_path = RESULTS_DIR / "summary_table.csv"
     df.to_csv(table_path, index=False)
     print(f"  Saved {table_path}")
