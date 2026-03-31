@@ -628,7 +628,7 @@ flags.DEFINE_string(
 )
 flags.DEFINE_string(
     "transformer_actor_pooling",
-    "sum",
+    "mean",
     "Pooling strategy for actor: 'sum' (default) or 'min_mean_max' (concatenate min/mean/max then project)",
 )
 
