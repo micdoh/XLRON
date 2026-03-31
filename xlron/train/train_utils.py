@@ -696,7 +696,10 @@ def load_model(config: Box, key: chex.PRNGKey) -> eqx.Module:
     try:
         with open(config.MODEL_PATH, "rb") as f:
             # First line of the file is hyperparams of model
-            hyperparams = Box(json.loads(f.readline().decode()))
+            # Merge with current config so new flags get their defaults
+            merged = Box(config.to_dict())
+            merged.update(json.loads(f.readline().decode()))
+            hyperparams = merged
             model = init_network(config=hyperparams, key=key)
             model_loaded = eqx.tree_deserialise_leaves(f, model)
     except UnicodeDecodeError:
