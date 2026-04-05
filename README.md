@@ -165,7 +165,6 @@ See the full **[Capacity Bound Estimation](https://micdoh.github.io/XLRON/capaci
 | `rwa` | Routing and Wavelength Assignment (convenience wrapper: unit bandwidth, slot size 1) |
 | `deeprmsa` | DeepRMSA-compatible observation/action space |
 | `rwa_lightpath_reuse` | RWA with lightpath reuse |
-| `vone` | Virtual Optical Network Embedding |
 | `rsa_gn_model` / `rmsa_gn_model` | With GN model physical layer impairments |
 | `rsa_multiband` | Multi-band transmission |
 
