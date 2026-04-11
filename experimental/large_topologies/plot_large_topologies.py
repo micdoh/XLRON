@@ -150,7 +150,8 @@ def plot_path_boxplots():
     colors = []
 
     for topo, tinfo, method, minfo, df in data_entries:
-        labels.append(f"{tinfo['display']}\n{minfo['display']}")
+        method_label = minfo["display"].replace("Transformer", "Trans.")
+        labels.append(f"{tinfo['display']}\n{method_label}")
         path_lengths.append(df["path_length"].values)
         num_hops.append(df["num_hops"].values)
         colors.append(minfo["color"])
@@ -613,7 +614,7 @@ ABLATIONS = {
     "nodamping": {"display": "No Damping", "color": PRIMARY_COLORS[0]},
     "nogating": {"display": "No Gating", "color": ACCENT_COLORS[3]},
     "nogating_nodamping": {"display": "No Gating +\nNo Damping", "color": PRIMARY_COLORS[2]},
-    "novml": {"display": "No VML", "color": "#4A2870"},
+    "novml": {"display": "No VML", "color": "#B8860B"},
 }
 
 FFKSP_LABELS = {
@@ -682,17 +683,21 @@ def _plot_ablation_panel(ax, topo: str):
 
 
 def plot_ablation_blocking():
-    fig, axes = plt.subplots(1, 2, figsize=(28, 8), sharey=True)
+    fig, axes = plt.subplots(1, 2, figsize=(28, 10.5), sharey=True)
 
     for col, topo in enumerate(["tataind", "usa100"]):
         _plot_ablation_panel(axes[col], topo)
         axes[col].set_xlabel("Training Episode")
 
     axes[0].set_ylabel("Bitrate Blocking Probability (%)")
-    axes[1].legend(loc="upper left", bbox_to_anchor=(1.02, 1.0))
+    # Collect legend handles/labels from the second panel (has all entries)
+    handles, labels = axes[1].get_legend_handles_labels()
+    fig.legend(handles, labels, loc="lower center", ncol=len(handles),
+               bbox_to_anchor=(0.5, -0.01), fontsize=FS_LEGEND,
+               columnspacing=1.0, handletextpad=0.4)
     plt.tight_layout()
-    fig.subplots_adjust(right=0.82)
-    fig.savefig(FIGURES / "ablation_blocking.png")
+    fig.subplots_adjust(bottom=0.23)
+    fig.savefig(FIGURES / "ablation_blocking.png", bbox_inches="tight")
     plt.close(fig)
     print("  -> ablation_blocking")
 
@@ -782,16 +787,19 @@ def _plot_loss_panel(ax, topo: str):
 
 
 def plot_loss_components():
-    fig, axes = plt.subplots(1, 2, figsize=(28, 8), sharey=True)
+    fig, axes = plt.subplots(1, 2, figsize=(28, 10), sharey=True)
     for col, topo in enumerate(["tataind", "usa100"]):
         _plot_loss_panel(axes[col], topo)
     axes[0].set_xlabel("Update Step")
     axes[0].set_ylabel("Loss")
     axes[1].set_xlabel("Update Step")
-    axes[1].legend(loc="upper left", bbox_to_anchor=(1.02, 1.0))
+    # Collect legend handles/labels from either panel
+    handles, labels = axes[1].get_legend_handles_labels()
+    fig.legend(handles, labels, loc="lower center", ncol=len(handles),
+               bbox_to_anchor=(0.5, -0.01), fontsize=FS_LEGEND)
     plt.tight_layout()
-    fig.subplots_adjust(right=0.82)
-    fig.savefig(FIGURES / "loss_components.png")
+    fig.subplots_adjust(bottom=0.20)
+    fig.savefig(FIGURES / "loss_components.png", bbox_inches="tight")
     plt.close(fig)
     print("  -> loss_components")
 
