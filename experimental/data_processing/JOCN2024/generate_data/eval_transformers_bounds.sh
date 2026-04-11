@@ -1,7 +1,7 @@
 #!/bin/bash
 
 EVAL_PATH="./xlron/train/train.py"
-OUTPUT_FILE="experiment_results_transformer_eval_bounds_td_nsfnet.jsonl"
+OUTPUT_FILE="experiment_results_transformer_eval_bounds.jsonl"
 
 # Clear output file
 > $OUTPUT_FILE
@@ -52,47 +52,47 @@ args="--env_type rmsa --link_resources 100 --mean_service_holding_time 20 --trun
 # NSFNET DeepRMSA (nsfnet_deeprmsa_directed) - note: 4 heads for this model
 run_experiment "DeepRMSA" "nsfnet_deeprmsa_directed" 150 300 10 "$k" "./td_nsfnet_5.eqx" 4 100 "$args"
 
-# # COST239 DeepRMSA (cost239_deeprmsa_directed)
-# run_experiment "DeepRMSA" "cost239_deeprmsa_directed" 400 670 10 "$k" "./cost239_deeprmsa_13.eqx" 8 50 "$args"
+# COST239 DeepRMSA (cost239_deeprmsa_directed)
+run_experiment "DeepRMSA" "cost239_deeprmsa_directed" 400 670 10 "$k" "./cost239_deeprmsa_13.eqx" 8 50 "$args"
 
-# # USNET GCN-RMSA (usnet_gcnrnn_directed)
-# run_experiment "GCN-RMSA" "usnet_gcnrnn_directed" 310 540 10 "$k" "./usnet_2.eqx" 8 20 "$args"
+# USNET GCN-RMSA (usnet_gcnrnn_directed)
+run_experiment "GCN-RMSA" "usnet_gcnrnn_directed" 310 540 10 "$k" "./usnet_2.eqx" 8 20 "$args"
 
-# MaskRSA Experiments (env_type=rmsa, link_resources=80)
-# args="--env_type rmsa --link_resources 80 --max_bw 50 --guardband 0 --slot_size 12.5 --mean_service_holding_time 12"
+MaskRSA Experiments (env_type=rmsa, link_resources=80)
+args="--env_type rmsa --link_resources 80 --max_bw 50 --guardband 0 --slot_size 12.5 --mean_service_holding_time 12"
 
-# # NSFNET MaskRSA (nsfnet_deeprmsa_undirected) - note: 4 heads for this model
-# run_experiment "MaskRSA" "nsfnet_deeprmsa_undirected" 80 175 5 "$k" "./nsfnet_maskrsa_43_1.eqx" 4 20 "$args"
+# NSFNET MaskRSA (nsfnet_deeprmsa_undirected) - note: 4 heads for this model
+run_experiment "MaskRSA" "nsfnet_deeprmsa_undirected" 80 175 5 "$k" "./nsfnet_maskrsa_43_1.eqx" 4 20 "$args"
 
-# JPN48 MaskRSA (jpn48_undirected)
-# run_experiment "MaskRSA" "jpn48_undirected" 150 280 10 "$k" "./jpn48_maskrsa_20_4.eqx" 8 20 "$args"
+JPN48 MaskRSA (jpn48_undirected)
+run_experiment "MaskRSA" "jpn48_undirected" 150 280 10 "$k" "./jpn48_maskrsa_20_4.eqx" 8 20 "$args"
 
-# # PtrNet-RSA-40 Experiments (env_type=rsa, link_resources=40)
-# base_args="--env_type rsa --slot_size 1 --guardband 0 --mean_service_holding_time 10"
+# PtrNet-RSA-40 Experiments (env_type=rsa, link_resources=40)
+base_args="--env_type rsa --slot_size 1 --guardband 0 --mean_service_holding_time 10"
 
-# # NSFNET PtrNet-RSA-40
-# args="$base_args --link_resources 40 --values_bw 1"
-# run_experiment "PtrNet-RSA-40" "nsfnet_deeprmsa_undirected" 200 270 10 "$k" "./nsfnet_rsa40.eqx" 8 20 "$args"
+# NSFNET PtrNet-RSA-40
+args="$base_args --link_resources 40 --values_bw 1"
+run_experiment "PtrNet-RSA-40" "nsfnet_deeprmsa_undirected" 200 270 10 "$k" "./nsfnet_rsa40.eqx" 8 20 "$args"
 
-# # COST239 PtrNet-RSA-40
-# args="$base_args --link_resources 40 --values_bw 1"
-# run_experiment "PtrNet-RSA-40" "cost239_ptrnet_real_undirected" 420 500 10 "$k" "./cost239_rsa40.eqx" 8 20 "$args"
+# COST239 PtrNet-RSA-40
+args="$base_args --link_resources 40 --values_bw 1"
+run_experiment "PtrNet-RSA-40" "cost239_ptrnet_real_undirected" 420 500 10 "$k" "./cost239_rsa40.eqx" 8 20 "$args"
 
-# # USNET PtrNet-RSA-40
-# args="$base_args --link_resources 40 --values_bw 1"
-# run_experiment "PtrNet-RSA-40" "usnet_ptrnet_undirected" 210 310 10 "$k" "./usnet_rsa40.eqx" 8 20 "$args"
+# USNET PtrNet-RSA-40
+args="$base_args --link_resources 40 --values_bw 1"
+run_experiment "PtrNet-RSA-40" "usnet_ptrnet_undirected" 210 310 10 "$k" "./usnet_rsa40.eqx" 8 20 "$args"
 
-# # PtrNet-RSA-80 Experiments (env_type=rsa, link_resources=80)
-# var_bw="1,1,1,1,1,1,1,1,1,1,1,1,1,1,2,2,2,3,3,4"
+# PtrNet-RSA-80 Experiments (env_type=rsa, link_resources=80)
+var_bw="1,1,1,1,1,1,1,1,1,1,1,1,1,1,2,2,2,3,3,4"
 
-# # NSFNET PtrNet-RSA-80
-# args="$base_args --link_resources 80 --values_bw $var_bw"
-# run_experiment "PtrNet-RSA-80" "nsfnet_deeprmsa_undirected" 210 340 10 "$k" "./nsfnet_rsa80.eqx" 8 20 "$args"
+# NSFNET PtrNet-RSA-80
+args="$base_args --link_resources 80 --values_bw $var_bw"
+run_experiment "PtrNet-RSA-80" "nsfnet_deeprmsa_undirected" 210 340 10 "$k" "./nsfnet_rsa80.eqx" 8 20 "$args"
 
-# # COST239 PtrNet-RSA-80
-# args="$base_args --link_resources 80 --values_bw $var_bw"
-# run_experiment "PtrNet-RSA-80" "cost239_ptrnet_real_undirected" 450 670 10 "$k" "./cost239_rsa80_1.eqx" 8 20 "$args"
+# COST239 PtrNet-RSA-80
+args="$base_args --link_resources 80 --values_bw $var_bw"
+run_experiment "PtrNet-RSA-80" "cost239_ptrnet_real_undirected" 450 670 10 "$k" "./cost239_rsa80_1.eqx" 8 20 "$args"
 
-# # USNET PtrNet-RSA-80
-# args="$base_args --link_resources 80 --values_bw $var_bw"
-# run_experiment "PtrNet-RSA-80" "usnet_ptrnet_undirected" 220 380 10 "$k" "./usnet_rsa80.eqx" 8 20 "$args"
+# USNET PtrNet-RSA-80
+args="$base_args --link_resources 80 --values_bw $var_bw"
+run_experiment "PtrNet-RSA-80" "usnet_ptrnet_undirected" 220 380 10 "$k" "./usnet_rsa80.eqx" 8 20 "$args"
