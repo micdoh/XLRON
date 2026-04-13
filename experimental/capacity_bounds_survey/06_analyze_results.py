@@ -207,12 +207,12 @@ def plot_gap_scatter(df: pd.DataFrame, figures_dir: Path):
                 continue
             ax.scatter(valid[xcol], valid[gap_col], alpha=0.5, s=30,
                        color=color, edgecolor="white", linewidth=0.3, label=label)
-        ax.set_xlabel(xlabel, fontsize=16)
-        ax.tick_params(labelsize=14)
+        ax.set_xlabel(xlabel, fontsize=20)
+        ax.tick_params(labelsize=18)
         if j == 0:
-            ax.set_ylabel(r"$\Delta$ Network Capacity (%)", fontsize=16)
+            ax.set_ylabel(r"$\Delta$ Network Capacity (%)", fontsize=20)
         if j == 2:
-            ax.legend(fontsize=14)
+            ax.legend(fontsize=18)
     plt.tight_layout()
     plt.savefig(figures_dir / "bounds_gap_scatter.png")
     plt.close()
@@ -285,18 +285,18 @@ def plot_bounds_overview_normalized(df: pd.DataFrame, figures_dir: Path, sort_by
     fig, ax = plt.subplots(figsize=(14, 8))
 
     x = np.arange(len(valid))
-    width = 0.35
+    width = 0.38
 
     if cutset_gap.notna().any():
-        ax.bar(x - width / 2, cutset_gap, width,
+        ax.bar(x - width / 2 - 0.02, cutset_gap, width,
                label="Cut-set bound", color=PALETTE[1], edgecolor="white", linewidth=0.5)
     if rr_gap.notna().any():
-        ax.bar(x + width / 2, rr_gap, width,
+        ax.bar(x + width / 2 + 0.02, rr_gap, width,
                label="Resource-prioritized defragmentation", color=PALETTE[2], edgecolor="white", linewidth=0.5)
 
     ax.axhline(y=0, color="black", linewidth=0.8, linestyle="-")
-    ax.set_xlabel("Topology")
-    ax.set_ylabel("Load difference from heuristic (%)")
+    ax.set_xlabel("Topology", fontsize=18)
+    ax.set_ylabel("Load difference from heuristic (%)", fontsize=18)
     order_label = "(by number of edges)" if sort_by == "edges" else "(alphabetical)"
     ax.set_title(f"Bound Gap Relative to Best Heuristic {order_label}")
     ax.set_xticks(x)
@@ -304,9 +304,16 @@ def plot_bounds_overview_normalized(df: pd.DataFrame, figures_dir: Path, sort_by
         [n.replace("_directed", "") for n in valid["topology"]],
         rotation=75,
         ha="right",
-        fontsize=8,
+        fontsize=14,
     )
-    ax.legend()
+    ax.tick_params(axis='y', labelsize=15)
+    ax.legend(fontsize=16)
+    # Limit y-axis to data range
+    all_vals = pd.concat([cutset_gap.dropna(), rr_gap.dropna()])
+    if not all_vals.empty:
+        ax.set_ylim(all_vals.min(), all_vals.max())
+    # Remove whitespace on left/right
+    ax.set_xlim(x[0] - 0.5, x[-1] + 0.5)
 
     plt.tight_layout()
     fname = f"bounds_overview_normalized_{suffix}.png"
@@ -368,18 +375,18 @@ def plot_cutset_topk_vs_top1pct(
     fig, ax = plt.subplots(figsize=(14, 8))
 
     x = np.arange(len(valid))
-    width = 0.35
+    width = 0.38
 
     if gap_256.notna().any():
-        ax.bar(x - width / 2, gap_256, width,
+        ax.bar(x - width / 2 - 0.02, gap_256, width,
                label="Cut-set (top 256)", color=PALETTE[1], edgecolor="white", linewidth=0.5)
     if gap_1pct.notna().any():
-        ax.bar(x + width / 2, gap_1pct, width,
+        ax.bar(x + width / 2 + 0.02, gap_1pct, width,
                label="Cut-set (top 1%)", color=PALETTE[3], edgecolor="white", linewidth=0.5)
 
     ax.axhline(y=0, color="black", linewidth=0.8, linestyle="-")
-    ax.set_xlabel("Topology")
-    ax.set_ylabel("Load difference from heuristic (%)")
+    ax.set_xlabel("Topology", fontsize=18)
+    ax.set_ylabel("Load difference from heuristic (%)", fontsize=18)
     order_label = "(by number of edges)" if sort_by == "edges" else "(alphabetical)"
     ax.set_title(f"Cut-set Bound: Top-256 vs Top-1% Cutsets {order_label}")
     ax.set_xticks(x)
@@ -387,9 +394,16 @@ def plot_cutset_topk_vs_top1pct(
         [n.replace("_directed", "") for n in valid["topology"]],
         rotation=75,
         ha="right",
-        fontsize=8,
+        fontsize=14,
     )
-    ax.legend()
+    ax.tick_params(axis='y', labelsize=15)
+    ax.legend(fontsize=16)
+    # Limit y-axis to data range
+    all_vals = pd.concat([gap_256.dropna(), gap_1pct.dropna()])
+    if not all_vals.empty:
+        ax.set_ylim(all_vals.min(), all_vals.max())
+    # Remove whitespace on left/right
+    ax.set_xlim(x[0] - 0.5, x[-1] + 0.5)
 
     plt.tight_layout()
     fname = f"cutset_topk_vs_top1pct_{suffix}.png"
@@ -452,7 +466,7 @@ def plot_all_bounds_normalized(
     fig, ax = plt.subplots(figsize=(16, 8))
 
     x = np.arange(len(valid))
-    width = 0.25
+    width = 0.28
 
     if gap_256.notna().any():
         ax.bar(x - width, gap_256, width,
@@ -465,15 +479,23 @@ def plot_all_bounds_normalized(
                label="Resource-prioritized defragmentation", color=PALETTE[2], edgecolor="white", linewidth=0.5)
 
     ax.axhline(y=0, color="black", linewidth=0.8, linestyle="-")
-    ax.set_ylabel(r"$\Delta$ Network Capacity (%)", fontsize=16)
+    ax.set_ylabel(r"$\Delta$ Network Capacity (%)", fontsize=20)
+    ax.set_xlabel("Topology", fontsize=20)
     ax.set_xticks(x)
     ax.set_xticklabels(
         [n.replace("_directed", "") for n in valid["topology"]],
         rotation=75,
         ha="right",
-        fontsize=8,
+        fontsize=14,
     )
-    ax.legend(fontsize=14)
+    ax.tick_params(axis='y', labelsize=15)
+    ax.legend(fontsize=16)
+    # Limit y-axis to data range
+    all_vals = pd.concat([gap_256.dropna(), gap_1pct.dropna(), gap_rr.dropna()])
+    if not all_vals.empty:
+        ax.set_ylim(all_vals.min(), all_vals.max())
+    # Remove whitespace on left/right
+    ax.set_xlim(x[0] - 0.6, x[-1] + 0.6)
 
     plt.tight_layout()
     fname = f"all_bounds_normalized_{suffix}.png"
@@ -756,12 +778,12 @@ def plot_heuristic_selection(df: pd.DataFrame, figures_dir: Path):
             ax.hist(ff_ksp[col], bins=bins, alpha=0.6, color=color_ff,
                     edgecolor="white", linewidth=0.5,
                     label=f"FF-KSP ({n_ff} topologies)")
-        ax.set_xlabel(xlabel, fontsize=16)
-        ax.tick_params(labelsize=14)
+        ax.set_xlabel(xlabel, fontsize=20)
+        ax.tick_params(labelsize=18)
         if j == 0:
-            ax.set_ylabel("Number of topologies", fontsize=16)
+            ax.set_ylabel("Number of topologies", fontsize=20)
         if j == 2:
-            ax.legend(fontsize=14)
+            ax.legend(fontsize=18)
 
     plt.tight_layout()
     plt.savefig(figures_dir / "heuristic_selection.png")

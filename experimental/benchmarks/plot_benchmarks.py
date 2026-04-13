@@ -557,7 +557,7 @@ def plot_heatmap(df: pd.DataFrame, output_dir: Path, device: str | None = None):
                     rgba = dev_cmap(dev_norm(val))
                     lum = 0.299 * rgba[0] + 0.587 * rgba[1] + 0.114 * rgba[2]
                     txt_color = "white" if lum < 0.5 else "black"
-                ax.text(j, i, txt, ha="center", va="center", fontsize=18,
+                ax.text(j, i, txt, ha="center", va="center", fontsize=24,
                         fontweight="bold", color=txt_color)
 
         # Per-device colorbar in the same row
