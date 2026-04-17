@@ -43,7 +43,6 @@ def run_cutset_sweep(name, sweep_min, sweep_max, step, topo, sweep_file, timeout
         extra_flags["CUTSET_ITERATIONS"] = 32
 
     extra_flags["CUTSET_TOP_K"] = 256
-    extra_flags["cutset_link_selection_mode"] = "least_congested"
 
     cmd = build_command(
         script="xlron.bounds.cutsets_bounds",

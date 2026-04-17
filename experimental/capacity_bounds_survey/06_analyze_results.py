@@ -138,6 +138,7 @@ def generate_summary_table(
             "edges": topo["num_edges"],
             "avg_degree": round(topo["avg_degree"], 2),
             "diameter": topo["diameter"],
+            "edge_connectivity": topo["edge_connectivity"],
             "avg_path_length": round(topo["avg_path_length"], 3),
             "avg_link_distance_km": round(topo["avg_link_distance_km"], 1),
         }
@@ -186,11 +187,11 @@ def generate_summary_table(
 
 
 def plot_gap_scatter(df: pd.DataFrame, figures_dir: Path):
-    """Plot gap analysis: combined scatter with RR, cutset-256, and cutset top-1% bounds."""
+    """Plot gap analysis: combined scatter with RR, cutset x=10, and cutset x=100 bounds."""
     series = [
-        ("gap_rr_pct", "Resource-prioritized\ndefragmentation", PALETTE[2]),  # purple
-        ("gap_cutset_pct", "Cut-set (top 256)", PALETTE[1]),  # coral
-        ("gap_cutset_1pct_pct", "Cut-set (top 1%)", PALETTE[3]),  # orange
+        ("gap_rr_pct", "Resource-Prioritized\nDefragmentation", PALETTE[2]),  # purple
+        ("gap_cutset_pct", "Cut-Sets Top 10", PALETTE[1]),  # coral
+        ("gap_cutset_1pct_pct", "Cut-Sets Top 100", PALETTE[3]),  # orange
     ]
     x_configs = [
         ("nodes", "Number of nodes"),
@@ -211,12 +212,84 @@ def plot_gap_scatter(df: pd.DataFrame, figures_dir: Path):
         ax.tick_params(labelsize=18)
         if j == 0:
             ax.set_ylabel(r"$\Delta$ Network Capacity (%)", fontsize=20)
-        if j == 2:
-            ax.legend(fontsize=18)
+        if j == 0:
+            ax.legend(fontsize=18, loc="upper left")
     plt.tight_layout()
     plt.savefig(figures_dir / "bounds_gap_scatter.png")
     plt.close()
     print(f"  Saved {figures_dir / 'bounds_gap_scatter.png'}")
+
+
+
+def plot_gap_scatter_structural(df: pd.DataFrame, figures_dir: Path):
+    """Plot gap analysis against structural topology metrics:
+    diameter, edge connectivity, and node connectivity."""
+    series = [
+        ("gap_rr_pct", "Resource-Prioritized\nDefragmentation", PALETTE[2]),
+        ("gap_cutset_pct", "Cut-Sets Top 10", PALETTE[1]),
+        ("gap_cutset_1pct_pct", "Cut-Sets Top 100", PALETTE[3]),
+    ]
+
+    df = df.copy()
+
+    x_configs = [
+        ("diameter", "Diameter (hops)"),
+        ("avg_degree", "Mean Node Degree"),
+        ("edge_connectivity", "Edge Connectivity"),
+    ]
+
+    fig, axes = plt.subplots(1, 3, figsize=(18, 6), sharey=True)
+    for j, (xcol, xlabel) in enumerate(x_configs):
+        ax = axes[j]
+        for gap_col, label, color in series:
+            valid = df.dropna(subset=[gap_col, xcol])
+            if valid.empty:
+                continue
+            ax.scatter(valid[xcol], valid[gap_col], alpha=0.5, s=30,
+                       color=color, edgecolor="white", linewidth=0.3, label=label)
+        ax.set_xlabel(xlabel, fontsize=20)
+        ax.tick_params(labelsize=18)
+        if j == 0:
+            ax.set_ylabel(r"$\Delta$ Network Capacity (%)", fontsize=20)
+        if j == 2:
+            ax.legend(fontsize=18, loc="upper right")
+    plt.tight_layout()
+    plt.savefig(figures_dir / "bounds_gap_scatter_structural.png")
+    plt.close()
+    print(f"  Saved {figures_dir / 'bounds_gap_scatter_structural.png'}")
+
+
+def plot_rpd_vs_cutset_delta(df: pd.DataFrame, figures_dir: Path):
+    """Plot the difference between RPD and Cut-Sets Top 100 capacity gaps
+    against structural topology metrics."""
+    df = df.copy()
+    df["delta_rpd_cutset"] = df["gap_rr_pct"] - df["gap_cutset_1pct_pct"]
+
+    x_configs = [
+        ("diameter", "Diameter (hops)"),
+        ("avg_degree", "Mean Node Degree"),
+        ("edge_connectivity", "Edge Connectivity"),
+    ]
+
+    fig, axes = plt.subplots(1, 3, figsize=(18, 6), sharey=True)
+    for j, (xcol, xlabel) in enumerate(x_configs):
+        ax = axes[j]
+        valid = df.dropna(subset=["delta_rpd_cutset", xcol])
+        if not valid.empty:
+            ax.scatter(valid[xcol], valid["delta_rpd_cutset"], alpha=0.5, s=30,
+                       color=PALETTE[2], edgecolor="white", linewidth=0.3,
+                       label="RPD $-$ Cut-Sets Top 100")
+        ax.axhline(y=0, color="black", linewidth=0.8, linestyle="-")
+        ax.set_xlabel(xlabel, fontsize=20)
+        ax.tick_params(labelsize=18)
+        if j == 0:
+            ax.set_ylabel(r"$\Delta$ Network Capacity (pp)", fontsize=20)
+        if j == 2:
+            ax.legend(fontsize=18, loc="upper right")
+    plt.tight_layout()
+    plt.savefig(figures_dir / "rpd_vs_cutset_delta.png")
+    plt.close()
+    print(f"  Saved {figures_dir / 'rpd_vs_cutset_delta.png'}")
 
 
 def plot_bounds_overview(df: pd.DataFrame, figures_dir: Path):
@@ -292,7 +365,7 @@ def plot_bounds_overview_normalized(df: pd.DataFrame, figures_dir: Path, sort_by
                label="Cut-set bound", color=PALETTE[1], edgecolor="white", linewidth=0.5)
     if rr_gap.notna().any():
         ax.bar(x + width / 2 + 0.02, rr_gap, width,
-               label="Resource-prioritized defragmentation", color=PALETTE[2], edgecolor="white", linewidth=0.5)
+               label="Resource-Prioritized Defragmentation", color=PALETTE[2], edgecolor="white", linewidth=0.5)
 
     ax.axhline(y=0, color="black", linewidth=0.8, linestyle="-")
     ax.set_xlabel("Topology", fontsize=18)
@@ -329,7 +402,7 @@ def plot_cutset_topk_vs_top1pct(
     figures_dir: Path,
     sort_by: str = "topology",
 ):
-    """Plot normalized comparison of cut-set bounds: top-256 vs top-1% cutsets.
+    """Plot normalized comparison of cut-set bounds: x=10 vs x=100 cutsets.
 
     Bars show % difference from heuristic load, similar to bounds_overview_normalized.
     """
@@ -379,10 +452,10 @@ def plot_cutset_topk_vs_top1pct(
 
     if gap_256.notna().any():
         ax.bar(x - width / 2 - 0.02, gap_256, width,
-               label="Cut-set (top 256)", color=PALETTE[1], edgecolor="white", linewidth=0.5)
+               label="Cut-Sets Top 10", color=PALETTE[1], edgecolor="white", linewidth=0.5)
     if gap_1pct.notna().any():
         ax.bar(x + width / 2 + 0.02, gap_1pct, width,
-               label="Cut-set (top 1%)", color=PALETTE[3], edgecolor="white", linewidth=0.5)
+               label="Cut-Sets Top 100", color=PALETTE[3], edgecolor="white", linewidth=0.5)
 
     ax.axhline(y=0, color="black", linewidth=0.8, linestyle="-")
     ax.set_xlabel("Topology", fontsize=18)
@@ -420,7 +493,7 @@ def plot_all_bounds_normalized(
     figures_dir: Path,
     sort_by: str = "topology",
 ):
-    """Plot normalized comparison of all three bounds: cutset top-256, cutset top-1%, and RR.
+    """Plot normalized comparison of all three bounds: cutset x=10, cutset x=100, and RR.
 
     Bars show % difference from heuristic load, similar to bounds_overview_normalized.
     """
@@ -470,15 +543,30 @@ def plot_all_bounds_normalized(
 
     if gap_256.notna().any():
         ax.bar(x - width, gap_256, width,
-               label="Cut-set (top 256)", color=PALETTE[1], edgecolor="white", linewidth=0.5)
+               label="Cut-Sets Top 10", color=PALETTE[1], edgecolor="white", linewidth=0.5)
     if gap_1pct.notna().any():
         ax.bar(x, gap_1pct, width,
-               label="Cut-set (top 1%)", color=PALETTE[3], edgecolor="white", linewidth=0.5)
+               label="Cut-Sets Top 100", color=PALETTE[3], edgecolor="white", linewidth=0.5)
     if gap_rr.notna().any():
         ax.bar(x + width, gap_rr, width,
-               label="Resource-prioritized defragmentation", color=PALETTE[2], edgecolor="white", linewidth=0.5)
+               label="Resource-Prioritized Defragmentation", color=PALETTE[2], edgecolor="white", linewidth=0.5)
 
     ax.axhline(y=0, color="black", linewidth=0.8, linestyle="-")
+
+    # Median dashed lines for each series
+    if gap_256.notna().any():
+        med = gap_256.median()
+        ax.axhline(y=med, color=PALETTE[1], linewidth=1.5, linestyle="--", alpha=0.8,
+                   label=f"Cut-Sets Top 10 median: {med:.1f}%")
+    if gap_1pct.notna().any():
+        med = gap_1pct.median()
+        ax.axhline(y=med, color=PALETTE[3], linewidth=1.5, linestyle="--", alpha=0.8,
+                   label=f"Cut-Sets Top 100 median: {med:.1f}%")
+    if gap_rr.notna().any():
+        med = gap_rr.median()
+        ax.axhline(y=med, color=PALETTE[2], linewidth=1.5, linestyle="--", alpha=0.8,
+                   label=f"Resource-Prioritized Defragmentation median: {med:.1f}%")
+
     ax.set_ylabel(r"$\Delta$ Network Capacity (%)", fontsize=20)
     ax.set_xlabel("Topology", fontsize=20)
     ax.set_xticks(x)
@@ -489,7 +577,7 @@ def plot_all_bounds_normalized(
         fontsize=14,
     )
     ax.tick_params(axis='y', labelsize=15)
-    ax.legend(fontsize=16)
+    ax.legend(fontsize=13)
     # Limit y-axis to data range
     all_vals = pd.concat([gap_256.dropna(), gap_1pct.dropna(), gap_rr.dropna()])
     if not all_vals.empty:
@@ -812,13 +900,13 @@ def main():
     # Load all results
     print("Loading results...")
     heuristic_data = load_all_jsonl(RESULTS_DIR / "heuristic_eval")
-    cutset_data = load_all_jsonl(RESULTS_DIR / "cutset_bounds")
-    cutset_top1pct_data = load_all_jsonl(RESULTS_DIR / "cutset_bounds_top1pct", strip_suffix="_top1pct")
+    cutset_data = load_all_jsonl(RESULTS_DIR / "cutset_bounds_topk10")
+    cutset_top1pct_data = load_all_jsonl(RESULTS_DIR / "cutset_bounds_topk100")
     rr_data = load_all_jsonl(RESULTS_DIR / "rr_bounds")
 
     print(f"  Heuristic:       {len(heuristic_data)} topologies")
-    print(f"  Cut-set (256):   {len(cutset_data)} topologies")
-    print(f"  Cut-set (top1%): {len(cutset_top1pct_data)} topologies")
+    print(f"  Cut-Sets Top 10:  {len(cutset_data)} topologies")
+    print(f"  Cut-Sets Top 100: {len(cutset_top1pct_data)} topologies")
     print(f"  RR bounds:       {len(rr_data)} topologies")
 
     # Generate summary table
@@ -860,17 +948,19 @@ def main():
     plot_bounds_overview_normalized(df, figures_dir, sort_by="topology")
     plot_bounds_overview_normalized(df, figures_dir, sort_by="edges")
     plot_gap_scatter(df, figures_dir)
+    plot_gap_scatter_structural(df, figures_dir)
+    plot_rpd_vs_cutset_delta(df, figures_dir)
     plot_heuristic_selection(df, figures_dir)
 
     # Cut-set top-k vs top-1% comparison
     if cutset_top1pct_data:
-        print("\nCut-set top-256 vs top-1% comparison...")
+        print("\nCut-set x=10 vs x=100 comparison...")
         plot_cutset_topk_vs_top1pct(cutset_data, cutset_top1pct_data, heuristic_data, figures_dir, sort_by="topology")
         plot_cutset_topk_vs_top1pct(cutset_data, cutset_top1pct_data, heuristic_data, figures_dir, sort_by="edges")
 
     # All three bounds comparison
     if cutset_top1pct_data or rr_data:
-        print("\nAll bounds comparison (cutset 256, cutset 1%, RR)...")
+        print("\nAll bounds comparison (cutset x=10, cutset x=100, RR)...")
         plot_all_bounds_normalized(cutset_data, cutset_top1pct_data, rr_data, heuristic_data, figures_dir, sort_by="topology")
         plot_all_bounds_normalized(cutset_data, cutset_top1pct_data, rr_data, heuristic_data, figures_dir, sort_by="edges")
 

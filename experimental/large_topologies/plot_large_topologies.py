@@ -125,6 +125,87 @@ def plot_blocking_vs_load():
     print("  -> blocking_vs_load")
 
 
+def load_cutset_results(topo: str, topk: int | None = None) -> list[dict] | None:
+    if topk is not None:
+        path = RESULTS / topo / f"{topo}_cutset_bound_topk{topk}_results.jsonl"
+    else:
+        path = RESULTS / topo / f"{topo}_cutset_bound_results.jsonl"
+    if not path.exists():
+        return None
+    with open(path) as f:
+        return [json.loads(line) for line in f]
+
+
+CUTSET_VARIANTS = [
+    {"topk": 4, "label": "Cut-Sets Top 4", "color": PRIMARY_COLORS[1], "marker": "^", "ls": "--"},
+    {"topk": 10, "label": "Cut-Sets Top 10", "color": ACCENT_COLORS[2], "marker": "v", "ls": "-."},
+    {"topk": None, "label": "Cut-Sets Top 64", "color": ACCENT_COLORS[1], "marker": "D", "ls": ":"},
+]
+
+
+def plot_blocking_vs_load_with_cutset():
+    fig, axes = plt.subplots(1, 2, figsize=(20, 10), sharey=True)
+
+    for ax, (topo, tinfo) in zip(axes, TOPOLOGIES.items()):
+        # Plot heuristic and transformer methods
+        for method, minfo in METHODS.items():
+            results = load_eval_results(topo, method)
+            loads = [r["config"]["load"] for r in results]
+            sbp_mean = [r["metrics"]["service_blocking_probability"]["mean"] * 100 for r in results]
+            sbp_iqr_lo = [r["metrics"]["service_blocking_probability"]["iqr_lower"] * 100 for r in results]
+            sbp_iqr_hi = [r["metrics"]["service_blocking_probability"]["iqr_upper"] * 100 for r in results]
+            order = np.argsort(loads)
+            loads = [loads[i] for i in order]
+            sbp_mean = [sbp_mean[i] for i in order]
+            sbp_iqr_lo = [sbp_iqr_lo[i] for i in order]
+            sbp_iqr_hi = [sbp_iqr_hi[i] for i in order]
+
+            ax.plot(
+                loads, sbp_mean,
+                marker=minfo["marker"], color=minfo["color"],
+                label=minfo["display"], markersize=10,
+            )
+            ax.fill_between(loads, sbp_iqr_lo, sbp_iqr_hi, alpha=0.2, color=minfo["color"])
+
+        # Plot cutset bound variants
+        for cv in CUTSET_VARIANTS:
+            cutset = load_cutset_results(topo, cv["topk"])
+            if not cutset:
+                continue
+            loads_c = [r["config"]["load"] for r in cutset]
+            sbp_c = [r["metrics"]["service_blocking_probability"]["mean"] * 100 for r in cutset]
+            sbp_c_lo = [r["metrics"]["service_blocking_probability"]["iqr_lower"] * 100 for r in cutset]
+            sbp_c_hi = [r["metrics"]["service_blocking_probability"]["iqr_upper"] * 100 for r in cutset]
+            order = np.argsort(loads_c)
+            loads_c = [loads_c[i] for i in order]
+            sbp_c = [sbp_c[i] for i in order]
+            sbp_c_lo = [sbp_c_lo[i] for i in order]
+            sbp_c_hi = [sbp_c_hi[i] for i in order]
+
+            ax.plot(
+                loads_c, sbp_c,
+                marker=cv["marker"], color=cv["color"], linestyle=cv["ls"],
+                label=cv["label"], markersize=10,
+            )
+            ax.fill_between(loads_c, sbp_c_lo, sbp_c_hi, alpha=0.15, color=cv["color"])
+
+        ax.set_xlabel("Traffic Load (Erlang)", fontsize=FS_LABEL)
+        ax.set_title(tinfo["display"], fontsize=FS_TITLE)
+        ax.set_yscale("log")
+        ax.set_ylim(bottom=1e-2)
+        if topo == "tataind":
+            ax.set_xlim(left=400)
+        ax.tick_params(labelsize=FS_TICK)
+        if topo == "usa100":
+            ax.legend(fontsize=FS_LEGEND - 4)
+
+    axes[0].set_ylabel("Service Blocking Probability (%)", fontsize=FS_LABEL)
+    plt.tight_layout()
+    fig.savefig(FIGURES / "blocking_vs_load_with_cutset.png")
+    plt.close(fig)
+    print("  -> blocking_vs_load_with_cutset")
+
+
 # ---------------------------------------------------------------------------
 # 2. Box plots: path length (km) and hops for each method/topology
 # ---------------------------------------------------------------------------
@@ -811,6 +892,7 @@ def plot_loss_components():
 if __name__ == "__main__":
     print("Generating large topology comparison plots...")
     plot_blocking_vs_load()
+    plot_blocking_vs_load_with_cutset()
     plot_path_boxplots()
     plot_utilisation_over_steps()
     plot_bitrate_blocking_over_steps()

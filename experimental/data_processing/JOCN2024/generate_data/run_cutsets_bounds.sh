@@ -5,7 +5,7 @@ SCRIPT_PATH="-m xlron.bounds.cutsets_bounds"
 OUTPUT_FILE="experiment_results_cutsets_bounds.jsonl"
 
 # Fixed cutset flags
-CUTSET_FLAGS="--CUTSET_EXHAUSTIVE --CUTSET_BATCH_SIZE=512 --CUTSET_ITERATIONS=32 --CUTSET_TOP_K=256 --cutset_link_selection_mode=least_congested" # Optionally add this flag for a looser bound: --NEGLECT_SPECTRUM_CONTINUITY
+CUTSET_FLAGS="--CUTSET_EXHAUSTIVE --CUTSET_BATCH_SIZE=512 --CUTSET_ITERATIONS=32 --CUTSET_TOP_K=256"
 
 # Clear output file
 > $OUTPUT_FILE
@@ -49,7 +49,7 @@ run_experiment "DeepRMSA~Reward-RMSA~GCN-RMSA" "usnet_gcnrnn_directed" "310" "54
 args="--env_type rmsa --link_resources 80 --max_bw 50 --guardband 0 --slot_size 12.5 --mean_service_holding_time 12 --continuous_operation"
 run_experiment "MaskRSA" "nsfnet_deeprmsa_undirected" "80" "175" "5" "50" "$args"
 # MaskRSA JPN48 (too many nodes for exhaustive search, use shortest-paths method)
-JPN48_CUTSET_FLAGS="--CUTSET_TOP_K=256 --cutset_link_selection_mode=least_congested"
+JPN48_CUTSET_FLAGS="--CUTSET_TOP_K=256"
 run_experiment "MaskRSA" "jpn48_undirected" "150" "300" "10" "50" "$args" "$JPN48_CUTSET_FLAGS"
 
 # PtrNet-RSA
