@@ -14,6 +14,7 @@ from pathlib import Path
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
 import numpy as np
 import pandas as pd
 from scipy import interpolate
@@ -221,6 +222,50 @@ def plot_gap_scatter(df: pd.DataFrame, figures_dir: Path):
 
 
 
+def plot_gap_scatter_with_trend(df: pd.DataFrame, figures_dir: Path):
+    """Same as plot_gap_scatter but with a dashed linear trend line per series in each subplot."""
+    series = [
+        ("gap_rr_pct", "Resource-Prioritized\nDefragmentation", PALETTE[2]),
+        ("gap_cutset_pct", "Cut-Sets Top 10", PALETTE[1]),
+        ("gap_cutset_1pct_pct", "Cut-Sets Top 100", PALETTE[3]),
+    ]
+    x_configs = [
+        ("nodes", "Number of nodes"),
+        ("avg_degree", "Average node degree"),
+        ("avg_path_length", "Average path length (hops)"),
+    ]
+
+    fig, axes = plt.subplots(1, 3, figsize=(18, 6), sharey=True)
+    for j, (xcol, xlabel) in enumerate(x_configs):
+        ax = axes[j]
+        for gap_col, label, color in series:
+            valid = df.dropna(subset=[gap_col, xcol])
+            if valid.empty:
+                continue
+            ax.scatter(valid[xcol], valid[gap_col], alpha=0.5, s=30,
+                       color=color, edgecolor="white", linewidth=0.3, label=label)
+            if len(valid) >= 2:
+                x_vals = valid[xcol].to_numpy(dtype=float)
+                y_vals = valid[gap_col].to_numpy(dtype=float)
+                slope, intercept = np.polyfit(x_vals, y_vals, 1)
+                x_line = np.linspace(x_vals.min(), x_vals.max(), 100)
+                ax.plot(x_line, slope * x_line + intercept,
+                        color=color, linewidth=1.5, linestyle="--", alpha=0.8)
+        ax.set_xlabel(xlabel, fontsize=20)
+        ax.tick_params(labelsize=18)
+        if j == 0:
+            ax.set_ylabel(r"$\Delta$ Network Capacity (%)", fontsize=20)
+        if j == 0:
+            handles, labels = ax.get_legend_handles_labels()
+            handles.append(Line2D([0], [0], color="black", linewidth=1.5, linestyle="--", alpha=0.8))
+            labels.append("Linear fit")
+            ax.legend(handles, labels, fontsize=18, loc="upper left")
+    plt.tight_layout()
+    plt.savefig(figures_dir / "bounds_gap_scatter_with_trend.png")
+    plt.close()
+    print(f"  Saved {figures_dir / 'bounds_gap_scatter_with_trend.png'}")
+
+
 def plot_gap_scatter_structural(df: pd.DataFrame, figures_dir: Path):
     """Plot gap analysis against structural topology metrics:
     diameter, edge connectivity, and node connectivity."""
@@ -257,6 +302,53 @@ def plot_gap_scatter_structural(df: pd.DataFrame, figures_dir: Path):
     plt.savefig(figures_dir / "bounds_gap_scatter_structural.png")
     plt.close()
     print(f"  Saved {figures_dir / 'bounds_gap_scatter_structural.png'}")
+
+
+def plot_gap_scatter_structural_with_trend(df: pd.DataFrame, figures_dir: Path):
+    """Same as plot_gap_scatter_structural but with a dashed linear trend line per series in each subplot."""
+    series = [
+        ("gap_rr_pct", "Resource-Prioritized\nDefragmentation", PALETTE[2]),
+        ("gap_cutset_pct", "Cut-Sets Top 10", PALETTE[1]),
+        ("gap_cutset_1pct_pct", "Cut-Sets Top 100", PALETTE[3]),
+    ]
+
+    df = df.copy()
+
+    x_configs = [
+        ("diameter", "Diameter (hops)"),
+        ("avg_degree", "Mean Node Degree"),
+        ("edge_connectivity", "Edge Connectivity"),
+    ]
+
+    fig, axes = plt.subplots(1, 3, figsize=(18, 6), sharey=True)
+    for j, (xcol, xlabel) in enumerate(x_configs):
+        ax = axes[j]
+        for gap_col, label, color in series:
+            valid = df.dropna(subset=[gap_col, xcol])
+            if valid.empty:
+                continue
+            ax.scatter(valid[xcol], valid[gap_col], alpha=0.5, s=30,
+                       color=color, edgecolor="white", linewidth=0.3, label=label)
+            if len(valid) >= 2:
+                x_vals = valid[xcol].to_numpy(dtype=float)
+                y_vals = valid[gap_col].to_numpy(dtype=float)
+                slope, intercept = np.polyfit(x_vals, y_vals, 1)
+                x_line = np.linspace(x_vals.min(), x_vals.max(), 100)
+                ax.plot(x_line, slope * x_line + intercept,
+                        color=color, linewidth=1.5, linestyle="--", alpha=0.8)
+        ax.set_xlabel(xlabel, fontsize=20)
+        ax.tick_params(labelsize=18)
+        if j == 0:
+            ax.set_ylabel(r"$\Delta$ Network Capacity (%)", fontsize=20)
+        if j == 2:
+            handles, labels = ax.get_legend_handles_labels()
+            handles.append(Line2D([0], [0], color="black", linewidth=1.5, linestyle="--", alpha=0.8))
+            labels.append("Linear fit")
+            ax.legend(handles, labels, fontsize=18, loc="upper right")
+    plt.tight_layout()
+    plt.savefig(figures_dir / "bounds_gap_scatter_structural_with_trend.png")
+    plt.close()
+    print(f"  Saved {figures_dir / 'bounds_gap_scatter_structural_with_trend.png'}")
 
 
 def plot_rpd_vs_cutset_delta(df: pd.DataFrame, figures_dir: Path):
@@ -948,7 +1040,9 @@ def main():
     plot_bounds_overview_normalized(df, figures_dir, sort_by="topology")
     plot_bounds_overview_normalized(df, figures_dir, sort_by="edges")
     plot_gap_scatter(df, figures_dir)
+    plot_gap_scatter_with_trend(df, figures_dir)
     plot_gap_scatter_structural(df, figures_dir)
+    plot_gap_scatter_structural_with_trend(df, figures_dir)
     plot_rpd_vs_cutset_delta(df, figures_dir)
     plot_heuristic_selection(df, figures_dir)
 
