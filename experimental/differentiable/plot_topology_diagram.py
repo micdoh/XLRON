@@ -1,10 +1,17 @@
 """
-Plot the 5-node test case topology diagram with traffic requests and FSU state.
+Plot the 5-node test-case topology diagram for the differentiable RSA paper.
 
-Shows:
-  - 5-node undirected topology
-  - Two traffic requests (node 0 -> node 1) indicated by text
-  - FSU (frequency slot unit) state per link (3 slots, 2 FSU per request)
+Single integrated figure:
+  (a) The 5-node topology with the K=3 candidate paths drawn directly on the
+      graph. Each path has its own colour and is offset on its own "lane" so
+      shared edges show parallel coloured stripes and divergences are obvious.
+      Two pending traffic requests are shown as coral pills below.
+  (b) An action-space grid (paths x slots) in the same colours, with the
+      a = p * N_slot + s mapping spelled out.
+
+Outputs (in experimental/differentiable/figures/):
+  - topology_test_case.pdf  -- vector, drop into \\includegraphics
+  - topology_test_case.png  -- 300 dpi preview
 
 Usage:
   uv run python experimental/differentiable/plot_topology_diagram.py
@@ -12,214 +19,327 @@ Usage:
 
 import os
 import sys
-import numpy as np
+
+import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
-import matplotlib.patches as mpatches
+import numpy as np
+from matplotlib.patches import Circle, FancyBboxPatch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from plot_style import configure_style, PRIMARY_COLORS, ACCENT_COLORS
+from plot_style import configure_style  # noqa: E402
 
 FIGURES_DIR = os.path.join(os.path.dirname(__file__), "figures")
 
-# 5-node topology edges (undirected)
-EDGES = [
-    (0, 1, 1000),
-    (1, 2, 1),
-    (1, 3, 1),
-    (2, 3, 1),
-    (3, 4, 1000),
-    (4, 0, 1),
-]
+# --- Data ---------------------------------------------------------------
 
-# K=3 shortest paths from node 0 to node 1
+EDGES = [(0, 1), (1, 2), (1, 3), (2, 3), (3, 4), (4, 0)]
+
 PATHS = {
-    "Path 0": [0, 1],           # direct: 0->1
-    "Path 1": [0, 4, 3, 1],     # via 4,3
-    "Path 2": [0, 4, 3, 2, 1],  # via 4,3,2
+    "Path 0": [0, 1],            # direct
+    "Path 1": [0, 4, 3, 1],      # via 4, 3
+    "Path 2": [0, 4, 3, 2, 1],   # via 4, 3, 2
 }
 
-# Node positions (manual layout for nice visualization)
+# Topology layout in the topology panel's local coordinates.
+# Spread out horizontally so the topology fills panel (a) without dead space.
 NODE_POS = {
-    0: (0.0, 1.0),
-    1: (2.0, 1.0),
-    2: (1.5, 0.0),
-    3: (1.0, 0.5),
-    4: (0.0, 0.0),
+    0: (0.7, 2.40),
+    1: (5.00, 2.40),
+    2: (3.70, 0.55),
+    3: (2.80, 1.40),
+    4: (0.7, 0.55),
 }
-
-NODE_COLOR = PRIMARY_COLORS[0]
-NODE_EDGE_COLOR = PRIMARY_COLORS[3]
-LINK_COLOR = '#888888'
-REQUEST_COLOR = ACCENT_COLORS[1]  # coral
-
-PATH_COLORS = [
-    PRIMARY_COLORS[0],   # teal
-    ACCENT_COLORS[0],    # purple
-    ACCENT_COLORS[3],    # orange
-]
 
 NUM_SLOTS = 3
 
+# --- Style --------------------------------------------------------------
 
-def _draw_topology(ax, show_title=True):
-    """Draw the 5-node topology with traffic request labels."""
-    ax.set_xlim(-0.3, 2.8)
-    ax.set_ylim(-0.5, 1.7)
-    ax.set_aspect('equal')
-    ax.axis('off')
+TEXT_DARK = "#1B2026"
+TEXT_DIM = "#5B6770"
 
-    # Draw edges (no distance labels)
-    for u, v, dist in EDGES:
+NODE_FACE = "#1D605B"  # dark teal
+EDGE_GRAY = "#D5D9DD"
+
+PANEL_BG = "#FAFBFC"
+PANEL_EDGE = "#E5E9ED"
+
+# Three perceptually-distinct colours for the three candidate paths.
+PATH_COLORS = ["#30A08E", "#8064A2", "#FF9A56"]  # teal, purple, orange
+
+REQUEST_COLOR = "#E75D72"  # coral
+REQUEST_BG = "#FDECEF"
+
+NODE_R = 0.23
+
+# --- Helpers ------------------------------------------------------------
+
+
+def _lighten(c, factor=0.85):
+    """Lighten hex colour `c` toward white. factor=0 -> unchanged, 1 -> white."""
+    rgb = np.array(mcolors.to_rgb(c))
+    return tuple(rgb + (1.0 - rgb) * factor)
+
+
+def _draw_panel(ax, x0, y0, w, h, label=None, label_y_pad=0.18):
+    """Soft rounded background panel for visual grouping.
+
+    The panel `label` is drawn ABOVE the panel (not inside) so it never
+    overlaps content like nodes or column headers.
+    """
+    rect = FancyBboxPatch(
+        (x0, y0), w, h,
+        boxstyle="round,pad=0.0,rounding_size=0.14",
+        linewidth=1.0, edgecolor=PANEL_EDGE, facecolor=PANEL_BG, zorder=0,
+    )
+    ax.add_patch(rect)
+    if label:
+        ax.text(x0 + 0.2, y0 + h + label_y_pad, label,
+                fontsize=15, fontweight="bold", color=TEXT_DIM,
+                ha="left", va="bottom", zorder=1)
+
+
+def _draw_node(ax, x, y, label, radius=NODE_R):
+    """Node with a soft drop shadow and a thin outer ring.
+
+    Drawn at high zorder (>=10) so the node is always on top of any path lane
+    that passes through it — the node ID label must remain readable.
+    """
+    # Shadow
+    ax.add_patch(Circle((x + 0.025, y - 0.03), radius,
+                        facecolor="black", alpha=0.13, zorder=10))
+    # Outer halo (separates the node from any path lane underneath)
+    ax.add_patch(Circle((x, y), radius + 0.035,
+                        facecolor="white", edgecolor=PANEL_EDGE,
+                        linewidth=1.0, zorder=11))
+    # Inner coloured disk
+    ax.add_patch(Circle((x, y), radius, facecolor=NODE_FACE,
+                        edgecolor="white", linewidth=2.0, zorder=12))
+    ax.text(x, y, label, fontsize=18, fontweight="bold",
+            ha="center", va="center", color="white", zorder=13)
+
+
+def _draw_path_lane(ax, path_nodes, color, lane_offset, zorder_base):
+    """Draw a path as straight per-edge segments offset perpendicular to each edge.
+
+    Each segment uses the perpendicular of its OWN edge (not a bisector at the
+    vertex), so every coloured segment is mathematically parallel to the
+    underlying grey edge it shadows. The small misalignment that this creates
+    at vertices is hidden by the node circle drawn on top (high zorder).
+    """
+    pts = [np.array(NODE_POS[n], dtype=float) for n in path_nodes]
+    # First pass: white halo under each segment.
+    # Second pass: coloured line on top. Splitting passes keeps halos cleanly
+    # below all coloured segments along the path.
+    for halo, lw, c, z in [
+        (True,  5.5, "white", zorder_base),
+        (False, 3.5, color,   zorder_base + 1),
+    ]:
+        for i in range(len(pts) - 1):
+            p0, p1 = pts[i], pts[i + 1]
+            d = p1 - p0
+            d_norm = np.linalg.norm(d)
+            if d_norm < 1e-9:
+                continue
+            d_unit = d / d_norm
+            perp = np.array([-d_unit[1], d_unit[0]])
+            offset = perp * lane_offset
+            s0 = p0 + offset
+            s1 = p1 + offset
+            ax.plot([s0[0], s1[0]], [s0[1], s1[1]],
+                    color=c, lw=lw, solid_capstyle="round", zorder=z)
+
+
+def _draw_topology_section(ax):
+    """Underlying graph + coloured path lanes + nodes."""
+    # Underlying edges -- thick, soft grey so the colour overlays pop.
+    for u, v in EDGES:
         x0, y0 = NODE_POS[u]
         x1, y1 = NODE_POS[v]
-        lw = 2.0 if dist == 1 else 3.0
-        ax.plot([x0, x1], [y0, y1], '-', color=LINK_COLOR, lw=lw,
-                alpha=0.6, zorder=1)
+        ax.plot([x0, x1], [y0, y1], color=EDGE_GRAY, lw=7.0,
+                solid_capstyle="round", zorder=2)
 
-    # Draw nodes
-    node_radius = 0.15
-    for node_id, (x, y) in NODE_POS.items():
-        circle = plt.Circle((x, y), node_radius, facecolor=NODE_COLOR,
-                             edgecolor=NODE_EDGE_COLOR, linewidth=2.5, zorder=3)
-        ax.add_patch(circle)
-        ax.text(x, y, str(node_id), fontsize=20, fontweight='bold',
-                ha='center', va='center', color='white', zorder=4)
+    # Coloured path lanes -- per-edge perpendicular offset keeps each lane
+    # exactly parallel to its underlying edge.
+    lane_offsets = [0.0, -0.085, 0.085]  # path 0, 1, 2
+    for path_idx, ((_, nodes), color, off) in enumerate(
+        zip(PATHS.items(), PATH_COLORS, lane_offsets)
+    ):
+        _draw_path_lane(ax, nodes, color, off, zorder_base=3 + path_idx * 2)
 
-    if show_title:
-        ax.set_title('5-Node Topology:\n3 FSU per Link, 3 Candidate Paths',
-                     fontsize=18, pad=14)
-
-    # Traffic requests
-    ax.text(1.0, 1.55, 'Request 1:  0  $\\rightarrow$  1',
-            fontsize=16, ha='center', va='center', color=REQUEST_COLOR,
-            fontweight='bold')
-    ax.text(1.0, 1.35, 'Request 2:  0  $\\rightarrow$  1',
-            fontsize=16, ha='center', va='center', color=REQUEST_COLOR,
-            fontweight='bold')
+    # Nodes drawn last (zorder >= 10) so they sit on top of every lane.
+    for nid, (x, y) in NODE_POS.items():
+        _draw_node(ax, x, y, str(nid))
 
 
-def _draw_paths(ax, text_size=16, fsu_label_size=14, action_label_size=15):
-    """Draw K-shortest paths with FSU state and action-index labels."""
-    ax.set_xlim(-0.8, 3.5)
-    ax.set_ylim(-0.6, 4.6)
-    ax.set_aspect('equal')
-    ax.axis('off')
+def _draw_pending_requests(ax, x_center, y):
+    """Two coral pills, each labelled '0 -> 1'."""
+    ax.text(x_center, y + 0.55, "Pending requests",
+            fontsize=14, fontweight="bold", ha="center", va="center",
+            color=REQUEST_COLOR)
 
-    # Legend at top
-    legend_y = 4.35
-    legend_x_offset = -0.57
-    ax.add_patch(plt.Rectangle((legend_x_offset, legend_y - 0.04), 0.2, 0.12,
-                                facecolor='#e8f5e9', edgecolor='k', lw=0.8))
-    ax.text(legend_x_offset + 0.3, legend_y + 0.02, '= Empty FSU (available)',
-            fontsize=text_size, va='center')
-    ax.text(legend_x_offset, legend_y - 0.25,
-            'Action = path_index $\\times$ num_slots + slot_index',
-            fontsize=text_size, va='center', color='#555555', style='italic')
+    pill_w = 1.55
+    pill_h = 0.50
+    spacing = 0.28
+    total = 2 * pill_w + spacing
+    x0 = x_center - total / 2
 
-    # Draw each path
-    path_y_positions = [3.3, 1.85, 0.4]
-    node_r = 0.11
+    for i in range(2):
+        x = x0 + i * (pill_w + spacing)
+        rect = FancyBboxPatch(
+            (x, y - pill_h / 2), pill_w, pill_h,
+            boxstyle="round,pad=0.0,rounding_size=0.25",
+            linewidth=1.5, edgecolor=REQUEST_COLOR, facecolor=REQUEST_BG,
+            zorder=2,
+        )
+        ax.add_patch(rect)
+        ax.text(x + pill_w / 2, y, r"0  $\rightarrow$  1",
+                fontsize=16, fontweight="bold", ha="center", va="center",
+                color=REQUEST_COLOR, zorder=3)
 
-    for path_idx, (path_name, path_nodes) in enumerate(PATHS.items()):
-        y_base = path_y_positions[path_idx]
-        color = PATH_COLORS[path_idx]
 
-        # Path header
-        path_str = ' $\\rightarrow$ '.join(str(n) for n in path_nodes)
-        ax.text(-0.2, y_base + 0.35, f'{path_name}:  {path_str}',
-                fontsize=text_size, fontweight='bold', color=color, va='center')
+def _draw_action_grid(ax, x_left, y_top):
+    """3x3 grid: rows = paths, cols = slots, cells labelled with action index."""
+    cell_w = 0.70
+    cell_h = 0.65
+    row_gap = 0.18
+    col_gap = 0.14
 
-        # Action indices for this path
-        action_start = path_idx * NUM_SLOTS
-        action_str = f'Actions {action_start}\u2013{action_start + NUM_SLOTS - 1}'
-        ax.text(-0.2, y_base + 0.1, action_str,
-                fontsize=action_label_size, color='#666666', va='center')
+    grid_w = NUM_SLOTS * cell_w + (NUM_SLOTS - 1) * col_gap
 
-        # Draw the path as linked nodes with FSU blocks on each link
-        num_links = len(path_nodes) - 1
-        x_spacing = 2.8 / max(num_links, 1)
+    # Column headers (use variable names that match the equation footer)
+    for s in range(NUM_SLOTS):
+        cx = x_left + s * (cell_w + col_gap) + cell_w / 2
+        ax.text(cx, y_top + 0.30, f"$s = {s}$",
+                fontsize=14, ha="center", va="center",
+                color=TEXT_DIM)
 
-        for link_idx in range(num_links):
-            n_from = path_nodes[link_idx]
-            n_to = path_nodes[link_idx + 1]
+    # Rows
+    for p in range(3):
+        y_top_row = y_top - p * (cell_h + row_gap)
+        y_bot_row = y_top_row - cell_h
 
-            x_from = 0.2 + link_idx * x_spacing
-            x_to = 0.2 + (link_idx + 1) * x_spacing
+        # Path label + colour chip on the left of the row.
+        # "p = 0/1/2" is shorter than "Path 0" and ties directly to the
+        # equation a = p * N_slot + s shown below the grid.
+        chip_x = x_left - 1.10
+        chip_y = (y_top_row + y_bot_row) / 2
+        ax.add_patch(Circle((chip_x, chip_y), 0.10,
+                            color=PATH_COLORS[p], zorder=2))
+        ax.text(chip_x + 0.20, chip_y, f"$p = {p}$",
+                fontsize=14, fontweight="bold", ha="left", va="center",
+                color=PATH_COLORS[p])
 
-            # Draw link line
-            ax.plot([x_from + node_r, x_to - node_r],
-                    [y_base - 0.15, y_base - 0.15],
-                    '-', color=color, lw=2.5, alpha=0.7)
+        # Cells
+        for s in range(NUM_SLOTS):
+            action = p * NUM_SLOTS + s
+            cx = x_left + s * (cell_w + col_gap)
+            cy = y_bot_row
+            face = _lighten(PATH_COLORS[p], 0.86)
+            rect = FancyBboxPatch(
+                (cx, cy), cell_w, cell_h,
+                boxstyle="round,pad=0.0,rounding_size=0.09",
+                linewidth=1.6, edgecolor=PATH_COLORS[p], facecolor=face,
+                zorder=2,
+            )
+            ax.add_patch(rect)
+            ax.text(cx + cell_w / 2, cy + cell_h / 2, str(action),
+                    fontsize=19, fontweight="bold",
+                    ha="center", va="center",
+                    color=PATH_COLORS[p], zorder=3)
 
-            # Draw node circles
-            for nx_pos, n_id in [(x_from, n_from), (x_to, n_to)]:
-                circ = plt.Circle((nx_pos, y_base - 0.15), node_r,
-                                   facecolor=NODE_COLOR, edgecolor=NODE_EDGE_COLOR,
-                                   linewidth=2, zorder=3)
-                ax.add_patch(circ)
-                ax.text(nx_pos, y_base - 0.15, str(n_id), fontsize=text_size,
-                        fontweight='bold', ha='center', va='center',
-                        color='white', zorder=4)
+    # Equation footer -- left-aligned with the colour chips above so the
+    # left margin of the action-grid block reads as a clean vertical line.
+    chip_x = x_left - 1.10
+    grid_bottom = y_top - 3 * cell_h - 2 * row_gap
+    ax.text(chip_x, grid_bottom - 0.42,
+            r"$a \;=\; p \cdot N_{\mathrm{slot}} + s$",
+            fontsize=17, ha="left", va="center",
+            color=TEXT_DIM, style="italic")
 
-            # Draw FSU block below the link — label with action indices
-            slot_w = 0.15
-            slot_h = 0.18
-            fsu_x = (x_from + x_to) / 2 - NUM_SLOTS * slot_w / 2
-            fsu_y = y_base - 0.5
 
-            for s in range(NUM_SLOTS):
-                rect = plt.Rectangle(
-                    (fsu_x + s * slot_w, fsu_y - slot_h / 2),
-                    slot_w * 0.9, slot_h,
-                    facecolor='#e8f5e9', edgecolor='k', linewidth=0.8, zorder=4,
-                )
-                ax.add_patch(rect)
-                action_idx = path_idx * NUM_SLOTS + s
-                ax.text(fsu_x + s * slot_w + slot_w * 0.45, fsu_y,
-                        str(action_idx), fontsize=fsu_label_size,
-                        ha='center', va='center', zorder=5)
-
-            # FSU label
-            ax.text((x_from + x_to) / 2, fsu_y - slot_h * 0.9,
-                    f'Link {n_from}\u2013{n_to}', fontsize=fsu_label_size - 1,
-                    ha='center', va='top', color='#777777')
+# --- Main ---------------------------------------------------------------
 
 
 def plot_topology_diagram():
-    """Side-by-side layout: topology left, paths right."""
-    configure_style(font_size=18, axes_label_size=18, tick_size=14,
-                    legend_size=14, figure_dpi=150)
+    """Single integrated figure: topology + paths + action grid."""
+    configure_style(font_size=12, axes_label_size=12, tick_size=10,
+                    legend_size=10, figure_dpi=150)
     os.makedirs(FIGURES_DIR, exist_ok=True)
 
-    fig, axes = plt.subplots(1, 2, figsize=(16, 7),
-                              gridspec_kw={'width_ratios': [1, 1.2],
-                                           'wspace': -0.42})
-    _draw_topology(axes[0], show_title=True)
-    _draw_paths(axes[1])
+    fig, ax = plt.subplots(figsize=(11, 5.2))
+    ax.set_xlim(-0.6, 10.5)
+    ax.set_ylim(-1.30, 4.2)
+    ax.set_aspect("equal")
+    ax.axis("off")
 
-    plt.subplots_adjust(wspace=-0.42)
-    fname = "topology_test_case.png"
-    fig.savefig(os.path.join(FIGURES_DIR, fname))
-    print(f"Saved {fname}")
+    # Title row -- centred on the figure, not the panel split.
+    # Slightly larger gap between the title and the subtitle (3.85 -> 3.35).
+    title_x = 4.95
+    ax.text(title_x, 3.85, "5-node test-case: topology and action space",
+            fontsize=19, fontweight="600", ha="center",
+            color=TEXT_DARK)
+    ax.text(title_x, 3.35,
+            r"$N_{\mathrm{slot}} = 3$ frequency slots per link  ·  "
+            r"$K = 3$ candidate paths from node 0 $\rightarrow$ node 1",
+            fontsize=14, ha="center", color=TEXT_DIM, style="italic")
+
+    # Background panels (labels drawn ABOVE each panel by _draw_panel).
+    # Panel (a) is given more horizontal space than (b) so the topology can
+    # breathe; panel (b) is sized just to fit the 3x3 action grid + labels.
+    _draw_panel(ax, -0.35, -1.10, 5.85, 3.85, label="(a)  Topology")
+    _draw_panel(ax,  5.70, -1.10, 4.70, 3.85, label="(b)  Action space")
+
+    _draw_topology_section(ax)
+    _draw_pending_requests(ax, x_center=2.55, y=-0.50)
+
+    # Action grid: place so the grid + row labels are centred within panel (b).
+    _draw_action_grid(ax, x_left=7.40, y_top=1.95)
+
+    pdf_path = os.path.join(FIGURES_DIR, "topology_test_case.pdf")
+    png_path = os.path.join(FIGURES_DIR, "topology_test_case.png")
+    fig.savefig(pdf_path, bbox_inches="tight")
+    fig.savefig(png_path, dpi=300, bbox_inches="tight")
+    print(f"Saved {pdf_path}")
+    print(f"Saved {png_path}")
     return fig
 
 
 def plot_topology_diagram_vertical():
-    """Stacked layout: topology on top, paths below."""
-    configure_style(font_size=18, axes_label_size=18, tick_size=14,
-                    legend_size=14, figure_dpi=150)
+    """Stacked variant: topology on top, action grid below. Useful for column figures."""
+    configure_style(font_size=12, axes_label_size=12, tick_size=10,
+                    legend_size=10, figure_dpi=150)
     os.makedirs(FIGURES_DIR, exist_ok=True)
 
-    fig, axes = plt.subplots(2, 1, figsize=(10, 12),
-                              gridspec_kw={'height_ratios': [1, 1.3],
-                                           'hspace': -0.08})
-    _draw_topology(axes[0], show_title=True)
-    _draw_paths(axes[1])
+    fig, ax = plt.subplots(figsize=(7.5, 8.7))
+    ax.set_xlim(-0.6, 6.4)
+    ax.set_ylim(-5.00, 4.2)
+    ax.set_aspect("equal")
+    ax.axis("off")
 
-    plt.subplots_adjust(hspace=-0.08)
-    fname = "topology_test_case_vertical.png"
-    fig.savefig(os.path.join(FIGURES_DIR, fname))
-    print(f"Saved {fname}")
+    title_x = 2.90
+    ax.text(title_x, 3.85, "5-node test-case",
+            fontsize=18, fontweight="600", ha="center", color=TEXT_DARK)
+    ax.text(title_x, 3.35,
+            r"$N_{\mathrm{slot}} = 3$ slots per link  ·  "
+            r"$K = 3$ paths, node 0 $\rightarrow$ node 1",
+            fontsize=12.5, ha="center", color=TEXT_DIM, style="italic")
+
+    # Panel bottoms raised; action panel slid up to sit just below the
+    # tightened topology panel.
+    _draw_panel(ax, -0.35, -1.10, 6.40, 3.85, label="(a)  Topology")
+    _draw_panel(ax, -0.35, -4.80, 6.40, 3.55, label="(b)  Action space")
+
+    _draw_topology_section(ax)
+    _draw_pending_requests(ax, x_center=2.85, y=-0.50)
+
+    _draw_action_grid(ax, x_left=2.30, y_top=-1.75)
+
+    pdf_path = os.path.join(FIGURES_DIR, "topology_test_case_vertical.pdf")
+    png_path = os.path.join(FIGURES_DIR, "topology_test_case_vertical.png")
+    fig.savefig(pdf_path, bbox_inches="tight")
+    fig.savefig(png_path, dpi=300, bbox_inches="tight")
+    print(f"Saved {pdf_path}")
+    print(f"Saved {png_path}")
     return fig
 
 

@@ -51,7 +51,7 @@ from xlron.gui.presets import PRESETS
 from xlron.heuristics.heuristics import ksp_ff
 
 # Apply publication-quality plot style (smaller fonts for multi-panel figures)
-configure_style(font_size=16, axes_label_size=18, tick_size=14, legend_size=12)
+configure_style(font_size=24, axes_label_size=28, tick_size=22, legend_size=20)
 
 # ---------------------------------------------------------------------------
 # Data caching
@@ -426,7 +426,7 @@ def plot1_2_combined_snr_metrics(freqs, path_d, c_mask, l_mask, occ, out_dir):
     osnr_nl = np.array(path_d["osnr_nl_db"])
     gosnr_with_trx = np.array(path_d["gosnr_with_trx_db"])
 
-    fig, ax = plt.subplots(figsize=(14, 7))
+    fig, ax = plt.subplots(figsize=(12, 5))
 
     # Metrics with Gerard reference lines (3 original metrics)
     metric_defs = [
@@ -443,12 +443,12 @@ def plot1_2_combined_snr_metrics(freqs, path_d, c_mask, l_mask, occ, out_dir):
             freqs[occ],
             values[occ],
             c=color,
-            s=50,
+            s=80,
             marker=marker,
             label=metric_label,
             zorder=3,
             edgecolors="k",
-            linewidths=0.3,
+            linewidths=0.5,
         )
         gerard_l_handles[metric_label] = ax.axhline(
             GERARD_REF["L_band"][metric_key],
@@ -471,12 +471,12 @@ def plot1_2_combined_snr_metrics(freqs, path_d, c_mask, l_mask, occ, out_dir):
         freqs[occ],
         gosnr_with_trx[occ],
         c="black",
-        s=50,
+        s=80,
         marker="o",
         label=rcv_label,
         zorder=3,
         edgecolors="k",
-        linewidths=0.3,
+        linewidths=0.5,
     )
 
     ax.set_xlabel("Frequency (THz)")
@@ -527,6 +527,7 @@ def plot1_2_combined_snr_metrics(freqs, path_d, c_mask, l_mask, occ, out_dir):
         bbox_to_anchor=(0.0, 1.01),
         frameon=True,
         borderaxespad=0,
+        fontsize=18,
     )
     ax.add_artist(leg1)
 
@@ -538,6 +539,7 @@ def plot1_2_combined_snr_metrics(freqs, path_d, c_mask, l_mask, occ, out_dir):
         bbox_to_anchor=(1.0, 1.01),
         frameon=True,
         borderaxespad=0,
+        fontsize=18,
     )
 
     plt.savefig(
@@ -594,7 +596,7 @@ def plot3_band_comparison(path_d, c_mask, l_mask, occ, out_dir):
     x = np.arange(len(metrics_list))
     w = 0.18
 
-    fig, ax = plt.subplots(figsize=(12, 7))
+    fig, ax = plt.subplots(figsize=(11, 6))
     xlron_c_vals = [xlron_c[m] if not np.isnan(xlron_c[m]) else 0 for m in metrics_list]
     xlron_l_vals = [xlron_l[m] if not np.isnan(xlron_l[m]) else 0 for m in metrics_list]
     ger_c_vals = [gerard_c[f"{m}_dB"] for m in metrics_list]
@@ -633,7 +635,7 @@ def plot3_band_comparison(path_d, c_mask, l_mask, occ, out_dir):
                     textcoords="offset points",
                     ha="center",
                     va="bottom",
-                    fontsize=16,
+                    fontsize=20,
                 )
 
     ax.set_xticks(x)
@@ -641,9 +643,9 @@ def plot3_band_comparison(path_d, c_mask, l_mask, occ, out_dir):
         ["GOSNR", "OSNR$_{ASE}$", "OSNR$_{NL}$"],
     )
     ax.set_ylabel("Value (dB)")
-    ax.set_ylim(bottom=15)
+    ax.set_ylim(bottom=20)
 
-    ax.legend(loc="upper left")
+    ax.legend(loc="upper left", fontsize=20)
 
     plt.tight_layout()
     plt.savefig(os.path.join(out_dir, "plot3_band_comparison.png"))
@@ -742,7 +744,7 @@ def load_ablation_data(data_dir):
 
 def plot5_ablation_sweep(ablation_results, out_dir):
     """Plot ablation study: power sweep curves for different configurations."""
-    fig, ax = plt.subplots(figsize=(12, 7))
+    fig, ax = plt.subplots(figsize=(11, 8))
 
     colors = PALETTE[:5]
     markers = ["o", "s", "^", "D", "v"]
@@ -750,7 +752,7 @@ def plot5_ablation_sweep(ablation_results, out_dir):
     for i, (name, (powers, gosnrs)) in enumerate(ablation_results.items()):
         c = colors[i % len(colors)]
         m = markers[i % len(markers)]
-        ax.plot(powers, gosnrs, color=c, marker=m, markersize=3, label=name, linewidth=1.5)
+        ax.plot(powers, gosnrs, color=c, marker=m, markersize=6, label=name, linewidth=2.0)
 
         valid = ~np.isnan(gosnrs)
         if np.any(valid):
@@ -759,17 +761,17 @@ def plot5_ablation_sweep(ablation_results, out_dir):
                 [powers[opt_idx]],
                 [gosnrs[opt_idx]],
                 c=c,
-                s=150,
+                s=220,
                 zorder=5,
                 marker="*",
                 edgecolors="k",
                 linewidths=0.5,
             )
 
-    ax.axvline(21.2, color="red", linestyle=":", linewidth=1.5, label="Gerard optimal (21.2 dBm)")
+    ax.axvline(21.2, color="red", linestyle=":", linewidth=2.0, label="Gerard optimal (21.2 dBm)")
     ax.set_xlabel("Total Fibre Launch Power (dBm)")
     ax.set_ylabel("Average GOSNR (dB)")
-    ax.legend(loc="lower center", bbox_to_anchor=(0.75, 0.0))
+    ax.legend(loc="lower center", bbox_to_anchor=(0.75, 0.0), fontsize=18)
 
     plt.tight_layout()
     plt.savefig(os.path.join(out_dir, "plot5_ablation_sweep.png"))
@@ -1050,73 +1052,75 @@ def plot_gain_budget(freqs, state, c_mask, l_mask, occ, params, out_dir):
         return
     order = np.argsort(f_occ)
 
-    fig, ax = plt.subplots(figsize=(12, 7))
+    fig, ax = plt.subplots(figsize=(11, 5))
 
     ax.plot(
         f_occ[order],
         raman_gain_db[occ][order],
         color=PRIMARY_COLORS[0],
-        lw=1.8,
-        label=f"Raman gain (mean {np.mean(raman_gain_db[occ]):.1f} dB)",
+        lw=2.5,
+        label="Raman Gain",
     )
     ax.plot(
         f_occ[order],
         edfa_gain_db[occ][order],
         color=ACCENT_COLORS[0],
-        lw=1.8,
-        label=f"EDFA gain (mean {np.mean(edfa_gain_db[occ]):.1f} dB)",
+        lw=2.5,
+        label="EDFA Gain",
     )
     ax.plot(
         f_occ[order],
         total_gain_db[occ][order],
         color=ACCENT_COLORS[1],
-        lw=2.0,
-        label=f"Total gain (mean {np.mean(total_gain_db[occ]):.1f} dB)",
+        lw=2.8,
+        label="Total Gain",
     )
 
+    # Span-loss reference line (no legend entry)
     ax.axhline(
         total_target_db,
         color="k",
         ls="--",
         lw=1.2,
         alpha=0.6,
-        label=f"Span loss = {total_target_db:.1f} dB"
-        f" (fibre {fibre_loss_db:.1f}"
-        + (f" + lumped {lumped_loss_db:.1f}" if lumped_loss_db else "")
-        + ")",
     )
 
-    # Band shading
+    # Band shading + C/L labels positioned just below the total gain line
+    # at each band's mean frequency.
     if np.any(c_mask & occ):
         c_f = freqs[c_mask & occ]
         ax.axvspan(c_f.min(), c_f.max(), alpha=0.06, color=C_COLOR, zorder=0)
+        c_y = float(np.mean(total_gain_db[c_mask & occ])) - 1.5
         ax.text(
             np.mean(c_f),
-            ax.get_ylim()[1] * 0.97,
+            c_y,
             "C",
             ha="center",
-            fontsize=14,
+            va="top",
+            fontsize=22,
             color=C_COLOR,
-            alpha=0.7,
+            alpha=0.85,
             fontweight="bold",
         )
     if np.any(l_mask & occ):
         l_f = freqs[l_mask & occ]
         ax.axvspan(l_f.min(), l_f.max(), alpha=0.06, color=L_COLOR, zorder=0)
+        l_y = float(np.mean(total_gain_db[l_mask & occ])) - 1.5
         ax.text(
             np.mean(l_f),
-            ax.get_ylim()[1] * 0.97,
+            l_y,
             "L",
             ha="center",
-            fontsize=14,
+            va="top",
+            fontsize=22,
             color=L_COLOR,
-            alpha=0.7,
+            alpha=0.85,
             fontweight="bold",
         )
 
     ax.set_xlabel("Frequency (THz)")
     ax.set_ylabel("Gain (dB)")
-    ax.legend(loc="best")
+    ax.legend(loc="best", fontsize=18)
     ax.set_ylim(bottom=0)
 
     plt.tight_layout()

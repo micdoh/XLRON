@@ -42,6 +42,49 @@ from experimental.plot_style import (
 # -- Helpers ------------------------------------------------------------------
 
 
+# Display label for the throughput metric (steps per second).
+SPS_LABEL = "SPS"
+
+
+_FIXED_CONFIG_KEYS = [
+    ("config_topology_name", "Topology", lambda v: TOPOLOGY_DISPLAY.get(v, v)),
+    ("config_env_type", "Env", lambda v: ENV_TYPE_DISPLAY.get(v, v)),
+    ("config_link_resources", "FSU/link", lambda v: f"{int(v)}"),
+    ("config_k", "K", lambda v: f"{int(v)}"),
+    ("config_NUM_ENVS", "Envs", lambda v: f"{int(v)}"),
+    ("config_load", "Load", lambda v: f"{int(v)} Erlangs"),
+    ("config_path_heuristic", "Heuristic", lambda v: str(v)),
+    ("config_band_preference", "Band", lambda v: BAND_DISPLAY.get(v, v)),
+    ("config_continuous_operation", "Continuous", lambda v: "yes" if bool(v) else "no"),
+]
+
+
+def _fixed_config_subtitle(data: pd.DataFrame) -> str:
+    """Return ' | '-separated string of columns that have a single value in `data`.
+
+    These are the simulation parameters held fixed in the plot; they describe
+    which dataset the figure was generated from.
+    """
+    parts: list[str] = []
+    for col, label, fmt in _FIXED_CONFIG_KEYS:
+        if col not in data.columns:
+            continue
+        vals = data[col].dropna().unique()
+        if len(vals) == 1:
+            try:
+                parts.append(f"{label}: {fmt(vals[0])}")
+            except Exception:
+                parts.append(f"{label}: {vals[0]}")
+    return " | ".join(parts)
+
+
+def _add_config_subtitle(fig: plt.Figure, data: pd.DataFrame, *, y: float = 0.995):
+    """No-op. The fixed simulation config is now described in the LaTeX caption
+    rather than embedded in the figure itself.
+    """
+    return
+
+
 def _filter_group(df: pd.DataFrame, group: str) -> pd.DataFrame:
     """Filter dataframe to rows belonging to a sweep group.
 
@@ -98,7 +141,7 @@ def plot_fps_vs_num_envs(df: pd.DataFrame, output_dir: Path, device: str | None 
         return
 
     devices = sorted(data["device"].unique()) if "device" in data.columns else [None]
-    fig, ax = plt.subplots(figsize=(14, 10))
+    fig, ax = plt.subplots(figsize=(12, 6))
 
     device_styles = {"cpu": "--", "gpu": "-"}
     ref_x, ref_y0 = None, None
@@ -126,11 +169,20 @@ def plot_fps_vs_num_envs(df: pd.DataFrame, output_dir: Path, device: str | None 
 
     ax.set_xscale("log", base=2)
     ax.set_yscale("log")
-    ax.set_xlabel("# Parallel Environments")
-    ax.set_ylabel("FPS")
-    ax.legend()
+    ax.set_xlabel("# Parallel Environments", fontsize=30)
+    ax.set_ylabel(SPS_LABEL, fontsize=30)
+    ax.tick_params(axis="both", which="major", labelsize=28)
+    ax.legend(fontsize=28)
     ax.xaxis.set_major_formatter(ticker.ScalarFormatter())
+
+    # More y-axis ticks to make log scale visually obvious
+    from matplotlib.ticker import LogLocator
+    ax.yaxis.set_major_locator(LogLocator(base=10, numticks=12))
+    ax.yaxis.set_minor_locator(LogLocator(base=10, subs=range(2, 10), numticks=20))
+    ax.yaxis.set_minor_formatter(plt.NullFormatter())
+
     fig.tight_layout()
+    _add_config_subtitle(fig, data)
     _save(fig, output_dir, "fps_vs_num_envs")
 
 
@@ -175,7 +227,7 @@ def plot_fps_vs_link_resources_and_k(df: pd.DataFrame, output_dir: Path, device:
     _plot_panel(ax_lr, data_lr, "config_link_resources", "FSU per Link")
     _plot_panel(ax_k, data_k, "config_k", "K (shortest paths)")
 
-    ax_lr.set_ylabel("FPS", fontsize=16)
+    ax_lr.set_ylabel(SPS_LABEL, fontsize=16)
     # More y-axis ticks
     from matplotlib.ticker import LogLocator
     ax_lr.yaxis.set_major_locator(LogLocator(base=10, numticks=12))
@@ -186,6 +238,10 @@ def plot_fps_vs_link_resources_and_k(df: pd.DataFrame, output_dir: Path, device:
     ax_k.legend(loc="center right")
 
     fig.tight_layout()
+    # Use whichever panel actually has data (left covers link_resources,
+    # right covers k). Their non-varying configs match.
+    panel_data = data_lr if not data_lr.empty else data_k
+    _add_config_subtitle(fig, panel_data)
     _save(fig, output_dir, "fps_vs_link_resources_and_k")
 
 
@@ -212,7 +268,7 @@ def plot_compilation_time(df: pd.DataFrame, output_dir: Path, device: str | None
 
     env_types = sorted(data["config_env_type"].unique())
     devices = sorted(data["device"].unique()) if "device" in data.columns else [None]
-    fig, ax = plt.subplots(figsize=(14, 10))
+    fig, ax = plt.subplots(figsize=(12, 6))
 
     device_linestyles = {"cpu": "--", "gpu": "-"}
     device_markers = {"cpu": "s", "gpu": "o"}
@@ -242,10 +298,19 @@ def plot_compilation_time(df: pd.DataFrame, output_dir: Path, device: str | None
             ax.fill_between(x, y - yerr, y + yerr, color=color, alpha=0.15)
 
     ax.set_xscale("log", base=2)
-    ax.set_xlabel("# Parallel Environments")
-    ax.set_ylabel("Compilation Time (s)")
+    ax.set_xlabel("# Parallel Environments", fontsize=28)
+    ax.set_ylabel("Compilation Time (s)", fontsize=28)
     ax.set_yscale("log")
+    ax.tick_params(axis="both", which="major", labelsize=26)
     ax.xaxis.set_major_formatter(ticker.ScalarFormatter())
+
+    # Force the y-axis to span at least 10^0..10^2 with explicit major/minor ticks
+    from matplotlib.ticker import LogLocator
+    y_lo, y_hi = ax.get_ylim()
+    ax.set_ylim(min(y_lo, 1.0), max(y_hi, 100.0))
+    ax.yaxis.set_major_locator(LogLocator(base=10, numticks=15))
+    ax.yaxis.set_minor_locator(LogLocator(base=10, subs=range(2, 10), numticks=30))
+    ax.yaxis.set_minor_formatter(plt.NullFormatter())
 
     # Build two-section legend: device styles (black) + env-type colours
     legend_handles = []
@@ -265,9 +330,10 @@ def plot_compilation_time(df: pd.DataFrame, output_dir: Path, device: str | None
             label=ENV_TYPE_DISPLAY.get(env_type, env_type),
         )
         legend_handles.append(h)
-    ax.legend(handles=legend_handles)
+    ax.legend(handles=legend_handles, fontsize=24)
 
     fig.tight_layout()
+    _add_config_subtitle(fig, data)
     _save(fig, output_dir, "compilation_time_vs_num_envs")
 
 
@@ -321,20 +387,20 @@ def plot_gpu_speedup(df: pd.DataFrame, output_dir: Path, device: str | None = No
         print("  No overlapping NUM_ENVS values for gpu_speedup plot")
         return
 
-    fig, ax = plt.subplots(figsize=(14, 10))
+    fig, ax = plt.subplots(figsize=(12, 6))
 
     speedup = merged["timing_fps_mean_gpu"] / merged["timing_fps_mean_cpu"]
     ax.plot(merged["config_NUM_ENVS"], speedup,
-            marker="s", color=ENV_TYPE_COLORS.get("rmsa", "black"), label="RMSA")
+            marker="s", color=ENV_TYPE_COLORS.get("rmsa", "black"))
 
-    ax.axhline(y=1, color="gray", linestyle="--", alpha=0.5, label="Parity")
     ax.set_xscale("log", base=2)
-    ax.set_xlabel("# Parallel Environments")
-    ax.set_ylabel("GPU Speedup (x)")
-    ax.legend()
+    ax.set_xlabel("# Parallel Environments", fontsize=30)
+    ax.set_ylabel("GPU Speedup (x)", fontsize=30)
+    ax.tick_params(axis="both", which="major", labelsize=24)
     ax.xaxis.set_major_formatter(ticker.ScalarFormatter())
 
     fig.tight_layout()
+    _add_config_subtitle(fig, data)
     _save(fig, output_dir, "gpu_speedup")
 
 
@@ -383,7 +449,7 @@ def plot_gn_band_scaling(df: pd.DataFrame, output_dir: Path, device: str | None 
 
     env_hatches = {et: h for et, h in zip(sorted(env_types), ["", "//", "\\\\", "xx"])}
 
-    fig, ax = plt.subplots(figsize=(14, 10))
+    fig, ax = plt.subplots(figsize=(12, 6.5))
     x = np.arange(len(bands))
     n = len(series)
     width = 0.8 / max(n, 1)
@@ -410,11 +476,25 @@ def plot_gn_band_scaling(df: pd.DataFrame, output_dir: Path, device: str | None 
                color=color, hatch=hatch, capsize=4,
                edgecolor="white" if hatch else None)
 
-    ax.set_xlabel("Band Configuration")
+    ax.set_xlabel("Band Configuration", fontsize=28)
     ax.set_yscale("log")
-    ax.set_ylabel("FPS")
+    ax.set_ylabel(SPS_LABEL, fontsize=28)
     ax.set_xticks(x)
-    ax.set_xticklabels([BAND_DISPLAY.get(b, b) for b in bands])
+    # Wrap "<band> (<channels>)" onto two lines so the long labels don't overlap.
+    def _wrap_band(b):
+        full = BAND_DISPLAY.get(b, b)
+        if " (" in full:
+            head, tail = full.split(" (", 1)
+            return f"{head}\n({tail}"
+        return full
+    ax.set_xticklabels([_wrap_band(b) for b in bands], fontsize=24)
+    ax.tick_params(axis="y", which="major", labelsize=26)
+
+    # More y-axis ticks to make log scale visually obvious
+    from matplotlib.ticker import LogLocator
+    ax.yaxis.set_major_locator(LogLocator(base=10, numticks=12))
+    ax.yaxis.set_minor_locator(LogLocator(base=10, subs=range(2, 10), numticks=20))
+    ax.yaxis.set_minor_formatter(plt.NullFormatter())
 
     # Two-section legend: solid color for device, B&W hatch for env type
     legend_handles = []
@@ -429,8 +509,9 @@ def plot_gn_band_scaling(df: pd.DataFrame, output_dir: Path, device: str | None 
         legend_handles.append(mpatches.Patch(
             facecolor="white", edgecolor="black", hatch=hatch, label=display,
         ))
-    ax.legend(handles=legend_handles)
+    ax.legend(handles=legend_handles, fontsize=24)
     fig.tight_layout()
+    _add_config_subtitle(fig, data)
     _save(fig, output_dir, "gn_band_scaling")
 
 
@@ -532,18 +613,18 @@ def plot_heatmap(df: pd.DataFrame, output_dir: Path, device: str | None = None):
         im = ax.imshow(matrix, aspect="auto", cmap=dev_cmap, norm=dev_norm)
 
         ax.set_yticks(range(len(topo_labels)))
-        ax.set_yticklabels(topo_labels, fontsize=22, fontweight="bold")
+        ax.set_yticklabels(topo_labels, fontsize=28, fontweight="bold")
         ax.set_xticks(range(len(all_env_types)))
 
         # Only show x tick labels on the bottom subplot
         if idx == n_devs - 1:
             ax.set_xticklabels([ENV_TYPE_DISPLAY.get(et, et) for et in all_env_types],
-                               rotation=45, ha="right", fontsize=22, fontweight="bold")
+                               rotation=45, ha="right", fontsize=28, fontweight="bold")
         else:
             ax.tick_params(labelbottom=False)
 
         dev_label = dev.upper() if dev else ""
-        ax.set_ylabel(dev_label, fontsize=28, fontweight="bold")
+        ax.set_ylabel(dev_label, fontsize=34, fontweight="bold")
 
         # Annotate cells
         for i in range(len(all_topos)):
@@ -557,19 +638,21 @@ def plot_heatmap(df: pd.DataFrame, output_dir: Path, device: str | None = None):
                     rgba = dev_cmap(dev_norm(val))
                     lum = 0.299 * rgba[0] + 0.587 * rgba[1] + 0.114 * rgba[2]
                     txt_color = "white" if lum < 0.5 else "black"
-                ax.text(j, i, txt, ha="center", va="center", fontsize=24,
+                ax.text(j, i, txt, ha="center", va="center", fontsize=30,
                         fontweight="bold", color=txt_color)
 
         # Per-device colorbar in the same row
         cbar_ax = fig.add_subplot(gs[idx, 1])
-        fig.colorbar(im, cax=cbar_ax)
+        cbar = fig.colorbar(im, cax=cbar_ax)
+        cbar.ax.tick_params(labelsize=22)
 
-    # Single "FPS" label centered on the colorbar column, close to colorbars
+    # Single "SPS" label centered on the colorbar column, close to colorbars
     cbar_right = gs.get_grid_positions(fig)[3][-1]  # right edge of colorbar column
-    fig.text(cbar_right + 0.03, 0.5, "FPS", va="center", ha="left", rotation=90,
-             fontsize=28, fontweight="bold", transform=fig.transFigure)
+    fig.text(cbar_right + 0.03, 0.5, SPS_LABEL, va="center", ha="left", rotation=90,
+             fontsize=34, fontweight="bold", transform=fig.transFigure)
 
     fig.tight_layout()
+    _add_config_subtitle(fig, data)
     _save(fig, output_dir, "heatmap")
 
 
@@ -614,7 +697,7 @@ def plot_cross_env(df: pd.DataFrame, output_dir: Path, device: str | None = None
     if not dev_order:
         dev_order = [None]
 
-    fig, ax = plt.subplots(figsize=(14, 10))
+    fig, ax = plt.subplots(figsize=(12, 6.5))
     y = np.arange(len(env_order))
     n_dev = len(dev_order)
     height = 0.8 / max(n_dev, 1)
@@ -645,20 +728,43 @@ def plot_cross_env(df: pd.DataFrame, output_dir: Path, device: str | None = None
             all_fps.append(fps_means[j])
 
     ax.set_yticks(y)
-    ax.set_yticklabels([ENV_TYPE_DISPLAY.get(et, et) for et in env_order])
+    ax.set_yticklabels([ENV_TYPE_DISPLAY.get(et, et) for et in env_order], fontsize=30)
     ax.set_xscale("log")
-    ax.set_xlabel("FPS")
+    ax.set_xlabel(SPS_LABEL, fontsize=30)
+    ax.tick_params(axis="x", labelsize=28)
+
+    # Add minor ticks on log x-axis to make log scale visually obvious
+    from matplotlib.ticker import LogLocator
+    ax.xaxis.set_major_locator(LogLocator(base=10, numticks=12))
+    ax.xaxis.set_minor_locator(LogLocator(base=10, subs=range(2, 10), numticks=20))
+    ax.xaxis.set_minor_formatter(plt.NullFormatter())
+
+    # Extend x-axis to leave room for the value labels at the end of each bar
+    if all_fps:
+        positive = [v for v in all_fps if v > 0]
+        if positive:
+            xmin = min(positive) * 0.5
+            xmax = max(positive) * 3.0
+            ax.set_xlim(xmin, xmax)
 
     for bar, fps in zip(all_bars, all_fps):
         if fps > 0:
             ax.text(
                 bar.get_width() * 1.05, bar.get_y() + bar.get_height() / 2,
-                format_fps(fps), va="center", fontsize=14,
+                format_fps(fps), va="center", fontsize=26, fontweight="bold",
             )
 
     if n_dev > 1:
-        ax.legend()
+        ax.legend(
+            fontsize=28,
+            loc="upper center",
+            bbox_to_anchor=(0.5, 1.18),
+            ncol=n_dev,
+            frameon=True,
+            borderaxespad=0.0,
+        )
     fig.tight_layout()
+    _add_config_subtitle(fig, single)
     _save(fig, output_dir, "cross_env_comparison")
 
 
@@ -675,10 +781,10 @@ def plot_config_summary(df: pd.DataFrame, output_dir: Path, device: str | None =
     lines.append("=" * 60)
 
     group_descriptions = {
-        "num_envs": ("FPS vs # Parallel Environments", "fps_vs_num_envs"),
-        "link_resources": ("FPS vs FSU per Link", "fps_vs_link_resources"),
-        "k_paths": ("FPS vs K Shortest Paths", "fps_vs_k"),
-        "topology": ("FPS vs Topology", "fps_vs_topology"),
+        "num_envs": ("SPS vs # Parallel Environments", "fps_vs_num_envs"),
+        "link_resources": ("SPS vs FSU per Link", "fps_vs_link_resources"),
+        "k_paths": ("SPS vs K Shortest Paths", "fps_vs_k"),
+        "topology": ("SPS vs Topology", "fps_vs_topology"),
         "device": ("CPU vs GPU Comparison", "cpu_vs_gpu"),
         "cross_env": ("Cross-Environment Comparison", "cross_env_comparison"),
         "gn_bands": ("GN Model Band Scaling", "gn_band_scaling"),
@@ -736,15 +842,19 @@ def plot_config_summary(df: pd.DataFrame, output_dir: Path, device: str | None =
 
 
 def plot_fps_vs_fsu_and_k_by_num_envs(df: pd.DataFrame, output_dir: Path, device: str | None = None):
-    """Side-by-side: FPS vs FSU per Link (left) and FPS vs K (right), one line per NUM_ENVS.
+    """Side-by-side and stacked variants: FPS vs FSU per Link and FPS vs K, one line per NUM_ENVS.
 
     Lines go from transparent (low NUM_ENVS) to opaque (high NUM_ENVS).
     Color is determined by device (GPU/CPU).  GPU is listed first in the legend.
-    A shared legend sits outside the right panel.
+    A shared legend sits outside the right/bottom panel.
+
+    Two figures are produced for layout comparison: a horizontal (1x2) version
+    and a vertical (2x1) stacked version.
     """
     import matplotlib.lines as mlines
+    from matplotlib.ticker import LogLocator
 
-    # -- Load left panel data (FSU per Link) --
+    # -- Load left/top panel data (FSU per Link) --
     data_lr = _filter_group(df, "config_grid")
     if data_lr.empty:
         data_lr = _filter_group(df, "link_resources")
@@ -754,7 +864,7 @@ def plot_fps_vs_fsu_and_k_by_num_envs(df: pd.DataFrame, output_dir: Path, device
     if not data_lr.empty and data_lr["config_link_resources"].nunique() < 2:
         data_lr = pd.DataFrame()
 
-    # -- Load right panel data (K) --
+    # -- Load right/bottom panel data (K) --
     data_k = _filter_group(df, "k_grid")
     if data_k.empty:
         data_k = _filter_group(df, "k_paths")
@@ -768,13 +878,9 @@ def plot_fps_vs_fsu_and_k_by_num_envs(df: pd.DataFrame, output_dir: Path, device
         print("  No data for fps_vs_fsu_and_k_by_num_envs")
         return
 
-    fig, (ax_lr, ax_k) = plt.subplots(1, 2, figsize=(24, 10), sharey=True)
+    panel_data = data_lr if not data_lr.empty else data_k
 
-    # Collect all NUM_ENVS and devices across both panels for a unified legend
-    all_ne_set = set()
-    dev_set = set()
-
-    def _plot_panel(ax, data, x_col, x_label):
+    def _plot_panel(ax, data, x_col, x_label, all_ne_set, dev_set):
         if data.empty:
             return
         group_cols = [x_col, "config_NUM_ENVS"]
@@ -782,7 +888,6 @@ def plot_fps_vs_fsu_and_k_by_num_envs(df: pd.DataFrame, output_dir: Path, device
             group_cols = group_cols + ["device"]
         agg = _agg(data, group_cols)
 
-        # Determine devices — put GPU first
         if "device" in agg.columns:
             devices = sorted(agg["device"].unique())
             dev_order = []
@@ -816,48 +921,69 @@ def plot_fps_vs_fsu_and_k_by_num_envs(df: pd.DataFrame, output_dir: Path, device
                 ax.plot(x, y, marker="o", color=color, alpha=alpha)
                 ax.fill_between(x, y - yerr, y + yerr, color=color, alpha=alpha * 0.2)
 
-        ax.set_xlabel(x_label)
+        ax.set_xlabel(x_label, fontsize=30)
         ax.set_yscale("log")
+        ax.tick_params(axis="both", which="major", labelsize=24)
+        ax.yaxis.set_major_locator(LogLocator(base=10, numticks=12))
+        ax.yaxis.set_minor_locator(LogLocator(base=10, subs=range(2, 10), numticks=20))
+        ax.yaxis.set_minor_formatter(plt.NullFormatter())
 
-    _plot_panel(ax_lr, data_lr, "config_link_resources", "FSU per Link")
-    _plot_panel(ax_k, data_k, "config_k", "K (shortest paths)")
+    def _build_legend_handles(all_ne_set, dev_set):
+        handles = []
+        dev_legend_order = []
+        if "gpu" in dev_set:
+            dev_legend_order.append("gpu")
+        if "cpu" in dev_set:
+            dev_legend_order.append("cpu")
+        for d in sorted(dev_set):
+            if d not in dev_legend_order:
+                dev_legend_order.append(d)
+        for dev in dev_legend_order:
+            color = DEVICE_COLORS.get(dev, "black")
+            handles.append(mlines.Line2D(
+                [], [], marker="o", color="none", markerfacecolor=color,
+                markeredgecolor=color, markersize=14, label=dev.upper(),
+            ))
+        all_ne = sorted(all_ne_set)
+        n_all = len(all_ne)
+        for idx, ne in enumerate(all_ne):
+            alpha = 0.25 + 0.75 * (idx / max(n_all - 1, 1))
+            handles.append(mlines.Line2D(
+                [], [], marker="o", color="black", alpha=alpha,
+                markersize=10, label=f"{int(ne)} envs",
+            ))
+        return handles
 
-    ax_lr.set_ylabel("FPS")
-
-    # Shared legend on the right side of the right panel
-    handles = []
-    # Device entries (colored dots) — GPU first
-    dev_legend_order = []
-    if "gpu" in dev_set:
-        dev_legend_order.append("gpu")
-    if "cpu" in dev_set:
-        dev_legend_order.append("cpu")
-    for d in sorted(dev_set):
-        if d not in dev_legend_order:
-            dev_legend_order.append(d)
-    for dev in dev_legend_order:
-        color = DEVICE_COLORS.get(dev, "black")
-        handles.append(mlines.Line2D(
-            [], [], marker="o", color="none", markerfacecolor=color,
-            markeredgecolor=color, markersize=10, label=dev.upper(),
-        ))
-    # NUM_ENVS entries (black/grey alpha-scaled lines)
-    all_ne = sorted(all_ne_set)
-    n_all = len(all_ne)
-    for idx, ne in enumerate(all_ne):
-        alpha = 0.25 + 0.75 * (idx / max(n_all - 1, 1))
-        handles.append(mlines.Line2D(
-            [], [], marker="o", color="black", alpha=alpha,
-            markersize=8, label=f"{int(ne)} envs",
-        ))
-    ax_k.legend(
-        handles=handles, fontsize=16,
+    # -- Horizontal layout (1x2) — shorter than before -----------------------
+    fig_h, (ax_lr_h, ax_k_h) = plt.subplots(1, 2, figsize=(22, 6.5), sharey=True)
+    ne_set_h, dev_set_h = set(), set()
+    _plot_panel(ax_lr_h, data_lr, "config_link_resources", "FSU per Link", ne_set_h, dev_set_h)
+    _plot_panel(ax_k_h, data_k, "config_k", "K (shortest paths)", ne_set_h, dev_set_h)
+    ax_lr_h.set_ylabel(SPS_LABEL, fontsize=30)
+    ax_k_h.legend(
+        handles=_build_legend_handles(ne_set_h, dev_set_h), fontsize=22,
         loc="center left", bbox_to_anchor=(1.02, 0.5),
         frameon=True, borderaxespad=0,
     )
+    fig_h.tight_layout()
+    _add_config_subtitle(fig_h, panel_data)
+    _save(fig_h, output_dir, "fps_vs_fsu_and_k_by_num_envs")
 
-    fig.tight_layout()
-    _save(fig, output_dir, "fps_vs_fsu_and_k_by_num_envs")
+    # -- Vertical layout (2x1) — stacked -------------------------------------
+    fig_v, (ax_lr_v, ax_k_v) = plt.subplots(2, 1, figsize=(12, 11), sharex=False)
+    ne_set_v, dev_set_v = set(), set()
+    _plot_panel(ax_lr_v, data_lr, "config_link_resources", "FSU per Link", ne_set_v, dev_set_v)
+    _plot_panel(ax_k_v, data_k, "config_k", "K (shortest paths)", ne_set_v, dev_set_v)
+    ax_lr_v.set_ylabel(SPS_LABEL, fontsize=30)
+    ax_k_v.set_ylabel(SPS_LABEL, fontsize=30)
+    ax_k_v.legend(
+        handles=_build_legend_handles(ne_set_v, dev_set_v), fontsize=20,
+        loc="center left", bbox_to_anchor=(1.02, 0.5),
+        frameon=True, borderaxespad=0,
+    )
+    fig_v.tight_layout()
+    _add_config_subtitle(fig_v, panel_data)
+    _save(fig_v, output_dir, "fps_vs_fsu_and_k_by_num_envs_vertical")
 
 
 # -- Main ---------------------------------------------------------------------

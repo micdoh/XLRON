@@ -23,10 +23,10 @@ FIGURES_DIR = os.path.join(os.path.dirname(__file__), "figures")
 
 def main():
     configure_style(
-        font_size=18,
-        axes_label_size=20,
-        tick_size=16,
-        legend_size=16,
+        font_size=24,
+        axes_label_size=28,
+        tick_size=22,
+        legend_size=20,
         figure_dpi=150,
     )
 
@@ -49,19 +49,19 @@ def main():
     steps_case0 = np.arange(len(case0_accepted))
     steps_case1 = np.arange(len(case1_accepted))
 
-    fig, ax = plt.subplots(figsize=(10, 5))
+    fig, ax = plt.subplots(figsize=(11, 7))
 
     # Heuristic baseline
     ax.axhline(y=heuristic_accepted, color=ACCENT_COLORS[0], linestyle='--',
-               linewidth=2.5, label=f'KSP-FF (best: {heuristic_accepted:.0f})', zorder=3)
+               linewidth=3.0, label=f'KSP-FF (best: {heuristic_accepted:.0f})', zorder=3)
 
     # Case 0: from scratch
-    ax.plot(steps_case0, case0_accepted, color=PRIMARY_COLORS[0], linewidth=1.5,
-            alpha=0.8, label=f'Case 0: From scratch (best: {max_requests + case0["best_reward"]:.0f})', zorder=2)
+    ax.plot(steps_case0, case0_accepted, color=PRIMARY_COLORS[0], linewidth=2.2,
+            alpha=0.85, label=f'Case 0: From scratch (best: {max_requests + case0["best_reward"]:.0f})', zorder=2)
 
     # Case 1: from heuristic (show trajectory)
-    ax.plot(steps_case1, case1_accepted, color=ACCENT_COLORS[1], linewidth=1.5,
-            alpha=0.8, label=f'Case 1: From heuristic (best: {case1_best:.0f})', zorder=2)
+    ax.plot(steps_case1, case1_accepted, color=ACCENT_COLORS[1], linewidth=2.2,
+            alpha=0.85, label=f'Case 1: From heuristic (best: {case1_best:.0f})', zorder=2)
 
     ax.set_xlabel('Optimization Step')
     ax.set_ylabel('Accepted Services')

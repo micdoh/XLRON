@@ -4,11 +4,13 @@ theme:
   name: material
   logo: images/xlron_nobackground.png
   palette:
-    accent: red
-    primary: red
+    accent: teal
+    primary: teal
   features:
     - content.tabs.link
     - search.suggest
+extra_css:
+  - stylesheets/xlron.css
 markdown_extensions:
   - admonition
   - pymdownx.details

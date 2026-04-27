@@ -79,8 +79,49 @@ def _save_preset(name: str, config: dict) -> None:
 
 
 st.set_page_config(page_title="XLRON", page_icon="🔬", layout="wide")
+
+# Theme tweaks beyond what .streamlit/config.toml can express:
+#   * keep the sidebar white (config's secondaryBackgroundColor stays mint
+#     so input widgets pick it up, but applying that mint to the whole
+#     left rail looks too heavy)
+#   * recolor st.info alerts from default blue to a teal-tinted theme color
 st.markdown(
     """
+<style>
+[data-testid="stSidebar"],
+[data-testid="stSidebarContent"],
+section[data-testid="stSidebar"] > div {
+    /* Match Streamlit's default code/output-box grey */
+    background-color: #F0F2F6 !important;
+}
+/* st.info → single solid mint box, no internal borders.
+ * Streamlit wraps the alert in several nested divs and at least one of
+ * them keeps a default blue background.  Make every descendant inside an
+ * info alert transparent so only the outer mint shows, and strip all
+ * internal borders/box-shadows.  Use :has() to restrict to info alerts
+ * so warning/error alerts keep their default colors. */
+[data-testid="stAlert"]:has([data-testid="stAlertContentInfo"]),
+[data-testid="stAlert"]:has([data-testid="stNotificationContentInfo"]) {
+    background-color: #E1F6F2 !important;
+    border: none !important;
+    box-shadow: none !important;
+    outline: none !important;
+    border-radius: 0.5rem !important;
+    color: #000000 !important;
+}
+[data-testid="stAlert"]:has([data-testid="stAlertContentInfo"]) *,
+[data-testid="stAlert"]:has([data-testid="stNotificationContentInfo"]) * {
+    background-color: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    outline: none !important;
+    color: #000000 !important;
+}
+[data-testid="stAlert"]:has([data-testid="stAlertContentInfo"]) svg,
+[data-testid="stAlert"]:has([data-testid="stNotificationContentInfo"]) svg {
+    fill: #1D605B !important;
+}
+</style>
 <script>
 (function() {
   const KEY = "xlron_sidebar_scroll_top";
@@ -173,7 +214,12 @@ with st.sidebar:
         st.image(str(_LOGO_PATH), width="stretch")
     else:
         st.title("XLRON")
-    st.caption("Optical Network RL Training GUI")
+    st.markdown(
+        '<p style="color: #000000; font-size: 0.95rem; margin: 0.25rem 0 0.75rem 0;">'
+        "Optical Network Simulation and RL Training GUI"
+        "</p>",
+        unsafe_allow_html=True,
+    )
     st.markdown(f"[Documentation]({_DOCS_URL})")
 
     # Preset selector

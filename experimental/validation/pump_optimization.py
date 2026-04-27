@@ -1077,28 +1077,68 @@ def optimise_pump_powers(
 # ---------------------------------------------------------------------------
 
 
-def plot_optimisation_history(history, out_dir):
+def save_optimisation_history(history, out_dir, tag=None):
+    """Persist the (step, throughput) history to JSON so it can be re-plotted
+    without re-running the optimisation.
+    """
+    import json
+    os.makedirs(out_dir, exist_ok=True)
+    fname = "pump_history.json" if tag is None else f"pump_history_{tag}.json"
+    path = os.path.join(out_dir, fname)
+    with open(path, "w") as f:
+        json.dump(
+            {"history": [(int(s), float(t)) for s, t in history]},
+            f,
+        )
+    print(f"  Saved history to {path}")
+    return path
+
+
+def load_optimisation_history(path):
+    import json
+    with open(path) as f:
+        data = json.load(f)
+    return [tuple(p) for p in data["history"]]
+
+
+def plot_optimisation_history(history, out_dir, fname="pump_optimisation.png"):
     try:
         import matplotlib.pyplot as plt
 
         from experimental.plot_style import ACCENT_COLORS, PRIMARY_COLORS, configure_style
 
-        configure_style(font_size=16, axes_label_size=18, tick_size=14, legend_size=12)
+        configure_style(font_size=24, axes_label_size=28, tick_size=22, legend_size=20)
 
         steps, tps = zip(*history)
+        steps = np.array(steps)
         tps = np.array(tps)
+
+        # Truncate to first 30 optimisation steps
+        max_steps = 30
+        keep = steps <= max_steps
+        steps = steps[keep]
+        tps = tps[keep]
+
         # Running best (cumulative max)
         running_best = np.maximum.accumulate(tps)
-        fig, ax = plt.subplots(figsize=(10, 5))
-        ax.plot(steps, tps, color=PRIMARY_COLORS[2], lw=0.8, alpha=0.5, label="Per-step")
-        ax.plot(steps, running_best, color=PRIMARY_COLORS[0], lw=2.0, label="Running best")
-        ax.axhline(tps[0], color=ACCENT_COLORS[1], ls="--", alpha=0.7, label=f"Baseline {tps[0]:.2f} Gb/s")
+        fig, ax = plt.subplots(figsize=(11, 6))
+        ax.plot(steps, tps, color=PRIMARY_COLORS[2], lw=1.2, alpha=0.5, label="Per-step")
+        ax.plot(steps, running_best, color=PRIMARY_COLORS[0], lw=2.8, label="Running best")
+        ax.axhline(tps[0], color=ACCENT_COLORS[1], ls="--", alpha=0.7, lw=2.5,
+                   label=f"Baseline {tps[0]:.2f} Gb/s")
+        ax.set_xlim(0, max_steps)
+        # Choose a sensible y-axis lower bound: show the baseline with a small
+        # margin below it.  Cap at 72,400 to keep zoomed-in views from
+        # extending too low when the optimisation is already near-optimal.
+        y_min_data = float(min(np.min(tps), np.min(running_best)))
+        y_lower = min(y_min_data - 50.0, 72400.0)
+        ax.set_ylim(bottom=y_lower)
         ax.set_xlabel("Optimisation step")
         ax.set_ylabel("Shannon-Hartley throughput (Gb/s)")
         ax.legend()
         plt.tight_layout()
         os.makedirs(out_dir, exist_ok=True)
-        path = os.path.join(out_dir, "pump_optimisation.png")
+        path = os.path.join(out_dir, fname)
         plt.savefig(path)
         plt.close()
         print(f"  Saved {path}")
@@ -1265,7 +1305,13 @@ def main():
         snr_variance_penalty=args.snr_variance_penalty,
     )
 
-    print("\nGenerating plots...")
+    print("\nSaving history and generating plots...")
+    tag = (
+        f"lr{args.lr:g}_steps{args.steps}_starts{args.num_starts}"
+        f"_mode-{args.pump_power_mode}_seed{args.seed}"
+    )
+    save_optimisation_history(history, out_dir, tag=tag)
+    plot_optimisation_history(history, out_dir, fname=f"pump_optimisation_{tag}.png")
     plot_optimisation_history(history, out_dir)
     print("Done.")
 

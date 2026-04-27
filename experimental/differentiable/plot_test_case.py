@@ -361,7 +361,7 @@ def plot_heatmap_with_arrows(action_vals, rewards, grad_a1, grad_a2, grad_mag,
     If loss_fn and reward_fn are provided, optimization trajectories are
     overlaid on the left (reward) panel.
     """
-    fig, axes = plt.subplots(1, 2, figsize=(20, 8))
+    fig, axes = plt.subplots(1, 2, figsize=(22, 10))
 
     X, Y = np.meshgrid(action_vals, action_vals)
     norm = TwoSlopeNorm(vmin=-2.0, vcenter=-1.0, vmax=0.0)
@@ -369,7 +369,9 @@ def plot_heatmap_with_arrows(action_vals, rewards, grad_a1, grad_a2, grad_mag,
     # --- Left: Reward heatmap (+ trajectories if available) ---
     ax = axes[0]
     im = ax.pcolormesh(X, Y, rewards.T, cmap='RdYlGn', norm=norm, shading='auto')
-    fig.colorbar(im, ax=ax, label='Total Reward')
+    cb1 = fig.colorbar(im, ax=ax, label='Total Reward')
+    cb1.ax.tick_params(labelsize=20)
+    cb1.ax.yaxis.label.set_size(24)
 
     if loss_fn is not None and reward_fn is not None:
         starts = [
@@ -393,20 +395,23 @@ def plot_heatmap_with_arrows(action_vals, rewards, grad_a1, grad_a2, grad_mag,
                     mew=1.0, zorder=5)
         ax.plot([], [], 'o', color='gray', ms=10, mec='k', mew=1.0, label='Start')
         ax.plot([], [], '*', color='gray', ms=14, mec='k', mew=1.0, label='Finish')
-        ax.legend(loc='center right', framealpha=0.9)
+        ax.legend(loc='center right', framealpha=0.9, fontsize=20)
         ax.set_xlim(-0.5, 8.5)
         ax.set_ylim(-0.5, 8.5)
 
-    ax.set_xlabel('Action 1 (path x slot)', fontsize=16)
-    ax.set_ylabel('Action 2 (path x slot)', fontsize=16)
-    ax.set_title('Reward Landscape', fontsize=18)
+    ax.set_xlabel('Action 1 (path x slot)', fontsize=26)
+    ax.set_ylabel('Action 2 (path x slot)', fontsize=26)
+    ax.set_title('Reward Landscape', fontsize=28)
+    ax.tick_params(labelsize=20)
     ax.set_aspect('equal')
 
     # --- Right: Reward heatmap + gradient arrows ---
     ax = axes[1]
     im2 = ax.pcolormesh(X, Y, rewards.T, cmap='RdYlGn', norm=norm, shading='auto',
                          alpha=0.6)
-    fig.colorbar(im2, ax=ax, label='Total Reward')
+    cb2 = fig.colorbar(im2, ax=ax, label='Total Reward')
+    cb2.ax.tick_params(labelsize=20)
+    cb2.ax.yaxis.label.set_size(24)
 
     stride = 2
     Xs = X[::stride, ::stride]
@@ -423,9 +428,10 @@ def plot_heatmap_with_arrows(action_vals, rewards, grad_a1, grad_a2, grad_mag,
               cmap='plasma', scale=1.0, scale_units='xy',
               width=0.004, headwidth=4, headlength=4,
               clim=[0, max_mag])
-    ax.set_xlabel('Action 1 (path x slot)', fontsize=16)
-    ax.set_ylabel('Action 2 (path x slot)', fontsize=16)
-    ax.set_title('Gradient Direction (arrows point to higher reward)', fontsize=18)
+    ax.set_xlabel('Action 1 (path x slot)', fontsize=26)
+    ax.set_ylabel('Action 2 (path x slot)', fontsize=26)
+    ax.set_title('Gradient Direction (arrows point to higher reward)', fontsize=28)
+    ax.tick_params(labelsize=20)
     ax.set_aspect('equal')
 
     plt.tight_layout()
@@ -545,46 +551,186 @@ def plot_heatmap_with_trajectories(action_vals, rewards, loss_fn, reward_fn,
 
 
 def plot_combined_3d(action_vals, rewards, grad_mag, suffix="", save=True):
-    """Side-by-side 3D: reward surface + gradient magnitude surface."""
-    fig = plt.figure(figsize=(20, 8))
+    """Stacked 3D: reward surface (top) + gradient magnitude surface (bottom)."""
+    fig = plt.figure(figsize=(11, 18))
 
     X, Y = np.meshgrid(action_vals, action_vals)
     norm_reward = TwoSlopeNorm(vmin=-2.0, vcenter=-1.0, vmax=0.0)
 
-    ax1 = fig.add_subplot(121, projection='3d')
+    ax1 = fig.add_subplot(211, projection='3d')
     surf1 = ax1.plot_surface(
         X, Y, rewards.T, cmap='RdYlGn', norm=norm_reward,
         linewidth=0.15, edgecolor='k', alpha=0.92,
         antialiased=True, rcount=100, ccount=100,
     )
-    ax1.set_xlabel('Action 1', labelpad=10, fontsize=14)
-    ax1.set_ylabel('Action 2', labelpad=10, fontsize=14)
-    ax1.set_zlabel('Total Reward', labelpad=8, fontsize=14)
-    ax1.set_title('Reward Landscape', fontsize=16, pad=12)
+    ax1.set_xlabel('Action 1', labelpad=14, fontsize=24)
+    ax1.set_ylabel('Action 2', labelpad=14, fontsize=24)
+    ax1.set_zlabel('Total Reward', labelpad=12, fontsize=24)
+    ax1.set_title('Reward Landscape', fontsize=28, pad=16)
     ax1.view_init(elev=25, azim=-50)
     ax1.set_zlim(-2.1, 0.1)
-    ax1.tick_params(labelsize=10)
-    fig.colorbar(surf1, ax=ax1, shrink=0.5, aspect=10, pad=0.1, label='Total Reward')
+    ax1.tick_params(labelsize=18)
+    cb1 = fig.colorbar(surf1, ax=ax1, shrink=0.6, aspect=12, pad=0.1, label='Total Reward')
+    cb1.ax.tick_params(labelsize=18)
+    cb1.ax.yaxis.label.set_size(22)
 
-    ax2 = fig.add_subplot(122, projection='3d')
+    ax2 = fig.add_subplot(212, projection='3d')
     surf2 = ax2.plot_surface(
         X, Y, grad_mag.T, cmap='inferno',
         linewidth=0.15, edgecolor='k', alpha=0.92,
         antialiased=True, rcount=100, ccount=100,
     )
-    ax2.set_xlabel('Action 1', labelpad=10, fontsize=14)
-    ax2.set_ylabel('Action 2', labelpad=10, fontsize=14)
-    ax2.set_zlabel('|$\\nabla$R|', labelpad=8, fontsize=14)
-    ax2.set_title('Gradient Magnitude', fontsize=16, pad=12)
+    ax2.set_xlabel('Action 1', labelpad=14, fontsize=24)
+    ax2.set_ylabel('Action 2', labelpad=14, fontsize=24)
+    ax2.set_zlabel('|$\\nabla$R|', labelpad=12, fontsize=24)
+    ax2.set_title('Gradient Magnitude', fontsize=28, pad=16)
     ax2.view_init(elev=25, azim=-50)
-    ax2.tick_params(labelsize=10)
-    fig.colorbar(surf2, ax=ax2, shrink=0.5, aspect=10, pad=0.1,
+    ax2.tick_params(labelsize=18)
+    cb2 = fig.colorbar(surf2, ax=ax2, shrink=0.6, aspect=12, pad=0.1,
                  label='Gradient Magnitude')
+    cb2.ax.tick_params(labelsize=18)
+    cb2.ax.yaxis.label.set_size(22)
 
     plt.tight_layout()
 
     if save:
         fname = f"combined_3d{suffix}.png"
+        fig.savefig(os.path.join(FIGURES_DIR, fname))
+        print(f"  Saved {fname}")
+    return fig
+
+
+def plot_combined_full_view(action_vals, rewards, grad_a1, grad_a2, grad_mag,
+                             loss_fn=None, reward_fn=None, num_actions=9,
+                             suffix="", save=True):
+    """Two-column 2x2 combined view used in the JOCN paper.
+
+    Top row:    3D reward landscape | 3D gradient magnitude (each with colorbar).
+    Bottom row: 2D reward heatmap with optimisation trajectories | 2D reward
+                heatmap with gradient-direction arrows.  No colorbars on the
+                bottom row -- they reuse the top-row colorbars (RdYlGn for
+                reward, inferno for gradient magnitude).
+    """
+    fig = plt.figure(figsize=(20, 12))
+    gs = fig.add_gridspec(
+        2, 2,
+        height_ratios=[1.15, 1.00],
+        hspace=0.20, wspace=0.02,
+        left=0.05, right=0.95, top=0.97, bottom=0.07,
+    )
+
+    X, Y = np.meshgrid(action_vals, action_vals)
+    norm_reward = TwoSlopeNorm(vmin=-2.0, vcenter=-1.0, vmax=0.0)
+
+    # ---- Top-left: 3D reward landscape (no title, no z-axis label) ----
+    ax_tl = fig.add_subplot(gs[0, 0], projection='3d')
+    surf1 = ax_tl.plot_surface(
+        X, Y, rewards.T, cmap='RdYlGn', norm=norm_reward,
+        linewidth=0.15, edgecolor='k', alpha=0.92,
+        antialiased=True, rcount=100, ccount=100,
+    )
+    ax_tl.set_xlabel('Action 1', labelpad=14, fontsize=24)
+    ax_tl.set_ylabel('Action 2', labelpad=14, fontsize=24)
+    ax_tl.set_zlabel('')
+    ax_tl.view_init(elev=25, azim=-50)
+    ax_tl.set_zlim(-2.1, 0.1)
+    ax_tl.tick_params(labelsize=18)
+    cb1 = fig.colorbar(surf1, ax=ax_tl, shrink=0.6, aspect=14, pad=0.08)
+    cb1.set_label('Total Reward', fontsize=22)
+    cb1.ax.tick_params(labelsize=18)
+
+    # ---- Top-right: 3D gradient magnitude (no title, no z-axis label) ----
+    ax_tr = fig.add_subplot(gs[0, 1], projection='3d')
+    surf2 = ax_tr.plot_surface(
+        X, Y, grad_mag.T, cmap='inferno',
+        linewidth=0.15, edgecolor='k', alpha=0.92,
+        antialiased=True, rcount=100, ccount=100,
+    )
+    ax_tr.set_xlabel('Action 1', labelpad=14, fontsize=24)
+    ax_tr.set_ylabel('Action 2', labelpad=14, fontsize=24)
+    ax_tr.set_zlabel('')
+    ax_tr.view_init(elev=25, azim=-50)
+    ax_tr.tick_params(labelsize=18)
+    cb2 = fig.colorbar(surf2, ax=ax_tr, shrink=0.6, aspect=14, pad=0.08)
+    cb2.set_label('$|\\Delta\\mathrm{Total\\ Reward}|$', fontsize=22)
+    cb2.ax.tick_params(labelsize=18)
+
+    # ---- Bottom-left: reward heatmap with trajectories (no colorbar) ----
+    ax_bl = fig.add_subplot(gs[1, 0])
+    ax_bl.pcolormesh(X, Y, rewards.T, cmap='RdYlGn', norm=norm_reward, shading='auto')
+
+    if loss_fn is not None and reward_fn is not None:
+        starts = [
+            ([1.0, 1.0], TRAJ_COLORS[0]),
+            ([0.0, 4.0], TRAJ_COLORS[1]),
+            ([6.0, 2.0], TRAJ_COLORS[2]),
+            ([4.0, 7.0], TRAJ_COLORS[3]),
+            ([8.0, 8.0], TRAJ_COLORS[4]),
+        ]
+        for start, color in starts:
+            traj, _ = run_optimization_trajectory(
+                loss_fn, reward_fn, start, num_actions, n_iters=500, lr=0.05
+            )
+            ax_bl.plot(traj[:, 0], traj[:, 1], '-', color=color, lw=1.8, alpha=0.65)
+            step = max(1, len(traj) // 30)
+            ax_bl.plot(traj[::step, 0], traj[::step, 1], '.', color=color,
+                       ms=5, alpha=0.75)
+            ax_bl.plot(traj[0, 0], traj[0, 1], 'o', color=color, ms=14,
+                       mec='k', mew=1.0, zorder=5)
+            ax_bl.plot(traj[-1, 0], traj[-1, 1], '*', color=color, ms=20,
+                       mec='k', mew=1.0, zorder=5)
+        ax_bl.plot([], [], 'o', color='gray', ms=12, mec='k', mew=1.0, label='Start')
+        ax_bl.plot([], [], '*', color='gray', ms=18, mec='k', mew=1.0, label='Finish')
+        ax_bl.legend(loc='center right', framealpha=0.9, fontsize=20)
+
+    ax_bl.set_xlabel('Action 1 (path x slot)', fontsize=26)
+    ax_bl.set_ylabel('Action 2 (path x slot)', fontsize=26)
+    ax_bl.set_title('Reward Landscape with Trajectories', fontsize=28)
+    ax_bl.tick_params(labelsize=20)
+    ax_bl.set_xlim(-0.5, 8.5)
+    ax_bl.set_ylim(-0.5, 8.5)
+    ax_bl.set_aspect('equal', adjustable='box')
+
+    # ---- Bottom-right: reward heatmap with gradient arrows (no colorbar) ----
+    ax_br = fig.add_subplot(gs[1, 1])
+    ax_br.pcolormesh(X, Y, rewards.T, cmap='RdYlGn', norm=norm_reward,
+                     shading='auto', alpha=0.6)
+
+    stride = 2
+    Xs = X[::stride, ::stride]
+    Ys = Y[::stride, ::stride]
+    U = grad_a1[::stride, ::stride].T
+    V = grad_a2[::stride, ::stride].T
+    M = grad_mag[::stride, ::stride].T
+
+    max_mag = M.max() + 1e-12
+    U_norm = U / max_mag * 0.6
+    V_norm = V / max_mag * 0.6
+
+    ax_br.quiver(Xs, Ys, U_norm, V_norm, M,
+                 cmap='inferno', scale=1.0, scale_units='xy',
+                 width=0.005, headwidth=4, headlength=4,
+                 clim=[0, max_mag])
+    ax_br.set_xlabel('Action 1 (path x slot)', fontsize=26)
+    ax_br.set_ylabel('Action 2 (path x slot)', fontsize=26)
+    ax_br.set_title('Gradient Direction (toward higher reward)', fontsize=28)
+    ax_br.tick_params(labelsize=20)
+    ax_br.set_xlim(-0.5, 8.5)
+    ax_br.set_ylim(-0.5, 8.5)
+    ax_br.set_aspect('equal', adjustable='box')
+
+    # Shift the left column slightly toward the centre by translating both
+    # left subplots (and the top-left colorbar that sits beside the 3D plot)
+    # ~4% of figure width to the right.  The right column stays where it is.
+    _LEFT_SHIFT = 0.04
+    for _ax in (ax_tl, cb1.ax, ax_bl):
+        _pos = _ax.get_position()
+        _ax.set_position(
+            [_pos.x0 + _LEFT_SHIFT, _pos.y0, _pos.width, _pos.height]
+        )
+
+    if save:
+        fname = f"combined_landscape_view{suffix}.png"
         fig.savefig(os.path.join(FIGURES_DIR, fname))
         print(f"  Saved {fname}")
     return fig
@@ -608,6 +754,9 @@ def generate_all_plots(reward_fn, loss_fn, action_vals, rewards, grad_a1,
                               loss_fn=traj_loss, reward_fn=traj_reward,
                               suffix=suffix)
     plot_combined_3d(action_vals, rewards, grad_mag, suffix=suffix)
+    plot_combined_full_view(action_vals, rewards, grad_a1, grad_a2, grad_mag,
+                             loss_fn=traj_loss, reward_fn=traj_reward,
+                             suffix=suffix)
     print(f"\n  Running optimization trajectories...")
     plot_optimization_trajectories(action_vals, rewards, traj_loss, traj_reward,
                                     suffix=suffix)
@@ -620,12 +769,12 @@ def generate_all_plots(reward_fn, loss_fn, action_vals, rewards, grad_a1,
 # ---------------------------------------------------------------------------
 
 def main(temperature=5.0, include_simple=False):
-    # Apply project-wide style with smaller fonts for these dense plots
+    # Apply project-wide style with publication-sized fonts
     configure_style(
-        font_size=14,
-        axes_label_size=16,
-        tick_size=12,
-        legend_size=12,
+        font_size=22,
+        axes_label_size=26,
+        tick_size=20,
+        legend_size=18,
         figure_dpi=150,
     )
     os.makedirs(FIGURES_DIR, exist_ok=True)
