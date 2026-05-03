@@ -1,6 +1,22 @@
-
 <img src="docs/images/xlron_logo_upscaled.png" width="500" class="center">
 
+---
+
+> ## 🎉 XLRON v1.0.0 is here! 🎉
+>
+> The new major release of XLRON is now out. Highlights:
+>
+> - **Browser GUI** — every option, every execution mode, every preset, exposed via a tabbed Streamlit app. Run `xlron` and point your browser at the URL.
+> - **Graph Transformer policy** with Wavelet-Induced Rotary Encodings (WiRE) — the first transformer trained from scratch with RL to consistently match or beat the strongest heuristics on dynamic RMSA.
+> - **Fast ISRS GN model** with **distributed Raman amplification (DRA)**, Nyquist subchannels, and EGN correction — validated to within 0.5 dB against the Gerard *et al.* 2025 record-throughput C+L-band experiment.
+> - **End-to-end differentiable simulation** — gradients flow through the physical layer and resource-allocation logic, enabling gradient-based pump power optimisation and direct RSA optimisation.
+> - **All 119 real-world TopologyBench topologies** bundled out of the box, including USA100 (100 nodes) and TataInd (143 nodes).
+> - **6 × 10⁶ steps/s** on a single A100; **222–1,494×** wall-clock speedup over DeepRMSA / Optical-RL-Gym for end-to-end RL training.
+> - **Updated documentation site** at <https://micdoh.github.io/XLRON/> with reproduction guides for every paper.
+>
+> **See the full release notes:** [GitHub release v1.0.0](https://github.com/micdoh/XLRON/releases/tag/v1.0.0).
+
+---
 
 [<img src="https://img.shields.io/badge/license-MIT-blue">](https://github.com/micdoh/ONDRLax/LICENSE)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
