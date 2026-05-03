@@ -1,0 +1,11 @@
+[theme]
+# Colors mirror experimental/plot_style.py — primary teal #30A08E, coral accent.
+# Body text stays black for readability; only inputs/widgets pick up the mint
+# `secondaryBackgroundColor`. The sidebar background is overridden back to
+# white via custom CSS in xlron/gui/app.py.
+primaryColor = "#30A08E"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#E1F6F2"
+textColor = "#000000"
+linkColor = "#1D605B"
+font = "sans serif"
