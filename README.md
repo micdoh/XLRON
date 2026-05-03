@@ -5,11 +5,8 @@
 [![codecov](https://codecov.io/gh/micdoh/XLRON/graph/badge.svg?token=UW9CCLRAFJ)](https://codecov.io/gh/micdoh/XLRON)
 
 
-<div style="border: 3px solid #2f80ed; border-radius: 12px; padding: 1rem 1.25rem; background: #f7fbff; box-shadow: 0 6px 18px rgba(47, 128, 237, 0.15); text-align: center; margin: 1.5rem 0;">
-  <strong style="font-size: 1.15rem; color: #1f4e79;">📚 Documentation</strong><br>
-  <span style="font-size: 1.05rem;">For full installation instructions, tutorials, API references, reproduction guides, and the latest updates, please visit the docs:</span><br>
-  <a href="https://micdoh.github.io/XLRON/" style="font-size: 1.2rem; font-weight: 700; color: #d1495b; text-decoration: underline;">https://micdoh.github.io/XLRON/</a>
-</div>
+# [DOCUMENTATION](https://micdoh.github.io/XLRON/):
+## [https://micdoh.github.io/XLRON/](https://micdoh.github.io/XLRON/)
 
 ---
 
@@ -41,7 +38,7 @@
 
 ## Overview
 
-**XLRON** ("ex-el-er-on") is a JAX-based simulation framework for resource allocation in optical networks. It combines a fast simulation engine that runs entirely on accelerator hardware, an integrated PPO trainer, classical heuristics, capacity bound estimators, an end-to-end differentiable physical layer, and a browser GUI — all in one library.
+**XLRON** ("ex-el-er-on") is a JAX-based simulation framework for resource allocation in optical networks. It combines a fast simulation engine that runs entirely on accelerator hardware, an integrated PPO trainer, classical heuristics, capacity bound estimators, an end-to-end differentiable physical layer, and a browser GUI — all in one library. See the docs: https://micdoh.github.io/XLRON/
 
 ### Why XLRON
 
