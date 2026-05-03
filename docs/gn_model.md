@@ -713,3 +713,4 @@ The per-channel Raman gain varies across the spectrum (typically higher for L-ba
 ## See Also
 
 - [Comparison with optical-networking-gym OSNR Model](gn_model_comparison.md) -- detailed comparison of XLRON's ISRS GN model with the simplified GN model implementation in optical-networking-gym
+- [Differentiable DRA Pipeline](differentiable_dra.md) -- how the DRA pipeline is made end-to-end differentiable for gradient-based pump-power optimisation, with a primer on automatic differentiation, the implicit function theorem, and the surrogate gradient used through the Levenberg-Marquardt profile fit

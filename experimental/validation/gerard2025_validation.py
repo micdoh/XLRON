@@ -435,9 +435,14 @@ def plot1_2_combined_snr_metrics(freqs, path_d, c_mask, l_mask, occ, out_dir):
         ("OSNR$_{NL}$", "OSNR_NL_dB", osnr_nl, ACCENT_COLORS[0], "o"),
     ]
 
+    # Determine band frequency extents for drawing band-limited reference segments.
+    l_band_freqs = freqs[l_mask] if np.any(l_mask) else np.array([])
+    c_band_freqs = freqs[c_mask] if np.any(c_mask) else np.array([])
+    l_xlim = (float(l_band_freqs.min()), float(l_band_freqs.max())) if l_band_freqs.size else None
+    c_xlim = (float(c_band_freqs.min()), float(c_band_freqs.max())) if c_band_freqs.size else None
+
     metric_handles = {}
-    gerard_l_handles = {}
-    gerard_c_handles = {}
+    gerard_handles = {}
     for metric_label, metric_key, values, color, marker in metric_defs:
         metric_handles[metric_label] = ax.scatter(
             freqs[occ],
@@ -450,20 +455,31 @@ def plot1_2_combined_snr_metrics(freqs, path_d, c_mask, l_mask, occ, out_dir):
             edgecolors="k",
             linewidths=0.5,
         )
-        gerard_l_handles[metric_label] = ax.axhline(
-            GERARD_REF["L_band"][metric_key],
-            color=color,
-            ls=":",
-            alpha=0.7,
-            label=f"Gerard {metric_label} L",
-        )
-        gerard_c_handles[metric_label] = ax.axhline(
-            GERARD_REF["C_band"][metric_key],
-            color=color,
-            ls="--",
-            alpha=0.7,
-            label=f"Gerard {metric_label} C",
-        )
+        # Draw two dashed segments (L-band and C-band) with the bandgap between
+        # them, sharing one legend entry per metric.
+        gerard_label = f"{metric_label} (Gerard)"
+        line_handle = None
+        if l_xlim is not None:
+            line_handle, = ax.plot(
+                l_xlim,
+                [GERARD_REF["L_band"][metric_key]] * 2,
+                color=color,
+                ls="--",
+                alpha=0.7,
+                label=gerard_label,
+            )
+        if c_xlim is not None:
+            c_line, = ax.plot(
+                c_xlim,
+                [GERARD_REF["C_band"][metric_key]] * 2,
+                color=color,
+                ls="--",
+                alpha=0.7,
+                label=None if line_handle is not None else gerard_label,
+            )
+            if line_handle is None:
+                line_handle = c_line
+        gerard_handles[metric_label] = line_handle
 
     # Received SNR (includes transceiver noise) — no Gerard reference lines
     rcv_label = "Received SNR"
@@ -482,41 +498,17 @@ def plot1_2_combined_snr_metrics(freqs, path_d, c_mask, l_mask, occ, out_dir):
     ax.set_xlabel("Frequency (THz)")
     ax.set_ylabel("SNR Metric (dB)")
 
-    # Build 3-row × 4-column legend grid explicitly.
-    # Columns 1-3: metric scatter | Gerard L ref | Gerard C ref.
-    # Column 4: Received SNR (row 1 only), blank in rows 2-3.
-    from matplotlib.patches import Patch
-    blank = Patch(facecolor="none", edgecolor="none", label="")
-
-    ordered_handles = []
-    ordered_labels = []
-    for i, (metric_label, _, _, _, _) in enumerate(metric_defs):
-        ordered_handles.extend([
-            metric_handles[metric_label],
-            gerard_l_handles[metric_label],
-            gerard_c_handles[metric_label],
-            metric_handles[rcv_label] if i == 0 else blank,
-        ])
-        ordered_labels.extend([
-            metric_label,
-            gerard_l_handles[metric_label].get_label(),
-            gerard_c_handles[metric_label].get_label(),
-            rcv_label if i == 0 else " ",
-        ])
-
-    # Use two legends: main 3×3 grid + separate Received SNR to the right.
+    # Two-column legend grid: metric scatter | Gerard reference line (one per metric).
     main_handles = []
     main_labels = []
     for metric_label, _, _, _, _ in metric_defs:
         main_handles.extend([
             metric_handles[metric_label],
-            gerard_l_handles[metric_label],
-            gerard_c_handles[metric_label],
+            gerard_handles[metric_label],
         ])
         main_labels.extend([
             metric_label,
-            gerard_l_handles[metric_label].get_label(),
-            gerard_c_handles[metric_label].get_label(),
+            gerard_handles[metric_label].get_label(),
         ])
 
     leg1 = ax.legend(
@@ -536,7 +528,7 @@ def plot1_2_combined_snr_metrics(freqs, path_d, c_mask, l_mask, occ, out_dir):
         [rcv_label],
         ncol=1,
         loc="lower right",
-        bbox_to_anchor=(1.0, 1.01),
+        bbox_to_anchor=(0.9, 0.87),
         frameon=True,
         borderaxespad=0,
         fontsize=18,
@@ -750,6 +742,14 @@ def plot5_ablation_sweep(ablation_results, out_dir):
     markers = ["o", "s", "^", "D", "v"]
 
     for i, (name, (powers, gosnrs)) in enumerate(ablation_results.items()):
+        if name == "1 subchannel":
+            name = "No subchannels"
+        if name =="Incoherent ASE":
+            name = "No ASE coherence"
+        if name =="No Raman":
+            name = "No DRA"
+        if name == "No Raman + 1 subchannel":
+            name = "No DRA + No subchannels"
         c = colors[i % len(colors)]
         m = markers[i % len(markers)]
         ax.plot(powers, gosnrs, color=c, marker=m, markersize=6, label=name, linewidth=2.0)
