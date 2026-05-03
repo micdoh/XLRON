@@ -15,7 +15,7 @@ from xlron.environments.env_funcs import (
     init_path_link_array, init_link_length_array, make_graph,
 )
 
-BASE_DIR = "experimental/large_topologies/analyze_path_actions"
+RESULTS_DIR = "experimental/large_topologies/results"
 
 TOPOLOGIES = {
     "usa100": {"name": "usa100_directed", "k": 70, "load": 620},
@@ -28,7 +28,8 @@ HEURISTICS = ["ff_ksp", "ksp_ff"]
 def traj_filename(topo_key, heuristic):
     """Return trajectory file path for a topology/heuristic combo."""
     topo = TOPOLOGIES[topo_key]
-    return f"{BASE_DIR}/{topo['name'].replace('_directed', '')}_k{topo['k']}_{heuristic}_traj.csv"
+    short = topo["name"].replace("_directed", "")
+    return f"{RESULTS_DIR}/{short}/{short}_k{topo['k']}_{heuristic}_traj.csv"
 
 
 def run_heuristic(topology_name, k, heuristic, load, traj_file):
