@@ -13,7 +13,7 @@ from xlron.environments.env_funcs import *
 from xlron.train.train_utils import *
 
 
-def get_warmup_fn(warmup_state, env, params, config) -> Tuple[EnvState, chex.Array]:
+def get_warmup_fn(warmup_state, env, params, config) -> Tuple[EnvState, Array]:
     """Warmup period for DeepRMSA."""
 
     def warmup_fn(warmup_state):

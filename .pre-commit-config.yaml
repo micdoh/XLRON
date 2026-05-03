@@ -10,8 +10,6 @@ repos:
         args: ["--unsafe"]  # mkdocs.yml uses !!python/name: tags
       - id: check-toml
       - id: check-merge-conflict
-      - id: check-added-large-files
-        args: ["--maxkb=1000"]
       - id: debug-statements
 
   - repo: https://github.com/astral-sh/ruff-pre-commit

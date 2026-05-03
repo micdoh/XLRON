@@ -4,7 +4,7 @@ import math
 import os
 import pathlib
 import pickle
-from typing import Any, Callable, Dict, Tuple, Union
+from typing import Any, Callable, Dict, NamedTuple, Tuple, Union
 
 import chex
 import distrax
@@ -16,6 +16,7 @@ import numpy as np
 import optax
 import pandas as pd
 from box import Box
+from chex import ArrayTree
 from jax import Array
 from optax import Schedule
 
@@ -96,30 +97,45 @@ reward_centering_metrics = [
     "reward_centering/value_mean",
 ]
 
+
+class LossDiagnostics(NamedTuple):
+    """Per-step diagnostics emitted from the PPO loss when ENHANCED_LOGGING is on.
+
+    Auto-registered as a JAX pytree, so it stacks field-wise inside scan/vmap.
+    Add a field here and it flows through to the wandb registry below and to
+    the dict built in `_update_step`.
+    """
+
+    valid_frac: Array
+    clip_frac: Array
+    ratio_mean: Array
+    ratio_std: Array
+    ratio_min: Array
+    ratio_max: Array
+    valid_mass_mean: Array
+    valid_mass_std: Array
+    valid_mass_min: Array
+    valid_mass_max: Array
+    n_valid_mean: Array
+    n_valid_min: Array
+    n_valid_max: Array
+    adv_mean_raw: Array
+    adv_std_raw: Array
+    gate_frac: Array
+    log_prob_choice: Array
+    entropy_choice: Array
+    log_prob_min: Array
+    invalid_taken_frac: Array
+    taken_valid_min: Array
+
+    @classmethod
+    def zeros(cls) -> "LossDiagnostics":
+        z = jnp.array(0.0)
+        return cls(*([z] * len(cls._fields)))
+
+
 # Enhanced diagnostics metrics (only logged when ENHANCED_LOGGING=True)
-diagnostics_metrics = [
-    "diagnostics/valid_frac",
-    "diagnostics/clip_frac",
-    "diagnostics/ratio_mean",
-    "diagnostics/ratio_std",
-    "diagnostics/ratio_min",
-    "diagnostics/ratio_max",
-    "diagnostics/valid_mass_mean",
-    "diagnostics/valid_mass_std",
-    "diagnostics/valid_mass_min",
-    "diagnostics/valid_mass_max",
-    "diagnostics/n_valid_mean",
-    "diagnostics/n_valid_min",
-    "diagnostics/n_valid_max",
-    "diagnostics/adv_mean_raw",
-    "diagnostics/adv_std_raw",
-    "diagnostics/gate_frac",
-    "diagnostics/log_prob_choice",
-    "diagnostics/entropy_choice",
-    "diagnostics/log_prob_min",
-    "diagnostics/invalid_taken_frac",
-    "diagnostics/taken_valid_min",
-]
+diagnostics_metrics = [f"diagnostics/{name}" for name in LossDiagnostics._fields]
 
 
 class TrainState(eqx.Module):
@@ -216,12 +232,12 @@ class TrainState(eqx.Module):
         )
 
 
-def scale_gradient(g: chex.Array, scale: float = 1) -> chex.Array:
+def scale_gradient(g: Array, scale: float = 1) -> Array:
     """Scales the gradient of `g` by `scale` but keeps the original value unchanged."""
     return g * scale + jax.lax.stop_gradient(g) * (1.0 - scale)
 
 
-def count_parameters(params: chex.ArrayTree) -> int:
+def count_parameters(params: ArrayTree) -> int:
     """Counts the number of parameters in a parameter tree."""
     return sum(x.size for x in jax.tree_util.tree_leaves(params))
 
@@ -456,14 +472,14 @@ def print_experiment_summary(config: Box, env_params=None) -> None:
     print(sep + "\n")
 
 
-def ndim_at_least(x: chex.Array, num_dims: chex.Numeric) -> jax.Array:
+def ndim_at_least(x: Array, num_dims: chex.Numeric) -> jax.Array:
     """Check if the number of dimensions of `x` is at least `num_dims`."""
     if not (isinstance(x, jax.Array) or isinstance(x, np.ndarray)):
         x = jnp.asarray(x)
     return x.ndim >= num_dims
 
 
-def merge_leading_dims(x: chex.Array, num_dims: chex.Numeric) -> chex.Array:
+def merge_leading_dims(x: Array, num_dims: chex.Numeric) -> Array:
     """Merge leading dimensions.
 
     Note:
@@ -480,7 +496,7 @@ def merge_leading_dims(x: chex.Array, num_dims: chex.Numeric) -> chex.Array:
     return x.reshape(new_shape)
 
 
-def unreplicate_n_dims(x: chex.ArrayTree, unreplicate_depth: int = 2) -> chex.ArrayTree:
+def unreplicate_n_dims(x: ArrayTree, unreplicate_depth: int = 2) -> ArrayTree:
     """Unreplicates a pytree by removing the first `unreplicate_depth` axes.
 
     This function takes a pytree and removes some number of axes, associated with parameter
@@ -490,7 +506,7 @@ def unreplicate_n_dims(x: chex.ArrayTree, unreplicate_depth: int = 2) -> chex.Ar
     return jax.tree_util.tree_map(lambda x: x[(0,) * unreplicate_depth], x)
 
 
-def unreplicate_batch_dim(x: chex.ArrayTree) -> chex.ArrayTree:
+def unreplicate_batch_dim(x: ArrayTree) -> ArrayTree:
     """Unreplicated just the update batch dimension.
     (The dimension that is vmapped over when acting and learning)
 
@@ -1118,7 +1134,7 @@ def get_warmup_fn(warmup_state, env, params, train_state, config) -> Callable[[T
     use_heuristic_warmup = config.EVAL_HEURISTIC or warmup_action_type == "heuristic"
     use_random_warmup = warmup_action_type == "random"
 
-    def warmup_fn(warmup_state) -> Tuple[EnvState, chex.Array]:
+    def warmup_fn(warmup_state) -> Tuple[EnvState, Array]:
         rng, state, last_obs = warmup_state
 
         def warmup_step(i, val) -> Tuple:

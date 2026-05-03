@@ -1144,7 +1144,7 @@ def make(
         field_dict = {}
         for k in fields:
             values = [getattr(v, k) for v in params_list]
-            # values = [list(v) if isinstance(v, chex.Array) else v for v in values]
+            # values = [list(v) if isinstance(v, Array) else v for v in values]
             # Pad arrays to same shape
             padded_values = HashableArrayWrapper(jnp.array(pad_array(values, fill_value=0)))
             field_dict[k] = padded_values

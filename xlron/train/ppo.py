@@ -20,7 +20,7 @@ from xlron.environments.dataclasses import (
 from xlron.environments.env_funcs import process_path_action
 from xlron.environments.gn_model.isrs_gn_model import to_dbm
 from xlron.environments.wrappers import jit_profiler
-from xlron.train.train_utils import TrainState, select_action
+from xlron.train.train_utils import LossDiagnostics, TrainState, select_action
 
 RunnerState = Tuple[TrainState, LogEnvState, Obsv, Array, Array]
 UpdateState = Tuple[TrainState, RSATransition | VONETransition, Array, Array, Array, Any, Array]
@@ -439,7 +439,10 @@ def _loss_fn(
     train_state: TrainState,
     batch_info: Tuple[RSATransition | VONETransition, Array, Array, Array],
     config: Box,
-) -> Tuple[Array, Tuple[Array, ...]]:
+) -> Tuple[
+    Array,
+    Tuple[Array, Array, Array, Array, Array, Array, Array, Array, LossDiagnostics],
+]:
     """
     Compute PPO loss (actor + value + entropy).
     """
@@ -666,32 +669,32 @@ def _loss_fn(
         invalid_taken_frac = 1.0 - taken_valid.mean()
         taken_valid_min = taken_valid.min()
 
-        diagnostics = (
-            valid_frac,
-            clip_frac,
-            ratio_mean,
-            ratio_std,
-            ratio_min,
-            ratio_max,
-            valid_mass_mean,
-            valid_mass_std,
-            valid_mass_min,
-            valid_mass_max,
-            n_valid_mean,
-            n_valid_min,
-            n_valid_max,
-            adv_mean_raw,
-            adv_std_raw,
-            gate_frac,
-            log_prob_choice,
-            entropy_choice,
-            log_prob_min,
-            invalid_taken_frac,
-            taken_valid_min,
+        diagnostics = LossDiagnostics(
+            valid_frac=valid_frac,
+            clip_frac=clip_frac,
+            ratio_mean=ratio_mean,
+            ratio_std=ratio_std,
+            ratio_min=ratio_min,
+            ratio_max=ratio_max,
+            valid_mass_mean=valid_mass_mean,
+            valid_mass_std=valid_mass_std,
+            valid_mass_min=valid_mass_min,
+            valid_mass_max=valid_mass_max,
+            n_valid_mean=n_valid_mean,
+            n_valid_min=n_valid_min,
+            n_valid_max=n_valid_max,
+            adv_mean_raw=adv_mean_raw,
+            adv_std_raw=adv_std_raw,
+            gate_frac=gate_frac,
+            log_prob_choice=log_prob_choice,
+            entropy_choice=entropy_choice,
+            log_prob_min=log_prob_min,
+            invalid_taken_frac=invalid_taken_frac,
+            taken_valid_min=taken_valid_min,
         )
     else:
-        # Return placeholder zeros to maintain consistent output structure
-        diagnostics = tuple(jnp.array(0.0) for _ in range(21))
+        # Placeholder zeros to keep the scan output structure consistent.
+        diagnostics = LossDiagnostics.zeros()
 
     return total_loss, (
         log_prob.mean(),
@@ -849,30 +852,11 @@ def _update_step(
 
     # Add enhanced diagnostics if enabled
     if config.ENHANCED_LOGGING:
-        diagnostics = loss_info_arrays[1][8]
+        diagnostics: LossDiagnostics = loss_info_arrays[1][8]
         loss_info.update(
             {
-                "diagnostics/valid_frac": diagnostics[0].reshape(-1),
-                "diagnostics/clip_frac": diagnostics[1].reshape(-1),
-                "diagnostics/ratio_mean": diagnostics[2].reshape(-1),
-                "diagnostics/ratio_std": diagnostics[3].reshape(-1),
-                "diagnostics/ratio_min": diagnostics[4].reshape(-1),
-                "diagnostics/ratio_max": diagnostics[5].reshape(-1),
-                "diagnostics/valid_mass_mean": diagnostics[6].reshape(-1),
-                "diagnostics/valid_mass_std": diagnostics[7].reshape(-1),
-                "diagnostics/valid_mass_min": diagnostics[8].reshape(-1),
-                "diagnostics/valid_mass_max": diagnostics[9].reshape(-1),
-                "diagnostics/n_valid_mean": diagnostics[10].reshape(-1),
-                "diagnostics/n_valid_min": diagnostics[11].reshape(-1),
-                "diagnostics/n_valid_max": diagnostics[12].reshape(-1),
-                "diagnostics/adv_mean_raw": diagnostics[13].reshape(-1),
-                "diagnostics/adv_std_raw": diagnostics[14].reshape(-1),
-                "diagnostics/gate_frac": diagnostics[15].reshape(-1),
-                "diagnostics/log_prob_choice": diagnostics[16].reshape(-1),
-                "diagnostics/entropy_choice": diagnostics[17].reshape(-1),
-                "diagnostics/log_prob_min": diagnostics[18].reshape(-1),
-                "diagnostics/invalid_taken_frac": diagnostics[19].reshape(-1),
-                "diagnostics/taken_valid_min": diagnostics[20].reshape(-1),
+                f"diagnostics/{name}": getattr(diagnostics, name).reshape(-1)
+                for name in LossDiagnostics._fields
             }
         )
 

@@ -30,10 +30,10 @@ class RMSAGNModelEnv(RSAEnv):
         self,
         key: chex.PRNGKey,
         params: RSAGNModelEnvParams,
-        traffic_matrix: chex.Array | None = None,
-        launch_power_array: chex.Array | None = None,
-        list_of_requests: chex.Array | None = None,
-        laplacian_matrix: chex.Array | None = None,
+        traffic_matrix: Array | None = None,
+        launch_power_array: Array | None = None,
+        list_of_requests: Array | None = None,
+        laplacian_matrix: Array | None = None,
     ):
         """Initialise the environment state and set as initial state.
 
@@ -120,7 +120,7 @@ class RMSAGNModelEnv(RSAEnv):
             2,
         ),
     )
-    def get_obs(self, state: RMSAGNModelEnvState, params: RMSAGNModelEnvParams) -> chex.Array:
+    def get_obs(self, state: RMSAGNModelEnvState, params: RMSAGNModelEnvParams) -> Array:
         return get_paths_obs_gn_model(state, params)
 
     @staticmethod

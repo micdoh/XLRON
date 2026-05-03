@@ -29,9 +29,9 @@ class DeepRMSAEnv(RSAEnv):
         self,
         key: chex.PRNGKey,
         params: RSAEnvParams,
-        traffic_matrix: chex.Array | None = None,
-        list_of_requests: chex.Array | None = None,
-        laplacian_matrix: chex.Array | None = None,
+        traffic_matrix: Array | None = None,
+        list_of_requests: Array | None = None,
+        laplacian_matrix: Array | None = None,
     ):
         super().__init__(
             key,
@@ -73,7 +73,7 @@ class DeepRMSAEnv(RSAEnv):
         state: DeepRMSAEnvState,
         action: Union[int, float],
         params: RSAEnvParams,
-    ) -> Tuple[chex.Array, RSAEnvState, chex.Array, chex.Array, chex.Array]:
+    ) -> Tuple[Array, RSAEnvState, Array, Array, Array]:
         """Environment-specific step transition.
 
         Args:
@@ -134,7 +134,7 @@ class DeepRMSAEnv(RSAEnv):
             2,
         ),
     )
-    def get_obs(self, state: DeepRMSAEnvState, params: RSAEnvParams) -> chex.Array:
+    def get_obs(self, state: DeepRMSAEnvState, params: RSAEnvParams) -> Array:
         """Applies observation function to state."""
         request = state.request_array
         s, d = request[0], request[2]

@@ -4,6 +4,9 @@ XLRON provides two methods for estimating capacity bounds on optical networks: *
 
 Both methods are standalone scripts in `xlron/bounds/` and share the same environment configuration flags as [heuristic evaluation](./heuristic_evaluation.md). This page focuses on the flags specific to each bounds method — refer to the heuristic evaluation guide for the common environment, traffic, and resource flags (`--env_type`, `--topology_name`, `--link_resources`, `--load`, `--k`, `--continuous_operation`, etc.).
 
+!!! tip "Related paper — submitted to ECOC 2026"
+    A systematic comparison of these two estimators (CS, RPD) against KSP heuristics across all 118 TopologyBench topologies appears in *Comparison of Dynamic Elastic Optical Network Capacity Bound Estimation Methods* (Doherty\*, Deng\*, Beghelli, Toni, Bayvel — submitted to ECOC 2026). At 0.1 % blocking, the median gap over KSP is **5.8–9.4 % for the cut-set bound** (top-100 / top-10 cuts) and **17.0 % for resource-prioritized defragmentation**, showing that fragmentation is the larger source of lost capacity than routing inefficiency. See [Reproduce ECOC 2026 capacity bounds paper](reproduce_ecoc2026.md) for the full sweep.
+
 
 ## Cut-Set Bounds
 

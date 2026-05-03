@@ -108,7 +108,7 @@ def make_line_graph(graph: nx.Graph) -> nx.Graph:
     return nx.line_graph(graph)
 
 
-def get_line_graph_laplacian(graph: nx.Graph) -> chex.Array:
+def get_line_graph_laplacian(graph: nx.Graph) -> Array:
     """Compute the Laplacian matrix of the line graph.
 
     Args:
@@ -125,7 +125,7 @@ def get_line_graph_laplacian(graph: nx.Graph) -> chex.Array:
     return jnp.array(laplacian, dtype=dtype_config.LARGE_FLOAT_DTYPE)
 
 
-def get_line_graph_spectral_features(graph: nx.Graph, num_features: int) -> chex.Array:
+def get_line_graph_spectral_features(graph: nx.Graph, num_features: int) -> Array:
     """Compute spectral features for edges using the line graph Laplacian.
 
     These features are used as positional encodings for transformer architectures
@@ -333,7 +333,7 @@ def update_graph_tuple(state: RSAEnvState, params: RSAEnvParams) -> RSAEnvState:
     return state
 
 
-def init_link_length_array(graph: nx.Graph) -> chex.Array:
+def init_link_length_array(graph: nx.Graph) -> Array:
     """Initialise link length array.
     Args:
         graph (nx.Graph): NetworkX graph
@@ -543,7 +543,7 @@ def init_path_link_array(
     disjoint: bool = False,
     path_sort_criteria: str = "",
     directed: bool = False,
-    modulations_array: None | chex.Array = None,
+    modulations_array: None | Array = None,
     rwa_lr: bool = False,
     scale_factor: float = 1.0,
     path_snr: bool = False,
@@ -551,7 +551,7 @@ def init_path_link_array(
     topology_name: str | None = None,
     cache_dir: str | pathlib.Path | None = None,
     maximum_path_length_km: float | None = None,
-) -> chex.Array:
+) -> Array:
     """Optimized init_path_link_array.
 
     Key optimizations over the original:
@@ -824,7 +824,7 @@ def get_link_relevance_array(paths: Array, paths_quality: Array, params: RSAEnvP
 
 
 @partial(jax.jit, static_argnums=(1,))
-def get_obs_transformer(state: RSAEnvState, params: RSAEnvParams) -> chex.Array:
+def get_obs_transformer(state: RSAEnvState, params: RSAEnvParams) -> Array:
     """Retrieves observation for transformer model.
 
     Creates tokens for each link/edge. Column order:
@@ -928,14 +928,14 @@ def get_obs_transformer(state: RSAEnvState, params: RSAEnvParams) -> chex.Array:
     return tokens
 
 
-def init_path_length_array(path_link_array: chex.Array, graph: nx.Graph) -> chex.Array:
+def init_path_length_array(path_link_array: Array, graph: nx.Graph) -> Array:
     """Initialise path length array.
 
     Args:
-        path_link_array (chex.Array): Path-link array
+        path_link_array (Array): Path-link array
         graph (nx.Graph): NetworkX graph
     Returns:
-        chex.Array: Path length array
+        Array: Path length array
     """
     link_length_array = init_link_length_array(graph)
     # Use numpy for this one-time setup dot product — avoids JAX overhead
@@ -1039,7 +1039,7 @@ def init_values_slots(min_value, max_value):
 # TODO - allow bandwidths to be selected with a specified probability
 def init_values_bandwidth(
     min_value: int = 25, max_value: int = 100, step: int = 1, values: int | None = None
-) -> chex.Array:
+) -> Array:
     if values:
         return jnp.array(values, dtype=dtype_config.LARGE_INT_DTYPE)
     else:
@@ -1532,10 +1532,10 @@ def generate_arrival_holding_times(key, params, arrival_rate, mean_service_holdi
 
 @partial(jax.jit, donate_argnums=(0,))
 def update_path_links(
-    link_slot_array: chex.Array,
+    link_slot_array: Array,
     action_info: ActionInfo,
     value: int,
-) -> chex.Array:
+) -> Array:
     return link_slot_array + action_info.affected_slots_mask * value
 
 
@@ -1776,7 +1776,7 @@ def remove_expired_services_rmsa_gn_model(
 def complete_step_rsa_gn_model(
     state: RSAGNModelEnvState,
     action_info: ActionInfo,
-    check: chex.Array,
+    check: Array,
     params: RSAGNModelEnvParams,
 ) -> RSAGNModelEnvState:
     """Complete step for RSA GN-model environments.
@@ -1842,7 +1842,7 @@ def complete_step_rsa_gn_model(
 def complete_step_rmsa_gn_model(
     state: RMSAGNModelEnvState,
     action_info: ActionInfo,
-    check: chex.Array,
+    check: Array,
     params: RMSAGNModelEnvParams,
 ) -> RMSAGNModelEnvState:
     """Complete step for RMSA GN-model environments.
@@ -2006,8 +2006,8 @@ def differentiable_check_no_spectrum_reuse(
 
 @partial(jax.jit, static_argnums=(1,))
 def process_path_action(
-    state: EnvState, params: EnvParams, path_action: chex.Array
-) -> tuple[chex.Array, chex.Array]:
+    state: EnvState, params: EnvParams, path_action: Array
+) -> tuple[Array, Array]:
     """Process path action to get path index and initial slot index.
     Args:
         state (State): current state
@@ -2123,12 +2123,12 @@ def implement_action_rsa(
     return state
 
 
-def read_rsa_request(request_array: chex.Array) -> Tuple[chex.Array, chex.Array]:
+def read_rsa_request(request_array: Array) -> Tuple[Array, Array]:
     """Read RSA request from request array. Return source-destination nodes and bandwidth request.
     Args:
         request_array: request array
     Returns:
-        Tuple[chex.Array, chex.Array]: source-destination nodes and bandwidth request
+        Tuple[Array, Array]: source-destination nodes and bandwidth request
     """
     nodes_sd = request_array[jnp.array([0, 2])]
     requested_datarate = request_array[1]
@@ -2211,7 +2211,7 @@ def check_action_rsa(state, action_info, params):
     return combined_check
 
 
-def convert_node_probs_to_traffic_matrix(node_probs: list) -> chex.Array:
+def convert_node_probs_to_traffic_matrix(node_probs: list) -> Array:
     """Convert list of node probabilities to symmetric traffic matrix.
 
     Args:
@@ -2426,12 +2426,12 @@ def aggregate_slots(full_mask: Array, params: EnvParams) -> Array:
 
 @partial(jax.jit, static_argnums=(1, 4))
 def get_path_slots(
-    link_slot_array: chex.Array,
+    link_slot_array: Array,
     params: EnvParams,
-    nodes_sd: chex.Array,
+    nodes_sd: Array,
     i: int,
     agg_func: str = "max",
-) -> chex.Array:
+) -> Array:
     """Get slots on each constitutent link of path from link_slot_array (L x S),
     then aggregate to get (S x 1) representation of slots on path.
 
@@ -2470,8 +2470,8 @@ def get_path_slots(
 
 
 def count_until_next_one(
-    array: chex.Array, position: int, temperature: float, differentiable: bool = True
-) -> chex.Array:
+    array: Array, position: int, temperature: float, differentiable: bool = True
+) -> Array:
     """
     Counts positions until the next 1 in the array.
     Made differentiable using straight-through gradient trick.
@@ -2498,7 +2498,7 @@ def count_until_next_one(
 
 
 def count_until_previous_one(
-    array: chex.Array, position: int, temperature: float, differentiable: bool = True
+    array: Array, position: int, temperature: float, differentiable: bool = True
 ) -> int:
     """
     Counts positions until the previous 1 in the array.
@@ -2717,8 +2717,8 @@ def calculate_path_capacity(
 
 
 def init_path_capacity_array(
-    link_length_array: chex.Array,
-    path_link_array: chex.Array,
+    link_length_array: Array,
+    path_link_array: Array,
     min_request=1,  # Minimum data rate request size
     scale_factor=1.0,  # Scale factor for link capacity
     alpha=0.2e-3,  # Fibre attenuation coefficient
@@ -2729,13 +2729,13 @@ def init_path_capacity_array(
     gamma=1.2e-3,  # Nonlinear coefficient
     L_s=100e3,  # span length
     lambda0=1550e-9,  # Wavelength
-) -> chex.Array:
+) -> Array:
     """Calculated from Nevin paper:
     https://api.repository.cam.ac.uk/server/api/core/bitstreams/b80e7a9c-a86b-4b30-a6d6-05017c60b0c8/content
 
     Args:
-        link_length_array (chex.Array): Array of link lengths
-        path_link_array (chex.Array): Array of links on paths
+        link_length_array (Array): Array of link lengths
+        path_link_array (Array): Array of links on paths
         min_request (int, optional): Minimum data rate request size. Defaults to 100 GBps.
         scale_factor (float, optional): Scale factor for link capacity. Defaults to 1.0.
         alpha (float, optional): Fibre attenuation coefficient. Defaults to 0.2e-3 /m
@@ -2748,7 +2748,7 @@ def init_path_capacity_array(
         lambda0 (float, optional): Wavelength. Defaults to 1550e-9 m.
 
     Returns:
-        chex.Array: Array of link capacities in Gbps
+        Array: Array of link capacities in Gbps
     """
     path_length_array = jnp.dot(path_link_array, link_length_array)
     path_capacity_array = calculate_path_capacity(
@@ -2785,7 +2785,7 @@ def get_lightpath_index(params, nodes, path_index):
 @partial(jax.jit, static_argnums=(2,))
 def check_lightpath_available_and_existing(
     state: RWALightpathReuseEnvState, action_info: ActionInfo, params: EnvParams
-) -> Tuple[chex.Array, chex.Array, chex.Array, chex.Array]:
+) -> Tuple[Array, Array, Array, Array]:
     lightpath_index = get_lightpath_index(params, action_info.nodes_sd, action_info.path_index)
 
     initial_slot_index = action_info.initial_slot_index.astype(dtype_config.INDEX_DTYPE)
@@ -2894,7 +2894,7 @@ def implement_action_rwalr(
 
 @partial(jax.jit, static_argnums=(1,))
 def mask_slots_rwalr(
-    state: RWALightpathReuseEnvState, params: EnvParams, request: chex.Array
+    state: RWALightpathReuseEnvState, params: EnvParams, request: Array
 ) -> RWALightpathReuseEnvState:
     """For use in RWALightpathReuseEnv.
     Each lightpath has a maximum capacity defined in path_capacity_array. This is updated when a lightpath is assigned.
@@ -3000,9 +3000,7 @@ def pad_array(array, fill_value):
     return result
 
 
-def init_link_length_array_gn_model(
-    graph: nx.Graph, max_span_length: int, max_spans: int
-) -> chex.Array:
+def init_link_length_array_gn_model(graph: nx.Graph, max_span_length: int, max_spans: int) -> Array:
     """Initialise link length array for environements that use GN model of physical layer.
     We assume each link has spans of equal length.
 
@@ -3115,7 +3113,7 @@ def init_transceiver_amplifier_noise_arrays(
     slot_size: float,
     noise_data_filepath: str | None = None,
     slot_frequencies_ghz: np.ndarray | None = None,
-) -> Tuple[chex.Array, chex.Array, chex.Array, chex.Array, chex.Array]:
+) -> Tuple[Array, Array, Array, Array, Array]:
     """Initialise transceiver, amplifier, and ROADM noise arrays from per-band CSV data.
 
     Args:
@@ -3618,16 +3616,16 @@ def get_required_snr_se_kurtosis_on_link(mod_format_link, col_index, params):
     ),
 )
 def get_required_snr_se_kurtosis_array(
-    modulation_format_index_array: chex.Array,
+    modulation_format_index_array: Array,
     col_index: int,
     params: RSAGNModelEnvParams,
-) -> chex.Array:
+) -> Array:
     """Convert modulation format index to required SNR or spectral efficiency.
     Modulation format index array contains the index of the modulation format used by the channel.
     The modulation index references a row in the modulations array, which contains SNR and SE values.
 
     Args:
-        modulation_format_index_array (chex.Array): Modulation format index array
+        modulation_format_index_array (Array): Modulation format index array
         col_index (int): Column index for required SNR or spectral efficiency
         params (RSAGNModelEnvParams): Environment parameters
 
@@ -3642,7 +3640,7 @@ def get_required_snr_se_kurtosis_array(
 @partial(jax.jit, static_argnums=(2,))
 def get_centre_frequency(
     initial_slot_index: int, num_slots: int, params: RSAGNModelEnvParams
-) -> chex.Array:
+) -> Array:
     """Get centre frequency for new lightpath.
 
     Looks up pre-computed per-slot centre frequencies from
@@ -3651,12 +3649,12 @@ def get_centre_frequency(
     spacing (e.g. inter-band gap slots).
 
     Args:
-        initial_slot_index (chex.Array): Index of the first slot of the channel.
+        initial_slot_index (Array): Index of the first slot of the channel.
         num_slots (float): Number of slots occupied by the channel.
         params (RSAGNModelEnvParams): Environment parameters.
 
     Returns:
-        chex.Array: Centre frequency for new lightpath (relative GHz offset
+        Array: Centre frequency for new lightpath (relative GHz offset
         from ref_lambda).
     """
     slot_centres = params.slot_centre_freq_array.val  # (link_resources,) relative GHz
@@ -3681,9 +3679,7 @@ def get_centre_freq_on_link(slot_index, num_slots_link, params):
 
 
 @partial(jax.jit, static_argnums=(1,))
-def get_centre_frequencies_array(
-    state: RMSAGNModelEnvState, params: RMSAGNModelEnvParams
-) -> chex.Array:
+def get_centre_frequencies_array(state: RMSAGNModelEnvState, params: RMSAGNModelEnvParams) -> Array:
     slot_indices = jnp.arange(params.link_resources)
     se_array = get_required_snr_se_kurtosis_array(state.modulation_format_index_array, 1, params)
     required_slots_array = jax.vmap(get_required_slots_on_link, in_axes=(0, 0, None))(
@@ -3696,13 +3692,11 @@ def get_centre_frequencies_array(
 
 
 @partial(jax.jit, static_argnums=(1,))
-def get_path_from_path_index_array(
-    path_index_array: chex.Array, path_link_array: chex.Array
-) -> chex.Array:
+def get_path_from_path_index_array(path_index_array: Array, path_link_array: Array) -> Array:
     """Get path from path index array.
     Args:
-        path_index_array (chex.Array): Path index array
-        path_link_array (chex.Array): Path link array
+        path_index_array (Array): Path index array
+        path_link_array (Array): Path link array
 
     Returns:
         jnp.array: path index values replaced with binary path-link arrays
@@ -3753,7 +3747,7 @@ def init_active_lightpaths_array_departure(params: RSAGNModelEnvParams):
 
 def update_active_lightpaths_array(
     state: RSAGNModelEnvState, path_index: int, initial_slot_index: int, num_slots: int
-) -> chex.Array:
+) -> Array:
     """Update active lightpaths array with new path index.
     Find the first index of the array with value -1 and replace with path index.
     Args:
@@ -3774,7 +3768,7 @@ def update_active_lightpaths_array(
     )
 
 
-def update_active_lightpaths_array_departure(state: RSAGNModelEnvState, time: float) -> chex.Array:
+def update_active_lightpaths_array_departure(state: RSAGNModelEnvState, time: float) -> Array:
     """Update active lightpaths array with new path index.
     Find the first index of the array with value -1 and replace with path index.
     Args:
@@ -3839,7 +3833,7 @@ def get_snr_for_path(path, link_snr_array, params, state=None):
     )  # Link SNR array must be in linear units so that 1/inf = 0
 
 
-def get_lightpath_snr(state: GNModelEnvState, params: GNModelEnvParams) -> chex.Array:
+def get_lightpath_snr(state: GNModelEnvState, params: GNModelEnvParams) -> Array:
     """Get SNR for each link on path.
     N.B. that in most cases it is more efficient to calculate the SNR for every possible path, rather than a slot-by-slot basis.
     But in some cases slot-by-slot is better i.e. when k*N(N-1)/2 > L*S
@@ -3848,7 +3842,7 @@ def get_lightpath_snr(state: GNModelEnvState, params: GNModelEnvParams) -> chex.
         params (RSAGNModelEnvParams): Environment parameters
 
     Returns:
-        chex.array: SNR for each link on path
+        Array: SNR for each link on path
     """
     # Get the SNR for the channel that the path occupies
     path_snr_array = jax.vmap(get_snr_for_path, in_axes=(0, None, None, None))(
@@ -3888,7 +3882,7 @@ def compute_total_power_per_link(channel_power_array, path_index_array):
     return jnp.sum(channel_start_powers, axis=1)
 
 
-def check_snr_sufficient(state: RMSAGNModelEnvState, params: RMSAGNModelEnvParams) -> chex.Array:
+def check_snr_sufficient(state: RMSAGNModelEnvState, params: RMSAGNModelEnvParams) -> Array:
     """Check if SNR is sufficient for all active connections.
     Args:
         state (EnvState): Environment state
@@ -3908,7 +3902,7 @@ def check_snr_sufficient(state: RMSAGNModelEnvState, params: RMSAGNModelEnvParam
 
 
 @partial(jax.jit, static_argnums=(1,))
-def get_snr_link_array(state: GNModelEnvState, params: GNModelEnvParams) -> chex.Array:
+def get_snr_link_array(state: GNModelEnvState, params: GNModelEnvParams) -> Array:
     """Get SNR per link
     Args:
         state (EnvState): Environment state
@@ -3983,7 +3977,7 @@ def get_snr_link_array(state: GNModelEnvState, params: GNModelEnvParams) -> chex
 
 
 @partial(jax.jit, static_argnums=(1,))
-def get_snr_link_array_fused(state: GNModelEnvState, params: GNModelEnvParams) -> chex.Array:
+def get_snr_link_array_fused(state: GNModelEnvState, params: GNModelEnvParams) -> Array:
     """Get SNR per link using fused computation (uniform spans, no mod_format_correction).
 
     Drop-in replacement for get_snr_link_array that uses get_snr_fused to
@@ -4057,11 +4051,11 @@ def get_snr_link_array_fused(state: GNModelEnvState, params: GNModelEnvParams) -
 @partial(jax.jit, static_argnums=(3,))
 def get_best_modulation_format(
     state: RMSAGNModelEnvState,
-    path: chex.Array,
+    path: Array,
     initial_slot_index: int,
-    launch_power: chex.Array,
+    launch_power: Array,
     params: RMSAGNModelEnvParams,
-) -> chex.Array:
+) -> Array:
     _, requested_datarate = read_rsa_request(state.request_array)
 
     mod_formats = params.modulations_array.val  # (mod_format_count, ...)
@@ -4108,15 +4102,15 @@ def get_best_modulation_format(
 @partial(jax.jit, static_argnums=(3,))
 def get_best_modulation_format_simple(
     state: RMSAGNModelEnvState,
-    path: chex.Array,
+    path: Array,
     initial_slot_index: int,
     params: RMSAGNModelEnvParams,
-) -> chex.Array:
+) -> Array:
     """Get modulation format for lightpath.
     Assume worst case (least Gaussian) modulation format when calculating SNR.
     Args:
         state (EnvState): Environment state
-        path (chex.Array): Path array
+        path (Array): Path array
         initial_slot_index (int): Initial slot index
         params (EnvParams): Environment parameters
     Returns:
@@ -4139,14 +4133,14 @@ def get_best_modulation_format_simple(
 
 
 @partial(jax.jit, static_argnums=(1, 2))
-def set_band_gaps(link_slot_array: chex.Array, params: RSAGNModelEnvParams, val: int) -> chex.Array:
+def set_band_gaps(link_slot_array: Array, params: RSAGNModelEnvParams, val: int) -> Array:
     """Set band gaps in link slot array
     Args:
-        link_slot_array (chex.Array): Link slot array
+        link_slot_array (Array): Link slot array
         params (RSAGNModelEnvParams): Environment parameters
         val (int): Value to set
     Returns:
-        chex.Array: Link slot array with band gaps
+        Array: Link slot array with band gaps
     """
     # Create array that is size of link_slot array with values of column index
     mask = jnp.arange(params.link_resources)
@@ -4175,7 +4169,7 @@ def check_action_rmsa_gn_model(
     Args:
         state (EnvState): Environment state
         params (EnvParams): Environment parameters
-        action (chex.Array): Action array
+        action (Array): Action array
     Returns:
         bool: True if action is invalid, False if action is valid
     """
@@ -4210,7 +4204,7 @@ def implement_action_rsa_gn_model(
     - active_path_array
     Args:
         state (EnvState): Environment state
-        action (chex.Array): Action tuple (first is path action, second is launch_power)
+        action (Array): Action tuple (first is path action, second is launch_power)
         params (EnvParams): Environment parameters
     Returns:
         EnvState: Updated environment state
@@ -4272,7 +4266,7 @@ def implement_action_rmsa_gn_model(
     - active_path_array
     Args:
         state (EnvState): Environment state
-        action (chex.Array): Action tuple (first is path action, second is launch_power)
+        action (Array): Action tuple (first is path action, second is launch_power)
         params (EnvParams): Environment parameters
     Returns:
         EnvState: Updated environment state
@@ -4328,7 +4322,7 @@ def implement_action_rmsa_gn_model(
 
 def calculate_throughput_from_active_lightpaths(
     state: RSAGNModelEnvState, params: RSAGNModelEnvParams
-) -> chex.Array:
+) -> Array:
     # Update the SNR
     state = state.replace(link_snr_array=get_snr_link_array(state, params))
 
@@ -4428,11 +4422,11 @@ def calculate_throughput_from_active_lightpaths(
 @partial(jax.jit, static_argnums=(2,))
 def get_minimum_snr_of_channels_on_path(
     state: RSAGNModelEnvState,
-    path: chex.Array,
-    slot_index: chex.Array,
+    path: Array,
+    slot_index: Array,
     req_slots: int,
     params: RSAGNModelEnvParams,
-) -> chex.Array:
+) -> Array:
     """Get the minimum value of the SNR on newly assigned channels.
     N.B. this requires the link_snr_array to have already been calculated and present in state."""
     snr_value_all_channels = get_snr_for_path(path, state.link_snr_array, params, state)
@@ -4450,7 +4444,7 @@ def get_minimum_snr_of_channels_on_path(
 
 @partial(jax.jit, static_argnums=(1,))
 def mask_slots_rmsa_gn_model(
-    state: RMSAGNModelEnvState, params: RMSAGNModelEnvParams, request: chex.Array
+    state: RMSAGNModelEnvState, params: RMSAGNModelEnvParams, request: Array
 ) -> EnvState:
     """Compute action mask for RMSA with GN model physical layer.
 
@@ -4799,11 +4793,11 @@ def mask_slots_rmsa_gn_model(
 @partial(jax.jit, static_argnums=(4,))
 def get_launch_power(
     state: GNModelEnvState,
-    path_action: chex.Array,
-    power_action: chex.Array,
-    initial_slot_index: chex.Array,
+    path_action: Array,
+    power_action: Array,
+    initial_slot_index: Array,
     params: GNModelEnvParams,
-) -> chex.Array:
+) -> Array:
     """Get launch power for new lightpath. N.B. launch power is specified in dBm but is converted to linear units
     when stored in channel_power_array. This func returns linear units (mW).
     Path action is used to determine the launch power in the case of tabular launch power type.
@@ -4811,12 +4805,12 @@ def get_launch_power(
     power action is set as state.launch_power_array[0], which is set by the RL agent.
     Args:
         state (EnvState): Environment state
-        path_action (chex.Array): Action specifying path index (0 to k_paths-1)
-        power_action (chex.Array): Action specifying launch power in dBm
-        initial_slot_index (chex.Array): Initial slot index of the placement
+        path_action (Array): Action specifying path index (0 to k_paths-1)
+        power_action (Array): Action specifying launch power in dBm
+        initial_slot_index (Array): Initial slot index of the placement
         params (EnvParams): Environment parameters
     Returns:
-        chex.Array: Launch power for new lightpath
+        Array: Launch power for new lightpath
     """
     k_path_index, _ = process_path_action(state, params, path_action)
     initial_slot_index = jnp.asarray(initial_slot_index, dtype=jnp.int32)
@@ -4867,7 +4861,7 @@ def get_launch_power(
 
 
 @partial(jax.jit, static_argnums=(1,))
-def get_paths_obs_gn_model(state: RSAGNModelEnvState, params: RSAGNModelEnvParams) -> chex.Array:
+def get_paths_obs_gn_model(state: RSAGNModelEnvState, params: RSAGNModelEnvParams) -> Array:
     # TODO - make this just show the stats from just one path at a time
     """Get observation space for launch power optimization (with numerical stability)."""
     request_array = state.request_array.reshape((-1,))

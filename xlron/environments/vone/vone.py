@@ -48,9 +48,9 @@ class VONEEnv(environment.Environment):
         key: chex.PRNGKey,
         params: VONEEnvParams,
         virtual_topologies: list[str] | None = None,
-        traffic_matrix: chex.Array | None = None,
-        list_of_requests: chex.Array | None = None,
-        laplacian_matrix: chex.Array | None = None,
+        traffic_matrix: Array | None = None,
+        list_of_requests: Array | None = None,
+        laplacian_matrix: Array | None = None,
     ):
         super().__init__()
         state = VONEEnvState(
@@ -99,7 +99,7 @@ class VONEEnv(environment.Environment):
         state: EnvState,
         action: Union[int, float],
         params: Optional[EnvParams] = None,
-    ) -> Tuple[chex.Array, EnvState, float, bool, bool, dict]:
+    ) -> Tuple[Array, EnvState, float, bool, bool, dict]:
         """Performs step transitions in the environment."""
         key, key_reset = jax.random.split(key)
         obs_st, state_st, reward, terminal, truncated, info = self.step_env(
@@ -128,7 +128,7 @@ class VONEEnv(environment.Environment):
     )
     def reset(
         self, key: chex.PRNGKey, params: Optional[EnvParams] = None
-    ) -> Tuple[chex.Array, EnvState]:
+    ) -> Tuple[Array, EnvState]:
         """Performs resetting of environment."""
         obs, state = self.reset_env(key, params)
         return obs, state
@@ -139,7 +139,7 @@ class VONEEnv(environment.Environment):
         state: VONEEnvState,
         action: Union[int, float],
         params: EnvParams,
-    ) -> Tuple[chex.Array, VONEEnvState, chex.Array, chex.Array, chex.Array, dict]:
+    ) -> Tuple[Array, VONEEnvState, Array, Array, Array, dict]:
         """Environment-specific step transition."""
         action = jnp.stack(
             action
@@ -212,21 +212,19 @@ class VONEEnv(environment.Environment):
             2,
         ),
     )
-    def reset_env(
-        self, key: chex.PRNGKey, params: VONEEnvParams
-    ) -> Tuple[chex.Array, VONEEnvState]:
+    def reset_env(self, key: chex.PRNGKey, params: VONEEnvParams) -> Tuple[Array, VONEEnvState]:
         """Environment-specific reset."""
         state = self.initial_state
         state = generate_vone_request(key, state, params)
         return self.get_obs(state), state
 
-    def action_mask_nodes(self, state: VONEEnvState, params: VONEEnvParams) -> chex.Array:
+    def action_mask_nodes(self, state: VONEEnvState, params: VONEEnvParams) -> Array:
         """Returns action mask for state."""
         return mask_nodes(state, params.num_nodes)
 
     def action_mask_dest_node(
-        self, state: VONEEnvState, params: VONEEnvParams, source_action: chex.Array
-    ) -> chex.Array:
+        self, state: VONEEnvState, params: VONEEnvParams, source_action: Array
+    ) -> Array:
         """Returns action mask for state."""
         empty_mask = jnp.ones(params.num_nodes)
         mask_source_node = jax.lax.dynamic_update_slice(
@@ -236,7 +234,7 @@ class VONEEnv(environment.Environment):
         state = state.replace(node_mask_d=node_mask_d)
         return state
 
-    def action_mask_slots(self, state: EnvState, params: EnvParams, action: chex.Array) -> EnvState:
+    def action_mask_slots(self, state: EnvState, params: EnvParams, action: Array) -> EnvState:
         """Returns action mask for state."""
         formatted_request = format_vone_slot_request(state, action)
         state = state.replace(request_array=formatted_request)
@@ -247,7 +245,7 @@ class VONEEnv(environment.Environment):
         )
         return state
 
-    def get_obs_unflat(self, state: VONEEnvState) -> Tuple[chex.Array]:
+    def get_obs_unflat(self, state: VONEEnvState) -> Tuple[Array]:
         """Applies observation function to state."""
         return (
             state.request_array,
@@ -255,7 +253,7 @@ class VONEEnv(environment.Environment):
             state.link_slot_array,
         )
 
-    def get_obs(self, state: VONEEnvState) -> chex.Array:
+    def get_obs(self, state: VONEEnvState) -> Array:
         """Applies observation function to state."""
         return jnp.concatenate(
             (
@@ -266,9 +264,7 @@ class VONEEnv(environment.Environment):
             axis=0,
         )
 
-    def is_terminal(
-        self, state: EnvState, params: EnvParams, reward: chex.Array | None = None
-    ) -> chex.Array:
+    def is_terminal(self, state: EnvState, params: EnvParams, reward: Array | None = None) -> Array:
         """Check whether state transition is terminal.
 
         Args:
@@ -286,7 +282,7 @@ class VONEEnv(environment.Environment):
         else:
             return jnp.array(False)
 
-    def is_truncated(self, state: EnvState, params: EnvParams) -> chex.Array:
+    def is_truncated(self, state: EnvState, params: EnvParams) -> Array:
         """Check whether state transition is truncated i.e. max steps reached.
 
         Args:
@@ -298,22 +294,22 @@ class VONEEnv(environment.Environment):
         """
         return jnp.array(state.total_requests >= params.max_requests)
 
-    def discount(self, state: EnvState, params: EnvParams) -> chex.Array:
+    def discount(self, state: EnvState, params: EnvParams) -> Array:
         """Return a discount of zero if the episode has terminated."""
         return jax.lax.select(self.is_terminal(state, params), 0.0, 1.0)
 
     # TODO - Allow configurable rewards and write tests
-    def get_reward_success(self, state: EnvState) -> chex.Array:
+    def get_reward_success(self, state: EnvState) -> Array:
         """Return reward for current state."""
         return jnp.array(
             10.0
         )  # jnp.mean(state.request_array[0]) * state.request_array.shape[1] // 2
 
-    def get_reward_failure(self, state: Optional[EnvState] = None) -> chex.Array:
+    def get_reward_failure(self, state: Optional[EnvState] = None) -> Array:
         """Return reward for current state."""
         return jnp.array(-10.0)
 
-    def get_reward_neutral(self, state: Optional[EnvState] = None) -> chex.Array:
+    def get_reward_neutral(self, state: Optional[EnvState] = None) -> Array:
         """Return reward for current state."""
         return jnp.array(0.0, dtype=jnp.float32)
 

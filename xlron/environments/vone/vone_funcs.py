@@ -88,10 +88,10 @@ def check_topology(action_history, topology_pattern):
 
 def implement_node_action(
     state: VONEEnvState,
-    s_node: chex.Array,
-    d_node: chex.Array,
-    s_request: chex.Array,
-    d_request: chex.Array,
+    s_node: Array,
+    d_node: Array,
+    s_request: Array,
+    d_request: Array,
     n=2,
 ) -> VONEEnvState:
     """Update node capacity, node resource and node departure arrays
@@ -139,7 +139,7 @@ def implement_node_action(
     return state
 
 
-def check_all_nodes_assigned(node_departure_array: chex.Array, total_requested_nodes: int) -> bool:
+def check_all_nodes_assigned(node_departure_array: Array, total_requested_nodes: int) -> bool:
     """Count negative values on each node (row) in node departure array, sum them, must equal total requested_nodes.
 
     Args:
@@ -154,7 +154,7 @@ def check_all_nodes_assigned(node_departure_array: chex.Array, total_requested_n
     )
 
 
-def check_min_two_nodes_assigned(node_departure_array: chex.Array):
+def check_min_two_nodes_assigned(node_departure_array: Array):
     """Count negative values on each node (row) in node departure array, sum them, must be 2 or greater.
     This check is important if e.g. an action contains 2 nodes the same therefore only assigns 1 node.
     Return False if check passed, True if check failed
@@ -168,7 +168,7 @@ def check_min_two_nodes_assigned(node_departure_array: chex.Array):
     return jnp.sum(jnp.sum(jnp.where(node_departure_array < 0, 1, 0), axis=1)) <= 1
 
 
-def check_node_capacities(capacity_array: chex.Array) -> bool:
+def check_node_capacities(capacity_array: Array) -> bool:
     """Sum selected nodes array and check less than node resources.
 
     Args:
@@ -202,8 +202,8 @@ def init_action_history(params: VONEEnvParams):
 
 @jax.jit
 def vmap_update_node_departure(
-    node_departure_array: chex.Array, selected_nodes: chex.Array, value: int
-) -> chex.Array:
+    node_departure_array: Array, selected_nodes: Array, value: int
+) -> Array:
     """Called when implementing node action.
     Sets request departure time ("value") in place of first "inf" i.e. unoccupied index on node departure array for selected nodes.
 
@@ -297,7 +297,7 @@ def init_node_resource_array(params: VONEEnvParams):
 
 
 @jax.jit
-def check_unique_nodes(node_departure_array: chex.Array) -> bool:
+def check_unique_nodes(node_departure_array: Array) -> bool:
     """Count negative values on each node (row) in node departure array, must not exceed 1.
 
     Args:
@@ -385,7 +385,7 @@ def undo_link_action_vone(state: VONEEnvState) -> VONEEnvState:
 @partial(jax.jit, static_argnums=(4,))
 def implement_vone_action(
     state: VONEEnvState,
-    action: chex.Array,
+    action: Array,
     total_actions: chex.Scalar,
     remaining_actions: chex.Scalar,
     params: VONEEnvParams,
@@ -465,8 +465,8 @@ def implement_vone_action(
 
 
 def path_action_only(
-    topology_pattern: chex.Array,
-    action_counter: chex.Array,
+    topology_pattern: Array,
+    action_counter: Array,
     remaining_actions: chex.Scalar,
 ) -> bool:
     """This is to check if node has already been assigned, therefore just need to assign slots (n=0)
@@ -493,7 +493,7 @@ def path_action_only(
     return nodes_already_assigned_check
 
 
-def format_vone_slot_request(state: VONEEnvState, action: chex.Array) -> chex.Array:
+def format_vone_slot_request(state: VONEEnvState, action: Array) -> Array:
     """Format slot request for VONE action into format (source-node, slot, destination-node).
 
     Args:
@@ -501,7 +501,7 @@ def format_vone_slot_request(state: VONEEnvState, action: chex.Array) -> chex.Ar
         action: action to format
 
     Returns:
-        chex.Array: formatted request
+        Array: formatted request
     """
     remaining_actions = jnp.squeeze(jax.lax.dynamic_slice_in_dim(state.action_counter, 2, 1))
     full_request = jnp.squeeze(jax.lax.dynamic_slice_in_dim(state.request_array, 0, 1))
@@ -808,9 +808,7 @@ def remove_expired_node_requests(state: VONEEnvState, params: VONEEnvParams) -> 
     return state
 
 
-def update_action_history(
-    action_history: chex.Array, action_counter: chex.Array, action: chex.Array
-) -> chex.Array:
+def update_action_history(action_history: Array, action_counter: Array, action: Array) -> Array:
     """Update action history by adding action to first available index starting from the end.
 
     Args:

@@ -40,7 +40,7 @@ class LogWrapper(GymnaxWrapper):
         key: chex.PRNGKey,
         params: Optional[RSAEnvParams] = None,
         state: Optional[RSAEnvState] = None,
-    ) -> Tuple[chex.Array, LogEnvState]:
+    ) -> Tuple[Array, LogEnvState]:
         obs, env_state = self._env.reset(key, params, state)
         log_state = LogEnvState(
             env_state=env_state,

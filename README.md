@@ -6,40 +6,47 @@
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 [![codecov](https://codecov.io/gh/micdoh/XLRON/graph/badge.svg?token=UW9CCLRAFJ)](https://codecov.io/gh/micdoh/XLRON)
 
-
+<p align="center">
+  <video src="https://github.com/micdoh/XLRON/raw/main/docs/images/demos/deeprmsa_transformer.mp4" loop muted playsinline controls width="640">
+    Your browser does not support HTML5 video — <a href="https://github.com/micdoh/XLRON/raw/main/docs/images/demos/deeprmsa_transformer.mp4">download the demo video</a>.
+  </video>
+  <br>
+  <em>Live render of the per-link spectrum allocations made by a <a href="https://micdoh.github.io/XLRON/features/transformer/">Graph Transformer agent</a> trained with RL on DeepRMSA-NSFNET.</em>
+</p>
 
 ## Documentation: https://micdoh.github.io/XLRON/
 
 ---
 
-### *_As presented at [Optical Fibre Communication Conference (OFC)](https://www.ofcconference.org/en-us/home/about/) 2024_* - see the paper [here](ofc_paper.pdf)
-
-### To cite XLRON in your work, please use the following BibTeX entry:
-
-```
-@INPROCEEDINGS{10526884,
-  author={Doherty, Michael and Beghelli, Alejandra},
-  booktitle={2024 Optical Fiber Communications Conference and Exhibition (OFC)},
-  title={XLRON: Accelerated Reinforcement Learning Environments for Optical Networks},
-  year={2024},
-  volume={},
-  number={},
-  pages={1-3},
-  keywords={Training;Graphics processing units;Reinforcement learning;Optical fiber networks;Resource management},
-  doi={}}
-```
----
-
 ## Overview
 
-XLRON ("ex-el-er-on") is an open-source project that provides a suite of gym-style environments for simulating resource allocation problems in optical networks and applying reinforcement learning (RL) techniques. Unlike similar libraries, it is built on the JAX machine learning framework, enabling accelerated training on GPU/TPU/XPU hardware. This gives orders of magnitude faster training than other optical network simulation libraries (e.g. [optical-rl-gym](https://github.com/carlosnatalino/optical-rl-gym), [DeepRMSA](https://github.com/xiaoliangchenUCD/DeepRMSA), [RSA-RL](https://github.com/Optical-Networks-Group/rsa-rl)) due to:
+**XLRON** ("ex-el-er-on") is a JAX-based simulation framework for resource allocation in optical networks. It combines a fast simulation engine that runs entirely on accelerator hardware, an integrated PPO trainer, classical heuristics, capacity bound estimators, an end-to-end differentiable physical layer, and a browser GUI — all in one library.
 
-- JIT compilation of the entire training loop
-- Massive parallelism (1000s of parallel environments) on accelerator hardware
-- Co-location of environment and agent on GPU avoids CPU-XPU data transfer bottleneck
-- Bypasses the Python Global Interpreter Lock (GIL)
+### Why XLRON
 
-XLRON is a product of my PhD research, which focuses on a set of combinatorial optimisation problems related to resource allocation in optical networks. XLRON aims to overcome the computational bottleneck in applying RL to these problems. The project is in active development.
+- **Fast.** 222–1,494× faster end-to-end RL training than DeepRMSA / Optical-RL-Gym; up to **6 × 10⁶ steps/s** on a single A100. ([benchmarks](https://micdoh.github.io/XLRON/features/speed/))
+- **Most comprehensive feature set** of any open-source optical-network simulation library. ([feature comparison](https://micdoh.github.io/XLRON/features/speed/))
+- **Accurate physical layer** — closed-form **ISRS GN model with distributed Raman amplification, Nyquist subchannels, and EGN correction**, validated to within 0.5 dB against the Gerard *et al.* 2025 record-throughput C+L-band experiment. ([physical layer](https://micdoh.github.io/XLRON/features/physical_layer/))
+- **First fully differentiable optical-network simulator.** Gradients flow end-to-end through the physical layer and resource-allocation logic, enabling gradient-based pump power optimisation and direct RSA optimisation. ([differentiable simulation](https://micdoh.github.io/XLRON/features/differentiable/))
+- **All 119 real-world topologies from [TopologyBench](https://github.com/TopologyBench/Real-Topologies)** bundled out of the box, including very large ones like USA100 (100 nodes) and TataInd (143 nodes). ([topologies](https://micdoh.github.io/XLRON/features/topologies/))
+- **Graph Transformer policy** with Wavelet-Induced Rotary Encodings (WiRE) — the first transformer trained from scratch with RL to consistently match or beat strong heuristics on dynamic RMSA. ([transformer](https://micdoh.github.io/XLRON/features/transformer/))
+- **Browser GUI** exposing every option via tabbed configuration, presets, and live output streams. Run `xlron` and point your browser at the URL. ([GUI](https://micdoh.github.io/XLRON/features/gui/))
+- Everything is also driven by a flat **CLI** that integrates cleanly with W&B sweeps, batch jobs, and LLM-based coding agents.
+
+### XLRON GUI
+
+<img src="docs/images/papers/jocn_xlron/interfaces/gui.png" width="800" alt="XLRON GUI" />
+
+### Papers and reproduction guides
+
+- **XLRON: Accelerated Reinforcement Learning Environments for Optical Networks** — OFC 2024, [`ofc_paper.pdf`](ofc_paper.pdf)
+- **Reinforcement Learning with Graph Attention for Routing and Wavelength Assignment with Lightpath Reuse** — ONDM 2025 ([arXiv:2502.14741](https://arxiv.org/abs/2502.14741)) — [reproduce](https://micdoh.github.io/XLRON/reproduce_rwalr/)
+- **Reinforcement Learning for Dynamic Resource Allocation in Optical Networks: Hype or Hope?** — JOCN **17**(9), D1 (2025), DOI [10.1364/JOCN.559990](https://doi.org/10.1364/JOCN.559990), [arXiv:2406.01919](https://arxiv.org/abs/2406.01919) — [reproduce](https://micdoh.github.io/XLRON/reproduce_jocn2024/)
+- **Comparison of Dynamic Elastic Optical Network Capacity Bound Estimation Methods** — *submitted to ECOC 2026* — [reproduce](https://micdoh.github.io/XLRON/reproduce_ecoc2026/)
+- **XLRON: A Framework for Hardware-Accelerated and Differentiable Simulation of Optical Networks** — *in preparation* — [reproduce](https://micdoh.github.io/XLRON/reproduce_jocn_xlron/)
+- **Graph Transformers and Stabilized Reinforcement Learning for Large-Scale Dynamic Routing, Modulation and Spectrum Allocation in Elastic Optical Networks** — *in preparation* — [reproduce](https://micdoh.github.io/XLRON/reproduce_jocn_transformer/)
+
+Full list with BibTeX entries on the [Papers](https://micdoh.github.io/XLRON/papers/) page.
 
 ---
 
@@ -53,18 +60,14 @@ cd XLRON
 # Install with uv (recommended)
 uv sync
 
-# Install with GUI
-uv sync --extra gui
+# Install dev dependencies
+uv sync --group dev
 
 # If running on GPU
 uv sync --group gpu
 
 # If running on TPU
 uv sync --group tpu
-
-# Or with pip
-pip install -e .
-pip install -e ".[gui]"   # include GUI
 ```
 
 ---
@@ -73,10 +76,9 @@ pip install -e ".[gui]"   # include GUI
 
 ### GUI (recommended for new users)
 
-XLRON includes a browser-based GUI for configuring and launching experiments without memorising CLI flags. Install with the `gui` extra, then run:
+XLRON includes a browser-based GUI for configuring and launching experiments without memorising CLI flags. Install dependencies, then run:
 
 ```bash
-uv sync --extra gui
 xlron
 ```
 
@@ -168,9 +170,18 @@ See the full **[Capacity Bound Estimation](https://micdoh.github.io/XLRON/capaci
 | `rsa_gn_model` / `rmsa_gn_model` | With GN model physical layer impairments |
 | `rsa_multiband` | Multi-band transmission |
 
-### Network Topologies
+### Network Topologies — including all 119 from TopologyBench
 
-Topologies are loaded from JSON files in `xlron/data/topologies/`. Each topology is available in directed and/or undirected variants. Built-in topologies include:
+XLRON ships with **all 119 real-world optical network topologies from [TopologyBench](https://github.com/TopologyBench/Real-Topologies)** (Matzner *et al.* 2024) bundled out of the box, in both directed and undirected variants. This means you can run any experiment on networks ranging from small academic topologies up to USA100 (100 nodes, 342 directed links) and TataInd (143 nodes, 362 directed links) just by changing one flag:
+
+```bash
+python -m xlron.train.train --topology_name=coronet_directed ...
+python -m xlron.train.train --topology_name=geant_undirected ...
+python -m xlron.train.train --topology_name=usa100_directed ...
+python -m xlron.train.train --topology_name=tataind_directed ...
+```
+
+The historically standard research topologies are also bundled:
 
 - **NSFNET** (`nsfnet_deeprmsa_directed`, `nsfnet_deeprmsa_undirected`, `nsfnet_nevin_undirected`)
 - **COST239** (`cost239_deeprmsa_directed`, `cost239_ptrnet_real_undirected`, etc.)
@@ -179,27 +190,18 @@ Topologies are loaded from JSON files in `xlron/data/topologies/`. Each topology
 - **German17** (`german17_directed`, `german17_undirected`)
 - **CONUS** (`conus_directed`, `conus_undirected`)
 - **5-node** (`5node_directed`, `5node_undirected`)
-- **119 real-world topologies** from [TopologyBench](https://github.com/TopologyBench/Real-Topologies) (e.g. `coronet`, `geant`, `abilene`, `germany50`, `japan25`, ...)
 - Custom topologies via `--topology_directory`
-
-All 119 [TopologyBench](https://github.com/TopologyBench/Real-Topologies) real-world network topologies are included natively, pre-converted in both directed and undirected variants. Use them like any built-in topology:
-
-```bash
-python -m xlron.train.train --topology_name=coronet_directed ...
-```
 
 To list all available TopologyBench topologies or regenerate from source:
 
 ```bash
 python xlron/data/topologies/topology_bench_to_xlron_conversion.py --list
-python xlron/data/topologies/topology_bench_to_xlron_conversion.py --download  # re-download from GitHub
+python xlron/data/topologies/topology_bench_to_xlron_conversion.py --download  # re-download from upstream
 ```
 
-Optional topology node attributes for rendering:
-- `longitude`
-- `latitude`
+Optional topology node attributes (`latitude`, `longitude`) are used by `render` for geographic layouts.
 
-When present in topology JSON nodes, XLRON render uses these to seed geographic node placement.
+If you use the TopologyBench topologies in published work, please also cite TopologyBench: <https://github.com/TopologyBench/Real-Topologies>.
 
 ### Model Architectures
 

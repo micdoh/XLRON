@@ -68,9 +68,9 @@ class RSAEnv(environment.Environment):
         self,
         key: chex.PRNGKey,
         params: RSAEnvParams,
-        traffic_matrix: chex.Array | None = None,
-        list_of_requests: chex.Array | None = None,
-        laplacian_matrix: chex.Array | None = None,
+        traffic_matrix: Array | None = None,
+        list_of_requests: Array | None = None,
+        laplacian_matrix: Array | None = None,
     ):
         """Initialise the environment state and set as initial state.
 
@@ -137,7 +137,7 @@ class RSAEnv(environment.Environment):
         state: RSAEnvState,
         action: Union[int, float],
         params: Optional[RSAEnvParams] = None,
-    ) -> Tuple[chex.Array, RSAEnvState, float, bool, bool, dict]:
+    ) -> Tuple[Array, RSAEnvState, float, bool, bool, dict]:
         """Performs step transitions in the environment.
 
         Args:
@@ -194,7 +194,7 @@ class RSAEnv(environment.Environment):
         key: chex.PRNGKey,
         params: Optional[RSAEnvParams] = None,
         state: Optional[RSAEnvState] = None,
-    ) -> Tuple[chex.Array, RSAEnvState]:
+    ) -> Tuple[Array, RSAEnvState]:
         """Performs resetting of environment.
 
         Args:
@@ -214,7 +214,7 @@ class RSAEnv(environment.Environment):
         state: RSAEnvState,
         action: Union[int, float],
         params: RSAEnvParams,
-    ) -> Tuple[chex.Array, RSAEnvState, chex.Array, chex.Array, chex.Array, dict]:
+    ) -> Tuple[Array, RSAEnvState, Array, Array, Array, dict]:
         """Environment-specific step transition.
         1. Implement action
         2. Check if action was valid
@@ -549,7 +549,7 @@ class RSAEnv(environment.Environment):
         params: Optional[RSAEnvParams] = None,
         mode: str = "human",
         action_info: Optional[ActionInfo] = None,
-        check: Optional[chex.Array] = None,
+        check: Optional[Array] = None,
         render_context: Optional[dict[str, Any]] = None,
     ):
         try:
@@ -1048,7 +1048,7 @@ class RSAEnv(environment.Environment):
         key: chex.PRNGKey,
         params: RSAEnvParams,
         state: Optional[RSAEnvState] = None,
-    ) -> Tuple[chex.Array, RSAEnvState]:
+    ) -> Tuple[Array, RSAEnvState]:
         """Environment-specific reset.
         Generates new random traffic matrix if random_traffic is True, otherwise uses the provided traffic matrix.
         Generates new request.
@@ -1166,9 +1166,7 @@ class RSAEnv(environment.Environment):
         return action_mask
 
     @partial(jax.jit, static_argnums=(0, 2))
-    def get_obs_unflat(
-        self, state: RSAEnvState, params: RSAEnvParams
-    ) -> Tuple[chex.Array, chex.Array]:
+    def get_obs_unflat(self, state: RSAEnvState, params: RSAEnvParams) -> Tuple[Array, Array]:
         """Retrieves observation from state.
 
         Args:
@@ -1184,7 +1182,7 @@ class RSAEnv(environment.Environment):
         )
 
     @partial(jax.jit, static_argnums=(0, 2))
-    def get_obs(self, state: RSAEnvState, params: RSAEnvParams) -> chex.Array:
+    def get_obs(self, state: RSAEnvState, params: RSAEnvParams) -> Array:
         """Retrieves observation from state and reshapes into single array.
 
         Args:
@@ -1207,8 +1205,8 @@ class RSAEnv(environment.Environment):
         state: RSAEnvState,
         params: RSAEnvParams,
         action_info: ActionInfo,
-        reward: chex.Array | None = None,
-    ) -> chex.Array:
+        reward: Array | None = None,
+    ) -> Array:
         """Check whether state transition is terminal.
 
         Args:
@@ -1226,7 +1224,7 @@ class RSAEnv(environment.Environment):
         else:
             return jnp.array(False)
 
-    def is_truncated(self, state: RSAEnvState, params: RSAEnvParams) -> chex.Array:
+    def is_truncated(self, state: RSAEnvState, params: RSAEnvParams) -> Array:
         """Check whether state transition is truncated i.e. max steps reached.
 
         Args:
@@ -1278,7 +1276,7 @@ class RSAEnv(environment.Environment):
 
     def calculate_reward(
         self, state: RSAEnvState, action_info: ActionInfo, check: Array, params: RSAEnvParams
-    ) -> chex.Array:
+    ) -> Array:
         """Calculate reward for current state and action.
 
         Args:
@@ -1300,7 +1298,7 @@ class RSAEnv(environment.Environment):
         state: EnvState,
         action_info: ActionInfo,
         params: EnvParams,
-    ) -> chex.Array:
+    ) -> Array:
         """Return reward for current state.
 
         Args:
@@ -1343,7 +1341,7 @@ class RSAEnv(environment.Environment):
         state: EnvState,
         action_info: ActionInfo,
         params: EnvParams,
-    ) -> chex.Array:
+    ) -> Array:
         """Return reward for current state.
 
         Args:
@@ -1431,9 +1429,9 @@ class RSAMultibandEnv(RSAEnv):
         self,
         key: chex.PRNGKey,
         params: RSAEnvParams,
-        traffic_matrix: chex.Array | None = None,
-        list_of_requests: chex.Array | None = None,
-        laplacian_matrix: chex.Array | None = None,
+        traffic_matrix: Array | None = None,
+        list_of_requests: Array | None = None,
+        laplacian_matrix: Array | None = None,
     ):
         super().__init__(
             key,

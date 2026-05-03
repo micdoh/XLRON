@@ -1,9 +1,9 @@
 from functools import partial
 from typing import Tuple
 
-import chex
 import jax
 import jax.numpy as jnp
+from jax import Array
 
 from typing import cast
 
@@ -36,7 +36,7 @@ from xlron.environments.wrappers import jit_profiler
 
 
 @partial(jax.jit, static_argnums=(1,))
-def ksp_ff(state: RSAEnvState, params: RSAEnvParams) -> chex.Array:
+def ksp_ff(state: RSAEnvState, params: RSAEnvParams) -> Array:
     """Get the first available slot from the shortest available path
     Method: Go through action mask and find the first available slot, starting from shortest path
 
@@ -45,7 +45,7 @@ def ksp_ff(state: RSAEnvState, params: RSAEnvParams) -> chex.Array:
         params (EnvParams): Environment parameters
 
     Returns:
-        chex.Array: Action
+        Array: Action
     """
     first_slots = first_fit(state, params)
     # Chosen path is the first one with an available slot
@@ -64,13 +64,13 @@ def ksp_ff_multiband(state: EnvState, params: RSAEnvParams) -> None:
         state (MultiBandRSAEnvState): Environment state specific to multiband operations
         params (MultiBandRSAEnvParams): Environment parameters including multiband details
     Returns:
-        chex.Array: Action
+        Array: Action
     """
     pass
 
 
 @partial(jax.jit, static_argnums=(1,))
-def ksp_lf(state: RSAEnvState, params: RSAEnvParams) -> chex.Array:
+def ksp_lf(state: RSAEnvState, params: RSAEnvParams) -> Array:
     """Get the last available slot on the shortest available path
     Method: Go through action mask and find the last available slot, starting from shortest path
 
@@ -79,7 +79,7 @@ def ksp_lf(state: RSAEnvState, params: RSAEnvParams) -> chex.Array:
         params (EnvParams): Environment parameters
 
     Returns:
-        chex.Array: Action
+        Array: Action
     """
     last_slots = last_fit(state, params)
     # Chosen path is the first one with an available slot
@@ -91,7 +91,7 @@ def ksp_lf(state: RSAEnvState, params: RSAEnvParams) -> chex.Array:
 
 
 @partial(jax.jit, static_argnums=(1,))
-def ff_ksp(state: RSAEnvState, params: RSAEnvParams) -> chex.Array:
+def ff_ksp(state: RSAEnvState, params: RSAEnvParams) -> Array:
     """Get the first available slot from all paths
     Method: Go through action mask and find the first available slot on all paths
 
@@ -100,7 +100,7 @@ def ff_ksp(state: RSAEnvState, params: RSAEnvParams) -> chex.Array:
         params (EnvParams): Environment parameters
 
     Returns:
-        chex.Array: Action
+        Array: Action
     """
     first_slots = first_fit(state, params)
     # Chosen path is the one with the lowest index of first available slot
@@ -112,7 +112,7 @@ def ff_ksp(state: RSAEnvState, params: RSAEnvParams) -> chex.Array:
 
 
 @partial(jax.jit, static_argnums=(1,))
-def lf_ksp(state: EnvState, params: RSAEnvParams) -> chex.Array:
+def lf_ksp(state: EnvState, params: RSAEnvParams) -> Array:
     """Get the last available slot from all paths
     Method: Go through action mask and find the last available slot on all paths
 
@@ -121,7 +121,7 @@ def lf_ksp(state: EnvState, params: RSAEnvParams) -> chex.Array:
         params (EnvParams): Environment parameters
 
     Returns:
-        chex.Array: Action
+        Array: Action
     """
     last_slots = last_fit(state, params)
     # Chosen path is the one with the highest index of last available slot
@@ -133,7 +133,7 @@ def lf_ksp(state: EnvState, params: RSAEnvParams) -> chex.Array:
 
 
 @partial(jax.jit, static_argnums=(1,))
-def ksp_bf(state: EnvState, params: RSAEnvParams) -> chex.Array:
+def ksp_bf(state: EnvState, params: RSAEnvParams) -> Array:
     """Get the first available slot from all k-shortest paths
     Method: Go through action mask and find the first available slot, starting from shortest path
 
@@ -142,7 +142,7 @@ def ksp_bf(state: EnvState, params: RSAEnvParams) -> chex.Array:
         params (EnvParams): Environment parameters
 
     Returns:
-        chex.Array: Action
+        Array: Action
     """
     best_slots, fitness = best_fit(state, params)
     # Chosen path is the first one with an available slot
@@ -154,7 +154,7 @@ def ksp_bf(state: EnvState, params: RSAEnvParams) -> chex.Array:
 
 
 @partial(jax.jit, static_argnums=(1,))
-def bf_ksp(state: EnvState, params: RSAEnvParams) -> chex.Array:
+def bf_ksp(state: EnvState, params: RSAEnvParams) -> Array:
     """Get the first available slot from the first k-shortest paths
     Method: Go through action mask and find the first available slot on all paths
 
@@ -163,7 +163,7 @@ def bf_ksp(state: EnvState, params: RSAEnvParams) -> chex.Array:
         params (EnvParams): Environment parameters
 
     Returns:
-        chex.Array: Action
+        Array: Action
     """
     best_slots, fitness = best_fit(state, params)
     # Chosen path is the one with the best fit
@@ -175,9 +175,7 @@ def bf_ksp(state: EnvState, params: RSAEnvParams) -> chex.Array:
 
 
 @partial(jax.jit, static_argnums=(1, 2, 3))
-def ksp_mu(
-    state: EnvState, params: RSAEnvParams, unique_lightpaths: bool, relative: bool
-) -> chex.Array:
+def ksp_mu(state: EnvState, params: RSAEnvParams, unique_lightpaths: bool, relative: bool) -> Array:
     """Get the most-used slot on the shortest available path.
     Method: Go through action mask and find the utilisation of available slots on each path.
     Find the shortest available path and choose the most utilised slot on that path.
@@ -189,7 +187,7 @@ def ksp_mu(
         relative (bool): Whether to return relative utilisation
 
     Returns:
-        chex.Array: Action
+        Array: Action
     """
     mask = get_action_mask(state, params)
     most_used_slots = most_used(state, params, unique_lightpaths, relative)
@@ -207,9 +205,7 @@ def ksp_mu(
 
 
 @partial(jax.jit, static_argnums=(1, 2, 3))
-def mu_ksp(
-    state: EnvState, params: RSAEnvParams, unique_lightpaths: bool, relative: bool
-) -> chex.Array:
+def mu_ksp(state: EnvState, params: RSAEnvParams, unique_lightpaths: bool, relative: bool) -> Array:
     """Use the most-used available slot on any path.
     The most-used slot is that which has the most unique lightpaths (if unique_lightpaths=True) or active lightpaths.
     Method: Go through action mask and find the usage of available slots, choose available slot that is most utilised.
@@ -221,7 +217,7 @@ def mu_ksp(
         relative (bool): Whether to return relative utilisation
 
     Returns:
-        chex.Array: Action
+        Array: Action
     """
     mask = get_action_mask(state, params)
     # Get most used slots by summing the link_slot_array along the links
@@ -234,7 +230,7 @@ def mu_ksp(
 
 
 @partial(jax.jit, static_argnums=(1,))
-def kmc_ff(state: EnvState, params: RSAEnvParams) -> chex.Array:
+def kmc_ff(state: EnvState, params: RSAEnvParams) -> Array:
     """K-Minimum Cut. Only suitable for RSA/RMSA.
     Method:
     1. Go through action mask and find the first available slot on all paths.
@@ -289,7 +285,7 @@ def kmc_ff(state: EnvState, params: RSAEnvParams) -> chex.Array:
 
 
 @partial(jax.jit, static_argnums=(1,))
-def kmf_ff(state: RSAEnvState, params: RSAEnvParams) -> chex.Array:
+def kmf_ff(state: RSAEnvState, params: RSAEnvParams) -> Array:
     """K-Minimum Frag-size. Only suitable for RSA/RMSA.
     Method:
     1. Go through action mask and find the first available slot on all paths.
@@ -347,7 +343,7 @@ def kmf_ff(state: RSAEnvState, params: RSAEnvParams) -> chex.Array:
 
 
 @partial(jax.jit, static_argnums=(1,))
-def kme_ff(state: EnvState, params: RSAEnvParams) -> chex.Array:
+def kme_ff(state: EnvState, params: RSAEnvParams) -> Array:
     """K-Minimum Entropy. Only suitable for RSA/RMSA.
     Method:
     1. Go through action mask and find the first available slot on all paths.
@@ -400,7 +396,7 @@ def kme_ff(state: EnvState, params: RSAEnvParams) -> chex.Array:
 
 
 @partial(jax.jit, static_argnums=(1,))
-def kca_ff(state: EnvState, params: RSAEnvParams) -> chex.Array:
+def kca_ff(state: EnvState, params: RSAEnvParams) -> Array:
     """Congestion-aware First Fit. Only suitable for RSA/RMSA.
     Method:
 
@@ -439,7 +435,7 @@ def get_link_weights(state: EnvState, params: RSAEnvParams):
         params (EnvParams): Environment parameters
 
     Returns:
-        chex.Array: Link weights
+        Array: Link weights
     """
     if isinstance(params, RWALightpathReuseEnvParams):
         rwalr_state = cast(RWALightpathReuseEnvState, state)
@@ -466,7 +462,7 @@ def get_link_weights(state: EnvState, params: RSAEnvParams):
     return link_weights
 
 
-def get_action_mask(state: EnvState, params: RSAEnvParams) -> chex.Array:
+def get_action_mask(state: EnvState, params: RSAEnvParams) -> Array:
     if isinstance(params, RWALightpathReuseEnvParams):
         _, full_mask = jit_profiler.call(
             params.profile, mask_slots_rwalr, state, params, state.request_array
@@ -482,7 +478,7 @@ def get_action_mask(state: EnvState, params: RSAEnvParams) -> chex.Array:
     return mask
 
 
-def best_fit(state: EnvState, params: RSAEnvParams) -> Tuple[chex.Array, chex.Array]:
+def best_fit(state: EnvState, params: RSAEnvParams) -> Tuple[Array, Array]:
     """Best-Fit Spectrum Allocation. Returns the best fit slot for each path."""
     mask = get_action_mask(state, params)
     link_slot_array = jnp.where(state.link_slot_array < 0, 1.0, state.link_slot_array)
@@ -563,7 +559,7 @@ def best_fit(state: EnvState, params: RSAEnvParams) -> Tuple[chex.Array, chex.Ar
     return best_slots, best_fits
 
 
-def first_fit(state: EnvState, params: RSAEnvParams) -> chex.Array:
+def first_fit(state: EnvState, params: RSAEnvParams) -> Array:
     """First-Fit Spectrum Allocation. Returns the first fit slot for each path.
 
     When band_slot_order_ff is set (GN model envs with --band_preference),
@@ -584,7 +580,7 @@ def first_fit(state: EnvState, params: RSAEnvParams) -> chex.Array:
     return first_slots
 
 
-def last_fit(state: EnvState, params: RSAEnvParams) -> chex.Array:
+def last_fit(state: EnvState, params: RSAEnvParams) -> Array:
     """Last-Fit Spectrum Allocation. Returns the last fit slot for each path.
 
     When band_slot_order_lf is set (GN model envs with --band_preference),
@@ -607,7 +603,7 @@ def last_fit(state: EnvState, params: RSAEnvParams) -> chex.Array:
 
 
 @partial(jax.jit, static_argnums=(1, 2, 3))
-def most_used(state: EnvState, params: RSAEnvParams, unique_lightpaths, relative) -> chex.Array:
+def most_used(state: EnvState, params: RSAEnvParams, unique_lightpaths, relative) -> Array:
     """Get the amount of utilised bandwidth on each lightpath.
     If RWA-LR environment, the utilisation of a slot is defined by either the count of unique active lightpahts on the
     slot (if unique_lightpaths is True) or the count of active lightpaths on the slot (if unique_lightpaths is False).
@@ -620,7 +616,7 @@ def most_used(state: EnvState, params: RSAEnvParams, unique_lightpaths, relative
         relative (bool): Whether to return relative utilisation
 
     Returns:
-        chex.Array: Most used slots (array length = link_resources)
+        Array: Most used slots (array length = link_resources)
     """
     if isinstance(params, RWALightpathReuseEnvParams) and unique_lightpaths:
         rwalr_state = cast(RWALightpathReuseEnvState, state)

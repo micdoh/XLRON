@@ -60,7 +60,7 @@ class HashableArrayWrapper(Generic[T]):
 class EvalState:
     apply_fn: Callable
     sample_fn: Callable
-    params: chex.Array
+    params: Array
 
 
 @struct.dataclass
@@ -73,32 +73,32 @@ class EnvState(_StructBase):
         total_timesteps (chex.Scalar): Total timesteps in environment
         total_requests (chex.Scalar): Total requests in environment
         graph (jraph.GraphsTuple): Graph tuple representing network state
-        full_link_slot_mask (chex.Array): Action mask for link slot action (including if slot actions are aggregated)
-        accepted_services (chex.Array): Number of accepted services
-        accepted_bitrate (chex.Array): Accepted bitrate
+        full_link_slot_mask (Array): Action mask for link slot action (including if slot actions are aggregated)
+        accepted_services (Array): Number of accepted services
+        accepted_bitrate (Array): Accepted bitrate
         arrival_rate (chex.Scalar): Arrival rate (load / mean_service_holding_time), traced for recompilation-free load sweeps
         mean_service_holding_time (chex.Scalar): Mean service holding time, traced for recompilation-free load sweeps
     """
 
-    current_time: chex.Array
-    holding_time: chex.Array
-    arrival_time: chex.Array
-    total_timesteps: chex.Array
-    total_requests: chex.Array
+    current_time: Array
+    holding_time: Array
+    arrival_time: Array
+    total_timesteps: Array
+    total_requests: Array
     graph: jraph.GraphsTuple
-    full_link_slot_mask: chex.Array
-    accepted_services: chex.Array
-    accepted_bitrate: chex.Array
-    total_bitrate: chex.Array
-    list_of_requests: chex.Array
-    link_slot_array: chex.Array
-    request_array: chex.Array
-    link_slot_departure_array: chex.Array
-    link_slot_mask: chex.Array
-    traffic_matrix: chex.Array
-    valid_mass: chex.Array
-    arrival_rate: chex.Array
-    mean_service_holding_time: chex.Array
+    full_link_slot_mask: Array
+    accepted_services: Array
+    accepted_bitrate: Array
+    total_bitrate: Array
+    list_of_requests: Array
+    link_slot_array: Array
+    request_array: Array
+    link_slot_departure_array: Array
+    link_slot_mask: Array
+    traffic_matrix: Array
+    valid_mass: Array
+    arrival_rate: Array
+    mean_service_holding_time: Array
 
 
 @struct.dataclass
@@ -110,10 +110,10 @@ class EnvParams(_StructBase):
         incremental_loading (chex.Scalar): Incremental increase in traffic load (non-expiring requests)
         end_first_blocking (chex.Scalar): End episode on first blocking event
         continuous_operation (chex.Scalar): If True, do not reset the environment at the end of an episode
-        edges (chex.Array): Two column array defining source-dest node-pair edges of the graph
+        edges (Array): Two column array defining source-dest node-pair edges of the graph
         slot_size (chex.Scalar): Spectral width of frequency slot in GHz
         consider_modulation_format (chex.Scalar): If True, consider modulation format to determine required slots
-        link_length_array (chex.Array): Array of link lengths
+        link_length_array (Array): Array of link lengths
         aggregate_slots (chex.Scalar): Number of slots to aggregate into a single action (First-Fit with aggregation)
         guardband (chex.Scalar): Guard band in slots
         directed_graph (bool): Whether graph is directed (one fibre per link per transmission direction)
@@ -181,15 +181,15 @@ class LogEnvState:
     """
 
     env_state: EnvState
-    lengths: chex.Array
-    returns: chex.Array
-    cum_returns: chex.Array
-    accepted_services: chex.Array
-    accepted_bitrate: chex.Array
-    total_bitrate: chex.Array
-    utilisation: chex.Array
-    terminal: chex.Array
-    truncated: chex.Array
+    lengths: Array
+    returns: Array
+    cum_returns: Array
+    accepted_services: Array
+    accepted_bitrate: Array
+    total_bitrate: Array
+    utilisation: Array
+    terminal: Array
+    truncated: Array
 
 
 @struct.dataclass
@@ -197,11 +197,11 @@ class RSAEnvState(EnvState):
     """Dataclass to hold environment state for RSA.
 
     Args:
-        link_slot_array (chex.Array): Link slot array
-        request_array (chex.Array): Request array
-        link_slot_departure_array (chex.Array): Link slot departure array
-        link_slot_mask (chex.Array): Link slot mask
-        traffic_matrix (chex.Array): Traffic matrix
+        link_slot_array (Array): Link slot array
+        request_array (Array): Request array
+        link_slot_departure_array (Array): Link slot departure array
+        link_slot_mask (Array): Link slot mask
+        traffic_matrix (Array): Traffic matrix
     """
 
     pass
@@ -219,10 +219,10 @@ class RSAEnvParams(EnvParams):
         mean_service_holding_time (chex.Scalar): Mean service holding time
         load (chex.Scalar): Load
         arrival_rate (chex.Scalar): Arrival rate
-        path_link_array (chex.Array): Path link array
+        path_link_array (Array): Path link array
         random_traffic (bool): Random traffic matrix for RSA on each reset (else uniform or custom)
         max_slots (chex.Scalar): Maximum number of slots
-        path_se_array (chex.Array): Path spectral efficiency array
+        path_se_array (Array): Path spectral efficiency array
         deterministic_requests (bool): If True, use deterministic requests
         multiple_topologies (bool): If True, use multiple topologies
     """
@@ -239,14 +239,14 @@ class DeepRMSAEnvState(RSAEnvState):
     """Dataclass to hold environment state for DeepRMSA.
 
     Args:
-        path_stats (chex.Array): Path stats array containing
+        path_stats (Array): Path stats array containing
         1. Required slots on path
         2. Total available slots on path
         3. Size of 1st free spectrum block
         4. Avg. free block size
     """
 
-    path_stats: chex.Array
+    path_stats: Array
 
 
 @struct.dataclass
@@ -259,15 +259,15 @@ class RWALightpathReuseEnvState(RSAEnvState):
     """Dataclass to hold environment state for RWA with lightpath reuse.
 
     Args:
-        path_index_array (chex.Array): Contains indices of lightpaths in use on slots
-        path_capacity_array (chex.Array): Contains remaining capacity of each lightpath
-        link_capacity_array (chex.Array): Contains remaining capacity of lightpath on each link-slot
+        path_index_array (Array): Contains indices of lightpaths in use on slots
+        path_capacity_array (Array): Contains remaining capacity of each lightpath
+        link_capacity_array (Array): Contains remaining capacity of lightpath on each link-slot
     """
 
-    path_index_array: chex.Array  # Contains indices of lightpaths in use on slots
-    path_capacity_array: chex.Array  # Contains remaining capacity of each lightpath
-    link_capacity_array: chex.Array  # Contains remaining capacity of lightpath on each link-slot
-    time_since_last_departure: chex.Array  # Time since last departure
+    path_index_array: Array  # Contains indices of lightpaths in use on slots
+    path_capacity_array: Array  # Contains remaining capacity of each lightpath
+    link_capacity_array: Array  # Contains remaining capacity of lightpath on each link-slot
+    time_since_last_departure: Array  # Time since last departure
 
 
 @struct.dataclass
@@ -365,24 +365,22 @@ class GNModelEnvParams(RSAEnvParams):
 class GNModelEnvState(RSAEnvState):
     """Dataclass to hold environment state for RSA with GN model."""
 
-    link_snr_array: chex.Array  # Available SNR on each link
-    channel_centre_bw_array: chex.Array  # Channel centre bandwidth for each active connection
+    link_snr_array: Array  # Available SNR on each link
+    channel_centre_bw_array: Array  # Channel centre bandwidth for each active connection
     path_index_array: (
-        chex.Array
-    )  # Contains indices of lightpaths in use on slots (used for lightpath SNR calculation)
-    channel_power_array: chex.Array  # Channel power for each active connection
+        Array  # Contains indices of lightpaths in use on slots (used for lightpath SNR calculation)
+    )
+    channel_power_array: Array  # Channel power for each active connection
     channel_centre_bw_array_prev: (
-        chex.Array
-    )  # Channel centre bandwidth for each active connection in previous timestep
+        Array  # Channel centre bandwidth for each active connection in previous timestep
+    )
     path_index_array_prev: (
-        chex.Array
-    )  # Contains indices of lightpaths in use on slots in previous timestep
-    channel_power_array_prev: (
-        chex.Array
-    )  # Channel power for each active connection in previous timestep
-    channel_centre_freq_array: chex.Array  # Per-slot centre frequency in GHz
-    channel_centre_freq_array_prev: chex.Array  # Previous timestep centre frequency for undo
-    launch_power_array: chex.Array  # Launch power array
+        Array  # Contains indices of lightpaths in use on slots in previous timestep
+    )
+    channel_power_array_prev: Array  # Channel power for each active connection in previous timestep
+    channel_centre_freq_array: Array  # Per-slot centre frequency in GHz
+    channel_centre_freq_array_prev: Array  # Previous timestep centre frequency for undo
+    launch_power_array: Array  # Launch power array
 
 
 @struct.dataclass
@@ -396,9 +394,9 @@ class RSAGNModelEnvParams(GNModelEnvParams):
 class RSAGNModelEnvState(GNModelEnvState):
     """Dataclass to hold environment state for RSA with GN model."""
 
-    active_lightpaths_array: chex.Array  # Active lightpath array. 1 x M array. Each value is a lightpath index. Used to calculate total throughput.
-    active_lightpaths_array_departure: chex.Array  # Active lightpath array departure time.
-    throughput: chex.Array  # Current network throughput
+    active_lightpaths_array: Array  # Active lightpath array. 1 x M array. Each value is a lightpath index. Used to calculate total throughput.
+    active_lightpaths_array_departure: Array  # Active lightpath array departure time.
+    throughput: Array  # Current network throughput
 
 
 @struct.dataclass
@@ -406,7 +404,7 @@ class RMSAGNModelEnvParams(GNModelEnvParams):
     """Dataclass to hold environment params for RMSA with GN model.
 
     Args:
-        link_snr_array (chex.Array): Link SNR array
+        link_snr_array (Array): Link SNR array
     """
 
     modulations_array: HashableArrayWrapper = struct.field(pytree_node=False)
@@ -418,14 +416,14 @@ class RMSAGNModelEnvState(GNModelEnvState):
     """Dataclass to hold environment state for RMSA with GN model.
 
     Args:
-        link_snr_array (chex.Array): Link SNR array
+        link_snr_array (Array): Link SNR array
     """
 
-    modulation_format_index_array: chex.Array  # Modulation format index for each active connection
+    modulation_format_index_array: Array  # Modulation format index for each active connection
     modulation_format_index_array_prev: (
-        chex.Array
-    )  # Modulation format index for each active connection in previous timestep
-    mod_format_mask: chex.Array  # Modulation format mask
+        Array  # Modulation format index for each active connection in previous timestep
+    )
+    mod_format_mask: Array  # Modulation format mask
 
 
 @struct.dataclass
@@ -448,26 +446,26 @@ class VONEEnvState(RSAEnvState):
     """Dataclass to hold environment state for VONE.
 
     Args:
-        node_capacity_array (chex.Array): Node capacity array
-        node_resource_array (chex.Array): Node resource array
-        node_departure_array (chex.Array): Node departure array
-        action_counter (chex.Array): Action counter
-        action_history (chex.Array): Action history
-        node_mask_s (chex.Array): Node mask for source node
-        node_mask_d (chex.Array): Node mask for destination node
-        virtual_topology_patterns (chex.Array): Virtual topology patterns
-        values_nodes (chex.Array): Values for nodes
+        node_capacity_array (Array): Node capacity array
+        node_resource_array (Array): Node resource array
+        node_departure_array (Array): Node departure array
+        action_counter (Array): Action counter
+        action_history (Array): Action history
+        node_mask_s (Array): Node mask for source node
+        node_mask_d (Array): Node mask for destination node
+        virtual_topology_patterns (Array): Virtual topology patterns
+        values_nodes (Array): Values for nodes
     """
 
-    node_capacity_array: chex.Array
-    node_resource_array: chex.Array
-    node_departure_array: chex.Array
-    action_counter: chex.Array
-    action_history: chex.Array
-    node_mask_s: chex.Array
-    node_mask_d: chex.Array
-    virtual_topology_patterns: chex.Array
-    values_nodes: chex.Array
+    node_capacity_array: Array
+    node_resource_array: Array
+    node_departure_array: Array
+    action_counter: Array
+    action_history: Array
+    node_mask_s: Array
+    node_mask_d: Array
+    virtual_topology_patterns: Array
+    values_nodes: Array
 
 
 @struct.dataclass
@@ -506,45 +504,45 @@ class Transition:
 class VONETransition:
     terminal: Array
     truncated: Array
-    action: chex.Array
-    value: chex.Array
-    reward: chex.Array
-    log_prob: chex.Array
+    action: Array
+    value: Array
+    reward: Array
+    log_prob: Array
     obs: Obsv
     info: Dict[str, Array]
-    action_mask_s: chex.Array
-    action_mask_p: chex.Array
-    action_mask_d: chex.Array
-    valid_mass: chex.Array
+    action_mask_s: Array
+    action_mask_p: Array
+    action_mask_d: Array
+    valid_mass: Array
     # Alias for action_mask_p so shared loss-path code (which expects
     # `action_mask`) works uniformly for VONE and RSA-family envs.
-    action_mask: chex.Array
+    action_mask: Array
 
 
 @struct.dataclass
 class RSATransition:
     terminal: Array
     truncated: Array
-    action: chex.Array
-    value: chex.Array
-    reward: chex.Array
-    log_prob: chex.Array
+    action: Array
+    value: Array
+    reward: Array
+    log_prob: Array
     obs: Obsv
     info: Dict[str, Array]
-    action_mask: chex.Array
-    valid_mass: chex.Array
+    action_mask: Array
+    valid_mass: Array
 
 
 # action, path index, initial slot index, requested datarate, required slots, path, se, current time, holding time]
 @struct.dataclass
 class ActionInfo:
-    action: chex.Array
-    path_index: chex.Array
-    initial_slot_index: chex.Array
-    nodes_sd: chex.Array
-    requested_datarate: chex.Array
-    num_slots: chex.Array
-    path: chex.Array
-    se: chex.Array
+    action: Array
+    path_index: Array
+    initial_slot_index: Array
+    nodes_sd: Array
+    requested_datarate: Array
+    num_slots: Array
+    path: Array
+    se: Array
     affected_slots_mask: Array
-    power_action: chex.Array
+    power_action: Array

@@ -32,10 +32,10 @@ class RWALightpathReuseEnv(RSAEnv):
         self,
         key: chex.PRNGKey,
         params: RSAEnvParams,
-        traffic_matrix: chex.Array | None = None,
-        list_of_requests: chex.Array | None = None,
-        path_capacity_array: chex.Array | None = None,
-        laplacian_matrix: chex.Array | None = None,
+        traffic_matrix: Array | None = None,
+        list_of_requests: Array | None = None,
+        path_capacity_array: Array | None = None,
+        laplacian_matrix: Array | None = None,
     ):
         """Initialise the environment state and set as initial state.
 
