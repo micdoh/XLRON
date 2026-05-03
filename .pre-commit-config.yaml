@@ -18,3 +18,16 @@ repos:
       - id: ruff
         args: [--fix]
       - id: ruff-format
+
+  # ty doesn't have an official pre-commit hook yet, so run it as a local
+  # system hook against the project. ty checks the whole project at once;
+  # `pass_filenames: false` runs it exactly once per commit instead of once
+  # per changed file.
+  - repo: local
+    hooks:
+      - id: ty
+        name: ty (type check)
+        entry: uv run ty check
+        language: system
+        types: [python]
+        pass_filenames: false

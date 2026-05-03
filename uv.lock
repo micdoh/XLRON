@@ -4424,6 +4424,7 @@ dependencies = [
     { name = "ruff" },
     { name = "scikit-learn" },
     { name = "scipy" },
+    { name = "streamlit" },
     { name = "tqdm" },
     { name = "ty" },
     { name = "wandb" },
@@ -4437,7 +4438,6 @@ docs = [
     { name = "mkdocstrings-python" },
 ]
 gui = [
-    { name = "streamlit" },
     { name = "watchdog" },
 ]
 
@@ -4494,7 +4494,7 @@ requires-dist = [
     { name = "ruff", specifier = ">=0.14.1" },
     { name = "scikit-learn", specifier = ">=1.7.2" },
     { name = "scipy", specifier = ">=1.16.2" },
-    { name = "streamlit", marker = "extra == 'gui'", specifier = ">=1.38.0" },
+    { name = "streamlit", specifier = ">=1.38.0" },
     { name = "tqdm", specifier = ">=4.67.1" },
     { name = "ty", specifier = ">=0.0.1a25" },
     { name = "wandb", specifier = ">=0.22.2" },

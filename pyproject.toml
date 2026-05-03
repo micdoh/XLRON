@@ -45,6 +45,7 @@ dependencies = [
     "ruff>=0.14.1",
     "scikit-learn>=1.7.2",
     "scipy>=1.16.2",
+    "streamlit>=1.38.0",
     "tqdm>=4.67.1",
     "ty>=0.0.1a25",
     "wandb>=0.22.2",
@@ -67,7 +68,6 @@ tpu = [
 
 [project.optional-dependencies]
 gui = [
-  "streamlit>=1.38.0",
   "watchdog>=6.0.0",
 ]
 docs = [
@@ -115,9 +115,11 @@ skip = ["notebooks", ".venv"]
 
 [tool.ty.src]
 exclude = [
+  ".claude/",
   "examples/",
   "experimental/",
   "xlron/train/multidevice/",
+  "xlron/data/topologies/topology_bench/",
 ]
 
 [tool.ty.rules]
@@ -126,11 +128,14 @@ division-by-zero = "warn"
 too-many-positional-arguments = "ignore"
 not-subscriptable = "ignore"
 possibly-missing-attribute = "ignore"
-# JAX JIT-related false positives - JIT-wrapped functions lose type information
+# JAX JIT-related false positives - JIT-wrapped functions lose type information.
+# `unresolved-attribute` is intentionally NOT suppressed here so that real
+# subclass-narrowing and missing-field bugs surface; per-line
+# `# ty: ignore[unresolved-attribute]` is used for the JAX/numpy stub
+# residuals that can't be fixed in user code.
 unknown-argument = "ignore"  # JIT-wrapped functions lose parameter names
 invalid-argument-type = "ignore"  # JIT-wrapped functions have JitWrapped return types
 not-iterable = "ignore"  # JitWrapped types not recognized as iterable
-unresolved-attribute = "ignore"  # Base class attributes not recognized in subclasses
 invalid-assignment = "ignore"  # JitWrapped return types cause assignment errors
 unsupported-operator = "ignore"  # Array operations not recognized
 invalid-return-type = "ignore"  # JIT-wrapped function return types

@@ -2,7 +2,6 @@ from typing import Callable
 
 import jax
 import jax.numpy as jnp
-from absl import flags
 from box import Box
 from flax.training.train_state import TrainState
 from gymnax.environments import environment
@@ -15,7 +14,7 @@ def get_eval_fn(
     env: environment.Environment,
     env_params: EnvParams,
     eval_state: TrainState,
-    config: flags.FlagValues | Box | dict,
+    config: Box,
 ) -> Callable:
     # COLLECT TRAJECTORIES
     def _env_episode(runner_state, unused):

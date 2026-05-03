@@ -24,6 +24,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from absl import app, flags
+from box import Box
 
 import wandb
 from xlron import dtype_config
@@ -56,7 +57,7 @@ FLAGS = flags.FLAGS
 collected_states = []
 
 
-def _default_render_output_path(config: Dict[str, Any], run_name: str) -> Path:
+def _default_render_output_path(config: Box, run_name: str) -> Path:
     output = config.get("RENDER_OUTPUT_FILE")
     if output:
         return Path(output)
@@ -69,7 +70,7 @@ def _default_render_output_path(config: Dict[str, Any], run_name: str) -> Path:
     return Path.cwd() / f"{run_name}_eval_render.mp4"
 
 
-def run_eval_render(config: Dict[str, Any], eval_state: Any, run_name: str):
+def run_eval_render(config: Box, eval_state: Any, run_name: str):
     mode = str(config.get("RENDER_EVAL_MODE", "off")).lower()
     if mode not in {"save", "human"}:
         return
@@ -180,7 +181,7 @@ def run_eval_render(config: Dict[str, Any], eval_state: Any, run_name: str):
 
             select_action_state = (action_key, env_state, last_obs)
             env_state, action, _, _ = select_action_eval_jit(select_action_state)
-            action_info = base_env.process_action(prev_state, action, env_params)
+            action_info = base_env.process_action(prev_state, action, env_params)  # ty: ignore[unresolved-attribute]
 
             obsv, env_state, _, terminal, truncated, info = env.step(
                 step_key, env_state, action, env_params
@@ -249,7 +250,7 @@ def run_eval_render(config: Dict[str, Any], eval_state: Any, run_name: str):
                 pass
 
             if mode == "human":
-                base_env.render(
+                base_env.render(  # ty: ignore[unresolved-attribute]
                     curr_state,
                     params=env_params,
                     action_info=render_action_info,
@@ -262,7 +263,7 @@ def run_eval_render(config: Dict[str, Any], eval_state: Any, run_name: str):
                 plt.waitforbuttonpress(timeout=-1)
 
             if mode == "save":
-                frame = base_env.render(
+                frame = base_env.render(  # ty: ignore[unresolved-attribute]
                     curr_state,
                     params=env_params,
                     action_info=render_action_info,
@@ -286,6 +287,7 @@ def run_eval_render(config: Dict[str, Any], eval_state: Any, run_name: str):
                 pass
 
         if mode == "save":
+            assert output_path is not None  # set above when mode == "save"
             if writer is not None:
                 try:
                     writer.close()
@@ -326,7 +328,7 @@ def run_eval_render(config: Dict[str, Any], eval_state: Any, run_name: str):
                     print(f"Failed to save eval render to {output_path}: {e}")
             else:
                 print("No frames captured for eval rendering; skipping file save.")
-        base_env.close()
+        base_env.close()  # ty: ignore[unresolved-attribute]
     finally:
         pass
 

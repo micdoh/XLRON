@@ -468,7 +468,7 @@ def make(
             )
         elif launch_power_type == "tabular":
             launch_power_array = (
-                jnp.zeros(path_link_array.shape[0], dtype=dtype_config.LARGE_FLOAT_DTYPE)
+                jnp.zeros(path_link_array.shape[0], dtype=dtype_config.LARGE_FLOAT_DTYPE)  # ty: ignore[unresolved-attribute]
                 if launch_power_array is None
                 else launch_power_array
             )

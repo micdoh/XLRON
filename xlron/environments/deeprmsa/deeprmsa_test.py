@@ -1,6 +1,3 @@
-import os
-
-os.environ["XLA_FLAGS"] = "--xla_force_host_platform_device_count=4"
 import chex
 import jax
 import jax.numpy as jnp
@@ -13,7 +10,7 @@ from xlron.environments.rsa.rsa import *
 from xlron.environments.wrappers import *
 
 
-class CalculatePathStatsTest(parameterized.TestCase):
+class CalculatePathStatsTest(chex.TestCase):
     def setUp(self):
         super().setUp()
         self.key, self.env, self.obs, self.state, self.params = rsa_nsfnet_16_mod_test_setup()
@@ -110,6 +107,5 @@ class CalculatePathStatsTest(parameterized.TestCase):
 
 
 if __name__ == "__main__":
-    os.environ["XLA_FLAGS"] = "--xla_force_host_platform_device_count=4"
     jax.config.update("jax_numpy_rank_promotion", "raise")
     absltest.main()

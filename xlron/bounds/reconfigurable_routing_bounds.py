@@ -44,19 +44,19 @@ def generate_request_list(
     def get_request(carry, _rng):
         _state, _params = carry
         new_state = generate_request_rsa(_rng, _state, _params)
-        source, bitrate, dest = new_state.request_array
+        source, bitrate, dest = new_state.request_array  # ty: ignore[unresolved-attribute]
         source = source.astype(jnp.int32)
         bitrate = bitrate.astype(jnp.float32)
         dest = dest.astype(jnp.int32)
-        holding_time = jnp.squeeze(new_state.holding_time)
-        arrival_time = jnp.squeeze(new_state.current_time - _state.current_time)
-        current_time = jnp.squeeze(new_state.current_time)
+        holding_time = jnp.squeeze(new_state.holding_time)  # ty: ignore[unresolved-attribute]
+        arrival_time = jnp.squeeze(new_state.current_time - _state.current_time)  # ty: ignore[unresolved-attribute]
+        current_time = jnp.squeeze(new_state.current_time)  # ty: ignore[unresolved-attribute]
         return (new_state, params), jnp.array(
             [source, bitrate, dest, arrival_time, holding_time, current_time]
         )
 
     rngs = jax.random.split(rng, int(num_requests))
-    initial_state = (state.env_state, params)
+    initial_state = (state.env_state, params)  # ty: ignore[unresolved-attribute]
     requests = jax.lax.scan(get_request, initial_state, rngs)[1]
     return requests
 
@@ -514,8 +514,8 @@ def main(argv):
         default_device = identify_default_device(auto_select=True)
     print(f"Default device set to: {default_device}")
     # Auto-enable compilation on GPU/TPU for performance
-    if default_device.platform in ("gpu", "tpu") and not FLAGS.COMPILE_RR_BOUNDS:
-        print(f"  Auto-enabling COMPILE_RR_BOUNDS (running on {default_device.platform})")
+    if default_device.platform in ("gpu", "tpu") and not FLAGS.COMPILE_RR_BOUNDS:  # ty: ignore[unresolved-attribute]
+        print(f"  Auto-enabling COMPILE_RR_BOUNDS (running on {default_device.platform})")  # ty: ignore[unresolved-attribute]
         FLAGS.__setattr__("COMPILE_RR_BOUNDS", True)
     jax.numpy.set_printoptions(threshold=sys.maxsize)  # Don't truncate printed arrays
     jax.numpy.set_printoptions(linewidth=220)
@@ -578,7 +578,7 @@ def main(argv):
             env_key = jax.random.split(rng, 1)[0]
             if compile_defrag:
                 max_active = max(1, int(effective_max_load * 2))
-                defrag_list = jnp.zeros((max_active, 6), dtype=request_array.dtype)
+                defrag_list = jnp.zeros((max_active, 6), dtype=request_array.dtype)  # ty: ignore[unresolved-attribute]
                 defrag_initial_state = initial_state.replace(
                     env_state=initial_state.env_state.replace(list_of_requests=defrag_list)
                 )
@@ -634,7 +634,7 @@ def main(argv):
             else:
                 run_defrag = defrag_fn
                 with TimeIt(tag="STEP ENV COMPILATION") as comp_timer:
-                    step_env.lower(env_key, raw_env, env_state, env_params_det, profile).compile()
+                    step_env.lower(env_key, raw_env, env_state, env_params_det, profile).compile()  # ty: ignore[unresolved-attribute]
                 total_compilation_time += comp_timer.elapsed_secs
 
                 jit_profiler.reset()

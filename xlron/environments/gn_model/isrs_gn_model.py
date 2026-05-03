@@ -143,7 +143,7 @@ def isrs_gn_model(
         * (6 * ref_lambda * dispersion_slope + 6 * dispersion + dispersion_slope * ref_lambda**2)
     )
 
-    Phi = excess_kurtosis_i
+    Phi = excess_kurtosis_i if excess_kurtosis_i is not None else jnp.zeros(num_channels)
     tx1_i = jnp.ones((num_channels, 1))
     tx2_i = jnp.ones((num_channels, 1))
     T_0 = (a + a_bar - f * power * cr) ** 2

@@ -19,7 +19,7 @@ from xlron.environments.env_funcs import (
     mask_slots_rmsa_gn_model,
     set_band_gaps,
 )
-from xlron.environments.rsa.rsa import RSAEnv, RSAEnvParams, RSAEnvState
+from xlron.environments.rsa.rsa import RSAEnv, RSAEnvParams
 from xlron.environments.wrappers import *
 
 
@@ -100,7 +100,7 @@ class RMSAGNModelEnv(RSAEnv):
             2,
         ),
     )
-    def action_mask(self, state: RSAEnvState, params: RSAEnvParams):
+    def action_mask(self, state: RMSAGNModelEnvState, params: RMSAGNModelEnvParams):
         """Returns mask of valid actions.
 
         Args:

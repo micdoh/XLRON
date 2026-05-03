@@ -1,4 +1,4 @@
-from typing import Any, Callable, Dict, Tuple
+from typing import Any, Callable, Dict, Tuple, cast
 
 import distrax
 import equinox as eqx
@@ -15,7 +15,6 @@ from xlron.environments.dataclasses import (
     LogEnvState,
     Obsv,
     RSATransition,
-    Transition,
     VONETransition,
 )
 from xlron.environments.env_funcs import process_path_action
@@ -24,7 +23,7 @@ from xlron.environments.wrappers import jit_profiler
 from xlron.train.train_utils import TrainState, select_action
 
 RunnerState = Tuple[TrainState, LogEnvState, Obsv, Array, Array]
-UpdateState = Tuple[TrainState, Transition, Array, Array, Array, Any, Array]
+UpdateState = Tuple[TrainState, RSATransition | VONETransition, Array, Array, Array, Any, Array]
 
 
 def compute_trajectory_priority_weights(advantages: Array, alpha: Array) -> Array:
@@ -42,12 +41,12 @@ def compute_sample_priority_weights(advantages: Array, alpha: Array) -> Array:
 
 
 def _sample_prioritized_batch(
-    batch: Tuple[Transition, Array, Array],
+    batch: Tuple[RSATransition | VONETransition, Array, Array],
     priority_weights: Array,
     beta: Array,
     rng_key: Array,
     config: Box,
-) -> Tuple[Tuple[Transition], Array]:
+) -> Tuple[Tuple[RSATransition | VONETransition], Array]:
     batch_size = config.MINIBATCH_SIZE * config.NUM_MINIBATCHES
     assert batch_size == config.ROLLOUT_LENGTH * config.NUM_ENVS, (
         f"batch size (which comprises {config.NUM_MINIBATCHES} of size {config.MINIBATCH_SIZE}) "
@@ -122,7 +121,7 @@ def _env_step(
     env: Environment,
     env_params: EnvParams,
     config: Box,
-) -> Tuple[RunnerState, Transition]:
+) -> Tuple[RunnerState, RSATransition | VONETransition]:
     """Single environment step. Called via scan with closure wrapper."""
     train_state, env_state, last_obs, rng_step, rng_epoch = runner_state
 
@@ -162,6 +161,7 @@ def _env_step(
             env_state.env_state.link_slot_mask,
             env_state.env_state.node_mask_d,
             env_state.env_state.valid_mass,
+            env_state.env_state.link_slot_mask,
         )
     else:
         transition = RSATransition(
@@ -247,7 +247,7 @@ def _env_step(
 
 def _calculate_puffer_advantage(
     train_state: TrainState,
-    traj_batch: Transition,
+    traj_batch: RSATransition | VONETransition,
     last_value: Array,
     importance_ratio: Array,
     config: Box,
@@ -289,7 +289,7 @@ def _calculate_puffer_advantage(
 
     def _get_advantages(
         gae_and_next_value: Tuple[Array, Array],
-        transition_and_importance: Tuple[Transition, Array],
+        transition_and_importance: Tuple[RSATransition | VONETransition, Array],
     ) -> Tuple[Tuple[Array, Array], Tuple[Array, Array]]:
         gae, next_value = gae_and_next_value
         transition, importance = transition_and_importance
@@ -334,7 +334,7 @@ def _env_rollout_advantages(
     env: Environment,
     env_params: EnvParams,
     config: Box,
-) -> Tuple[RunnerState, Transition, Array, Array, Array, Array]:
+) -> Tuple[RunnerState, RSATransition | VONETransition, Array, Array, Array]:
     """
     Perform environment rollout and compute advantages.
 
@@ -437,7 +437,7 @@ def _env_rollout_advantages(
 def _loss_fn(
     model: eqx.Module,
     train_state: TrainState,
-    batch_info: Tuple[Transition | RSATransition | VONETransition, Array, Array, Array],
+    batch_info: Tuple[RSATransition | VONETransition, Array, Array, Array],
     config: Box,
 ) -> Tuple[Array, Tuple[Array, ...]]:
     """
@@ -451,9 +451,10 @@ def _loss_fn(
     # HANDLE DIFFERENT ACTION TYPES FOR OPTICAL NETWORKS
     if config.env_type.lower() == "vone":
         # VONE: source, path, destination actions
-        pi_source = distrax.Categorical(logits=pi._logits + (-1e8 * (1 - traj_batch.action_mask_s)))
-        pi_path = distrax.Categorical(logits=pi._logits + (-1e8 * (1 - traj_batch.action_mask_p)))
-        pi_dest = distrax.Categorical(logits=pi._logits + (-1e8 * (1 - traj_batch.action_mask_d)))
+        vone_batch = cast(VONETransition, traj_batch)
+        pi_source = distrax.Categorical(logits=pi._logits + (-1e8 * (1 - vone_batch.action_mask_s)))
+        pi_path = distrax.Categorical(logits=pi._logits + (-1e8 * (1 - vone_batch.action_mask_p)))
+        pi_dest = distrax.Categorical(logits=pi._logits + (-1e8 * (1 - vone_batch.action_mask_d)))
         action_s = traj_batch.action[:, 0]
         action_p = traj_batch.action[:, 1]
         action_d = traj_batch.action[:, 2]
@@ -595,7 +596,9 @@ def _loss_fn(
         # Recompute valid mass from *current* logits so gradients flow back
         if config.env_type.lower() == "vone":
             current_probs = jax.nn.softmax(pi._logits, axis=-1)
-            current_valid_mass = jnp.sum(current_probs * traj_batch.action_mask_p, axis=-1)
+            current_valid_mass = jnp.sum(
+                current_probs * cast(VONETransition, traj_batch).action_mask_p, axis=-1
+            )
         elif config.env_type.lower() == "rsa_gn_model" and config.launch_power_type == "rl":
             current_probs = jax.nn.softmax(pi[0]._logits, axis=-1)
             current_valid_mass = jnp.sum(current_probs * traj_batch.action_mask, axis=-1)
@@ -705,7 +708,7 @@ def _loss_fn(
 
 def _update_minibatch(
     train_state: TrainState,
-    batch_info: Tuple[Transition, Array, Array, Array],
+    batch_info: Tuple[RSATransition | VONETransition, Array, Array, Array],
     config: Box,
 ) -> Tuple[TrainState, Tuple[Array, ...]]:
     """Update on a single minibatch. Called via scan with closure wrapper."""

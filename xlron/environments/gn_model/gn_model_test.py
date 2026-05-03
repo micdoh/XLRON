@@ -1,6 +1,3 @@
-import os
-
-os.environ["XLA_FLAGS"] = "--xla_force_host_platform_device_count=4"
 import pathlib
 import tempfile
 
@@ -54,7 +51,7 @@ def rsa_gn_model_4_nsfnet_test_setup():
 
 
 @absltest.skipThisClass("Not finalized")
-class RSAGNModelTest(parameterized.TestCase):
+class RSAGNModelTest(chex.TestCase):
     def setUp(self):
         super().setUp()
         self.key, self.env, self.obs, self.state, self.params = rsa_gn_model_4_nsfnet_test_setup()
@@ -257,7 +254,7 @@ class RSAGNModelTest(parameterized.TestCase):
         chex.assert_trees_all_close(env_state.link_snr_array, expected)
 
 
-class TransceiverAmplifierNoiseTest(parameterized.TestCase):
+class TransceiverAmplifierNoiseTest(chex.TestCase):
     def setUp(self):
         super().setUp()
         # Create a temporary CSV file with test data
@@ -421,7 +418,7 @@ def rmsa_gn_model_test_setup():
     )
 
 
-class RMSAGNModelMaskTest(parameterized.TestCase):
+class RMSAGNModelMaskTest(chex.TestCase):
     def setUp(self):
         super().setUp()
         self.key, self.env, self.obs, self.state, self.params = rmsa_gn_model_test_setup()
@@ -510,7 +507,7 @@ def rmsa_gn_model_enforce_band_gaps_test_setup():
     return key, env, obs, state, params
 
 
-class EnforceBandGapsTest(parameterized.TestCase):
+class EnforceBandGapsTest(chex.TestCase):
     def setUp(self):
         super().setUp()
         (
@@ -601,7 +598,7 @@ def rsa_gn_model_band_preference_test_setup(band_preference):
     )
 
 
-class BandPreferenceTest(parameterized.TestCase):
+class BandPreferenceTest(chex.TestCase):
     """Test that --band_preference controls first-fit/last-fit slot ordering."""
 
     def test_c_band_first_fit_prefers_c_band(self):
@@ -700,7 +697,7 @@ def rsa_gn_model_subchannels_test_setup(num_subchannels=1):
     )
 
 
-class NumSubchannelsTest(parameterized.TestCase):
+class NumSubchannelsTest(chex.TestCase):
     """Tests for the num_subchannels SPM correction feature."""
 
     def test_backward_compatibility_default(self):
@@ -886,7 +883,7 @@ class NumSubchannelsTest(parameterized.TestCase):
         self.assertTrue(jnp.isfinite(reward))
 
 
-class ChannelCentreFreqCachingTest(parameterized.TestCase):
+class ChannelCentreFreqCachingTest(chex.TestCase):
     """Tests for channel_centre_freq_array caching in state."""
 
     def setUp(self):
@@ -1040,7 +1037,7 @@ class Gerard2025RegressionTest(absltest.TestCase):
 
         processed = process_config(_GERARD_2025_PRESET)
         env_wrapped, params = make(processed)
-        raw_env = env_wrapped._env
+        raw_env = env_wrapped._env  # ty: ignore[unresolved-attribute]
 
         rng = jax.random.PRNGKey(0)
         rng, reset_key = jax.random.split(rng)
@@ -1052,7 +1049,8 @@ class Gerard2025RegressionTest(absltest.TestCase):
             _, initial_slot_index = process_path_action(state, params, action)
             launch_power = get_launch_power(state, action, action, initial_slot_index, params)
             full_action = jnp.concatenate(
-                [action.reshape((1,)), launch_power.reshape((1,))], axis=0
+                [action.reshape((1,)), launch_power.reshape((1,))],  # ty: ignore[unresolved-attribute]
+                axis=0,
             )
             obs, state, reward, terminal, truncated, info = raw_env.step_env(
                 step_key, state, full_action, params
@@ -1074,6 +1072,5 @@ class Gerard2025RegressionTest(absltest.TestCase):
 
 
 if __name__ == "__main__":
-    os.environ["XLA_FLAGS"] = "--xla_force_host_platform_device_count=4"
     jax.config.update("jax_numpy_rank_promotion", "raise")
     absltest.main()

@@ -997,7 +997,7 @@ def select_action(select_action_state, env, env_params, train_state, config):
         if config.output_globals_size_actor == 0:
             path_index, _ = process_path_action(env_state.env_state, env_params, path_action)
             power_action, log_prob = power_action[path_index], log_prob[path_index]
-        action = jnp.concatenate([path_action.reshape((1,)), power_action.reshape((1,))], axis=0)
+        action = jnp.concatenate([path_action.reshape((1,)), power_action.reshape((1,))], axis=0)  # ty: ignore[unresolved-attribute]
         probs = jax.nn.softmax(pi[0]._logits, axis=-1)
         valid_mass = jnp.sum(probs * action_mask, axis=-1)
 
@@ -1089,7 +1089,7 @@ def select_action_eval(select_action_state, env, env_params, eval_state, config)
                 launch_power = get_launch_power(
                     env_state.env_state, action, action, initial_slot_index, env_params
                 )
-                action = jnp.concatenate([action.reshape((1,)), launch_power.reshape((1,))], axis=0)
+                action = jnp.concatenate([action.reshape((1,)), launch_power.reshape((1,))], axis=0)  # ty: ignore[unresolved-attribute]
         else:
             raise ValueError(f"Invalid environment type {config.env_type}")
         # For DeepRMSA env, the action can only be the path index (first-fit for spectrum always)
@@ -1148,7 +1148,7 @@ def get_warmup_fn(warmup_state, env, params, train_state, config) -> Callable[[T
                 )
                 action = jnp.concatenate(
                     [
-                        path_action.reshape((1,)),
+                        path_action.reshape((1,)),  # ty: ignore[unresolved-attribute]
                         jnp.array(
                             [
                                 params.default_launch_power,
@@ -1641,9 +1641,7 @@ def process_metrics(config, out, merge_func):
     return merged_out, merged_out_loss, processed_data, episode_ends
 
 
-def plot_metrics(
-    experiment_name: str, processed_data: Dict[str, Any], config: Union[Box, Dict[str, Any]]
-) -> None:
+def plot_metrics(experiment_name: str, processed_data: Dict[str, Any], config: Box) -> None:
     print("Plotting metrics")
     if config.incremental_loading:
         plot_metric = processed_data["accepted_services"]["episode_end_mean"]

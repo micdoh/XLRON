@@ -8,8 +8,8 @@ from jax._src.typing import Array
 from xlron import dtype_config
 from xlron.environments.dataclasses import (
     ActionInfo,
-    EnvParams,
-    EnvState,
+    VONEEnvParams,
+    VONEEnvState,
 )
 from xlron.environments.env_funcs import (
     generate_arrival_holding_times,
@@ -87,13 +87,13 @@ def check_topology(action_history, topology_pattern):
 
 
 def implement_node_action(
-    state: EnvState,
+    state: VONEEnvState,
     s_node: chex.Array,
     d_node: chex.Array,
     s_request: chex.Array,
     d_request: chex.Array,
     n=2,
-) -> EnvState:
+) -> VONEEnvState:
     """Update node capacity, node resource and node departure arrays
 
     Args:
@@ -195,7 +195,7 @@ def update_selected_node_departure(node_row, node_selected, first_inf_index, val
 
 
 @partial(jax.jit, static_argnums=(0,))
-def init_action_history(params: EnvParams):
+def init_action_history(params: VONEEnvParams):
     """Initialize action history"""
     return jnp.full(params.max_edges * 2 + 1, -1, dtype=dtype_config.LARGE_FLOAT_DTYPE)
 
@@ -262,7 +262,7 @@ def update_node_array(node_indices, array, node, request):
 
 
 @partial(jax.jit, static_argnums=(0,))
-def init_vone_request_array(params: EnvParams):
+def init_vone_request_array(params: VONEEnvParams):
     """Initialize request array either with uniform resources"""
     return jnp.zeros(
         (
@@ -274,7 +274,7 @@ def init_vone_request_array(params: EnvParams):
 
 
 @partial(jax.jit, static_argnums=(0,))
-def init_node_capacity_array(params: EnvParams):
+def init_node_capacity_array(params: VONEEnvParams):
     """Initialize node array with uniform resources.
     Args:
         params (EnvParams): Environment parameters
@@ -284,12 +284,12 @@ def init_node_capacity_array(params: EnvParams):
 
 
 @partial(jax.jit, static_argnums=(0,))
-def init_node_departure_array(params: EnvParams):
+def init_node_departure_array(params: VONEEnvParams):
     return jnp.full((params.num_nodes, params.node_resources), jnp.inf)
 
 
 @partial(jax.jit, static_argnums=(0,))
-def init_node_resource_array(params: EnvParams):
+def init_node_resource_array(params: VONEEnvParams):
     """Array to track node resources occupied by virtual nodes"""
     return jnp.zeros(
         (params.num_nodes, params.node_resources), dtype=dtype_config.LARGE_FLOAT_DTYPE
@@ -317,7 +317,7 @@ def check_unique_nodes(node_departure_array: chex.Array) -> bool:
 
 
 @partial(jax.jit, static_argnums=(2,))
-def generate_vone_request(key: chex.PRNGKey, state: EnvState, params: EnvParams):
+def generate_vone_request(key: chex.PRNGKey, state: VONEEnvState, params: VONEEnvParams):
     """Generate a new request for the VONE environment.
     The request has two rows. The first row shows the node and slot values.
     The first three elements of the second row show the number of unique nodes, the total number of steps, and the remaining steps.
@@ -362,7 +362,7 @@ def generate_vone_request(key: chex.PRNGKey, state: EnvState, params: EnvParams)
     return state
 
 
-def undo_link_action_vone(state: EnvState) -> EnvState:
+def undo_link_action_vone(state: VONEEnvState) -> VONEEnvState:
     """Undo tentative link slot assignments for VONE.
     Tentative assignments are indicated by negative values in link_slot_array and
     link_slot_departure_array. Reset these to zero.
@@ -384,11 +384,11 @@ def undo_link_action_vone(state: EnvState) -> EnvState:
 
 @partial(jax.jit, static_argnums=(4,))
 def implement_vone_action(
-    state: EnvState,
+    state: VONEEnvState,
     action: chex.Array,
     total_actions: chex.Scalar,
     remaining_actions: chex.Scalar,
-    params: EnvParams,
+    params: VONEEnvParams,
 ):
     """Implement action to assign nodes (1, 2, or 0 nodes assigned per action) and assign slots and links for lightpath.
 
@@ -493,7 +493,7 @@ def path_action_only(
     return nodes_already_assigned_check
 
 
-def format_vone_slot_request(state: EnvState, action: chex.Array) -> chex.Array:
+def format_vone_slot_request(state: VONEEnvState, action: chex.Array) -> chex.Array:
     """Format slot request for VONE action into format (source-node, slot, destination-node).
 
     Args:
@@ -627,13 +627,13 @@ def decrement_action_counter(state):
 
 
 @partial(jax.jit, static_argnums=(0,))
-def init_node_mask(params: EnvParams):
+def init_node_mask(params: VONEEnvParams):
     """Initialize node mask"""
     return jnp.ones(params.num_nodes, dtype=dtype_config.LARGE_FLOAT_DTYPE)
 
 
 @partial(jax.jit, static_argnums=(1,))
-def mask_nodes(state: EnvState, num_nodes: chex.Scalar) -> EnvState:
+def mask_nodes(state: VONEEnvState, num_nodes: chex.Scalar) -> VONEEnvState:
     """Returns mask of valid actions for node selection. 1 for valid action, 0 for invalid action.
 
     Args:
@@ -751,7 +751,7 @@ def mask_nodes(state: EnvState, num_nodes: chex.Scalar) -> EnvState:
 
 
 @partial(jax.jit, donate_argnums=(0,))
-def undo_node_action(state: EnvState) -> EnvState:
+def undo_node_action(state: VONEEnvState) -> VONEEnvState:
     """If the request is unsuccessful i.e. checks fail, then remove the partial (unfinalised) resource allocation.
     Partial resource allocation is indicated by negative time in node departure array.
     Check for values in node_departure_array that are less than zero.
@@ -781,7 +781,7 @@ def undo_node_action(state: EnvState) -> EnvState:
 
 
 @partial(jax.jit, static_argnums=(1,))
-def remove_expired_node_requests(state: EnvState, params: EnvParams) -> EnvState:
+def remove_expired_node_requests(state: VONEEnvState, params: VONEEnvParams) -> VONEEnvState:
     """Check for values in node_departure_array that are less than the current time but greater than zero
     (negative time indicates the request is not yet finalised).
     If found, set to infinity in node_departure_array, set to zero in node_resource_array, and increase

@@ -5,6 +5,8 @@ import chex
 import jax
 import jax.numpy as jnp
 
+from typing import cast
+
 from xlron.environments.dataclasses import (
     EnvState,
     GNModelEnvParams,
@@ -12,6 +14,7 @@ from xlron.environments.dataclasses import (
     RSAEnvParams,
     RSAEnvState,
     RWALightpathReuseEnvParams,
+    RWALightpathReuseEnvState,
 )
 from xlron.environments.env_funcs import (
     find_block_sizes,
@@ -439,17 +442,18 @@ def get_link_weights(state: EnvState, params: RSAEnvParams):
         chex.Array: Link weights
     """
     if isinstance(params, RWALightpathReuseEnvParams):
+        rwalr_state = cast(RWALightpathReuseEnvState, state)
         initial_path_capacity = init_path_capacity_array(
             params.link_length_array.val, params.path_link_array.val, scale_factor=1.0
         )
         initial_path_capacity = jnp.squeeze(
-            jax.vmap(lambda x: initial_path_capacity[x])(state.path_index_array)
+            jax.vmap(lambda x: initial_path_capacity[x])(rwalr_state.path_index_array)
         )
         utilisation = (
             jnp.where(
-                initial_path_capacity - state.link_capacity_array < 0,
+                initial_path_capacity - rwalr_state.link_capacity_array < 0,
                 0,
-                initial_path_capacity - state.link_capacity_array,
+                initial_path_capacity - rwalr_state.link_capacity_array,
             )
             / initial_path_capacity
         )
@@ -619,19 +623,21 @@ def most_used(state: EnvState, params: RSAEnvParams, unique_lightpaths, relative
         chex.Array: Most used slots (array length = link_resources)
     """
     if isinstance(params, RWALightpathReuseEnvParams) and unique_lightpaths:
-        most_used_slots = jnp.count_nonzero(state.path_index_array + 1, axis=0) + 1
+        rwalr_state = cast(RWALightpathReuseEnvState, state)
+        most_used_slots = jnp.count_nonzero(rwalr_state.path_index_array + 1, axis=0) + 1
     elif isinstance(params, RWALightpathReuseEnvParams) and not unique_lightpaths:
+        rwalr_state = cast(RWALightpathReuseEnvState, state)
         # Get initial path capacity
         initial_path_capacity = init_path_capacity_array(
             params.link_length_array.val, params.path_link_array.val, scale_factor=1.0
         )
         initial_path_capacity = jnp.squeeze(
-            jax.vmap(lambda x: initial_path_capacity[x])(state.path_index_array)
+            jax.vmap(lambda x: initial_path_capacity[x])(rwalr_state.path_index_array)
         )
         utilisation = jnp.where(
-            initial_path_capacity - state.link_capacity_array < 0,
+            initial_path_capacity - rwalr_state.link_capacity_array < 0,
             0,
-            initial_path_capacity - state.link_capacity_array,
+            initial_path_capacity - rwalr_state.link_capacity_array,
         )
         if relative:
             utilisation = utilisation / initial_path_capacity
