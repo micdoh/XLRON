@@ -136,7 +136,7 @@ def main(argv):
     # After merging, out dimensions are (num_envs*num_devices, num_rollouts, rollout_length)
     merge_func = lambda x: merge_leading_dims(jnp.transpose(x, (0, 2, 1, 3)), 2)
     merged_out = {k: jax.tree.map(merge_func, v) for k, v in out["metrics"].items()}
-    
+
     get_mean = lambda x, y: x[y].mean(0).reshape(-1)
     get_std = lambda x, y: x[y].std(0).reshape(-1)
 

@@ -204,9 +204,7 @@ def init_graph_tuple(
         node_features = jnp.concatenate([spectral_features, source_dest_features], axis=-1)
     elif params.__class__.__name__ == "VONEEnvParams":
         edge_features = (
-            state.link_slot_array
-            if params.incremental_loading
-            else holding_time_edge_features
+            state.link_slot_array if params.incremental_loading else holding_time_edge_features
         )
         node_features = getattr(
             state,
@@ -219,9 +217,7 @@ def init_graph_tuple(
         )
     else:
         edge_features = (
-            state.link_slot_array
-            if params.incremental_loading
-            else holding_time_edge_features
+            state.link_slot_array if params.incremental_loading else holding_time_edge_features
         )
         # [n_edges] or [n_edges, ...]
         node_features = jnp.concatenate([spectral_features, source_dest_features], axis=-1)
@@ -306,9 +302,7 @@ def update_graph_tuple(state: EnvState, params: EnvParams) -> EnvState:
         node_features = jnp.concatenate([spectral_features, source_dest_features], axis=-1)
     elif params.__class__.__name__ == "VONEEnvParams":
         edge_features = (
-            state.link_slot_array
-            if params.incremental_loading
-            else holding_time_edge_features
+            state.link_slot_array if params.incremental_loading else holding_time_edge_features
         )
         node_features = getattr(state, "node_capacity_array", jnp.zeros(params.num_nodes))
         node_features = node_features.reshape(-1, 1)
@@ -317,9 +311,7 @@ def update_graph_tuple(state: EnvState, params: EnvParams) -> EnvState:
         )
     else:
         edge_features = (
-            state.link_slot_array
-            if params.incremental_loading
-            else holding_time_edge_features
+            state.link_slot_array if params.incremental_loading else holding_time_edge_features
         )
         node_features = jnp.concatenate([spectral_features, source_dest_features], axis=-1)
 
@@ -343,8 +335,8 @@ def init_link_length_array(graph: nx.Graph) -> chex.Array:
     for edge in sorted(graph.edges):
         link_lengths.append(graph.edges[edge]["distance"])
     return jnp.array(link_lengths, dtype=dtype_config.LARGE_INT_DTYPE)
-    
-    
+
+
 def _path_weight(g: nx.Graph, path: list, weight: str) -> float:
     """Calculate the total weight of a path."""
     return sum(g[u][v].get(weight, 1) for u, v in zip(path, path[1:]))
@@ -422,15 +414,15 @@ def _ksp_cache_key(
     """Build a deterministic hash of all parameters that affect init_path_link_array output."""
     h = hashlib.sha256()
     # Graph structure (sorted edge list with weights)
-    edges_data = sorted(
-        (u, v, d.get("distance", 0)) for u, v, d in graph.edges(data=True)
-    )
+    edges_data = sorted((u, v, d.get("distance", 0)) for u, v, d in graph.edges(data=True))
     h.update(json.dumps(edges_data).encode())
     h.update(json.dumps(sorted(graph.nodes)).encode())
     # Scalar params
-    h.update(f"k={k},disjoint={disjoint},sort={path_sort_criteria},"
-             f"directed={directed},rwa_lr={rwa_lr},"
-             f"scale_factor={scale_factor},path_snr={path_snr}".encode())
+    h.update(
+        f"k={k},disjoint={disjoint},sort={path_sort_criteria},"
+        f"directed={directed},rwa_lr={rwa_lr},"
+        f"scale_factor={scale_factor},path_snr={path_snr}".encode()
+    )
     if maximum_path_length_km is not None:
         h.update(f",max_path_km={maximum_path_length_km}".encode())
     # Modulations array
@@ -458,7 +450,6 @@ def _apply_max_path_length_filter(
     link_lengths_km = np.array(
         [graph.edges[e]["distance"] for e in sorted(graph.edges)], dtype=np.float64
     )
-    num_edges = len(link_lengths_km)
     data_rows = all_link_usage.shape[0] - (1 if path_snr else 0)
     num_pairs = data_rows // k
 
@@ -472,8 +463,8 @@ def _apply_max_path_length_filter(
 
     for pair_idx in range(num_pairs):
         start = pair_idx * k
-        dists = path_distances[start:start + k]
-        real = path_hops[start:start + k] > 0
+        dists = path_distances[start : start + k]
+        real = path_hops[start : start + k] > 0
 
         # Collect valid path indices (within distance limit or shortest path kept)
         valid_indices = []
@@ -502,7 +493,7 @@ def _apply_max_path_length_filter(
         new_block = np.zeros((k, all_link_usage.shape[1]), dtype=all_link_usage.dtype)
         for write_idx, src_idx in enumerate(valid_indices):
             new_block[write_idx] = all_link_usage[start + src_idx]
-        all_link_usage[start:start + k] = new_block
+        all_link_usage[start : start + k] = new_block
 
     # Trim array to max_effective_k paths per pair
     # This is the max across all pairs — pairs with fewer valid paths are
@@ -515,9 +506,9 @@ def _apply_max_path_length_filter(
         for pair_idx in range(num_pairs):
             old_start = pair_idx * k
             new_start = pair_idx * max_effective_k
-            trimmed[new_start:new_start + max_effective_k] = (
-                all_link_usage[old_start:old_start + max_effective_k]
-            )
+            trimmed[new_start : new_start + max_effective_k] = all_link_usage[
+                old_start : old_start + max_effective_k
+            ]
         if path_snr:
             trimmed[-1] = all_link_usage[-1]
         all_link_usage = trimmed
@@ -528,9 +519,11 @@ def _apply_max_path_length_filter(
     print(f"    Pairs where shortest path exceeds limit: {pairs_shortest_exceeds}")
     print(f"    Max effective K across all pairs: {max_effective_k}")
     if max_effective_k < k:
-        print(f"    Trimmed K: {k} -> {max_effective_k} "
-              f"(array: {data_rows}x{all_link_usage.shape[1]} -> "
-              f"{num_pairs * max_effective_k}x{all_link_usage.shape[1]})")
+        print(
+            f"    Trimmed K: {k} -> {max_effective_k} "
+            f"(array: {data_rows}x{all_link_usage.shape[1]} -> "
+            f"{num_pairs * max_effective_k}x{all_link_usage.shape[1]})"
+        )
 
     return all_link_usage, max_effective_k
 
@@ -586,8 +579,15 @@ def init_path_link_array(
         cache_dir = pathlib.Path(cache_dir)
         cache_dir.mkdir(parents=True, exist_ok=True)
         params_hash = _ksp_cache_key(
-            graph, k, disjoint, path_sort_criteria, directed,
-            modulations_array, rwa_lr, scale_factor, path_snr,
+            graph,
+            k,
+            disjoint,
+            path_sort_criteria,
+            directed,
+            modulations_array,
+            rwa_lr,
+            scale_factor,
+            path_snr,
             maximum_path_length_km=maximum_path_length_km,
         )
         name = topology_name or "unknown"
@@ -598,15 +598,17 @@ def init_path_link_array(
             arr = np.array(data["arr"], dtype=np.int8)
             if maximum_path_length_km is not None:
                 # Cache already contains filtered+trimmed array; read effective_k from shape
-                num_pairs = graph.number_of_nodes() * (graph.number_of_nodes() - 1) if graph.is_directed() else (
-                    graph.number_of_nodes() * (graph.number_of_nodes() - 1) // 2
+                num_pairs = (
+                    graph.number_of_nodes() * (graph.number_of_nodes() - 1)
+                    if graph.is_directed()
+                    else (graph.number_of_nodes() * (graph.number_of_nodes() - 1) // 2)
                 )
                 data_rows = arr.shape[0] - (1 if path_snr else 0)
                 effective_k = data_rows // num_pairs
                 return arr, effective_k
             return arr
         print(f"  KSP cache miss — computing paths (will save to {cache_path.name})")
-        
+
     assert path_sort_criteria in [
         "spectral_resources",
         "hops",
@@ -635,10 +637,7 @@ def init_path_link_array(
         node_pairs_rev = [(t, s) for s, t in combinations(graph.nodes, 2)]
         node_pairs = node_pairs + node_pairs_rev
 
-    work_items = [
-        (graph, source, target, k, weight, disjoint)
-        for source, target in node_pairs
-    ]
+    work_items = [(graph, source, target, k, weight, disjoint) for source, target in node_pairs]
 
     if n_workers > 1 and len(work_items) > 1:
         with ProcessPoolExecutor(max_workers=n_workers) as executor:
@@ -673,9 +672,7 @@ def init_path_link_array(
 
         # Compute per-path metrics
         num_actual_paths = len(k_paths)
-        path_distances = [
-            nx.path_weight(graph, path, weight="distance") for path in k_paths
-        ]
+        path_distances = [nx.path_weight(graph, path, weight="distance") for path in k_paths]
         path_hops = [len(path) - 1 for path in k_paths]
         path_se = [_get_spectral_efficiency(d) for d in path_distances]
 
@@ -697,10 +694,16 @@ def init_path_link_array(
 
         # Sort by criteria
         indices = list(range(len(k_paths_padded)))
-        indices.sort(key=lambda i: _sort_key(
-            path_sort_criteria, path_distances[i], path_hops[i],
-            path_se[i], path_capacity[i], rwa_lr
-        ))
+        indices.sort(
+            key=lambda i: _sort_key(
+                path_sort_criteria,
+                path_distances[i],
+                path_hops[i],
+                path_se[i],
+                path_capacity[i],
+                rwa_lr,
+            )
+        )
 
         # --- Optimization 4: Vectorized link usage with advanced indexing ---
         for rank, idx in enumerate(indices[:k]):
@@ -724,7 +727,9 @@ def init_path_link_array(
 
     result = np.array(all_link_usage, dtype=np.int8)
     if maximum_path_length_km is not None:
-        result, effective_k = _apply_max_path_length_filter(result, graph, k, maximum_path_length_km, path_snr)
+        result, effective_k = _apply_max_path_length_filter(
+            result, graph, k, maximum_path_length_km, path_snr
+        )
 
     # --- Save to disk cache (stores filtered result when filter is active) ---
     if cache_path is not None:
@@ -762,9 +767,7 @@ def _sort_key(
         raise ValueError(f"Unknown path sort criteria: {criteria}")
 
 
-def get_link_relevance_array(
-    paths: Array, paths_quality: Array, params: RSAEnvParams
-):
+def get_link_relevance_array(paths: Array, paths_quality: Array, params: RSAEnvParams):
     """Compute 4 link relevance features for the current request.
 
     Args:
@@ -839,7 +842,9 @@ def get_obs_transformer(state: RSAEnvState, params: RSAEnvParams) -> chex.Array:
     elif params.transformer_obs_type == "capacity":
         # 0 where no active lightpath, normalized remaining capacity otherwise
         active_mask = (state.link_slot_array > 0).astype(dtype_config.LARGE_FLOAT_DTYPE)
-        edge_features = active_mask * state.link_capacity_array / (jnp.mean(params.values_bw.val) * 100)
+        edge_features = (
+            active_mask * state.link_capacity_array / (jnp.mean(params.values_bw.val) * 100)
+        )
     else:
         # Dynamic traffic: normalized departure times only
         edge_features = state.link_slot_departure_array / state.mean_service_holding_time
@@ -885,9 +890,7 @@ def get_obs_transformer(state: RSAEnvState, params: RSAEnvParams) -> chex.Array:
             )
         )(paths_se.flatten())
         paths_quality = 1.0 / num_slots
-    link_relevance_features = get_link_relevance_array(
-        paths, paths_quality, params
-    )  # (E, 4)
+    link_relevance_features = get_link_relevance_array(paths, paths_quality, params)  # (E, 4)
 
     # Concatenation: shared features first, request-specific features last
     # Shared: wire_features, edge_features, traffic_marginals
@@ -1205,7 +1208,9 @@ def generate_request_rsa(key: chex.PRNGKey, state: EnvState, params: EnvParams) 
             else (jnp.minimum(nodes[0], nodes[1]), jnp.maximum(nodes[0], nodes[1]))
         )
 
-        arrival_time, holding_time = generate_arrival_holding_times(key_times, params, state.arrival_rate, state.mean_service_holding_time)
+        arrival_time, holding_time = generate_arrival_holding_times(
+            key_times, params, state.arrival_rate, state.mean_service_holding_time
+        )
         current_time = (
             state.current_time + arrival_time
             if not params.relative_arrival_times
@@ -1264,7 +1269,9 @@ def generate_request_rwalr(key: chex.PRNGKey, state: EnvState, params: EnvParams
         bw = jax.random.choice(key_slot, params.values_bw.val)
         nodes = jnp.stack(nodes, dtype=dtype_config.LARGE_INT_DTYPE)
         source, dest = nodes if params.directed_graph else jnp.sort(nodes)
-        arrival_time, holding_time = generate_arrival_holding_times(key_times, params, state.arrival_rate, state.mean_service_holding_time)
+        arrival_time, holding_time = generate_arrival_holding_times(
+            key_times, params, state.arrival_rate, state.mean_service_holding_time
+        )
         current_time = (
             state.current_time + arrival_time
             if not params.relative_arrival_times
@@ -2325,7 +2332,9 @@ def mask_slots(state: EnvState, params: EnvParams) -> Array:
 
     # 5. Broadcast window sums - NO LOOPS
     slot_indices = jnp.arange(params.link_resources)
-    end_indices = (slot_indices[None, :] + all_req_slots[:, None]).astype(dtype_config.INDEX_DTYPE)  # (num_mods, link_resources)
+    end_indices = (slot_indices[None, :] + all_req_slots[:, None]).astype(
+        dtype_config.INDEX_DTYPE
+    )  # (num_mods, link_resources)
 
     cumsum_at_end = cumsum[:, end_indices]  # (k, num_mods, link_resources)
     cumsum_at_start = cumsum[:, slot_indices]  # (k, link_resources)
@@ -3178,7 +3187,13 @@ def compute_band_gaps_from_csv(
     f = (
         pathlib.Path(band_data_filepath)
         if band_data_filepath
-        else (pathlib.Path(__file__).parents[1].absolute() / "data" / "gn_model" / "band_data" / "band_data.csv")
+        else (
+            pathlib.Path(__file__).parents[1].absolute()
+            / "data"
+            / "gn_model"
+            / "band_data"
+            / "band_data.csv"
+        )
     )
     band_data = np.genfromtxt(f, delimiter=",", skip_header=1, usecols=(1, 2, 3, 4))
     # Columns: wavelength_min_nm, wavelength_max_nm, frequency_min_ghz, frequency_max_ghz
@@ -3243,7 +3258,13 @@ def compute_band_slot_order(
     f = (
         pathlib.Path(band_data_filepath)
         if band_data_filepath
-        else (pathlib.Path(__file__).parents[1].absolute() / "data" / "gn_model" / "band_data" / "band_data.csv")
+        else (
+            pathlib.Path(__file__).parents[1].absolute()
+            / "data"
+            / "gn_model"
+            / "band_data"
+            / "band_data.csv"
+        )
     )
     # Read band names (string column)
     band_names_raw = np.genfromtxt(f, delimiter=",", skip_header=1, usecols=(0,), dtype=str)
@@ -3331,7 +3352,13 @@ def compute_band_layout(
     f = (
         pathlib.Path(band_data_filepath)
         if band_data_filepath
-        else (pathlib.Path(__file__).parents[1].absolute() / "data" / "gn_model" / "band_data" / "band_data.csv")
+        else (
+            pathlib.Path(__file__).parents[1].absolute()
+            / "data"
+            / "gn_model"
+            / "band_data"
+            / "band_data.csv"
+        )
     )
     band_names_raw = np.genfromtxt(f, delimiter=",", skip_header=1, usecols=(0,), dtype=str)
     band_data_num = np.genfromtxt(f, delimiter=",", skip_header=1, usecols=(1, 2, 3, 4))
@@ -4267,13 +4294,13 @@ def calculate_throughput_from_active_lightpaths(
     state = state.replace(link_snr_array=get_snr_link_array(state, params))
 
     # --- Vectorised throughput: replace fori_loop with batched ops ---
-    S = params.link_resources                    # slots per link
+    S = params.link_resources  # slots per link
 
     # Extract per-lightpath metadata  (M,)
-    path_indices = state.active_lightpaths_array[:, 0]       # (M,) # Max total lightpaths is M 
-    initial_slots = state.active_lightpaths_array[:, 1]      # (M,)
-    num_slots = state.active_lightpaths_array[:, 2]          # (M,)
-    active = path_indices >= 0                                # (M,) bool
+    path_indices = state.active_lightpaths_array[:, 0]  # (M,) # Max total lightpaths is M
+    initial_slots = state.active_lightpaths_array[:, 1]  # (M,)
+    num_slots = state.active_lightpaths_array[:, 2]  # (M,)
+    active = path_indices >= 0  # (M,) bool
 
     # Clamp -1 indices to 0 for safe gather (masked out later)
     safe_path_indices = jnp.maximum(path_indices, 0)
@@ -4281,24 +4308,24 @@ def calculate_throughput_from_active_lightpaths(
     # Gather path vectors for all lightpaths: (M, num_links)
     paths_packed = params.path_link_array.val[safe_path_indices]
     if params.pack_path_bits:
-        paths = jax.vmap(lambda p: jnp.unpackbits(p)[:params.num_links])(paths_packed)
+        paths = jax.vmap(lambda p: jnp.unpackbits(p)[: params.num_links])(paths_packed)
     else:
         paths = paths_packed
-    paths_float = paths.astype(state.link_snr_array.dtype)   # (M, num_links)
+    paths_float = paths.astype(state.link_snr_array.dtype)  # (M, num_links)
 
     # --- Batch path-level SNR (replaces M calls to get_snr_for_path) ---
     # NSR accumulation: for each lightpath, sum 1/link_snr over on-path links
     #   nsr_all[m, s] = sum_over_links( path[m, l] * (1/link_snr[l, s]) )
-    inv_snr = 1.0 / state.link_snr_array                    # (num_links, S)
-    nsr_all = paths_float @ inv_snr                          # (M, S)  matmul
+    inv_snr = 1.0 / state.link_snr_array  # (num_links, S)
+    nsr_all = paths_float @ inv_snr  # (M, S)  matmul
 
     # Add ROADM ASE noise (vectorised over lightpaths)
     if hasattr(params, "roadm_express_loss"):
-        num_links_on_path = jnp.sum(paths_float, axis=1)    # (M,)
+        num_links_on_path = jnp.sum(paths_float, axis=1)  # (M,)
         num_express = jnp.maximum(num_links_on_path - 1, 0)  # (M,)
-        first_link_idx = jnp.argmax(paths, axis=1)           # (M,)
+        first_link_idx = jnp.argmax(paths, axis=1)  # (M,)
         ch_power = state.channel_power_array[first_link_idx]  # (M, S)
-        ch_bw_hz = state.channel_centre_bw_array[first_link_idx] * 1e9   # (M, S)
+        ch_bw_hz = state.channel_centre_bw_array[first_link_idx] * 1e9  # (M, S)
         ch_centres_hz = state.channel_centre_freq_array[first_link_idx] * 1e9  # (M, S)
         # Vectorise ROADM ASE over lightpaths
         roadm_ase = jax.vmap(
@@ -4311,7 +4338,7 @@ def calculate_throughput_from_active_lightpaths(
                 ch_centre_i=cc,
                 ch_bandwidth_i=cb,
             )
-        )(num_express, ch_centres_hz, ch_bw_hz)              # (M, S)
+        )(num_express, ch_centres_hz, ch_bw_hz)  # (M, S)
         nsr_roadm = jnp.where(ch_power > 0, roadm_ase / ch_power, 0.0)
         nsr_all = nsr_all + nsr_roadm
 
@@ -4330,9 +4357,8 @@ def calculate_throughput_from_active_lightpaths(
     slot_indices = jnp.arange(S, dtype=dtype_config.LARGE_INT_DTYPE)  # (S,)
 
     # Slot range mask: slot in [initial_slot, initial_slot + num_slots)  → (M, S)
-    slot_in_range = (
-        (slot_indices[None, :] >= initial_slots[:, None])
-        & (slot_indices[None, :] < (initial_slots + num_slots)[:, None])
+    slot_in_range = (slot_indices[None, :] >= initial_slots[:, None]) & (
+        slot_indices[None, :] < (initial_slots + num_slots)[:, None]
     )
 
     # Path-index ownership mask: for each lightpath m, check which slots on its
@@ -4344,13 +4370,13 @@ def calculate_throughput_from_active_lightpaths(
     #   path_index_array (num_links, S) → (M, num_links, S)
     path_idx_on_slots = jnp.where(
         paths[:, :, None].astype(bool),
-        state.path_index_array[None, :, :],     # (1, num_links, S)
+        state.path_index_array[None, :, :],  # (1, num_links, S)
         -1,
     )  # (M, num_links, S)
-    path_idx_max = jnp.max(path_idx_on_slots, axis=1)       # (M, S)
-    owns_slot = path_idx_max == path_indices[:, None]        # (M, S)
+    path_idx_max = jnp.max(path_idx_on_slots, axis=1)  # (M, S)
+    owns_slot = path_idx_max == path_indices[:, None]  # (M, S)
 
-    mask = slot_in_range & owns_slot & active[:, None]       # (M, S) bool
+    mask = slot_in_range & owns_slot & active[:, None]  # (M, S) bool
     mask_f = mask.astype(state.link_snr_array.dtype)
 
     # --- Shannon-Hartley capacity ---

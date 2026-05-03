@@ -281,7 +281,9 @@ def make(
     min_node_resources = config.get("min_node_resources", 1)
     max_node_resources = config.get("max_node_resources", 2)
     virtual_topologies = config.get("virtual_topologies", "3_ring")
-    virtual_topologies = virtual_topologies.split(",") if isinstance(virtual_topologies, str) else virtual_topologies
+    virtual_topologies = (
+        virtual_topologies.split(",") if isinstance(virtual_topologies, str) else virtual_topologies
+    )
     # Automated calculation of max edges in virtual topologies
     max_edges = 0
     for topology in virtual_topologies:
@@ -419,12 +421,11 @@ def make(
     # UNLESS it's a GN model type that reads path_link_array.shape before
     # the second call.
     _needs_modulation_resort = (
-        env_type not in ("rsa", "rwa", "rwa_lightpath_reuse")
-        and path_sort_criteria != "distance"
+        env_type not in ("rsa", "rwa", "rwa_lightpath_reuse") and path_sort_criteria != "distance"
     )
-    _needs_first_call = (
-        not _needs_modulation_resort
-        or env_type in ("rmsa_gn_model", "rsa_gn_model")
+    _needs_first_call = not _needs_modulation_resort or env_type in (
+        "rmsa_gn_model",
+        "rsa_gn_model",
     )
     if _needs_first_call:
         _pla_result = init_path_link_array(

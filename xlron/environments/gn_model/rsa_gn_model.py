@@ -86,11 +86,11 @@ class RSAGNModelEnv(RSAEnv):
             throughput=jnp.array(0.0, dtype=init_link_snr_array(params).dtype),
             valid_mass=jnp.array(1.0, dtype=dtype_config.LARGE_FLOAT_DTYPE),
             arrival_rate=jnp.array(params.arrival_rate, dtype=dtype_config.SMALL_FLOAT_DTYPE),
-            mean_service_holding_time=jnp.array(params.mean_service_holding_time, dtype=dtype_config.SMALL_FLOAT_DTYPE),
+            mean_service_holding_time=jnp.array(
+                params.mean_service_holding_time, dtype=dtype_config.SMALL_FLOAT_DTYPE
+            ),
         )
         self.initial_state = state.replace(graph=init_graph_tuple(state, params, laplacian_matrix))
-
-
 
     @partial(
         jax.jit,

@@ -19,8 +19,8 @@
 ```
 @INPROCEEDINGS{10526884,
   author={Doherty, Michael and Beghelli, Alejandra},
-  booktitle={2024 Optical Fiber Communications Conference and Exhibition (OFC)}, 
-  title={XLRON: Accelerated Reinforcement Learning Environments for Optical Networks}, 
+  booktitle={2024 Optical Fiber Communications Conference and Exhibition (OFC)},
+  title={XLRON: Accelerated Reinforcement Learning Environments for Optical Networks},
   year={2024},
   volume={},
   number={},
@@ -269,5 +269,5 @@ This work was supported by the Engineering and Physical Sciences Research Counci
 
 ## License
 
-Copyright (c) Michael Doherty 2023. 
+Copyright (c) Michael Doherty 2023.
 This project is licensed under the MIT License - see [LICENSE](LICENSE) file for details.

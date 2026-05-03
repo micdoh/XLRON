@@ -96,9 +96,8 @@ def get_eval_fn(
         rng_step, *step_keys = jax.random.split(rng_step, num_envs + 1)
         step_keys = jnp.array(step_keys) if num_envs > 1 else step_keys[0]
         runner_state = runner_state[:3] + (step_keys,) + runner_state[4:]
-        steps_per_env = (
-            getattr(config, "STEPS_PER_INCREMENT", 1000)
-            // getattr(config, "NUM_ENVS", 1)
+        steps_per_env = getattr(config, "STEPS_PER_INCREMENT", 1000) // getattr(
+            config, "NUM_ENVS", 1
         )
         runner_state, traj_episode = jax.lax.scan(
             _env_step_vmap,

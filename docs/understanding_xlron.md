@@ -14,7 +14,7 @@ XLRON is built using the [JAX](https://jax.readthedocs.io/en/latest/) high-perfo
 The chief constraints that XLRON obeys to be compatible with JAX are:
 
 - **Pure functions**: Functions must be pure, meaning that they have no side effects and return the same output for the same input.
-- **Static array shapes**: Array shapes must be known at compile time and immutable. 
+- **Static array shapes**: Array shapes must be known at compile time and immutable.
 - **No Python control flow**: JAX does not support Python's built-in `for` loops, and instead requires the use of `jax.lax.scan` or `jax.lax.fori_loop` for iteration. Similarly, JAX does not support Python's built-in `if` statements, and instead requires the use of `jax.lax.cond` for branching.
 
 The JAX documentation (https://jax.readthedocs.io/en/latest/) is excellent and provides a comprehensive guide to these constraints and how to work with them.
@@ -25,17 +25,17 @@ To use XLRON, it helps to understand the logical structure of a typical training
 
 ![xlron_training_vert.png](images/xlron_training_vert.png){width="600"}
 
-The upper section of the diagram details the logical components of the parallelisation scheme: DEVICE<sub>LEARN</sub>, LEARNER, DEVICE<sub>ENV</sub>, and ENV. 
+The upper section of the diagram details the logical components of the parallelisation scheme: DEVICE<sub>LEARN</sub>, LEARNER, DEVICE<sub>ENV</sub>, and ENV.
 
-When specifying a training run using XLRON, the number of learners, devices, and environments are specified using the `--NUM_LEARNERS`, `--NUM_DEVICES`, and `--NUM_ENVS` flags respectively. Each learner represents a single set of neural network parameters (i.e. the AGENT), the machinery required to train them e.g. optimiser and trajectory buffer, and the environments with which they interact. Each device represents a single accelerator device (CPU or GPU or TPU) that is used to run the learner. There can be multiple learners per device. Within a single learner are multiple parallel environments (ENV), that represent the optical network to be simulated. Each ENV is a separate instance of the environment, with its own state but fixed environment parameters that are common to the learner (see next section). A learner can have its environments spread across multiple devices or co-located on a single device. 
+When specifying a training run using XLRON, the number of learners, devices, and environments are specified using the `--NUM_LEARNERS`, `--NUM_DEVICES`, and `--NUM_ENVS` flags respectively. Each learner represents a single set of neural network parameters (i.e. the AGENT), the machinery required to train them e.g. optimiser and trajectory buffer, and the environments with which they interact. Each device represents a single accelerator device (CPU or GPU or TPU) that is used to run the learner. There can be multiple learners per device. Within a single learner are multiple parallel environments (ENV), that represent the optical network to be simulated. Each ENV is a separate instance of the environment, with its own state but fixed environment parameters that are common to the learner (see next section). A learner can have its environments spread across multiple devices or co-located on a single device.
 
 This parallelisation scheme offers flexibility in the degree of parallelisation and use of multiple devices, with multiple learners permitting parallel training of distinct agents with different hyperparameters and/or random seeds, for the purposes of hyperaparameter tuning or [meta-learning](https://arxiv.org/abs/2210.05639).
 
 
 The lower section of the diagram shows the details of the training loop within a single LEARNER that comprises 1 or more parallel environments (ENV) and a single set of neural network parameters (AGENT). The agent-environment interation is shown in the central box, with the agent selecting actions based on its observations of the current state of the environment, and the environment transitioning to a new state based on the action selected and any stochastic transition dynamics (e.g. the arrival and departure times of new connection requests).
 
-The **batch size** for the update step for a single learner is 
-`NUM_DEVICES x NUM_ENVS x ROLLOUT_LENGTH` 
+The **batch size** for the update step for a single learner is
+`NUM_DEVICES x NUM_ENVS x ROLLOUT_LENGTH`
 where `ROLLOUT_LENGTH` is the number of steps in a trajectory before an update is performed. This batch size can then be subdivided into multiple minibatches for training the neural network parameters, however this may be less stable due to updates becoming more off-policy.
 
 We recommend Barto and Sutton's authoritative textbook on RL for a comprehensive introduction to the field: [Reinforcement Learning: An Introduction](http://incompleteideas.net/book/the-book-2nd.html).
@@ -57,7 +57,7 @@ To satisfy the constraint of static array shapes, XLRON environments are initial
 
 
 ### 4.1 Routing representation
-In order to capture the topological information of the network in array form, the k-shortest paths between each node pair on the network are calculated and the constituent links of each path are encoded as a binary array for each row of `path_link_array`. 
+In order to capture the topological information of the network in array form, the k-shortest paths between each node pair on the network are calculated and the constituent links of each path are encoded as a binary array for each row of `path_link_array`.
 
 
 ### 4.2 Key data structures
@@ -66,7 +66,7 @@ We list here the key data structures used in the XLRON environments. This not an
 
 For `RSAEnv` (including the RMSA and RWA problems), the following data structures are used:
 
-- `path_link_array`: in `params`. Each row is a binary array 
+- `path_link_array`: in `params`. Each row is a binary array
 - `link_slot_array`: Binary array to represent occupancy of slots on links. 0 for free, -1 for occupied.
 - `link_slot_departure_array`: Contains departure times of services occupying slots. Time is set as negative when service is first initialised then set to positive once checked to be valid and finalised.
 - `request_array`: Contains newly arrived request in format (source, datarate, destination)
@@ -129,7 +129,7 @@ N.B. Evaluation runs of trained models or heuristics follow the same DEVICE-LEAR
 
 [Invalid action masking](https://arxiv.org/pdf/2006.14171.pdf) is a technique used to prevent the agent from selecting invalid actions. This is particularly important in the context of optical network resource allocation problems, where the action space is large and many actions are invalid. Each XLRON environment provides a method `action_mask` to generate a mask of valid actions for a given state. This mask can be used to prevent the agent from selecting invalid actions.
 
-Invalid action masking is activated by using the flag `--ACTION_MASKING` when running the 'train.py' script. 
+Invalid action masking is activated by using the flag `--ACTION_MASKING` when running the 'train.py' script.
 
 ### Slot aggregation
 
@@ -141,15 +141,15 @@ Slot aggregation is activated by using the flag `--aggregate_slots=N` when runni
 
 Weights and Biases is a tool for experiment tracking, model management, and hyperparameter optimization. It's free for individual use and is a great way to keep track of your experiments and share them with others. To set up your account and start using it with xlron, follow the steps here: https://docs.wandb.ai/quickstart/
 
-Hyperparameters (e.g. learning rate, batch size, rollout length, discount factor (gamma), generalized advantage estimation (GAE) lambda factor, number of MLP layers, number of hidden units, number of parallel environments, etc.) are extremely important for the success of any deep learning model and especially for reinforcement learning, which introduces additional parameters. 
+Hyperparameters (e.g. learning rate, batch size, rollout length, discount factor (gamma), generalized advantage estimation (GAE) lambda factor, number of MLP layers, number of hidden units, number of parallel environments, etc.) are extremely important for the success of any deep learning model and especially for reinforcement learning, which introduces additional parameters.
 
 XLRON features support for wandb experiment tracking and hyperparameter sweeps. The following commandline flags, when running the 'train.py' script, will enable wandb integration:
 
 ```bash
-  
+
   --[no]WANDB: Use wandb
     (default: 'false')
-  --EXPERIMENT_NAME: Name of experiment (equivalent to run name in wandb) 
+  --EXPERIMENT_NAME: Name of experiment (equivalent to run name in wandb)
   (auto-generated based on other flags if unspecified)
     (default: '')
   --PROJECT: Name of project (same as experiment name if unspecified)
@@ -244,4 +244,3 @@ For typical C-band EDFA systems, the optimal per-channel launch power is approxi
 ### GNNs with Jraph
 
 We use the [Jraph](https://github.com/google-deepmind/jraph/tree/master) library for graph neural networks in JAX to implement the policy and/or value networks of our agent, while retaining the advantages of JIT compilation and accelerator hardware. Jraph agents are now fully implemented and accessible through the `--USE_GNN` flag. The GNN agent is a multi-layer graph neural network with message passing and aggregation layers. We also make Graph Attention Network (GAT) models available. The GNN agent is compatible with all environments. The GNN agent is implemented in `agents.py` and can be modified to experiment with different architectures. The GNN agent is trained using the same `train.py` script as a MLP agent, with the `--USE_GNN` flag enabled.
-

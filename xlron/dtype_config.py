@@ -3,7 +3,6 @@
 import os
 from typing import Any, Dict
 
-import jax
 import jax.numpy as jnp
 from absl import flags
 from box import Box
@@ -57,7 +56,6 @@ def initialize_dtypes(flags: flags.FlagValues | Box | Dict) -> None:
                 return default
         except Exception:
             pass
-        import os
 
         env_var = os.environ.get(flag_name)
         if env_var is not None:
@@ -90,7 +88,7 @@ def initialize_dtypes(flags: flags.FlagValues | Box | Dict) -> None:
     large_float_dtype_flag = get_flag_value_or_none("large_float_dtype", float_dtype_flag)
     small_float_dtype_flag = get_flag_value_or_none("small_float_dtype", float_dtype_flag)
     int_dtype_flag = get_flag_value_or_none("int_dtype", int_default)
-    large_int_dtype_flag =get_flag_value_or_none("large_int_dtype", int_dtype_flag)
+    large_int_dtype_flag = get_flag_value_or_none("large_int_dtype", int_dtype_flag)
     small_int_dtype_flag = get_flag_value_or_none("small_int_dtype", int_dtype_flag)
     binary_dtype_flag = get_flag_value_or_none("binary_dtype", binary_default)
     # Ensure reward is float by default if edge difference is normalised (fractional)
@@ -110,5 +108,6 @@ def initialize_dtypes(flags: flags.FlagValues | Box | Dict) -> None:
     globals()["REWARD_DTYPE"] = DTYPE_MAP[reward_dtype_flag]
     globals()["ACTION_DTYPE"] = DTYPE_MAP[action_dtype_flag]
     globals()["INDEX_DTYPE"] = DTYPE_MAP[index_dtype]
+
 
 initialize_dtypes(FLAGS)

@@ -49,8 +49,6 @@ def get_weighted_traffic_matrix(graph, params):
     # In that case, all pairs have equal weight.
     if se_array.size < num_upper_pairs * k:
         first_se_per_pair_upper = np.full(num_upper_pairs, se_array.flat[0], dtype=np.float64)
-        if params.directed_graph:
-            first_se_per_pair_lower = first_se_per_pair_upper.copy()
         traffic_matrix = np.zeros((n_nodes, n_nodes), dtype=np.float64)
         traffic_matrix[src_upper, dst_upper] = 1.0 / first_se_per_pair_upper
         traffic_matrix[dst_upper, src_upper] = 1.0 / first_se_per_pair_upper
@@ -258,7 +256,12 @@ def _has_gpu():
 
 
 def find_congested_cuts_simple(
-    path_link_array, source_nodes, dest_nodes, adjacency_matrix, traffic_matrix, directed=False,
+    path_link_array,
+    source_nodes,
+    dest_nodes,
+    adjacency_matrix,
+    traffic_matrix,
+    directed=False,
 ):
     def compute_single(i):
         path = path_link_array.val[i]
@@ -302,9 +305,7 @@ def find_congested_cuts_simple(
         def scan_body(_, i):
             return None, compute_single(i)
 
-        _, (congestions, partition1, partition2) = jax.lax.scan(
-            scan_body, None, path_indices
-        )
+        _, (congestions, partition1, partition2) = jax.lax.scan(scan_body, None, path_indices)
     return congestions, partition1, partition2
 
 
@@ -516,7 +517,6 @@ def _find_feasible_start_slots(traversed, cutset_slot_array, num_slots):
     return feasible_starts
 
 
-
 def _expire_services(
     elapsed_time,
     cutset_slot_array,
@@ -554,9 +554,8 @@ def _expire_services(
 
     # Build slot masks for expired services: (M, S)
     slot_indices = jnp.arange(num_total_slots)  # (S,)
-    slot_mask = (
-        (slot_indices[None, :] >= service_slot_start[:, None])
-        & (slot_indices[None, :] < (service_slot_start[:, None] + service_slot_count[:, None]))
+    slot_mask = (slot_indices[None, :] >= service_slot_start[:, None]) & (
+        slot_indices[None, :] < (service_slot_start[:, None] + service_slot_count[:, None])
     )  # (M, S)
 
     # Capacity to restore per direction:
@@ -634,7 +633,7 @@ def _simulation_step(
 
     # --- 1. Generate request (advances time, generates source/dest/bw/holding_time) ---
     state = generate_request_rsa(rng_key, state, params)
-    arrival_time = state.arrival_time   # inter-arrival time for this step
+    arrival_time = state.arrival_time  # inter-arrival time for this step
     holding_time = state.holding_time
 
     # --- 2. Expire services whose remaining time <= arrival_time, then shift ---
@@ -676,9 +675,9 @@ def _simulation_step(
 
     # Direction per cutset: 0 if source∈p1 and dest∈p2, else 1
     s_in_p1 = partition1[:, source]  # (C,)
-    d_in_p2 = partition2[:, dest]    # (C,)
-    goes_1to2 = (s_in_p1 & d_in_p2)  # (C,) — True means direction 0 (1→2)
-    direction = (1 - goes_1to2.astype(jnp.int32))  # (C,) — 0=1→2, 1=2→1
+    d_in_p2 = partition2[:, dest]  # (C,)
+    goes_1to2 = s_in_p1 & d_in_p2  # (C,) — True means direction 0 (1→2)
+    direction = 1 - goes_1to2.astype(jnp.int32)  # (C,) — 0=1→2, 1=2→1
 
     # --- 5. Build effective capacity view for this request's direction ---
     # cutset_slot_array is (C, 2, S). Select direction per cutset: effective_csa[c, s] = csa[c, dir[c], s]
@@ -696,13 +695,17 @@ def _simulation_step(
 
     # --- 7. Allocate: decrement cutset_slot_array at the correct direction ---
     slot_indices = jnp.arange(num_total_slots)
-    alloc_mask = (
-        (slot_indices >= start_slot) & (slot_indices < (start_slot + num_slots))
-    ).astype(jnp.int32)  # (S,)
+    alloc_mask = ((slot_indices >= start_slot) & (slot_indices < (start_slot + num_slots))).astype(
+        jnp.int32
+    )  # (S,)
     trav_mask = accepted * traversed.astype(jnp.int32)  # (C,)
     # Build (C, 2, S) decrement: only at the correct direction
-    dec_0 = trav_mask[:, None] * goes_1to2.astype(jnp.int32)[:, None] * alloc_mask[None, :]  # (C, S)
-    dec_1 = trav_mask[:, None] * (1 - goes_1to2.astype(jnp.int32))[:, None] * alloc_mask[None, :]  # (C, S)
+    dec_0 = (
+        trav_mask[:, None] * goes_1to2.astype(jnp.int32)[:, None] * alloc_mask[None, :]
+    )  # (C, S)
+    dec_1 = (
+        trav_mask[:, None] * (1 - goes_1to2.astype(jnp.int32))[:, None] * alloc_mask[None, :]
+    )  # (C, S)
     decrement = jnp.stack([dec_0, dec_1], axis=1)  # (C, 2, S)
     cutset_slot_array = cutset_slot_array - decrement
 
@@ -741,7 +744,9 @@ def _simulation_step(
     is_blocked = any_traversed & (~has_feasible)
     is_always_accepted = ~any_traversed
 
-    accepted_count = accepted_count + accepted.astype(jnp.int32) + is_always_accepted.astype(jnp.int32)
+    accepted_count = (
+        accepted_count + accepted.astype(jnp.int32) + is_always_accepted.astype(jnp.int32)
+    )
     blocked_count = blocked_count + is_blocked.astype(jnp.int32)
     always_accepted_count = always_accepted_count + is_always_accepted.astype(jnp.int32)
     total_bitrate = total_bitrate + requested_datarate
@@ -828,14 +833,14 @@ def run_single_trial(
         service_direction,
         service_slot_start,
         service_slot_count,
-        jnp.int32(0),   # accepted_count
-        jnp.int32(0),   # blocked_count
-        jnp.int32(0),   # always_accepted_count
+        jnp.int32(0),  # accepted_count
+        jnp.int32(0),  # blocked_count
+        jnp.int32(0),  # always_accepted_count
         jnp.float32(0.0),  # accepted_bitrate
         jnp.float32(0.0),  # blocked_bitrate
         jnp.float32(0.0),  # always_accepted_bitrate
         jnp.float32(0.0),  # total_bitrate
-        jnp.int32(0),   # step_idx
+        jnp.int32(0),  # step_idx
     )
 
     def step_fn(carry, _):

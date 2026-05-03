@@ -1,27 +1,17 @@
-import wandb
 import sys
 import os
-import subprocess
 import time
 import pathlib
-import math
-import matplotlib.pyplot as plt
-import absl
 from absl import app, flags
-import xlron.parameter_flags
-import numpy as np
-import pandas as pd
-from box import Box
-from typing import Optional, Union
 # dtype_config is imported after FLAGS are parsed (see bottom of file)
 
 FLAGS = flags.FLAGS
 
-def main(argv):
 
+def main(argv):
     config = process_config(FLAGS)
     dtype_config.initialize_dtypes(config)
-    
+
     jax.numpy.set_printoptions(threshold=sys.maxsize)  # Don't truncate printed arrays
     # increase line length for numpy print options
     jax.numpy.set_printoptions(linewidth=220)
@@ -30,7 +20,9 @@ def main(argv):
     print(f"Available devices: {jax.devices()}")
     print(f"Local devices: {jax.local_devices()}")
     num_devices = len(jax.devices())
-    assert (num_devices == 1), "Please specify one device using VISIBLE_DEVICES flag or run train_multidevice.py"
+    assert num_devices == 1, (
+        "Please specify one device using VISIBLE_DEVICES flag or run train_multidevice.py"
+    )
     config.NUM_DEVICES = num_devices
 
     # Set flags for debugging
@@ -38,12 +30,12 @@ def main(argv):
     jax.config.update("jax_disable_jit", config.DISABLE_JIT)
     jax.config.update("jax_enable_x64", config.ENABLE_X64)
     # The following flags can improve GPU performance for jaxlib>=0.4.18
-    os.environ['XLA_FLAGS'] = (
-        '--xla_gpu_enable_triton_softmax_fusion=true '
-        '--xla_gpu_triton_gemm_any=True '
-        '--xla_gpu_enable_async_collectives=true '
-        '--xla_gpu_enable_latency_hiding_scheduler=true '
-        '--xla_gpu_enable_highest_priority_async_stream=true '
+    os.environ["XLA_FLAGS"] = (
+        "--xla_gpu_enable_triton_softmax_fusion=true "
+        "--xla_gpu_triton_gemm_any=True "
+        "--xla_gpu_enable_async_collectives=true "
+        "--xla_gpu_enable_latency_hiding_scheduler=true "
+        "--xla_gpu_enable_highest_priority_async_stream=true "
     )
     # Option to print memory usage for debugging OOM errors
     if config.PRINT_MEMORY_USE:
@@ -69,7 +61,7 @@ def main(argv):
 
     # Print every flag and its name
     if config.DEBUG:
-        print('non-flag arguments:', argv)
+        print("non-flag arguments:", argv)
         jax.config.update("jax_debug_nans", True)
     if config.NO_TRUNCATE:
         jax.numpy.set_printoptions(threshold=sys.maxsize)  # Don't truncate printed arrays
@@ -90,12 +82,8 @@ def main(argv):
         model = orbax_checkpointer.restore(pathlib.Path(config.MODEL_PATH))
         config.model = model
 
-    NUM_UPDATES = (
-            config.TOTAL_TIMESTEPS // config.ROLLOUT_LENGTH // config.NUM_ENVS
-    )
-    MINIBATCH_SIZE = (
-            config.ROLLOUT_LENGTH * config.NUM_ENVS // config.NUM_MINIBATCHES
-    )
+    NUM_UPDATES = config.TOTAL_TIMESTEPS // config.ROLLOUT_LENGTH // config.NUM_ENVS
+    MINIBATCH_SIZE = config.ROLLOUT_LENGTH * config.NUM_ENVS // config.NUM_MINIBATCHES
     config.NUM_UPDATES = NUM_UPDATES
     config.MINIBATCH_SIZE = MINIBATCH_SIZE
 
@@ -111,9 +99,7 @@ def main(argv):
         if config.NUM_LEARNERS > 1:
             rng = jax.random.split(rng, config.NUM_LEARNERS)
             experiment_fn = (
-                get_learner_fn
-                if not (config.EVAL_HEURISTIC or config.EVAL_MODEL)
-                else get_eval_fn
+                get_learner_fn if not (config.EVAL_HEURISTIC or config.EVAL_MODEL) else get_eval_fn
             )
             experiment_input, env, env_params = jax.vmap(
                 experiment_data_setup, axis_name="learner", in_axes=(None, 0)
@@ -126,19 +112,17 @@ def main(argv):
             )
         else:
             experiment_fn = (
-                get_learner_fn
-                if not (config.EVAL_HEURISTIC or config.EVAL_MODEL)
-                else get_eval_fn
+                get_learner_fn if not (config.EVAL_HEURISTIC or config.EVAL_MODEL) else get_eval_fn
             )
             experiment_input, env, env_params = experiment_data_setup(config, rng)
             experiment_fn = experiment_fn(env, env_params, experiment_input, config)
             run_experiment = jax.jit(experiment_fn).lower(experiment_input).compile()
-    
+
     # N.B. that increasing number of learner will increase the number of steps
     # (essentially training for total_timesteps separately per learner)
 
     start_time = time.time()
-    with TimeIt(tag='EXECUTION', frames=config.TOTAL_TIMESTEPS * config.NUM_LEARNERS):
+    with TimeIt(tag="EXECUTION", frames=config.TOTAL_TIMESTEPS * config.NUM_LEARNERS):
         out = run_experiment(experiment_input)
         out["final_actions"].block_until_ready()  # Wait for all devices to finish
     total_time = time.time() - start_time
@@ -157,6 +141,7 @@ def main(argv):
 
     # Save results to JSON for later plotting
     import json
+
     results = {
         "final_reward": float(out["final_reward"]),
         "best_reward": float(out["best_reward"]),
@@ -173,8 +158,9 @@ def main(argv):
         results["rewards_per_iteration"] = [float(x) for x in out["rewards_per_iteration"]]
 
     output_path = os.path.join(
-        os.path.dirname(__file__), "figures",
-        f"optimization_results_{config.topology_name}_{int(config.max_requests)}req.json"
+        os.path.dirname(__file__),
+        "figures",
+        f"optimization_results_{config.topology_name}_{int(config.max_requests)}req.json",
     )
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     with open(output_path, "w") as f:
@@ -188,12 +174,12 @@ if __name__ == "__main__":
     import jax
     import jax.numpy as jnp
     import orbax.checkpoint
-    import optax
     from xlron import dtype_config
     from xlron.environments.make_env import process_config
     from xlron.environments.env_funcs import create_run_name
     from xlron.environments.wrappers import TimeIt
     from xlron.diff_sim.direct_action_optimization import get_learner_fn
     from xlron.heuristics.eval_heuristic import get_eval_fn
-    from xlron.train.train_utils import save_model, log_metrics, setup_wandb, experiment_data_setup
+    from xlron.train.train_utils import setup_wandb, experiment_data_setup
+
     app.run(main)

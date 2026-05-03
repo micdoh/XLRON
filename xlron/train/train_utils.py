@@ -24,7 +24,6 @@ from xlron import dtype_config
 from xlron.environments.dataclasses import EnvState, RMSAGNModelEnvParams
 from xlron.environments.env_funcs import (
     get_launch_power,
-    get_paths,
     init_link_length_array,
     make_graph,
     mask_slots_rmsa_gn_model,
@@ -721,7 +720,9 @@ def load_model(config: Box, key: chex.PRNGKey) -> eqx.Module:
             model = eqx.tree_at(lambda m: m.critic_layers, model, model_loaded.critic_layers)
             model = eqx.tree_at(lambda m: m.critic_output, model, model_loaded.critic_output)
         else:
-            print("WARNING: KEEP_VF enabled but could not identify critic sub-tree; loading full model")
+            print(
+                "WARNING: KEEP_VF enabled but could not identify critic sub-tree; loading full model"
+            )
             model = model_loaded
     else:
         model = model_loaded
@@ -1114,10 +1115,7 @@ def get_warmup_fn(warmup_state, env, params, train_state, config) -> Callable[[T
         raise ValueError(
             f"warmup_action_type must be None, 'heuristic', or 'random', got '{warmup_action_type}'"
         )
-    use_heuristic_warmup = (
-        config.EVAL_HEURISTIC
-        or warmup_action_type == "heuristic"
-    )
+    use_heuristic_warmup = config.EVAL_HEURISTIC or warmup_action_type == "heuristic"
     use_random_warmup = warmup_action_type == "random"
 
     def warmup_fn(warmup_state) -> Tuple[EnvState, chex.Array]:
@@ -1132,9 +1130,7 @@ def get_warmup_fn(warmup_state, env, params, train_state, config) -> Callable[[T
                 # Random valid action: sample uniformly from the action mask
                 mask_result = env.action_mask(_state.env_state, _params)
                 action_mask = mask_result[0]
-                action = jax.random.categorical(
-                    action_key, jnp.log(jnp.maximum(action_mask, 1e-8))
-                )
+                action = jax.random.categorical(action_key, jnp.log(jnp.maximum(action_mask, 1e-8)))
             else:
                 select_action_state = (_rng, _state, _last_obs)
                 action_fn = select_action if not use_heuristic_warmup else select_action_eval
@@ -1731,7 +1727,9 @@ def log_actions(merged_out, processed_data, config):
 
     # Vectorized spectral efficiency and required slots
     spectral_efficiencies = params.path_se_array.val[path_indices]
-    required_slots = jnp.ceil(request_data_rate / (spectral_efficiencies * params.slot_size)).astype(jnp.int32)
+    required_slots = jnp.ceil(
+        request_data_rate / (spectral_efficiencies * params.slot_size)
+    ).astype(jnp.int32)
 
     # Vectorized path link strings
     paths_list = []

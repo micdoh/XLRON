@@ -102,7 +102,9 @@ class RSAEnv(environment.Environment):
             total_bitrate=jnp.array(0, dtype=dtype_config.LARGE_FLOAT_DTYPE),
             valid_mass=jnp.array(1.0, dtype=dtype_config.LARGE_FLOAT_DTYPE),
             arrival_rate=jnp.array(params.arrival_rate, dtype=dtype_config.SMALL_FLOAT_DTYPE),
-            mean_service_holding_time=jnp.array(params.mean_service_holding_time, dtype=dtype_config.SMALL_FLOAT_DTYPE),
+            mean_service_holding_time=jnp.array(
+                params.mean_service_holding_time, dtype=dtype_config.SMALL_FLOAT_DTYPE
+            ),
         )
         if params.__class__.__name__ not in ["RSAGNModelEnvParams", "RMSAGNModelEnvParams"]:
             self.initial_state = state.replace(
@@ -337,7 +339,9 @@ class RSAEnv(environment.Environment):
             return 0.0
         return float(out[0])
 
-    def _get_render_graph(self, params: RSAEnvParams, render_context: Optional[dict[str, Any]] = None):
+    def _get_render_graph(
+        self, params: RSAEnvParams, render_context: Optional[dict[str, Any]] = None
+    ):
         import networkx as nx
 
         edges = self._to_numpy(params.edges.val).astype(int)
@@ -404,7 +408,11 @@ class RSAEnv(environment.Environment):
     def _extract_node_positions(graph):
         pos = {}
         for node, attrs in graph.nodes(data=True):
-            if "pos" in attrs and isinstance(attrs["pos"], (list, tuple)) and len(attrs["pos"]) >= 2:
+            if (
+                "pos" in attrs
+                and isinstance(attrs["pos"], (list, tuple))
+                and len(attrs["pos"]) >= 2
+            ):
                 lon, lat = attrs["pos"][0], attrs["pos"][1]
             elif "longitude" in attrs and "latitude" in attrs:
                 lon, lat = attrs["longitude"], attrs["latitude"]
@@ -426,7 +434,9 @@ class RSAEnv(environment.Environment):
         if not topology_name:
             return cls._extract_node_positions(g)
         try:
-            topo_graph = make_graph(str(topology_name), str(topology_directory) if topology_directory else None)
+            topo_graph = make_graph(
+                str(topology_name), str(topology_directory) if topology_directory else None
+            )
         except Exception:
             return cls._extract_node_positions(g)
 
@@ -487,7 +497,9 @@ class RSAEnv(environment.Environment):
         rgba[occupied, 3] = 0.35 + 0.60 * remaining[occupied]
         return rgba
 
-    def _build_render_header(self, params: RSAEnvParams, render_context: Optional[dict[str, Any]]) -> str:
+    def _build_render_header(
+        self, params: RSAEnvParams, render_context: Optional[dict[str, Any]]
+    ) -> str:
         env_name = self.name
         if env_name == "RWALightpathReuseEnv":
             env_label = "RWA-LR"
@@ -499,7 +511,11 @@ class RSAEnv(environment.Environment):
             env_label = "RMSA"
         elif not params.consider_modulation_format:
             vals = self._to_numpy(params.values_bw.val).reshape(-1)
-            is_rwa = vals.size == 1 and abs(float(vals[0]) - float(params.slot_size)) < 1e-6 and int(params.guardband) == 0
+            is_rwa = (
+                vals.size == 1
+                and abs(float(vals[0]) - float(params.slot_size)) < 1e-6
+                and int(params.guardband) == 0
+            )
             env_label = "RWA" if is_rwa else "RSA"
         else:
             env_label = "RMSA"
@@ -569,7 +585,12 @@ class RSAEnv(environment.Environment):
             self._render_matrix_base_pos = self._render_axes[0].get_position().frozen()
             logo_ax = self._render_figure.add_axes([0.015, 0.905, 0.055, 0.075])
             logo_ax.set_axis_off()
-            logo_path = pathlib.Path(__file__).resolve().parents[3] / "docs" / "images" / "xlron_nobackground.png"
+            logo_path = (
+                pathlib.Path(__file__).resolve().parents[3]
+                / "docs"
+                / "images"
+                / "xlron_nobackground.png"
+            )
             if logo_path.exists():
                 logo_img = plt.imread(str(logo_path))
                 logo_ax.imshow(logo_img)
@@ -584,7 +605,9 @@ class RSAEnv(environment.Environment):
                 color="#111111",
                 fontweight="bold",
             )
-        elif hasattr(self, "_render_header_text_artist") and self._render_header_text_artist is None:
+        elif (
+            hasattr(self, "_render_header_text_artist") and self._render_header_text_artist is None
+        ):
             self._render_header_text_artist = self._render_figure.text(
                 0.075,
                 0.935,
@@ -640,7 +663,9 @@ class RSAEnv(environment.Environment):
                 self._render_last_lightpath_snr is not None
                 and self._render_last_lightpath_snr.shape == snr.shape
             ):
-                carry_mask = occupied_mask & ~np.isfinite(snr) & np.isfinite(self._render_last_lightpath_snr)
+                carry_mask = (
+                    occupied_mask & ~np.isfinite(snr) & np.isfinite(self._render_last_lightpath_snr)
+                )
                 if np.any(carry_mask):
                     snr[carry_mask] = self._render_last_lightpath_snr[carry_mask]
 
@@ -685,7 +710,10 @@ class RSAEnv(environment.Environment):
             cbar_pad = 0.010
             cbar_x = min(0.99 - cbar_w, matrix_bbox.x1 + cbar_pad)
             cbar_rect = [cbar_x, matrix_bbox.y0, cbar_w, matrix_bbox.height]
-            if self._render_snr_cbar_ax is None or self._render_snr_cbar_ax.figure is not self._render_figure:
+            if (
+                self._render_snr_cbar_ax is None
+                or self._render_snr_cbar_ax.figure is not self._render_figure
+            ):
                 self._render_snr_cbar_ax = self._render_figure.add_axes(cbar_rect)
                 self._render_snr_cbar = None
             else:
@@ -702,9 +730,7 @@ class RSAEnv(environment.Environment):
             self._render_snr_cbar.ax.yaxis.set_ticks_position("right")
             self._render_snr_cbar.ax.yaxis.set_label_position("right")
             self._render_snr_cbar.set_label("SNR (dB)", fontsize=max(7.0, 10.0 * text_scale))
-            self._render_snr_cbar.ax.tick_params(
-                labelsize=max(6.0, 9.0 * text_scale), length=2
-            )
+            self._render_snr_cbar.ax.tick_params(labelsize=max(6.0, 9.0 * text_scale), length=2)
             rgba = np.asarray(im.cmap(im.norm(snr_vis.filled(7.5))))
         else:
             if self._render_snr_cbar_ax is not None:
@@ -729,11 +755,7 @@ class RSAEnv(environment.Environment):
                 if hasattr(state, "path_index_array") and hasattr(state, "path_capacity_array"):
                     path_idx = self._to_numpy(state.path_index_array).astype(int)
                     path_cap = self._to_numpy(state.path_capacity_array).astype(float).reshape(-1)
-                    valid_idx = (
-                        (path_idx >= 0)
-                        & (path_idx < path_cap.shape[0])
-                        & used_mask
-                    )
+                    valid_idx = (path_idx >= 0) & (path_idx < path_cap.shape[0]) & used_mask
                     max_cap = np.zeros_like(cap, dtype=float)
                     max_cap[valid_idx] = path_cap[path_idx[valid_idx]]
                 else:
@@ -868,7 +890,11 @@ class RSAEnv(environment.Environment):
             )
         ax_graph.set_axis_off()
 
-        if action_info is not None and hasattr(action_info, "nodes_sd") and hasattr(action_info, "requested_datarate"):
+        if (
+            action_info is not None
+            and hasattr(action_info, "nodes_sd")
+            and hasattr(action_info, "requested_datarate")
+        ):
             src = int(self._to_scalar(action_info.nodes_sd[0]))
             dst = int(self._to_scalar(action_info.nodes_sd[1]))
             bit_rate = float(self._to_scalar(action_info.requested_datarate))
@@ -890,7 +916,9 @@ class RSAEnv(environment.Environment):
         total_bitrate = self._to_scalar(state.total_bitrate)
         service_bp = 1.0 - (accepted_services / max(total_requests, 1))
         bitrate_bp = 1.0 - (accepted_bitrate / max(total_bitrate, 1e-6))
-        util = float(np.count_nonzero(self._to_numpy(state.link_slot_array)) / state.link_slot_array.size)
+        util = float(
+            np.count_nonzero(self._to_numpy(state.link_slot_array)) / state.link_slot_array.size
+        )
 
         req_fsu = (
             int(round(self._to_scalar(action_info.num_slots)))
@@ -916,8 +944,16 @@ class RSAEnv(environment.Environment):
         if hasattr(state, "link_capacity_array"):
             cap = self._to_numpy(state.link_capacity_array)
             rows.append(("Mean Capacity", f"{float(np.mean(cap)):>10.3f}"))
-        if gn_mode and lightpath_snr_for_stats is not None and snr_active_mask_for_stats is not None:
-            stats_src = render_snr_for_stats if render_snr_for_stats is not None else lightpath_snr_for_stats
+        if (
+            gn_mode
+            and lightpath_snr_for_stats is not None
+            and snr_active_mask_for_stats is not None
+        ):
+            stats_src = (
+                render_snr_for_stats
+                if render_snr_for_stats is not None
+                else lightpath_snr_for_stats
+            )
             active_snr = stats_src[snr_active_mask_for_stats]
             active_snr = active_snr[np.isfinite(active_snr)]
             mean_active_snr = float(np.mean(active_snr)) if active_snr.size > 0 else float("nan")
@@ -929,7 +965,10 @@ class RSAEnv(environment.Environment):
                 if req_snr_vals.size > 0:
                     curr_req_snr = float(np.mean(req_snr_vals))
             rows.append(
-                ("Request SNR (dB)", f"{curr_req_snr:>10.2f}" if np.isfinite(curr_req_snr) else f"{'n/a':>10}")
+                (
+                    "Request SNR (dB)",
+                    f"{curr_req_snr:>10.2f}" if np.isfinite(curr_req_snr) else f"{'n/a':>10}",
+                )
             )
             rows.append(
                 (
@@ -952,7 +991,9 @@ class RSAEnv(environment.Environment):
             family="monospace",
             fontsize=stats_fontsize,
             color="#111111",
-            bbox=dict(boxstyle="round,pad=0.35", facecolor="#FFFFFF", edgecolor="#DDDDDD", alpha=1.0),
+            bbox=dict(
+                boxstyle="round,pad=0.35", facecolor="#FFFFFF", edgecolor="#DDDDDD", alpha=1.0
+            ),
             transform=ax_stats.transAxes,
         )
         self._render_figure.canvas.draw_idle()
@@ -1412,6 +1453,8 @@ class RSAMultibandEnv(RSAEnv):
             list_of_requests=list_of_requests,
             valid_mass=jnp.array(1.0, dtype=dtype_config.LARGE_FLOAT_DTYPE),
             arrival_rate=jnp.array(params.arrival_rate, dtype=dtype_config.SMALL_FLOAT_DTYPE),
-            mean_service_holding_time=jnp.array(params.mean_service_holding_time, dtype=dtype_config.SMALL_FLOAT_DTYPE),
+            mean_service_holding_time=jnp.array(
+                params.mean_service_holding_time, dtype=dtype_config.SMALL_FLOAT_DTYPE
+            ),
         )
         self.initial_state = state.replace(graph=init_graph_tuple(state, params, laplacian_matrix))

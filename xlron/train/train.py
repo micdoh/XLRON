@@ -93,7 +93,12 @@ def run_eval_render(config: Dict[str, Any], eval_state: Any, run_name: str):
             backend_name = str(plt.get_backend()).lower()
         except Exception:
             backend_name = "unknown"
-        non_interactive = ("agg" in backend_name) or ("pdf" in backend_name) or ("svg" in backend_name) or ("ps" in backend_name)
+        non_interactive = (
+            ("agg" in backend_name)
+            or ("pdf" in backend_name)
+            or ("svg" in backend_name)
+            or ("ps" in backend_name)
+        )
         if non_interactive:
             fallback_mode = "save"
             print(
@@ -119,7 +124,9 @@ def run_eval_render(config: Dict[str, Any], eval_state: Any, run_name: str):
             else tuple([obsv])
         )
 
-        run_type = "MODEL EVAL" if config.EVAL_MODEL else f"{str(config.path_heuristic).upper()} EVAL"
+        run_type = (
+            "MODEL EVAL" if config.EVAL_MODEL else f"{str(config.path_heuristic).upper()} EVAL"
+        )
         render_context = {
             "run_type": run_type,
             "path_heuristic": config.path_heuristic,
@@ -127,8 +134,10 @@ def run_eval_render(config: Dict[str, Any], eval_state: Any, run_name: str):
             "topology_name": config.topology_name,
             "topology_directory": config.get("topology_directory", None),
         }
-        max_steps = int(config.RENDER_MAX_STEPS) if int(config.RENDER_MAX_STEPS) > 0 else int(
-            config.max_requests * getattr(config, "scale_factor", 1)
+        max_steps = (
+            int(config.RENDER_MAX_STEPS)
+            if int(config.RENDER_MAX_STEPS) > 0
+            else int(config.max_requests * getattr(config, "scale_factor", 1))
         )
         fps = max(float(config.RENDER_FPS), 0.1)
         frames = []
@@ -228,9 +237,9 @@ def run_eval_render(config: Dict[str, Any], eval_state: Any, run_name: str):
                                 )
                                 if alloc_w != req_w:
                                     step_id = int(
-                                        np.asarray(jax.device_get(curr_state.total_timesteps)).reshape(
-                                            -1
-                                        )[0]
+                                        np.asarray(
+                                            jax.device_get(curr_state.total_timesteps)
+                                        ).reshape(-1)[0]
                                     )
                                     print(
                                         f"RENDER_FSU_MISMATCH step={step_id} req={req_w} alloc={alloc_w} "
@@ -408,7 +417,9 @@ def identify_default_device(
         return device
 
 
-def _update_experiment_input_load(experiment_input, load_val, mean_service_holding_time, num_learners):
+def _update_experiment_input_load(
+    experiment_input, load_val, mean_service_holding_time, num_learners
+):
     """Update arrival_rate and mean_service_holding_time in experiment_input for a new load.
 
     experiment_input is (runner_state, env_state, obsv, rng_step, rng_epoch) where
@@ -539,9 +550,7 @@ def train(argv: list[str], config: Dict[str, Any] = {}) -> None:
         and config.get("max_load") is not None
         and config.get("step_load") is not None
     ):
-        loads = np.arange(
-            config.min_load, config.max_load + config.step_load / 2, config.step_load
-        )
+        loads = np.arange(config.min_load, config.max_load + config.step_load / 2, config.step_load)
     else:
         loads = np.array([config.load])
 
@@ -630,16 +639,18 @@ def train(argv: list[str], config: Dict[str, Any] = {}) -> None:
     for load_idx, load_val in enumerate(loads):
         load_val = float(load_val)
         if len(loads) > 1:
-            print(f"\n{'='*70}")
+            print(f"\n{'=' * 70}")
             print(f"LOAD SWEEP: load={load_val:.1f} ({load_idx + 1}/{len(loads)})")
-            print(f"{'='*70}")
+            print(f"{'=' * 70}")
             # Update config.load and user_flags for logging/JSONL output
             config.load = load_val
             config.arrival_rate = load_val / mean_service_holding_time
             user_flags["load"] = load_val
             # Update experiment_input with new arrival_rate for this load
             experiment_input = _update_experiment_input_load(
-                base_experiment_input, load_val, mean_service_holding_time,
+                base_experiment_input,
+                load_val,
+                mean_service_holding_time,
                 config.NUM_LEARNERS,
             )
             # Update run/experiment names for this load
@@ -667,7 +678,9 @@ def train(argv: list[str], config: Dict[str, Any] = {}) -> None:
         for i in range(config.NUM_INCREMENTS):
             print(f"\n---INCREMENT {i + 1}/{config.NUM_INCREMENTS}---")
             # Run the increment
-            with profiler.section("EXECUTION", frames=config.STEPS_PER_INCREMENT * config.NUM_LEARNERS):
+            with profiler.section(
+                "EXECUTION", frames=config.STEPS_PER_INCREMENT * config.NUM_LEARNERS
+            ):
                 out = run_experiment(experiment_input)
                 out = jax.tree_util.tree_map(
                     lambda x: x.block_until_ready() if hasattr(x, "block_until_ready") else x, out
@@ -680,7 +693,9 @@ def train(argv: list[str], config: Dict[str, Any] = {}) -> None:
             if (config.EVAL_HEURISTIC or config.EVAL_MODEL) and render_mode != "off":
                 if render_mode in {"save", "human"}:
                     eval_state_for_render = (
-                        experiment_input[0] if isinstance(experiment_input, tuple) else experiment_input
+                        experiment_input[0]
+                        if isinstance(experiment_input, tuple)
+                        else experiment_input
                     )
                     run_eval_render(config, eval_state_for_render, experiment_name)
             merged_out, processed_data = log_metrics(

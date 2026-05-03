@@ -186,7 +186,6 @@ def get_eval_fn(config, env, env_params, compile_defrag=False) -> Callable:
     # Auto-reset causes dtype/shape mismatches when list_of_requests differs
     # between the injected requests and the default reset state.
     raw_env = env._env if hasattr(env, "_env") else env
-    profile = bool(config.PROFILE)
     select_action = ksp_ff if config.path_heuristic == "ksp_ff" else ff_ksp
 
     if compile_defrag:
@@ -239,8 +238,8 @@ def get_eval_fn(config, env, env_params, compile_defrag=False) -> Callable:
                 rng, _action_key, step_key = jax.random.split(rng, 3)
                 inner_state = env_state.env_state
                 action = select_action(inner_state, env_params)
-                obsv, new_inner_state, reward, terminal, truncated, info = (
-                    raw_env.step_env(step_key, inner_state, action, env_params)
+                obsv, new_inner_state, reward, terminal, truncated, info = raw_env.step_env(
+                    step_key, inner_state, action, env_params
                 )
                 env_state = env_state.replace(env_state=new_inner_state)
                 blocked = reward < 0
@@ -273,10 +272,12 @@ def get_eval_fn(config, env, env_params, compile_defrag=False) -> Callable:
             if total_ts >= max_active:
                 real_deps_trimmed = real_deps_sorted[:max_active]
             else:
-                real_deps_trimmed = jnp.concatenate([
-                    real_deps_sorted,
-                    jnp.zeros(max_active - total_ts, dtype=real_deps_sorted.dtype)
-                ])
+                real_deps_trimmed = jnp.concatenate(
+                    [
+                        real_deps_sorted,
+                        jnp.zeros(max_active - total_ts, dtype=real_deps_sorted.dtype),
+                    ]
+                )
 
             trimmed = fix_timing_after_trim(trim_active_requests(active_requests))
 
@@ -479,8 +480,15 @@ def step_env(rng, raw_env, env_state, env_params, profile=False):
 def _build_loads(flags_obj):
     """Build array of loads from flags. Uses min/max/step if set, else single load."""
     import numpy as np
-    if flags_obj.min_load is not None and flags_obj.max_load is not None and flags_obj.step_load is not None:
-        return np.arange(flags_obj.min_load, flags_obj.max_load + flags_obj.step_load / 2, flags_obj.step_load)
+
+    if (
+        flags_obj.min_load is not None
+        and flags_obj.max_load is not None
+        and flags_obj.step_load is not None
+    ):
+        return np.arange(
+            flags_obj.min_load, flags_obj.max_load + flags_obj.step_load / 2, flags_obj.step_load
+        )
     return np.array([flags_obj.load])
 
 
@@ -516,13 +524,12 @@ def main(argv):
     loads = _build_loads(FLAGS)
     # Use max load for max_active sizing (determines defrag array shapes)
     effective_max_load = float(max(loads))
-    mean_service_holding_time = float(FLAGS.mean_service_holding_time)
 
     for load_val in loads:
         load_val = float(load_val)
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print(f"  Load = {load_val:.1f} Erlang")
-        print(f"{'='*60}")
+        print(f"{'=' * 60}")
 
         all_blocking_probs = []
         all_block_counts = []
@@ -542,7 +549,9 @@ def main(argv):
         compile_defrag = bool(FLAGS.COMPILE_RR_BOUNDS)
         # Use effective_max_load for max_active sizing
         FLAGS.__setattr__("load", effective_max_load)
-        main_loop_fn, defrag_fn = get_eval_fn(FLAGS, env, env_params_det, compile_defrag=compile_defrag)
+        main_loop_fn, defrag_fn = get_eval_fn(
+            FLAGS, env, env_params_det, compile_defrag=compile_defrag
+        )
         FLAGS.__setattr__("load", load_val)  # Restore actual load
 
         compiled_main = None  # AOT-compiled on first seed

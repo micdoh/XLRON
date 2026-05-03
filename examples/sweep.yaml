@@ -106,8 +106,8 @@ parameters:
       - 20
       - 100
 command:
-  - "uv" 
-  - "run" 
+  - "uv"
+  - "run"
   - "python"
   - ${program}
   - "--env_type"
@@ -124,7 +124,7 @@ command:
   - 1
   - --continuous_operation
   - "--ENV_WARMUP_STEPS"
-  - 3000 
+  - 3000
   - --REWARD_CENTERING
   - --USE_TRANSFORMER
   - --truncate_holding_time

@@ -53,5 +53,3 @@ python train.py --env_type=rwa_lightpath_reuse --k=5 --topology_name=nsfnet --li
 ### Run the notebook `XLRON/data_processing/rwa_lr_training.ipynb`
 ### Run the notebook `XLRON/data_processing/jocn_benchmarks_rwalr.ipynb`
 ### Run the notebook `XLRON/data_processing/k_path_plots.ipynb`
-
-

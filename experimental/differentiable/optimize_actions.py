@@ -21,7 +21,7 @@ def main(argv):
 
     config = process_config(FLAGS)
     dtype_config.initialize_dtypes(config)
-    
+
     jax.numpy.set_printoptions(threshold=sys.maxsize)  # Don't truncate printed arrays
     # increase line length for numpy print options
     jax.numpy.set_printoptions(linewidth=220)
@@ -133,7 +133,7 @@ def main(argv):
             experiment_input, env, env_params = experiment_data_setup(config, rng)
             experiment_fn = experiment_fn(env, env_params, experiment_input, config)
             run_experiment = jax.jit(experiment_fn).lower(experiment_input).compile()
-    
+
     # N.B. that increasing number of learner will increase the number of steps
     # (essentially training for total_timesteps separately per learner)
 

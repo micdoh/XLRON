@@ -32,28 +32,34 @@ def _rwa_lr_cached_setup(cache_key, settings):
 
 
 def rwa_lightpath_reuse_4_nsfnet_test_setup():
-    return _rwa_lr_cached_setup("rwa_lr_nsfnet_4", dict(
-        k=5,
-        topology_name="nsfnet_deeprmsa_undirected",
-        link_resources=4,
-        max_requests=1000,
-        values_bw=[100],
-        incremental_loading=True,
-        env_type="rwa_lightpath_reuse",
-        scale_factor=1.0,
-    ))
+    return _rwa_lr_cached_setup(
+        "rwa_lr_nsfnet_4",
+        dict(
+            k=5,
+            topology_name="nsfnet_deeprmsa_undirected",
+            link_resources=4,
+            max_requests=1000,
+            values_bw=[100],
+            incremental_loading=True,
+            env_type="rwa_lightpath_reuse",
+            scale_factor=1.0,
+        ),
+    )
 
 
 def rwa_lightpath_reuse_4node_test_setup():
-    return _rwa_lr_cached_setup("rwa_lr_4node", dict(
-        k=2,
-        topology_name="4node",
-        link_resources=4,
-        max_requests=1000,
-        values_bw=[100],
-        incremental_loading=True,
-        env_type="rwa_lightpath_reuse",
-    ))
+    return _rwa_lr_cached_setup(
+        "rwa_lr_4node",
+        dict(
+            k=2,
+            topology_name="4node",
+            link_resources=4,
+            max_requests=1000,
+            values_bw=[100],
+            incremental_loading=True,
+            env_type="rwa_lightpath_reuse",
+        ),
+    )
 
 
 class CheckLightpathAvailableAndExistingTest(parameterized.TestCase):

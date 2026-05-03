@@ -137,8 +137,7 @@ flags.DEFINE_boolean("PLOTTING", False, "Plotting")
 flags.DEFINE_string(
     "RENDER_EVAL_MODE",
     "off",
-    "Eval-only rendering mode: off, save, or human. "
-    "Only used for EVAL_HEURISTIC/EVAL_MODEL runs.",
+    "Eval-only rendering mode: off, save, or human. Only used for EVAL_HEURISTIC/EVAL_MODEL runs.",
 )
 flags.DEFINE_float("RENDER_FPS", 2.0, "Playback/recording frame rate for eval rendering")
 flags.DEFINE_float(

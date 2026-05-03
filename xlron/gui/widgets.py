@@ -700,8 +700,7 @@ def environment_section() -> dict:
         min_value=0.0,
         value=float(_get_preset_val("maximum_path_length_km") or 0),
         step=1000.0,
-        help=_h("maximum_path_length_km")
-        + " Set to 0 to disable.",
+        help=_h("maximum_path_length_km") + " Set to 0 to disable.",
     )
     _emit(flags, "maximum_path_length_km", max_path_len if max_path_len > 0 else None)
 
@@ -1273,7 +1272,9 @@ def schedule_section() -> dict:
 
     # --- GAE Lambda Anneal ---
     st.markdown("**GAE Lambda Anneal**")
-    st.caption("When GAE Lambda is not set explicitly (in PPO section), it anneals between these values.")
+    st.caption(
+        "When GAE Lambda is not set explicitly (in PPO section), it anneals between these values."
+    )
     lc1, lc2, lc3 = st.columns(3)
     with lc1:
         init_lam = st.number_input(

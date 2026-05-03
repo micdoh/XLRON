@@ -552,7 +552,6 @@ def _loss_fn(
 
     # --- Per-step weight for actor + entropy losses ------------------------------
     mask_sum = jnp.sum(traj_batch.action_mask, axis=-1)
-    gate_any = (mask_sum > 0).astype(jnp.float32)  # at least 1 valid action
 
     # Hard gate: zero weight for steps with fewer than IAM_GATING_MIN_ACTIONS valid actions
     if config.IAM_GATING:

@@ -35,19 +35,22 @@ def _gn_cached_setup(cache_key, settings, seed=0):
 
 
 def rsa_gn_model_4_nsfnet_test_setup():
-    return _gn_cached_setup("rsa_gn_model_4_nsfnet", dict(
-        k=5,
-        topology_name="nsfnet_deeprmsa_undirected",
-        link_resources=4,
-        max_requests=10,
-        values_bw=[100],
-        incremental_loading=True,
-        env_type="rsa_gn_model",
-        interband_gap=0,
-        slot_size=25,
-        mod_format_correction=False,
-        launch_power=0.0,
-    ))
+    return _gn_cached_setup(
+        "rsa_gn_model_4_nsfnet",
+        dict(
+            k=5,
+            topology_name="nsfnet_deeprmsa_undirected",
+            link_resources=4,
+            max_requests=10,
+            values_bw=[100],
+            incremental_loading=True,
+            env_type="rsa_gn_model",
+            interband_gap=0,
+            slot_size=25,
+            mod_format_correction=False,
+            launch_power=0.0,
+        ),
+    )
 
 
 @absltest.skipThisClass("Not finalized")
@@ -224,9 +227,9 @@ class RSAGNModelTest(parameterized.TestCase):
                 [path_action.reshape((1,)), power_action.reshape((1,))], axis=0
             )
             # step env
-            obsv, env_state, reward, done, truncated, info = self.variant(self.env.step, static_argnums=(3))(
-                rng_step, env_state, action, self.params
-            )
+            obsv, env_state, reward, done, truncated, info = self.variant(
+                self.env.step, static_argnums=(3)
+            )(rng_step, env_state, action, self.params)
             jax.debug.print("action mask {}", env_state.link_slot_mask, ordered=True)
             jax.debug.print("action {}", action, ordered=True)
             jax.debug.print("reward {}", reward, ordered=True)
@@ -397,21 +400,25 @@ class TransceiverAmplifierNoiseTest(parameterized.TestCase):
 
 def rmsa_gn_model_test_setup():
     # Seed 3 generates a short-path request (300 km) that passes SNR checks
-    return _gn_cached_setup("rmsa_gn_model", dict(
-        k=4,
-        topology_name="nsfnet_deeprmsa_directed",
-        link_resources=10,
-        max_requests=100,
-        values_bw=[100],
-        incremental_loading=True,
-        env_type="rmsa_gn_model",
-        slot_size=12.5,
-        guardband=0,
-        mod_format_correction=False,
-        max_power_per_fibre=10.0,
-        coherent=False,
-        include_no_op=False,
-    ), seed=3)
+    return _gn_cached_setup(
+        "rmsa_gn_model",
+        dict(
+            k=4,
+            topology_name="nsfnet_deeprmsa_directed",
+            link_resources=10,
+            max_requests=100,
+            values_bw=[100],
+            incremental_loading=True,
+            env_type="rmsa_gn_model",
+            slot_size=12.5,
+            guardband=0,
+            mod_format_correction=False,
+            max_power_per_fibre=10.0,
+            coherent=False,
+            include_no_op=False,
+        ),
+        seed=3,
+    )
 
 
 class RMSAGNModelMaskTest(parameterized.TestCase):
@@ -572,22 +579,26 @@ class EnforceBandGapsTest(parameterized.TestCase):
 
 
 def rsa_gn_model_band_preference_test_setup(band_preference):
-    return _gn_cached_setup(f"rsa_gn_model_band_pref_{band_preference}", dict(
-        k=4,
-        topology_name="nsfnet_deeprmsa_directed",
-        link_resources=100,
-        max_requests=100,
-        values_bw=[100],
-        incremental_loading=True,
-        env_type="rsa_gn_model",
-        slot_size=12.5,
-        guardband=0,
-        mod_format_correction=False,
-        max_power_per_fibre=10.0,
-        coherent=False,
-        include_no_op=False,
-        band_preference=band_preference,
-    ), seed=3)
+    return _gn_cached_setup(
+        f"rsa_gn_model_band_pref_{band_preference}",
+        dict(
+            k=4,
+            topology_name="nsfnet_deeprmsa_directed",
+            link_resources=100,
+            max_requests=100,
+            values_bw=[100],
+            incremental_loading=True,
+            env_type="rsa_gn_model",
+            slot_size=12.5,
+            guardband=0,
+            mod_format_correction=False,
+            max_power_per_fibre=10.0,
+            coherent=False,
+            include_no_op=False,
+            band_preference=band_preference,
+        ),
+        seed=3,
+    )
 
 
 class BandPreferenceTest(parameterized.TestCase):
@@ -667,22 +678,26 @@ class BandPreferenceTest(parameterized.TestCase):
 
 
 def rsa_gn_model_subchannels_test_setup(num_subchannels=1):
-    return _gn_cached_setup(f"rsa_gn_model_subch_{num_subchannels}", dict(
-        k=4,
-        topology_name="nsfnet_deeprmsa_directed",
-        link_resources=10,
-        max_requests=100,
-        values_bw=[100],
-        incremental_loading=True,
-        env_type="rsa_gn_model",
-        slot_size=100,
-        guardband=0,
-        mod_format_correction=False,
-        max_power_per_fibre=10.0,
-        coherent=False,
-        include_no_op=False,
-        num_subchannels=num_subchannels,
-    ), seed=3)
+    return _gn_cached_setup(
+        f"rsa_gn_model_subch_{num_subchannels}",
+        dict(
+            k=4,
+            topology_name="nsfnet_deeprmsa_directed",
+            link_resources=10,
+            max_requests=100,
+            values_bw=[100],
+            incremental_loading=True,
+            env_type="rsa_gn_model",
+            slot_size=100,
+            guardband=0,
+            mod_format_correction=False,
+            max_power_per_fibre=10.0,
+            coherent=False,
+            include_no_op=False,
+            num_subchannels=num_subchannels,
+        ),
+        seed=3,
+    )
 
 
 class NumSubchannelsTest(parameterized.TestCase):

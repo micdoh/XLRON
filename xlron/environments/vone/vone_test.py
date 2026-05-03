@@ -96,39 +96,45 @@ def vone_4node_mod_test_setup():
 
 
 def vone_nsfnet_16_test_setup():
-    return _vone_cached_setup("vone_nsfnet_16", dict(
-        load=100,
-        k=5,
-        topology_name="nsfnet_deeprmsa_undirected",
-        link_resources=16,
-        max_requests=10,
-        values_bw=[1, 2, 3],
-        slot_size=1,
-        consider_modulation_format=False,
-        mean_service_holding_time=10,
-        node_resources=4,
-        virtual_topologies=["3_ring"],
-        min_node_resources=1,
-        max_node_resources=2,
-        env_type="vone",
-    ))
+    return _vone_cached_setup(
+        "vone_nsfnet_16",
+        dict(
+            load=100,
+            k=5,
+            topology_name="nsfnet_deeprmsa_undirected",
+            link_resources=16,
+            max_requests=10,
+            values_bw=[1, 2, 3],
+            slot_size=1,
+            consider_modulation_format=False,
+            mean_service_holding_time=10,
+            node_resources=4,
+            virtual_topologies=["3_ring"],
+            min_node_resources=1,
+            max_node_resources=2,
+            env_type="vone",
+        ),
+    )
 
 
 def vone_nsfnet_16_mod_test_setup():
-    return _vone_cached_setup("vone_nsfnet_16_mod", dict(
-        load=100,
-        k=5,
-        topology_name="nsfnet_deeprmsa_undirected",
-        link_resources=16,
-        max_requests=10,
-        mean_service_holding_time=10,
-        node_resources=4,
-        virtual_topologies=["3_ring"],
-        min_node_resources=1,
-        max_node_resources=2,
-        consider_modulation_format=True,
-        env_type="vone",
-    ))
+    return _vone_cached_setup(
+        "vone_nsfnet_16_mod",
+        dict(
+            load=100,
+            k=5,
+            topology_name="nsfnet_deeprmsa_undirected",
+            link_resources=16,
+            max_requests=10,
+            mean_service_holding_time=10,
+            node_resources=4,
+            virtual_topologies=["3_ring"],
+            min_node_resources=1,
+            max_node_resources=2,
+            consider_modulation_format=True,
+            env_type="vone",
+        ),
+    )
 
 
 class GenerateVoneRequestTest(parameterized.TestCase):

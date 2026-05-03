@@ -40,7 +40,7 @@ To further understand the architecture of XLRON and how it allows distributed tr
 <img src="./images/xlron_training_vert.png" width="600">
 
 
-## 🏎️ Speed Benchmarks 🏎️ 
+## 🏎️ Speed Benchmarks 🏎️
 
 #### tldr: Expect approximately 500x speed-up! 🚀
 

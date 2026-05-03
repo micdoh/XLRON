@@ -832,7 +832,7 @@ def get_snr_fused(
 
     # === NLI power ===
     eta_n = eta_spm + eta_xpm
-    p_nli = ch_pow ** 3 * eta_n
+    p_nli = ch_pow**3 * eta_n
 
     # === ASE inline (ISRS-aware gain) ===
     # Replicate calculate_amplifier_gain_isrs logic with mixed THz/km units

@@ -68,7 +68,7 @@ Available topologies:
 You can also supply a custom topology directory with `--topology_directory`.
 
 !!! note "Optional Node Coordinates for Rendering"
-    Topology JSON node entries can include `longitude` and `latitude` attributes.  
+    Topology JSON node entries can include `longitude` and `latitude` attributes.
     When present, XLRON render uses these coordinates to seed topology layout positions.
 
 ### `--link_resources`

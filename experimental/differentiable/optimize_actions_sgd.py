@@ -170,7 +170,7 @@ def get_learner_fn(
                 actions = combine_actions(actions[:,0], actions[:,1], env_params)
                 best_actions = combine_actions(best_actions[:,0], best_actions[:,1], env_params)
                 new_actions = combine_actions(new_actions[:,0], new_actions[:,1], env_params)
-            
+
             # Clip actions to valid range
             new_actions = jnp.clip(new_actions, 0, env.num_actions(env_params))
 
@@ -191,7 +191,7 @@ def get_learner_fn(
                 jnp.max(new_actions),
                 ordered=True,
             )
-            
+
             if config.PATH_SLOT_ACTIONS:
                 best_actions = decombine_actions(best_actions, env_params)
                 new_actions = decombine_actions(new_actions, env_params)
@@ -241,7 +241,7 @@ def get_learner_fn(
         else:
             actions = jnp.zeros((int(config.max_requests),), dtype=jnp.float32)
             decombined_actions = decombine_actions(actions, env_params)
-            
+
         if config.PATH_SLOT_ACTIONS:
             jax.debug.print("Using path-slot action decomposition")
             actions = decombined_actions
@@ -266,7 +266,7 @@ def get_learner_fn(
             None,
             config.OPTIMIZATION_ITERATIONS,
         )
-        
+
         if config.PATH_SLOT_ACTIONS:
             final_actions = combine_actions(final_actions[:,0], final_actions[:,1], env_params)
             best_actions = combine_actions(best_actions[:,0], best_actions[:,1], env_params)

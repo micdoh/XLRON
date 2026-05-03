@@ -32,7 +32,6 @@ import argparse
 import ast
 import json
 import math
-import os
 import re
 import subprocess
 import sys
@@ -41,64 +40,134 @@ from pathlib import Path
 
 # All TopologyBench v1 filenames (119 topologies)
 TOPOLOGY_BENCH_FILES = [
-    "TOP_01_GEANT.py", "TOP_02_LAMBDARAIL.py", "TOP_03_JAPAN25.py",
-    "TOP_04_PORTUGAL.py", "TOP_05_PIONIER21.py", "TOP_06_CONUS30.py",
-    "TOP_07_CONUS100.py", "TOP_08_CONUS6077.py", "TOP_09_CONUS6079.py",
-    "TOP_10_CONUS75.py", "TOP_11_OMNICOM.py", "TOP_12_NEWNET.py",
-    "TOP_13_MZIMA.py", "TOP_14_METRONA.py", "TOP_15_MEMOREX.py",
-    "TOP_16_GEANT2.py", "TOP_17_EON.py", "TOP_18_CANARIE19.py",
-    "TOP_19_BREN.py", "TOP_20_ARPANET.py", "TOP_21_ARNES.py",
-    "TOP_22_JAPAN48.py", "TOP_23_JAPAN12.py", "TOP_24_REDCLARA.py",
-    "TOP_25_COST37.py", "TOP_26_ABILENE.py", "TOP_27_CORONET.py",
-    "TOP_28_GERMANY50.py", "TOP_29_JANOS_US.py", "TOP_30_NOBEL_EU.py",
-    "TOP_31_NOBEL_GERMANY.py", "TOP_32_NOBEL_US.py", "TOP_33_POLSKA.py",
-    "TOP_34_LONI.py", "TOP_35_VIA.py", "TOP_37_DARKSTRAND.py",
-    "TOP_38_FUNET.py", "TOP_39_HIBERNIA-CANADA.py",
-    "TOP_40_HIBERNIA_IRELAND.py", "TOP_41_HIBERNIA_NIRELAND.py",
-    "TOP_42_HIBERNIA_UK.py", "TOP_43_HIBERNIA_US.py",
-    "TOP_44_HOSTWAYINTERNATIONAL.py", "TOP_45_IBM.py", "TOP_46_INTEGRA.py",
-    "TOP_47_IRIS.py", "TOP_48_ISTAR.py", "TOP_49_JGN2PLUS.py",
-    "TOP_50_KAREN.py", "TOP_51_KENTMANFEB2008.py",
-    "TOP_52_KENTMANJUL2005.py", "TOP_53_LAYER42.py", "TOP_54_MARWAN.py",
-    "TOP_55_NETRAIL.py", "TOP_56_NETWORKUSA.py", "TOP_57_NEXTGEN.py",
-    "TOP_58_NOEL.py", "TOP_59_NSFNET13.py", "TOP_60_OXFORD.py",
-    "TOP_61_PACKETEXCHANGE.py", "TOP_62_PALMETTO.py",
-    "TOP_63_PIONIER27_L3.py", "TOP_64_PSINET.py", "TOP_65_REDIRIS19.py",
-    "TOP_66_RENATER1999.py", "TOP_67_RENATER2001.py",
-    "TOP_68_RENATER2004.py", "TOP_69_RENATER2006.py",
-    "TOP_70_RENATER2008.py", "TOP_71_RENATER2010.py", "TOP_72_SAGO.py",
-    "TOP_73_SANREN.py", "TOP_74_SAVVIS.py", "TOP_75_SPIRALIGHT.py",
-    "TOP_76_SUNET.py", "TOP_77_TATAIND.py", "TOP_78_TELECOMSERBIA.py",
-    "TOP_79_UNIC.py", "TOP_80_VTLWAVENET2008.py",
-    "TOP_81_VTLWAVENET2011.py", "TOP_82_YORK.py", "TOP_83_AARNET.py",
-    "TOP_84_ANS.py", "TOP_85_ATMNET.py", "TOP_86_BBNPLANET.py",
-    "TOP_87_BELNET2009.py", "TOP_88_BELNET2010.py",
-    "TOP_89_BEYOND_THE_NETWORK.py", "TOP_90_BICS.py", "TOP_91_BIZNET.py",
-    "TOP_92_CANARIE24.py", "TOP_93_CLARANET.py",
-    "TOP_94_CRL_NETWORK_SERVICES.py", "TOP_95_CWIX.py", "TOP_96_DIGEX.py",
-    "TOP_97_ELIBACKBONE.py", "TOP_98_EPOCH.py", "TOP_99_ERNET.py",
-    "TOP_100_GAMBIA.py", "TOP_101_GARR201201.py", "TOP_102_GBLNET.py",
-    "TOP_103_GETNET.py", "TOP_104_GRENA.py", "TOP_105_GRNET.py",
-    "TOP_106_GTS_CZECH_REPUBLIC.py", "TOP_107_GTS_POLAND.py",
-    "TOP_108_HIBERNIA_GLOBAL.py", "TOP_109_USA100.py",
-    "TOP_110_CERNET.py", "TOP_111_CESNET.py", "TOP_112_DT17.py",
-    "TOP_113_ITALY.py", "TOP_114_OPTUNET_SWEDEN.py",
-    "TOP_115_RAILTEL_INDIA.py", "TOP_117_TELENET_BE.py",
-    "TOP_118_RNP_BRAZIL.py", "TOP_119_INTERNET2.py",
-    "TOP_120_RENATER.py", "TOP_121_SANET.py",
+    "TOP_01_GEANT.py",
+    "TOP_02_LAMBDARAIL.py",
+    "TOP_03_JAPAN25.py",
+    "TOP_04_PORTUGAL.py",
+    "TOP_05_PIONIER21.py",
+    "TOP_06_CONUS30.py",
+    "TOP_07_CONUS100.py",
+    "TOP_08_CONUS6077.py",
+    "TOP_09_CONUS6079.py",
+    "TOP_10_CONUS75.py",
+    "TOP_11_OMNICOM.py",
+    "TOP_12_NEWNET.py",
+    "TOP_13_MZIMA.py",
+    "TOP_14_METRONA.py",
+    "TOP_15_MEMOREX.py",
+    "TOP_16_GEANT2.py",
+    "TOP_17_EON.py",
+    "TOP_18_CANARIE19.py",
+    "TOP_19_BREN.py",
+    "TOP_20_ARPANET.py",
+    "TOP_21_ARNES.py",
+    "TOP_22_JAPAN48.py",
+    "TOP_23_JAPAN12.py",
+    "TOP_24_REDCLARA.py",
+    "TOP_25_COST37.py",
+    "TOP_26_ABILENE.py",
+    "TOP_27_CORONET.py",
+    "TOP_28_GERMANY50.py",
+    "TOP_29_JANOS_US.py",
+    "TOP_30_NOBEL_EU.py",
+    "TOP_31_NOBEL_GERMANY.py",
+    "TOP_32_NOBEL_US.py",
+    "TOP_33_POLSKA.py",
+    "TOP_34_LONI.py",
+    "TOP_35_VIA.py",
+    "TOP_37_DARKSTRAND.py",
+    "TOP_38_FUNET.py",
+    "TOP_39_HIBERNIA-CANADA.py",
+    "TOP_40_HIBERNIA_IRELAND.py",
+    "TOP_41_HIBERNIA_NIRELAND.py",
+    "TOP_42_HIBERNIA_UK.py",
+    "TOP_43_HIBERNIA_US.py",
+    "TOP_44_HOSTWAYINTERNATIONAL.py",
+    "TOP_45_IBM.py",
+    "TOP_46_INTEGRA.py",
+    "TOP_47_IRIS.py",
+    "TOP_48_ISTAR.py",
+    "TOP_49_JGN2PLUS.py",
+    "TOP_50_KAREN.py",
+    "TOP_51_KENTMANFEB2008.py",
+    "TOP_52_KENTMANJUL2005.py",
+    "TOP_53_LAYER42.py",
+    "TOP_54_MARWAN.py",
+    "TOP_55_NETRAIL.py",
+    "TOP_56_NETWORKUSA.py",
+    "TOP_57_NEXTGEN.py",
+    "TOP_58_NOEL.py",
+    "TOP_59_NSFNET13.py",
+    "TOP_60_OXFORD.py",
+    "TOP_61_PACKETEXCHANGE.py",
+    "TOP_62_PALMETTO.py",
+    "TOP_63_PIONIER27_L3.py",
+    "TOP_64_PSINET.py",
+    "TOP_65_REDIRIS19.py",
+    "TOP_66_RENATER1999.py",
+    "TOP_67_RENATER2001.py",
+    "TOP_68_RENATER2004.py",
+    "TOP_69_RENATER2006.py",
+    "TOP_70_RENATER2008.py",
+    "TOP_71_RENATER2010.py",
+    "TOP_72_SAGO.py",
+    "TOP_73_SANREN.py",
+    "TOP_74_SAVVIS.py",
+    "TOP_75_SPIRALIGHT.py",
+    "TOP_76_SUNET.py",
+    "TOP_77_TATAIND.py",
+    "TOP_78_TELECOMSERBIA.py",
+    "TOP_79_UNIC.py",
+    "TOP_80_VTLWAVENET2008.py",
+    "TOP_81_VTLWAVENET2011.py",
+    "TOP_82_YORK.py",
+    "TOP_83_AARNET.py",
+    "TOP_84_ANS.py",
+    "TOP_85_ATMNET.py",
+    "TOP_86_BBNPLANET.py",
+    "TOP_87_BELNET2009.py",
+    "TOP_88_BELNET2010.py",
+    "TOP_89_BEYOND_THE_NETWORK.py",
+    "TOP_90_BICS.py",
+    "TOP_91_BIZNET.py",
+    "TOP_92_CANARIE24.py",
+    "TOP_93_CLARANET.py",
+    "TOP_94_CRL_NETWORK_SERVICES.py",
+    "TOP_95_CWIX.py",
+    "TOP_96_DIGEX.py",
+    "TOP_97_ELIBACKBONE.py",
+    "TOP_98_EPOCH.py",
+    "TOP_99_ERNET.py",
+    "TOP_100_GAMBIA.py",
+    "TOP_101_GARR201201.py",
+    "TOP_102_GBLNET.py",
+    "TOP_103_GETNET.py",
+    "TOP_104_GRENA.py",
+    "TOP_105_GRNET.py",
+    "TOP_106_GTS_CZECH_REPUBLIC.py",
+    "TOP_107_GTS_POLAND.py",
+    "TOP_108_HIBERNIA_GLOBAL.py",
+    "TOP_109_USA100.py",
+    "TOP_110_CERNET.py",
+    "TOP_111_CESNET.py",
+    "TOP_112_DT17.py",
+    "TOP_113_ITALY.py",
+    "TOP_114_OPTUNET_SWEDEN.py",
+    "TOP_115_RAILTEL_INDIA.py",
+    "TOP_117_TELENET_BE.py",
+    "TOP_118_RNP_BRAZIL.py",
+    "TOP_119_INTERNET2.py",
+    "TOP_120_RENATER.py",
+    "TOP_121_SANET.py",
 ]
 
-RAW_URL_BASE = (
-    "https://raw.githubusercontent.com/TopologyBench/"
-    "Real-Topologies/main/Code/v1/"
-)
+RAW_URL_BASE = "https://raw.githubusercontent.com/TopologyBench/Real-Topologies/main/Code/v1/"
 
 
 def download_topology_bench_files(output_dir: Path) -> None:
     """Download all TopologyBench .py files from GitHub."""
     output_dir.mkdir(parents=True, exist_ok=True)
-    print(f"Downloading {len(TOPOLOGY_BENCH_FILES)} TopologyBench files "
-          f"to {output_dir}/")
+    print(f"Downloading {len(TOPOLOGY_BENCH_FILES)} TopologyBench files to {output_dir}/")
     for filename in TOPOLOGY_BENCH_FILES:
         url = RAW_URL_BASE + filename
         dest = output_dir / filename
@@ -107,7 +176,8 @@ def download_topology_bench_files(output_dir: Path) -> None:
         try:
             subprocess.run(
                 ["curl", "-sL", "-o", str(dest), url],
-                check=True, timeout=30,
+                check=True,
+                timeout=30,
             )
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
             print(f"  FAILED: {filename}")
@@ -158,10 +228,7 @@ def parse_topology_file(filepath: Path) -> dict:
                     edge_attrs = ast.literal_eval(node.value)
 
     if node_attrs is None or edge_attrs is None:
-        raise ValueError(
-            f"Could not parse node_attributes or edge_attributes "
-            f"from {filepath}"
-        )
+        raise ValueError(f"Could not parse node_attributes or edge_attributes from {filepath}")
 
     # Normalise node keys to int
     nodes = {}
@@ -247,9 +314,7 @@ def to_xlron_json(parsed: dict, directed: bool) -> dict:
         reverse_links = []
         for src, dst, dist in edges_data:
             dist = max(dist, 1)
-            reverse_links.append(
-                {"distance": dist, "source": dst, "target": src}
-            )
+            reverse_links.append({"distance": dist, "source": dst, "target": src})
         links.extend(reverse_links)
 
     return {
@@ -325,25 +390,23 @@ def main():
         "input",
         nargs="?",
         help="Path to a TopologyBench .py file or directory of .py files. "
-             "If omitted, looks for topology_bench/ in the same directory "
-             "as this script.",
+        "If omitted, looks for topology_bench/ in the same directory "
+        "as this script.",
     )
     parser.add_argument(
         "--output_dir",
         help="Output directory for JSON files. Defaults to the same "
-             "directory as this script (xlron/data/topologies/).",
+        "directory as this script (xlron/data/topologies/).",
     )
     parser.add_argument(
         "--list",
         action="store_true",
-        help="List available topologies and their properties without "
-             "converting.",
+        help="List available topologies and their properties without converting.",
     )
     parser.add_argument(
         "--download",
         action="store_true",
-        help="Download TopologyBench .py files from GitHub to "
-             "topology_bench/ subdirectory.",
+        help="Download TopologyBench .py files from GitHub to topology_bench/ subdirectory.",
     )
     parser.add_argument(
         "--undirected-only",
@@ -410,11 +473,11 @@ def main():
     for f in files:
         try:
             created = convert_file(
-                f, output_dir,
+                f,
+                output_dir,
                 directed=gen_directed,
                 undirected=gen_undirected,
             )
-            topo_name = topology_name_from_filename(f.name)
             print(f"  {f.name} -> {', '.join(created)}")
             total_created += len(created)
         except Exception as e:

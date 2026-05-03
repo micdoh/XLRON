@@ -558,6 +558,7 @@ class ActorCriticTransformer(eqx.Module):
         # ACTOR POOLING
         nodes_sd, requested_bw = read_rsa_request(state.request_array)
         if self.actor_pooling == "min_mean_max":
+
             def path_action_min_mean_max(i):
                 # Gather per-link features for this path using min, mean, max
                 path_min = get_path_slots(action_tokens, params, nodes_sd, i, agg_func="min")
@@ -566,9 +567,7 @@ class ActorCriticTransformer(eqx.Module):
                 concatenated = jnp.concatenate([path_min, path_mean, path_max])
                 return self.actor_pool_proj(concatenated)
 
-            path_action_logits = jax.vmap(path_action_min_mean_max)(
-                jnp.arange(params.k_paths)
-            )
+            path_action_logits = jax.vmap(path_action_min_mean_max)(jnp.arange(params.k_paths))
         else:
             # Default: sum pooling
             def path_action_dist(i):
@@ -579,9 +578,8 @@ class ActorCriticTransformer(eqx.Module):
                     i,
                     agg_func="sum",
                 )
-            path_action_logits = jax.vmap(path_action_dist)(
-                jnp.arange(params.k_paths)
-            )
+
+            path_action_logits = jax.vmap(path_action_dist)(jnp.arange(params.k_paths))
         action_logits = path_action_logits.reshape((-1,))
 
         if params.include_no_op:

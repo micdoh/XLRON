@@ -197,9 +197,7 @@ def differentiable_round(x, decimals=0, temperature=1.0, differentiable=True):
     fractional = x_scaled - jnp.floor(x_scaled)
     # This sigmoid approaches 1.0 when fractional >= 0.5
     # Combine floor and ceiling with sigmoid weighting
-    soft_round = (
-        jnp.floor(x_scaled) + jax.nn.sigmoid(temperature * (fractional - 0.5))
-    ) / scale
+    soft_round = (jnp.floor(x_scaled) + jax.nn.sigmoid(temperature * (fractional - 0.5))) / scale
     # Apply straight-through gradient trick
     return straight_through(hard_round, soft_round)
 
@@ -267,9 +265,7 @@ def differentiable_floor(x, temperature=1.0, differentiable=True):
 
 
 # TODO - this is broken
-def differentiable_one_hot_index_update(
-    array, indices, values, temperature, differentiable=True
-):
+def differentiable_one_hot_index_update(array, indices, values, temperature, differentiable=True):
     """
     A differentiable version of array.at[indices].set(values).
 
@@ -301,7 +297,9 @@ def differentiable_one_hot_index_update(
     return straight_through(hard_result, soft_result)
 
 
-def differentiable_index(array: Array, index: Array | int, temperature: float = 1.0, differentiable: bool = True):
+def differentiable_index(
+    array: Array, index: Array | int, temperature: float = 1.0, differentiable: bool = True
+):
     """
     Differentiable indexing along the 0-axis (first dimension) with windowed weight calculation.
     Only calculates weights for indices within a window around the target index.
@@ -365,9 +363,9 @@ def differentiable_indexing(array, indices, temperature=1.0, differentiable=True
     if hasattr(indices, "shape") and indices.shape:
         # Multiple arbitrary indices as list/tuple or JAX array with multiple indices
         # Multiple arbitrary indices
-        return jax.vmap(
-            lambda idx: differentiable_index(array, idx, temperature, differentiable)
-        )(indices)
+        return jax.vmap(lambda idx: differentiable_index(array, idx, temperature, differentiable))(
+            indices
+        )
     else:
         # Single index
         return differentiable_index(array, indices, temperature, differentiable)

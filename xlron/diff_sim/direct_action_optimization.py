@@ -1,6 +1,4 @@
-from fsspec.config import conf
 from jax.experimental.pallas.ops.tpu.megablox.gmm import partial
-from optax.transforms import conditionally_mask
 import jax
 import jax.numpy as jnp
 import optax
@@ -10,9 +8,6 @@ from gymnax.environments import environment
 
 from xlron.environments.dataclasses import (
     EnvParams,
-    EnvState,
-    RSATransition,
-    VONETransition,
 )
 from xlron.environments.env_funcs import process_path_action
 from xlron.environments.diff_utils import *
@@ -30,6 +25,7 @@ def combine_actions(paths, slots, params):
     def combine(action, params):
         path, slot = action
         return path * params.link_resources + slot
+
     actions = jax.vmap(combine, in_axes=(0, None))((paths, slots), params)
     return actions
 
@@ -90,7 +86,7 @@ def get_learner_fn(
         actions = action - jnp.arange(-neighbor_range, neighbor_range, 0.5)
 
         # Apply Gaussian weighting
-        sigma = getattr(config, 'GAUSSIAN_SIGMA', 0.8)
+        sigma = getattr(config, "GAUSSIAN_SIGMA", 0.8)
         weights = jnp.exp(-0.5 * ((actions - action) / sigma) ** 2)
         weights = weights / jnp.sum(weights)
 
@@ -108,7 +104,9 @@ def get_learner_fn(
         rng_step, action_key, step_key = jax.random.split(rng_step, 3)
         step_key = jax.random.split(step_key, config.NUM_ENVS) if config.NUM_ENVS > 1 else step_key
         # SELECT ACTION
-        action_key = jax.random.split(action_key, config.NUM_ENVS) if config.NUM_ENVS > 1 else action_key
+        action_key = (
+            jax.random.split(action_key, config.NUM_ENVS) if config.NUM_ENVS > 1 else action_key
+        )
         select_action_fn = lambda x: select_action_eval(x, env, env_params, None, config)
         select_action_fn = jax.vmap(select_action_fn) if config.NUM_ENVS > 1 else select_action_fn
         select_action_state = (action_key, env_state, last_obs)
@@ -125,7 +123,7 @@ def get_learner_fn(
         # TODO - it's possible for non-masked actions to be used that don't fail
         # because the slots overflow to the beginning of the array.
         # Masking usually prevents this possibility but the gradient-obtained actions aren't masked.
-        step_fn = _env_step_gaussian if getattr(config, 'GAUSSIAN_SMOOTHING', False) else _env_step
+        step_fn = _env_step_gaussian if getattr(config, "GAUSSIAN_SMOOTHING", False) else _env_step
         out, rewards = jax.lax.scan(step_fn, _runner_state, actions)
         return out, rewards
 
@@ -167,10 +165,10 @@ def get_learner_fn(
 
             # Combine actions for clipping etc.
             if config.PATH_SLOT_ACTIONS:
-                actions = combine_actions(actions[:,0], actions[:,1], env_params)
-                best_actions = combine_actions(best_actions[:,0], best_actions[:,1], env_params)
-                new_actions = combine_actions(new_actions[:,0], new_actions[:,1], env_params)
-            
+                actions = combine_actions(actions[:, 0], actions[:, 1], env_params)
+                best_actions = combine_actions(best_actions[:, 0], best_actions[:, 1], env_params)
+                new_actions = combine_actions(new_actions[:, 0], new_actions[:, 1], env_params)
+
             # Clip actions to valid range
             new_actions = jnp.clip(new_actions, 0, env.num_actions(env_params))
 
@@ -191,7 +189,7 @@ def get_learner_fn(
                 jnp.max(new_actions),
                 ordered=True,
             )
-            
+
             if config.PATH_SLOT_ACTIONS:
                 best_actions = decombine_actions(best_actions, env_params)
                 new_actions = decombine_actions(new_actions, env_params)
@@ -208,9 +206,7 @@ def get_learner_fn(
     def learner_fn(_runner_state):
         config.EVAL_HEURISTIC = True  # For use in select_action_eval
         _, heur_actions = _rollout_heuristic(_runner_state)
-        heur_actions = heur_actions.reshape((int(config.max_requests),)).astype(
-            jnp.float32
-        )
+        heur_actions = heur_actions.reshape((int(config.max_requests),)).astype(jnp.float32)
         heur_actions = heur_actions % env.num_actions(env_params)
 
         # Initialize actions
@@ -232,16 +228,18 @@ def get_learner_fn(
             actions = actions % env.num_actions(env_params)
             decombined_actions = decombine_actions(actions, env_params)
         elif config.INITIALIZE_ACTIONS_DESCENDING:
-            actions = jnp.arange(int(config.max_requests)-1, -1, -1, dtype=jnp.float32)
+            actions = jnp.arange(int(config.max_requests) - 1, -1, -1, dtype=jnp.float32)
             actions = actions % env.num_actions(env_params)
             decombined_actions = decombine_actions(actions, env_params)
         elif config.INITIALIZE_ACTIONS_MAX:
-            actions = jnp.full((int(config.max_requests),), env.num_actions(env_params)-1, dtype=jnp.float32)
+            actions = jnp.full(
+                (int(config.max_requests),), env.num_actions(env_params) - 1, dtype=jnp.float32
+            )
             decombined_actions = decombine_actions(actions, env_params)
         else:
             actions = jnp.zeros((int(config.max_requests),), dtype=jnp.float32)
             decombined_actions = decombine_actions(actions, env_params)
-            
+
         if config.PATH_SLOT_ACTIONS:
             jax.debug.print("Using path-slot action decomposition")
             actions = decombined_actions
@@ -266,11 +264,11 @@ def get_learner_fn(
             None,
             config.OPTIMIZATION_ITERATIONS,
         )
-        
+
         if config.PATH_SLOT_ACTIONS:
-            final_actions = combine_actions(final_actions[:,0], final_actions[:,1], env_params)
-            best_actions = combine_actions(best_actions[:,0], best_actions[:,1], env_params)
-            heur_actions = combine_actions(heur_actions[:,0], heur_actions[:,1], env_params)
+            final_actions = combine_actions(final_actions[:, 0], final_actions[:, 1], env_params)
+            best_actions = combine_actions(best_actions[:, 0], best_actions[:, 1], env_params)
+            heur_actions = combine_actions(heur_actions[:, 0], heur_actions[:, 1], env_params)
 
         # Round to nearest integer actions for final evaluation
         final_actions = jnp.round(final_actions)

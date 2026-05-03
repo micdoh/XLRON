@@ -390,29 +390,37 @@ def add_graphs_tuples(
 
 # --- Module-level helpers for scan-based message passing ---
 
+
 def _make_update_edge_fn(edge_mlp):
     """Build a jraph-compatible edge update function from an MLP."""
+
     def update_edge_fn(concatenated_inputs):
         return jax.vmap(edge_mlp)(concatenated_inputs)
+
     return jraph.concatenated_args(update_edge_fn)
 
 
 def _make_update_node_fn(node_mlp):
     """Build a jraph-compatible node update function from an MLP."""
+
     def update_node_fn(concatenated_inputs):
         return jax.vmap(node_mlp)(concatenated_inputs)
+
     return jraph.concatenated_args(update_node_fn)
 
 
 def _make_update_global_fn(global_mlp):
     """Build a jraph-compatible global update function from an MLP."""
+
     def update_global_fn(concatenated_inputs):
         return jax.vmap(global_mlp)(concatenated_inputs)
+
     return jraph.concatenated_args(update_global_fn)
 
 
 class MessagePassingStep(eqx.Module):
     """A single message passing step containing MLPs and optional layer norms."""
+
     edge_mlp: Optional[eqx.nn.MLP]
     node_mlp: Optional[eqx.nn.MLP]
     global_mlp: Optional[eqx.nn.MLP]
@@ -520,12 +528,8 @@ class GraphNet(eqx.Module):
         keys = jax.random.split(embed_decode_key, 6)
 
         # Create embedders
-        self.edge_embedder = eqx.nn.Linear(
-            input_edge_features, edge_embedding_size, key=keys[0]
-        )
-        self.node_embedder = eqx.nn.Linear(
-            input_node_features, node_embedding_size, key=keys[1]
-        )
+        self.edge_embedder = eqx.nn.Linear(input_edge_features, edge_embedding_size, key=keys[0])
+        self.node_embedder = eqx.nn.Linear(input_node_features, node_embedding_size, key=keys[1])
         self.global_embedder = eqx.nn.Linear(
             input_global_features, global_embedding_size, key=keys[2]
         )
@@ -559,7 +563,9 @@ class GraphNet(eqx.Module):
                     depth=len(edge_mlp_dims),
                     activation=jax.nn.relu,
                     key=k1,
-                ) if _has_edge_mlp else None,
+                )
+                if _has_edge_mlp
+                else None,
                 node_mlp=eqx.nn.MLP(
                     in_size=node_mlp_input,
                     out_size=node_mlp_dims[-1],
@@ -567,7 +573,9 @@ class GraphNet(eqx.Module):
                     depth=len(node_mlp_dims),
                     activation=jax.nn.relu,
                     key=k2,
-                ) if _has_node_mlp else None,
+                )
+                if _has_node_mlp
+                else None,
                 global_mlp=eqx.nn.MLP(
                     in_size=global_mlp_input,
                     out_size=global_mlp_dims[-1],
@@ -575,7 +583,9 @@ class GraphNet(eqx.Module):
                     depth=len(global_mlp_dims),
                     activation=jax.nn.relu,
                     key=k3,
-                ) if _has_global_mlp else None,
+                )
+                if _has_global_mlp
+                else None,
                 attn_mlp=eqx.nn.MLP(
                     in_size=attn_mlp_input,
                     out_size=1,
@@ -583,7 +593,9 @@ class GraphNet(eqx.Module):
                     depth=attn_depth,
                     activation=jax.nn.relu,
                     key=k4,
-                ) if _has_attn_mlp else None,
+                )
+                if _has_attn_mlp
+                else None,
                 node_ln=eqx.nn.LayerNorm(node_embedding_size) if _has_layer_norm else None,
                 edge_ln=eqx.nn.LayerNorm(edge_embedding_size) if _has_layer_norm else None,
                 global_ln=eqx.nn.LayerNorm(global_embedding_size) if _has_global_ln else None,
@@ -640,9 +652,15 @@ class GraphNet(eqx.Module):
             step = eqx.combine(dynamic_step, static_steps)
 
             # Build update functions from this step's MLPs
-            update_edge_fn = _make_update_edge_fn(step.edge_mlp) if step.edge_mlp is not None else None
-            update_node_fn = _make_update_node_fn(step.node_mlp) if step.node_mlp is not None else None
-            update_global_fn = _make_update_global_fn(step.global_mlp) if step.global_mlp is not None else None
+            update_edge_fn = (
+                _make_update_edge_fn(step.edge_mlp) if step.edge_mlp is not None else None
+            )
+            update_node_fn = (
+                _make_update_node_fn(step.node_mlp) if step.node_mlp is not None else None
+            )
+            update_global_fn = (
+                _make_update_global_fn(step.global_mlp) if step.global_mlp is not None else None
+            )
 
             if _use_attention and step.attn_mlp is not None:
                 _attn_mlp = step.attn_mlp
@@ -797,9 +815,7 @@ class CriticGNN(eqx.Module):
 
     def __call__(self, state: EnvState, params: EnvParams) -> Array:
         # Remove globals so value does not depend on current request
-        graph = state.graph._replace(
-            globals=jnp.zeros_like(state.graph.globals)
-        )
+        graph = state.graph._replace(globals=jnp.zeros_like(state.graph.globals))
         state = state.replace(graph=graph)
 
         processed_graph = self.graph_net(state.graph)
@@ -965,9 +981,7 @@ class ActorGNN(eqx.Module):
         def get_path_features(i):
             return get_path_slots(edge_features, params, nodes_sd, i, agg_func="sum")
 
-        path_action_logits = jax.vmap(get_path_features)(
-            jnp.arange(params.k_paths)
-        ).reshape((-1,))
+        path_action_logits = jax.vmap(get_path_features)(jnp.arange(params.k_paths)).reshape((-1,))
         if params.include_no_op:
             path_action_logits = jnp.hstack([path_action_logits, jnp.array([-1e4])])
         path_action_logits = jnp.reshape(path_action_logits, (-1,)) / self.temperature
@@ -978,14 +992,11 @@ class ActorGNN(eqx.Module):
             if self.global_output_size > 0:
                 power_logits = processed_graph.globals.reshape((-1,)) / self.temperature
             else:
-                def get_power_path_features(i):
-                    return get_path_slots(
-                        edge_features, params, nodes_sd, i, agg_func="sum"
-                    )
 
-                path_feature_batch = jax.vmap(get_power_path_features)(
-                    jnp.arange(params.k_paths)
-                )
+                def get_power_path_features(i):
+                    return get_path_slots(edge_features, params, nodes_sd, i, agg_func="sum")
+
+                path_feature_batch = jax.vmap(get_power_path_features)(jnp.arange(params.k_paths))
                 power_logits = jax.vmap(self.power_mlp)(path_feature_batch)
 
             if self.discrete:
@@ -1000,9 +1011,8 @@ class ActorGNN(eqx.Module):
                 power_action_dist = distrax.Beta(alpha, beta)
 
             return (path_action_dist, power_action_dist)
-            
-        return path_action_dist
 
+        return path_action_dist
 
 
 class ActorCriticGNN(eqx.Module):

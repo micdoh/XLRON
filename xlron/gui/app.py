@@ -1,4 +1,5 @@
 """XLRON GUI — Streamlit-based command builder and process manager."""
+
 import base64
 import time
 from pathlib import Path
@@ -419,7 +420,9 @@ with st.sidebar:
     # Stop button (no live sidebar status polling to avoid UI jumpiness)
     active_run = st.session_state.get("_active_run_id")
     runs = get_all_runs()
-    active_entry = next((r for r in runs if r["run_id"] == active_run), None) if active_run else None
+    active_entry = (
+        next((r for r in runs if r["run_id"] == active_run), None) if active_run else None
+    )
     if active_run:
         if stop_btn_placeholder.button("Stop", type="secondary", width="stretch"):
             stop_run(active_run)
