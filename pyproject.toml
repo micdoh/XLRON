@@ -55,6 +55,9 @@ xlron = "xlron.gui:main"
 
 
 [dependency-groups]
+dev = [
+    "pre-commit>=4.6.0",
+]
 gpu = [
   "jax[cuda12]"
 ]
@@ -80,8 +83,12 @@ exclude = [
   "examples/",
   "experimental/",
   "xlron/train/multidevice/",
+  "xlron/data/topologies/topology_bench/",
 ]
 line-length = 100
+
+[tool.ruff.lint]
+ignore = ["E731"]
 
 [tool.ruff.lint.per-file-ignores]
 "xlron/models/transformer.py" = ["F722", "F403", "F405"]
@@ -93,6 +100,7 @@ line-length = 100
 "xlron/environments/rwa_lightpath_reuse/rwa_lightpath_reuse.py" = ["F403", "F405"]
 "xlron/environments/vone/vone.py" = ["F403", "F405"]
 "xlron/heuristics/heuristics.py" = ["F403", "F405"]
+"xlron/diff_sim/direct_action_optimization.py" = ["F403", "F405"]
 
 [tool.pytest.ini_options]
 testpaths = ["."]
