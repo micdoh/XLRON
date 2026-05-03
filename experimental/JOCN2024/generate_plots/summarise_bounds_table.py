@@ -14,7 +14,7 @@ import matplotlib.container as mcontainer
 from scipy import interpolate
 
 # Add experimental/ to path so plot_style is importable
-sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from plot_style import configure_style, increase_legend_line_thickness
 
 
@@ -179,7 +179,7 @@ def plot_case(ax, pub, topology, n_slots, heur_data, bounds_data):
 if __name__ == '__main__':
     configure_style()
 
-    data_dir = Path(__file__).resolve().parents[4] / 'experiment_data' / 'bounds'
+    data_dir = Path(__file__).resolve().parents[1] / 'results' / 'bounds'
     heur_data = load_bounds_file(data_dir / 'experiment_results_eval_bounds')
     bounds_data = load_bounds_file(data_dir / 'experiment_results_reconfigurable_bounds')
     _rename = {
@@ -321,8 +321,8 @@ if __name__ == '__main__':
     plt.tight_layout(rect=[0.03, 0.105, 1, 1])
     plt.savefig(PLOTS_DIR / 'bounds_comparison.png')
 
-    # ---- New bounds comparison plot (experiment_data/bounds/) ----
-    new_data_dir = Path(__file__).resolve().parents[4] / 'experiment_data' / 'bounds'
+    # ---- New bounds comparison plot (results/bounds/) ----
+    new_data_dir = Path(__file__).resolve().parents[1] / 'results' / 'bounds'
     new_reconfig_data = load_bounds_file(new_data_dir / 'experiment_results_reconfigurable_bounds')
     new_cutset_data = load_bounds_file(new_data_dir / 'experiment_results_cutsets_bounds')
     new_heur_data = load_bounds_file(new_data_dir / 'experiment_results_eval_bounds')

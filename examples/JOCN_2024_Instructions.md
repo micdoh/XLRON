@@ -3,9 +3,9 @@
 ### N.B. please activate the virtual environment as described in the README.md in order to complete these steps.
 
 
-## Generate heuristic data for both by running this notebook:`XLRON/data_processing/k_path_optimisation.ipynb`
+## Generate heuristic data for both by running this notebook: `experimental/misc/k_path_optimisation.ipynb`
 
-## Generate heuristic data tables and charts by running this notebook: `XLRON/data_processing/k_path_plots.ipynb`
+## Generate heuristic data tables and charts by running this notebook: `experimental/misc/kpath_plots.ipynb`
 
 
 ## Case study 1. - DeepRMSA
@@ -28,12 +28,12 @@ python train.py --env_type=deeprmsa --continuous_operation --load=250 --k=5 --to
 ```
 
 ## Evaluate the trained model
-### Run the notebook `XLRON/data_processing/deeprmsa_model_eval.ipynb`
+### Run the notebook `experimental/misc/deeprmsa_model_eval.ipynb`
 
 
 ## Plot charts
-### Run the notebook `XLRON/data_processing/deeprmsa_train.ipynb`
-### Run the notebook `XLRON/data_processing/k_path_plots.ipynb`
+### Run the notebook `experimental/misc/deeprmsa_train.ipynb`
+### Run the notebook `experimental/misc/kpath_plots.ipynb`
 
 
 
@@ -50,6 +50,6 @@ python train.py --env_type=rwa_lightpath_reuse --k=5 --topology_name=nsfnet --li
 ```
 
 ## Plot charts
-### Run the notebook `XLRON/data_processing/rwa_lr_training.ipynb`
-### Run the notebook `XLRON/data_processing/jocn_benchmarks_rwalr.ipynb`
-### Run the notebook `XLRON/data_processing/k_path_plots.ipynb`
+### Run the notebook `experimental/ONDM2025/rwa_lr_training.ipynb`
+### Run the notebook `experimental/ONDM2025/rwa_lr_evaluation.ipynb`
+### Run the notebook `experimental/misc/kpath_plots.ipynb`

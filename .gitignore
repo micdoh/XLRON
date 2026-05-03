@@ -13,7 +13,6 @@ config/
 .run
 .venv
 .zed
-data_processing/misc
 experiment_data/
 .ipynb_checkpoints/
 saved_models/
@@ -21,8 +20,9 @@ saved_models/
 debug_*
 *.jsonl
 *.png
-experimental/benchmarks/results
-experimental/benchmarks/figures
+# Per-experiment data and figures (colocated with the experiment's code)
+experimental/*/results/
+experimental/*/figures/
 xlron/data/topologies/ksp/*.npz
 archive
 misc

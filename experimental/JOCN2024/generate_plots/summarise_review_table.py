@@ -12,7 +12,7 @@ import matplotlib.collections as mcollections
 import matplotlib.container as mcontainer
 
 # Add experimental/ to path so plot_style is importable
-sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from plot_style import configure_style, increase_legend_line_thickness
 
 PLOTS_DIR = Path(__file__).resolve().parent / "plots"
@@ -343,7 +343,7 @@ PtrNet-RSA,USNET,80,330,3.46,0.34
 if __name__ == '__main__':
     configure_style()
 
-    data_file = Path(__file__).resolve().parents[4] / 'experiment_data' / 'JOCN2024' / 'experiment_results_eval.csv'
+    data_file = Path(__file__).resolve().parents[1] / 'results' / 'experiment_results_eval.csv'
     df = pd.read_csv(data_file)
     # Filter to only have these columns: NAME,TOPOLOGY,LOAD,K,service_blocking_probability_mean/std/iqr_lower/iqr_upper
     df = df[['NAME', 'TOPOLOGY', 'LOAD', 'K', 'WEIGHT', 'service_blocking_probability_mean', 'service_blocking_probability_std',
