@@ -22,6 +22,7 @@ ignore:
   - ".github/"
   - "config/"
   - "docs/"
+  - "experimental/"
   - "notebooks/"
   - "site/"
   - "topologies/"
