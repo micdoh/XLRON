@@ -4,6 +4,13 @@
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 [![codecov](https://codecov.io/gh/micdoh/XLRON/graph/badge.svg?token=UW9CCLRAFJ)](https://codecov.io/gh/micdoh/XLRON)
 
+
+<div style="border: 3px solid #2f80ed; border-radius: 12px; padding: 1rem 1.25rem; background: #f7fbff; box-shadow: 0 6px 18px rgba(47, 128, 237, 0.15); text-align: center; margin: 1.5rem 0;">
+  <strong style="font-size: 1.15rem; color: #1f4e79;">📚 Documentation</strong><br>
+  <span style="font-size: 1.05rem;">For full installation instructions, tutorials, API references, reproduction guides, and the latest updates, please visit the docs:</span><br>
+  <a href="https://micdoh.github.io/XLRON/" style="font-size: 1.2rem; font-weight: 700; color: #d1495b; text-decoration: underline;">https://micdoh.github.io/XLRON/</a>
+</div>
+
 ---
 
 > ## 🎉 XLRON v1.0.0 is here! 🎉
@@ -29,8 +36,6 @@
   <br>
   <em>Live render of the per-link spectrum allocations made by a <a href="https://micdoh.github.io/XLRON/features/transformer/">Graph Transformer agent</a> trained with RL on DeepRMSA-NSFNET. Click for the full-resolution video.</em>
 </p>
-
-## Documentation: https://micdoh.github.io/XLRON/
 
 ---
 
