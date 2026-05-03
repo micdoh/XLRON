@@ -23,11 +23,11 @@
 ---
 
 <p align="center">
-  <video src="https://github.com/micdoh/XLRON/raw/main/docs/images/demos/deeprmsa_transformer.mp4" loop muted playsinline controls width="640">
-    Your browser does not support HTML5 video — <a href="https://github.com/micdoh/XLRON/raw/main/docs/images/demos/deeprmsa_transformer.mp4">download the demo video</a>.
-  </video>
+  <a href="https://github.com/micdoh/XLRON/raw/main/docs/images/demos/deeprmsa_transformer.mp4">
+    <img src="docs/images/demos/deeprmsa_transformer.gif" width="640" alt="Live render of resource allocation decisions taken by a Graph Transformer agent trained with RL on DeepRMSA-NSFNET">
+  </a>
   <br>
-  <em>Live render of the per-link spectrum allocations made by a <a href="https://micdoh.github.io/XLRON/features/transformer/">Graph Transformer agent</a> trained with RL on DeepRMSA-NSFNET.</em>
+  <em>Live render of the per-link spectrum allocations made by a <a href="https://micdoh.github.io/XLRON/features/transformer/">Graph Transformer agent</a> trained with RL on DeepRMSA-NSFNET. Click for the full-resolution video.</em>
 </p>
 
 ## Documentation: https://micdoh.github.io/XLRON/
