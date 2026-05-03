@@ -104,14 +104,15 @@ ignore = ["E731"]
 
 [tool.pytest.ini_options]
 testpaths = ["."]
-collect_ignore_glob = ["xlron/environments/vone/*"]
+collect_ignore_glob = ["xlron/environments/vone/*", "experimental/*"]
+norecursedirs = ["experimental", ".venv", "build", "site", "wandb"]
 
 [tool.isort]
 multi_line_output = 3
 include_trailing_comma = true
 force_grid_wrap = 0
 use_parentheses = true
-skip = ["notebooks", ".venv"]
+skip = ["notebooks", ".venv", "experimental"]
 
 [tool.ty.src]
 exclude = [
