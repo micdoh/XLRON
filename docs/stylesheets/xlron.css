@@ -1,0 +1,36 @@
+/* XLRON palette overrides for the mkdocs-material theme.
+ * Colors mirror experimental/plot_style.py PRIMARY_COLORS / ACCENT_COLORS. */
+
+:root {
+  /* Primary teal (#30A08E) */
+  --md-primary-fg-color:        #30A08E;
+  --md-primary-fg-color--light: #A5E5D7;
+  --md-primary-fg-color--dark:  #1D605B;
+  --md-primary-bg-color:        #ffffff;
+  --md-primary-bg-color--light: #ffffffbf;
+
+  /* Accent coral (#E75D72) — used for links, highlights, focus rings */
+  --md-accent-fg-color:         #E75D72;
+  --md-accent-fg-color--transparent: #E75D7233;
+  --md-accent-bg-color:         #ffffff;
+  --md-accent-bg-color--light:  #ffffffbf;
+
+  /* Code highlight background tint to match palette */
+  --md-typeset-a-color: #1D605B;
+}
+
+[data-md-color-scheme="slate"] {
+  --md-primary-fg-color:        #1D605B;
+  --md-primary-fg-color--light: #30A08E;
+  --md-primary-fg-color--dark:  #133F3B;
+  --md-accent-fg-color:         #E75D72;
+  --md-typeset-a-color:         #69D3BE;
+}
+
+/* Header / nav */
+.md-header {
+  background-color: var(--md-primary-fg-color);
+}
+.md-tabs {
+  background-color: var(--md-primary-fg-color--dark);
+}
