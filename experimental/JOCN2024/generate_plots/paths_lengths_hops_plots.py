@@ -6,7 +6,7 @@ import matplotlib.patches as mpatches
 import numpy as np
 
 # Add experimental/ to path so plot_style is importable
-sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from plot_style import TOPOLOGY_COLORS, TOPOLOGY_DISPLAY, configure_style
 
 # Apply global style

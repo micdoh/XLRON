@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 import matplotlib as mpl
 
 # Add experimental/ to path so plot_style is importable
-sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from plot_style import configure_style
 
 PLOTS_DIR = Path(__file__).resolve().parent / "plots"
@@ -26,7 +26,7 @@ TOPOLOGIES = np.array([
 
 
 def load_data():
-    data_dir = Path(__file__).resolve().parents[4] / 'experiment_data' / 'JOCN2024'
+    data_dir = Path(__file__).resolve().parents[1] / 'results'
     heur_data = pd.read_csv(data_dir / 'heuristic_comparison_high_traffic_new.csv')
     k_data = pd.read_csv(data_dir / 'k_traffic_comparison_new_new.csv')
     traffic_data = pd.read_csv(data_dir / 'experiment_results_traffic.csv')

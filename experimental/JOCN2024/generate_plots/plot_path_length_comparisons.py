@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 
 # Add experimental/ to path so plot_style is importable
-sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from plot_style import configure_style
 
 # Apply global style
@@ -290,7 +290,7 @@ def plot_combined_dot_plot(path_hops_data):
 
 def main():
     # Read and process CSV data
-    csv_path = Path(__file__).resolve().parents[4] / 'experiment_data' / 'JOCN2024' / 'experiment_results_unique_paths.csv'
+    csv_path = Path(__file__).resolve().parents[1] / 'results' / 'experiment_results_unique_paths.csv'
     fractions_data, path_hops_data = process_csv_data(csv_path)
 
     # Create plots

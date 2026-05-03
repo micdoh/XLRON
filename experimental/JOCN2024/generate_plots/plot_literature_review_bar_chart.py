@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 import matplotlib as mpl
 
 # Add experimental/ to path so plot_style is importable
-sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from plot_style import configure_style
 
 PLOTS_DIR = Path(__file__).resolve().parent / "plots"
@@ -94,7 +94,7 @@ def plot_literature_review(csv_path):
 
 def main():
     configure_style(font_size=20, axes_label_size=22, tick_size=20, legend_size=20)
-    csv_path = Path(__file__).resolve().parents[4] / 'experiment_data' / 'JOCN2024' / 'RL RSA.csv'
+    csv_path = Path(__file__).resolve().parents[1] / 'results' / 'RL RSA.csv'
     plot_literature_review(csv_path)
 
 
