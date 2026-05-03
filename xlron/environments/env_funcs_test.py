@@ -8,9 +8,6 @@ chex.all_variants() decorator runs the test once for each variant (e.g. jitted, 
 parameterized.named_parameters() decorator runs the test once for each set of parameters passed to the function under test.
 """
 
-import os
-
-os.environ["XLA_FLAGS"] = "--xla_force_host_platform_device_count=4"
 import pathlib
 
 import chex
@@ -172,7 +169,7 @@ def rsa_nsfnet_4_test_setup(**kwargs):
     return key, env, obs, state, params
 
 
-class InitPathLinkArrayTest(parameterized.TestCase):
+class InitPathLinkArrayTest(chex.TestCase):
     # N.B. jit not required here as this function is
     @chex.variants(without_jit=True)
     @parameterized.named_parameters(
@@ -205,7 +202,7 @@ class InitPathLinkArrayTest(parameterized.TestCase):
         chex.assert_trees_all_close(path_link_array, expected)
 
 
-class GetPathIndicesTest(parameterized.TestCase):
+class GetPathIndicesTest(chex.TestCase):
     @chex.all_variants()
     @parameterized.named_parameters(
         ("case_base", 0, 3, 2, 4, 4),
@@ -219,7 +216,7 @@ class GetPathIndicesTest(parameterized.TestCase):
         chex.assert_trees_all_close(paths_start_index, expected)
 
 
-class GetPathsTest(parameterized.TestCase):
+class GetPathsTest(chex.TestCase):
     def setUp(self):
         super().setUp()
         self.key, self.env, self.obs, self.state, self.params = rwa_4node_test_setup()
@@ -269,7 +266,7 @@ class GetPathsTest(parameterized.TestCase):
         chex.assert_trees_all_close(paths, expected)
 
 
-class GenerateArrivalHoldingTimesTest(parameterized.TestCase):
+class GenerateArrivalHoldingTimesTest(chex.TestCase):
     def setUp(self):
         super().setUp()
         self.key, self.env, self.obs, self.state, self.params = rwa_4node_test_setup()
@@ -298,7 +295,7 @@ class GenerateArrivalHoldingTimesTest(parameterized.TestCase):
         chex.assert_trees_all_close(holding_time, expected[1])
 
 
-class SetPathLinksTest(parameterized.TestCase):
+class SetPathLinksTest(chex.TestCase):
     def setUp(self):
         super().setUp()
         self.key, self.env, self.obs, self.state, self.params = rwa_4node_test_setup()
@@ -379,7 +376,7 @@ class SetPathLinksTest(parameterized.TestCase):
         chex.assert_trees_all_close(updated_link_array, expected)
 
 
-class UpdatePathLinksTest(parameterized.TestCase):
+class UpdatePathLinksTest(chex.TestCase):
     def setUp(self):
         super().setUp()
         self.key, self.env, self.obs, self.state, self.params = rwa_4node_test_setup()
@@ -451,7 +448,7 @@ class UpdatePathLinksTest(parameterized.TestCase):
         chex.assert_trees_all_close(updated_link_array, expected)
 
 
-class RemoveExpiredSlotRequestsTest(parameterized.TestCase):
+class RemoveExpiredSlotRequestsTest(chex.TestCase):
     def setUp(self):
         super().setUp()
         self.key, self.env, self.obs, self.state, self.params = rwa_4node_test_setup()
@@ -495,7 +492,7 @@ class RemoveExpiredSlotRequestsTest(parameterized.TestCase):
         chex.assert_trees_all_close(updated_state.link_slot_departure_array, expected)
 
 
-class UndoLinkSlotActionTest(parameterized.TestCase):
+class UndoLinkSlotActionTest(chex.TestCase):
     def setUp(self):
         super().setUp()
         self.key, self.env, self.obs, self.state, self.params = rwa_4node_test_setup()
@@ -531,7 +528,7 @@ class UndoLinkSlotActionTest(parameterized.TestCase):
         )
 
 
-class ImplementPathActionTest(parameterized.TestCase):
+class ImplementPathActionTest(chex.TestCase):
     def setUp(self):
         super().setUp()
         self.key, self.env, self.obs, self.state, self.params = rwa_4node_test_setup()
@@ -596,7 +593,7 @@ class ImplementPathActionTest(parameterized.TestCase):
         chex.assert_trees_all_close(updated_state.link_slot_departure_array, expected)
 
 
-class CheckNoSpectrumReuseTest(parameterized.TestCase):
+class CheckNoSpectrumReuseTest(chex.TestCase):
     def setUp(self):
         super().setUp()
         self.key, self.env, self.obs, self.state, self.params = rwa_4node_test_setup()
@@ -648,7 +645,7 @@ class CheckNoSpectrumReuseTest(parameterized.TestCase):
         chex.assert_trees_all_close(actual, expected)
 
 
-class InitPathLengthArrayTest(parameterized.TestCase):
+class InitPathLengthArrayTest(chex.TestCase):
     def setUp(self):
         super().setUp()
 
@@ -669,7 +666,7 @@ class InitPathLengthArrayTest(parameterized.TestCase):
         chex.assert_trees_all_close(path_length_array[:4], expected)
 
 
-class InitModulationsArrayTest(parameterized.TestCase):
+class InitModulationsArrayTest(chex.TestCase):
     def setUp(self):
         super().setUp()
 
@@ -698,7 +695,7 @@ class InitModulationsArrayTest(parameterized.TestCase):
         chex.assert_trees_all_close(modulations_array, expected)
 
 
-class InitPathSEArrayTest(parameterized.TestCase):
+class InitPathSEArrayTest(chex.TestCase):
     def setUp(self):
         super().setUp()
 
@@ -722,7 +719,7 @@ class InitPathSEArrayTest(parameterized.TestCase):
         chex.assert_trees_all_close(path_se_array[:4], expected)
 
 
-class RequiredSlotsTest(parameterized.TestCase):
+class RequiredSlotsTest(chex.TestCase):
     def setUp(self):
         super().setUp()
         self.key, self.env, self.obs, self.state, self.params = rsa_4node_3_slot_request_test_setup(
@@ -738,7 +735,7 @@ class RequiredSlotsTest(parameterized.TestCase):
         chex.assert_trees_all_close(slots, expected)
 
 
-class MaskSlotsBitRateModFormat(parameterized.TestCase):
+class MaskSlotsBitRateModFormat(chex.TestCase):
     def setUp(self):
         super().setUp()
         self.key, self.env, self.obs, self.state, self.params = rsa_nsfnet_16_mod_test_setup(
@@ -1104,7 +1101,7 @@ class MaskSlotsBitRateModFormat(parameterized.TestCase):
         chex.assert_trees_all_close(link_slot_mask, expected)
 
 
-class AggregateSlotsTest(parameterized.TestCase):
+class AggregateSlotsTest(chex.TestCase):
     def setUp(self):
         super().setUp()
         self.key, self.env, self.obs, self.state, self.params = rwa_4node_agg_slots_test_setup()
@@ -1142,7 +1139,7 @@ class AggregateSlotsTest(parameterized.TestCase):
         chex.assert_trees_all_close(result, expected)
 
 
-class ProcessPathActionTest(parameterized.TestCase):
+class ProcessPathActionTest(chex.TestCase):
     def setUp(self):
         super().setUp()
         self.key, self.env, self.obs, self.state, self.params = rwa_4node_agg_slots_test_setup()
@@ -1172,7 +1169,7 @@ class ProcessPathActionTest(parameterized.TestCase):
         chex.assert_trees_all_close(result_slot, expected)
 
 
-class FindBlockStartsTest(parameterized.TestCase):
+class FindBlockStartsTest(chex.TestCase):
     def setUp(self):
         super().setUp()
 
@@ -1188,7 +1185,7 @@ class FindBlockStartsTest(parameterized.TestCase):
         chex.assert_trees_all_close(actual, expected)
 
 
-class FindBlockEndsTest(parameterized.TestCase):
+class FindBlockEndsTest(chex.TestCase):
     def setUp(self):
         super().setUp()
 
@@ -1204,7 +1201,7 @@ class FindBlockEndsTest(parameterized.TestCase):
         chex.assert_trees_all_close(actual, expected)
 
 
-class FindBlockSizesTest(parameterized.TestCase):
+class FindBlockSizesTest(chex.TestCase):
     def setUp(self):
         super().setUp()
 
@@ -1256,6 +1253,5 @@ class FindBlockSizesTest(parameterized.TestCase):
 
 
 if __name__ == "__main__":
-    os.environ["XLA_FLAGS"] = "--xla_force_host_platform_device_count=4"
     jax.config.update("jax_numpy_rank_promotion", "raise")
     absltest.main()

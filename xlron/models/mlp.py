@@ -386,12 +386,12 @@ class LaunchPowerActorCriticMLP(eqx.Module):
 
         # Use vmap instead of scan for simpler Equinox pattern
         dist_params = jax.vmap(process_path)(
-            jnp.arange(self.k_paths, dtype=dtype_config.MED_INT_DTYPE)
+            jnp.arange(self.k_paths, dtype=dtype_config.INDEX_DTYPE)
         )
 
         # Critic forward pass
-        critic_hidden = self._forward_layers(x, self.critic_layers)
-        value = jnp.squeeze(self.critic_output(critic_hidden), axis=-1)
+        critic_hidden = self._forward_layers(x, self.critic_layers)  # ty: ignore[unresolved-attribute]
+        value = jnp.squeeze(self.critic_output(critic_hidden), axis=-1)  # ty: ignore[unresolved-attribute]
 
         # Create distribution
         if self.discrete:

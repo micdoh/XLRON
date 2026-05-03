@@ -633,8 +633,10 @@ def _simulation_step(
 
     # --- 1. Generate request (advances time, generates source/dest/bw/holding_time) ---
     state = generate_request_rsa(rng_key, state, params)
-    arrival_time = state.arrival_time  # inter-arrival time for this step
-    holding_time = state.holding_time
+    arrival_time = (
+        state.arrival_time  # ty: ignore[unresolved-attribute]
+    )  # inter-arrival time for this step
+    holding_time = state.holding_time  # ty: ignore[unresolved-attribute]
 
     # --- 2. Expire services whose remaining time <= arrival_time, then shift ---
     (
@@ -656,7 +658,7 @@ def _simulation_step(
     )
 
     # --- 3. Read request, compute SE and required slots ---
-    nodes_sd, requested_datarate = read_rsa_request(state.request_array)
+    nodes_sd, requested_datarate = read_rsa_request(state.request_array)  # ty: ignore[unresolved-attribute]
     source = nodes_sd[0].astype(jnp.int32)
     dest = nodes_sd[1].astype(jnp.int32)
     se = best_se_matrix[source, dest].astype(jnp.float32)
@@ -736,7 +738,7 @@ def _simulation_step(
     )
     service_slot_count = jnp.where(
         accepted,
-        service_slot_count.at[service_idx].set(num_slots.astype(jnp.int32)),
+        service_slot_count.at[service_idx].set(num_slots.astype(jnp.int32)),  # ty: ignore[unresolved-attribute]
         service_slot_count,
     )
 

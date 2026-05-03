@@ -7,7 +7,7 @@ from absl.testing import absltest, parameterized
 from xlron.environments.diff_utils import *
 
 
-class StraightThroughTest(parameterized.TestCase):
+class StraightThroughTest(chex.TestCase):
     @chex.all_variants()
     @parameterized.named_parameters(
         ("case_scalars", 1.0, 0.5),
@@ -28,7 +28,7 @@ class StraightThroughTest(parameterized.TestCase):
         chex.assert_trees_all_close(grad_result, expected_grad)
 
 
-class DifferentiableWhereTest(parameterized.TestCase):
+class DifferentiableWhereTest(chex.TestCase):
     @chex.all_variants()
     @parameterized.named_parameters(
         (
@@ -76,7 +76,7 @@ class DifferentiableWhereTest(parameterized.TestCase):
         chex.assert_trees_all_close(grads[1], expected_grad_false, rtol=1e-4, atol=1e-4)
 
 
-class DifferentiableEqualsTest(parameterized.TestCase):
+class DifferentiableEqualsTest(chex.TestCase):
     @chex.all_variants()
     @parameterized.named_parameters(
         ("case_equal", jnp.array([1.0, 2.0]), jnp.array([1.0, 2.0])),
@@ -95,7 +95,7 @@ class DifferentiableEqualsTest(parameterized.TestCase):
         # Test gradient flow for x
         def wrapper(x_input):
             return jnp.sum(
-                differentiable_compare(x_input, y, op_type="==", temperature=10.0).astype(
+                differentiable_compare(x_input, y, op_type="==", temperature=10.0).astype(  # ty: ignore[unresolved-attribute]
                     jnp.float32
                 )
             )
@@ -108,7 +108,7 @@ class DifferentiableEqualsTest(parameterized.TestCase):
         chex.assert_shape(grads, x.shape)
 
 
-class DifferentiableArgmaxTest(parameterized.TestCase):
+class DifferentiableArgmaxTest(chex.TestCase):
     @chex.all_variants()
     @parameterized.named_parameters(
         ("case_distinct", jnp.array([1.0, 3.0, 2.0])),
@@ -132,7 +132,7 @@ class DifferentiableArgmaxTest(parameterized.TestCase):
         chex.assert_shape(grads, x.shape)
 
 
-class MaskedSelectTest(parameterized.TestCase):
+class MaskedSelectTest(chex.TestCase):
     @chex.all_variants()
     @parameterized.named_parameters(
         ("case_boolean_mask", jnp.array([1.0, 2.0, 3.0]), jnp.array([True, False, True]), 0.0, 0.5),
@@ -171,7 +171,7 @@ class MaskedSelectTest(parameterized.TestCase):
             self.assertFalse(jnp.isnan(grads[1]))
 
 
-class DifferentiableRoundTest(parameterized.TestCase):
+class DifferentiableRoundTest(chex.TestCase):
     @chex.all_variants()
     @parameterized.named_parameters(
         ("case_simple_below", jnp.array([1.2, 2.3])),
@@ -222,7 +222,7 @@ class DifferentiableRoundTest(parameterized.TestCase):
         chex.assert_shape(grads, x.shape)
 
 
-class DifferentiableCeilTest(parameterized.TestCase):
+class DifferentiableCeilTest(chex.TestCase):
     @chex.all_variants()
     @parameterized.named_parameters(
         ("case_fractional", jnp.array([1.2, 2.7])),
@@ -247,7 +247,7 @@ class DifferentiableCeilTest(parameterized.TestCase):
         chex.assert_shape(grads, x.shape)
 
 
-class DifferentiableOneHotIndexUpdateTest(parameterized.TestCase):
+class DifferentiableOneHotIndexUpdateTest(chex.TestCase):
     @chex.variants(with_device=True, with_jit=True)
     @parameterized.named_parameters(
         ("case_scalar_index", jnp.array([1.0, 2.0, 3.0]), jnp.int32(1), 5.0),
@@ -406,7 +406,7 @@ class DifferentiableOneHotIndexUpdateTest(parameterized.TestCase):
         self.assertFalse(jnp.allclose(grads, jnp.zeros_like(grads)))
 
 
-class DifferentiableIndexTest(parameterized.TestCase):
+class DifferentiableIndexTest(chex.TestCase):
     @chex.all_variants()
     @parameterized.named_parameters(
         ("case_integer", jnp.array([1.0, 2.0, 3.0]), jnp.array(1.0)),
@@ -430,7 +430,7 @@ class DifferentiableIndexTest(parameterized.TestCase):
         self.assertFalse(jnp.all(jnp.isnan(grad_result)))
 
 
-class DifferentiableIndexWindowedTest(parameterized.TestCase):
+class DifferentiableIndexWindowedTest(chex.TestCase):
     @chex.all_variants
     @parameterized.named_parameters(
         ("case_integer", jnp.array([1.0, 2.0, 3.0]), jnp.array(1.0)),

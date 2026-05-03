@@ -7,7 +7,7 @@ import pathlib
 from collections import defaultdict
 from functools import partial
 from itertools import combinations, islice
-from typing import Dict, List, Optional, Sequence, Tuple, TypeVar, Union
+from typing import Dict, List, Sequence, Tuple, TypeVar, Union, cast
 from concurrent.futures import ProcessPoolExecutor
 
 import box
@@ -26,10 +26,15 @@ from xlron.environments.dataclasses import (
     ActionInfo,
     EnvParams,
     EnvState,
+    GNModelEnvParams,
+    GNModelEnvState,
+    RMSAGNModelEnvParams,
+    RMSAGNModelEnvState,
     RSAEnvParams,
     RSAEnvState,
     RSAGNModelEnvParams,
     RSAGNModelEnvState,
+    RWALightpathReuseEnvState,
 )
 from xlron.environments.diff_utils import (
     differentiable_argmax,
@@ -145,8 +150,8 @@ def get_line_graph_spectral_features(graph: nx.Graph, num_features: int) -> chex
 
 @partial(jax.jit, static_argnums=(1, 3))
 def init_graph_tuple(
-    state: EnvState,
-    params: EnvParams,
+    state: RSAEnvState,
+    params: RSAEnvParams,
     adj: Array,
     exclude_source_dest: bool = False,
 ) -> jraph.GraphsTuple:
@@ -196,10 +201,12 @@ def init_graph_tuple(
 
     if params.__class__.__name__ in ["RSAGNModelEnvParams", "RMSAGNModelEnvParams"]:
         # Normalize by max parameters (converted to linear units)
-        max_power = isrs_gn_model.from_dbm(params.max_power)
-        normalized_power = jnp.round(state.channel_power_array / max_power, 3)
-        max_snr = isrs_gn_model.from_db(params.max_snr)
-        normalized_snr = jnp.round(state.link_snr_array / max_snr, 3)
+        gn_state = cast(GNModelEnvState, state)
+        gn_params = cast(GNModelEnvParams, params)
+        max_power = isrs_gn_model.from_dbm(gn_params.max_power)
+        normalized_power = jnp.round(gn_state.channel_power_array / max_power, 3)
+        max_snr = isrs_gn_model.from_db(gn_params.max_snr)
+        normalized_snr = jnp.round(gn_state.link_snr_array / max_snr, 3)
         edge_features = jnp.stack([normalized_snr, normalized_power], axis=-1)
         node_features = jnp.concatenate([spectral_features, source_dest_features], axis=-1)
     elif params.__class__.__name__ == "VONEEnvParams":
@@ -243,7 +250,7 @@ def init_graph_tuple(
     )
 
 
-def update_graph_tuple(state: EnvState, params: EnvParams) -> EnvState:
+def update_graph_tuple(state: RSAEnvState, params: RSAEnvParams) -> RSAEnvState:
     """Update graph tuple for use with Jraph GNNs.
 
     Edge and node features are updated from link_slot_array and node_capacity_array respectively.
@@ -280,19 +287,21 @@ def update_graph_tuple(state: EnvState, params: EnvParams) -> EnvState:
 
     if params.__class__.__name__ in ["RSAGNModelEnvParams", "RMSAGNModelEnvParams"]:
         # Normalize by max parameters (converted to linear units)
-        max_power = isrs_gn_model.from_dbm(params.max_power)
+        gn_state = cast(GNModelEnvState, state)
+        gn_params = cast(GNModelEnvParams, params)
+        max_power = isrs_gn_model.from_dbm(gn_params.max_power)
         # Use differentiable rounding
         normalized_power = differentiable_round(
-            state.channel_power_array / max_power,
+            gn_state.channel_power_array / max_power,
             decimals=3,
             temperature=params.temperature,
             differentiable=params.differentiable,
         )
 
-        max_snr = isrs_gn_model.from_db(params.max_snr)
+        max_snr = isrs_gn_model.from_db(gn_params.max_snr)
         # Use differentiable rounding
         normalized_snr = differentiable_round(
-            state.link_snr_array / max_snr,
+            gn_state.link_snr_array / max_snr,
             decimals=3,
             temperature=params.temperature,
             differentiable=params.differentiable,
@@ -726,6 +735,7 @@ def init_path_link_array(
     # path_snr extra row is already zero from pre-allocation
 
     result = np.array(all_link_usage, dtype=np.int8)
+    effective_k = None
     if maximum_path_length_km is not None:
         result, effective_k = _apply_max_path_length_filter(
             result, graph, k, maximum_path_length_km, path_snr
@@ -736,7 +746,7 @@ def init_path_link_array(
         np.savez_compressed(cache_path, arr=result)
         print(f"  Saved KSP cache to {cache_path.name} ({cache_path.stat().st_size / 1e6:.1f} MB)")
 
-    if maximum_path_length_km is not None:
+    if effective_k is not None:
         return result, effective_k
     return result
 
@@ -834,6 +844,9 @@ def get_obs_transformer(state: RSAEnvState, params: RSAEnvParams) -> chex.Array:
         tokens: Array of shape (num_links, input_size)
     """
     # Get line graph spectral features (WiRE positional encodings)
+    assert params.line_graph_spectral_features is not None, (
+        "line_graph_spectral_features must be set when using transformer observations"
+    )
     wire_features = params.line_graph_spectral_features.val
 
     # Get edge features based on traffic type (WITHOUT holding time - that's request-specific)
@@ -841,9 +854,11 @@ def get_obs_transformer(state: RSAEnvState, params: RSAEnvParams) -> chex.Array:
         edge_features = state.link_slot_array
     elif params.transformer_obs_type == "capacity":
         # 0 where no active lightpath, normalized remaining capacity otherwise
-        active_mask = (state.link_slot_array > 0).astype(dtype_config.LARGE_FLOAT_DTYPE)
+        # capacity mode is only used with RWA-LR which carries link_capacity_array
+        rwalr_state = cast(RWALightpathReuseEnvState, state)
+        active_mask = (rwalr_state.link_slot_array > 0).astype(dtype_config.LARGE_FLOAT_DTYPE)
         edge_features = (
-            active_mask * state.link_capacity_array / (jnp.mean(params.values_bw.val) * 100)
+            active_mask * rwalr_state.link_capacity_array / (jnp.mean(params.values_bw.val) * 100)
         )
     else:
         # Dynamic traffic: normalized departure times only
@@ -875,7 +890,11 @@ def get_obs_transformer(state: RSAEnvState, params: RSAEnvParams) -> chex.Array:
     if params.transformer_obs_type == "capacity":
         # RWA-LR: use path capacity as quality (SE is always 1, meaningless)
         index_array = get_path_index_array(params, nodes_sd)
-        paths_quality = jnp.take(state.path_capacity_array.flatten(), index_array.flatten())
+        rwalr_state = cast(RWALightpathReuseEnvState, state)
+        paths_quality = jnp.take(
+            rwalr_state.path_capacity_array.flatten(),
+            index_array.flatten(),  # ty: ignore[unresolved-attribute]
+        )
         paths_quality = paths_quality / (jnp.max(paths_quality) + 1e-8)  # normalize
     else:
         # SE-based envs: quality = 1/required_slots
@@ -888,7 +907,7 @@ def get_obs_transformer(state: RSAEnvState, params: RSAEnvParams) -> chex.Array:
                 guardband=params.guardband,
                 temperature=params.temperature,
             )
-        )(paths_se.flatten())
+        )(paths_se.flatten())  # ty: ignore[unresolved-attribute]
         paths_quality = 1.0 / num_slots
     link_relevance_features = get_link_relevance_array(paths, paths_quality, params)  # (E, 4)
 
@@ -1155,7 +1174,9 @@ def generate_source_dest_pairs(num_nodes, directed_graph):
 
 
 @partial(jax.jit, static_argnums=(2,))
-def generate_request_rsa(key: chex.PRNGKey, state: EnvState, params: EnvParams) -> EnvState:
+def generate_request_rsa(
+    key: chex.PRNGKey, state: RSAEnvState, params: RSAEnvParams
+) -> RSAEnvState:
     key_sd, key_slot, key_times = jax.random.split(key, 3)
 
     if params.deterministic_requests:
@@ -1227,8 +1248,9 @@ def generate_request_rsa(key: chex.PRNGKey, state: EnvState, params: EnvParams) 
 
     remove_expired_services = remove_expired_services_rsa
     if params.__class__.__name__ == "RWALightpathReuseEnvParams":
-        state = state.replace(
-            time_since_last_departure=state.time_since_last_departure + arrival_time
+        rwalr_state = cast(RWALightpathReuseEnvState, state)
+        state = rwalr_state.replace(
+            time_since_last_departure=rwalr_state.time_since_last_departure + arrival_time
         )
         remove_expired_services = remove_expired_services_rwalr
     elif params.__class__.__name__ == "RMSAGNModelEnvParams":
@@ -1240,7 +1262,9 @@ def generate_request_rsa(key: chex.PRNGKey, state: EnvState, params: EnvParams) 
 
 
 @partial(jax.jit, static_argnums=(2,))
-def generate_request_rwalr(key: chex.PRNGKey, state: EnvState, params: EnvParams) -> EnvState:
+def generate_request_rwalr(
+    key: chex.PRNGKey, state: RWALightpathReuseEnvState, params: RSAEnvParams
+) -> RWALightpathReuseEnvState:
     # Flatten the probabilities to a 1D array
     key_sd, key_slot, key_times = jax.random.split(key, 3)
     if params.deterministic_requests:
@@ -1573,7 +1597,7 @@ def set_path_links(
 
 
 @partial(jax.jit, static_argnums=(1,))
-def remove_expired_services_rsa(state: EnvState, params: EnvParams) -> EnvState:
+def remove_expired_services_rsa(state: RSAEnvState, params: EnvParams) -> RSAEnvState:
     t = state.current_time if not params.relative_arrival_times else state.arrival_time
 
     dep = state.link_slot_departure_array
@@ -1581,7 +1605,7 @@ def remove_expired_services_rsa(state: EnvState, params: EnvParams) -> EnvState:
     keep = differentiable_compare(
         dep, t, ">", params.differentiable, params.temperature
     )  # 1 where dep > t, else 0
-    keep_f = keep.astype(dep.dtype)  # 0/1 in dep dtype
+    keep_f = keep.astype(dep.dtype)  # 0/1 in dep dtype  # ty: ignore[unresolved-attribute]
 
     # Clear expired slots
     new_slots = state.link_slot_array * keep_f
@@ -1600,7 +1624,9 @@ def remove_expired_services_rsa(state: EnvState, params: EnvParams) -> EnvState:
 
 
 @partial(jax.jit, static_argnums=(1,))
-def remove_expired_services_rwalr(state: EnvState, params: Optional[EnvParams]) -> EnvState:
+def remove_expired_services_rwalr(
+    state: RWALightpathReuseEnvState, params: EnvParams
+) -> RWALightpathReuseEnvState:
     """
 
     Args:
@@ -1644,7 +1670,9 @@ def remove_expired_services_rwalr(state: EnvState, params: Optional[EnvParams]) 
 
 
 @partial(jax.jit, static_argnums=(1,))
-def remove_expired_services_rsa_gn_model(state: EnvState, params: Optional[EnvParams]) -> EnvState:
+def remove_expired_services_rsa_gn_model(
+    state: RSAGNModelEnvState, params: EnvParams
+) -> RSAGNModelEnvState:
     t = state.current_time if not params.relative_arrival_times else state.arrival_time
     dep = state.link_slot_departure_array
 
@@ -1701,7 +1729,9 @@ def remove_expired_services_rsa_gn_model(state: EnvState, params: Optional[EnvPa
 
 
 @partial(jax.jit, static_argnums=(1,))
-def remove_expired_services_rmsa_gn_model(state: EnvState, params: Optional[EnvParams]) -> EnvState:
+def remove_expired_services_rmsa_gn_model(
+    state: RMSAGNModelEnvState, params: EnvParams
+) -> RMSAGNModelEnvState:
     t = state.current_time if not params.relative_arrival_times else state.arrival_time
 
     dep = state.link_slot_departure_array
@@ -1810,11 +1840,11 @@ def complete_step_rsa_gn_model(
 
 
 def complete_step_rmsa_gn_model(
-    state: RSAGNModelEnvState,
+    state: RMSAGNModelEnvState,
     action_info: ActionInfo,
     check: chex.Array,
-    params: RSAGNModelEnvParams,
-) -> RSAGNModelEnvState:
+    params: RMSAGNModelEnvParams,
+) -> RMSAGNModelEnvState:
     """Complete step for RMSA GN-model environments.
 
     Same as RSA GN-model, plus modulation_format_index_array restoration.
@@ -2065,9 +2095,10 @@ def implement_action_rsa(
         state: updated state
     """
     if params.__class__.__name__ == "RWALightpathReuseEnvParams":
-        state = state.replace(
+        rwalr_state = cast(RWALightpathReuseEnvState, state)
+        state = rwalr_state.replace(
             link_capacity_array=update_path_links(
-                state.link_capacity_array,
+                rwalr_state.link_capacity_array,
                 action_info,
                 action_info.requested_datarate,
             )
@@ -2076,8 +2107,8 @@ def implement_action_rsa(
         # TODO (Dynamic-RWALR) - In order to enable dynamic RWA with lightpath reuse (as opposed to just incremental loading),
         #  need to keep track of active requests OR just randomly remove connections
         #  (could do this by using the link_slot_departure array in a novel way... i.e. don't fill it with departure time but current bw)
-        capacity_mask = jnp.where(state.link_capacity_array <= 0.0, 1.0, 0.0)
-        over_capacity_mask = jnp.where(state.link_capacity_array < 0.0, 1.0, 0.0)
+        capacity_mask = jnp.where(rwalr_state.link_capacity_array <= 0.0, 1.0, 0.0)
+        over_capacity_mask = jnp.where(rwalr_state.link_capacity_array < 0.0, 1.0, 0.0)
         total_mask = capacity_mask + over_capacity_mask
         state = state.replace(
             link_slot_array=total_mask,
@@ -2288,13 +2319,13 @@ def get_request_mask(requested_slots, params):
 
 
 @partial(jax.jit, static_argnums=(1,), donate_argnums=(0,))
-def mask_slots(state: EnvState, params: EnvParams) -> Array:
+def mask_slots(state: RSAEnvState, params: RSAEnvParams) -> Array:
     nodes_sd, requested_datarate = read_rsa_request(state.request_array)
 
     # Get path indices ONCE, reuse for both paths and SEs
     path_indices = get_path_index_array(params, nodes_sd)  # (k,)
     # Cast to int for indexing (differentiable mode returns float indices)
-    path_indices = path_indices.astype(dtype_config.INDEX_DTYPE)
+    path_indices = path_indices.astype(dtype_config.INDEX_DTYPE)  # ty: ignore[unresolved-attribute]
 
     # Direct take - no recomputing indices
     paths = jnp.take(params.path_link_array.val, path_indices, axis=0)  # (k, num_links)
@@ -2585,7 +2616,7 @@ def calculate_path_stats(state, params, request):
             temperature=params.temperature,
         )
         req_slots_norm = req_slots * slot_size / jnp.max(params.values_bw.val)
-        free = (slots == 0).astype(dtype_config.LARGE_FLOAT_DTYPE)
+        free = (slots == 0).astype(dtype_config.LARGE_FLOAT_DTYPE)  # ty: ignore[unresolved-attribute]
         free_slots_norm = jnp.sum(free) / link_resources
 
         block_sizes = find_block_sizes(
@@ -2595,7 +2626,7 @@ def calculate_path_stats(state, params, request):
         first_block_index_norm = (
             first_block_index.astype(dtype_config.LARGE_FLOAT_DTYPE) / link_resources
         )
-        first_block_size_norm = block_sizes[first_block_index] / req_slots.astype(
+        first_block_size_norm = block_sizes[first_block_index] / req_slots.astype(  # ty: ignore[unresolved-attribute]
             dtype_config.LARGE_FLOAT_DTYPE
         )
 
@@ -2753,7 +2784,7 @@ def get_lightpath_index(params, nodes, path_index):
 
 @partial(jax.jit, static_argnums=(2,))
 def check_lightpath_available_and_existing(
-    state: EnvState, action_info: ActionInfo, params: EnvParams
+    state: RWALightpathReuseEnvState, action_info: ActionInfo, params: EnvParams
 ) -> Tuple[chex.Array, chex.Array, chex.Array, chex.Array]:
     lightpath_index = get_lightpath_index(params, action_info.nodes_sd, action_info.path_index)
 
@@ -2786,14 +2817,18 @@ def check_lightpath_available_and_existing(
     )
 
 
-def check_action_rwalr(state: EnvState, action_info: ActionInfo, params: EnvParams) -> bool:
+def check_action_rwalr(
+    state: RWALightpathReuseEnvState, action_info: ActionInfo, params: EnvParams
+) -> bool:
     no_reuse = check_no_spectrum_reuse(state, action_info, params)
     not_available = ~check_lightpath_available_and_existing(state, action_info, params)[0]
     return no_reuse | not_available
 
 
 @partial(jax.jit, static_argnums=(2,))
-def implement_action_rwalr(state: EnvState, action_info: ActionInfo, params: EnvParams) -> EnvState:
+def implement_action_rwalr(
+    state: RWALightpathReuseEnvState, action_info: ActionInfo, params: EnvParams
+) -> RWALightpathReuseEnvState:
     (
         lightpath_available_check,
         lightpath_existing_check,
@@ -2858,7 +2893,9 @@ def implement_action_rwalr(state: EnvState, action_info: ActionInfo, params: Env
 
 
 @partial(jax.jit, static_argnums=(1,))
-def mask_slots_rwalr(state: EnvState, params: EnvParams, request: chex.Array) -> EnvState:
+def mask_slots_rwalr(
+    state: RWALightpathReuseEnvState, params: EnvParams, request: chex.Array
+) -> RWALightpathReuseEnvState:
     """For use in RWALightpathReuseEnv.
     Each lightpath has a maximum capacity defined in path_capacity_array. This is updated when a lightpath is assigned.
     If remaining path capacity is less than current request, corresponding link-slots are masked out.
@@ -3645,7 +3682,7 @@ def get_centre_freq_on_link(slot_index, num_slots_link, params):
 
 @partial(jax.jit, static_argnums=(1,))
 def get_centre_frequencies_array(
-    state: RSAGNModelEnvState, params: RSAGNModelEnvParams
+    state: RMSAGNModelEnvState, params: RMSAGNModelEnvParams
 ) -> chex.Array:
     slot_indices = jnp.arange(params.link_resources)
     se_array = get_required_snr_se_kurtosis_array(state.modulation_format_index_array, 1, params)
@@ -3802,7 +3839,7 @@ def get_snr_for_path(path, link_snr_array, params, state=None):
     )  # Link SNR array must be in linear units so that 1/inf = 0
 
 
-def get_lightpath_snr(state: RSAGNModelEnvParams, params: RSAGNModelEnvParams) -> chex.Array:
+def get_lightpath_snr(state: GNModelEnvState, params: GNModelEnvParams) -> chex.Array:
     """Get SNR for each link on path.
     N.B. that in most cases it is more efficient to calculate the SNR for every possible path, rather than a slot-by-slot basis.
     But in some cases slot-by-slot is better i.e. when k*N(N-1)/2 > L*S
@@ -3851,7 +3888,7 @@ def compute_total_power_per_link(channel_power_array, path_index_array):
     return jnp.sum(channel_start_powers, axis=1)
 
 
-def check_snr_sufficient(state: RSAGNModelEnvState, params: RSAGNModelEnvParams) -> chex.Array:
+def check_snr_sufficient(state: RMSAGNModelEnvState, params: RMSAGNModelEnvParams) -> chex.Array:
     """Check if SNR is sufficient for all active connections.
     Args:
         state (EnvState): Environment state
@@ -3871,7 +3908,7 @@ def check_snr_sufficient(state: RSAGNModelEnvState, params: RSAGNModelEnvParams)
 
 
 @partial(jax.jit, static_argnums=(1,))
-def get_snr_link_array(state: EnvState, params: EnvParams) -> chex.Array:
+def get_snr_link_array(state: GNModelEnvState, params: GNModelEnvParams) -> chex.Array:
     """Get SNR per link
     Args:
         state (EnvState): Environment state
@@ -3946,7 +3983,7 @@ def get_snr_link_array(state: EnvState, params: EnvParams) -> chex.Array:
 
 
 @partial(jax.jit, static_argnums=(1,))
-def get_snr_link_array_fused(state: EnvState, params: EnvParams) -> chex.Array:
+def get_snr_link_array_fused(state: GNModelEnvState, params: GNModelEnvParams) -> chex.Array:
     """Get SNR per link using fused computation (uniform spans, no mod_format_correction).
 
     Drop-in replacement for get_snr_link_array that uses get_snr_fused to
@@ -4019,11 +4056,11 @@ def get_snr_link_array_fused(state: EnvState, params: EnvParams) -> chex.Array:
 
 @partial(jax.jit, static_argnums=(3,))
 def get_best_modulation_format(
-    state: EnvState,
+    state: RMSAGNModelEnvState,
     path: chex.Array,
     initial_slot_index: int,
     launch_power: chex.Array,
-    params: EnvParams,
+    params: RMSAGNModelEnvParams,
 ) -> chex.Array:
     _, requested_datarate = read_rsa_request(state.request_array)
 
@@ -4070,10 +4107,10 @@ def get_best_modulation_format(
 
 @partial(jax.jit, static_argnums=(3,))
 def get_best_modulation_format_simple(
-    state: RSAGNModelEnvState,
+    state: RMSAGNModelEnvState,
     path: chex.Array,
     initial_slot_index: int,
-    params: RSAGNModelEnvParams,
+    params: RMSAGNModelEnvParams,
 ) -> chex.Array:
     """Get modulation format for lightpath.
     Assume worst case (least Gaussian) modulation format when calculating SNR.
@@ -4131,7 +4168,9 @@ def set_band_gaps(link_slot_array: chex.Array, params: RSAGNModelEnvParams, val:
 
 
 @partial(jax.jit, static_argnums=(2,))
-def check_action_rmsa_gn_model(state: EnvState, action_info: ActionInfo, params: EnvParams) -> bool:
+def check_action_rmsa_gn_model(
+    state: GNModelEnvState, action_info: ActionInfo, params: GNModelEnvParams
+) -> bool:
     """Check if action is valid for RSA GN model
     Args:
         state (EnvState): Environment state
@@ -4222,8 +4261,8 @@ def implement_action_rsa_gn_model(
 
 @partial(jax.jit, static_argnums=(2,))
 def implement_action_rmsa_gn_model(
-    state: RSAGNModelEnvState, action_info: ActionInfo, params: RSAGNModelEnvParams
-) -> EnvState:
+    state: RMSAGNModelEnvState, action_info: ActionInfo, params: RMSAGNModelEnvParams
+) -> RMSAGNModelEnvState:
     """Implement action for RSA GN model. Update following arrays:
     - link_slot_array
     - link_slot_departure_array
@@ -4411,7 +4450,7 @@ def get_minimum_snr_of_channels_on_path(
 
 @partial(jax.jit, static_argnums=(1,))
 def mask_slots_rmsa_gn_model(
-    state: RSAGNModelEnvState, params: RSAGNModelEnvParams, request: chex.Array
+    state: RMSAGNModelEnvState, params: RMSAGNModelEnvParams, request: chex.Array
 ) -> EnvState:
     """Compute action mask for RMSA with GN model physical layer.
 
@@ -4759,11 +4798,11 @@ def mask_slots_rmsa_gn_model(
 
 @partial(jax.jit, static_argnums=(4,))
 def get_launch_power(
-    state: EnvState,
+    state: GNModelEnvState,
     path_action: chex.Array,
     power_action: chex.Array,
     initial_slot_index: chex.Array,
-    params: EnvParams,
+    params: GNModelEnvParams,
 ) -> chex.Array:
     """Get launch power for new lightpath. N.B. launch power is specified in dBm but is converted to linear units
     when stored in channel_power_array. This func returns linear units (mW).

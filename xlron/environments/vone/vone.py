@@ -136,10 +136,10 @@ class VONEEnv(environment.Environment):
     def step_env(
         self,
         key: chex.PRNGKey,
-        state: EnvState,
+        state: VONEEnvState,
         action: Union[int, float],
         params: EnvParams,
-    ) -> Tuple[chex.Array, EnvState, chex.Array, chex.Array, chex.Array, dict]:
+    ) -> Tuple[chex.Array, VONEEnvState, chex.Array, chex.Array, chex.Array, dict]:
         """Environment-specific step transition."""
         action = jnp.stack(
             action
@@ -212,18 +212,20 @@ class VONEEnv(environment.Environment):
             2,
         ),
     )
-    def reset_env(self, key: chex.PRNGKey, params: EnvParams) -> Tuple[chex.Array, EnvState]:
+    def reset_env(
+        self, key: chex.PRNGKey, params: VONEEnvParams
+    ) -> Tuple[chex.Array, VONEEnvState]:
         """Environment-specific reset."""
         state = self.initial_state
         state = generate_vone_request(key, state, params)
         return self.get_obs(state), state
 
-    def action_mask_nodes(self, state: EnvState, params: EnvParams) -> chex.Array:
+    def action_mask_nodes(self, state: VONEEnvState, params: VONEEnvParams) -> chex.Array:
         """Returns action mask for state."""
         return mask_nodes(state, params.num_nodes)
 
     def action_mask_dest_node(
-        self, state: EnvState, params: EnvParams, source_action: chex.Array
+        self, state: VONEEnvState, params: VONEEnvParams, source_action: chex.Array
     ) -> chex.Array:
         """Returns action mask for state."""
         empty_mask = jnp.ones(params.num_nodes)
@@ -245,7 +247,7 @@ class VONEEnv(environment.Environment):
         )
         return state
 
-    def get_obs_unflat(self, state: EnvState) -> Tuple[chex.Array]:
+    def get_obs_unflat(self, state: VONEEnvState) -> Tuple[chex.Array]:
         """Applies observation function to state."""
         return (
             state.request_array,
@@ -253,7 +255,7 @@ class VONEEnv(environment.Environment):
             state.link_slot_array,
         )
 
-    def get_obs(self, state: EnvState) -> chex.Array:
+    def get_obs(self, state: VONEEnvState) -> chex.Array:
         """Applies observation function to state."""
         return jnp.concatenate(
             (
@@ -339,7 +341,7 @@ class VONEEnv(environment.Environment):
             ]
         )
 
-    def observation_space(self, params: EnvParams):
+    def observation_space(self, params: VONEEnvParams):
         """Observation space of the environment."""
         return spaces.Discrete(
             2 * (2 * params.max_edges + 1)
@@ -347,7 +349,7 @@ class VONEEnv(environment.Environment):
             + params.num_links * params.link_resources
         )
 
-    def state_space(self, params: EnvParams):
+    def state_space(self, params: VONEEnvParams):
         """State space of the environment."""
         return spaces.Dict(
             {

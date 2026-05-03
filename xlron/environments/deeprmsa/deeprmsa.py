@@ -103,7 +103,7 @@ class DeepRMSAEnv(RSAEnv):
             2,
         ),
     )
-    def action_mask(self, state: RSAEnvState, params: RSAEnvParams):
+    def action_mask(self, state: DeepRMSAEnvState, params: RSAEnvParams):
         """Returns mask of valid actions.
 
         Args:
@@ -134,7 +134,7 @@ class DeepRMSAEnv(RSAEnv):
             2,
         ),
     )
-    def get_obs(self, state: RSAEnvState, params: RSAEnvParams) -> chex.Array:
+    def get_obs(self, state: DeepRMSAEnvState, params: RSAEnvParams) -> chex.Array:
         """Applies observation function to state."""
         request = state.request_array
         s, d = request[0], request[2]

@@ -8,9 +8,6 @@ chex.all_variants() decorator runs the test once for each variant (e.g. jitted, 
 parameterized.named_parameters() decorator runs the test once for each set of parameters passed to the function under test.
 """
 
-import os
-
-os.environ["XLA_FLAGS"] = "--xla_force_host_platform_device_count=4"
 import chex
 import jax
 import jax.numpy as jnp
@@ -24,7 +21,7 @@ from xlron.environments.rsa.rsa import *
 from xlron.environments.wrappers import *
 
 
-class GenerateRSARequestTest(parameterized.TestCase):
+class GenerateRSARequestTest(chex.TestCase):
     def setUp(self):
         super().setUp()
         self.key, self.env, self.obs, self.state, self.params = rwa_4node_test_setup()
@@ -54,7 +51,7 @@ class GenerateRSARequestTest(parameterized.TestCase):
         chex.assert_trees_all_close((request1, request2), expected)
 
 
-class ImplementRsaActionTest(parameterized.TestCase):
+class ImplementRsaActionTest(chex.TestCase):
     def setUp(self):
         super().setUp()
         self.key, self.env, self.obs, self.state, self.params = rwa_4node_test_setup()
@@ -146,7 +143,7 @@ class ImplementRsaActionTest(parameterized.TestCase):
         chex.assert_trees_all_close(updated_state.link_slot_departure_array, expected)
 
 
-class CheckRsaActionTest(parameterized.TestCase):
+class CheckRsaActionTest(chex.TestCase):
     def setUp(self):
         super().setUp()
         self.key, self.env, self.obs, self.state, self.params = rwa_4node_test_setup()
@@ -165,7 +162,7 @@ class CheckRsaActionTest(parameterized.TestCase):
         chex.assert_trees_all_close(actual, expected)
 
 
-class RsaStepTest(parameterized.TestCase):
+class RsaStepTest(chex.TestCase):
     def setUp(self):
         super().setUp()
         self.key, self.env, self.obs, self.state, self.params = rwa_4node_test_setup()
@@ -237,7 +234,7 @@ class RsaStepTest(parameterized.TestCase):
         chex.assert_trees_all_close(obs, expected)
 
 
-class RsaResetTest(parameterized.TestCase):
+class RsaResetTest(chex.TestCase):
     def setUp(self):
         super().setUp()
         self.key, self.env, self.obs, self.state, self.params = rwa_4node_test_setup()
@@ -276,7 +273,7 @@ class RsaResetTest(parameterized.TestCase):
         chex.assert_trees_all_close(obs, expected)
 
 
-class RsaActionMaskTest(parameterized.TestCase):
+class RsaActionMaskTest(chex.TestCase):
     def setUp(self):
         super().setUp()
         self.key, self.env, self.obs, self.state, self.params = rwa_4node_test_setup()
@@ -707,6 +704,5 @@ class RsaActionMaskTest(parameterized.TestCase):
 
 
 if __name__ == "__main__":
-    os.environ["XLA_FLAGS"] = "--xla_force_host_platform_device_count=4"
     jax.config.update("jax_numpy_rank_promotion", "raise")
     absltest.main()

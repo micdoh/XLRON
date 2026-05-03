@@ -1,9 +1,23 @@
-from typing import Callable, Dict, Generic, Sequence, Tuple, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, Dict, Generic, Sequence, Tuple, TypeVar
 
 import chex
 import jraph
 from flax import struct
 from jax import Array
+
+if TYPE_CHECKING:
+    from typing_extensions import Self
+
+    # Teach type checkers about the .replace() method that flax.struct.dataclass
+    # injects at runtime — without this, `state.replace(...)` reports as missing.
+    class _StructBase:
+        def replace(self, **changes: Any) -> "Self": ...
+
+else:
+
+    class _StructBase:
+        pass
+
 
 Shape = Sequence[int]
 T = TypeVar("T")  # Declare type variable
@@ -50,7 +64,7 @@ class EvalState:
 
 
 @struct.dataclass
-class EnvState:
+class EnvState(_StructBase):
     """Dataclass to hold environment state. State is mutable and arrays are traced on JIT compilation.
 
     Args:
@@ -88,7 +102,7 @@ class EnvState:
 
 
 @struct.dataclass
-class EnvParams:
+class EnvParams(_StructBase):
     """Dataclass to hold environment parameters. Parameters are immutable.
 
     Args:
@@ -502,6 +516,9 @@ class VONETransition:
     action_mask_p: chex.Array
     action_mask_d: chex.Array
     valid_mass: chex.Array
+    # Alias for action_mask_p so shared loss-path code (which expects
+    # `action_mask`) works uniformly for VONE and RSA-family envs.
+    action_mask: chex.Array
 
 
 @struct.dataclass

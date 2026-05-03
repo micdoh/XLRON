@@ -8,9 +8,6 @@ chex.all_variants() decorator runs the test once for each variant (e.g. jitted, 
 parameterized.named_parameters() decorator runs the test once for each set of parameters passed to the function under test.
 """
 
-import os
-
-os.environ["XLA_FLAGS"] = "--xla_force_host_platform_device_count=4"
 import chex
 import jax
 import jax.numpy as jnp
@@ -137,7 +134,7 @@ def vone_nsfnet_16_mod_test_setup():
     )
 
 
-class GenerateVoneRequestTest(parameterized.TestCase):
+class GenerateVoneRequestTest(chex.TestCase):
     def setUp(self):
         super().setUp()
         self.key, self.env, self.obs, self.state, self.params = vone_4node_test_setup()
@@ -190,7 +187,7 @@ class GenerateVoneRequestTest(parameterized.TestCase):
         chex.assert_trees_all_close(request, expected)
 
 
-class RemoveExpiredNodeRequestsTest(parameterized.TestCase):
+class RemoveExpiredNodeRequestsTest(chex.TestCase):
     def setUp(self):
         super().setUp()
         self.key, self.env, self.obs, self.state, self.params = vone_4node_test_setup()
@@ -200,7 +197,7 @@ class RemoveExpiredNodeRequestsTest(parameterized.TestCase):
     def test_remove_expired_node_requests_capacity(self, s, d, sr, dr, n, expected):
         state = implement_node_action(self.state, s, d, sr, dr, n=n)
         state = finalise_vone_action(state)
-        state = state.replace(current_time=10e4)
+        state = state.replace(current_time=10e4)  # ty: ignore[unresolved-attribute]
         updated_state = self.variant(remove_expired_node_requests, static_argnums=(1,))(
             state, self.params
         )
@@ -211,7 +208,7 @@ class RemoveExpiredNodeRequestsTest(parameterized.TestCase):
     def test_remove_expired_node_requests_resource(self, s, d, sr, dr, n, expected):
         state = implement_node_action(self.state, s, d, sr, dr, n=n)
         state = finalise_vone_action(state)
-        state = state.replace(current_time=10e4)
+        state = state.replace(current_time=10e4)  # ty: ignore[unresolved-attribute]
         updated_state = self.variant(remove_expired_node_requests, static_argnums=(1,))(
             state, self.params
         )
@@ -222,14 +219,14 @@ class RemoveExpiredNodeRequestsTest(parameterized.TestCase):
     def test_remove_expired_node_requests_departure(self, s, d, sr, dr, n, expected):
         state = implement_node_action(self.state, s, d, sr, dr, n=n)
         state = finalise_vone_action(state)
-        state = state.replace(current_time=10e4)
+        state = state.replace(current_time=10e4)  # ty: ignore[unresolved-attribute]
         updated_state = self.variant(remove_expired_node_requests, static_argnums=(1,))(
             state, self.params
         )
         chex.assert_trees_all_close(updated_state.node_departure_array, expected)
 
 
-class UpdateNodeDepartureTest(parameterized.TestCase):
+class UpdateNodeDepartureTest(chex.TestCase):
     @chex.all_variants()
     @parameterized.named_parameters(
         (
@@ -245,7 +242,7 @@ class UpdateNodeDepartureTest(parameterized.TestCase):
         chex.assert_trees_all_close(updated_node_row, expected)
 
 
-class UpdateSelectedNodeDepartureTest(parameterized.TestCase):
+class UpdateSelectedNodeDepartureTest(chex.TestCase):
     @chex.all_variants()
     @parameterized.named_parameters(
         (
@@ -274,7 +271,7 @@ class UpdateSelectedNodeDepartureTest(parameterized.TestCase):
         chex.assert_trees_all_close(updated_node_row, expected)
 
 
-class VmapUpdateNodeDepartureTest(parameterized.TestCase):
+class VmapUpdateNodeDepartureTest(chex.TestCase):
     @chex.all_variants()
     @parameterized.named_parameters(
         (
@@ -329,7 +326,7 @@ class VmapUpdateNodeDepartureTest(parameterized.TestCase):
         chex.assert_trees_all_close(updated_link_array, expected)
 
 
-class UpdateNodeArrayTest(parameterized.TestCase):
+class UpdateNodeArrayTest(chex.TestCase):
     @chex.all_variants()
     @parameterized.named_parameters(
         (
@@ -348,7 +345,7 @@ class UpdateNodeArrayTest(parameterized.TestCase):
         chex.assert_trees_all_close(updated_node_array, expected)
 
 
-class UpdateNodeResourcesTest(parameterized.TestCase):
+class UpdateNodeResourcesTest(chex.TestCase):
     @chex.all_variants()
     @parameterized.named_parameters(
         ("case_base", jnp.zeros(10), 4, 6, jnp.array([0, 0, 0, 0, 6, 0, 0, 0, 0, 0])),
@@ -358,7 +355,7 @@ class UpdateNodeResourcesTest(parameterized.TestCase):
         chex.assert_trees_all_close(updated_node_resources, expected)
 
 
-class UpdateSelectedNodeResourcesTest(parameterized.TestCase):
+class UpdateSelectedNodeResourcesTest(chex.TestCase):
     @chex.all_variants()
     @parameterized.named_parameters(
         ("case_base", jnp.zeros(10), 6, 4, jnp.array([0, 0, 0, 0, 6, 0, 0, 0, 0, 0])),
@@ -370,7 +367,7 @@ class UpdateSelectedNodeResourcesTest(parameterized.TestCase):
         chex.assert_trees_all_close(updated_node_resources, expected)
 
 
-class VmapUpdateNodeResourcesTest(parameterized.TestCase):
+class VmapUpdateNodeResourcesTest(chex.TestCase):
     @chex.all_variants()
     @parameterized.named_parameters(
         (
@@ -434,7 +431,7 @@ class VmapUpdateNodeResourcesTest(parameterized.TestCase):
         chex.assert_trees_all_close(updated_node_resource_array, expected)
 
 
-class ImplementNodeActionTest(parameterized.TestCase):
+class ImplementNodeActionTest(chex.TestCase):
     def setUp(self):
         super().setUp()
         self.key, self.env, self.obs, self.state, self.params = vone_4node_test_setup()
@@ -514,7 +511,7 @@ class ImplementNodeActionTest(parameterized.TestCase):
         chex.assert_trees_all_close(updated_state.node_departure_array, expected)
 
 
-class ImplementVoneActionTest(parameterized.TestCase):
+class ImplementVoneActionTest(chex.TestCase):
     def setUp(self):
         super().setUp()
         self.key, self.env, self.obs, self.state, self.params = vone_4node_test_setup()
@@ -711,7 +708,7 @@ class ImplementVoneActionTest(parameterized.TestCase):
         chex.assert_trees_all_close(updated_state.node_departure_array, expected)
 
 
-class UndoNodeActionTest(parameterized.TestCase):
+class UndoNodeActionTest(chex.TestCase):
     def setUp(self):
         super().setUp()
         self.key, self.env, self.obs, self.state, self.params = vone_4node_test_setup()
@@ -741,7 +738,7 @@ class UndoNodeActionTest(parameterized.TestCase):
         chex.assert_trees_all_close(updated_state.node_departure_array, expected)
 
 
-class UpdateActionHistoryTest(parameterized.TestCase):
+class UpdateActionHistoryTest(chex.TestCase):
     def setUp(self):
         super().setUp()
         self.key, self.env, self.obs, self.state, self.params = vone_4node_test_setup()
@@ -789,7 +786,7 @@ class UpdateActionHistoryTest(parameterized.TestCase):
         chex.assert_trees_all_close(updated_action_counter, expected)
 
 
-class CheckUniqueNodesTest(parameterized.TestCase):
+class CheckUniqueNodesTest(chex.TestCase):
     def setUp(self):
         super().setUp()
         self.key, self.env, self.obs, self.state, self.params = vone_4node_test_setup()
@@ -818,7 +815,7 @@ class CheckUniqueNodesTest(parameterized.TestCase):
         chex.assert_trees_all_close(actual, expected)
 
 
-class CheckMinTwoNodesAssignedTest(parameterized.TestCase):
+class CheckMinTwoNodesAssignedTest(chex.TestCase):
     def setUp(self):
         super().setUp()
         self.key, self.env, self.obs, self.state, self.params = vone_4node_test_setup()
@@ -835,7 +832,7 @@ class CheckMinTwoNodesAssignedTest(parameterized.TestCase):
         chex.assert_trees_all_close(actual, expected)
 
 
-class CheckAllNodesAssignedTest(parameterized.TestCase):
+class CheckAllNodesAssignedTest(chex.TestCase):
     def setUp(self):
         super().setUp()
         self.key, self.env, self.obs, self.state, self.params = vone_4node_test_setup()
@@ -856,7 +853,7 @@ class CheckAllNodesAssignedTest(parameterized.TestCase):
         chex.assert_trees_all_close(actual, expected)
 
 
-class CheckNodeCapacitiesTest(parameterized.TestCase):
+class CheckNodeCapacitiesTest(chex.TestCase):
     def setUp(self):
         super().setUp()
         self.key, self.env, self.obs, self.state, self.params = vone_4node_test_setup()
@@ -886,7 +883,7 @@ class CheckNodeCapacitiesTest(parameterized.TestCase):
         chex.assert_trees_all_close(actual, expected)
 
 
-class CheckTopologyTest(parameterized.TestCase):
+class CheckTopologyTest(chex.TestCase):
     """check_topology() checks that each virtual node is assigned to a unique and consistent physical node.
     It compares the actions in action_history with the virtual topology pattern. Each virtual node in the pattern
      should line up with the same physical node in the action history, and vice versa."""
@@ -911,7 +908,7 @@ class CheckTopologyTest(parameterized.TestCase):
         chex.assert_trees_all_close(actual, expected)
 
 
-class CheckVoneActionTest(parameterized.TestCase):
+class CheckVoneActionTest(chex.TestCase):
     def setUp(self):
         super().setUp()
         self.key, self.env, self.obs, self.state, self.params = vone_4node_test_setup()
@@ -966,7 +963,7 @@ class CheckVoneActionTest(parameterized.TestCase):
         chex.assert_trees_all_close(actual, expected)
 
 
-class FinaliseVoneActiontest(parameterized.TestCase):
+class FinaliseVoneActiontest(chex.TestCase):
     def setUp(self):
         super().setUp()
         self.key, self.env, self.obs, self.state, self.params = vone_4node_test_setup()
@@ -1000,7 +997,7 @@ class FinaliseVoneActiontest(parameterized.TestCase):
         chex.assert_trees_all_close(actual, expected)
 
 
-class PathActionOnlyTest(parameterized.TestCase):
+class PathActionOnlyTest(chex.TestCase):
     def setUp(self):
         super().setUp()
         self.key, self.env, self.obs, self.state, self.params = vone_4node_test_setup()
@@ -1049,7 +1046,7 @@ class PathActionOnlyTest(parameterized.TestCase):
 
 
 # TODO - could potentially add more test cases here
-class VoneStepTest(parameterized.TestCase):
+class VoneStepTest(chex.TestCase):
     def setUp(self):
         super().setUp()
         self.key, self.env, self.obs, self.state, self.params = vone_4node_test_setup()
@@ -1192,7 +1189,7 @@ class VoneStepTest(parameterized.TestCase):
         chex.assert_trees_all_close(obs, expected)
 
 
-class VoneResetTest(parameterized.TestCase):
+class VoneResetTest(chex.TestCase):
     def setUp(self):
         super().setUp()
         self.key, self.env, self.obs, self.state, self.params = vone_4node_test_setup()
@@ -1246,7 +1243,7 @@ class VoneResetTest(parameterized.TestCase):
         chex.assert_trees_all_close(obs, expected)
 
 
-class MaskNodesTest(parameterized.TestCase):
+class MaskNodesTest(chex.TestCase):
     def setUp(self):
         super().setUp()
         self.key, self.env, self.obs, self.state, self.params = vone_4node_test_setup()
@@ -1335,7 +1332,7 @@ class MaskNodesTest(parameterized.TestCase):
         chex.assert_trees_all_close(node_mask, expected)
 
 
-class VoneActionMaskTest(parameterized.TestCase):
+class VoneActionMaskTest(chex.TestCase):
     def setUp(self):
         super().setUp()
         self.key, self.env, self.obs, self.state, self.params = vone_4node_test_setup()

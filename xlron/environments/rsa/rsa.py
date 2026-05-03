@@ -1,6 +1,6 @@
 import math
 import pathlib
-from typing import Any, Optional, Tuple
+from typing import Any, Optional, Tuple, cast
 
 import numpy as np
 from gymnax.environments import environment, spaces
@@ -10,8 +10,12 @@ from xlron.environments.dataclasses import (
     ActionInfo,
     EnvParams,
     EnvState,
+    GNModelEnvState,
+    RMSAGNModelEnvParams,
+    RMSAGNModelEnvState,
     RSAEnvParams,
     RSAEnvState,
+    RSAGNModelEnvParams,
     RSAMultibandEnvState,
 )
 from xlron.environments.diff_utils import *
@@ -324,7 +328,7 @@ class RSAEnv(environment.Environment):
         if hasattr(state, "throughput"):
             throughput = calculate_throughput_from_active_lightpaths(state, params)
             state = state.replace(throughput=throughput)
-            info["_throughput"] = state.throughput
+            info["_throughput"] = throughput
 
         return obs, state, reward, terminal, truncated, info
 
@@ -490,7 +494,7 @@ class RSAEnv(environment.Environment):
         occupied = slots > 0.0
         remaining = np.where(dep > current_time, dep - current_time, dep)
         remaining = np.clip(remaining / mean_holding, 0.0, 1.0)
-        palette = np.asarray(plt.get_cmap("tab20").colors)
+        palette = np.asarray(plt.get_cmap("tab20").colors)  # ty: ignore[unresolved-attribute]
         color_idx = np.floor(np.abs(dep) * 1000.0).astype(int) % len(palette)
 
         rgba[occupied, :3] = palette[color_idx[occupied]]
@@ -646,10 +650,13 @@ class RSAEnv(environment.Environment):
         if gn_mode:
             from matplotlib.colors import LinearSegmentedColormap
 
-            lightpath_snr_for_stats = self._to_numpy(get_lightpath_snr(state, params)).astype(float)
+            gn_state = cast(GNModelEnvState, state)
+            lightpath_snr_for_stats = self._to_numpy(get_lightpath_snr(gn_state, params)).astype(
+                float
+            )
             raw_snr = np.array(lightpath_snr_for_stats, copy=True)
-            occupied_mask = self._to_numpy(state.link_slot_array).astype(float) > 0.0
-            path_idx = self._to_numpy(state.path_index_array).astype(int)
+            occupied_mask = self._to_numpy(gn_state.link_slot_array).astype(float) > 0.0
+            path_idx = self._to_numpy(gn_state.path_index_array).astype(int)
             raw_snr = np.where(np.isfinite(raw_snr), raw_snr, np.nan)
 
             # Only trust lightpath SNR where slot is occupied and mapped to a valid path index.
@@ -1003,7 +1010,7 @@ class RSAEnv(environment.Environment):
             return None
         if mode == "rgb_array":
             self._render_figure.canvas.draw()
-            rgba = np.asarray(self._render_figure.canvas.buffer_rgba(), dtype=np.uint8)
+            rgba = np.asarray(self._render_figure.canvas.buffer_rgba(), dtype=np.uint8)  # ty: ignore[unresolved-attribute]
             if rgba.ndim == 1:
                 width, height = self._render_figure.canvas.get_width_height()
                 rgba = rgba.reshape((height, width, 4))
@@ -1101,10 +1108,12 @@ class RSAEnv(environment.Environment):
         # For RMSA GN model, use the SE from the selected modulation format (from masking)
         # rather than the static path_se_array value
         if params.__class__.__name__ == "RMSAGNModelEnvParams":
+            rmsa_state = cast(RMSAGNModelEnvState, state)
+            rmsa_params = cast(RMSAGNModelEnvParams, params)
             mod_format_index = jax.lax.dynamic_slice(
-                state.mod_format_mask, (path_action_discrete,), (1,)
+                rmsa_state.mod_format_mask, (path_action_discrete,), (1,)
             )[0].astype(dtype_config.LARGE_INT_DTYPE)
-            path_se = params.modulations_array.val[mod_format_index, 1]
+            path_se = rmsa_params.modulations_array.val[mod_format_index, 1]
         else:
             path_se = path_se if params.consider_modulation_format else one
 
@@ -1288,9 +1297,9 @@ class RSAEnv(environment.Environment):
 
     def get_reward_failure(
         self,
-        state: Optional[EnvState] = None,
-        action_info: Optional[ActionInfo] = None,
-        params: Optional[EnvParams] = None,
+        state: EnvState,
+        action_info: ActionInfo,
+        params: EnvParams,
     ) -> chex.Array:
         """Return reward for current state.
 
@@ -1331,9 +1340,9 @@ class RSAEnv(environment.Environment):
 
     def get_reward_success(
         self,
-        state: Optional[EnvState] = None,
-        action_info: Optional[ActionInfo] = None,
-        params: Optional[EnvParams] = None,
+        state: EnvState,
+        action_info: ActionInfo,
+        params: EnvParams,
     ) -> chex.Array:
         """Return reward for current state.
 
@@ -1352,18 +1361,21 @@ class RSAEnv(environment.Environment):
             elif params.reward_type == "snr":
                 # SNR calculation...
                 assert params.__class__.__name__ == "RSAGNModelEnvParams"
-                path_snr = get_snr_for_path(action_info.path, state.link_snr_array, params)[
-                    action_info.initial_slot_index.astype(dtype_config.LAREG_INT_DTYPE)
+                gn_state = cast(GNModelEnvState, state)
+                gn_params = cast(RSAGNModelEnvParams, params)
+                path_snr = get_snr_for_path(action_info.path, gn_state.link_snr_array, gn_params)[
+                    action_info.initial_slot_index.astype(dtype_config.LARGE_INT_DTYPE)
                 ]
                 # set to 0 if negative and divide by large SNR (e.g. 50. dB) to scale below 1
                 # N.B. negative SNR in dB would be a fail anyway since min. required is 10dB
-                path_snr_norm = jnp.where(path_snr < zero, zero, path_snr) / params.max_snr
+                path_snr_norm = jnp.where(path_snr < zero, zero, path_snr) / gn_params.max_snr
                 return reward + path_snr_norm
             elif params.reward_type == "mod_format":
                 # Modulation format calculation...
                 assert params.__class__.__name__ == "RSAGNModelEnvParams"
+                rmsa_state = cast(RMSAGNModelEnvState, state)
                 mod_format_index = get_path_slots(
-                    state.modulation_format_index_array,
+                    rmsa_state.modulation_format_index_array,
                     params,
                     action_info.nodes_sd,
                     action_info.path_index,

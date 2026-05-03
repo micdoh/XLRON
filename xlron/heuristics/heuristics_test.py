@@ -1,6 +1,3 @@
-import os
-
-os.environ["XLA_FLAGS"] = "--xla_force_host_platform_device_count=4"
 import chex
 import jax
 import jax.numpy as jnp
@@ -34,7 +31,7 @@ from xlron.heuristics.heuristics import (
 )
 
 
-class KspffTest(parameterized.TestCase):
+class KspffTest(chex.TestCase):
     def setUp(self):
         super().setUp()
         self.key, self.env, self.obs, self.state, self.params = rwa_4node_test_setup()
@@ -391,7 +388,7 @@ class KspffTest(parameterized.TestCase):
         chex.assert_trees_all_close(action, expected)
 
 
-class FfkspTest(parameterized.TestCase):
+class FfkspTest(chex.TestCase):
     def setUp(self):
         super().setUp()
         self.key, self.env, self.obs, self.state, self.params = rwa_4node_test_setup()
@@ -748,7 +745,7 @@ class FfkspTest(parameterized.TestCase):
         chex.assert_trees_all_close(action, expected)
 
 
-class KspBfTest(parameterized.TestCase):
+class KspBfTest(chex.TestCase):
     def setUp(self):
         super().setUp()
         self.key, self.env, self.obs, self.state, self.params = rwa_4node_test_setup()
@@ -2891,7 +2888,7 @@ class KspBfTest(parameterized.TestCase):
         chex.assert_trees_all_close(action, expected)
 
 
-class BfKspTest(parameterized.TestCase):
+class BfKspTest(chex.TestCase):
     def setUp(self):
         super().setUp()
         self.key, self.env, self.obs, self.state, self.params = rwa_4node_test_setup()
@@ -5008,7 +5005,7 @@ class BfKspTest(parameterized.TestCase):
         chex.assert_trees_all_close(action, expected)
 
 
-class KmcffTest(parameterized.TestCase):
+class KmcffTest(chex.TestCase):
     def setUp(self):
         super().setUp()
         self.key, self.env, self.obs, self.state, self.params = rwa_4node_test_setup()
@@ -7530,7 +7527,7 @@ class KmcffTest(parameterized.TestCase):
         chex.assert_trees_all_close(action, expected)
 
 
-class KmfffTest(parameterized.TestCase):
+class KmfffTest(chex.TestCase):
     def setUp(self):
         super().setUp()
         self.key, self.env, self.obs, self.state, self.params = rwa_4node_test_setup()
@@ -7777,7 +7774,7 @@ class KmfffTest(parameterized.TestCase):
         chex.assert_trees_all_close(action, expected)
 
 
-class FfkspTestRWALightpathReuse(parameterized.TestCase):
+class FfkspTestRWALightpathReuse(chex.TestCase):
     def setUp(self):
         super().setUp()
         self.key, self.env, self.obs, self.state, self.params = rwa_4node_test_setup()
@@ -8814,7 +8811,7 @@ class FfkspTestRWALightpathReuse(parameterized.TestCase):
         chex.assert_trees_all_close(action, expected)
 
 
-class KspFFTestRWALightpathReuse(parameterized.TestCase):
+class KspFFTestRWALightpathReuse(chex.TestCase):
     def setUp(self):
         super().setUp()
         self.key, self.env, self.obs, self.state, self.params = rwa_4node_test_setup()
@@ -9851,7 +9848,7 @@ class KspFFTestRWALightpathReuse(parameterized.TestCase):
         chex.assert_trees_all_close(action, expected)
 
 
-class KspMUTest(parameterized.TestCase):
+class KspMUTest(chex.TestCase):
     def setUp(self):
         super().setUp()
         self.key, self.env, self.obs, self.state, self.params = rwa_4node_test_setup()
@@ -11463,7 +11460,7 @@ class KspMUTest(parameterized.TestCase):
         chex.assert_trees_all_close(action, expected)
 
 
-class MUKspTest(parameterized.TestCase):
+class MUKspTest(chex.TestCase):
     def setUp(self):
         super().setUp()
         self.key, self.env, self.obs, self.state, self.params = rwa_4node_test_setup()
@@ -13075,7 +13072,7 @@ class MUKspTest(parameterized.TestCase):
         chex.assert_trees_all_close(action, expected)
 
 
-class KcaFfTest(parameterized.TestCase):
+class KcaFfTest(chex.TestCase):
     def setUp(self):
         super().setUp()
         self.key, self.env, self.obs, self.state, self.params = rwa_4node_test_setup()
@@ -13728,7 +13725,7 @@ class KcaFfTest(parameterized.TestCase):
         chex.assert_trees_all_close(action, expected)
 
 
-class KsplfTest(parameterized.TestCase):
+class KsplfTest(chex.TestCase):
     def setUp(self):
         super().setUp()
         self.key, self.env, self.obs, self.state, self.params = rwa_4node_test_setup()
@@ -14099,6 +14096,5 @@ class KsplfTest(parameterized.TestCase):
 
 
 if __name__ == "__main__":
-    os.environ["XLA_FLAGS"] = "--xla_force_host_platform_device_count=4"
     jax.config.update("jax_numpy_rank_promotion", "raise")
     absltest.main()

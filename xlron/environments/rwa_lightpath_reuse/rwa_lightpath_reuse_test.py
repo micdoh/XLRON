@@ -1,6 +1,3 @@
-import os
-
-os.environ["XLA_FLAGS"] = "--xla_force_host_platform_device_count=4"
 import chex
 import distrax
 import jax
@@ -62,7 +59,7 @@ def rwa_lightpath_reuse_4node_test_setup():
     )
 
 
-class CheckLightpathAvailableAndExistingTest(parameterized.TestCase):
+class CheckLightpathAvailableAndExistingTest(chex.TestCase):
     def setUp(self):
         super().setUp()
         self.key, self.env, self.obs, self.state, self.params = (
@@ -232,7 +229,7 @@ class CheckLightpathAvailableAndExistingTest(parameterized.TestCase):
         chex.assert_trees_all_close(result_existing, expected_existing)
 
 
-class MaskSlotsRWALightpathReuseTest(parameterized.TestCase):
+class MaskSlotsRWALightpathReuseTest(chex.TestCase):
     def setUp(self):
         super().setUp()
         self.key, self.env, self.obs, self.state, self.params = (
@@ -621,7 +618,7 @@ class MaskSlotsRWALightpathReuseTest(parameterized.TestCase):
         chex.assert_trees_all_close(link_slot_mask, expected)
 
 
-class RWALightpathReuseTest(parameterized.TestCase):
+class RWALightpathReuseTest(chex.TestCase):
     def setUp(self):
         super().setUp()
         self.key, self.env, self.obs, self.state, self.params = (
@@ -696,6 +693,5 @@ class RWALightpathReuseTest(parameterized.TestCase):
 
 
 if __name__ == "__main__":
-    os.environ["XLA_FLAGS"] = "--xla_force_host_platform_device_count=4"
     jax.config.update("jax_numpy_rank_promotion", "raise")
     absltest.main()

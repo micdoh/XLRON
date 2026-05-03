@@ -622,8 +622,8 @@ class GraphNet(eqx.Module):
 
     def __call__(self, graphs: jraph.GraphsTuple) -> jraph.GraphsTuple:
         # Flatten edges if needed
-        if graphs.edges.ndim >= 3:
-            edges = graphs.edges.reshape((graphs.edges.shape[0], -1))
+        if graphs.edges.ndim >= 3:  # ty: ignore[unresolved-attribute]
+            edges = graphs.edges.reshape((graphs.edges.shape[0], -1))  # ty: ignore[unresolved-attribute]
             graphs = graphs._replace(edges=edges)
 
         # Embed
@@ -631,7 +631,7 @@ class GraphNet(eqx.Module):
         edges = jax.vmap(self.edge_embedder)(graphs.edges)
         if graphs.globals is not None:
             g = graphs.globals
-            if g.ndim == 1:
+            if g.ndim == 1:  # ty: ignore[unresolved-attribute]
                 g = g[:, None]  # (n_graphs,) -> (n_graphs, 1)
             globals_ = jax.vmap(self.global_embedder)(g)
         else:
@@ -822,7 +822,7 @@ class CriticGNN(eqx.Module):
 
         # Global output is already the scalar value
         # Shape: (1, 1)
-        return processed_graph.globals.squeeze()
+        return processed_graph.globals.squeeze()  # ty: ignore[unresolved-attribute]
 
 
 class ActorGNN(eqx.Module):
@@ -990,7 +990,7 @@ class ActorGNN(eqx.Module):
         power_action_dist = None
         if params.__class__.__name__ == "RSAGNModelEnvParams":
             if self.global_output_size > 0:
-                power_logits = processed_graph.globals.reshape((-1,)) / self.temperature
+                power_logits = processed_graph.globals.reshape((-1,)) / self.temperature  # ty: ignore[unresolved-attribute]
             else:
 
                 def get_power_path_features(i):
@@ -1189,7 +1189,7 @@ class ActorCriticGNN(eqx.Module):
     def sample_action_path(self, seed, dist, log_prob=False, deterministic=False):
         """Sample an action from the distribution."""
         action = (
-            jnp.argmax(dist.probs()).astype(dtype_config.MED_INT_DTYPE)
+            jnp.argmax(dist.probs()).astype(dtype_config.INDEX_DTYPE)
             if deterministic
             else dist.sample(seed=seed)
         )

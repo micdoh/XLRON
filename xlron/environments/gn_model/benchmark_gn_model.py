@@ -126,7 +126,7 @@ def count_hlo_ops(fn, *args, **kwargs):
     """Count HLO operations in the compiled XLA graph."""
     lowered = jax.jit(fn).lower(*args, **kwargs)
     compiled = lowered.compile()
-    hlo_text = compiled.as_text()
+    hlo_text = compiled.as_text() or ""
     # Count lines that look like HLO ops (indented, containing '=')
     op_count = sum(1 for line in hlo_text.split("\n") if "=" in line and line.startswith("  "))
     return op_count, len(hlo_text)
