@@ -5,8 +5,7 @@
 [![codecov](https://codecov.io/gh/micdoh/XLRON/graph/badge.svg?token=UW9CCLRAFJ)](https://codecov.io/gh/micdoh/XLRON)
 
 
-# [DOCUMENTATION](https://micdoh.github.io/XLRON/):
-## [https://micdoh.github.io/XLRON/](https://micdoh.github.io/XLRON/)
+# [CLICK HERE FOR DOCUMENTATION](https://micdoh.github.io/XLRON/)
 
 ---
 
