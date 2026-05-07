@@ -54,6 +54,12 @@
 
 <img src="docs/images/papers/jocn_xlron/interfaces/gui.png" width="800" alt="XLRON GUI" />
 
+### RL Training Time: XLRON vs Other Libraries
+
+<img src="docs/images/papers/jocn_xlron/benchmarking/deeprmsa_bp_combined.png" width="800" alt="RL Training Time: XLRON vs Other Libraries" />
+
+For more details see [benchmarks in docs](https://micdoh.github.io/XLRON/features/speed/).
+
 ### Papers and reproduction guides
 
 - **XLRON: Accelerated Reinforcement Learning Environments for Optical Networks** — OFC 2024, [`ofc_paper.pdf`](ofc_paper.pdf)
