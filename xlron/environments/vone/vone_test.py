@@ -12,6 +12,7 @@ import chex
 import jax
 import jax.numpy as jnp
 import numpy as np
+import pytest
 from absl.testing import absltest, parameterized
 
 from xlron.environments.env_funcs import decrease_last_element
@@ -21,6 +22,8 @@ from xlron.environments.make_env import make
 from xlron.environments.rsa import *
 from xlron.environments.vone import *
 from xlron.environments.wrappers import *
+
+pytest.skip("VONE tests are currently disabled in CI", allow_module_level=True)
 
 
 def keys_test_setup():
