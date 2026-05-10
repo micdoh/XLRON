@@ -1,6 +1,6 @@
 # Graph Transformer for Dynamic RMSA
 
-XLRON includes a built-in **Graph Transformer** policy/value architecture (`--USE_TRANSFORMER`) with **Wavelet-Induced Rotary Encodings (WiRE)** for graph positional encoding. The architecture is described in *Graph Transformers and Stabilized Reinforcement Learning for Large-Scale Dynamic Routing, Modulation and Spectrum Allocation in Elastic Optical Networks* (Doherty, Beghelli, Toni — *in preparation*). To our knowledge, this is the first transformer trained from scratch with RL for dynamic RMSA, and the first RL method from the standard benchmarks to consistently match or beat the strongest heuristics.
+XLRON includes a built-in **Graph Transformer** policy/value architecture (`--USE_TRANSFORMER`) with **Wavelet-Induced Rotary Encodings (WiRE)** for graph positional encoding. The architecture is described in *Graph Transformers and Stabilized Reinforcement Learning for Large-Scale Dynamic Routing, Modulation and Spectrum Allocation in Elastic Optical Networks* (Doherty, Beghelli, Toni — *in preparation*; preprint: [arXiv:2605.02075](https://arxiv.org/abs/2605.02075)). To our knowledge, this is the first transformer trained from scratch with RL for dynamic RMSA, and the first RL method from the standard benchmarks to consistently match or beat the strongest heuristics.
 
 The full reproduction guide is at [Reproducing the Graph Transformer paper](../reproduce_jocn_transformer.md). This page summarises the architecture and headline results.
 

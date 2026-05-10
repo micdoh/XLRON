@@ -2,7 +2,7 @@
 
 This page documents how to reproduce the figures and tables from:
 
-> **Doherty, M., Beghelli, A., Toni, L.** *Graph Transformers and Stabilized Reinforcement Learning for Large-Scale Dynamic Routing, Modulation and Spectrum Allocation in Elastic Optical Networks*. (In preparation; targeted at the Journal of Optical Communications and Networking.)
+> **Doherty, M., Beghelli, A., Toni, L.** *Graph Transformers and Stabilized Reinforcement Learning for Large-Scale Dynamic Routing, Modulation and Spectrum Allocation in Elastic Optical Networks*. (In preparation; targeted at the Journal of Optical Communications and Networking.) Preprint: [arXiv:2605.02075](https://arxiv.org/abs/2605.02075).
 
 The paper makes two main experimental claims:
 
@@ -239,13 +239,14 @@ The TopologyBench source for USA100 and TataInd is at <https://github.com/Topolo
 
 ## Citation
 
-This paper is **in preparation** — citation details will be updated once the manuscript is published.
+This paper is **in preparation** — citation details will be updated once the manuscript is published. A preprint is available at [arXiv:2605.02075](https://arxiv.org/abs/2605.02075).
 
 ```bibtex
 @unpublished{doherty_graph_transformer,
   author  = {Doherty, Michael and Beghelli, Alejandra and Toni, Laura},
   title   = {Graph Transformers and Stabilized Reinforcement Learning for Large-Scale Dynamic Routing, Modulation and Spectrum Allocation in Elastic Optical Networks},
-  note    = {In preparation},
+  note    = {In preparation. arXiv:2605.02075},
+  url     = {https://arxiv.org/abs/2605.02075},
   year    = {2026}
 }
 ```

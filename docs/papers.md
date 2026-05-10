@@ -107,7 +107,7 @@ Introduces XLRON's architecture, benchmarks it against seven other open-source s
 ---
 
 ### Graph Transformers and Stabilized Reinforcement Learning for Large-Scale Dynamic Routing, Modulation and Spectrum Allocation in Elastic Optical Networks
-*Doherty, M., Beghelli, A., Toni, L. — In preparation, targeted at JOCN.*
+*Doherty, M., Beghelli, A., Toni, L. — In preparation, targeted at JOCN. Preprint: [arXiv:2605.02075](https://arxiv.org/abs/2605.02075).*
 
 Presents the first transformer architecture trained from scratch with RL for dynamic RMSA. Combines off-policy invalid action masking, a valid-mass log-barrier loss, per-step damping, hard gating, Pre-LayerNorm, and Wavelet-Induced Rotary Encodings (WiRE) to inject graph structure. Beats the strongest heuristic on every standard benchmark (NSFNET, COST239, USNET, JPN48 — DeepRMSA / RewardRMSA / GCN-RMSA / MaskRSA / PtrNet-RSA settings), then scales to USA100 (100 nodes) and TataInd (143 nodes) — the largest dynamic RMSA instances ever attempted with RL.
 
@@ -117,7 +117,8 @@ Presents the first transformer architecture trained from scratch with RL for dyn
 @unpublished{doherty_graph_transformer,
   author  = {Doherty, Michael and Beghelli, Alejandra and Toni, Laura},
   title   = {Graph Transformers and Stabilized Reinforcement Learning for Large-Scale Dynamic Routing, Modulation and Spectrum Allocation in Elastic Optical Networks},
-  note    = {In preparation},
+  note    = {In preparation. arXiv:2605.02075},
+  url     = {https://arxiv.org/abs/2605.02075},
   year    = {2026}
 }
 ```

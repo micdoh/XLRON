@@ -55,7 +55,7 @@ If you are here because you read one of our papers and want to reproduce a figur
 - **Reinforcement Learning for Dynamic Resource Allocation in Optical Networks: Hype or Hope?** — JOCN **17**(9), D1 (2025), DOI [10.1364/JOCN.559990](https://doi.org/10.1364/JOCN.559990), [arXiv:2406.01919](https://arxiv.org/abs/2406.01919) — [Reproduce](reproduce_jocn2024.md)
 - **Comparison of Dynamic Elastic Optical Network Capacity Bound Estimation Methods** — *submitted to ECOC 2026* — [Reproduce](reproduce_ecoc2026.md)
 - **XLRON: A Framework for Hardware-Accelerated and Differentiable Simulation of Optical Networks** — *in preparation* — [Reproduce](reproduce_jocn_xlron.md)
-- **Graph Transformers and Stabilized Reinforcement Learning for Large-Scale Dynamic Routing, Modulation and Spectrum Allocation in Elastic Optical Networks** — *in preparation* — [Reproduce](reproduce_jocn_transformer.md)
+- **Graph Transformers and Stabilized Reinforcement Learning for Large-Scale Dynamic Routing, Modulation and Spectrum Allocation in Elastic Optical Networks** — *in preparation* ([arXiv:2605.02075](https://arxiv.org/abs/2605.02075)) — [Reproduce](reproduce_jocn_transformer.md)
 
 A consolidated list of papers with BibTeX entries lives on the [Papers](papers.md) page.
 

@@ -1134,7 +1134,7 @@ def plot_optimisation_history(history, out_dir, fname="pump_optimisation.png"):
         y_lower = min(y_min_data - 50.0, 72400.0)
         ax.set_ylim(bottom=y_lower)
         ax.set_xlabel("Optimisation step")
-        ax.set_ylabel("Shannon-Hartley throughput (Gb/s)")
+        ax.set_ylabel("Throughput (Gbps)")
         ax.legend()
         plt.tight_layout()
         os.makedirs(out_dir, exist_ok=True)

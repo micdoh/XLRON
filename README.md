@@ -67,7 +67,7 @@ For more details see [benchmarks in docs](https://micdoh.github.io/XLRON/feature
 - **Reinforcement Learning for Dynamic Resource Allocation in Optical Networks: Hype or Hope?** — JOCN **17**(9), D1 (2025), DOI [10.1364/JOCN.559990](https://doi.org/10.1364/JOCN.559990), [arXiv:2406.01919](https://arxiv.org/abs/2406.01919) — [reproduce](https://micdoh.github.io/XLRON/reproduce_jocn2024/)
 - **Comparison of Dynamic Elastic Optical Network Capacity Bound Estimation Methods** — *submitted to ECOC 2026* — [reproduce](https://micdoh.github.io/XLRON/reproduce_ecoc2026/)
 - **XLRON: A Framework for Hardware-Accelerated and Differentiable Simulation of Optical Networks** — *in preparation* — [reproduce](https://micdoh.github.io/XLRON/reproduce_jocn_xlron/)
-- **Graph Transformers and Stabilized Reinforcement Learning for Large-Scale Dynamic Routing, Modulation and Spectrum Allocation in Elastic Optical Networks** — *in preparation* — [reproduce](https://micdoh.github.io/XLRON/reproduce_jocn_transformer/)
+- **Graph Transformers and Stabilized Reinforcement Learning for Large-Scale Dynamic Routing, Modulation and Spectrum Allocation in Elastic Optical Networks** — *in preparation* ([arXiv:2605.02075](https://arxiv.org/abs/2605.02075)) — [reproduce](https://micdoh.github.io/XLRON/reproduce_jocn_transformer/)
 
 Full list with BibTeX entries on the [Papers](https://micdoh.github.io/XLRON/papers/) page.
 
