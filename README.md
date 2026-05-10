@@ -62,8 +62,8 @@ For more details see [benchmarks in docs](https://micdoh.github.io/XLRON/feature
 
 ### Papers and reproduction guides
 
-- **XLRON: Accelerated Reinforcement Learning Environments for Optical Networks** — OFC 2024, [`ofc_paper.pdf`](ofc_paper.pdf)
-- **Reinforcement Learning with Graph Attention for Routing and Wavelength Assignment with Lightpath Reuse** — ONDM 2025 ([arXiv:2502.14741](https://arxiv.org/abs/2502.14741)) — [reproduce](https://micdoh.github.io/XLRON/reproduce_rwalr/)
+- **XLRON: Accelerated Reinforcement Learning Environments for Optical Networks** — OFC 2024 ([IEEE](https://ieeexplore.ieee.org/document/10526884), [UCL Discovery](https://discovery.ucl.ac.uk/id/eprint/10185312/1/OFC2024___XLRON.pdf))
+- **Reinforcement Learning with Graph Attention for Routing and Wavelength Assignment with Lightpath Reuse** — ONDM 2025, DOI [10.23919/ONDM65745.2025.11029354](https://doi.org/10.23919/ONDM65745.2025.11029354), [arXiv:2502.14741](https://arxiv.org/abs/2502.14741) — [reproduce](https://micdoh.github.io/XLRON/reproduce_rwalr/)
 - **Reinforcement Learning for Dynamic Resource Allocation in Optical Networks: Hype or Hope?** — JOCN **17**(9), D1 (2025), DOI [10.1364/JOCN.559990](https://doi.org/10.1364/JOCN.559990), [arXiv:2406.01919](https://arxiv.org/abs/2406.01919) — [reproduce](https://micdoh.github.io/XLRON/reproduce_jocn2024/)
 - **Comparison of Dynamic Elastic Optical Network Capacity Bound Estimation Methods** — *submitted to ECOC 2026* — [reproduce](https://micdoh.github.io/XLRON/reproduce_ecoc2026/)
 - **XLRON: A Framework for Hardware-Accelerated and Differentiable Simulation of Optical Networks** — *in preparation* — [reproduce](https://micdoh.github.io/XLRON/reproduce_jocn_xlron/)

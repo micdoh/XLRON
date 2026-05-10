@@ -7,9 +7,9 @@ XLRON is a research project. The features documented on this site come from the 
 ## Published
 
 ### XLRON: Accelerated Reinforcement Learning Environments for Optical Networks
-*Doherty, M., Beghelli, A. — OFC 2024.*
+*Doherty, M., Beghelli, A. — OFC 2024 — [IEEE](https://ieeexplore.ieee.org/document/10526884) · [UCL Discovery](https://discovery.ucl.ac.uk/id/eprint/10185312/1/OFC2024___XLRON.pdf)*
 
-The original announcement of XLRON, focused on the JAX implementation, GPU parallelism, and the DeepRMSA reproduction. PDF: [`ofc_paper.pdf`](https://github.com/micdoh/XLRON/blob/main/ofc_paper.pdf).
+The original announcement of XLRON, focused on the JAX implementation, GPU parallelism, and the DeepRMSA reproduction.
 
 ```bibtex
 @INPROCEEDINGS{doherty_xlron_2024,
@@ -17,14 +17,15 @@ The original announcement of XLRON, focused on the JAX implementation, GPU paral
   booktitle = {2024 Optical Fiber Communications Conference and Exhibition (OFC)},
   title     = {{XLRON}: Accelerated Reinforcement Learning Environments for Optical Networks},
   year      = {2024},
-  pages     = {1-3}
+  pages     = {1-3},
+  url       = {https://ieeexplore.ieee.org/document/10526884}
 }
 ```
 
 ---
 
 ### Reinforcement Learning with Graph Attention for Routing and Wavelength Assignment with Lightpath Reuse
-*Doherty, M., Beghelli, A. — Optical Network Design and Modelling (ONDM) 2025. Preprint: [arXiv:2502.14741](https://arxiv.org/abs/2502.14741).*
+*Doherty, M., Beghelli, A. — Optical Network Design and Modelling (ONDM) 2025 — DOI: [10.23919/ONDM65745.2025.11029354](https://doi.org/10.23919/ONDM65745.2025.11029354) · [arXiv:2502.14741](https://arxiv.org/abs/2502.14741)*
 
 A Graph-Attention RL agent for the RWA-with-Lightpath-Reuse formulation: the agent must balance routing decisions against capacity packing on already-established lightpaths. Trained on NSFNET via the `rwa_lightpath_reuse` environment using XLRON's GNN actor-critic.
 
@@ -36,8 +37,9 @@ A Graph-Attention RL agent for the RWA-with-Lightpath-Reuse formulation: the age
   title     = {Reinforcement Learning with Graph Attention for Routing and Wavelength Assignment with Lightpath Reuse},
   booktitle = {Optical Network Design and Modelling (ONDM)},
   year      = {2025},
+  doi       = {10.23919/ONDM65745.2025.11029354},
   note      = {arXiv:2502.14741},
-  url       = {https://arxiv.org/abs/2502.14741}
+  url       = {https://doi.org/10.23919/ONDM65745.2025.11029354}
 }
 ```
 
