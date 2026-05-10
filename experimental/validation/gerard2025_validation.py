@@ -744,8 +744,8 @@ def plot5_ablation_sweep(ablation_results, out_dir):
     for i, (name, (powers, gosnrs)) in enumerate(ablation_results.items()):
         if name == "1 subchannel":
             name = "No subchannels"
-        if name =="Incoherent ASE":
-            name = "No ASE coherence"
+        if name == "Incoherent ASE":
+            name = "No SPM coherence"
         if name =="No Raman":
             name = "No DRA"
         if name == "No Raman + 1 subchannel":
