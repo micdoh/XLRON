@@ -28,10 +28,6 @@ from xlron.train.train_utils import build_run_summary, get_user_flags, write_run
 
 FLAGS = flags.FLAGS
 
-# =====================================================================
-#  Cut-set discovery helpers (unchanged from original)
-# =====================================================================
-
 
 def get_weighted_traffic_matrix(graph, params):
     n_nodes = len(graph.nodes())
@@ -309,11 +305,6 @@ def find_congested_cuts_simple(
     return congestions, partition1, partition2
 
 
-# =====================================================================
-#  Capacity Bound Simulation
-# =====================================================================
-
-
 def precompute_cutset_data(heavy_cut_sets, num_links, source_nodes=None, dest_nodes=None):
     """Precompute data structures for the capacity-bound simulation.
 
@@ -404,13 +395,6 @@ def precompute_cutset_data(heavy_cut_sets, num_links, source_nodes=None, dest_no
         result["cutset_sizes_2to1"] = jnp.array(mask_2to1.sum(axis=1), dtype=jnp.int32)  # (C,)
 
     return result
-
-
-# -------------------------------------------------------------------
-# Core simulation step (designed for JAX tracing / jit)
-# Supports RMSA: multi-slot contiguous block assignment with
-# modulation-format-dependent spectral efficiency.
-# -------------------------------------------------------------------
 
 
 def build_best_se_matrix(params):
@@ -1074,11 +1058,6 @@ def print_results_table(results):
             f"{float(np.mean(r['blocked'])):10.0f}  {float(np.mean(r['always_accepted'])):10.0f}"
         )
     print("=" * 100)
-
-
-# =====================================================================
-#  Main entry point
-# =====================================================================
 
 
 def main(argv):
