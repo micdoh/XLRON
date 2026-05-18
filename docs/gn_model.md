@@ -437,6 +437,8 @@ It does not compute Shannon throughput (unlike `rsa_gn_model`).
 
 ## Distributed Raman Amplification (DRA)
 
+> **Source code availability:** The DRA model implementation is part of ongoing research and is withheld from the public XLRON release pending publication. It is available on request from the authors, Henrique Buglia and Mindaugas Jarmolovicius (UCL Optical Networks Group). The public package ships a stub that raises `NotImplementedError` if the DRA functions are called.
+
 XLRON supports an optional Distributed Raman Amplification (DRA) model that replaces the EDFA-only ISRS NLI calculation with a Raman-pump-aware model. When enabled via `--use_raman_amp`, the nonlinear interference is computed using a 9-mode combination approach that accounts for the frequency-dependent Raman gain profile created by co- and counter-propagating pump lasers.
 
 ### Physics Model

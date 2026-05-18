@@ -282,6 +282,13 @@ xlron/
 
 This work was supported by the Engineering and Physical Sciences Research Council (EPSRC) grant EP/S022139/1 - the Centre for Doctoral Training in Connected Electronic and Photonic Systems - and EPSRC Programme Grant TRANSNET (EP/R035342/1)
 
+We thank **Henrique Buglia** and **Mindaugas Jarmolovicius** of the [UCL Optical Networks Group](https://www.ucl.ac.uk/electronic-electrical-engineering/research/communications-and-information-systems/optical-networks-group) for their research underpinning XLRON's GN-model physical layer. Their closed-form extensions of the ISRS Gaussian Noise model (covering short span lengths, low losses, and distributed Raman amplification) informed this implementation:
+
+- H. Buglia, M. Jarmolovicius, A. Vasylchenkova, E. Sillekens, L. Galdino, R. I. Killey, P. Bayvel, "An Extended Version of the ISRS GN Model in Closed-Form Accounting for Short Span Lengths and Low Losses," *Proc. European Conference on Optical Communication (ECOC)*, 2022.
+- H. Buglia, M. Jarmolovicius, A. Vasylchenkova, E. Sillekens, L. Galdino, P. Bayvel, R. I. Killey, "A Closed-Form Expression for the Gaussian Noise Model in the Presence of Raman Amplification," *J. Lightwave Technol.*, 2024.
+
+The Distributed Raman Amplification (DRA) extension of the GN model is part of ongoing research and its source code is withheld from the public XLRON release pending publication. It is available on request from the authors.
+
 
 ## License
 

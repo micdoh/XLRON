@@ -1,3 +1,11 @@
+"""Routing and Spectrum Assignment (RSA) environment with an ISRS GN model
+physical layer.
+
+The GN-model physical layer draws on the research of Henrique Buglia and
+Mindaugas Jarmolovicius (UCL Optical Networks Group); see
+xlron/environments/gn_model/isrs_gn_model.py for references.
+"""
+
 import jax.numpy as jnp
 from gymnax.environments import spaces
 

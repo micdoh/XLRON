@@ -1,5 +1,13 @@
 # Differentiable DRA Pipeline
 
+!!! note "Source code availability"
+    The DRA model implementation (`xlron/environments/gn_model/isrs_gn_model_dra.py`)
+    is part of ongoing research and is withheld from the public XLRON release
+    pending publication. It is available on request from the authors, Henrique
+    Buglia and Mindaugas Jarmolovicius (UCL Optical Networks Group). This page
+    documents the method; the public package ships a stub that raises
+    `NotImplementedError` if the DRA functions are called.
+
 This page explains how XLRON's Distributed Raman Amplification (DRA) model is made *end-to-end differentiable* — that is, how a single call of `jax.value_and_grad` can compute the gradient of total network throughput with respect to the Raman pump powers, propagating cleanly through ordinary differential equation (ODE) integration, a two-point boundary-value problem (BVP), a nonlinear least-squares fit, and the closed-form Gaussian Noise (GN) model integrals (which include inter-channel stimulated Raman scattering, abbreviated ISRS).
 
 The page is intended for readers who know optical communications and the GN model but may not have a deep background in automatic differentiation (AD). It starts from first principles, names every concept it uses, and then walks through the two non-trivial differentiability tricks (an *implicit-function-theorem* gradient for the BVP solve, and a *surrogate gradient* for the profile fit) that the implementation in `xlron/environments/gn_model/isrs_gn_model_dra.py` relies on.

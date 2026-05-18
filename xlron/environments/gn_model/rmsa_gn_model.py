@@ -1,3 +1,11 @@
+"""Routing, Modulation and Spectrum Assignment (RMSA) environment with an ISRS
+GN model physical layer.
+
+The GN-model physical layer draws on the research of Henrique Buglia and
+Mindaugas Jarmolovicius (UCL Optical Networks Group); see
+xlron/environments/gn_model/isrs_gn_model.py for references.
+"""
+
 from gymnax.environments import spaces
 
 from xlron.environments.dataclasses import *

@@ -10,6 +10,23 @@ Gaussian Noise Model in the Presence of Inter-Channel Stimulated Raman
 Scattering, " J. Lighw. Technol., Early Access, Jan. 2019
 
 Author: Daniel Semrau, Eric Sillekens, R. I. Killey, P. Bayvel, Jan 2019.
+
+Acknowledgements
+----------------
+The GN-model physical layer in XLRON was developed with, and draws on the
+research of, Henrique Buglia and Mindaugas Jarmolovicius of the UCL Optical
+Networks Group. Their closed-form extensions of the ISRS GN model, covering
+short span lengths, low losses, and distributed Raman amplification, informed
+this implementation. Relevant work:
+
+    H. Buglia, M. Jarmolovicius, A. Vasylchenkova, E. Sillekens, L. Galdino,
+    R. I. Killey, P. Bayvel, "An Extended Version of the ISRS GN Model in
+    Closed-Form Accounting for Short Span Lengths and Low Losses,"
+    Proc. European Conference on Optical Communication (ECOC), 2022.
+
+    H. Buglia, M. Jarmolovicius, A. Vasylchenkova, E. Sillekens, L. Galdino,
+    P. Bayvel, R. I. Killey, "A Closed-Form Expression for the Gaussian Noise
+    Model in the Presence of Raman Amplification," J. Lightwave Technol., 2024.
 """
 
 import jax
