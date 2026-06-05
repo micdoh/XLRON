@@ -82,7 +82,9 @@ def main(argv):
         model = orbax_checkpointer.restore(pathlib.Path(config.MODEL_PATH))
         config.model = model
 
-    NUM_UPDATES = config.TOTAL_TIMESTEPS // config.ROLLOUT_LENGTH // config.NUM_ENVS
+    # Guard against NUM_UPDATES rounding down to 0 (which causes a divide-by-zero in
+    # the lax.scan length and downstream reshapes; see GitHub issue #18).
+    NUM_UPDATES = max(1, config.TOTAL_TIMESTEPS // config.ROLLOUT_LENGTH // config.NUM_ENVS)
     MINIBATCH_SIZE = config.ROLLOUT_LENGTH * config.NUM_ENVS // config.NUM_MINIBATCHES
     config.NUM_UPDATES = NUM_UPDATES
     config.MINIBATCH_SIZE = MINIBATCH_SIZE

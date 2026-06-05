@@ -174,12 +174,29 @@ def process_config(config: Optional[Union[dict, FlagValues]], **kwargs: Any) -> 
             scale_factor = int(config.get("scale_factor", 1))
             config.max_requests = int(config.STEPS_PER_INCREMENT) // num_envs // scale_factor
 
-        n_increments = config.TOTAL_TIMESTEPS // config.STEPS_PER_INCREMENT
+        if not is_eval:
+            # For RL training, an increment must contain at least one full PPO update
+            # (ROLLOUT_LENGTH * NUM_ENVS steps). Otherwise NUM_UPDATES rounds down to 0,
+            # which collapses STEPS_PER_INCREMENT and TOTAL_TIMESTEPS to 0 and triggers a
+            # "ZeroDivisionError: integer modulo by zero" in downstream metric reshapes
+            # (see GitHub issue #18). Bump STEPS_PER_INCREMENT up to one update and warn.
+            steps_per_update = config.ROLLOUT_LENGTH * config.NUM_ENVS
+            if config.STEPS_PER_INCREMENT < steps_per_update:
+                print(
+                    f"WARNING: STEPS_PER_INCREMENT ({config.STEPS_PER_INCREMENT}) is smaller "
+                    f"than one PPO update (ROLLOUT_LENGTH * NUM_ENVS = {steps_per_update}). "
+                    f"Increasing STEPS_PER_INCREMENT to {steps_per_update}."
+                )
+                config.STEPS_PER_INCREMENT = steps_per_update
+
+        n_increments = max(1, config.TOTAL_TIMESTEPS // config.STEPS_PER_INCREMENT)
         config.NUM_INCREMENTS = n_increments
         config.TOTAL_TIMESTEPS = n_increments * config.STEPS_PER_INCREMENT
         # Set derived config values for RL training (not used by eval, but kept consistent)
         config.MINIBATCH_SIZE = config.ROLLOUT_LENGTH * config.NUM_ENVS // config.NUM_MINIBATCHES
-        config.NUM_UPDATES = config.STEPS_PER_INCREMENT // config.ROLLOUT_LENGTH // config.NUM_ENVS
+        config.NUM_UPDATES = max(
+            1, config.STEPS_PER_INCREMENT // config.ROLLOUT_LENGTH // config.NUM_ENVS
+        )
         if not is_eval:
             # Only snap STEPS_PER_INCREMENT to ROLLOUT_LENGTH multiples for RL training.
             # For eval, STEPS_PER_INCREMENT controls episode count and must not be overwritten.
