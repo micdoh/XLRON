@@ -27,6 +27,9 @@ PRESETS = {
         "TOTAL_TIMESTEPS": 100_000_000,
         "NUM_ENVS": 2000,
         "ROLLOUT_LENGTH": 150,
+        # = ROLLOUT_LENGTH * NUM_ENVS (one PPO update). The GUI default (100,000) is
+        # smaller than this, which would round NUM_UPDATES down to 0 (issue #18).
+        "STEPS_PER_INCREMENT": 300_000,
         "LR": 5e-4,
         "modulations_csv_filepath": "./xlron/data/modulations/modulations_deeprmsa.csv",
         "NUM_LAYERS": 5,
@@ -45,6 +48,9 @@ PRESETS = {
         "TOTAL_TIMESTEPS": 100_000_000,
         "NUM_ENVS": 2000,
         "ROLLOUT_LENGTH": 150,
+        # = ROLLOUT_LENGTH * NUM_ENVS (one PPO update). The GUI default (100,000) is
+        # smaller than this, which would round NUM_UPDATES down to 0 (issue #18).
+        "STEPS_PER_INCREMENT": 300_000,
         "LR": 5e-4,
     },
     "RL Training: NSFNET RSA": {
@@ -59,6 +65,9 @@ PRESETS = {
         "TOTAL_TIMESTEPS": 100_000_000,
         "NUM_ENVS": 2000,
         "ROLLOUT_LENGTH": 150,
+        # = ROLLOUT_LENGTH * NUM_ENVS (one PPO update). The GUI default (100,000) is
+        # smaller than this, which would round NUM_UPDATES down to 0 (issue #18).
+        "STEPS_PER_INCREMENT": 300_000,
         "LR": 5e-4,
     },
     "RSA GN Model Eval: NSFNET KSP-FF": {
