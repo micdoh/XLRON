@@ -400,6 +400,14 @@ with col_widgets:
         log_flags = logging_section()
         all_flags.update(log_flags)
 
+# MODEL_PATH is a single CLI flag bound to two widgets: the load path in the
+# execution-mode section (Model Evaluation / Retrain) and the save path in the
+# logging section. The logging section renders last, so without this its
+# "Model Save Path" (often a stale preset value) would clobber a load path the
+# user just typed. Give the load-model path priority when that mode is active.
+if "MODEL_PATH" in mode_flags:
+    all_flags["MODEL_PATH"] = mode_flags["MODEL_PATH"]
+
 
 # ---------------------------------------------------------------------------
 # Build command and populate sidebar controls

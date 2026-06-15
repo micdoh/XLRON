@@ -789,10 +789,18 @@ def traffic_section() -> dict:
 
     if warmup > 0:
         warmup_options = ["default", "heuristic", "random"]
+        # The CLI default (and the value emitted for the "default" option below)
+        # is None, so a saved preset stores warmup_action_type=None. Map None —
+        # and any unrecognised value — back to the "default" option.
+        warmup_preset = _get_preset_val("warmup_action_type")
+        warmup_current = "default" if warmup_preset is None else str(warmup_preset)
+        warmup_index = (
+            warmup_options.index(warmup_current) if warmup_current in warmup_options else 0
+        )
         warmup_action = st.selectbox(
             "Warmup Action Type",
             warmup_options,
-            index=warmup_options.index(str(_get_preset_val("warmup_action_type"))),
+            index=warmup_index,
             help="Action selection during warmup. 'default' uses the run mode's normal method "
             "(RL policy or heuristic). 'heuristic' forces the --path_heuristic. "
             "'random' samples uniformly from valid actions.",
