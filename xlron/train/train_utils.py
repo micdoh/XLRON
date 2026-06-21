@@ -1024,14 +1024,16 @@ def select_action(select_action_state, env, env_params, train_state, config):
         probs = jax.nn.softmax(pi[0]._logits, axis=-1)
         valid_mass = jnp.sum(probs * action_mask, axis=-1)
 
-    # Single state update at the end
+    # Single state update at the end. Store masks at SMALL_FLOAT so the carried field dtype is
+    # stable under mixed precision (matches init_link_slot_mask); the transient action_mask used
+    # above for logit-masking / valid_mass keeps its full-width dtype.
     replace_kwargs = dict(
-        link_slot_mask=action_mask,
-        full_link_slot_mask=full_action_mask,
+        link_slot_mask=action_mask.astype(dtype_config.SMALL_FLOAT_DTYPE),
+        full_link_slot_mask=full_action_mask.astype(dtype_config.SMALL_FLOAT_DTYPE),
         valid_mass=valid_mass,
     )
     if mod_format_mask is not None:
-        replace_kwargs["mod_format_mask"] = mod_format_mask
+        replace_kwargs["mod_format_mask"] = mod_format_mask.astype(dtype_config.SMALL_FLOAT_DTYPE)
     inner_state = env_state.env_state.replace(**replace_kwargs)
     env_state = env_state.replace(env_state=inner_state)
 

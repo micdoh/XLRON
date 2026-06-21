@@ -49,8 +49,8 @@ class DeepRMSAEnv(RSAEnv):
             link_slot_array=init_link_slot_array(params),
             link_slot_departure_array=init_link_slot_departure_array(params),
             request_array=init_rsa_request_array(),
-            link_slot_mask=jnp.ones(params.k_paths, dtype=dtype_config.LARGE_FLOAT_DTYPE),
-            full_link_slot_mask=jnp.ones(params.k_paths, dtype=dtype_config.LARGE_FLOAT_DTYPE),
+            link_slot_mask=jnp.ones(params.k_paths, dtype=dtype_config.SMALL_FLOAT_DTYPE),
+            full_link_slot_mask=jnp.ones(params.k_paths, dtype=dtype_config.SMALL_FLOAT_DTYPE),
             traffic_matrix=traffic_matrix
             if traffic_matrix is not None
             else init_traffic_matrix(key, params),

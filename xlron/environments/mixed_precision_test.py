@@ -158,15 +158,24 @@ class EnvStateDtypeTest(absltest.TestCase):
         self.assertEqual(jnp.dtype(es.link_slot_array.dtype), jnp.dtype(jnp.float16))
         self.assertEqual(jnp.dtype(es.link_slot_departure_array.dtype), jnp.dtype(jnp.float16))
         self.assertEqual(jnp.dtype(es.current_time.dtype), jnp.dtype(jnp.float16))
-        # Counters / accumulators stay 32-bit.
+        # Graph features (largest E*S array) and action masks shrink too (recompute is cast at
+        # every state-write site so the carried dtype stays stable across the scan).
+        self.assertEqual(jnp.dtype(es.graph.edges.dtype), jnp.dtype(jnp.float16))
+        self.assertEqual(jnp.dtype(es.graph.nodes.dtype), jnp.dtype(jnp.float16))
+        self.assertEqual(jnp.dtype(es.link_slot_mask.dtype), jnp.dtype(jnp.float16))
+        self.assertEqual(jnp.dtype(es.full_link_slot_mask.dtype), jnp.dtype(jnp.float16))
+        # Counters / accumulators stay 32-bit; graph indices stay int32.
         self.assertEqual(jnp.dtype(es.total_requests.dtype), jnp.dtype(jnp.int32))
         self.assertEqual(jnp.dtype(es.accepted_bitrate.dtype), jnp.dtype(jnp.float32))
+        self.assertEqual(jnp.dtype(es.graph.senders.dtype), jnp.dtype(jnp.int32))
 
     def test_rmsa_default_arrays_are_f32(self):
         env, params = make(_cfg("rmsa", mixed=False))
         es = _rollout(env, params, n_steps=40)
         self.assertEqual(jnp.dtype(es.link_slot_array.dtype), jnp.dtype(jnp.float32))
         self.assertEqual(jnp.dtype(es.link_slot_departure_array.dtype), jnp.dtype(jnp.float32))
+        self.assertEqual(jnp.dtype(es.graph.edges.dtype), jnp.dtype(jnp.float32))
+        self.assertEqual(jnp.dtype(es.link_slot_mask.dtype), jnp.dtype(jnp.float32))
 
     def test_mixed_reduces_env_state_memory(self):
         env_d, params_d = make(_cfg("rmsa", mixed=False))
