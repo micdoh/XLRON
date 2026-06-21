@@ -132,6 +132,17 @@ Enable invalid action masking (default: `True`). The environment provides a mask
 
 Off-policy invalid action masking (default: `False`). When enabled, the importance ratio in PPO is computed as `unmasked_policy / masked_policy` rather than `masked_policy / masked_policy`. This means the ratio reflects the probability the *unmasked* (behavior) policy would have assigned to the taken action, which can be beneficial when the valid action set changes significantly between rollout and update time.
 
+#### `--IAM_RECENTER_CLIP`
+
+Recenter the PPO clip on the off-policy IAM ratio's no-update value (default: `False`; only used when `OFF_POLICY_IAM` is `True`). With off-policy IAM the ratio at no update equals the *valid mass* `mu_old = sum over valid actions of unmasked_policy` (the same for every valid action), which is well below 1 in a loaded network (~0.5 at steady state). The unit-centred clip `[1 - eps, 1 + eps]` then sits above the ratio, so for negative-advantage (bad) actions the clipped branch wins the `min` and the gradient is zero — the actor only learns from positive-advantage actions, and the ratio implicitly down-weights the gradient by `mu_old`.
+
+When enabled, `log(mu_old)` is subtracted from the log ratio before clipping, giving the recentered ratio `pi_new / pi_old` (≈ 1 at no update). Both advantage signs then receive gradient symmetrically inside the trust region, and the implicit `mu_old` scaling is removed.
+
+- **Interaction with `--IAM_DAMPING`:** recentering removes the implicit `mu_old` down-weighting of the actor gradient, so damping (`w *= clip(valid_mass / VALID_MASS_TARGET, 0, 1)`) becomes the only valid-mass-based down-weighting of congested states. Keep `IAM_DAMPING` on when using this flag. Damping and gating address valid-mass collapse (the off-policy gap), which is orthogonal to clip centring.
+- **Re-tune `--CLIP_EPS`:** because the gradient is now two-sided and no longer `mu_old`-scaled, the effective step size changes. A tight value such as `0.04` is usually too small once recentered; sweep `0.1`, `0.2`, `0.3` (and possibly the actor learning rate).
+- **Diagnostics:** with `--ENHANCED_LOGGING`, `diagnostics/recenter_ratio_mean`/`_std` report the recentered ratio (computed in both modes for comparison) and `diagnostics/neg_adv_clip_frac` reports the fraction of negative-advantage steps whose actor term is clipped — high in unit mode, low once recentered.
+- **Note:** the recentering applies only to the standard off-policy IAM branch. It is not applied to the VONE or launch-power branches. If VTrace-style clipping is enabled (`RHO_CLIP > 0` and `C_CLIP > 0`) the recentered ratio also feeds the importance correction in the advantage calculation; whether that ratio should be recentered too is left as an open question (VTrace is off by default).
+
 ### Valid Mass and Gating
 
 The PPO loss uses a gating mechanism to handle steps where the agent has very few or no valid actions:

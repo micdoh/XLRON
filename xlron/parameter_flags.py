@@ -299,6 +299,15 @@ flags.DEFINE_boolean(
     "Use off-policy invalid action masking i.e. log prob ratio is unmasked policy / masked",
 )
 flags.DEFINE_boolean(
+    "IAM_RECENTER_CLIP",
+    False,
+    "Recenter the PPO clip on the off-policy IAM ratio's no-update value (the valid mass). "
+    "Only used when OFF_POLICY_IAM is True. The off-policy ratio equals the valid mass "
+    "(~0.5), not 1, at no update, so the unit-centred clip floors out negative-advantage "
+    "gradients; subtracting log(valid_mass) from the log ratio recenters it to ~1 so both "
+    "advantage signs get gradient symmetrically",
+)
+flags.DEFINE_boolean(
     "IAM_DAMPING",
     True,
     "Enable soft damping of actor/entropy losses based on valid mass "
