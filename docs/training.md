@@ -68,6 +68,26 @@ Number of independent learners, each with their own neural network parameters an
 
 Number of accelerator devices to use. Environments and learners are distributed across devices. Default: `1`.
 
+### `--mixed_precision`
+
+Cuts the memory footprint of the parallel environment state so you can fit more `--NUM_ENVS` on a device. When enabled, the bulk carried env arrays are stored in narrower dtypes while everything precision-sensitive stays at 32-bit:
+
+| Tier | Default | Mixed | Arrays |
+|---|---|---|---|
+| Bulk float | float32 | **float16** | spectrum occupancy (`link_slot_array`), normalised observation features |
+| Time | float32 | **float16** (relative) / float32 (absolute) | `current_time`, `holding_time`, departure arrays |
+| Bounded int | int32 | **int16** | per-path slot counts, bounded indices |
+| Binary | int32 | **int8** | path–link incidence |
+| Precision float | float32 | float32 | bitrate accumulators, physical SNR/power, importance weights |
+| Counter int | int32 | int32 | `total_requests`, `total_timesteps`, `accepted_services` |
+| **NN compute / params / optimizer** | float32 | **float32** | neural network weights, activations, Adam state |
+
+Neural-network weights, activations and the optimizer stay in **float32** for training stability — observations are cast up to `--compute_dtype` (float32) at the model boundary, so the policy is numerically unchanged. Aggregate metrics (blocking probability, throughput) match the float32 baseline within statistical noise.
+
+Time arrays use float16 only when they stay bounded (the default `--relative_arrival_times`); with absolute arrival times or `--incremental_loading` they automatically remain float32 to avoid overflow. Typical saving is ~30% of env-state memory at `--link_resources=100` (more at higher `--link_resources`), with no slowdown (a small speed-up on GPU/TPU from reduced memory bandwidth).
+
+Each tier can be overridden individually (e.g. `--small_float_dtype=bfloat16`, `--binary_dtype=int8`, `--time_dtype=float32`); the per-tier flags take precedence over the `--mixed_precision` defaults. Default: `false`.
+
 
 ## 2. Core PPO Hyperparameters
 

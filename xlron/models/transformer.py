@@ -12,6 +12,7 @@ from jaxtyping import (  # https://github.com/google/jaxtyping
     PRNGKeyArray,
 )
 
+from xlron import dtype_config
 from xlron.environments.dataclasses import EnvParams, EnvState
 from xlron.environments.env_funcs import (
     get_obs_transformer,
@@ -536,7 +537,9 @@ class ActorCriticTransformer(eqx.Module):
         """
         actor, critic = self.actor_critic
         actor_key, critic_key = jax.random.split(key) if key is not None else (None, None)
-        tokens = get_obs_transformer(state, params)
+        # Cast tokens up to the NN compute dtype: under mixed precision the env-sourced token
+        # columns may be low precision, but attention/weights stay at COMPUTE_DTYPE for stability.
+        tokens = get_obs_transformer(state, params).astype(dtype_config.COMPUTE_DTYPE)  # ty: ignore[unresolved-attribute]
 
         action_tokens = actor(
             tokens,

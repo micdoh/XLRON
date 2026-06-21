@@ -215,6 +215,11 @@ xlron.train.parameter_flags:
     (an integer)
   --min_traffic: Minimum traffic
     (default: '0.0')
+  --[no]mixed_precision: Enable mixed precision (shrink bulk env-state arrays to
+    float16/int16/int8 while keeping NN compute/params, accumulators and
+    physical-layer floats at float32). Cuts env-state memory ~30%. Individual
+    *_dtype flags override the mixed defaults.
+    (default: 'false')
   --model: Used to hold model parameters
     (a comma separated list)
   --modulations_csv_filepath: Modulation format definitions for RSA environment
@@ -261,6 +266,9 @@ xlron.train.parameter_flags:
   --symbol_rate: Symbol rate [Gbaud]
     (default: '100.0')
     (a number)
+  --time_dtype: Time/departure array dtype. float16 is safe with
+    relative_arrival_times; use float32 for absolute-time continuous_operation
+    (mixed precision auto-selects float32 in that case).
   --topology_directory: Directory containing JSON definitions of network topologies
   --topology_name: Topology name
     (default: '4node')

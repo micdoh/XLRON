@@ -1,6 +1,6 @@
 from gymnax.environments import spaces
 
-from xlron.dtype_config import LARGE_FLOAT_DTYPE
+from xlron import dtype_config
 from xlron.environments.dataclasses import *
 from xlron.environments.env_funcs import (
     calculate_path_stats,
@@ -12,8 +12,8 @@ from xlron.environments.env_funcs import (
 from xlron.environments.rsa.rsa import RSAEnv, RSAEnvParams, RSAEnvState
 from xlron.environments.wrappers import *
 
-one = jnp.array(1, dtype=LARGE_FLOAT_DTYPE)
-zero = jnp.array(0, dtype=LARGE_FLOAT_DTYPE)
+one = jnp.array(1, dtype=dtype_config.LARGE_FLOAT_DTYPE)
+zero = jnp.array(0, dtype=dtype_config.LARGE_FLOAT_DTYPE)
 
 
 class DeepRMSAEnv(RSAEnv):
@@ -41,16 +41,16 @@ class DeepRMSAEnv(RSAEnv):
             laplacian_matrix=laplacian_matrix,
         )
         self.initial_state = DeepRMSAEnvState(
-            current_time=0,
-            arrival_time=0,
-            holding_time=0,
+            current_time=jnp.array(0, dtype=dtype_config.TIME_DTYPE),
+            arrival_time=jnp.array(0, dtype=dtype_config.TIME_DTYPE),
+            holding_time=jnp.array(0, dtype=dtype_config.TIME_DTYPE),
             total_timesteps=0,
             total_requests=-1,
             link_slot_array=init_link_slot_array(params),
             link_slot_departure_array=init_link_slot_departure_array(params),
             request_array=init_rsa_request_array(),
-            link_slot_mask=jnp.ones(params.k_paths, dtype=LARGE_FLOAT_DTYPE),
-            full_link_slot_mask=jnp.ones(params.k_paths, dtype=LARGE_FLOAT_DTYPE),
+            link_slot_mask=jnp.ones(params.k_paths, dtype=dtype_config.LARGE_FLOAT_DTYPE),
+            full_link_slot_mask=jnp.ones(params.k_paths, dtype=dtype_config.LARGE_FLOAT_DTYPE),
             traffic_matrix=traffic_matrix
             if traffic_matrix is not None
             else init_traffic_matrix(key, params),
@@ -63,8 +63,10 @@ class DeepRMSAEnv(RSAEnv):
             accepted_bitrate=0.0,
             total_bitrate=0.0,
             valid_mass=1.0,
-            arrival_rate=params.arrival_rate,
-            mean_service_holding_time=params.mean_service_holding_time,
+            arrival_rate=jnp.array(params.arrival_rate, dtype=dtype_config.LARGE_FLOAT_DTYPE),
+            mean_service_holding_time=jnp.array(
+                params.mean_service_holding_time, dtype=dtype_config.LARGE_FLOAT_DTYPE
+            ),
         )
 
     def step_env(
@@ -138,13 +140,13 @@ class DeepRMSAEnv(RSAEnv):
         """Applies observation function to state."""
         request = state.request_array
         s, d = request[0], request[2]
-        s = jax.nn.one_hot(s, params.num_nodes, dtype=LARGE_FLOAT_DTYPE)
-        d = jax.nn.one_hot(d, params.num_nodes, dtype=LARGE_FLOAT_DTYPE)
+        s = jax.nn.one_hot(s, params.num_nodes, dtype=dtype_config.LARGE_FLOAT_DTYPE)
+        d = jax.nn.one_hot(d, params.num_nodes, dtype=dtype_config.LARGE_FLOAT_DTYPE)
         return jnp.concatenate(
             (
                 jnp.reshape(s, (-1,)),
                 jnp.reshape(d, (-1,)),
-                jnp.reshape(state.holding_time, (-1,)).astype(LARGE_FLOAT_DTYPE),
+                jnp.reshape(state.holding_time, (-1,)).astype(dtype_config.LARGE_FLOAT_DTYPE),
                 jnp.reshape(state.path_stats, (-1,)),
             ),
             axis=0,

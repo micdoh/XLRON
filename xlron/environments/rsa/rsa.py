@@ -84,9 +84,9 @@ class RSAEnv(environment.Environment):
         """
         super().__init__()
         state = RSAEnvState(
-            current_time=jnp.array(0, dtype=dtype_config.LARGE_FLOAT_DTYPE),
-            holding_time=jnp.array(0, dtype=dtype_config.LARGE_FLOAT_DTYPE),
-            arrival_time=jnp.array(0, dtype=dtype_config.LARGE_FLOAT_DTYPE),
+            current_time=jnp.array(0, dtype=dtype_config.TIME_DTYPE),
+            holding_time=jnp.array(0, dtype=dtype_config.TIME_DTYPE),
+            arrival_time=jnp.array(0, dtype=dtype_config.TIME_DTYPE),
             total_timesteps=jnp.array(0, dtype=dtype_config.LARGE_INT_DTYPE),
             total_requests=jnp.array(-1, dtype=dtype_config.LARGE_INT_DTYPE),
             link_slot_array=init_link_slot_array(params),
@@ -105,9 +105,12 @@ class RSAEnv(environment.Environment):
             accepted_bitrate=jnp.array(0, dtype=dtype_config.LARGE_FLOAT_DTYPE),
             total_bitrate=jnp.array(0, dtype=dtype_config.LARGE_FLOAT_DTYPE),
             valid_mass=jnp.array(1.0, dtype=dtype_config.LARGE_FLOAT_DTYPE),
-            arrival_rate=jnp.array(params.arrival_rate, dtype=dtype_config.SMALL_FLOAT_DTYPE),
+            # Precision tier (float32 under mixed precision): arrival_rate can be tiny and
+            # mean_service_holding_time can be ~1e6 under incremental_loading, both of which a
+            # 16-bit float would mishandle. These are traced scalars, so no memory cost.
+            arrival_rate=jnp.array(params.arrival_rate, dtype=dtype_config.LARGE_FLOAT_DTYPE),
             mean_service_holding_time=jnp.array(
-                params.mean_service_holding_time, dtype=dtype_config.SMALL_FLOAT_DTYPE
+                params.mean_service_holding_time, dtype=dtype_config.LARGE_FLOAT_DTYPE
             ),
         )
         if params.__class__.__name__ not in ["RSAGNModelEnvParams", "RMSAGNModelEnvParams"]:
@@ -1441,9 +1444,12 @@ class RSAMultibandEnv(RSAEnv):
             laplacian_matrix=laplacian_matrix,
         )
         state = RSAMultibandEnvState(
-            current_time=jnp.array(0, dtype=dtype_config.LARGE_INT_DTYPE),
-            holding_time=jnp.array(0, dtype=dtype_config.LARGE_INT_DTYPE),
-            arrival_time=jnp.array(0, dtype=dtype_config.LARGE_INT_DTYPE),
+            # Times are continuous (sums of float inter-arrivals); use the float TIME tier to
+            # match the base RSAEnv and keep dtypes consistent under mixed precision (these were
+            # previously LARGE_INT, which truncated fractional times).
+            current_time=jnp.array(0, dtype=dtype_config.TIME_DTYPE),
+            holding_time=jnp.array(0, dtype=dtype_config.TIME_DTYPE),
+            arrival_time=jnp.array(0, dtype=dtype_config.TIME_DTYPE),
             total_timesteps=jnp.array(0, dtype=dtype_config.LARGE_INT_DTYPE),
             total_requests=jnp.array(-1, dtype=dtype_config.LARGE_INT_DTYPE),
             link_slot_array=set_band_gaps(init_link_slot_array(params), params, -1.0),
@@ -1462,9 +1468,12 @@ class RSAMultibandEnv(RSAEnv):
             total_bitrate=jnp.array(0, dtype=dtype_config.LARGE_FLOAT_DTYPE),
             list_of_requests=list_of_requests,
             valid_mass=jnp.array(1.0, dtype=dtype_config.LARGE_FLOAT_DTYPE),
-            arrival_rate=jnp.array(params.arrival_rate, dtype=dtype_config.SMALL_FLOAT_DTYPE),
+            # Precision tier (float32 under mixed precision): arrival_rate can be tiny and
+            # mean_service_holding_time can be ~1e6 under incremental_loading, both of which a
+            # 16-bit float would mishandle. These are traced scalars, so no memory cost.
+            arrival_rate=jnp.array(params.arrival_rate, dtype=dtype_config.LARGE_FLOAT_DTYPE),
             mean_service_holding_time=jnp.array(
-                params.mean_service_holding_time, dtype=dtype_config.SMALL_FLOAT_DTYPE
+                params.mean_service_holding_time, dtype=dtype_config.LARGE_FLOAT_DTYPE
             ),
         )
         self.initial_state = state.replace(graph=init_graph_tuple(state, params, laplacian_matrix))

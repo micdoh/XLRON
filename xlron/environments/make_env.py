@@ -129,6 +129,10 @@ def process_config(config: Optional[Union[dict, FlagValues]], **kwargs: Any) -> 
     # if kwargs are passed, then include them in config
     config.update(kwargs)
     config = Box(config)
+    # Resolve the global dtype constants from this config BEFORE any env array is built.
+    # Centralised here so every entry point (train, eval, bounds, GUI, tests) that goes through
+    # make()/process_config() honours --mixed_precision and the per-tier *_dtype flags. Idempotent.
+    dtype_config.initialize_dtypes(config)
     # Backward compatibility: if EPISODE_DATA_OUTPUT_FILE is not set but DATA_OUTPUT_FILE
     # points to a .csv file, treat it as the old per-episode CSV output path.
     if (
@@ -414,12 +418,29 @@ def make(
     traffic_intensity = config.get("traffic_intensity", 0)
     mean_service_holding_time = config.get("mean_service_holding_time", 10)
 
-    if mean_service_holding_time / load < 0.02 and isinstance(
-        dtype_config.LARGE_FLOAT_DTYPE, jnp.bfloat16
-    ):
+    # Precision guard for the time/departure arrays. These hold (current_time + holding_time).
+    # NB the previous guard used ``isinstance(dtype, jnp.bfloat16)`` which is always False (the
+    # constant is a dtype, not an instance) so it never fired; this checks the actual TIME tier.
+    time_is_half = dtype_config.TIME_DTYPE in dtype_config.HALF_FLOAT_DTYPES
+    if time_is_half and (not relative_arrival_times or incremental_loading):
+        # Absolute time accumulates without bound, and incremental_loading uses ~1e6 holding
+        # times; a 16-bit float will lose resolution and overflow (float16 max ~65504). Mixed
+        # mode auto-selects float32 in these cases; this only fires if a 16-bit time_dtype was
+        # forced explicitly.
         raise ValueError(
-            f"Raio of mean service holding time ({mean_service_holding_time}) to load ({load}) is too small for bfloat16. "
-            f"Consider using float32 or increasing the mean service holding time."
+            f"time_dtype={jnp.dtype(dtype_config.TIME_DTYPE).name} is unsafe with "
+            f"relative_arrival_times={relative_arrival_times}, incremental_loading="
+            f"{incremental_loading}: time values grow unbounded and will overflow. "
+            f"Use --time_dtype=float32 (mixed precision does this automatically)."
+        )
+    if time_is_half and mean_service_holding_time / load < 0.02:
+        # Per-step time increments (~mean_service_holding_time/load) that are tiny relative to the
+        # stored departure times get rounded away in a 16-bit float.
+        raise ValueError(
+            f"Ratio of mean service holding time ({mean_service_holding_time}) to load ({load}) "
+            f"is too small for a 16-bit time_dtype "
+            f"({jnp.dtype(dtype_config.TIME_DTYPE).name}). "
+            f"Use --time_dtype=float32 or increase the mean service holding time."
         )
 
     # Set traffic intensity / load

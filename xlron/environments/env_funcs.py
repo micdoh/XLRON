@@ -1083,19 +1083,28 @@ def init_link_slot_array(params: EnvParams):
         params (EnvParams): Environment parameters
     Returns:
         jnp.array: Link slot array (E x S) where E is number of edges and S is number of slots"""
+    # Spectrum occupancy counter, values {0, 1} (steady) with a transient +2 marking a
+    # collision (see check_no_spectrum_reuse). Bulk float tier: exact in float16 under mixed
+    # precision, and the largest per-env array so the dominant memory saving.
     return jnp.zeros(
-        (params.num_links, params.link_resources), dtype=dtype_config.LARGE_FLOAT_DTYPE
+        (params.num_links, params.link_resources), dtype=dtype_config.SMALL_FLOAT_DTYPE
     )
 
 
 def init_rsa_request_array():
-    """Initialize request array"""
+    """Initialize request array [source, datarate, dest]."""
+    # Kept on the LARGE_INT tier (int32): it is only 3 elements (negligible memory) and is rebuilt
+    # each step by generate_request, whose dtype is path-dependent (float32 for deterministic
+    # requests, int for random) -- pinning it small would risk a scan carry dtype mismatch.
     return jnp.zeros(3, dtype=dtype_config.LARGE_INT_DTYPE)
 
 
 @partial(jax.jit, static_argnums=(0, 1, 2))
 def init_link_slot_mask(params: EnvParams, include_no_op: bool = False, agg: float = 1.0):
     """Initialize link mask"""
+    # Kept on LARGE_FLOAT: the action mask is recomputed from scratch every step by action_mask /
+    # mask_slots (which build it at LARGE_FLOAT), so the carried field must match that dtype to
+    # avoid a scan carry mismatch. Masks are k_paths*link_resources (small vs the E*S arrays).
     return jnp.ones(
         params.k_paths * math.ceil(params.link_resources / agg) + (1 * include_no_op),
         dtype=dtype_config.LARGE_FLOAT_DTYPE,
@@ -1105,6 +1114,8 @@ def init_link_slot_mask(params: EnvParams, include_no_op: bool = False, agg: flo
 @partial(jax.jit, static_argnums=(0,))
 def init_mod_format_mask(params: EnvParams):
     """Initialize link mask"""
+    # Kept on LARGE_FLOAT: recomputed from scratch each step (mask_slots_bit_rate_mod_format builds
+    # it at LARGE_FLOAT), so the carried field must match to avoid a scan carry mismatch.
     return jnp.full(
         (params.k_paths * params.link_resources,), -1.0, dtype=dtype_config.LARGE_FLOAT_DTYPE
     )
@@ -1119,9 +1130,9 @@ def decrease_last_element(array):
 
 @partial(jax.jit, static_argnums=(0,))
 def init_link_slot_departure_array(params: EnvParams):
-    return jnp.zeros(
-        (params.num_links, params.link_resources), dtype=dtype_config.SMALL_FLOAT_DTYPE
-    )
+    # Per-slot departure timestamps (current_time + holding_time). Precision-sensitive TIME tier:
+    # float16 with relative_arrival_times (bounded by holding time), float32 for absolute time.
+    return jnp.zeros((params.num_links, params.link_resources), dtype=dtype_config.TIME_DTYPE)
 
 
 def normalise_traffic_matrix(traffic_matrix):
@@ -1235,7 +1246,7 @@ def generate_request_rsa(
         current_time = (
             state.current_time + arrival_time
             if not params.relative_arrival_times
-            else jnp.array([0.0], dtype=dtype_config.SMALL_FLOAT_DTYPE)
+            else jnp.array([0.0], dtype=dtype_config.TIME_DTYPE)
         )
 
     state = state.replace(
@@ -1299,7 +1310,7 @@ def generate_request_rwalr(
         current_time = (
             state.current_time + arrival_time
             if not params.relative_arrival_times
-            else jnp.array([0.0], dtype=dtype_config.SMALL_FLOAT_DTYPE)
+            else jnp.array([0.0], dtype=dtype_config.TIME_DTYPE)
         )
     state = state.replace(
         holding_time=holding_time,
@@ -1490,14 +1501,15 @@ def generate_arrival_holding_times(key, params, arrival_rate, mean_service_holdi
     """
     key_arrival, key_holding = jax.random.split(key, 2)
     arrival_time = (
-        jax.random.exponential(key_arrival, shape=(1,), dtype=dtype_config.SMALL_FLOAT_DTYPE)
+        jax.random.exponential(key_arrival, shape=(1,), dtype=dtype_config.TIME_DTYPE)
         / arrival_rate
     )  # Divide because it is rate (lambda)
     if params.truncate_holding_time:
         # For DeepRMSA, need to generate holding times that are less than 2*mean_service_holding_time
         key_holding = jax.random.split(key, 5)
         holding_times = jax.vmap(
-            lambda x: jax.random.exponential(x, shape=(1,)) * mean_service_holding_time
+            lambda x: jax.random.exponential(x, shape=(1,), dtype=dtype_config.TIME_DTYPE)
+            * mean_service_holding_time
         )(key_holding).reshape(-1)
         holding_times = jnp.where(
             holding_times < 2 * mean_service_holding_time, holding_times, zero
@@ -1524,9 +1536,14 @@ def generate_arrival_holding_times(key, params, arrival_rate, mean_service_holdi
         )
     else:
         holding_time = (
-            jax.random.exponential(key_holding, shape=(1,), dtype=dtype_config.SMALL_FLOAT_DTYPE)
+            jax.random.exponential(key_holding, shape=(1,), dtype=dtype_config.TIME_DTYPE)
             * mean_service_holding_time
         )  # Multiply because it is mean (1/lambda)
+    # Pin to the TIME tier: the rate/mean scalars may be a wider (precision) dtype, so the
+    # products above can promote. Casting here keeps the departure array's dtype stable across
+    # the scan and consistent with init_link_slot_departure_array.
+    arrival_time = arrival_time.astype(dtype_config.TIME_DTYPE)
+    holding_time = holding_time.astype(dtype_config.TIME_DTYPE)
     return arrival_time, holding_time
 
 
@@ -3742,7 +3759,8 @@ def init_active_lightpaths_array_departure(params: RSAGNModelEnvParams):
         jnp.max(params.values_bw.val) / params.slot_size
     )  # minimum number of slots required for lightpath
     max_num_lightpaths = int(min(total_slots / min_slots, params.max_requests))
-    return jnp.full((max_num_lightpaths, 3), 0.0, dtype=dtype_config.SMALL_FLOAT_DTYPE)
+    # Stores per-lightpath departure times (current_time + holding_time) -> TIME tier.
+    return jnp.full((max_num_lightpaths, 3), 0.0, dtype=dtype_config.TIME_DTYPE)
 
 
 def update_active_lightpaths_array(

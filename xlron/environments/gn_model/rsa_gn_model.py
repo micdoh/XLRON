@@ -61,9 +61,9 @@ class RSAGNModelEnv(RSAEnv):
             laplacian_matrix=laplacian_matrix,
         )
         state = RSAGNModelEnvState(
-            current_time=0,
-            arrival_time=0,
-            holding_time=0,
+            current_time=jnp.array(0, dtype=dtype_config.TIME_DTYPE),
+            arrival_time=jnp.array(0, dtype=dtype_config.TIME_DTYPE),
+            holding_time=jnp.array(0, dtype=dtype_config.TIME_DTYPE),
             total_timesteps=0,
             total_requests=-1,
             link_slot_array=set_band_gaps(init_link_slot_array(params), params, -1.0),
@@ -93,9 +93,9 @@ class RSAGNModelEnv(RSAEnv):
             active_lightpaths_array_departure=init_active_lightpaths_array_departure(params),
             throughput=jnp.array(0.0, dtype=init_link_snr_array(params).dtype),
             valid_mass=jnp.array(1.0, dtype=dtype_config.LARGE_FLOAT_DTYPE),
-            arrival_rate=jnp.array(params.arrival_rate, dtype=dtype_config.SMALL_FLOAT_DTYPE),
+            arrival_rate=jnp.array(params.arrival_rate, dtype=dtype_config.LARGE_FLOAT_DTYPE),
             mean_service_holding_time=jnp.array(
-                params.mean_service_holding_time, dtype=dtype_config.SMALL_FLOAT_DTYPE
+                params.mean_service_holding_time, dtype=dtype_config.LARGE_FLOAT_DTYPE
             ),
         )
         self.initial_state = state.replace(graph=init_graph_tuple(state, params, laplacian_matrix))

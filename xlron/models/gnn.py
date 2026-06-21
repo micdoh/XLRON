@@ -626,16 +626,18 @@ class GraphNet(eqx.Module):
             edges = graphs.edges.reshape((graphs.edges.shape[0], -1))  # ty: ignore[unresolved-attribute]
             graphs = graphs._replace(edges=edges)
 
-        # Embed
-        nodes = jax.vmap(self.node_embedder)(graphs.nodes)
-        edges = jax.vmap(self.edge_embedder)(graphs.edges)
+        # Embed. Cast features up to the NN compute dtype first: under mixed precision the graph
+        # node/edge/global features may be low precision (float16), but weights/activations stay
+        # at COMPUTE_DTYPE for stability.
+        nodes = jax.vmap(self.node_embedder)(graphs.nodes.astype(dtype_config.COMPUTE_DTYPE))  # ty: ignore[unresolved-attribute]
+        edges = jax.vmap(self.edge_embedder)(graphs.edges.astype(dtype_config.COMPUTE_DTYPE))  # ty: ignore[unresolved-attribute]
         if graphs.globals is not None:
-            g = graphs.globals
-            if g.ndim == 1:  # ty: ignore[unresolved-attribute]
+            g = graphs.globals.astype(dtype_config.COMPUTE_DTYPE)  # ty: ignore[unresolved-attribute]
+            if g.ndim == 1:
                 g = g[:, None]  # (n_graphs,) -> (n_graphs, 1)
             globals_ = jax.vmap(self.global_embedder)(g)
         else:
-            globals_ = jnp.zeros((1, self.global_embedding_size))
+            globals_ = jnp.zeros((1, self.global_embedding_size), dtype=dtype_config.COMPUTE_DTYPE)
 
         processed_graphs = graphs._replace(nodes=nodes, edges=edges, globals=globals_)
 

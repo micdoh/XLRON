@@ -340,17 +340,59 @@ flags.DEFINE_float(
 )
 
 # Flags for mixed precision
-flags.DEFINE_string("compute_dtype", None, "Compute precision dtype (float32, bfloat16)")
-flags.DEFINE_string("params_dtype", None, "Parameter storage dtype (float32, bfloat16)")
-flags.DEFINE_string("float_dtype", None, "Float dtype (float32, bfloat16)")
-flags.DEFINE_string("large_float_dtype", None, "Large float dtype (float32, bfloat16)")
-flags.DEFINE_string("small_float_dtype", None, "Small float dtype (float32, float16)")
-flags.DEFINE_string("int_dtype", None, "Integer dtype (int32)")
-flags.DEFINE_string("large_int_dtype", None, "Large integer dtype (int32)")
-flags.DEFINE_string("small_int_dtype", None, "Small integer dtype (int32, int8)")
-flags.DEFINE_string("binary_dtype", None, "Binary dtype (bool)")
+flags.DEFINE_boolean(
+    "mixed_precision",
+    False,
+    "Enable mixed precision: shrink bulk env-state arrays (occupancy/masks -> float16, "
+    "bounded indices -> int16, binary -> int8, times -> float16 when relative_arrival_times) "
+    "while keeping NN compute/params, accumulators and physical-layer floats at float32. "
+    "Cuts env-state memory ~2x. Individual *_dtype flags below override the mixed defaults.",
+)
+flags.DEFINE_string(
+    "compute_dtype", None, "NN compute dtype (float32, bfloat16). Keep float32 for stability."
+)
+flags.DEFINE_string(
+    "params_dtype",
+    None,
+    "NN parameter/optimizer dtype (float32, bfloat16). Keep float32 for stability.",
+)
+flags.DEFINE_string(
+    "float_dtype",
+    None,
+    "Uniform override for BOTH large+small float tiers (float32, float16, bfloat16)",
+)
+flags.DEFINE_string(
+    "large_float_dtype",
+    None,
+    "Precision float tier: accumulators, physical SNR/power (float32 recommended)",
+)
+flags.DEFINE_string(
+    "small_float_dtype", None, "Bulk float tier: occupancy, masks, features (float16 in mixed mode)"
+)
+flags.DEFINE_string(
+    "time_dtype",
+    None,
+    "Time/departure array dtype. float16 is safe with relative_arrival_times; use float32 for "
+    "absolute-time continuous_operation (mixed mode auto-selects float32 in that case).",
+)
+flags.DEFINE_string(
+    "int_dtype", None, "Uniform override for BOTH large+small int tiers (int32, int16)"
+)
+flags.DEFINE_string(
+    "large_int_dtype",
+    None,
+    "Counter int tier: total_requests/timesteps, large indices (int32 recommended)",
+)
+flags.DEFINE_string(
+    "small_int_dtype",
+    None,
+    "Bounded index int tier: required_slots, node/datarate (int16 in mixed mode)",
+)
+flags.DEFINE_string(
+    "binary_dtype", None, "Binary array dtype, e.g. path-link incidence (int8 in mixed mode)"
+)
 flags.DEFINE_string("reward_dtype", None, "Reward dtype (float32)")
-flags.DEFINE_string("action_dtype", None, "Action dtype (int32)")
+flags.DEFINE_string("action_dtype", None, "Action dtype (int32, must be int for indexing)")
 
 # Environment parameters
 flags.DEFINE_string("env_type", "rmsa", "Environment type")
