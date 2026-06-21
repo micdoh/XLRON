@@ -118,6 +118,50 @@ def convert_str_to_list_of_numerics(flag_val, num_type="float"):
         return [0]
 
 
+def validate_config(config: Box, is_eval: bool) -> None:
+    """Sanity-check the run configuration once derived values are set.
+
+    Raises on structurally impossible values; warns on combinations that train
+    but produce degenerate metrics - notably a per-env rollout window too short
+    to contain a full episode, which leaves the episode-end statistics empty
+    (NaN). Heuristic/model evaluation skips the training-specific checks, which
+    process_config has already sized for it.
+    """
+    num_envs = int(config.NUM_ENVS)
+    rollout_length = int(config.ROLLOUT_LENGTH)
+    num_minibatches = int(config.get("NUM_MINIBATCHES", 1))
+    if min(num_envs, rollout_length, num_minibatches) < 1 or config.TOTAL_TIMESTEPS < 1:
+        raise ValueError(
+            f"NUM_ENVS ({num_envs}), ROLLOUT_LENGTH ({rollout_length}), NUM_MINIBATCHES "
+            f"({num_minibatches}) and TOTAL_TIMESTEPS ({config.TOTAL_TIMESTEPS}) must all be >= 1."
+        )
+    if is_eval:
+        return
+
+    if (rollout_length * num_envs) % num_minibatches != 0:
+        print(
+            f"WARNING: ROLLOUT_LENGTH * NUM_ENVS ({rollout_length * num_envs}) is not divisible "
+            f"by NUM_MINIBATCHES ({num_minibatches}); the final minibatch will be truncated."
+        )
+
+    # Episode-window check: when episode length is deterministic (max_requests), the per-env
+    # data window in an increment must contain at least one episode, else the episode-end
+    # metrics are empty (NaN). Skipped for continuous_operation (no episode ends by design)
+    # and end_first_blocking (episode length is variable and data-dependent).
+    continuous = config.get("continuous_operation", False)
+    end_first_blocking = config.get("end_first_blocking", False)
+    if not continuous and not end_first_blocking:
+        steps_per_env = int(config.NUM_UPDATES) * rollout_length
+        max_requests = int(config.get("max_requests", 0))
+        if 0 < steps_per_env < max_requests:
+            print(
+                f"WARNING: per-env rollout window (NUM_UPDATES * ROLLOUT_LENGTH = {steps_per_env}) "
+                f"is shorter than one episode (max_requests = {max_requests}); no episode will "
+                f"complete within an increment, so episode-end metrics will be empty (NaN). "
+                f"Increase STEPS_PER_INCREMENT/ROLLOUT_LENGTH or reduce max_requests."
+            )
+
+
 def process_config(config: Optional[Union[dict, FlagValues]], **kwargs: Any) -> Box:
     """Allow configuration to be a dict, absl.flags.FlagValues, or kwargs.
     Return a Box that can be indexed like a dict or accessed like an object.
@@ -204,6 +248,7 @@ def process_config(config: Optional[Union[dict, FlagValues]], **kwargs: Any) -> 
                 config.ROLLOUT_LENGTH * config.NUM_ENVS * config.NUM_UPDATES
             )
             config.TOTAL_TIMESTEPS = n_increments * config.STEPS_PER_INCREMENT
+        validate_config(config, bool(is_eval))
     config.aggregate_slots = 1 if config.get("EVAL_HEURISTIC") else config.get("aggregate_slots", 1)
     return config
 

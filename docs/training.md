@@ -52,6 +52,15 @@ Total environment steps across all environments. The number of PPO updates is `T
 
 Steps per logging increment. Training is divided into `TOTAL_TIMESTEPS / STEPS_PER_INCREMENT` increments, with metrics reported after each. Default: `100000`.
 
+### Configuration validation
+
+`process_config` sanity-checks the run once derived values are set. It raises on structurally impossible values (`NUM_ENVS`, `ROLLOUT_LENGTH`, `NUM_MINIBATCHES`, `TOTAL_TIMESTEPS` must all be ≥ 1) and prints warnings for combinations that train but produce degenerate metrics:
+
+- `ROLLOUT_LENGTH * NUM_ENVS` not divisible by `NUM_MINIBATCHES` (the final minibatch is truncated).
+- For episodic training (not `continuous_operation`, not `end_first_blocking`), a per-env rollout window `NUM_UPDATES * ROLLOUT_LENGTH` shorter than one episode (`max_requests`). No episode then completes within an increment, leaving the episode-end metrics empty (`NaN`) — which also trips `--DEBUG_NANS`. Increase `STEPS_PER_INCREMENT`/`ROLLOUT_LENGTH` or reduce `max_requests`.
+
+Heuristic and model evaluation skip the training-specific checks, since `process_config` already sizes their episodes; `continuous_operation` skips the episode-window check, as it measures steady-state with no episode endings.
+
 ### `--UPDATE_EPOCHS`
 
 Number of passes over the rollout buffer per update step. Multiple epochs reuse the same data, improving sample efficiency at the risk of becoming too off-policy. Default: `1`. Typical values: `1` to `10`.
