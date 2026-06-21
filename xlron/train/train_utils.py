@@ -127,6 +127,9 @@ class LossDiagnostics(NamedTuple):
     log_prob_min: Array
     invalid_taken_frac: Array
     taken_valid_min: Array
+    recenter_ratio_mean: Array
+    recenter_ratio_std: Array
+    neg_adv_clip_frac: Array
 
     @classmethod
     def zeros(cls) -> "LossDiagnostics":
