@@ -31,6 +31,16 @@ _LOGO_PATH = (
 _DOCS_URL = "https://micdoh.github.io/XLRON/"
 _PRESETS_PATH = Path(__file__).resolve().parent / "presets.py"
 
+# Flags that execution_mode_section() emits to mark the selected execution mode.
+# That section is the single source of truth for them: each render it re-emits
+# exactly the discriminators matching the mode radio. They must therefore NOT be
+# seeded from a loaded preset — otherwise a stale preset value (e.g.
+# EVAL_MODEL=True) survives after the user switches the radio to a mode that
+# doesn't set it, leaving the wrong tabs hidden and a stale flag in the command.
+_MODE_DISCRIMINATOR_FLAGS = frozenset(
+    {"EVAL_HEURISTIC", "EVAL_MODEL", "ACTION_OPTIMIZATION", "differentiable"}
+)
+
 
 # ---------------------------------------------------------------------------
 # Preset saving helpers
@@ -257,8 +267,17 @@ all_flags: dict = {}
 if "_loaded_preset" not in st.session_state:
     st.session_state["_loaded_preset"] = {}
 
-# Seed with preset values so flags without widgets are still included in the command
-all_flags.update(st.session_state.get("_loaded_preset", {}))
+# Seed with preset values so flags without widgets are still included in the
+# command. Mode-discriminator flags are excluded: execution_mode_section() owns
+# them and re-emits the ones matching the current mode, so seeding them here
+# would let a stale preset value survive a mode switch (see issue #22).
+all_flags.update(
+    {
+        k: v
+        for k, v in st.session_state.get("_loaded_preset", {}).items()
+        if k not in _MODE_DISCRIMINATOR_FLAGS
+    }
+)
 
 col_widgets, col_output = st.columns([3, 2])
 
