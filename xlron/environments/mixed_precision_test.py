@@ -257,5 +257,30 @@ class TimePrecisionGuardTest(absltest.TestCase):
             )
 
 
+class MaskLogitMaskingTest(absltest.TestCase):
+    """Regression for the float16 action-mask logit-masking bug.
+
+    With a float16 mask, ``-1e8 * (1 - mask)`` is evaluated in float16: ``-1e8`` overflows to
+    ``-inf`` for masked actions, and ``inf * 0`` makes the *valid*-action logits ``NaN`` -- which
+    poisons the entropy/gradient and collapses training. The fix casts the mask up to float32
+    inside the masking expression (in ppo.py / train_utils.py) so the constant stays finite. This
+    test pins both the hazard and the fix so the raw pattern cannot be reintroduced.
+    """
+
+    def test_fixed_pattern_is_finite_and_raw_pattern_is_not(self):
+        logits = jnp.array([2.0, 3.0, 1.0], dtype=jnp.float32)
+        mask_f16 = jnp.array([0.0, 1.0, 1.0], dtype=jnp.float16)  # action 0 masked out
+        # The raw pattern is unsafe with a float16 mask (documents the hazard).
+        raw = logits + (-1e8 * (1 - mask_f16))
+        self.assertFalse(bool(jnp.all(jnp.isfinite(raw))))
+        # The fix (cast mask to float32) keeps masked logits finite (== the default f32-mask path).
+        fixed = logits + (-1e8 * (1 - mask_f16.astype(jnp.float32)))
+        self.assertTrue(bool(jnp.all(jnp.isfinite(fixed))))
+        # Masked action gets a large-negative finite logit; valid actions keep their value.
+        self.assertLess(float(fixed[0]), -1e7)
+        self.assertAlmostEqual(float(fixed[1]), 3.0, places=3)
+        self.assertAlmostEqual(float(fixed[2]), 1.0, places=3)
+
+
 if __name__ == "__main__":
     absltest.main()

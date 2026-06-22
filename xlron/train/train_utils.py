@@ -948,7 +948,7 @@ def select_action(select_action_state, env, env_params, train_state, config):
 
         env_state = env_state.replace(env_state=vmap_mask_nodes(env_state.env_state, env_params))
         pi_source = distrax.Categorical(
-            logits=pi[0]._logits + (-1e8 * (1 - env_state.env_state.node_mask_s))
+            logits=pi[0]._logits + (-1e8 * (1 - env_state.env_state.node_mask_s.astype(jnp.float32)))
         )
 
         action_s = (
@@ -960,7 +960,7 @@ def select_action(select_action_state, env, env_params, train_state, config):
             env_state=vmap_mask_dest_node(env_state.env_state, env_params, action_s)
         )
         pi_dest = distrax.Categorical(
-            logits=pi[0]._logits + (-1e8 * (1 - env_state.env_state.node_mask_d))
+            logits=pi[0]._logits + (-1e8 * (1 - env_state.env_state.node_mask_d.astype(jnp.float32)))
         )
 
         action_p = jnp.full(action_s.shape, 0)
@@ -971,7 +971,7 @@ def select_action(select_action_state, env, env_params, train_state, config):
             env_state=vmap_mask_slots(env_state.env_state, env_params, action)
         )
         pi_path = distrax.Categorical(
-            logits=pi[0]._logits + (-1e8 * (1 - env_state.env_state.link_slot_mask))
+            logits=pi[0]._logits + (-1e8 * (1 - env_state.env_state.link_slot_mask.astype(jnp.float32)))
         )
         action_p = pi_path.sample(seed=action_key) if not config.deterministic else pi_path.mode()
         action = jnp.stack((action_s, action_p, action_d), axis=1)
@@ -984,7 +984,7 @@ def select_action(select_action_state, env, env_params, train_state, config):
         valid_mass = jnp.sum(probs * action_mask, axis=-1)
 
     elif "gn_model" in config.env_type.lower() and config.launch_power_type == "rl":
-        pi_masked = distrax.Categorical(logits=pi[0]._logits + (-1e8 * (1 - action_mask)))
+        pi_masked = distrax.Categorical(logits=pi[0]._logits + (-1e8 * (1 - action_mask.astype(jnp.float32))))
         if config.GNN_OUTPUT_RSA and not config.GNN_OUTPUT_LP:
             path_action, log_prob = train_state.sample_fn(
                 action_key, pi_masked, log_prob=True, deterministic=config.deterministic
@@ -1018,7 +1018,7 @@ def select_action(select_action_state, env, env_params, train_state, config):
         valid_mass = jnp.sum(probs * action_mask, axis=-1)
 
     else:
-        pi_masked = distrax.Categorical(logits=pi[0]._logits + (-1e8 * (1 - action_mask)))
+        pi_masked = distrax.Categorical(logits=pi[0]._logits + (-1e8 * (1 - action_mask.astype(jnp.float32))))
         action = pi_masked.sample(seed=action_key) if not config.deterministic else pi_masked.mode()
         log_prob = pi_masked.log_prob(action)
         probs = jax.nn.softmax(pi[0]._logits, axis=-1)

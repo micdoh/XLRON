@@ -455,9 +455,9 @@ def _loss_fn(
     if config.env_type.lower() == "vone":
         # VONE: source, path, destination actions
         vone_batch = cast(VONETransition, traj_batch)
-        pi_source = distrax.Categorical(logits=pi._logits + (-1e8 * (1 - vone_batch.action_mask_s)))
-        pi_path = distrax.Categorical(logits=pi._logits + (-1e8 * (1 - vone_batch.action_mask_p)))
-        pi_dest = distrax.Categorical(logits=pi._logits + (-1e8 * (1 - vone_batch.action_mask_d)))
+        pi_source = distrax.Categorical(logits=pi._logits + (-1e8 * (1 - vone_batch.action_mask_s.astype(jnp.float32))))
+        pi_path = distrax.Categorical(logits=pi._logits + (-1e8 * (1 - vone_batch.action_mask_p.astype(jnp.float32))))
+        pi_dest = distrax.Categorical(logits=pi._logits + (-1e8 * (1 - vone_batch.action_mask_d.astype(jnp.float32))))
         action_s = traj_batch.action[:, 0]
         action_p = traj_batch.action[:, 1]
         action_d = traj_batch.action[:, 2]
@@ -476,7 +476,7 @@ def _loss_fn(
 
         if config.GNN_OUTPUT_RSA:
             pi_masked = distrax.Categorical(
-                logits=path_dist._logits + (-1e8 * (1 - traj_batch.action_mask))
+                logits=path_dist._logits + (-1e8 * (1 - traj_batch.action_mask.astype(jnp.float32)))
             )
             path_log_prob = pi_masked.log_prob(path_actions)
             path_entropy = pi_masked.entropy()
@@ -514,7 +514,7 @@ def _loss_fn(
     else:
         # Standard action masking
         pi_masked = distrax.Categorical(
-            logits=pi[0]._logits + (-1e8 * (1 - traj_batch.action_mask))
+            logits=pi[0]._logits + (-1e8 * (1 - traj_batch.action_mask.astype(jnp.float32)))
         )
         # Ratio will be policy/masked_policy - also known as off-policy invalid action masking
         log_prob = (
