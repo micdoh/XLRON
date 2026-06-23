@@ -455,9 +455,15 @@ def _loss_fn(
     if config.env_type.lower() == "vone":
         # VONE: source, path, destination actions
         vone_batch = cast(VONETransition, traj_batch)
-        pi_source = distrax.Categorical(logits=pi._logits + (-1e8 * (1 - vone_batch.action_mask_s.astype(jnp.float32))))
-        pi_path = distrax.Categorical(logits=pi._logits + (-1e8 * (1 - vone_batch.action_mask_p.astype(jnp.float32))))
-        pi_dest = distrax.Categorical(logits=pi._logits + (-1e8 * (1 - vone_batch.action_mask_d.astype(jnp.float32))))
+        pi_source = distrax.Categorical(
+            logits=pi._logits + (-1e8 * (1 - vone_batch.action_mask_s.astype(jnp.float32)))
+        )
+        pi_path = distrax.Categorical(
+            logits=pi._logits + (-1e8 * (1 - vone_batch.action_mask_p.astype(jnp.float32)))
+        )
+        pi_dest = distrax.Categorical(
+            logits=pi._logits + (-1e8 * (1 - vone_batch.action_mask_d.astype(jnp.float32)))
+        )
         action_s = traj_batch.action[:, 0]
         action_p = traj_batch.action[:, 1]
         action_d = traj_batch.action[:, 2]
