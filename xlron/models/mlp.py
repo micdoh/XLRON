@@ -225,8 +225,10 @@ class ActorCriticMLP(eqx.Module):
         # Actor forward pass
         actor_key, critic_key = jax.random.split(key) if key else (None, None)
         logits = self.actor(x, key=actor_key) / self.temperature
-        action_dist = distrax.Categorical(logits=logits)
-        value = self.critic(x, key=critic_key)
+        # Cast outputs back to PARAMS_DTYPE (float32) so bf16 stays inside the model and the
+        # downstream PPO math / f32 env-state stay float32 (see transformer model for rationale).
+        action_dist = distrax.Categorical(logits=logits.astype(dtype_config.PARAMS_DTYPE))
+        value = self.critic(x, key=critic_key).astype(dtype_config.PARAMS_DTYPE)
         return action_dist, jnp.squeeze(value, axis=-1)
 
     def sample_action(

@@ -913,6 +913,24 @@ def experiment_data_setup(config: Box, rng: chex.PRNGKey) -> Tuple:
     return init_runner_state, env, env_params
 
 
+def cast_model_for_compute(model: eqx.Module) -> eqx.Module:
+    """Cast a model's float (inexact) leaves to COMPUTE_DTYPE for the forward pass.
+
+    Mixed-precision *training*: the master weights stay at PARAMS_DTYPE (float32) in the
+    TrainState and optimizer, and are cast to COMPUTE_DTYPE (e.g. bfloat16) only for the forward
+    pass. Because the cast sits inside the differentiated region (it is applied to the model that
+    `_loss_fn` is differentiated through), gradients flow back through it to the float32 master
+    copy, so the optimizer keeps updating float32 weights. No-op when COMPUTE_DTYPE ==
+    PARAMS_DTYPE (the default), which avoids an unnecessary copy.
+    """
+    if jnp.dtype(dtype_config.COMPUTE_DTYPE) == jnp.dtype(dtype_config.PARAMS_DTYPE):
+        return model
+    return jax.tree_util.tree_map(
+        lambda x: x.astype(dtype_config.COMPUTE_DTYPE) if eqx.is_inexact_array(x) else x,
+        model,
+    )
+
+
 def select_action(select_action_state, env, env_params, train_state, config):
     """Select an action from the policy.
     If using VONE, the action is a tuple of (source, path, destination).
@@ -933,6 +951,7 @@ def select_action(select_action_state, env, env_params, train_state, config):
     if config.USE_GNN or config.USE_TRANSFORMER:
         last_obs = (env_state.env_state, env_params)
     model = eqx.combine(train_state.model_params, train_state.model_static)
+    model = cast_model_for_compute(model)
     pi, value = model(*last_obs)
     # Action masking
     mask_result = env.action_mask(env_state.env_state, env_params)
