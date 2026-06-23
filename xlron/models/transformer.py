@@ -587,7 +587,10 @@ class ActorCriticTransformer(eqx.Module):
 
         if params.include_no_op:
             action_logits = jnp.hstack([action_logits, jnp.array([-1e4])])
-        action_dist = distrax.Categorical(logits=action_logits)
+        # Cast outputs back to PARAMS_DTYPE (float32): under bf16 compute the logits/value are
+        # bf16, but the downstream PPO math and the f32 env-state fields (valid_mass etc.) require
+        # float32 -- otherwise the lax.scan carry dtype mismatches. Keeps bf16 inside the model.
+        action_dist = distrax.Categorical(logits=action_logits.astype(dtype_config.PARAMS_DTYPE))
 
         # CRITIC POOLING
         if self.critic_pooling == "attention":
@@ -603,7 +606,7 @@ class ActorCriticTransformer(eqx.Module):
             # Default: mean pooling
             pooled = jnp.mean(value_tokens, axis=0)
 
-        value = self.critic_mlp(pooled).squeeze()
+        value = self.critic_mlp(pooled).squeeze().astype(dtype_config.PARAMS_DTYPE)
 
         return action_dist, value
 
