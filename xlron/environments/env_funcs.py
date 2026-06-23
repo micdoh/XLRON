@@ -654,9 +654,10 @@ def init_path_link_array(
     else:
         k_path_collections = [_compute_paths_for_pair(item) for item in work_items]
 
-    # --- Precompute modulations lookup (reversed once) ---
+    # --- Precompute modulations lookup (reversed once, as numpy) ---
+    # np.asarray avoids a JAX device sync per path in _get_spectral_efficiency below.
     if modulations_array is not None:
-        modulations_reversed = modulations_array[::-1]
+        modulations_reversed = np.asarray(modulations_array[::-1])
 
     def _get_spectral_efficiency(distance: float) -> float:
         if modulations_array is None:
