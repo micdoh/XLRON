@@ -1,5 +1,6 @@
 import pathlib
 import tempfile
+import unittest
 
 import chex
 import distrax
@@ -12,6 +13,16 @@ from xlron.environments.env_funcs import *
 from xlron.environments.make_env import make
 from xlron.environments.rsa import *
 from xlron.environments.wrappers import *
+
+# The public release of XLRON ships a stub for the Distributed Raman Amplification (DRA) GN model
+# (implementation withheld pending publication). Detect the stub by its sentinel so DRA-dependent
+# regression tests skip on the public release but still run where the full DRA model is present.
+try:
+    from xlron.environments.gn_model import isrs_gn_model_dra as _dra_module
+
+    _DRA_AVAILABLE = not hasattr(_dra_module, "_REMOVED_MESSAGE")
+except Exception:
+    _DRA_AVAILABLE = False
 
 
 # Module-level caches for expensive make() calls.
@@ -1021,6 +1032,10 @@ _GERARD_2025_PRESET = {
 }
 
 
+@unittest.skipUnless(
+    _DRA_AVAILABLE,
+    "DRA GN model implementation withheld from the public release of XLRON",
+)
 class Gerard2025RegressionTest(absltest.TestCase):
     """Regression test: Gerard 2025 preset with KSP-FF should produce a
     stable Shannon-Hartley throughput.  If this value changes, it means
