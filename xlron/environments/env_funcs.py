@@ -239,6 +239,13 @@ def init_graph_tuple(
         senders = senders_
         edge_features = jnp.repeat(edge_features, 2, axis=0)
 
+    # Bulk float tier: GNN input features (normalised remaining holding time / SNR / power, ~[-1,1]
+    # or [0,1]). Stored at SMALL_FLOAT to cut memory (graph.edges is the largest E*S array under
+    # mixed precision); the GNN/Transformer cast them back up to COMPUTE_DTYPE at the model
+    # boundary. update_graph_tuple applies the same cast so the carried graph dtype is stable.
+    node_features = node_features.astype(dtype_config.SMALL_FLOAT_DTYPE)
+    edge_features = edge_features.astype(dtype_config.SMALL_FLOAT_DTYPE)
+
     return jraph.GraphsTuple(
         nodes=node_features,
         edges=edge_features,
@@ -328,6 +335,10 @@ def update_graph_tuple(state: RSAEnvState, params: RSAEnvParams) -> RSAEnvState:
         node_features = jnp.zeros((1,), dtype=dtype_config.LARGE_FLOAT_DTYPE)
 
     edge_features = edge_features if params.directed_graph else jnp.repeat(edge_features, 2, axis=0)
+    # Match init_graph_tuple: store GNN input features at SMALL_FLOAT so the carried graph dtype
+    # is stable across the scan (the model boundary casts them back up to COMPUTE_DTYPE).
+    node_features = node_features.astype(dtype_config.SMALL_FLOAT_DTYPE)
+    edge_features = edge_features.astype(dtype_config.SMALL_FLOAT_DTYPE)
     graph = state.graph._replace(nodes=node_features, edges=edge_features, globals=globals)
     state = state.replace(graph=graph)
     return state
@@ -1084,30 +1095,43 @@ def init_link_slot_array(params: EnvParams):
         params (EnvParams): Environment parameters
     Returns:
         jnp.array: Link slot array (E x S) where E is number of edges and S is number of slots"""
+    # Spectrum occupancy counter, values {0, 1} (steady) with a transient +2 marking a
+    # collision (see check_no_spectrum_reuse). Bulk float tier: exact in float16 under mixed
+    # precision, and the largest per-env array so the dominant memory saving.
     return jnp.zeros(
-        (params.num_links, params.link_resources), dtype=dtype_config.LARGE_FLOAT_DTYPE
+        (params.num_links, params.link_resources), dtype=dtype_config.SMALL_FLOAT_DTYPE
     )
 
 
 def init_rsa_request_array():
-    """Initialize request array"""
+    """Initialize request array [source, datarate, dest]."""
+    # Kept on the LARGE_INT tier (int32): it is only 3 elements (negligible memory) and is rebuilt
+    # each step by generate_request, whose dtype is path-dependent (float32 for deterministic
+    # requests, int for random) -- pinning it small would risk a scan carry dtype mismatch.
     return jnp.zeros(3, dtype=dtype_config.LARGE_INT_DTYPE)
 
 
 @partial(jax.jit, static_argnums=(0, 1, 2))
 def init_link_slot_mask(params: EnvParams, include_no_op: bool = False, agg: float = 1.0):
     """Initialize link mask"""
+    # Binary {0, 1} action-validity mask. Bulk float tier (exact in float16). The mask is
+    # recomputed from scratch each step, so every site that writes it back into the carried state
+    # (select_action in train_utils, mask_slots_bit_rate_mod_format, VONE) casts to SMALL_FLOAT to
+    # keep the scan carry dtype stable; the transient mask used for logit-masking stays full width.
     return jnp.ones(
         params.k_paths * math.ceil(params.link_resources / agg) + (1 * include_no_op),
-        dtype=dtype_config.LARGE_FLOAT_DTYPE,
+        dtype=dtype_config.SMALL_FLOAT_DTYPE,
     )
 
 
 @partial(jax.jit, static_argnums=(0,))
 def init_mod_format_mask(params: EnvParams):
     """Initialize link mask"""
+    # Modulation-format mask: {-1} where invalid, small modulation indices where valid (exact in
+    # float16). Bulk float tier; the recompute (mask_slots_bit_rate_mod_format) and select_action
+    # cast back to SMALL_FLOAT to keep the carried dtype stable.
     return jnp.full(
-        (params.k_paths * params.link_resources,), -1.0, dtype=dtype_config.LARGE_FLOAT_DTYPE
+        (params.k_paths * params.link_resources,), -1.0, dtype=dtype_config.SMALL_FLOAT_DTYPE
     )
 
 
@@ -1120,9 +1144,9 @@ def decrease_last_element(array):
 
 @partial(jax.jit, static_argnums=(0,))
 def init_link_slot_departure_array(params: EnvParams):
-    return jnp.zeros(
-        (params.num_links, params.link_resources), dtype=dtype_config.SMALL_FLOAT_DTYPE
-    )
+    # Per-slot departure timestamps (current_time + holding_time). Precision-sensitive TIME tier:
+    # float16 with relative_arrival_times (bounded by holding time), float32 for absolute time.
+    return jnp.zeros((params.num_links, params.link_resources), dtype=dtype_config.TIME_DTYPE)
 
 
 def normalise_traffic_matrix(traffic_matrix):
@@ -1236,7 +1260,7 @@ def generate_request_rsa(
         current_time = (
             state.current_time + arrival_time
             if not params.relative_arrival_times
-            else jnp.array([0.0], dtype=dtype_config.SMALL_FLOAT_DTYPE)
+            else jnp.array([0.0], dtype=dtype_config.TIME_DTYPE)
         )
 
     state = state.replace(
@@ -1300,7 +1324,7 @@ def generate_request_rwalr(
         current_time = (
             state.current_time + arrival_time
             if not params.relative_arrival_times
-            else jnp.array([0.0], dtype=dtype_config.SMALL_FLOAT_DTYPE)
+            else jnp.array([0.0], dtype=dtype_config.TIME_DTYPE)
         )
     state = state.replace(
         holding_time=holding_time,
@@ -1491,14 +1515,15 @@ def generate_arrival_holding_times(key, params, arrival_rate, mean_service_holdi
     """
     key_arrival, key_holding = jax.random.split(key, 2)
     arrival_time = (
-        jax.random.exponential(key_arrival, shape=(1,), dtype=dtype_config.SMALL_FLOAT_DTYPE)
+        jax.random.exponential(key_arrival, shape=(1,), dtype=dtype_config.TIME_DTYPE)
         / arrival_rate
     )  # Divide because it is rate (lambda)
     if params.truncate_holding_time:
         # For DeepRMSA, need to generate holding times that are less than 2*mean_service_holding_time
         key_holding = jax.random.split(key, 5)
         holding_times = jax.vmap(
-            lambda x: jax.random.exponential(x, shape=(1,)) * mean_service_holding_time
+            lambda x: jax.random.exponential(x, shape=(1,), dtype=dtype_config.TIME_DTYPE)
+            * mean_service_holding_time
         )(key_holding).reshape(-1)
         holding_times = jnp.where(
             holding_times < 2 * mean_service_holding_time, holding_times, zero
@@ -1525,9 +1550,14 @@ def generate_arrival_holding_times(key, params, arrival_rate, mean_service_holdi
         )
     else:
         holding_time = (
-            jax.random.exponential(key_holding, shape=(1,), dtype=dtype_config.SMALL_FLOAT_DTYPE)
+            jax.random.exponential(key_holding, shape=(1,), dtype=dtype_config.TIME_DTYPE)
             * mean_service_holding_time
         )  # Multiply because it is mean (1/lambda)
+    # Pin to the TIME tier: the rate/mean scalars may be a wider (precision) dtype, so the
+    # products above can promote. Casting here keeps the departure array's dtype stable across
+    # the scan and consistent with init_link_slot_departure_array.
+    arrival_time = arrival_time.astype(dtype_config.TIME_DTYPE)
+    holding_time = holding_time.astype(dtype_config.TIME_DTYPE)
     return arrival_time, holding_time
 
 
@@ -3743,7 +3773,8 @@ def init_active_lightpaths_array_departure(params: RSAGNModelEnvParams):
         jnp.max(params.values_bw.val) / params.slot_size
     )  # minimum number of slots required for lightpath
     max_num_lightpaths = int(min(total_slots / min_slots, params.max_requests))
-    return jnp.full((max_num_lightpaths, 3), 0.0, dtype=dtype_config.SMALL_FLOAT_DTYPE)
+    # Stores per-lightpath departure times (current_time + holding_time) -> TIME tier.
+    return jnp.full((max_num_lightpaths, 3), 0.0, dtype=dtype_config.TIME_DTYPE)
 
 
 def update_active_lightpaths_array(
@@ -4783,10 +4814,12 @@ def mask_slots_rmsa_gn_model(
         link_slot_mask = link_slot_mask.reshape(-1)
     if params.include_no_op:
         link_slot_mask = jnp.hstack([link_slot_mask, jnp.ones((1,))])
+    # Store masks at SMALL_FLOAT to keep the carried field dtype stable under mixed precision
+    # (matches init_link_slot_mask / init_mod_format_mask); values are {0,1} / small indices.
     state = state.replace(
-        link_slot_mask=link_slot_mask,
-        full_link_slot_mask=full_link_slot_mask,
-        mod_format_mask=mod_format_mask,
+        link_slot_mask=link_slot_mask.astype(dtype_config.SMALL_FLOAT_DTYPE),
+        full_link_slot_mask=full_link_slot_mask.astype(dtype_config.SMALL_FLOAT_DTYPE),
+        mod_format_mask=mod_format_mask.astype(dtype_config.SMALL_FLOAT_DTYPE),
     )
     return state
 

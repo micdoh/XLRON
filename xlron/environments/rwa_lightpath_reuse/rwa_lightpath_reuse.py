@@ -56,9 +56,9 @@ class RWALightpathReuseEnv(RSAEnv):
             laplacian_matrix=laplacian_matrix,
         )
         state = RWALightpathReuseEnvState(
-            current_time=0,
-            arrival_time=0,
-            holding_time=0,
+            current_time=jnp.array(0, dtype=dtype_config.TIME_DTYPE),
+            arrival_time=jnp.array(0, dtype=dtype_config.TIME_DTYPE),
+            holding_time=jnp.array(0, dtype=dtype_config.TIME_DTYPE),
             total_timesteps=0,
             total_requests=-1,
             link_slot_array=init_link_slot_array(params),
@@ -78,11 +78,13 @@ class RWALightpathReuseEnv(RSAEnv):
             accepted_services=0,
             accepted_bitrate=0.0,
             total_bitrate=0.0,
-            time_since_last_departure=0.0,
+            time_since_last_departure=jnp.array(0.0, dtype=dtype_config.TIME_DTYPE),
             list_of_requests=list_of_requests,
             valid_mass=1.0,
-            arrival_rate=params.arrival_rate,
-            mean_service_holding_time=params.mean_service_holding_time,
+            arrival_rate=jnp.array(params.arrival_rate, dtype=dtype_config.LARGE_FLOAT_DTYPE),
+            mean_service_holding_time=jnp.array(
+                params.mean_service_holding_time, dtype=dtype_config.LARGE_FLOAT_DTYPE
+            ),
         )
         self.initial_state = state.replace(graph=init_graph_tuple(state, params, laplacian_matrix))
 

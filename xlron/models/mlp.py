@@ -219,6 +219,9 @@ class ActorCriticMLP(eqx.Module):
         )
 
     def __call__(self, x: Array, key: Optional[Array] = None) -> Tuple[distrax.Categorical, Array]:
+        # Cast the (possibly low-precision under mixed precision) observation up to the NN compute
+        # dtype so weights, activations and the optimizer stay at full precision for stability.
+        x = x.astype(dtype_config.COMPUTE_DTYPE)
         # Actor forward pass
         actor_key, critic_key = jax.random.split(key) if key else (None, None)
         logits = self.actor(x, key=actor_key) / self.temperature

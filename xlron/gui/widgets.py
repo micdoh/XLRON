@@ -279,6 +279,8 @@ DEFAULTS = {
     "raman_pump_freq_fw": None,
     "raman_pump_freq_bw": None,
     "raman_max_bandwidth_thz": 15.0,
+    # Mixed precision
+    "mixed_precision": False,
     # Differentiable Simulation
     "differentiable": False,
     "temperature": 1.0,
@@ -896,6 +898,13 @@ def execution_section() -> dict:
 
     seed = st.number_input("Seed", min_value=0, value=int(_get_preset_val("SEED")), help=_h("SEED"))
     _emit(flags, "SEED", int(seed))
+
+    mixed_precision = st.checkbox(
+        "Mixed Precision",
+        value=bool(_get_preset_val("mixed_precision")),
+        help=_h("mixed_precision"),
+    )
+    _emit(flags, "mixed_precision", mixed_precision)
 
     return flags
 
