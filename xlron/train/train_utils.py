@@ -130,6 +130,7 @@ class LossDiagnostics(NamedTuple):
     recenter_ratio_mean: Array
     recenter_ratio_std: Array
     neg_adv_clip_frac: Array
+    frac_pos_adv: Array
 
     @classmethod
     def zeros(cls) -> "LossDiagnostics":

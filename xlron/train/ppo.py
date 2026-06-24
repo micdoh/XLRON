@@ -609,7 +609,13 @@ def _loss_fn(
     loss_actor1 = ratio * adv_weighted
     loss_actor2 = jnp.clip(ratio, 1.0 - config.CLIP_EPS, 1.0 + config.CLIP_EPS) * adv_weighted
 
-    actor_loss = -(jnp.minimum(loss_actor1, loss_actor2) * w).sum() / w_sum
+    # Self-imitation: optionally drop the policy-gradient term for negative-advantage steps.
+    actor_w = (
+        w * (adv_weighted > 0).astype(jnp.float32) if config.get("POSITIVE_ADV_ONLY", False) else w
+    )
+    actor_loss = -(jnp.minimum(loss_actor1, loss_actor2) * actor_w).sum() / jnp.maximum(
+        actor_w.sum(), 1e-8
+    )
 
     # --- Value loss (ungated) ----------------------------------------------------
     value_loss = 0.5 * jnp.square(value - targets).mean()
@@ -709,6 +715,9 @@ def _loss_fn(
         neg = (adv_weighted < 0).astype(jnp.float32) * w
         neg_clipped = neg * (loss_actor2 < loss_actor1).astype(jnp.float32)
         neg_adv_clip_frac = neg_clipped.sum() / jnp.maximum(neg.sum(), 1.0)
+        # fraction of weighted valid steps with positive advantage = the steps the actor learns
+        # from under POSITIVE_ADV_ONLY (and the unclipped side of the surrogate).
+        frac_pos_adv = ((adv_weighted > 0).astype(jnp.float32) * w).sum() / w_sum
 
         diagnostics = LossDiagnostics(
             valid_frac=valid_frac,
@@ -735,6 +744,7 @@ def _loss_fn(
             recenter_ratio_mean=recenter_ratio_mean,
             recenter_ratio_std=recenter_ratio_std,
             neg_adv_clip_frac=neg_adv_clip_frac,
+            frac_pos_adv=frac_pos_adv,
         )
     else:
         # Placeholder zeros to keep the scan output structure consistent.

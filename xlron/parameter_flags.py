@@ -308,6 +308,14 @@ flags.DEFINE_boolean(
     "advantage signs get gradient symmetrically",
 )
 flags.DEFINE_boolean(
+    "POSITIVE_ADV_ONLY",
+    False,
+    "Learn the actor from positive-advantage steps only (self-imitation style): zero the "
+    "policy-gradient contribution of negative-advantage steps. Bad valid actions are demoted "
+    "via softmax renormalisation rather than explicit negative gradients. Pairs naturally with "
+    "IAM_RECENTER_CLIP so the clip acts as a real trust region on the kept (positive) steps",
+)
+flags.DEFINE_boolean(
     "IAM_DAMPING",
     True,
     "Enable soft damping of actor/entropy losses based on valid mass "
