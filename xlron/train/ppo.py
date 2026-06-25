@@ -20,7 +20,12 @@ from xlron.environments.dataclasses import (
 from xlron.environments.env_funcs import process_path_action
 from xlron.environments.gn_model.isrs_gn_model import to_dbm
 from xlron.environments.wrappers import jit_profiler
-from xlron.train.train_utils import LossDiagnostics, TrainState, select_action
+from xlron.train.train_utils import (
+    LossDiagnostics,
+    TrainState,
+    cast_model_for_compute,
+    select_action,
+)
 
 RunnerState = Tuple[TrainState, LogEnvState, Obsv, Array, Array]
 UpdateState = Tuple[TrainState, RSATransition | VONETransition, Array, Array, Array, Any, Array]
@@ -386,6 +391,9 @@ def _env_rollout_advantages(
     axes = (0, None) if config.USE_GNN or config.USE_TRANSFORMER else (0,)
     # With Equinox, the model is called directly
     model = eqx.combine(train_state.model_params, train_state.model_static)
+    model = cast_model_for_compute(
+        model
+    )  # mixed-precision compute (no-op unless COMPUTE_DTYPE set)
     _, last_val = (
         jax.vmap(model, in_axes=axes)(*last_obs) if (config.NUM_ENVS > 1) else model(*last_obs)
     )
@@ -447,7 +455,10 @@ def _loss_fn(
     Compute PPO loss (actor + value + entropy).
     """
     traj_batch, adv, targets, importance_weights = batch_info
-    # RERUN NETWORK - with Equinox, vmap the model directly
+    # RERUN NETWORK - with Equinox, vmap the model directly.
+    # Mixed-precision compute: cast the (float32 master) weights to COMPUTE_DTYPE for the forward.
+    # This is inside the differentiated region, so gradients flow back to the float32 master.
+    model = cast_model_for_compute(model)
     axes = (0, None) if config.USE_GNN or config.USE_TRANSFORMER else (0,)
     pi, value = jax.vmap(model, in_axes=axes)(*traj_batch.obs)
 
