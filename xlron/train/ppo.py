@@ -463,6 +463,7 @@ def _loss_fn(
     pi, value = jax.vmap(model, in_axes=axes)(*traj_batch.obs)
 
     # HANDLE DIFFERENT ACTION TYPES FOR OPTICAL NETWORKS
+    recenter_clip = False  # only the standard off-policy IAM branch below recenters the clip
     if config.env_type.lower() == "vone":
         # VONE: source, path, destination actions
         vone_batch = cast(VONETransition, traj_batch)
@@ -539,13 +540,20 @@ def _loss_fn(
             if config.OFF_POLICY_IAM
             else pi_masked.log_prob(traj_batch.action)
         )
+        recenter_clip = config.OFF_POLICY_IAM and config.get("IAM_RECENTER_CLIP", False)
         entropy = pi_masked.entropy()  # Always use the masked entropy, as we want to encourage exploration within the _valid_ action space
 
     log_ratio = log_prob - traj_batch.log_prob
+    # Off-policy IAM ratio sits at mu_old (~0.5) not 1 at no-update; subtract log(mu_old)
+    # to recenter on pi_new/pi_old (~1) so the clip below is symmetric for both adv signs.
+    if recenter_clip:
+        log_ratio = log_ratio - jnp.log(traj_batch.valid_mass.astype(jnp.float32) + 1e-8)
     log_ratio = jnp.clip(log_ratio, -config.LOGR_CLIP, config.LOGR_CLIP)
     ratio = jnp.exp(log_ratio)
 
     # Recalculate the advantage now that we can clip based on the calculated importance ratio
+    # (NOTE: IAM_RECENTER_CLIP also recenters this VTrace importance ratio; whether it should
+    # be recentered here too is an open question - see PR note. Off by default: RHO_CLIP<=0.)
     if config.RHO_CLIP > 0 and config.C_CLIP > 0:
         minibatch_size = config.MINIBATCH_SIZE
         assert config.ROLLOUT_LENGTH % config.NUM_MINIBATCHES == 0, (
@@ -685,6 +693,22 @@ def _loss_fn(
         taken_valid = traj_batch.action_mask[jnp.arange(N), traj_batch.action].astype(jnp.float32)
         invalid_taken_frac = 1.0 - taken_valid.mean()
         taken_valid_min = taken_valid.min()
+        # recentered ratio pi_new/pi_old (computed regardless of IAM_RECENTER_CLIP so the two
+        # modes are comparable): ~1 when recentering would centre the clip, vs ratio ~ mu_old.
+        recenter_ratio = jnp.exp(
+            jnp.clip(
+                log_prob - traj_batch.log_prob - jnp.log(valid_mass + 1e-8),
+                -config.LOGR_CLIP,
+                config.LOGR_CLIP,
+            )
+        )
+        recenter_ratio_mean = recenter_ratio.mean()
+        recenter_ratio_std = recenter_ratio.std()
+        # fraction of weighted negative-advantage steps whose actor term is clipped (no gradient):
+        # high in unit mode (ratio floored below 1-eps), low once the clip is recentered.
+        neg = (adv_weighted < 0).astype(jnp.float32) * w
+        neg_clipped = neg * (loss_actor2 < loss_actor1).astype(jnp.float32)
+        neg_adv_clip_frac = neg_clipped.sum() / jnp.maximum(neg.sum(), 1.0)
 
         diagnostics = LossDiagnostics(
             valid_frac=valid_frac,
@@ -708,6 +732,9 @@ def _loss_fn(
             log_prob_min=log_prob_min,
             invalid_taken_frac=invalid_taken_frac,
             taken_valid_min=taken_valid_min,
+            recenter_ratio_mean=recenter_ratio_mean,
+            recenter_ratio_std=recenter_ratio_std,
+            neg_adv_clip_frac=neg_adv_clip_frac,
         )
     else:
         # Placeholder zeros to keep the scan output structure consistent.
