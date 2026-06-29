@@ -316,6 +316,14 @@ flags.DEFINE_boolean(
     "IAM_RECENTER_CLIP so the clip acts as a real trust region on the kept (positive) steps",
 )
 flags.DEFINE_boolean(
+    "MU_WEIGHT_ACTOR",
+    False,
+    "Weight the per-step actor loss by the valid mass mu (unmasked policy mass on valid "
+    "actions). Restores the per-state, congestion-aware scaling the non-recentered off-policy "
+    "IAM ratio (rho ~ mu) applies implicitly but IAM_RECENTER_CLIP removes; meant to be combined "
+    "with IAM_RECENTER_CLIP to decouple per-state weighting from ratio centring",
+)
+flags.DEFINE_boolean(
     "IAM_DAMPING",
     True,
     "Enable soft damping of actor/entropy losses based on valid mass "

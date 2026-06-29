@@ -613,7 +613,11 @@ def _loss_fn(
     actor_w = (
         w * (adv_weighted > 0).astype(jnp.float32) if config.get("POSITIVE_ADV_ONLY", False) else w
     )
-    actor_loss = -(jnp.minimum(loss_actor1, loss_actor2) * actor_w).sum() / jnp.maximum(
+    # Optional per-state valid-mass weighting (numerator only; still normalised by the unweighted
+    # count): restores the congestion-aware mu-scaling that the non-recentered ratio (rho ~ mu)
+    # applies implicitly but IAM_RECENTER_CLIP removes.
+    actor_num = actor_w * valid_mass if config.get("MU_WEIGHT_ACTOR", False) else actor_w
+    actor_loss = -(jnp.minimum(loss_actor1, loss_actor2) * actor_num).sum() / jnp.maximum(
         actor_w.sum(), 1e-8
     )
 
