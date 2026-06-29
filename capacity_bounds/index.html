@@ -1,0 +1,2450 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+        <link rel="canonical" href="https://micdoh.github.io/XLRON/capacity_bounds/">
+      
+      
+        <link rel="prev" href="../heuristic_evaluation/">
+      
+      
+        <link rel="next" href="../flags_reference/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.4">
+    
+    
+      
+        <title>Capacity Bound Estimation - XLRON - Accelerated Learning and Resource Allocation for Optical Networks</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/_mkdocstrings.css">
+    
+      <link rel="stylesheet" href="../stylesheets/xlron.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="teal">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#capacity-bound-estimation" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="XLRON - Accelerated Learning and Resource Allocation for Optical Networks" class="md-header__button md-logo" aria-label="XLRON - Accelerated Learning and Resource Allocation for Optical Networks" data-md-component="logo">
+      
+  <img src="../images/xlron_nobackground.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            XLRON - Accelerated Learning and Resource Allocation for Optical Networks
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Capacity Bound Estimation
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+    
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="XLRON - Accelerated Learning and Resource Allocation for Optical Networks" class="md-nav__button md-logo" aria-label="XLRON - Accelerated Learning and Resource Allocation for Optical Networks" data-md-component="logo">
+      
+  <img src="../images/xlron_nobackground.png" alt="logo">
+
+    </a>
+    XLRON - Accelerated Learning and Resource Allocation for Optical Networks
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Why XLRON
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Why XLRON
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../features/speed/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Comparisons & Speed
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../features/physical_layer/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Physical Layer Model
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../features/differentiable/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Differentiable Simulation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../features/transformer/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Graph Transformer for RMSA
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../features/topologies/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Topologies
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../features/gui/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Graphical User Interface
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../understanding_xlron/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Understanding XLRON
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../gn_model/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GN Model Physical Layer
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../differentiable_dra/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Differentiable DRA Pipeline
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../training/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Training with PPO
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../heuristic_evaluation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Heuristic Evaluation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Capacity Bound Estimation
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Capacity Bound Estimation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#cut-set-bounds" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cut-Set Bounds
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Cut-Set Bounds">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#how-it-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How It Works
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#invocation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Invocation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#cut-set-specific-flags" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cut-Set Specific Flags
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Cut-Set Specific Flags">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#simulation-flags" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Simulation Flags
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Simulation Flags">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#-load" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --load
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-min_load-max_load-step_load" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --min_load / --max_load / --step_load
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-max_requests" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --max_requests
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-num_trials" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --num_trials
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#cut-set-discovery-flags" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cut-Set Discovery Flags
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Cut-Set Discovery Flags">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#-cutset_exhaustive" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --CUTSET_EXHAUSTIVE
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-cutset_batch_size" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --CUTSET_BATCH_SIZE
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-cutset_iterations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --CUTSET_ITERATIONS
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-cutset_top_k" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --CUTSET_TOP_K
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-use_mean_congestion_threshold" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --USE_MEAN_CONGESTION_THRESHOLD
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#link-selection-flag" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Link Selection Flag
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Link Selection Flag">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#-cutset_link_selection_mode" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --cutset_link_selection_mode
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#output-metrics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Output Metrics
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Examples
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Examples">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#deeprmsa-style-on-nsfnet" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DeepRMSA-Style on NSFNET
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#load-sweep-on-nsfnet" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Load Sweep on NSFNET
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#large-network-jpn48-without-exhaustive-search" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Large Network (JPN48) Without Exhaustive Search
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reconfigurable-routing-bounds" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reconfigurable Routing Bounds
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Reconfigurable Routing Bounds">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#how-it-works_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How It Works
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#invocation_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Invocation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#reconfigurable-routing-specific-flags" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reconfigurable Routing Specific Flags
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Reconfigurable Routing Specific Flags">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#-total_timesteps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --TOTAL_TIMESTEPS
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-num_envs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --NUM_ENVS
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-path_heuristic" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --path_heuristic
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-compile_rr_bounds" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --COMPILE_RR_BOUNDS
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#output-metrics_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Output Metrics
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#examples_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Examples
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Examples">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#deeprmsa-style-on-nsfnet_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DeepRMSA-Style on NSFNET
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#load-sweep" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Load Sweep
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rsa-with-unit-bandwidth" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        RSA with Unit Bandwidth
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../flags_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Command-line options
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Function reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reproducing the Papers
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reproducing the Papers
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../papers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview & papers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reproduce_jocn2024/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hype or Hope? (JOCN 2025)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reproduce_rwalr/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    RWA-LR (ONDM 2025)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reproduce_ecoc2026/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Capacity bounds comparison (ECOC 2026 submitted)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reproduce_jocn_xlron/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    XLRON framework (in prep.)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reproduce_jocn_transformer/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Graph Transformer (in prep.)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    About
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    About
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../license/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    License and Support
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#cut-set-bounds" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cut-Set Bounds
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Cut-Set Bounds">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#how-it-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How It Works
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#invocation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Invocation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#cut-set-specific-flags" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cut-Set Specific Flags
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Cut-Set Specific Flags">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#simulation-flags" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Simulation Flags
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Simulation Flags">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#-load" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --load
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-min_load-max_load-step_load" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --min_load / --max_load / --step_load
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-max_requests" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --max_requests
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-num_trials" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --num_trials
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#cut-set-discovery-flags" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cut-Set Discovery Flags
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Cut-Set Discovery Flags">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#-cutset_exhaustive" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --CUTSET_EXHAUSTIVE
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-cutset_batch_size" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --CUTSET_BATCH_SIZE
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-cutset_iterations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --CUTSET_ITERATIONS
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-cutset_top_k" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --CUTSET_TOP_K
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-use_mean_congestion_threshold" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --USE_MEAN_CONGESTION_THRESHOLD
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#link-selection-flag" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Link Selection Flag
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Link Selection Flag">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#-cutset_link_selection_mode" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --cutset_link_selection_mode
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#output-metrics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Output Metrics
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Examples
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Examples">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#deeprmsa-style-on-nsfnet" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DeepRMSA-Style on NSFNET
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#load-sweep-on-nsfnet" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Load Sweep on NSFNET
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#large-network-jpn48-without-exhaustive-search" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Large Network (JPN48) Without Exhaustive Search
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reconfigurable-routing-bounds" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reconfigurable Routing Bounds
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Reconfigurable Routing Bounds">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#how-it-works_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How It Works
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#invocation_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Invocation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#reconfigurable-routing-specific-flags" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reconfigurable Routing Specific Flags
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Reconfigurable Routing Specific Flags">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#-total_timesteps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --TOTAL_TIMESTEPS
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-num_envs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --NUM_ENVS
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-path_heuristic" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --path_heuristic
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-compile_rr_bounds" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --COMPILE_RR_BOUNDS
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#output-metrics_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Output Metrics
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#examples_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Examples
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Examples">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#deeprmsa-style-on-nsfnet_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DeepRMSA-Style on NSFNET
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#load-sweep" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Load Sweep
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rsa-with-unit-bandwidth" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        RSA with Unit Bandwidth
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="capacity-bound-estimation">Capacity Bound Estimation</h1>
+<p>XLRON provides two methods for estimating capacity bounds on optical networks: <strong>cut-set bounds</strong> and <strong>reconfigurable routing bounds</strong> (also known as resource-prioritized defragmentation). These methods give lower bounds on the achievable blocking probability — i.e. they estimate the best performance any algorithm could achieve on a given network and traffic scenario.</p>
+<p>Both methods are standalone scripts in <code>xlron/bounds/</code> and share the same environment configuration flags as <a href="../heuristic_evaluation/">heuristic evaluation</a>. This page focuses on the flags specific to each bounds method — refer to the heuristic evaluation guide for the common environment, traffic, and resource flags (<code>--env_type</code>, <code>--topology_name</code>, <code>--link_resources</code>, <code>--load</code>, <code>--k</code>, <code>--continuous_operation</code>, etc.).</p>
+<div class="admonition tip">
+<p class="admonition-title">Related paper — submitted to ECOC 2026</p>
+<p>A systematic comparison of these two estimators (CS, RPD) against KSP heuristics across all 118 TopologyBench topologies appears in <em>Comparison of Dynamic Elastic Optical Network Capacity Bound Estimation Methods</em> (Doherty*, Deng*, Beghelli, Toni, Bayvel — submitted to ECOC 2026). At 0.1 % blocking, the median gap over KSP is <strong>5.8–9.4 % for the cut-set bound</strong> (top-100 / top-10 cuts) and <strong>17.0 % for resource-prioritized defragmentation</strong>, showing that fragmentation is the larger source of lost capacity than routing inefficiency. See <a href="../reproduce_ecoc2026/">Reproduce ECOC 2026 capacity bounds paper</a> for the full sweep.</p>
+</div>
+<h2 id="cut-set-bounds">Cut-Set Bounds</h2>
+<p>The cut-set method estimates a capacity bound by identifying the most congested "bottlenecks" in the network and simulating resource allocation on those bottlenecks only.</p>
+<h3 id="how-it-works">How It Works</h3>
+<ol>
+<li>
+<p><strong>Cut-set discovery</strong>: The network graph is partitioned into two sets of nodes. The links crossing each partition form a "cut-set". The method finds the most congested cut-sets — those where the ratio of traffic crossing the cut to available capacity is highest. Discovery can use exhaustive enumeration (for small networks) or a shortest-paths heuristic (for larger networks).</p>
+</li>
+<li>
+<p><strong>Capacity bound simulation</strong>: For each traffic load, multiple trials are run. Each request is checked against the cut-sets it traverses. The method finds feasible contiguous slot blocks across traversed cut-sets and uses greedy set-cover to assign physical links. Because the method has freedom in path selection (it only enforces cut-set constraints, not full path constraints), the resulting blocking probability is a lower bound on what any algorithm could achieve.</p>
+</li>
+</ol>
+<h3 id="invocation">Invocation</h3>
+<div class="highlight"><pre><span></span><code>python<span class="w"> </span>-m<span class="w"> </span>xlron.bounds.cutsets_bounds<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--topology_name<span class="o">=</span>nsfnet_deeprmsa_directed<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--env_type<span class="o">=</span>rmsa<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--link_resources<span class="o">=</span><span class="m">100</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--k<span class="o">=</span><span class="m">50</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--load<span class="o">=</span><span class="m">250</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--continuous_operation<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--truncate_holding_time<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--mean_service_holding_time<span class="o">=</span><span class="m">20</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--modulations_csv_filepath<span class="o">=</span><span class="s2">&quot;./xlron/data/modulations/modulations_deeprmsa.csv&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--max_requests<span class="o">=</span><span class="m">100000</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--num_trials<span class="o">=</span><span class="m">10</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--CUTSET_EXHAUSTIVE<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--CUTSET_BATCH_SIZE<span class="o">=</span><span class="m">512</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--CUTSET_ITERATIONS<span class="o">=</span><span class="m">32</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--CUTSET_TOP_K<span class="o">=</span><span class="m">256</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--cutset_link_selection_mode<span class="o">=</span>least_congested
+</code></pre></div>
+<h3 id="cut-set-specific-flags">Cut-Set Specific Flags</h3>
+<h4 id="simulation-flags">Simulation Flags</h4>
+<h5 id="-load"><code>--load</code></h5>
+<p>Traffic load in Erlangs. When using a single load point, this is the load used. When using <code>--min_load</code>/<code>--max_load</code>/<code>--step_load</code> for a load sweep, this value is used for the initial compilation. Default: <code>250</code>.</p>
+<h5 id="-min_load-max_load-step_load"><code>--min_load</code> / <code>--max_load</code> / <code>--step_load</code></h5>
+<p>When all three are set, the script sweeps loads from <code>min_load</code> to <code>max_load</code> (inclusive) in steps of <code>step_load</code>. The environment is compiled once and reused across all loads without recompilation. Each load produces its own JSONL summary line. Example: <code>--min_load=150 --max_load=300 --step_load=10</code>.</p>
+<h5 id="-max_requests"><code>--max_requests</code></h5>
+<p>Number of connection requests to simulate per trial. Higher values give more precise blocking probability estimates. Default: <code>4</code> (override for bounds, e.g. <code>100000</code>).</p>
+<h5 id="-num_trials"><code>--num_trials</code></h5>
+<p>Number of independent random-seed trials. Statistics (mean, std, IQR) are computed across trials. Shared with reconfigurable routing bounds. Default: <code>10</code>.</p>
+<h4 id="cut-set-discovery-flags">Cut-Set Discovery Flags</h4>
+<h5 id="-cutset_exhaustive"><code>--CUTSET_EXHAUSTIVE</code></h5>
+<p>Use exhaustive enumeration of all 2^N graph partitions to find cut-sets (where N is the number of nodes). This gives the best results but is only feasible for small networks (up to ~20 nodes). For larger networks like JPN48, omit this flag to use the faster shortest-paths heuristic instead.</p>
+<h5 id="-cutset_batch_size"><code>--CUTSET_BATCH_SIZE</code></h5>
+<p>Batch size for parallel cut-set enumeration during exhaustive search. Default: <code>512</code>.</p>
+<h5 id="-cutset_iterations"><code>--CUTSET_ITERATIONS</code></h5>
+<p>Number of iterations per parallel process during exhaustive search. Default: <code>32</code>.</p>
+<h5 id="-cutset_top_k"><code>--CUTSET_TOP_K</code></h5>
+<p>Number of most-congested cut-sets to retain after discovery. Higher values consider more bottlenecks but increase computation. Default: <code>256</code>.</p>
+<h5 id="-use_mean_congestion_threshold"><code>--USE_MEAN_CONGESTION_THRESHOLD</code></h5>
+<p>When enabled, additionally filter cut-sets by removing those with congestion below the mean. Default: <code>False</code>.</p>
+<h4 id="link-selection-flag">Link Selection Flag</h4>
+<h5 id="-cutset_link_selection_mode"><code>--cutset_link_selection_mode</code></h5>
+<p>When multiple links could satisfy a cut-set constraint, this controls which link is preferred during greedy assignment:</p>
+<table>
+<thead>
+<tr>
+<th>Value</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>least_congested</code></td>
+<td>Prefer links with the most free slots overall (default)</td>
+</tr>
+<tr>
+<td><code>most_congested</code></td>
+<td>Prefer links with the fewest free slots</td>
+</tr>
+<tr>
+<td><code>best_fit</code></td>
+<td>Prefer links where the contiguous free run around the block is tightest</td>
+</tr>
+<tr>
+<td><code>random</code></td>
+<td>Random link selection</td>
+</tr>
+</tbody>
+</table>
+<h3 id="output-metrics">Output Metrics</h3>
+<p>The cut-set method reports per-load statistics across trials:</p>
+<ul>
+<li><strong>Blocking Probability</strong> (mean, std, IQR) — fraction of requests blocked</li>
+<li><strong>Bitrate Blocking Probability</strong> (mean, std, IQR) — blocking weighted by request bitrate</li>
+<li><strong>Accepted Count</strong> (mean, std, IQR) — number of requests accepted per trial</li>
+<li><strong>Blocked Count</strong> (mean, std, IQR) — number of requests blocked per trial</li>
+<li><strong>Always Accepted Count</strong> (mean, std, IQR) — requests that don't traverse any selected cut-set (always accepted by definition)</li>
+</ul>
+<h3 id="examples">Examples</h3>
+<h4 id="deeprmsa-style-on-nsfnet">DeepRMSA-Style on NSFNET</h4>
+<div class="highlight"><pre><span></span><code>python<span class="w"> </span>-m<span class="w"> </span>xlron.bounds.cutsets_bounds<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--topology_name<span class="o">=</span>nsfnet_deeprmsa_directed<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--env_type<span class="o">=</span>rmsa<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--link_resources<span class="o">=</span><span class="m">100</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--k<span class="o">=</span><span class="m">50</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--load<span class="o">=</span><span class="m">250</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--continuous_operation<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--truncate_holding_time<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--mean_service_holding_time<span class="o">=</span><span class="m">20</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--modulations_csv_filepath<span class="o">=</span><span class="s2">&quot;./xlron/data/modulations/modulations_deeprmsa.csv&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--max_requests<span class="o">=</span><span class="m">100000</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--num_trials<span class="o">=</span><span class="m">10</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--CUTSET_EXHAUSTIVE<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--CUTSET_BATCH_SIZE<span class="o">=</span><span class="m">512</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--CUTSET_ITERATIONS<span class="o">=</span><span class="m">32</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--CUTSET_TOP_K<span class="o">=</span><span class="m">256</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--cutset_link_selection_mode<span class="o">=</span>least_congested
+</code></pre></div>
+<h4 id="load-sweep-on-nsfnet">Load Sweep on NSFNET</h4>
+<p>Use <code>--min_load</code>, <code>--max_load</code>, and <code>--step_load</code> to sweep loads in a single invocation. The environment is compiled once and reused across all loads:</p>
+<div class="highlight"><pre><span></span><code>python<span class="w"> </span>-m<span class="w"> </span>xlron.bounds.cutsets_bounds<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--topology_name<span class="o">=</span>nsfnet_deeprmsa_directed<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--env_type<span class="o">=</span>rmsa<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--link_resources<span class="o">=</span><span class="m">100</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--k<span class="o">=</span><span class="m">50</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--load<span class="o">=</span><span class="m">300</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--min_load<span class="o">=</span><span class="m">150</span><span class="w"> </span>--max_load<span class="o">=</span><span class="m">300</span><span class="w"> </span>--step_load<span class="o">=</span><span class="m">10</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--continuous_operation<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--truncate_holding_time<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--mean_service_holding_time<span class="o">=</span><span class="m">20</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--modulations_csv_filepath<span class="o">=</span><span class="s2">&quot;./xlron/data/modulations/modulations_deeprmsa.csv&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--max_requests<span class="o">=</span><span class="m">100000</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--num_trials<span class="o">=</span><span class="m">10</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--CUTSET_EXHAUSTIVE<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--CUTSET_BATCH_SIZE<span class="o">=</span><span class="m">512</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--CUTSET_ITERATIONS<span class="o">=</span><span class="m">32</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--CUTSET_TOP_K<span class="o">=</span><span class="m">256</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--cutset_link_selection_mode<span class="o">=</span>least_congested
+</code></pre></div>
+<p>Note: <code>--load</code> should be set to the maximum load in the sweep range, as it is used for the initial environment setup and compilation.</p>
+<h4 id="large-network-jpn48-without-exhaustive-search">Large Network (JPN48) Without Exhaustive Search</h4>
+<p>For larger networks, omit <code>--CUTSET_EXHAUSTIVE</code> to use the shortest-paths heuristic for cut-set discovery:</p>
+<div class="highlight"><pre><span></span><code>python<span class="w"> </span>-m<span class="w"> </span>xlron.bounds.cutsets_bounds<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--topology_name<span class="o">=</span>jpn48_undirected<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--env_type<span class="o">=</span>rmsa<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--link_resources<span class="o">=</span><span class="m">80</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--k<span class="o">=</span><span class="m">50</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--load<span class="o">=</span><span class="m">200</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--max_bw<span class="o">=</span><span class="m">50</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--guardband<span class="o">=</span><span class="m">0</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--slot_size<span class="o">=</span><span class="m">12</span>.5<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--mean_service_holding_time<span class="o">=</span><span class="m">12</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--continuous_operation<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--modulations_csv_filepath<span class="o">=</span><span class="s2">&quot;./xlron/data/modulations/modulations_deeprmsa.csv&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--max_requests<span class="o">=</span><span class="m">100000</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--num_trials<span class="o">=</span><span class="m">10</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--CUTSET_TOP_K<span class="o">=</span><span class="m">256</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--cutset_link_selection_mode<span class="o">=</span>least_congested
+</code></pre></div>
+<h2 id="reconfigurable-routing-bounds">Reconfigurable Routing Bounds</h2>
+<p>The reconfigurable routing method (also known as resource-prioritized defragmentation) estimates a capacity bound by allowing the network to reroute existing services when a new request would otherwise be blocked.</p>
+<h3 id="how-it-works_1">How It Works</h3>
+<ol>
+<li>
+<p><strong>Request sorting</strong>: Connection requests are generated and sorted by their weighted resource requirements (slots x hops across candidate paths). Requests requiring fewer resources get higher priority for defragmentation.</p>
+</li>
+<li>
+<p><strong>Main simulation loop</strong>: Requests are processed sequentially using a standard heuristic (KSP-FF or FF-KSP). When a request blocks:</p>
+<ul>
+<li>The method identifies all concurrently active services that overlap in time with the blocked request.</li>
+<li>It attempts to <strong>defragment</strong> the network by replaying the active services in priority order, allowing path rerouting.</li>
+<li>If defragmentation frees enough resources for the blocked request, the fix is committed.</li>
+<li>Otherwise, the request remains blocked.</li>
+</ul>
+</li>
+<li>
+<p><strong>Bound interpretation</strong>: Because real networks cannot freely reroute active services, the blocking probability achieved by this method represents a lower bound — real performance will be equal or worse.</p>
+</li>
+</ol>
+<h3 id="invocation_1">Invocation</h3>
+<p>The reconfigurable routing bounds script is run directly (not as a module):</p>
+<div class="highlight"><pre><span></span><code>python<span class="w"> </span>xlron/bounds/reconfigurable_routing_bounds.py<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--topology_name<span class="o">=</span>nsfnet_deeprmsa_directed<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--env_type<span class="o">=</span>rmsa<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--link_resources<span class="o">=</span><span class="m">100</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--k<span class="o">=</span><span class="m">50</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--load<span class="o">=</span><span class="m">250</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--continuous_operation<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--truncate_holding_time<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--mean_service_holding_time<span class="o">=</span><span class="m">20</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--modulations_csv_filepath<span class="o">=</span><span class="s2">&quot;./xlron/data/modulations/modulations_deeprmsa.csv&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--path_heuristic<span class="o">=</span>ksp_ff<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--TOTAL_TIMESTEPS<span class="o">=</span><span class="m">13000</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--NUM_ENVS<span class="o">=</span><span class="m">1</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--COMPILE_RR_BOUNDS
+</code></pre></div>
+<h3 id="reconfigurable-routing-specific-flags">Reconfigurable Routing Specific Flags</h3>
+<h5 id="-total_timesteps"><code>--TOTAL_TIMESTEPS</code></h5>
+<p>Number of requests to process in the simulation. Default: <code>1000000</code>. Note that this method is sequential per environment, so large values take longer than the parallelised heuristic evaluation.</p>
+<h5 id="-num_envs"><code>--NUM_ENVS</code></h5>
+<p>Number of parallel environments. Typically set to <code>1</code> for bounds estimation, since each environment runs a sequential simulation. Multiple environments run independent seeds for statistical averaging.</p>
+<h5 id="-path_heuristic"><code>--path_heuristic</code></h5>
+<p>The heuristic used for initial resource allocation and during defragmentation replays. Supported values: <code>ksp_ff</code>, <code>ff_ksp</code>. Default: <code>ksp_ff</code>.</p>
+<h5 id="-compile_rr_bounds"><code>--COMPILE_RR_BOUNDS</code></h5>
+<p>When enabled, the full simulation loop is JIT-compiled as a <code>jax.lax.scan</code>, which is significantly faster but requires fixed array sizes for active request tracking. When disabled, the simulation runs as a Python loop with variable-length filtering (slower but more flexible). Default: <code>False</code>.</p>
+<div class="admonition note">
+<p class="admonition-title">Flags set automatically</p>
+<p>The reconfigurable routing script internally forces <code>--relative_arrival_times=False</code> (absolute times are needed for request lifetime tracking) and sets <code>--max_requests</code> equal to <code>--TOTAL_TIMESTEPS</code>. You do not need to set these manually.</p>
+</div>
+<h3 id="output-metrics_1">Output Metrics</h3>
+<p>The method reports statistics across multiple seeds (typically 3):</p>
+<ul>
+<li><strong>Blocking Probability</strong> (mean, std, IQR) — overall request blocking rate</li>
+<li><strong>Block Count</strong> (mean, std, IQR) — number of requests that initially blocked</li>
+<li><strong>Fix Count</strong> (mean, std, IQR) — number of blocks resolved by defragmentation</li>
+<li><strong>Fix Ratio</strong> (mean, std, IQR) — fraction of blocks successfully fixed (<code>fix_count / block_count</code>). This is a key metric: a high fix ratio means most blocking events were due to suboptimal routing rather than true capacity exhaustion.</li>
+</ul>
+<p>Timing breakdowns are also reported showing the fraction of time spent in the main simulation loop vs. defragmentation.</p>
+<h3 id="examples_1">Examples</h3>
+<h4 id="deeprmsa-style-on-nsfnet_1">DeepRMSA-Style on NSFNET</h4>
+<div class="highlight"><pre><span></span><code>python<span class="w"> </span>xlron/bounds/reconfigurable_routing_bounds.py<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--topology_name<span class="o">=</span>nsfnet_deeprmsa_directed<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--env_type<span class="o">=</span>rmsa<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--link_resources<span class="o">=</span><span class="m">100</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--k<span class="o">=</span><span class="m">50</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--load<span class="o">=</span><span class="m">250</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--continuous_operation<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--truncate_holding_time<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--mean_service_holding_time<span class="o">=</span><span class="m">20</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--modulations_csv_filepath<span class="o">=</span><span class="s2">&quot;./xlron/data/modulations/modulations_deeprmsa.csv&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--path_heuristic<span class="o">=</span>ksp_ff<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--TOTAL_TIMESTEPS<span class="o">=</span><span class="m">13000</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--NUM_ENVS<span class="o">=</span><span class="m">1</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--COMPILE_RR_BOUNDS
+</code></pre></div>
+<h4 id="load-sweep">Load Sweep</h4>
+<p>Use <code>--min_load</code>, <code>--max_load</code>, and <code>--step_load</code> to sweep loads in a single invocation:</p>
+<div class="highlight"><pre><span></span><code>python<span class="w"> </span>xlron/bounds/reconfigurable_routing_bounds.py<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--topology_name<span class="o">=</span>nsfnet_deeprmsa_directed<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--env_type<span class="o">=</span>rmsa<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--link_resources<span class="o">=</span><span class="m">100</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--k<span class="o">=</span><span class="m">50</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--load<span class="o">=</span><span class="m">300</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--min_load<span class="o">=</span><span class="m">150</span><span class="w"> </span>--max_load<span class="o">=</span><span class="m">300</span><span class="w"> </span>--step_load<span class="o">=</span><span class="m">10</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--continuous_operation<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--truncate_holding_time<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--mean_service_holding_time<span class="o">=</span><span class="m">20</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--modulations_csv_filepath<span class="o">=</span><span class="s2">&quot;./xlron/data/modulations/modulations_deeprmsa.csv&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--path_heuristic<span class="o">=</span>ksp_ff<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--TOTAL_TIMESTEPS<span class="o">=</span><span class="m">13000</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--NUM_ENVS<span class="o">=</span><span class="m">1</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--COMPILE_RR_BOUNDS
+</code></pre></div>
+<p>Note: <code>--load</code> should be set to the maximum load in the sweep range, as it is used for the initial environment setup (including array sizing for active request tracking).</p>
+<h4 id="rsa-with-unit-bandwidth">RSA with Unit Bandwidth</h4>
+<div class="highlight"><pre><span></span><code>python<span class="w"> </span>xlron/bounds/reconfigurable_routing_bounds.py<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--topology_name<span class="o">=</span>nsfnet_deeprmsa_undirected<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--env_type<span class="o">=</span>rsa<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--link_resources<span class="o">=</span><span class="m">40</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--k<span class="o">=</span><span class="m">50</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--load<span class="o">=</span><span class="m">250</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--slot_size<span class="o">=</span><span class="m">1</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--guardband<span class="o">=</span><span class="m">0</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--mean_service_holding_time<span class="o">=</span><span class="m">10</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--values_bw<span class="o">=</span><span class="m">1</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--continuous_operation<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--path_heuristic<span class="o">=</span>ksp_ff<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--TOTAL_TIMESTEPS<span class="o">=</span><span class="m">13000</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--NUM_ENVS<span class="o">=</span><span class="m">1</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--COMPILE_RR_BOUNDS
+</code></pre></div>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["content.tabs.link", "search.suggest"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+        <script src="../javascripts/mathjax.js"></script>
+      
+        <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
+      
+        <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+      
+    
+  </body>
+</html>

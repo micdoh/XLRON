@@ -1,0 +1,2176 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+        <link rel="canonical" href="https://micdoh.github.io/XLRON/differentiable_dra/">
+      
+      
+        <link rel="prev" href="../gn_model/">
+      
+      
+        <link rel="next" href="../training/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.4">
+    
+    
+      
+        <title>Differentiable DRA Pipeline - XLRON - Accelerated Learning and Resource Allocation for Optical Networks</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/_mkdocstrings.css">
+    
+      <link rel="stylesheet" href="../stylesheets/xlron.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="teal">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#differentiable-dra-pipeline" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="XLRON - Accelerated Learning and Resource Allocation for Optical Networks" class="md-header__button md-logo" aria-label="XLRON - Accelerated Learning and Resource Allocation for Optical Networks" data-md-component="logo">
+      
+  <img src="../images/xlron_nobackground.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            XLRON - Accelerated Learning and Resource Allocation for Optical Networks
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Differentiable DRA Pipeline
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+    
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="XLRON - Accelerated Learning and Resource Allocation for Optical Networks" class="md-nav__button md-logo" aria-label="XLRON - Accelerated Learning and Resource Allocation for Optical Networks" data-md-component="logo">
+      
+  <img src="../images/xlron_nobackground.png" alt="logo">
+
+    </a>
+    XLRON - Accelerated Learning and Resource Allocation for Optical Networks
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Why XLRON
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Why XLRON
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../features/speed/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Comparisons & Speed
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../features/physical_layer/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Physical Layer Model
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../features/differentiable/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Differentiable Simulation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../features/transformer/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Graph Transformer for RMSA
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../features/topologies/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Topologies
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../features/gui/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Graphical User Interface
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../understanding_xlron/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Understanding XLRON
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../gn_model/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GN Model Physical Layer
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Differentiable DRA Pipeline
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Differentiable DRA Pipeline
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#why-we-want-differentiability" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why we want differentiability
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#a-brief-detour-how-automatic-differentiation-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A brief detour: how automatic differentiation works
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="A brief detour: how automatic differentiation works">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-chain-rule-applied-automatically" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The chain rule, applied automatically
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#where-it-breaks-down" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where it breaks down
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-implicit-function-theorem" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The implicit function theorem
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-pipeline-at-a-glance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The pipeline at a glance
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#stage-1-the-raman-ode" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stage 1: The Raman ODE
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#stage-2-the-boundary-value-problem" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stage 2: The boundary-value problem
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Stage 2: The boundary-value problem">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#tnc-the-solver" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        TNC: the solver
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ift-to-the-rescue" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        IFT to the rescue
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#stage-3-fitting-an-analytical-profile" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stage 3: Fitting an analytical profile
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Stage 3: Fitting an analytical profile">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-is-an-ansatz" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What is an "ansatz"?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-semrau-profile" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Semrau profile
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#lm-the-right-tool-for-nonlinear-least-squares" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        LM: the right tool for nonlinear least-squares
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#why-we-stop-the-gradient-through-the-fit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why we stop the gradient through the fit
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-surrogate-gradient-g_i" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The surrogate gradient: \(G_i\)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#stage-4-nli-ase-snr-throughput" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stage 4: NLI, ASE, SNR, throughput
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#putting-it-all-together-how-the-gradient-actually-flows" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Putting it all together: how the gradient actually flows
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#why-this-approximation-is-acceptable" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why this approximation is acceptable
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#suggested-framing-for-papers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Suggested framing for papers
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#code-references" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Code references
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#see-also" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        See Also
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../training/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Training with PPO
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../heuristic_evaluation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Heuristic Evaluation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../capacity_bounds/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Capacity Bound Estimation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../flags_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Command-line options
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Function reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reproducing the Papers
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reproducing the Papers
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../papers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview & papers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reproduce_jocn2024/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hype or Hope? (JOCN 2025)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reproduce_rwalr/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    RWA-LR (ONDM 2025)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reproduce_ecoc2026/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Capacity bounds comparison (ECOC 2026 submitted)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reproduce_jocn_xlron/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    XLRON framework (in prep.)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reproduce_jocn_transformer/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Graph Transformer (in prep.)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    About
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    About
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../license/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    License and Support
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#why-we-want-differentiability" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why we want differentiability
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#a-brief-detour-how-automatic-differentiation-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A brief detour: how automatic differentiation works
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="A brief detour: how automatic differentiation works">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-chain-rule-applied-automatically" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The chain rule, applied automatically
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#where-it-breaks-down" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where it breaks down
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-implicit-function-theorem" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The implicit function theorem
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-pipeline-at-a-glance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The pipeline at a glance
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#stage-1-the-raman-ode" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stage 1: The Raman ODE
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#stage-2-the-boundary-value-problem" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stage 2: The boundary-value problem
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Stage 2: The boundary-value problem">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#tnc-the-solver" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        TNC: the solver
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ift-to-the-rescue" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        IFT to the rescue
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#stage-3-fitting-an-analytical-profile" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stage 3: Fitting an analytical profile
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Stage 3: Fitting an analytical profile">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-is-an-ansatz" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What is an "ansatz"?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-semrau-profile" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Semrau profile
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#lm-the-right-tool-for-nonlinear-least-squares" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        LM: the right tool for nonlinear least-squares
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#why-we-stop-the-gradient-through-the-fit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why we stop the gradient through the fit
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-surrogate-gradient-g_i" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The surrogate gradient: \(G_i\)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#stage-4-nli-ase-snr-throughput" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stage 4: NLI, ASE, SNR, throughput
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#putting-it-all-together-how-the-gradient-actually-flows" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Putting it all together: how the gradient actually flows
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#why-this-approximation-is-acceptable" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why this approximation is acceptable
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#suggested-framing-for-papers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Suggested framing for papers
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#code-references" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Code references
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#see-also" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        See Also
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="differentiable-dra-pipeline">Differentiable DRA Pipeline</h1>
+<div class="admonition note">
+<p class="admonition-title">Source code availability</p>
+<p>The DRA model implementation (<code>xlron/environments/gn_model/isrs_gn_model_dra.py</code>)
+is part of ongoing research and is withheld from the public XLRON release
+pending publication. It is available on request from the authors, Henrique
+Buglia and Mindaugas Jarmolovicius (UCL Optical Networks Group). This page
+documents the method; the public package ships a stub that raises
+<code>NotImplementedError</code> if the DRA functions are called.</p>
+</div>
+<p>This page explains how XLRON's Distributed Raman Amplification (DRA) model is made <em>end-to-end differentiable</em> — that is, how a single call of <code>jax.value_and_grad</code> can compute the gradient of total network throughput with respect to the Raman pump powers, propagating cleanly through ordinary differential equation (ODE) integration, a two-point boundary-value problem (BVP), a nonlinear least-squares fit, and the closed-form Gaussian Noise (GN) model integrals (which include inter-channel stimulated Raman scattering, abbreviated ISRS).</p>
+<p>The page is intended for readers who know optical communications and the GN model but may not have a deep background in automatic differentiation (AD). It starts from first principles, names every concept it uses, and then walks through the two non-trivial differentiability tricks (an <em>implicit-function-theorem</em> gradient for the BVP solve, and a <em>surrogate gradient</em> for the profile fit) that the implementation in <code>xlron/environments/gn_model/isrs_gn_model_dra.py</code> relies on.</p>
+<p>If you only want to <em>use</em> DRA in a simulation, the <a href="../gn_model/#distributed-raman-amplification-dra">GN Model page</a> is enough. This page is for understanding why pump-power optimisation works and what is approximated in the gradient.</p>
+<div class="admonition note">
+<p class="admonition-title">Acronyms used on this page</p>
+<p><strong>DRA</strong> — Distributed Raman Amplification.
+<strong>GN</strong> — Gaussian Noise (model). <strong>ISRS</strong> — Inter-channel Stimulated Raman Scattering.
+<strong>ODE</strong> — Ordinary Differential Equation. <strong>BVP</strong> — Boundary-Value Problem.
+<strong>WDM</strong> — Wavelength Division Multiplexing.
+<strong>NLI</strong> — Nonlinear Interference. <strong>ASE</strong> — Amplified Spontaneous Emission.
+<strong>SNR</strong> — Signal-to-Noise Ratio. <strong>FEC</strong> — Forward Error Correction.
+<strong>AD</strong> — Automatic Differentiation. <strong>JVP</strong> — Jacobian-Vector Product (forward-mode AD).
+<strong>VJP</strong> — Vector-Jacobian Product (reverse-mode AD). <strong>IFT</strong> — Implicit Function Theorem.
+<strong>TNC</strong> — Truncated Newton Constrained (a scipy optimiser).
+<strong>LM</strong> — Levenberg–Marquardt (a nonlinear least-squares solver).</p>
+</div>
+<hr />
+<h2 id="why-we-want-differentiability">Why we want differentiability</h2>
+<p>In a Raman-amplified network, the operator chooses backward pump powers <span class="arithmatex">\(\mathbf{P}_p \in \mathbb{R}^{M}\)</span> (and optionally pump frequencies and per-channel launch powers). These choices propagate through complicated physics — pump–signal coupling, ISRS tilt, nonlinear interference — and ultimately determine the achievable Shannon-Hartley throughput <span class="arithmatex">\(T(\mathbf{P}_p)\)</span> summed over all lightpaths.</p>
+<p>To find the pump configuration that maximises throughput we have two options:</p>
+<ul>
+<li><strong>Black-box search</strong> (grid scan, Bayesian optimisation, evolutionary methods). Each trial costs a full forward simulation; convergence is slow and scales poorly with <span class="arithmatex">\(M\)</span>.</li>
+<li><strong>Gradient ascent</strong> (Adam, L-BFGS, etc.). Each step costs roughly two forward simulations (forward + reverse pass) and converges in tens of iterations even for <span class="arithmatex">\(M \sim 10\)</span>–<span class="arithmatex">\(20\)</span> pumps with bounds and budget constraints.</li>
+</ul>
+<p>Gradient ascent requires <span class="arithmatex">\(\nabla_{\mathbf{P}_p} T\)</span>. If the simulation pipeline is built entirely from JAX primitives, this gradient is free — you write the forward pass and JAX's autodiff machinery gives you the backward pass automatically. The DRA pipeline, however, contains two iterative solvers that JAX cannot differentiate natively. The rest of this page explains how we work around that.</p>
+<hr />
+<h2 id="a-brief-detour-how-automatic-differentiation-works">A brief detour: how automatic differentiation works</h2>
+<p>This subsection is short and pragmatic — just enough to understand what "differentiable" means in this context.</p>
+<h3 id="the-chain-rule-applied-automatically">The chain rule, applied automatically</h3>
+<p>When you write a JAX function <code>f(x)</code>, the library traces every elementary operation (<code>+</code>, <code>*</code>, <code>exp</code>, matrix multiplications, <code>where</code>, …) and builds a <strong>computational graph</strong>. Each elementary operation has a known local derivative. To compute <span class="arithmatex">\(\partial f / \partial x\)</span>, JAX walks the graph and applies the chain rule:</p>
+<div class="arithmatex">\[
+\frac{\partial f}{\partial x} \;=\; \frac{\partial f}{\partial u_n} \cdot \frac{\partial u_n}{\partial u_{n-1}} \cdots \frac{\partial u_1}{\partial x}.
+\]</div>
+<p>This works in two modes:</p>
+<ul>
+<li><strong>Forward mode</strong> (in JAX: <code>jvp</code>, the Jacobian-vector product): pushes a tangent <span class="arithmatex">\(\dot{x}\)</span> forward through the graph. Cheap when the input is low-dimensional and the output is high-dimensional.</li>
+<li><strong>Reverse mode</strong> (in JAX: <code>vjp</code>, the vector-Jacobian product, also wrapped by <code>jax.grad</code>): pulls a cotangent <span class="arithmatex">\(\bar{f}\)</span> backward through the graph. Cheap when the input is high-dimensional and the output is a scalar — exactly our case (many pump powers, one throughput number).</li>
+</ul>
+<h3 id="where-it-breaks-down">Where it breaks down</h3>
+<p>Three things will block automatic differentiation:</p>
+<ol>
+<li><strong>Non-JAX code.</strong> A call to <code>scipy.optimize.minimize</code>, a NumPy array operation, or any Python control flow that depends on a traced value's <em>content</em> — JAX cannot see inside these and has no derivative rule.</li>
+<li><strong>Iterative solvers without convergence rules.</strong> Even if you implement an iterative method in pure JAX, naively differentiating through every iteration ("unrolling") is memory-hungry and numerically fragile. There are better ways (next section).</li>
+<li><strong>Non-smooth or singular operations.</strong> Things like <code>argmax</code>, <code>where(cond, …)</code> with traced <code>cond</code>, or matrix solves where the matrix becomes singular at the operating point.</li>
+</ol>
+<p>When we hit one of these, we have to provide a custom derivative rule using <code>jax.custom_vjp</code> (or <code>jax.custom_jvp</code>). The rule tells JAX: "Trust me, when you need the gradient through this block, here's the formula." JAX then uses our formula instead of trying to differentiate the block automatically.</p>
+<h3 id="the-implicit-function-theorem">The implicit function theorem</h3>
+<p>Many of the things we want gradients through are defined <em>implicitly</em>: <span class="arithmatex">\(\mathbf{x}^\star\)</span> is whatever value satisfies an equation <span class="arithmatex">\(\mathbf{F}(\mathbf{x}^\star, \mathbf{y}) = \mathbf{0}\)</span>, parameterised by some upstream input <span class="arithmatex">\(\mathbf{y}\)</span>. The implicit function theorem (IFT) says that if <span class="arithmatex">\(\partial \mathbf{F}/\partial \mathbf{x}\)</span> is invertible at the solution, then</p>
+<div class="arithmatex">\[
+\frac{\partial \mathbf{x}^\star}{\partial \mathbf{y}} \;=\; -\!\left(\frac{\partial \mathbf{F}}{\partial \mathbf{x}}\right)^{-1}\! \frac{\partial \mathbf{F}}{\partial \mathbf{y}}.
+\]</div>
+<p>The point is: you can compute <span class="arithmatex">\(\partial \mathbf{x}^\star / \partial \mathbf{y}\)</span> using only <em>one</em> Jacobian of the equation <span class="arithmatex">\(\mathbf{F}\)</span>, evaluated at the converged point — without ever differentiating through the iterations of the solver that found <span class="arithmatex">\(\mathbf{x}^\star\)</span>. This is what makes implicit-function-style gradients efficient and stable.</p>
+<p>We use this trick once, explicitly, for the boundary-value solve in stage 2 of the pipeline.</p>
+<hr />
+<h2 id="the-pipeline-at-a-glance">The pipeline at a glance</h2>
+<p>The DRA simulation maps pump powers to per-channel SNR (and ultimately throughput) in four stages:</p>
+<table>
+<thead>
+<tr>
+<th style="text-align: right;">Stage</th>
+<th>What it does</th>
+<th>Implemented by</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: right;">1</td>
+<td>Solve coupled Raman ODE → numerical signal-power profile <span class="arithmatex">\(P_i(z)\)</span></td>
+<td><code>jax.experimental.ode.odeint</code></td>
+</tr>
+<tr>
+<td style="text-align: right;">2</td>
+<td>Find <span class="arithmatex">\(z=0\)</span> backward-pump power matching the prescribed <span class="arithmatex">\(z=L\)</span> target</td>
+<td>scipy TNC + <code>custom_vjp</code> (IFT backward)</td>
+</tr>
+<tr>
+<td style="text-align: right;">3</td>
+<td>Fit an analytical 5-parameter ansatz to <span class="arithmatex">\(P_i(z)\)</span> → fit parameters <span class="arithmatex">\(\theta_i\)</span></td>
+<td><code>jaxopt.LevenbergMarquardt</code> (forward only)</td>
+</tr>
+<tr>
+<td style="text-align: right;">4</td>
+<td>Substitute fit parameters into closed-form ISRS GN integrals → NLI, ASE, SNR, throughput</td>
+<td>Pure JAX</td>
+</tr>
+</tbody>
+</table>
+<p>The remainder of this page works through each stage.</p>
+<hr />
+<h2 id="stage-1-the-raman-ode">Stage 1: The Raman ODE</h2>
+<p>A Raman-amplified fibre carries <span class="arithmatex">\(N\)</span> wavelength-division-multiplexed (WDM) signal channels and <span class="arithmatex">\(M\)</span> backward-propagating pump lasers. Each carrier's power along the fibre is governed by a coupled ODE:</p>
+<div class="arithmatex">\[
+\frac{dP_i}{dz} \;=\; \Bigl(\sum_j g_R(f_i, f_j)\,P_j \;-\; \alpha_i\Bigr)\, P_i,
+\]</div>
+<p>where:</p>
+<ul>
+<li><span class="arithmatex">\(\alpha_i\)</span> is the attenuation coefficient. For forward-propagating signals the sign is positive (signals are attenuated as <span class="arithmatex">\(z\)</span> increases). For <em>backward</em>-propagating pumps we flip the sign — they propagate against <span class="arithmatex">\(z\)</span>, so in the forward integration they appear to <em>gain</em> energy.</li>
+<li><span class="arithmatex">\(g_R(f_i, f_j)\)</span> is the Raman gain coefficient between carriers at frequencies <span class="arithmatex">\(f_j\)</span> (donor) and <span class="arithmatex">\(f_i\)</span> (receiver). XLRON uses the <strong>triangular Raman approximation</strong> <span class="arithmatex">\(g_R = C_r |\Delta f|\)</span> with a 15 THz cutoff, valid across the C+L band.</li>
+<li>The signal–signal block of <span class="arithmatex">\(g_R\)</span> is <strong>zeroed out</strong> when integrating the ODE. Signal–signal Raman tilt is handled separately by the GN model's perturbative ISRS formula; including it here would double-count.</li>
+</ul>
+<p>The ODE is integrated by <code>jax.experimental.ode.odeint</code> (Dormand–Prince adaptive method). <code>odeint</code> ships with its own <code>custom_vjp</code> rule based on the <strong>adjoint method</strong> — this means JAX <em>can</em> take derivatives of the ODE solution with respect to its inputs (initial conditions, ODE parameters) automatically. Stage 1 is therefore differentiable out of the box.</p>
+<hr />
+<h2 id="stage-2-the-boundary-value-problem">Stage 2: The boundary-value problem</h2>
+<p>The pumps are <em>backward-propagating</em>, which means we know the pump power at the <strong>far end</strong> of the span (<span class="arithmatex">\(z=L\)</span>) — that's the value we set at the launch — but <code>odeint</code> integrates forward from <span class="arithmatex">\(z=0\)</span>. To use a single forward-integration ODE solver, we must first answer: <em>"What pump power at <span class="arithmatex">\(z=0\)</span> would, after the coupled propagation, produce the prescribed power at <span class="arithmatex">\(z=L\)</span>?"</em></p>
+<p>This is the classical two-point BVP we mentioned earlier. We solve it as an inner optimisation:</p>
+<div class="arithmatex">\[
+\mathbf{x}^\star \;=\; \arg\min_{\mathbf{x}}\; \big\| \mathbf{P}_p(L; \mathbf{x}) - \mathbf{P}_p^{\text{target}} \big\|^2, \qquad \mathbf{x} \in [10^{-7}, 10^3]^M\, \mathrm{W},
+\]</div>
+<p>where <span class="arithmatex">\(\mathbf{P}_p(L; \mathbf{x})\)</span> is the pump power at <span class="arithmatex">\(z=L\)</span> obtained by running the forward ODE with starting pump power <span class="arithmatex">\(\mathbf{x}\)</span> at <span class="arithmatex">\(z=0\)</span>. The constraint <span class="arithmatex">\(\mathbf{x} \ge 10^{-7}\)</span> prevents zero pump power (which would cause a singularity), and <span class="arithmatex">\(\mathbf{x} \le 10^{3}\)</span> guards against runaway iterations.</p>
+<h3 id="tnc-the-solver">TNC: the solver</h3>
+<p>We minimise this with <code>scipy.optimize.minimize(method="TNC")</code>, a truncated Newton method with constraints — a quasi-Newton optimiser with native support for box constraints. It uses gradient information (which JAX provides by autodiff through <code>odeint</code>), approximates Hessian-vector products, and "truncates" its inner conjugate-gradient solve for each Newton step. It is an excellent fit for smooth nonlinear problems with simple bounds.</p>
+<p>The catch: scipy lives outside JAX. JAX has no derivative rule for "the output of a scipy optimisation as a function of its target". So if we naively call scipy inside a JAX-traced function, the gradient through this block will fail.</p>
+<h3 id="ift-to-the-rescue">IFT to the rescue</h3>
+<p>We don't actually need to differentiate through TNC's iterations — we only need the derivative of the <em>converged</em> solution <span class="arithmatex">\(\mathbf{x}^\star\)</span> with respect to the prescribed target. At the optimum the residual is zero:</p>
+<div class="arithmatex">\[
+\mathbf{P}_p\bigl(L;\,\mathbf{x}^\star\bigr) \;=\; \mathbf{P}_p^{\text{target}}.
+\]</div>
+<p>This is an implicit equation defining <span class="arithmatex">\(\mathbf{x}^\star\)</span> as a function of the target. Differentiating both sides with respect to the target and solving:</p>
+<div class="arithmatex">\[
+\frac{\partial \mathbf{x}^\star}{\partial \mathbf{P}_p^{\text{target}}} \;=\; J^{-1}, \qquad J \;=\; \frac{\partial \mathbf{P}_p(L)}{\partial \mathbf{x}}\bigg|_{\mathbf{x}^\star}.
+\]</div>
+<p><span class="arithmatex">\(J\)</span> is the Jacobian of a <em>forward</em> ODE evaluation, which JAX can compute directly via autodiff through <code>odeint</code>. So the cost of the gradient is one forward ODE run (already done) plus one Jacobian call plus a single linear solve.</p>
+<p>We package this as a <code>jax.custom_vjp</code>:</p>
+<div class="highlight"><pre><span></span><code><span class="nd">@jax</span><span class="o">.</span><span class="n">custom_vjp</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_solve_bw_boundary</span><span class="p">(</span><span class="n">target_bw_pow</span><span class="p">):</span>
+    <span class="c1"># forward: call scipy TNC, return converged pump-at-z=0</span>
+    <span class="o">...</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_solve_bw_fwd</span><span class="p">(</span><span class="n">target_bw_pow</span><span class="p">):</span>
+    <span class="n">bw_z0</span> <span class="o">=</span> <span class="n">_solve_bw_boundary</span><span class="p">(</span><span class="n">target_bw_pow</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">bw_z0</span><span class="p">,</span> <span class="p">(</span><span class="n">bw_z0</span><span class="p">,</span> <span class="n">target_bw_pow</span><span class="p">)</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_solve_bw_bwd</span><span class="p">(</span><span class="n">res</span><span class="p">,</span> <span class="n">g_bw_z0</span><span class="p">):</span>
+    <span class="n">bw_z0</span><span class="p">,</span> <span class="n">target_bw_pow</span> <span class="o">=</span> <span class="n">res</span>
+    <span class="n">J</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">jacobian</span><span class="p">(</span><span class="n">_bw_at_L</span><span class="p">)(</span><span class="n">bw_z0</span><span class="p">)</span>            <span class="c1"># forward AD through odeint</span>
+    <span class="n">g_target</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">solve</span><span class="p">(</span><span class="n">J</span><span class="o">.</span><span class="n">T</span><span class="p">,</span> <span class="n">g_bw_z0</span><span class="p">)</span>    <span class="c1"># IFT-derived VJP</span>
+    <span class="k">return</span> <span class="p">(</span><span class="n">g_target</span><span class="p">,)</span>
+
+<span class="n">_solve_bw_boundary</span><span class="o">.</span><span class="n">defvjp</span><span class="p">(</span><span class="n">_solve_bw_fwd</span><span class="p">,</span> <span class="n">_solve_bw_bwd</span><span class="p">)</span>
+</code></pre></div>
+<p>To the rest of the pipeline, the BVP solve looks like a single differentiable operator. Inside, scipy does the heavy lifting on the forward pass and IFT supplies the backward pass.</p>
+<hr />
+<h2 id="stage-3-fitting-an-analytical-profile">Stage 3: Fitting an analytical profile</h2>
+<h3 id="what-is-an-ansatz">What is an "ansatz"?</h3>
+<p>An <strong>ansatz</strong> (German for "approach" or "starting point") is a <em>guessed</em> parametric form for an unknown function. You don't derive it from first principles — you propose it because it has the right qualitative shape and is mathematically convenient, then fit its free parameters to data. Common examples: variational ansätze in quantum mechanics, exponential decay ansätze for transient signals, polynomial ansätze for boundary-layer profiles.</p>
+<p>Why an ansatz here? The ODE in stage 1 gives us the signal power profile <span class="arithmatex">\(P_i(z)\)</span> as a numerical curve sampled at, say, 200 <span class="arithmatex">\(z\)</span>-points per channel per span. The downstream GN-model NLI integrals require the profile in a <em>closed-form analytical</em> shape so the integrals can be evaluated symbolically. So we need a smooth analytical formula whose shape matches the numerical <span class="arithmatex">\(P_i(z)\)</span> closely enough — that's the ansatz.</p>
+<h3 id="the-semrau-profile">The Semrau profile</h3>
+<p>XLRON uses the five-parameter ansatz of Semrau <em>et al.</em>:</p>
+<div class="arithmatex">\[
+\rho_{\text{semi}}(z;\, C_f, a_f, C_b, a_b, a) \;=\; e^{-az}\bigl[1 - x_i(z)\,\Delta f_i\bigr],
+\]</div>
+<div class="arithmatex">\[
+x_i(z) \;=\; C_f\, P_f\, L_{\text{eff}}^{f}(z, a_f) \;+\; C_b\, L_{\text{eff}}^{b}(z, a_b),
+\]</div>
+<p>with effective lengths</p>
+<div class="arithmatex">\[
+L_{\text{eff}}^{f}(z, a_f) \;=\; \frac{1 - e^{-a_f z}}{a_f}, \qquad
+L_{\text{eff}}^{b}(z, a_b) \;=\; \frac{e^{-a_b(L-z)} - e^{-a_b L}}{a_b}.
+\]</div>
+<p>Interpretation of the five parameters per channel:</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Captures</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><span class="arithmatex">\(C_f\)</span></td>
+<td>Forward-pump Raman coupling strength</td>
+</tr>
+<tr>
+<td><span class="arithmatex">\(a_f\)</span></td>
+<td>Forward-pump effective decay rate</td>
+</tr>
+<tr>
+<td><span class="arithmatex">\(C_b\)</span></td>
+<td>Backward-pump Raman coupling strength</td>
+</tr>
+<tr>
+<td><span class="arithmatex">\(a_b\)</span></td>
+<td>Backward-pump effective decay rate</td>
+</tr>
+<tr>
+<td><span class="arithmatex">\(a\)</span></td>
+<td>Net effective attenuation along the fibre</td>
+</tr>
+</tbody>
+</table>
+<p>We fit these parameters by minimising the squared residual between <span class="arithmatex">\(\rho_{\text{semi}}\)</span> and the normalised ODE profile <span class="arithmatex">\(\rho_i(z) = P_i(z) / P_i(0)\)</span> at all sampled <span class="arithmatex">\(z\)</span>. This is a standard nonlinear least-squares problem — one fit per channel, performed in parallel by <code>jax.vmap</code>.</p>
+<h3 id="lm-the-right-tool-for-nonlinear-least-squares">LM: the right tool for nonlinear least-squares</h3>
+<p>We use <code>jaxopt.LevenbergMarquardt</code> (LM), a Gauss–Newton-style optimiser specialised for nonlinear least-squares. LM exploits the residual structure: it approximates the Hessian by <span class="arithmatex">\(J^\top J\)</span> plus a damping term <span class="arithmatex">\(\lambda\,\mathrm{diag}(J^\top J)\)</span>. This makes it converge quadratically near the optimum on well-conditioned problems while remaining robust when the initial guess is far from the solution.</p>
+<p>In principle, jaxopt can give you smooth gradients through the LM optimum via implicit differentiation (the same IFT trick we used for the BVP — at a least-squares optimum, <span class="arithmatex">\(J^\top r = 0\)</span> is the implicit equation). So why do we <em>not</em> rely on this?</p>
+<h3 id="why-we-stop-the-gradient-through-the-fit">Why we stop the gradient through the fit</h3>
+<p>The Semrau ansatz contains the factor <span class="arithmatex">\((1 - x_i(z)\,\Delta f_i)\)</span>. For channels far from the average pump frequency — i.e. large <span class="arithmatex">\(|\Delta f_i|\)</span> — three things go wrong simultaneously:</p>
+<ol>
+<li>The factor can drift toward zero or even negative, leaving the regime where the linearised tilt approximation is physically meaningful.</li>
+<li>The fit Jacobian becomes ill-conditioned (parameter sensitivity scales with <span class="arithmatex">\(\Delta f_i\)</span>).</li>
+<li>The minimum becomes shallow or non-unique. At a near-degenerate optimum, <span class="arithmatex">\((J^\top J)^{-1}\)</span> blows up and the IFT-style gradient produces NaNs.</li>
+</ol>
+<p>Switching to a different optimiser (trust-region reflective, L-BFGS, etc.) does not fix this — the issue is the <em>model</em>, not the solver.</p>
+<p>The pragmatic fix is to use the LM fit <em>only in the forward pass</em> and let the gradient flow through a different route. In code:</p>
+<div class="highlight"><pre><span></span><code><span class="n">ch_norm_no_grad</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">lax</span><span class="o">.</span><span class="n">stop_gradient</span><span class="p">(</span><span class="n">ch_norm</span><span class="p">)</span>        <span class="c1"># detach LM input</span>
+<span class="n">multipliers</span> <span class="o">=</span> <span class="n">lm_solver</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">jnp</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="mi">5</span><span class="p">),</span> <span class="err">…</span><span class="p">,</span> <span class="n">ch_norm_no_grad</span><span class="p">,</span> <span class="err">…</span><span class="p">)</span><span class="o">.</span><span class="n">params</span>
+<span class="n">fit_5</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">lax</span><span class="o">.</span><span class="n">stop_gradient</span><span class="p">(</span><span class="n">init_params</span> <span class="o">*</span> <span class="n">multipliers</span><span class="p">)</span>  <span class="c1"># detach LM output</span>
+</code></pre></div>
+<p><code>jax.lax.stop_gradient</code> is the JAX primitive that says "in the backward pass, treat this value as a constant". It does not affect the forward pass at all — the LM fit still happens, the fitted parameters still feed into the NLI integrals downstream — but JAX's autodiff sees a zero gradient through this block.</p>
+<h3 id="the-surrogate-gradient-g_i">The surrogate gradient: <span class="arithmatex">\(G_i\)</span></h3>
+<p>If the gradient does not flow through the LM fit, how does any pump-power sensitivity reach the throughput? Through a separate, well-conditioned quantity computed alongside the profile: the <strong>per-channel Raman gain</strong> at the span endpoint,</p>
+<div class="arithmatex">\[
+G_i \;=\; \frac{P_i(L)}{P_i(0)\, e^{-\alpha L}}.
+\]</div>
+<p><span class="arithmatex">\(G_i\)</span> is a single scalar per channel, not a separate model — it is just a ratio of two ODE outputs. <span class="arithmatex">\(G_i = 1\)</span> means "the pumps did nothing"; <span class="arithmatex">\(G_i = 10\)</span> means "the pumps gave 10 dB of net Raman gain on top of passive attenuation". It is differentiable with respect to pump powers because both numerator and denominator are differentiable through <code>odeint</code>, and the ratio cannot become singular as long as <span class="arithmatex">\(P_i(0) &gt; 0\)</span>.</p>
+<p><span class="arithmatex">\(G_i\)</span> feeds directly into the <strong>ASE noise</strong> calculation via the Friis hybrid noise figure (see <a href="../gn_model/#ase-noise-with-dra">GN Model § DRA</a>):</p>
+<div class="arithmatex">\[
+\mathrm{NF}_{\text{DRA}} = \frac{1}{G_i} + 2 n_{sp}\!\left(1 - \frac{1}{G_i}\right), \qquad
+\mathrm{NF}_{\text{hybrid}} = \mathrm{NF}_{\text{DRA}} + \frac{\mathrm{NF}_{\text{EDFA}} - 1}{G_i}.
+\]</div>
+<p>So in the gradient graph, the path from pump powers to ASE noise is fully differentiable; the path from pump powers to NLI is forward-only.</p>
+<p>The fit parameter array stored in <code>EnvParams.raman_fit_params</code> has shape <code>(6, num_channels, max_spans)</code>. Rows 0–4 are the LM-fitted <span class="arithmatex">\([C_f, a_f, C_b, a_b, a]\)</span>; row 5 is <span class="arithmatex">\(G_i\)</span>. Both are derived from the same ODE solution but enter the SNR calculation through different routes.</p>
+<hr />
+<h2 id="stage-4-nli-ase-snr-throughput">Stage 4: NLI, ASE, SNR, throughput</h2>
+<p>The remaining stages are pure JAX and fully differentiable. Per channel <span class="arithmatex">\(i\)</span>, nonlinear interference (NLI) and amplified spontaneous emission (ASE) noise are computed as</p>
+<div class="arithmatex">\[
+P_{\text{NLI},i} = P_i^3 \cdot \eta_n(C_f, a_f, C_b, a_b, a),
+\qquad
+P_{\text{ASE},i} = N_{\text{spans}} \cdot \mathrm{NF}_{\text{hybrid}}(G_i) \cdot G_{\text{total}} \cdot h f_i B_i,
+\]</div>
+<p>and combined into the per-channel signal-to-noise ratio (SNR) and the network total throughput <span class="arithmatex">\(T\)</span>:</p>
+<div class="arithmatex">\[
+\mathrm{SNR}_i \;=\; \frac{P_i}{P_{\text{ASE},i} + P_{\text{NLI},i}}, \qquad
+T \;=\; \sum_{\text{lightpaths}\,p} 2 B_p \log_2\!\left(1 + \mathrm{SNR}_p\right) \cdot (1 - \mathrm{FEC}_{\text{overhead}}),
+\]</div>
+<p>where <span class="arithmatex">\(\mathrm{FEC}_{\text{overhead}}\)</span> is the forward error correction (FEC) overhead fraction.</p>
+<p>Both <span class="arithmatex">\(P_{\text{NLI}}\)</span> and <span class="arithmatex">\(P_{\text{ASE}}\)</span> appear in the SNR denominator. In the <em>forward</em> pass, both depend on pump powers (through the LM fit and through <span class="arithmatex">\(G_i\)</span> respectively). In the <em>backward</em> pass, only the <span class="arithmatex">\(G_i\)</span> path survives because the LM fit is stop-gradiented.</p>
+<hr />
+<h2 id="putting-it-all-together-how-the-gradient-actually-flows">Putting it all together: how the gradient actually flows</h2>
+<div class="highlight"><pre><span></span><code>                       FORWARD PASS                                  BACKWARD PASS
+                       ────────────                                  ─────────────
+
+    pump_pow_bw                                            ∂T/∂pump_pow_bw
+        │                                                          ▲
+        ▼                                                          │
+  custom_vjp(scipy TNC)  ◄── BVP solve ──►   IFT: J⁻ᵀ ∇            │
+        │                                                          │
+        ▼                                                          │
+      odeint  ◄── Raman ODE ──►  adjoint method (JAX built-in)     │
+        │                                                          │
+        ├──────────────────► raman_gain_linear (G_i, row 5)  ──────┤  carries gradient
+        │                              │                            │
+        │                              ▼                            │
+        │                      Friis hybrid NF                      │
+        │                              │                            │
+        │                              ▼                            │
+        │                         P_ASE noise ─────────┐            │
+        │                                              │            │
+        └──────────► LM fit (rows 0–4)                 │            │
+                          │                            │            │
+                  STOP_GRADIENT                        │            │
+                          │                            ▼            │
+                          ▼                      SNR = P/(ASE+NLI) ─┘
+                    Semrau ansatz                     │
+                          │                           │
+                          ▼                           ▼
+                      P_NLI ◄──────── feeds ────► throughput T
+</code></pre></div>
+<p>In the forward pass, both NLI and ASE are computed exactly — the SNR you log is honest. In the backward pass, only the <span class="arithmatex">\(G_i\)</span> path between pumps and ASE is alive; the NLI sensitivity is set to zero by <code>stop_gradient</code>.</p>
+<p>This makes the gradient a <strong>surrogate</strong>: the optimiser behaves as if it were maximising "throughput, holding NLI fixed at its current value". After each optimiser step, NLI is re-evaluated at the new pump configuration, so the <em>forward objective</em> always reflects the true SNR. Only the <em>direction</em> of each step is approximate.</p>
+<hr />
+<h2 id="why-this-approximation-is-acceptable">Why this approximation is acceptable</h2>
+<p>Two reasons:</p>
+<ol>
+<li><strong>ASE is the dominant pump-sensitive term.</strong> Distributed Raman amplification exists precisely to lower ASE — that's its physical purpose. <span class="arithmatex">\(\partial P_{\text{ASE}}/\partial \mathbf{P}_p\)</span> is large; <span class="arithmatex">\(\partial P_{\text{NLI}}/\partial \mathbf{P}_p\)</span> is comparatively small (it acts second-order through profile-shape changes). Capturing the ASE sensitivity alone gives a gradient direction that is well-aligned with the true gradient.</li>
+<li><strong>The forward objective is exact.</strong> At every optimiser step we evaluate the <em>full</em> ISRS GN-model SNR including correct NLI. So if the optimiser converges, the converged pumps maximise the <em>true</em> throughput. The surrogate only affects the path taken there, not the destination.</li>
+</ol>
+<p>This is the same kind of trade-off used in policy gradient methods (the REINFORCE trick), in straight-through estimators for discrete operations, and in many physics-informed learning settings. It is honest and reviewable: the simulator tells you the right number, and the optimiser climbs in a direction that may not be the steepest but is empirically good enough.</p>
+<hr />
+<h2 id="suggested-framing-for-papers">Suggested framing for papers</h2>
+<blockquote>
+<p>The full pipeline — ODE solve, BVP boundary condition, profile fit, GN integrals, SNR, throughput — is end-to-end differentiable. Two steps require care:</p>
+<p><em>(i)</em> The two-point boundary-value problem for the backward pump's <span class="arithmatex">\(z=0\)</span> initial condition is solved by scipy's TNC with bounds. A custom backward pass derived from the implicit function theorem provides the gradient analytically:
+[
+\frac{\partial \mathbf{x}^\star}{\partial \mathbf{P}<em _mathbf_x="\mathbf{x">p^{\text{target}}} = J^{-1}, \qquad J = \tfrac{\partial \mathbf{P}_p(L)}{\partial \mathbf{x}}\big|</em>,
+]
+avoiding the need to unroll TNC iterations.}^\star</p>
+<p><em>(ii)</em> The Levenberg–Marquardt fit of the five-parameter Semrau profile is treated as a forward-only block. Implicit-differentiation gradients through the LM optimum are numerically unstable for channels far from the average pump frequency, where the linearised tilt ansatz becomes ill-conditioned. We therefore route the pump-power gradient through a separate ODE-derived per-channel Raman gain factor <span class="arithmatex">\(G_i = P_i(L)/[P_i(0)\,e^{-\alpha L}]\)</span> which carries the dominant sensitivity of throughput to pump configuration via the ASE noise figure. The fit parameters still enter the <em>forward</em> NLI calculation; the <em>backward</em> pass treats them as constants.</p>
+<p>Together, these two devices yield a tractable surrogate gradient with an exact forward objective. To our knowledge, this is the first end-to-end differentiable optimisation of Raman pump powers driven by a wideband ISRS GN model.</p>
+</blockquote>
+<hr />
+<h2 id="code-references">Code references</h2>
+<table>
+<thead>
+<tr>
+<th>Component</th>
+<th>File</th>
+<th>Function</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Non-differentiable fit (uses scipy directly)</td>
+<td><code>xlron/environments/gn_model/isrs_gn_model_dra.py</code></td>
+<td><code>fit_dra_params_triangular</code></td>
+</tr>
+<tr>
+<td>Differentiable fit (used by pump optimisation)</td>
+<td><code>xlron/environments/gn_model/isrs_gn_model_dra.py</code></td>
+<td><code>fit_dra_params_jax</code></td>
+</tr>
+<tr>
+<td>BVP <code>custom_vjp</code> definition</td>
+<td><code>xlron/environments/gn_model/isrs_gn_model_dra.py</code></td>
+<td><code>_solve_bw_boundary</code></td>
+</tr>
+<tr>
+<td>LM fit (with <code>stop_gradient</code> on inputs and outputs)</td>
+<td><code>xlron/environments/gn_model/isrs_gn_model_dra.py</code></td>
+<td>inside <code>fit_dra_params_jax</code></td>
+</tr>
+<tr>
+<td>NLI integral consumer of fit parameters</td>
+<td><code>xlron/environments/gn_model/isrs_gn_model_dra.py</code></td>
+<td><code>gn_model_dra</code></td>
+</tr>
+<tr>
+<td>SNR consumer of <span class="arithmatex">\(G_i\)</span> (Friis hybrid NF)</td>
+<td><code>xlron/environments/gn_model/isrs_gn_model_dra.py</code></td>
+<td><code>get_snr_dra</code></td>
+</tr>
+<tr>
+<td>End-to-end throughput objective</td>
+<td><code>experimental/validation/pump_optimization.py</code></td>
+<td><code>make_throughput_objective</code></td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="see-also">See Also</h2>
+<ul>
+<li><a href="../gn_model/">GN Model Physical Layer</a> — full description of XLRON's ISRS GN model and the DRA configuration parameters.</li>
+<li><a href="../gn_model/#distributed-raman-amplification-dra">GN Model § Distributed Raman Amplification</a> — physical layer setup for DRA, including how the fit parameters are stored and consumed.</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["content.tabs.link", "search.suggest"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+        <script src="../javascripts/mathjax.js"></script>
+      
+        <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
+      
+        <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+      
+    
+  </body>
+</html>

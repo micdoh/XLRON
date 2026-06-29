@@ -1,0 +1,1695 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+        <link rel="canonical" href="https://micdoh.github.io/XLRON/gn_model_comparison/">
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.4">
+    
+    
+      
+        <title>Comparison with optical-networking-gym OSNR Model - XLRON - Accelerated Learning and Resource Allocation for Optical Networks</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/_mkdocstrings.css">
+    
+      <link rel="stylesheet" href="../stylesheets/xlron.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="teal">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#comparison-with-optical-networking-gym-osnr-model" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="XLRON - Accelerated Learning and Resource Allocation for Optical Networks" class="md-header__button md-logo" aria-label="XLRON - Accelerated Learning and Resource Allocation for Optical Networks" data-md-component="logo">
+      
+  <img src="../images/xlron_nobackground.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            XLRON - Accelerated Learning and Resource Allocation for Optical Networks
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Comparison with optical-networking-gym OSNR Model
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+    
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="XLRON - Accelerated Learning and Resource Allocation for Optical Networks" class="md-nav__button md-logo" aria-label="XLRON - Accelerated Learning and Resource Allocation for Optical Networks" data-md-component="logo">
+      
+  <img src="../images/xlron_nobackground.png" alt="logo">
+
+    </a>
+    XLRON - Accelerated Learning and Resource Allocation for Optical Networks
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Why XLRON
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Why XLRON
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../features/speed/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Comparisons & Speed
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../features/physical_layer/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Physical Layer Model
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../features/differentiable/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Differentiable Simulation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../features/transformer/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Graph Transformer for RMSA
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../features/topologies/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Topologies
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../features/gui/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Graphical User Interface
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../understanding_xlron/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Understanding XLRON
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../gn_model/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GN Model Physical Layer
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../differentiable_dra/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Differentiable DRA Pipeline
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../training/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Training with PPO
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../heuristic_evaluation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Heuristic Evaluation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../capacity_bounds/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Capacity Bound Estimation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../flags_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Command-line options
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Function reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reproducing the Papers
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reproducing the Papers
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../papers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview & papers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reproduce_jocn2024/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hype or Hope? (JOCN 2025)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reproduce_rwalr/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    RWA-LR (ONDM 2025)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reproduce_ecoc2026/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Capacity bounds comparison (ECOC 2026 submitted)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reproduce_jocn_xlron/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    XLRON framework (in prep.)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reproduce_jocn_transformer/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Graph Transformer (in prep.)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    About
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    About
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../license/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    License and Support
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#model-formulation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Model Formulation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ase-noise" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ASE Noise
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#nli-computation-details" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        NLI Computation Details
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#fibre-parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fibre Parameters
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#environment-integration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Environment Integration
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#span-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Span Model
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#power-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Power Model
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#scope-and-capabilities-summary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Scope and Capabilities Summary
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="comparison-with-optical-networking-gym-osnr-model">Comparison with optical-networking-gym OSNR Model</h1>
+<p>This page compares XLRON's GN model with the OSNR computation in <a href="https://github.com/carlosnatalino/optical-networking-gym">optical-networking-gym</a> (<code>optical_networking_gym.core.osnr</code> and <code>optical_networking_gym.envs.qrmsa</code>), highlighting the key differences in physics, implementation, and scope.</p>
+<h2 id="model-formulation">Model Formulation</h2>
+<p>Both implementations compute <strong>GSNR</strong> (generalised signal-to-noise ratio) as the ratio of signal power to the sum of ASE noise and nonlinear interference, accumulated across spans on the path:</p>
+<div class="highlight"><pre><span></span><code>1/GSNR_path = sum over spans of (P_ASE + P_NLI) / P_signal
+</code></pre></div>
+<p>The NLI in both cases is based on the <strong>GN model closed-form approximation</strong>, but they differ in the level of detail:</p>
+<table>
+<thead>
+<tr>
+<th>Aspect</th>
+<th>optical-networking-gym</th>
+<th>XLRON</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>NLI formula</strong></td>
+<td>Single <code>arcsinh</code>-based expression combining SPM and XPM into one <code>sum_phi</code> accumulator</td>
+<td>Separate SPM (<code>eta_spm</code>) and XPM (<code>eta_xpm</code>) efficiency coefficients with distinct formulas</td>
+</tr>
+<tr>
+<td><strong>SPM term</strong></td>
+<td><code>arcsinh(pi^2 * \|beta_2\| * B^2 / (4*alpha))</code> -- standard GN model form</td>
+<td><code>arcsinh</code>-based but includes ISRS Raman tilt correction term <code>T</code>, dispersion slope <code>beta_3</code>, and optionally <code>beta_4</code></td>
+</tr>
+<tr>
+<td><strong>XPM term</strong></td>
+<td><code>arcsinh(upper) - arcsinh(lower)</code> using channel frequency separation and bandwidth, minus a modulation-format-dependent correction</td>
+<td><code>arctan</code>-based XPM formula with full ISRS Raman tilt, inter-channel dispersion walk-off (<code>phi_ik</code> depends on <code>beta_2</code>, <code>beta_3</code>, <code>beta_4</code>), and optional modulation format excess kurtosis correction</td>
+</tr>
+<tr>
+<td><strong>ISRS (Raman tilt)</strong></td>
+<td>Not modelled</td>
+<td>Full ISRS correction: Raman gain slope <code>C_r</code> modifies effective attenuation per channel, with tilt term <code>T</code> in both SPM and XPM</td>
+</tr>
+<tr>
+<td><strong>Dispersion model</strong></td>
+<td>Single coefficient <code>beta_2</code> only</td>
+<td>Three coefficients: <code>beta_2</code>, <code>beta_3</code> (dispersion slope), <code>beta_4</code> (curvature)</td>
+</tr>
+</tbody>
+</table>
+<h2 id="ase-noise">ASE Noise</h2>
+<table>
+<thead>
+<tr>
+<th>Aspect</th>
+<th>optical-networking-gym</th>
+<th>XLRON</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Formula</strong></td>
+<td><code>P_ASE = B * h * f * (exp(2*alpha*L) - 1) * NF_linear</code></td>
+<td><code>P_ASE = 2 * N_sp * (G-1) * h * f * B</code> where <code>N_sp</code> is derived from NF and gain</td>
+</tr>
+<tr>
+<td><strong>Gain model</strong></td>
+<td>Implicit: <code>G = exp(2*alpha*L)</code> (pure loss compensation, no ISRS)</td>
+<td>ISRS-aware gain: <code>G = exp(alpha*L) / g_SRS</code> where <code>g_SRS</code> corrects for Raman tilt</td>
+</tr>
+<tr>
+<td><strong>Per-band NF</strong></td>
+<td>Single scalar NF per span (or single default for all spans)</td>
+<td>Per-frequency-slot NF loaded from CSV, supporting multi-band scenarios (S/C/L)</td>
+</tr>
+<tr>
+<td><strong>ROADM ASE</strong></td>
+<td>Not modelled</td>
+<td>Full ROADM model with configurable express and add/drop losses, booster amplifier NF</td>
+</tr>
+<tr>
+<td><strong>DRA support</strong></td>
+<td>Not available</td>
+<td>Optional Friis cascade model for hybrid Raman+EDFA with per-channel Raman gain from ODE solution</td>
+</tr>
+</tbody>
+</table>
+<h2 id="nli-computation-details">NLI Computation Details</h2>
+<p>The optical-networking-gym NLI uses a simplified formula derived from the incoherent GN model (Poggiolini 2014):</p>
+<div class="highlight"><pre><span></span><code><span class="c1"># SPM contribution (self-channel)</span>
+<span class="n">sum_phi</span> <span class="o">=</span> <span class="n">arcsinh</span><span class="p">(</span><span class="n">pi</span><span class="o">^</span><span class="mi">2</span> <span class="o">*</span> <span class="o">|</span><span class="n">beta_2</span><span class="o">|</span> <span class="o">*</span> <span class="n">B_ch</span><span class="o">^</span><span class="mi">2</span> <span class="o">/</span> <span class="p">(</span><span class="mi">4</span><span class="o">*</span><span class="n">alpha</span><span class="p">))</span>
+
+<span class="c1"># XPM contribution (each interfering channel k)</span>
+<span class="n">phi_k</span> <span class="o">=</span> <span class="n">arcsinh</span><span class="p">(</span><span class="n">pi</span><span class="o">^</span><span class="mi">2</span> <span class="o">*</span> <span class="o">|</span><span class="n">beta_2</span><span class="o">|</span> <span class="o">*</span> <span class="n">L_eff_a</span> <span class="o">*</span> <span class="n">B_k</span> <span class="o">*</span> <span class="p">(</span><span class="n">delta_f</span> <span class="o">+</span> <span class="n">B_k</span><span class="o">/</span><span class="mi">2</span><span class="p">))</span>
+      <span class="o">-</span> <span class="n">arcsinh</span><span class="p">(</span><span class="n">pi</span><span class="o">^</span><span class="mi">2</span> <span class="o">*</span> <span class="o">|</span><span class="n">beta_2</span><span class="o">|</span> <span class="o">*</span> <span class="n">L_eff_a</span> <span class="o">*</span> <span class="n">B_k</span> <span class="o">*</span> <span class="p">(</span><span class="n">delta_f</span> <span class="o">-</span> <span class="n">B_k</span><span class="o">/</span><span class="mi">2</span><span class="p">))</span>
+      <span class="o">-</span> <span class="n">phi_mod_k</span> <span class="o">*</span> <span class="p">(</span><span class="n">B_k</span> <span class="o">/</span> <span class="o">|</span><span class="n">delta_f</span><span class="o">|</span><span class="p">)</span> <span class="o">*</span> <span class="p">(</span><span class="mi">5</span><span class="o">/</span><span class="mi">3</span><span class="p">)</span> <span class="o">*</span> <span class="p">(</span><span class="n">L_eff</span> <span class="o">/</span> <span class="n">L</span><span class="p">)</span>
+
+<span class="n">P_NLI</span> <span class="o">=</span> <span class="p">(</span><span class="n">P_ch</span> <span class="o">/</span> <span class="n">B_ch</span><span class="p">)</span><span class="o">^</span><span class="mi">3</span> <span class="o">*</span> <span class="p">(</span><span class="mi">8</span> <span class="o">/</span> <span class="p">(</span><span class="mi">27</span><span class="o">*</span><span class="n">pi</span><span class="o">*|</span><span class="n">beta_2</span><span class="o">|</span><span class="p">))</span> <span class="o">*</span> <span class="n">gamma</span><span class="o">^</span><span class="mi">2</span> <span class="o">*</span> <span class="n">L_eff</span> <span class="o">*</span> <span class="n">sum_phi</span> <span class="o">*</span> <span class="n">B_ch</span>
+</code></pre></div>
+<p>XLRON computes SPM and XPM separately with higher-order dispersion and ISRS:</p>
+<div class="highlight"><pre><span></span><code><span class="c1"># SPM efficiency (per channel i)</span>
+<span class="n">eta_spm</span> <span class="o">=</span> <span class="p">(</span><span class="mi">4</span><span class="o">/</span><span class="mi">9</span><span class="p">)</span> <span class="o">*</span> <span class="p">(</span><span class="n">gamma</span><span class="o">^</span><span class="mi">2</span><span class="o">/</span><span class="n">B</span><span class="o">^</span><span class="mi">2</span><span class="p">)</span> <span class="o">*</span> <span class="n">pi</span> <span class="o">/</span> <span class="p">(</span><span class="n">phi_i</span> <span class="o">*</span> <span class="n">a_bar</span> <span class="o">*</span> <span class="p">(</span><span class="mi">2</span><span class="n">a</span> <span class="o">+</span> <span class="n">a_bar</span><span class="p">))</span>
+          <span class="o">*</span> <span class="p">[(</span><span class="n">T</span> <span class="o">-</span> <span class="n">a</span><span class="o">^</span><span class="mi">2</span><span class="p">)</span><span class="o">/</span><span class="n">a</span> <span class="o">*</span> <span class="n">arcsinh</span><span class="p">(</span><span class="n">phi_i</span><span class="o">*</span><span class="n">B</span><span class="o">^</span><span class="mi">2</span><span class="o">/</span><span class="p">(</span><span class="n">a</span><span class="o">*</span><span class="n">pi</span><span class="p">))</span>
+             <span class="o">+</span> <span class="p">((</span><span class="n">a</span><span class="o">+</span><span class="n">a_bar</span><span class="p">)</span><span class="o">^</span><span class="mi">2</span> <span class="o">-</span> <span class="n">T</span><span class="p">)</span><span class="o">/</span><span class="p">(</span><span class="n">a</span><span class="o">+</span><span class="n">a_bar</span><span class="p">)</span> <span class="o">*</span> <span class="n">arcsinh</span><span class="p">(</span><span class="n">phi_i</span><span class="o">*</span><span class="n">B</span><span class="o">^</span><span class="mi">2</span><span class="o">/</span><span class="p">((</span><span class="n">a</span><span class="o">+</span><span class="n">a_bar</span><span class="p">)</span><span class="o">*</span><span class="n">pi</span><span class="p">))]</span>
+
+<span class="c1"># XPM efficiency (channel i due to channel k)</span>
+<span class="n">eta_xpm_ik</span> <span class="o">=</span> <span class="p">(</span><span class="mi">32</span><span class="o">/</span><span class="mi">27</span><span class="p">)</span> <span class="o">*</span> <span class="p">(</span><span class="n">P_k</span><span class="o">/</span><span class="n">P_i</span><span class="p">)</span><span class="o">^</span><span class="mi">2</span> <span class="o">*</span> <span class="p">(</span><span class="n">gamma</span><span class="o">^</span><span class="mi">2</span><span class="o">/</span><span class="n">denom</span><span class="p">)</span>
+              <span class="o">*</span> <span class="p">[(</span><span class="n">T_k</span> <span class="o">-</span> <span class="n">a_k</span><span class="o">^</span><span class="mi">2</span><span class="p">)</span><span class="o">/</span><span class="n">a_k</span> <span class="o">*</span> <span class="n">arctan</span><span class="p">(</span><span class="n">phi_ik</span><span class="o">*</span><span class="n">B_i</span><span class="o">/</span><span class="n">a_k</span><span class="p">)</span>
+                 <span class="o">+</span> <span class="p">((</span><span class="n">a_k</span><span class="o">+</span><span class="n">a_bar_k</span><span class="p">)</span><span class="o">^</span><span class="mi">2</span> <span class="o">-</span> <span class="n">T_k</span><span class="p">)</span><span class="o">/</span><span class="p">(</span><span class="n">a_k</span><span class="o">+</span><span class="n">a_bar_k</span><span class="p">)</span> <span class="o">*</span> <span class="n">arctan</span><span class="p">(</span><span class="n">phi_ik</span><span class="o">*</span><span class="n">B_i</span><span class="o">/</span><span class="p">(</span><span class="n">a_k</span><span class="o">+</span><span class="n">a_bar_k</span><span class="p">))]</span>
+</code></pre></div>
+<p>Key physics differences:</p>
+<ul>
+<li><strong>ISRS tilt term <code>T</code></strong>: XLRON includes <code>T = (a + a_bar - f*P_total*Cr)^2</code> which captures the frequency-dependent power transfer due to stimulated Raman scattering. This is absent in optical-networking-gym.</li>
+<li><strong><code>arctan</code> vs <code>arcsinh</code> for XPM</strong>: XLRON uses <code>arctan</code> for XPM (appropriate for inter-channel walk-off), while optical-networking-gym uses <code>arcsinh</code> (the same kernel as SPM). The <code>arctan</code> form is the standard closed-form GN model result for XPM.</li>
+<li><strong>Modulation format correction</strong>: optical-networking-gym applies a <code>phi_modulation_format</code> correction per interfering channel based on spectral efficiency index. XLRON uses per-format <code>excess_kurtosis</code> values in an optional correction term.</li>
+<li><strong>Coherent accumulation</strong>: XLRON supports both coherent and incoherent NLI accumulation across spans (controlled by <code>--coherent</code> flag). optical-networking-gym assumes incoherent accumulation (linear scaling with span count).</li>
+</ul>
+<h2 id="fibre-parameters">Fibre Parameters</h2>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>optical-networking-gym</th>
+<th>XLRON</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>beta_2</code></td>
+<td>-21.3e-27 s^2/m (hardcoded)</td>
+<td>Derived from <code>--dispersion_coeff</code> (default 17e-6 s/m^2)</td>
+<td>XLRON value gives beta_2 ~ -21.7e-27 at 1550 nm</td>
+</tr>
+<tr>
+<td><code>gamma</code></td>
+<td>1.3e-3 1/(W.m) (hardcoded)</td>
+<td><code>--nonlinear_coefficient</code> (default 1.2e-3)</td>
+<td>Slightly different defaults</td>
+</tr>
+<tr>
+<td><code>alpha</code></td>
+<td>Per-span from topology, or single default</td>
+<td><code>--attenuation</code> (default 4.605e-5 Np/m = 0.2 dB/km)</td>
+<td>XLRON also supports per-band values</td>
+</tr>
+<tr>
+<td><code>NF</code></td>
+<td>Per-span from topology, or single default</td>
+<td>Per-frequency-slot from CSV, or <code>--amplifier_noise_figure</code></td>
+<td>Multi-band support in XLRON</td>
+</tr>
+<tr>
+<td>Raman gain slope <code>C_r</code></td>
+<td>Not used</td>
+<td><code>--raman_gain_slope</code> (default 2.8e-17)</td>
+<td>ISRS tilt correction</td>
+</tr>
+<tr>
+<td>Dispersion slope</td>
+<td>Not modelled</td>
+<td><code>--dispersion_slope</code> (default 60.7 s/m^3)</td>
+<td>Higher-order dispersion</td>
+</tr>
+</tbody>
+</table>
+<h2 id="environment-integration">Environment Integration</h2>
+<table>
+<thead>
+<tr>
+<th>Aspect</th>
+<th>optical-networking-gym (<code>QRMSAEnv</code>)</th>
+<th>XLRON (<code>rmsa_gn_model</code> / <code>rsa_gn_model</code>)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Language</strong></td>
+<td>Cython (<code>.pyx</code>) compiled to C for speed</td>
+<td>JAX (Python), JIT-compiled to XLA for GPU/TPU</td>
+</tr>
+<tr>
+<td><strong>Execution</strong></td>
+<td>Sequential: Python loops over links, spans, and interfering services</td>
+<td>Vectorised: <code>jax.vmap</code> over links and channels; broadcasting for XPM N x N matrix</td>
+</tr>
+<tr>
+<td><strong>When GSNR is computed</strong></td>
+<td>At action time: <code>calculate_osnr()</code> called once per candidate placement</td>
+<td>At masking time (rmsa) or post-placement (rsa): full link SNR array recomputed</td>
+</tr>
+<tr>
+<td><strong>Disruption checking</strong></td>
+<td>After provisioning, recalculates OSNR for all co-link services to detect disruptions</td>
+<td>Built into action check: all existing channels on affected links must still meet thresholds</td>
+</tr>
+<tr>
+<td><strong>Parallelism</strong></td>
+<td>Single environment, single service at a time</td>
+<td><code>NUM_ENVS</code> parallel environments via batched vectorisation</td>
+</tr>
+<tr>
+<td><strong>Topology</strong></td>
+<td>NetworkX graph with per-edge attributes</td>
+<td>Static JAX arrays (<code>link_slot_array</code>, <code>channel_power_array</code>, etc.)</td>
+</tr>
+<tr>
+<td><strong>Action space</strong></td>
+<td><code>(path_index, modulation_index, initial_slot)</code> tuple</td>
+<td>Flat integer encoding path and slot (modulation selected automatically in <code>rmsa_gn_model</code>)</td>
+</tr>
+<tr>
+<td><strong>Reward</strong></td>
+<td><code>1 - log10(1 + OSNR - min_OSNR) / 1.6</code> (OSNR-margin-aware)</td>
+<td>Binary: +1 for accepted, 0 for blocked (configurable via reward shaping)</td>
+</tr>
+</tbody>
+</table>
+<h2 id="span-model">Span Model</h2>
+<table>
+<thead>
+<tr>
+<th>Aspect</th>
+<th>optical-networking-gym</th>
+<th>XLRON</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Span definition</strong></td>
+<td>Explicit <code>Span</code> objects per link with individual <code>length</code>, <code>attenuation_normalized</code>, <code>noise_figure_normalized</code></td>
+<td>Computed from link length: <code>num_spans = ceil(link_length / max_span_length)</code>, all spans equal length</td>
+</tr>
+<tr>
+<td><strong>Per-span parameters</strong></td>
+<td>Each span can have unique attenuation and NF</td>
+<td>Uniform parameters per link (all spans share same fibre type)</td>
+</tr>
+<tr>
+<td><strong>Multi-span links</strong></td>
+<td>Explicit loop over topology-defined spans</td>
+<td>Automatic subdivision of links into equal-length spans</td>
+</tr>
+</tbody>
+</table>
+<h2 id="power-model">Power Model</h2>
+<table>
+<thead>
+<tr>
+<th>Aspect</th>
+<th>optical-networking-gym</th>
+<th>XLRON</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Launch power</strong></td>
+<td>Per-service, set at provisioning time from <code>launch_power_dbm</code></td>
+<td>Per-channel, configurable via <code>--power_per_channel</code> or RL-controlled</td>
+</tr>
+<tr>
+<td><strong>Power budget</strong></td>
+<td>No explicit per-fibre power constraint</td>
+<td><code>--max_power_per_fibre</code> enforced during masking and action checking</td>
+</tr>
+<tr>
+<td><strong>Power spectral density</strong></td>
+<td><code>P_ch / B_ch</code> used as PSD in NLI formula</td>
+<td>Per-channel power with ISRS-aware tilt across spectrum</td>
+</tr>
+</tbody>
+</table>
+<h2 id="scope-and-capabilities-summary">Scope and Capabilities Summary</h2>
+<table>
+<thead>
+<tr>
+<th>Feature</th>
+<th>optical-networking-gym</th>
+<th>XLRON</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GN model NLI (SPM + XPM)</td>
+<td>Yes (simplified)</td>
+<td>Yes (full ISRS GN model)</td>
+</tr>
+<tr>
+<td>ISRS Raman tilt</td>
+<td>No</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td>Higher-order dispersion (beta_3, beta_4)</td>
+<td>No</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td>Coherent NLI accumulation</td>
+<td>No</td>
+<td>Optional</td>
+</tr>
+<tr>
+<td>Modulation format NLI correction</td>
+<td>Yes (phi array)</td>
+<td>Optional (excess kurtosis)</td>
+</tr>
+<tr>
+<td>Nyquist subchannel modelling</td>
+<td>No</td>
+<td>Yes (<code>--num_subchannels</code>)</td>
+</tr>
+<tr>
+<td>ROADM noise model</td>
+<td>No</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td>Transceiver back-to-back noise</td>
+<td>No</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td>Per-band amplifier NF / TRX SNR</td>
+<td>No</td>
+<td>Yes (CSV data)</td>
+</tr>
+<tr>
+<td>Distributed Raman Amplification</td>
+<td>No</td>
+<td>Yes (<code>--use_raman_amp</code>)</td>
+</tr>
+<tr>
+<td>Multi-band (S+C+L)</td>
+<td>No</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td>Per-fibre power budget</td>
+<td>No</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td>GPU/TPU acceleration</td>
+<td>No (CPU/Cython)</td>
+<td>Yes (JAX JIT + vmap)</td>
+</tr>
+<tr>
+<td>Parallel environments</td>
+<td>No</td>
+<td>Yes (<code>--NUM_ENVS</code>)</td>
+</tr>
+<tr>
+<td>Differentiable through physics</td>
+<td>No</td>
+<td>Yes (<code>--differentiable</code>)</td>
+</tr>
+<tr>
+<td>Service disruption tracking</td>
+<td>Yes (recalculates OSNR for co-link services)</td>
+<td>Yes (built into SNR validity check)</td>
+</tr>
+</tbody>
+</table>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["content.tabs.link", "search.suggest"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+        <script src="../javascripts/mathjax.js"></script>
+      
+        <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
+      
+        <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+      
+    
+  </body>
+</html>

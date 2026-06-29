@@ -1,0 +1,4220 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+        <link rel="canonical" href="https://micdoh.github.io/XLRON/training/">
+      
+      
+        <link rel="prev" href="../differentiable_dra/">
+      
+      
+        <link rel="next" href="../heuristic_evaluation/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.4">
+    
+    
+      
+        <title>Training with PPO - XLRON - Accelerated Learning and Resource Allocation for Optical Networks</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/_mkdocstrings.css">
+    
+      <link rel="stylesheet" href="../stylesheets/xlron.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="teal">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#training-with-ppo" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="XLRON - Accelerated Learning and Resource Allocation for Optical Networks" class="md-header__button md-logo" aria-label="XLRON - Accelerated Learning and Resource Allocation for Optical Networks" data-md-component="logo">
+      
+  <img src="../images/xlron_nobackground.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            XLRON - Accelerated Learning and Resource Allocation for Optical Networks
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Training with PPO
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+    
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="XLRON - Accelerated Learning and Resource Allocation for Optical Networks" class="md-nav__button md-logo" aria-label="XLRON - Accelerated Learning and Resource Allocation for Optical Networks" data-md-component="logo">
+      
+  <img src="../images/xlron_nobackground.png" alt="logo">
+
+    </a>
+    XLRON - Accelerated Learning and Resource Allocation for Optical Networks
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Why XLRON
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Why XLRON
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../features/speed/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Comparisons & Speed
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../features/physical_layer/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Physical Layer Model
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../features/differentiable/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Differentiable Simulation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../features/transformer/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Graph Transformer for RMSA
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../features/topologies/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Topologies
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../features/gui/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Graphical User Interface
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../understanding_xlron/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Understanding XLRON
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../gn_model/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GN Model Physical Layer
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../differentiable_dra/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Differentiable DRA Pipeline
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Training with PPO
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Training with PPO
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#building-a-training-command" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Building a Training Command
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#1-parallelism-and-scale" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Parallelism and Scale
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="1. Parallelism and Scale">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#-num_envs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --NUM_ENVS
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-rollout_length" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --ROLLOUT_LENGTH
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-total_timesteps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --TOTAL_TIMESTEPS
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-steps_per_increment" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --STEPS_PER_INCREMENT
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#configuration-validation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuration validation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-update_epochs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --UPDATE_EPOCHS
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-num_minibatches" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --NUM_MINIBATCHES
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-num_learners" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --NUM_LEARNERS
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-num_devices" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --NUM_DEVICES
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-mixed_precision" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --mixed_precision
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-core-ppo-hyperparameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Core PPO Hyperparameters
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. Core PPO Hyperparameters">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#-lr" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --LR
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-gamma" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --GAMMA
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-gae_lambda" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --GAE_LAMBDA
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-initial_lambda-final_lambda" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --INITIAL_LAMBDA / --FINAL_LAMBDA
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-clip_eps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --CLIP_EPS
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-vf_coef" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --VF_COEF
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-ent_coef" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --ENT_COEF
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-max_grad_norm" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --MAX_GRAD_NORM
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-adam_eps-adam_beta1-adam_beta2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --ADAM_EPS / --ADAM_BETA1 / --ADAM_BETA2
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-weight_decay" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --WEIGHT_DECAY
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-reward_scale" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --REWARD_SCALE
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-logr_clip-adv_clip" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --LOGR_CLIP / --ADV_CLIP
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-algorithmic-features" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Algorithmic Features
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. Algorithmic Features">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#invalid-action-masking" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Invalid Action Masking
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Invalid Action Masking">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#-action_masking" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --ACTION_MASKING
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-off_policy_iam" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --OFF_POLICY_IAM
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-iam_recenter_clip" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --IAM_RECENTER_CLIP
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#valid-mass-and-gating" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Valid Mass and Gating
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Valid Mass and Gating">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#-valid_mass_target" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --VALID_MASS_TARGET
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-valid_mass_loss_coef" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --VALID_MASS_LOSS_COEF
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-vml_schedule-vml_end_fraction" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --VML_SCHEDULE / --VML_END_FRACTION
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#reward-centering" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reward Centering
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Reward Centering">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#-reward_centering" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --REWARD_CENTERING
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-initial_average_reward-reward_stepsize" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --INITIAL_AVERAGE_REWARD / --REWARD_STEPSIZE
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#prioritized-experience-replay" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Prioritized Experience Replay
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Prioritized Experience Replay">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#-prio_alpha" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --PRIO_ALPHA
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-prio_beta0" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --PRIO_BETA0
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#vtrace-puffer-advantage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        VTrace / Puffer Advantage
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="VTrace / Puffer Advantage">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#-rho_clip-c_clip" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --RHO_CLIP / --C_CLIP
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-include_no_op" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --include_no_op
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-step_on_gradient" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --STEP_ON_GRADIENT
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-schedules" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Schedules
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4. Schedules">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#learning-rate-schedule" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Learning Rate Schedule
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Learning Rate Schedule">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#-lr_schedule" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --LR_SCHEDULE
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-lr_end_fraction" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --LR_END_FRACTION
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-warmup_multiplier" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --WARMUP_MULTIPLIER
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-warmup_steps_fraction" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --WARMUP_STEPS_FRACTION
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-lr_schedule_multiplier" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --LR_SCHEDULE_MULTIPLIER
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#entropy-schedule" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Entropy Schedule
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Entropy Schedule">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#-ent_schedule" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --ENT_SCHEDULE
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-ent_end_fraction" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --ENT_END_FRACTION
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-ent_schedule_multiplier" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --ENT_SCHEDULE_MULTIPLIER
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#separate-value-function-optimizer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Separate Value Function Optimizer
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Separate Value Function Optimizer">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#-separate_vf_optimizer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --SEPARATE_VF_OPTIMIZER
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-model-architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Model Architecture
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5. Model Architecture">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#mlp-default" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        MLP (Default)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#gnn-graph-neural-network" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        GNN (Graph Neural Network)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#transformer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Transformer
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#slot-aggregation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Slot Aggregation
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Slot Aggregation">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#-aggregate_slots" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --aggregate_slots
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-logging-saving-and-evaluation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Logging, Saving, and Evaluation
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="6. Logging, Saving, and Evaluation">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#weights-biases" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Weights &amp; Biases
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Weights &amp; Biases">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#-wandb" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --WANDB
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-log_loss_info" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --LOG_LOSS_INFO
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-enhanced_logging" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --ENHANCED_LOGGING
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#model-saving-and-loading" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Model Saving and Loading
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Model Saving and Loading">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#-save_model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --SAVE_MODEL
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-model_path" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --MODEL_PATH
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-retrain_model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --RETRAIN_MODEL
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-eval_model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --EVAL_MODEL
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-keep_vf" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --KEEP_VF
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#evaluation-during-training" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Evaluation During Training
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Evaluation During Training">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#-eval_during_training" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --EVAL_DURING_TRAINING
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-eval_timesteps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --EVAL_TIMESTEPS
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-eval_frequency" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --EVAL_FREQUENCY
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#other-logging-flags" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Other Logging Flags
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Other Logging Flags">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#-data_output_file-traj_data_output_file" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --DATA_OUTPUT_FILE / --TRAJ_DATA_OUTPUT_FILE
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-downsample_factor" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --DOWNSAMPLE_FACTOR
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-log_actions-log_path_lengths" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --log_actions / --log_path_lengths
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-hyperparameter-sweeps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Hyperparameter Sweeps
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-flagfiles" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. Flagfiles
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Examples
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Examples">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#example-1-deeprmsa-reproduction" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example 1: DeepRMSA Reproduction
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#example-2-rmsa-with-transformer-and-reward-centering" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example 2: RMSA with Transformer and Reward Centering
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#example-3-gnn-agent" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example 3: GNN Agent
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#example-4-training-with-advanced-features" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example 4: Training with Advanced Features
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#example-5-save-and-evaluate-a-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example 5: Save and Evaluate a Model
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../heuristic_evaluation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Heuristic Evaluation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../capacity_bounds/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Capacity Bound Estimation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../flags_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Command-line options
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Function reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reproducing the Papers
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reproducing the Papers
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../papers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview & papers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reproduce_jocn2024/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hype or Hope? (JOCN 2025)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reproduce_rwalr/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    RWA-LR (ONDM 2025)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reproduce_ecoc2026/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Capacity bounds comparison (ECOC 2026 submitted)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reproduce_jocn_xlron/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    XLRON framework (in prep.)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reproduce_jocn_transformer/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Graph Transformer (in prep.)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    About
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    About
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../license/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    License and Support
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#building-a-training-command" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Building a Training Command
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#1-parallelism-and-scale" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Parallelism and Scale
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="1. Parallelism and Scale">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#-num_envs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --NUM_ENVS
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-rollout_length" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --ROLLOUT_LENGTH
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-total_timesteps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --TOTAL_TIMESTEPS
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-steps_per_increment" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --STEPS_PER_INCREMENT
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#configuration-validation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuration validation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-update_epochs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --UPDATE_EPOCHS
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-num_minibatches" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --NUM_MINIBATCHES
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-num_learners" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --NUM_LEARNERS
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-num_devices" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --NUM_DEVICES
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-mixed_precision" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --mixed_precision
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-core-ppo-hyperparameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Core PPO Hyperparameters
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. Core PPO Hyperparameters">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#-lr" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --LR
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-gamma" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --GAMMA
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-gae_lambda" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --GAE_LAMBDA
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-initial_lambda-final_lambda" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --INITIAL_LAMBDA / --FINAL_LAMBDA
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-clip_eps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --CLIP_EPS
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-vf_coef" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --VF_COEF
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-ent_coef" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --ENT_COEF
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-max_grad_norm" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --MAX_GRAD_NORM
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-adam_eps-adam_beta1-adam_beta2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --ADAM_EPS / --ADAM_BETA1 / --ADAM_BETA2
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-weight_decay" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --WEIGHT_DECAY
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-reward_scale" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --REWARD_SCALE
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-logr_clip-adv_clip" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --LOGR_CLIP / --ADV_CLIP
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-algorithmic-features" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Algorithmic Features
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. Algorithmic Features">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#invalid-action-masking" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Invalid Action Masking
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Invalid Action Masking">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#-action_masking" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --ACTION_MASKING
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-off_policy_iam" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --OFF_POLICY_IAM
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-iam_recenter_clip" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --IAM_RECENTER_CLIP
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#valid-mass-and-gating" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Valid Mass and Gating
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Valid Mass and Gating">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#-valid_mass_target" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --VALID_MASS_TARGET
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-valid_mass_loss_coef" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --VALID_MASS_LOSS_COEF
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-vml_schedule-vml_end_fraction" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --VML_SCHEDULE / --VML_END_FRACTION
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#reward-centering" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reward Centering
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Reward Centering">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#-reward_centering" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --REWARD_CENTERING
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-initial_average_reward-reward_stepsize" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --INITIAL_AVERAGE_REWARD / --REWARD_STEPSIZE
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#prioritized-experience-replay" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Prioritized Experience Replay
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Prioritized Experience Replay">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#-prio_alpha" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --PRIO_ALPHA
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-prio_beta0" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --PRIO_BETA0
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#vtrace-puffer-advantage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        VTrace / Puffer Advantage
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="VTrace / Puffer Advantage">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#-rho_clip-c_clip" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --RHO_CLIP / --C_CLIP
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-include_no_op" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --include_no_op
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-step_on_gradient" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --STEP_ON_GRADIENT
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-schedules" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Schedules
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4. Schedules">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#learning-rate-schedule" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Learning Rate Schedule
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Learning Rate Schedule">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#-lr_schedule" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --LR_SCHEDULE
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-lr_end_fraction" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --LR_END_FRACTION
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-warmup_multiplier" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --WARMUP_MULTIPLIER
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-warmup_steps_fraction" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --WARMUP_STEPS_FRACTION
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-lr_schedule_multiplier" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --LR_SCHEDULE_MULTIPLIER
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#entropy-schedule" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Entropy Schedule
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Entropy Schedule">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#-ent_schedule" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --ENT_SCHEDULE
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-ent_end_fraction" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --ENT_END_FRACTION
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-ent_schedule_multiplier" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --ENT_SCHEDULE_MULTIPLIER
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#separate-value-function-optimizer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Separate Value Function Optimizer
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Separate Value Function Optimizer">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#-separate_vf_optimizer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --SEPARATE_VF_OPTIMIZER
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-model-architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Model Architecture
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5. Model Architecture">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#mlp-default" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        MLP (Default)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#gnn-graph-neural-network" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        GNN (Graph Neural Network)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#transformer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Transformer
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#slot-aggregation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Slot Aggregation
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Slot Aggregation">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#-aggregate_slots" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --aggregate_slots
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-logging-saving-and-evaluation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Logging, Saving, and Evaluation
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="6. Logging, Saving, and Evaluation">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#weights-biases" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Weights &amp; Biases
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Weights &amp; Biases">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#-wandb" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --WANDB
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-log_loss_info" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --LOG_LOSS_INFO
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-enhanced_logging" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --ENHANCED_LOGGING
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#model-saving-and-loading" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Model Saving and Loading
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Model Saving and Loading">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#-save_model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --SAVE_MODEL
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-model_path" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --MODEL_PATH
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-retrain_model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --RETRAIN_MODEL
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-eval_model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --EVAL_MODEL
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-keep_vf" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --KEEP_VF
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#evaluation-during-training" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Evaluation During Training
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Evaluation During Training">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#-eval_during_training" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --EVAL_DURING_TRAINING
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-eval_timesteps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --EVAL_TIMESTEPS
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-eval_frequency" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --EVAL_FREQUENCY
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#other-logging-flags" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Other Logging Flags
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Other Logging Flags">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#-data_output_file-traj_data_output_file" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --DATA_OUTPUT_FILE / --TRAJ_DATA_OUTPUT_FILE
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-downsample_factor" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --DOWNSAMPLE_FACTOR
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-log_actions-log_path_lengths" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --log_actions / --log_path_lengths
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-hyperparameter-sweeps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Hyperparameter Sweeps
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-flagfiles" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. Flagfiles
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Examples
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Examples">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#example-1-deeprmsa-reproduction" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example 1: DeepRMSA Reproduction
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#example-2-rmsa-with-transformer-and-reward-centering" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example 2: RMSA with Transformer and Reward Centering
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#example-3-gnn-agent" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example 3: GNN Agent
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#example-4-training-with-advanced-features" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example 4: Training with Advanced Features
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#example-5-save-and-evaluate-a-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example 5: Save and Evaluate a Model
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="training-with-ppo">Training with PPO</h1>
+<p>XLRON uses Proximal Policy Optimization (PPO) to train reinforcement learning agents for optical network resource allocation. The entire training loop — environment simulation, rollout collection, advantage estimation, and gradient updates — runs end-to-end in JAX, compiled as a single program that executes on GPU/TPU.</p>
+<p>Training is accessed through the <code>train.py</code> script. The environment and traffic flags are the same as those used for <a href="../heuristic_evaluation/">heuristic evaluation</a> — this page focuses on the training-specific flags.</p>
+<h2 id="building-a-training-command">Building a Training Command</h2>
+<p>A training command combines:</p>
+<ol>
+<li><strong>Environment flags</strong> — topology, resources, traffic (see <a href="../heuristic_evaluation/#1-problem-environment-flags">Heuristic Evaluation</a>)</li>
+<li><strong>Parallelism and scale</strong> — number of environments, timesteps, rollout length</li>
+<li><strong>Core PPO hyperparameters</strong> — learning rate, discount factor, clipping</li>
+<li><strong>Algorithmic features</strong> — action masking, reward centering, prioritized sampling</li>
+<li><strong>Schedules</strong> — learning rate, entropy, GAE-lambda annealing</li>
+<li><strong>Model architecture</strong> — MLP, GNN, or Transformer</li>
+<li><strong>Logging and output</strong> — W&amp;B, model saving, diagnostics</li>
+</ol>
+<p>A minimal training command:</p>
+<div class="highlight"><pre><span></span><code>python<span class="w"> </span>-m<span class="w"> </span>xlron.train.train<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--env_type<span class="o">=</span>rmsa<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--topology_name<span class="o">=</span>nsfnet_deeprmsa_directed<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--link_resources<span class="o">=</span><span class="m">100</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--k<span class="o">=</span><span class="m">5</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--load<span class="o">=</span><span class="m">250</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--continuous_operation<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--TOTAL_TIMESTEPS<span class="o">=</span><span class="m">5000000</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--NUM_ENVS<span class="o">=</span><span class="m">16</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--ROLLOUT_LENGTH<span class="o">=</span><span class="m">100</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--LR<span class="o">=</span>5e-4
+</code></pre></div>
+<h2 id="1-parallelism-and-scale">1. Parallelism and Scale</h2>
+<h3 id="-num_envs"><code>--NUM_ENVS</code></h3>
+<p>Number of parallel environment instances per learner. Each environment runs an independent simulation. The batch size for each update is <code>NUM_ENVS * ROLLOUT_LENGTH</code>. More environments improve sample diversity and statistical stability, but increase memory usage. Typical values: <code>16</code> to <code>2000</code>.</p>
+<h3 id="-rollout_length"><code>--ROLLOUT_LENGTH</code></h3>
+<p>Number of environment steps collected per rollout before a PPO update. Longer rollouts capture more temporal context and allow better advantage estimation, but delay updates. Default: <code>150</code>. Typical values: <code>100</code> to <code>256</code>.</p>
+<h3 id="-total_timesteps"><code>--TOTAL_TIMESTEPS</code></h3>
+<p>Total environment steps across all environments. The number of PPO updates is <code>TOTAL_TIMESTEPS / (NUM_ENVS * ROLLOUT_LENGTH)</code>. Default: <code>1000000</code>.</p>
+<h3 id="-steps_per_increment"><code>--STEPS_PER_INCREMENT</code></h3>
+<p>Steps per logging increment. Training is divided into <code>TOTAL_TIMESTEPS / STEPS_PER_INCREMENT</code> increments, with metrics reported after each. Default: <code>100000</code>.</p>
+<h3 id="configuration-validation">Configuration validation</h3>
+<p><code>process_config</code> sanity-checks the run once derived values are set. It raises on structurally impossible values (<code>NUM_ENVS</code>, <code>ROLLOUT_LENGTH</code>, <code>NUM_MINIBATCHES</code>, <code>TOTAL_TIMESTEPS</code> must all be ≥ 1) and prints warnings for combinations that train but produce degenerate metrics:</p>
+<ul>
+<li><code>ROLLOUT_LENGTH * NUM_ENVS</code> not divisible by <code>NUM_MINIBATCHES</code> (the final minibatch is truncated).</li>
+<li>For episodic training (not <code>continuous_operation</code>, not <code>end_first_blocking</code>), a per-env rollout window <code>NUM_UPDATES * ROLLOUT_LENGTH</code> shorter than one episode (<code>max_requests</code>). No episode then completes within an increment, leaving the episode-end metrics empty (<code>NaN</code>) — which also trips <code>--DEBUG_NANS</code>. Increase <code>STEPS_PER_INCREMENT</code>/<code>ROLLOUT_LENGTH</code> or reduce <code>max_requests</code>.</li>
+</ul>
+<p>Heuristic and model evaluation skip the training-specific checks, since <code>process_config</code> already sizes their episodes; <code>continuous_operation</code> skips the episode-window check, as it measures steady-state with no episode endings.</p>
+<h3 id="-update_epochs"><code>--UPDATE_EPOCHS</code></h3>
+<p>Number of passes over the rollout buffer per update step. Multiple epochs reuse the same data, improving sample efficiency at the risk of becoming too off-policy. Default: <code>1</code>. Typical values: <code>1</code> to <code>10</code>.</p>
+<h3 id="-num_minibatches"><code>--NUM_MINIBATCHES</code></h3>
+<p>Number of minibatches to split the rollout buffer into per epoch. The minibatch size is <code>(NUM_ENVS * ROLLOUT_LENGTH) / NUM_MINIBATCHES</code>. Default: <code>1</code>.</p>
+<h3 id="-num_learners"><code>--NUM_LEARNERS</code></h3>
+<p>Number of independent learners, each with their own neural network parameters and set of environments. Useful for running multiple seeds in parallel or for meta-learning. Default: <code>1</code>.</p>
+<h3 id="-num_devices"><code>--NUM_DEVICES</code></h3>
+<p>Number of accelerator devices to use. Environments and learners are distributed across devices. Default: <code>1</code>.</p>
+<h3 id="-mixed_precision"><code>--mixed_precision</code></h3>
+<p>Cuts the memory footprint of the parallel environment state so you can fit more <code>--NUM_ENVS</code> on a device. When enabled, the bulk carried env arrays are stored in narrower dtypes while everything precision-sensitive stays at 32-bit:</p>
+<table>
+<thead>
+<tr>
+<th>Tier</th>
+<th>Default</th>
+<th>Mixed</th>
+<th>Arrays</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Bulk float</td>
+<td>float32</td>
+<td><strong>float16</strong></td>
+<td>spectrum occupancy (<code>link_slot_array</code>), action masks, GNN graph node/edge features, normalised observation features</td>
+</tr>
+<tr>
+<td>Time</td>
+<td>float32</td>
+<td><strong>float16</strong> (relative) / float32 (absolute)</td>
+<td><code>current_time</code>, <code>holding_time</code>, departure arrays</td>
+</tr>
+<tr>
+<td>Bounded int</td>
+<td>int32</td>
+<td><strong>int16</strong></td>
+<td>per-path slot counts, bounded indices</td>
+</tr>
+<tr>
+<td>Binary</td>
+<td>int32</td>
+<td><strong>int8</strong></td>
+<td>path–link incidence</td>
+</tr>
+<tr>
+<td>Precision float</td>
+<td>float32</td>
+<td>float32</td>
+<td>bitrate accumulators, physical SNR/power, importance weights</td>
+</tr>
+<tr>
+<td>Counter int</td>
+<td>int32</td>
+<td>int32</td>
+<td><code>total_requests</code>, <code>total_timesteps</code>, <code>accepted_services</code></td>
+</tr>
+<tr>
+<td><strong>NN compute / params / optimizer</strong></td>
+<td>float32</td>
+<td><strong>float32</strong></td>
+<td>neural network weights, activations, Adam state</td>
+</tr>
+</tbody>
+</table>
+<p>Neural-network weights, activations and the optimizer stay in <strong>float32</strong> for training stability — observations are cast up to <code>--compute_dtype</code> (float32) at the model boundary, so the policy is numerically unchanged. Aggregate metrics (blocking probability, throughput) match the float32 baseline within statistical noise.</p>
+<p>Time arrays use float16 only when they stay bounded (the default <code>--relative_arrival_times</code>); with absolute arrival times or <code>--incremental_loading</code> they automatically remain float32 to avoid overflow. Typical saving is ~49% of env-state memory at <code>--link_resources=100</code> (the dominant arrays — spectrum occupancy, departure times and the GNN graph edges — are all E×S), with no slowdown (a small speed-up on CPU and on GPU/TPU from reduced memory bandwidth).</p>
+<p>Each tier can be overridden individually (e.g. <code>--small_float_dtype=bfloat16</code>, <code>--binary_dtype=int8</code>, <code>--time_dtype=float32</code>); the per-tier flags take precedence over the <code>--mixed_precision</code> defaults. Default: <code>false</code>.</p>
+<h2 id="2-core-ppo-hyperparameters">2. Core PPO Hyperparameters</h2>
+<h3 id="-lr"><code>--LR</code></h3>
+<p>Initial learning rate for the Adam optimizer. This is arguably the most important hyperparameter. Default: <code>5e-4</code>. Typical range for sweeps: <code>1e-4</code> to <code>1e-3</code>.</p>
+<h3 id="-gamma"><code>--GAMMA</code></h3>
+<p>Discount factor for future rewards. Values close to 1.0 make the agent more far-sighted. Default: <code>0.999</code>. Typical sweep range: <code>0.99</code> to <code>0.9999</code>.</p>
+<h3 id="-gae_lambda"><code>--GAE_LAMBDA</code></h3>
+<p>Lambda parameter for Generalized Advantage Estimation (GAE). Controls the bias-variance tradeoff in advantage estimation. Higher values reduce bias but increase variance. Default: <code>None</code> (uses automatic annealing from <code>INITIAL_LAMBDA</code> to <code>FINAL_LAMBDA</code>). Set explicitly to disable annealing, e.g. <code>--GAE_LAMBDA=0.95</code>. Typical sweep range: <code>0.9</code> to <code>0.999</code>.</p>
+<h3 id="-initial_lambda-final_lambda"><code>--INITIAL_LAMBDA</code> / <code>--FINAL_LAMBDA</code></h3>
+<p>When <code>GAE_LAMBDA</code> is not set, lambda is annealed from <code>INITIAL_LAMBDA</code> (default <code>0.9</code>) to <code>FINAL_LAMBDA</code> (default <code>0.98</code>) over the course of training using a hyperbolic secant schedule. This starts with lower variance (shorter horizon) and gradually increases the horizon as the value function improves. The annealing speed is controlled by <code>--LAMBDA_SCHEDULE_MULTIPLIER</code>.</p>
+<h3 id="-clip_eps"><code>--CLIP_EPS</code></h3>
+<p>PPO clipping parameter. Limits how much the policy ratio can deviate from 1.0 per update. Smaller values are more conservative. Default: <code>0.2</code>. Typical sweep values: <code>0.02</code>, <code>0.04</code>, <code>0.08</code>, <code>0.16</code>.</p>
+<h3 id="-vf_coef"><code>--VF_COEF</code></h3>
+<p>Value function loss coefficient. Scales the critic loss relative to the actor loss. Default: <code>0.5</code>. Typical sweep range: <code>0.1</code> to <code>1.0</code>.</p>
+<h3 id="-ent_coef"><code>--ENT_COEF</code></h3>
+<p>Entropy bonus coefficient. Encourages exploration by penalising deterministic policies. Default: <code>0.0</code>. Typical sweep range: <code>0.001</code> to <code>0.1</code>. Can be scheduled (see <a href="#4-schedules">Schedules</a>).</p>
+<h3 id="-max_grad_norm"><code>--MAX_GRAD_NORM</code></h3>
+<p>Maximum gradient norm for gradient clipping. Prevents destructively large updates. Default: <code>0.5</code>.</p>
+<h3 id="-adam_eps-adam_beta1-adam_beta2"><code>--ADAM_EPS</code> / <code>--ADAM_BETA1</code> / <code>--ADAM_BETA2</code></h3>
+<p>Adam optimizer parameters. Defaults: <code>1e-5</code>, <code>0.9</code>, <code>0.999</code>. Typical sweep ranges: <code>ADAM_BETA1</code> in <code>[0.8, 0.99]</code>, <code>ADAM_BETA2</code> in <code>[0.9, 0.999]</code>.</p>
+<h3 id="-weight_decay"><code>--WEIGHT_DECAY</code></h3>
+<p>Weight decay (L2 regularization) for the AdamW optimizer. Default: <code>0.0</code>.</p>
+<h3 id="-reward_scale"><code>--REWARD_SCALE</code></h3>
+<p>Multiply all rewards by this factor. Can help with training stability when rewards are very small or very large. Default: <code>1.0</code>. Typical sweep values: <code>1</code>, <code>10</code>.</p>
+<h3 id="-logr_clip-adv_clip"><code>--LOGR_CLIP</code> / <code>--ADV_CLIP</code></h3>
+<p>Clip the log probability ratio to <code>[-LOGR_CLIP, +LOGR_CLIP]</code> and normalized advantages to <code>[-ADV_CLIP, +ADV_CLIP]</code>. Prevents numerical instabilities from extreme values. Defaults: <code>10.0</code>, <code>10.0</code>.</p>
+<h2 id="3-algorithmic-features">3. Algorithmic Features</h2>
+<h3 id="invalid-action-masking">Invalid Action Masking</h3>
+<h4 id="-action_masking"><code>--ACTION_MASKING</code></h4>
+<p>Enable invalid action masking (default: <code>True</code>). The environment provides a mask of valid actions at each step; invalid actions receive logits of <code>-1e8</code>, ensuring they are never selected. This is critical for optical network environments where most actions are invalid at any given step.</p>
+<h4 id="-off_policy_iam"><code>--OFF_POLICY_IAM</code></h4>
+<p>Off-policy invalid action masking (default: <code>False</code>). When enabled, the importance ratio in PPO is computed as <code>unmasked_policy / masked_policy</code> rather than <code>masked_policy / masked_policy</code>. This means the ratio reflects the probability the <em>unmasked</em> (behavior) policy would have assigned to the taken action, which can be beneficial when the valid action set changes significantly between rollout and update time.</p>
+<h4 id="-iam_recenter_clip"><code>--IAM_RECENTER_CLIP</code></h4>
+<p>Recenter the PPO clip on the off-policy IAM ratio's no-update value (default: <code>False</code>; only used when <code>OFF_POLICY_IAM</code> is <code>True</code>). With off-policy IAM the ratio at no update equals the <em>valid mass</em> <code>mu_old = sum over valid actions of unmasked_policy</code> (the same for every valid action), which is well below 1 in a loaded network (~0.5 at steady state). The unit-centred clip <code>[1 - eps, 1 + eps]</code> then sits above the ratio, so for negative-advantage (bad) actions the clipped branch wins the <code>min</code> and the gradient is zero — the actor only learns from positive-advantage actions, and the ratio implicitly down-weights the gradient by <code>mu_old</code>.</p>
+<p>When enabled, <code>log(mu_old)</code> is subtracted from the log ratio before clipping, giving the recentered ratio <code>pi_new / pi_old</code> (≈ 1 at no update). Both advantage signs then receive gradient symmetrically inside the trust region, and the implicit <code>mu_old</code> scaling is removed.</p>
+<ul>
+<li><strong>Interaction with <code>--IAM_DAMPING</code>:</strong> recentering removes the implicit <code>mu_old</code> down-weighting of the actor gradient, so damping (<code>w *= clip(valid_mass / VALID_MASS_TARGET, 0, 1)</code>) becomes the only valid-mass-based down-weighting of congested states. Keep <code>IAM_DAMPING</code> on when using this flag. Damping and gating address valid-mass collapse (the off-policy gap), which is orthogonal to clip centring.</li>
+<li><strong>Re-tune <code>--CLIP_EPS</code>:</strong> because the gradient is now two-sided and no longer <code>mu_old</code>-scaled, the effective step size changes. A tight value such as <code>0.04</code> is usually too small once recentered; sweep <code>0.1</code>, <code>0.2</code>, <code>0.3</code> (and possibly the actor learning rate).</li>
+<li><strong>Diagnostics:</strong> with <code>--ENHANCED_LOGGING</code>, <code>diagnostics/recenter_ratio_mean</code>/<code>_std</code> report the recentered ratio (computed in both modes for comparison) and <code>diagnostics/neg_adv_clip_frac</code> reports the fraction of negative-advantage steps whose actor term is clipped — high in unit mode, low once recentered.</li>
+<li><strong>Note:</strong> the recentering applies only to the standard off-policy IAM branch. It is not applied to the VONE or launch-power branches. If VTrace-style clipping is enabled (<code>RHO_CLIP &gt; 0</code> and <code>C_CLIP &gt; 0</code>) the recentered ratio also feeds the importance correction in the advantage calculation; whether that ratio should be recentered too is left as an open question (VTrace is off by default).</li>
+</ul>
+<h3 id="valid-mass-and-gating">Valid Mass and Gating</h3>
+<p>The PPO loss uses a gating mechanism to handle steps where the agent has very few or no valid actions:</p>
+<ul>
+<li>Steps with 0 valid actions are completely gated out (no gradient signal)</li>
+<li>Steps with only 1 valid action are gated out of the actor/entropy loss (the action is forced, so no learning signal)</li>
+<li>Steps with low "valid mass" (probability the unmasked policy places on valid actions) have their actor/entropy loss contribution damped</li>
+</ul>
+<h4 id="-valid_mass_target"><code>--VALID_MASS_TARGET</code></h4>
+<p>Threshold below which the actor/entropy loss is linearly damped based on valid mass. A step with <code>valid_mass = VALID_MASS_TARGET</code> gets full weight; <code>valid_mass = 0</code> gets zero weight. Default: <code>0.05</code>. Tune in range <code>0.02</code> to <code>0.1</code>.</p>
+<h4 id="-valid_mass_loss_coef"><code>--VALID_MASS_LOSS_COEF</code></h4>
+<p>Coefficient for an auxiliary loss that encourages the <em>unmasked</em> policy to place probability on valid actions. This helps prevent the unmasked logits from drifting away from valid actions, which would cause the valid mass to collapse and reduce learning signal. Default: <code>0.0</code> (disabled). Enable with values like <code>0.01</code> to <code>0.1</code>.</p>
+<h4 id="-vml_schedule-vml_end_fraction"><code>--VML_SCHEDULE</code> / <code>--VML_END_FRACTION</code></h4>
+<p>Schedule for the valid mass loss coefficient. Supports <code>constant</code>, <code>linear</code>, <code>cosine</code>. <code>VML_END_FRACTION</code> &gt; 1.0 anneals the coefficient <em>upward</em> (e.g. <code>10.0</code> means the final coefficient is 10x the initial). Default: <code>constant</code>, <code>10.0</code>.</p>
+<h3 id="reward-centering">Reward Centering</h3>
+<h4 id="-reward_centering"><code>--REWARD_CENTERING</code></h4>
+<p>Enable reward centering (default: <code>False</code>). Subtracts a running estimate of the average reward from all rewards before computing TD errors. This can stabilize training in environments with non-zero average reward by keeping advantage estimates centered. The average reward estimate is updated using a decaying step size.</p>
+<h4 id="-initial_average_reward-reward_stepsize"><code>--INITIAL_AVERAGE_REWARD</code> / <code>--REWARD_STEPSIZE</code></h4>
+<p>Initial average reward estimate and step size for the exponential moving average update. Defaults: <code>0.0</code>, <code>0.001</code>.</p>
+<h3 id="prioritized-experience-replay">Prioritized Experience Replay</h3>
+<h4 id="-prio_alpha"><code>--PRIO_ALPHA</code></h4>
+<p>Priority exponent for prioritized sampling of the rollout buffer. <code>0.0</code> = uniform sampling (default), <code>1.0</code> = fully prioritized by absolute advantage. Samples with higher absolute advantage are replayed more often, with importance sampling corrections to maintain unbiased gradients.</p>
+<h4 id="-prio_beta0"><code>--PRIO_BETA0</code></h4>
+<p>Initial importance sampling correction exponent. Annealed from <code>PRIO_BETA0</code> to <code>1.0</code> over training. <code>1.0</code> = full correction from the start (default). Lower values allow more biased but potentially faster early learning.</p>
+<h3 id="vtrace-puffer-advantage">VTrace / Puffer Advantage</h3>
+<h4 id="-rho_clip-c_clip"><code>--RHO_CLIP</code> / <code>--C_CLIP</code></h4>
+<p>Clipping parameters for VTrace-style off-policy correction in the advantage calculation. When both are set to positive values, the importance ratios in the GAE calculation are clipped:</p>
+<ul>
+<li><code>RHO_CLIP</code>: Clips the ratio used in the TD error (<code>delta = rho_t * (r + gamma * V(s') - V(s))</code>)</li>
+<li><code>C_CLIP</code>: Clips the ratio used in the GAE accumulation (<code>A_t = delta_t + gamma * lambda * c_t * A_{t+1}</code>)</li>
+</ul>
+<p>When both are <code>&lt;= 0</code> (default), standard GAE is used without clipping. When <code>lambda=1</code> and both clips are set, this reduces to the VTrace algorithm. These are useful when doing multiple epochs of updates, as the policy changes between epochs making the data off-policy.</p>
+<h3 id="-include_no_op"><code>--include_no_op</code></h3>
+<p>Add a "no operation" action to the action space. Default: <code>False</code>.</p>
+<h3 id="-step_on_gradient"><code>--STEP_ON_GRADIENT</code></h3>
+<p>When <code>True</code>, the schedule step counter increments on each gradient update (each minibatch). When <code>False</code> (default), it increments once per update loop. This affects how quickly learning rate and other schedules progress.</p>
+<h2 id="4-schedules">4. Schedules</h2>
+<p>XLRON supports scheduling for several hyperparameters. All schedules operate over the total number of gradient steps (<code>NUM_UPDATES * UPDATE_EPOCHS * NUM_MINIBATCHES</code>).</p>
+<h3 id="learning-rate-schedule">Learning Rate Schedule</h3>
+<h4 id="-lr_schedule"><code>--LR_SCHEDULE</code></h4>
+<table>
+<thead>
+<tr>
+<th>Value</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>cosine</code></td>
+<td>Cosine decay from <code>LR</code> to <code>LR * LR_END_FRACTION</code> (default)</td>
+</tr>
+<tr>
+<td><code>warmup_cosine</code></td>
+<td>Linear warmup to <code>LR * WARMUP_MULTIPLIER</code>, then cosine decay</td>
+</tr>
+<tr>
+<td><code>linear</code></td>
+<td>Linear decay from <code>LR</code> to <code>LR * LR_END_FRACTION</code></td>
+</tr>
+<tr>
+<td><code>constant</code></td>
+<td>Fixed learning rate</td>
+</tr>
+</tbody>
+</table>
+<h4 id="-lr_end_fraction"><code>--LR_END_FRACTION</code></h4>
+<p>Final learning rate as a fraction of initial LR. Default: <code>0.1</code> (i.e. LR decays to 10% of its initial value).</p>
+<h4 id="-warmup_multiplier"><code>--WARMUP_MULTIPLIER</code></h4>
+<p>Peak learning rate during warmup, as a multiple of initial LR. Default: <code>1.0</code>. Set to e.g. <code>2.0</code> to warm up to 2x the initial LR before decaying.</p>
+<h4 id="-warmup_steps_fraction"><code>--WARMUP_STEPS_FRACTION</code></h4>
+<p>Fraction of total training steps used for warmup. Default: <code>0.2</code>.</p>
+<h4 id="-lr_schedule_multiplier"><code>--LR_SCHEDULE_MULTIPLIER</code></h4>
+<p>Multiply the schedule horizon by this factor. Values &gt; 1.0 slow down the schedule (decay takes longer). Default: <code>1.0</code>.</p>
+<h3 id="entropy-schedule">Entropy Schedule</h3>
+<h4 id="-ent_schedule"><code>--ENT_SCHEDULE</code></h4>
+<p>Schedule for the entropy coefficient. Supports <code>constant</code> (default), <code>linear</code>, <code>cosine</code>. With <code>linear</code> or <code>cosine</code>, the entropy coefficient decays from <code>ENT_COEF</code> to <code>ENT_COEF * ENT_END_FRACTION</code>.</p>
+<h4 id="-ent_end_fraction"><code>--ENT_END_FRACTION</code></h4>
+<p>Final entropy coefficient as a fraction of initial. Default: <code>0.1</code>. Typical sweep values: <code>0.1</code>, <code>0.2</code>, <code>0.5</code>.</p>
+<h4 id="-ent_schedule_multiplier"><code>--ENT_SCHEDULE_MULTIPLIER</code></h4>
+<p>Multiply the entropy schedule horizon. Default: <code>1.0</code>.</p>
+<h3 id="separate-value-function-optimizer">Separate Value Function Optimizer</h3>
+<h4 id="-separate_vf_optimizer"><code>--SEPARATE_VF_OPTIMIZER</code></h4>
+<p>Use a separate optimizer for the critic (value function) with its own hyperparameters. Default: <code>False</code>. When enabled, the following flags control the critic optimizer:</p>
+<ul>
+<li><code>--VF_LR</code> — Learning rate (default: <code>LR / 3</code>)</li>
+<li><code>--VF_LR_SCHEDULE</code> — Schedule type (default: same as <code>LR_SCHEDULE</code>)</li>
+<li><code>--VF_LR_END_FRACTION</code> — End fraction (default: same as <code>LR_END_FRACTION</code>)</li>
+<li><code>--VF_WARMUP_MULTIPLIER</code> — Warmup peak (default: same as <code>WARMUP_MULTIPLIER</code>)</li>
+<li><code>--VF_WARMUP_STEPS_FRACTION</code> — Warmup fraction (default: same as <code>WARMUP_STEPS_FRACTION</code>)</li>
+<li><code>--VF_ADAM_EPS</code>, <code>--VF_ADAM_BETA1</code>, <code>--VF_ADAM_BETA2</code> — Adam parameters</li>
+<li><code>--VF_MAX_GRAD_NORM</code> — Gradient clipping</li>
+<li><code>--VF_WEIGHT_DECAY</code> — Weight decay</li>
+<li><code>--VF_SCHEDULE_MULTIPLIER</code> — Schedule horizon multiplier</li>
+</ul>
+<h2 id="5-model-architecture">5. Model Architecture</h2>
+<p>XLRON provides three neural network architectures. All follow an actor-critic design with shared or separate encoders.</p>
+<h3 id="mlp-default">MLP (Default)</h3>
+<p>A simple multi-layer perceptron. Used by default when neither <code>--USE_GNN</code> nor <code>--USE_TRANSFORMER</code> is set.</p>
+<table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Description</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--NUM_LAYERS</code></td>
+<td>Number of hidden layers (shared by actor and critic)</td>
+<td><code>2</code></td>
+</tr>
+<tr>
+<td><code>--NUM_UNITS</code></td>
+<td>Hidden units per layer</td>
+<td><code>64</code></td>
+</tr>
+<tr>
+<td><code>--ACTIVATION</code></td>
+<td>Activation function (<code>tanh</code>, <code>relu</code>)</td>
+<td><code>tanh</code></td>
+</tr>
+</tbody>
+</table>
+<p>The MLP takes a flat observation vector as input. Its simplicity makes it fast to train and a good baseline.</p>
+<h3 id="gnn-graph-neural-network">GNN (Graph Neural Network)</h3>
+<p>A Jraph-based graph neural network that operates directly on the network topology. Enabled with <code>--USE_GNN</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Description</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--message_passing_steps</code></td>
+<td>Rounds of message passing</td>
+<td><code>3</code></td>
+</tr>
+<tr>
+<td><code>--edge_embedding_size</code></td>
+<td>Edge embedding dimension</td>
+<td><code>128</code></td>
+</tr>
+<tr>
+<td><code>--edge_mlp_layers</code> / <code>--edge_mlp_latent</code></td>
+<td>Edge update MLP depth/width</td>
+<td><code>2</code> / <code>128</code></td>
+</tr>
+<tr>
+<td><code>--node_embedding_size</code></td>
+<td>Node embedding dimension</td>
+<td><code>16</code></td>
+</tr>
+<tr>
+<td><code>--node_mlp_layers</code> / <code>--node_mlp_latent</code></td>
+<td>Node update MLP depth/width</td>
+<td><code>2</code> / <code>128</code></td>
+</tr>
+<tr>
+<td><code>--global_embedding_size</code></td>
+<td>Global embedding dimension</td>
+<td><code>8</code></td>
+</tr>
+<tr>
+<td><code>--global_mlp_layers</code> / <code>--global_mlp_latent</code></td>
+<td>Global update MLP depth/width</td>
+<td><code>1</code> / <code>16</code></td>
+</tr>
+<tr>
+<td><code>--attn_mlp_layers</code> / <code>--attn_mlp_latent</code></td>
+<td>Attention MLP depth/width (0 to disable attention)</td>
+<td><code>1</code> / <code>64</code></td>
+</tr>
+<tr>
+<td><code>--num_spectral_features</code></td>
+<td>Number of spectral features per node</td>
+<td><code>8</code></td>
+</tr>
+<tr>
+<td><code>--gnn_layer_norm</code></td>
+<td>Layer normalization in GNN</td>
+<td><code>True</code></td>
+</tr>
+<tr>
+<td><code>--mlp_layer_norm</code></td>
+<td>Layer normalization in MLPs</td>
+<td><code>False</code></td>
+</tr>
+<tr>
+<td><code>--normalize_by_link_length</code></td>
+<td>Normalize features by link length</td>
+<td><code>False</code></td>
+</tr>
+<tr>
+<td><code>--DISABLE_NODE_FEATURES</code></td>
+<td>Disable node features (use only edge features)</td>
+<td><code>False</code></td>
+</tr>
+</tbody>
+</table>
+<p>The GNN has an inductive bias for graph-structured problems — it can generalize across topologies and naturally captures link adjacency. When <code>attn_mlp_layers &gt; 0</code>, it uses GATv2-style attention on edges.</p>
+<h3 id="transformer">Transformer</h3>
+<p>A transformer encoder that processes link-level tokens with graph-aware positional encodings (WIRE — Wavelet-Induced Rotary Encodings). Enabled with <code>--USE_TRANSFORMER</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Description</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--transformer_num_layers</code></td>
+<td>Number of transformer encoder layers</td>
+<td><code>1</code></td>
+</tr>
+<tr>
+<td><code>--transformer_num_heads</code></td>
+<td>Number of attention heads</td>
+<td><code>4</code></td>
+</tr>
+<tr>
+<td><code>--transformer_embedding_size</code></td>
+<td>Token embedding dimension</td>
+<td><code>128</code></td>
+</tr>
+<tr>
+<td><code>--transformer_intermediate_size</code></td>
+<td>Feed-forward hidden dimension</td>
+<td><code>256</code></td>
+</tr>
+<tr>
+<td><code>--transformer_obs_type</code></td>
+<td>Observation type: <code>departure</code> (departure times), <code>occupancy</code> (binary), or <code>capacity</code> (for RWA-LR)</td>
+<td><code>departure</code></td>
+</tr>
+<tr>
+<td><code>--num_wire_features</code></td>
+<td>Number of spectral features for WIRE positional encoding</td>
+<td><code>8</code></td>
+</tr>
+<tr>
+<td><code>--transformer_actor_mlp_width</code> / <code>--transformer_actor_mlp_depth</code></td>
+<td>Actor head MLP width/depth</td>
+<td><code>128</code> / <code>1</code></td>
+</tr>
+<tr>
+<td><code>--transformer_critic_mlp_width</code> / <code>--transformer_critic_mlp_depth</code></td>
+<td>Critic head MLP width/depth</td>
+<td><code>128</code> / <code>2</code></td>
+</tr>
+<tr>
+<td><code>--transformer_share_layers</code></td>
+<td>Share encoder layers between actor and critic</td>
+<td><code>False</code></td>
+</tr>
+<tr>
+<td><code>--transformer_dropout_rate</code> / <code>--transformer_attention_dropout_rate</code></td>
+<td>Dropout rates</td>
+<td><code>0.1</code> / <code>0.1</code></td>
+</tr>
+<tr>
+<td><code>--transformer_enable_dropout</code></td>
+<td>Enable dropout during training</td>
+<td><code>False</code></td>
+</tr>
+</tbody>
+</table>
+<p>The transformer processes each link as a token, with per-link spectral features and request-specific information. WIRE positional encodings inject graph structure through rotary embeddings derived from the graph Laplacian.</p>
+<h3 id="slot-aggregation">Slot Aggregation</h3>
+<h4 id="-aggregate_slots"><code>--aggregate_slots</code></h4>
+<p>Reduce the action space by grouping frequency slots into blocks of N. The agent selects a block, and first-fit allocation selects the specific slot within the block. Default: <code>1</code> (no aggregation). Typical values for large action spaces: <code>10</code>, <code>20</code>, <code>100</code>.</p>
+<h2 id="6-logging-saving-and-evaluation">6. Logging, Saving, and Evaluation</h2>
+<h3 id="weights-biases">Weights &amp; Biases</h3>
+<h4 id="-wandb"><code>--WANDB</code></h4>
+<p>Enable logging to W&amp;B. See <a href="../understanding_xlron/#weights-biases-wandb-integration">Understanding XLRON</a> for setup and sweep configuration.</p>
+<h4 id="-log_loss_info"><code>--LOG_LOSS_INFO</code></h4>
+<p>Log loss metrics (actor loss, value loss, entropy, etc.) to W&amp;B. Default: <code>True</code>.</p>
+<h4 id="-enhanced_logging"><code>--ENHANCED_LOGGING</code></h4>
+<p>Enable detailed diagnostic logging including valid fraction, clip fraction, ratio statistics, valid mass statistics, advantage statistics, and more. Useful for debugging training dynamics. Default: <code>False</code>.</p>
+<h3 id="model-saving-and-loading">Model Saving and Loading</h3>
+<h4 id="-save_model"><code>--SAVE_MODEL</code></h4>
+<p>Save the best model (by blocking probability) during training. Saved locally to <code>--MODEL_PATH</code> and uploaded to W&amp;B if <code>--WANDB</code> is enabled. Default: <code>False</code>.</p>
+<h4 id="-model_path"><code>--MODEL_PATH</code></h4>
+<p>Path to save/load model files. If unspecified, models are saved to <code>models/&lt;EXPERIMENT_NAME&gt;.eqx</code>.</p>
+<h4 id="-retrain_model"><code>--RETRAIN_MODEL</code></h4>
+<p>Load a previously saved model and continue training. Restores model weights but not optimizer state.</p>
+<h4 id="-eval_model"><code>--EVAL_MODEL</code></h4>
+<p>Load a saved model for evaluation only (no training). Uses the same evaluation infrastructure as heuristic evaluation.</p>
+<h4 id="-keep_vf"><code>--KEEP_VF</code></h4>
+<p>When loading a model, keep only the pre-trained value function (critic) and reinitialize the actor. Useful for transfer learning.</p>
+<h3 id="evaluation-during-training">Evaluation During Training</h3>
+<h4 id="-eval_during_training"><code>--EVAL_DURING_TRAINING</code></h4>
+<p>Run periodic evaluation using the current policy without exploration noise. This tracks the best-performing model across training. Default: <code>False</code>.</p>
+<h4 id="-eval_timesteps"><code>--EVAL_TIMESTEPS</code></h4>
+<p>Number of timesteps per evaluation run. Default: <code>10000</code>.</p>
+<h4 id="-eval_frequency"><code>--EVAL_FREQUENCY</code></h4>
+<p>Run evaluation every N increments. Default: <code>1</code>.</p>
+<h3 id="other-logging-flags">Other Logging Flags</h3>
+<h4 id="-data_output_file-traj_data_output_file"><code>--DATA_OUTPUT_FILE</code> / <code>--TRAJ_DATA_OUTPUT_FILE</code></h4>
+<p>Save per-episode or per-step metrics to CSV files.</p>
+<h4 id="-downsample_factor"><code>--DOWNSAMPLE_FACTOR</code></h4>
+<p>Block-average every N consecutive data points before uploading to W&amp;B. Default: <code>1</code>.</p>
+<h4 id="-log_actions-log_path_lengths"><code>--log_actions</code> / <code>--log_path_lengths</code></h4>
+<p>Log detailed per-step action and path length data. Default: <code>False</code>.</p>
+<h2 id="7-hyperparameter-sweeps">7. Hyperparameter Sweeps</h2>
+<p>XLRON supports W&amp;B hyperparameter sweeps. Define a sweep configuration YAML file and use the <code>wandb sweep</code> command to launch. See <a href="../understanding_xlron/#weights-biases-wandb-integration">Understanding XLRON</a> for full details.</p>
+<p>An example sweep config is provided at <code>examples/sweep.yaml</code>. The key hyperparameters to sweep are:</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Typical Range</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>LR</code></td>
+<td><code>1e-4</code> to <code>1e-3</code></td>
+<td>Most impactful hyperparameter</td>
+</tr>
+<tr>
+<td><code>GAMMA</code></td>
+<td><code>0.99</code> to <code>0.9999</code></td>
+<td>Discount factor</td>
+</tr>
+<tr>
+<td><code>GAE_LAMBDA</code></td>
+<td><code>0.9</code> to <code>0.999</code></td>
+<td>Advantage estimation horizon</td>
+</tr>
+<tr>
+<td><code>CLIP_EPS</code></td>
+<td><code>0.02</code>, <code>0.04</code>, <code>0.08</code>, <code>0.16</code></td>
+<td>PPO clipping</td>
+</tr>
+<tr>
+<td><code>VF_COEF</code></td>
+<td><code>0.1</code> to <code>1.0</code></td>
+<td>Value loss weight</td>
+</tr>
+<tr>
+<td><code>ENT_COEF</code></td>
+<td><code>0.001</code> to <code>0.1</code></td>
+<td>Exploration</td>
+</tr>
+<tr>
+<td><code>ENT_END_FRACTION</code></td>
+<td><code>0.1</code>, <code>0.2</code>, <code>0.5</code></td>
+<td>Entropy decay</td>
+</tr>
+<tr>
+<td><code>REWARD_SCALE</code></td>
+<td><code>1</code>, <code>10</code></td>
+<td>Reward magnitude</td>
+</tr>
+<tr>
+<td><code>OFF_POLICY_IAM</code></td>
+<td><code>true</code>, <code>false</code></td>
+<td>Action masking style</td>
+</tr>
+<tr>
+<td><code>ADAM_BETA1</code></td>
+<td><code>0.8</code> to <code>0.99</code></td>
+<td>Optimizer momentum</td>
+</tr>
+<tr>
+<td><code>ADAM_BETA2</code></td>
+<td><code>0.9</code> to <code>0.999</code></td>
+<td>Optimizer second moment</td>
+</tr>
+<tr>
+<td><code>ROLLOUT_LENGTH</code></td>
+<td><code>128</code>, <code>256</code></td>
+<td>Trajectory length</td>
+</tr>
+<tr>
+<td><code>aggregate_slots</code></td>
+<td><code>10</code>, <code>20</code>, <code>100</code></td>
+<td>Action space reduction</td>
+</tr>
+</tbody>
+</table>
+<p>For transformer-specific sweeps, also consider: <code>transformer_num_heads</code>, <code>transformer_embedding_size</code>, <code>transformer_obs_type</code>, <code>transformer_actor_mlp_width</code>, <code>transformer_actor_mlp_depth</code>.</p>
+<p>To launch a sweep:</p>
+<div class="highlight"><pre><span></span><code>wandb<span class="w"> </span>sweep<span class="w"> </span>examples/sweep.yaml
+wandb<span class="w"> </span>agent<span class="w"> </span>&lt;SWEEP_ID&gt;
+</code></pre></div>
+<h2 id="8-flagfiles">8. Flagfiles</h2>
+<p>You can save a set of flags to a text file and load them with <code>--flagfile=PATH</code>:</p>
+<div class="highlight"><pre><span></span><code># my_flags.txt
+--env_type=rmsa
+--topology_name=nsfnet_deeprmsa_directed
+--link_resources=100
+--k=50
+--load=250
+--continuous_operation
+--ENV_WARMUP_STEPS=3000
+</code></pre></div>
+<div class="highlight"><pre><span></span><code>python<span class="w"> </span>-m<span class="w"> </span>xlron.train.train<span class="w"> </span>--flagfile<span class="o">=</span>my_flags.txt<span class="w"> </span>--LR<span class="o">=</span>1e-4<span class="w"> </span>--NUM_ENVS<span class="o">=</span><span class="m">64</span>
+</code></pre></div>
+<p>Command-line flags override flagfile values.</p>
+<h2 id="examples">Examples</h2>
+<h3 id="example-1-deeprmsa-reproduction">Example 1: DeepRMSA Reproduction</h3>
+<p>Reproduce the DeepRMSA paper training setup:</p>
+<div class="highlight"><pre><span></span><code>python<span class="w"> </span>-m<span class="w"> </span>xlron.train.train<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--env_type<span class="o">=</span>deeprmsa<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--topology_name<span class="o">=</span>nsfnet_deeprmsa_directed<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--link_resources<span class="o">=</span><span class="m">100</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--k<span class="o">=</span><span class="m">5</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--load<span class="o">=</span><span class="m">250</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--mean_service_holding_time<span class="o">=</span><span class="m">25</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--max_requests<span class="o">=</span><span class="m">1000</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--continuous_operation<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--ENV_WARMUP_STEPS<span class="o">=</span><span class="m">3000</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--NUM_LAYERS<span class="o">=</span><span class="m">5</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--NUM_UNITS<span class="o">=</span><span class="m">128</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--NUM_ENVS<span class="o">=</span><span class="m">16</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--ROLLOUT_LENGTH<span class="o">=</span><span class="m">100</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--TOTAL_TIMESTEPS<span class="o">=</span><span class="m">5000000</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--LR<span class="o">=</span>5e-5<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--LR_SCHEDULE<span class="o">=</span>linear<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--WARMUP_MULTIPLIER<span class="o">=</span><span class="m">2</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--UPDATE_EPOCHS<span class="o">=</span><span class="m">10</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--GAE_LAMBDA<span class="o">=</span><span class="m">0</span>.9<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--GAMMA<span class="o">=</span><span class="m">0</span>.95<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--ACTION_MASKING
+</code></pre></div>
+<h3 id="example-2-rmsa-with-transformer-and-reward-centering">Example 2: RMSA with Transformer and Reward Centering</h3>
+<p>Train a transformer agent with reward centering and entropy scheduling:</p>
+<div class="highlight"><pre><span></span><code>python<span class="w"> </span>-m<span class="w"> </span>xlron.train.train<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--env_type<span class="o">=</span>rmsa<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--topology_name<span class="o">=</span>nsfnet_deeprmsa_directed<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--link_resources<span class="o">=</span><span class="m">100</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--k<span class="o">=</span><span class="m">50</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--load<span class="o">=</span><span class="m">200</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--mean_service_holding_time<span class="o">=</span><span class="m">1</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--continuous_operation<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--ENV_WARMUP_STEPS<span class="o">=</span><span class="m">3000</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--truncate_holding_time<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--USE_TRANSFORMER<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--transformer_num_layers<span class="o">=</span><span class="m">2</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--transformer_num_heads<span class="o">=</span><span class="m">4</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--transformer_embedding_size<span class="o">=</span><span class="m">128</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--transformer_obs_type<span class="o">=</span>departure<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--aggregate_slots<span class="o">=</span><span class="m">20</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--NUM_ENVS<span class="o">=</span><span class="m">64</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--TOTAL_TIMESTEPS<span class="o">=</span><span class="m">60000000</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--UPDATE_EPOCHS<span class="o">=</span><span class="m">1</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--LR<span class="o">=</span>5e-4<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--REWARD_CENTERING<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--ENT_COEF<span class="o">=</span><span class="m">0</span>.01<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--ENT_SCHEDULE<span class="o">=</span>cosine<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--ENT_END_FRACTION<span class="o">=</span><span class="m">0</span>.1<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--WANDB<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--LOG_LOSS_INFO<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--DOWNSAMPLE_FACTOR<span class="o">=</span><span class="m">100</span>
+</code></pre></div>
+<h3 id="example-3-gnn-agent">Example 3: GNN Agent</h3>
+<p>Train a GNN agent with graph attention:</p>
+<div class="highlight"><pre><span></span><code>python<span class="w"> </span>-m<span class="w"> </span>xlron.train.train<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--env_type<span class="o">=</span>rmsa<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--topology_name<span class="o">=</span>nsfnet_deeprmsa_directed<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--link_resources<span class="o">=</span><span class="m">100</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--k<span class="o">=</span><span class="m">5</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--load<span class="o">=</span><span class="m">250</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--continuous_operation<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--ENV_WARMUP_STEPS<span class="o">=</span><span class="m">3000</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--USE_GNN<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--message_passing_steps<span class="o">=</span><span class="m">3</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--edge_embedding_size<span class="o">=</span><span class="m">128</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--node_embedding_size<span class="o">=</span><span class="m">16</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--attn_mlp_layers<span class="o">=</span><span class="m">1</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--num_spectral_features<span class="o">=</span><span class="m">8</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--NUM_ENVS<span class="o">=</span><span class="m">32</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--TOTAL_TIMESTEPS<span class="o">=</span><span class="m">10000000</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--LR<span class="o">=</span>3e-4<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--GAMMA<span class="o">=</span><span class="m">0</span>.999<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--WANDB
+</code></pre></div>
+<h3 id="example-4-training-with-advanced-features">Example 4: Training with Advanced Features</h3>
+<p>Combine multiple algorithmic features:</p>
+<div class="highlight"><pre><span></span><code>python<span class="w"> </span>-m<span class="w"> </span>xlron.train.train<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--env_type<span class="o">=</span>rmsa<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--topology_name<span class="o">=</span>nsfnet_deeprmsa_directed<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--link_resources<span class="o">=</span><span class="m">100</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--k<span class="o">=</span><span class="m">50</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--load<span class="o">=</span><span class="m">250</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--continuous_operation<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--ENV_WARMUP_STEPS<span class="o">=</span><span class="m">3000</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--truncate_holding_time<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--NUM_ENVS<span class="o">=</span><span class="m">64</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--ROLLOUT_LENGTH<span class="o">=</span><span class="m">128</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--TOTAL_TIMESTEPS<span class="o">=</span><span class="m">20000000</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--LR<span class="o">=</span>3e-4<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--LR_SCHEDULE<span class="o">=</span>warmup_cosine<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--WARMUP_MULTIPLIER<span class="o">=</span><span class="m">2</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--WARMUP_STEPS_FRACTION<span class="o">=</span><span class="m">0</span>.1<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--GAMMA<span class="o">=</span><span class="m">0</span>.999<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--CLIP_EPS<span class="o">=</span><span class="m">0</span>.08<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--VF_COEF<span class="o">=</span><span class="m">0</span>.5<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--ENT_COEF<span class="o">=</span><span class="m">0</span>.01<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--ENT_SCHEDULE<span class="o">=</span>cosine<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--ENT_END_FRACTION<span class="o">=</span><span class="m">0</span>.2<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--REWARD_CENTERING<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--OFF_POLICY_IAM<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--VALID_MASS_LOSS_COEF<span class="o">=</span><span class="m">0</span>.01<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--REWARD_SCALE<span class="o">=</span><span class="m">10</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--WANDB<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--ENHANCED_LOGGING<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--SAVE_MODEL
+</code></pre></div>
+<h3 id="example-5-save-and-evaluate-a-model">Example 5: Save and Evaluate a Model</h3>
+<p>Save during training:</p>
+<div class="highlight"><pre><span></span><code>python<span class="w"> </span>-m<span class="w"> </span>xlron.train.train<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--env_type<span class="o">=</span>rmsa<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--topology_name<span class="o">=</span>nsfnet_deeprmsa_directed<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--link_resources<span class="o">=</span><span class="m">100</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--k<span class="o">=</span><span class="m">50</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--load<span class="o">=</span><span class="m">250</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--continuous_operation<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--ENV_WARMUP_STEPS<span class="o">=</span><span class="m">3000</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--NUM_ENVS<span class="o">=</span><span class="m">64</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--TOTAL_TIMESTEPS<span class="o">=</span><span class="m">10000000</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--LR<span class="o">=</span>3e-4<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--SAVE_MODEL<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--MODEL_PATH<span class="o">=</span>models/my_agent.eqx
+</code></pre></div>
+<p>Then evaluate:</p>
+<div class="highlight"><pre><span></span><code>python<span class="w"> </span>-m<span class="w"> </span>xlron.train.train<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--env_type<span class="o">=</span>rmsa<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--topology_name<span class="o">=</span>nsfnet_deeprmsa_directed<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--link_resources<span class="o">=</span><span class="m">100</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--k<span class="o">=</span><span class="m">50</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--load<span class="o">=</span><span class="m">250</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--continuous_operation<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--ENV_WARMUP_STEPS<span class="o">=</span><span class="m">3000</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--NUM_ENVS<span class="o">=</span><span class="m">2000</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--TOTAL_TIMESTEPS<span class="o">=</span><span class="m">20000000</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--EVAL_MODEL<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--MODEL_PATH<span class="o">=</span>models/my_agent.eqx
+</code></pre></div>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["content.tabs.link", "search.suggest"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+        <script src="../javascripts/mathjax.js"></script>
+      
+        <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
+      
+        <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+      
+    
+  </body>
+</html>

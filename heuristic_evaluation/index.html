@@ -1,0 +1,3175 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+        <link rel="canonical" href="https://micdoh.github.io/XLRON/heuristic_evaluation/">
+      
+      
+        <link rel="prev" href="../training/">
+      
+      
+        <link rel="next" href="../capacity_bounds/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.4">
+    
+    
+      
+        <title>Heuristic Evaluation - XLRON - Accelerated Learning and Resource Allocation for Optical Networks</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/_mkdocstrings.css">
+    
+      <link rel="stylesheet" href="../stylesheets/xlron.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="teal">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#heuristic-evaluation" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="XLRON - Accelerated Learning and Resource Allocation for Optical Networks" class="md-header__button md-logo" aria-label="XLRON - Accelerated Learning and Resource Allocation for Optical Networks" data-md-component="logo">
+      
+  <img src="../images/xlron_nobackground.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            XLRON - Accelerated Learning and Resource Allocation for Optical Networks
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Heuristic Evaluation
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+    
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="XLRON - Accelerated Learning and Resource Allocation for Optical Networks" class="md-nav__button md-logo" aria-label="XLRON - Accelerated Learning and Resource Allocation for Optical Networks" data-md-component="logo">
+      
+  <img src="../images/xlron_nobackground.png" alt="logo">
+
+    </a>
+    XLRON - Accelerated Learning and Resource Allocation for Optical Networks
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Why XLRON
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Why XLRON
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../features/speed/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Comparisons & Speed
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../features/physical_layer/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Physical Layer Model
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../features/differentiable/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Differentiable Simulation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../features/transformer/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Graph Transformer for RMSA
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../features/topologies/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Topologies
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../features/gui/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Graphical User Interface
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../understanding_xlron/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Understanding XLRON
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../gn_model/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GN Model Physical Layer
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../differentiable_dra/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Differentiable DRA Pipeline
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../training/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Training with PPO
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Heuristic Evaluation
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Heuristic Evaluation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#building-a-command" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Building a Command
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#1-problem-environment-flags" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Problem Environment Flags
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="1. Problem Environment Flags">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#-env_type" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --env_type
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-topology_name" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --topology_name
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-link_resources" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --link_resources
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-k" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --k
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-slot_size" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --slot_size
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-guardband" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --guardband
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-modulations_csv_filepath" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --modulations_csv_filepath
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-disjoint_paths" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --disjoint_paths
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-values_bw" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --values_bw
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-min_bw-max_bw-step_bw" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --min_bw / --max_bw / --step_bw
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-traffic-characteristics-flags" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Traffic Characteristics Flags
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. Traffic Characteristics Flags">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#-load" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --load
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-min_load-max_load-step_load" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --min_load / --max_load / --step_load
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-mean_service_holding_time" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --mean_service_holding_time
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-continuous_operation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --continuous_operation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-env_warmup_steps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --ENV_WARMUP_STEPS
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-max_requests" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --max_requests
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-incremental_loading" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --incremental_loading
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-end_first_blocking" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --end_first_blocking
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-truncate_holding_time" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --truncate_holding_time
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-relative_arrival_times" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --relative_arrival_times
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#traffic-matrix-options" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Traffic Matrix Options
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-heuristic-behaviour-flags" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Heuristic Behaviour Flags
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. Heuristic Behaviour Flags">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#-path_heuristic" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --path_heuristic
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-path_sort_criteria" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --path_sort_criteria
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-execution-control-flags" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Execution Control Flags
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4. Execution Control Flags">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#-num_envs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --NUM_ENVS
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-total_timesteps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --TOTAL_TIMESTEPS
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-steps_per_increment" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --STEPS_PER_INCREMENT
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-seed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --SEED
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-logging-and-output-flags" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Logging and Output Flags
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5. Logging and Output Flags">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#-wandb" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --WANDB
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-project-experiment_name" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --PROJECT / --EXPERIMENT_NAME
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-data_output_file" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --DATA_OUTPUT_FILE
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-traj_data_output_file" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --TRAJ_DATA_OUTPUT_FILE
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-downsample_factor" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --DOWNSAMPLE_FACTOR
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#rwa-lightpath-reuse-specific-flags" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        RWA-Lightpath Reuse Specific Flags
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="RWA-Lightpath Reuse Specific Flags">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#-scale_factor" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --scale_factor
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-symbol_rate" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --symbol_rate
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-path_sort_criteriacapacity" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --path_sort_criteria=capacity
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#gn-model-specific-flags" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        GN Model Specific Flags
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="GN Model Specific Flags">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#-launch_power_type" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --launch_power_type
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-snr_margin" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --snr_margin
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-max_power-min_power-step_power" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --max_power / --min_power / --step_power
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-last_fit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --last_fit
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-noise_data_filepath" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --noise_data_filepath
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-max_power_per_fibre" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --max_power_per_fibre
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#physical-layer-parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Physical Layer Parameters
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Examples
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Examples">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#example-1-deeprmsa-style-evaluation-on-nsfnet" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example 1: DeepRMSA-Style Evaluation on NSFNET
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#example-2-sweep-over-multiple-loads" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example 2: Sweep Over Multiple Loads
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#example-3-rsa-with-unit-bandwidth" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example 3: RSA with Unit Bandwidth
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#example-4-incremental-loading-on-rwa-lr" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example 4: Incremental Loading on RWA-LR
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#example-5-first-fit-across-all-paths-ff-ksp-on-jpn48" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example 5: First-Fit Across All Paths (FF-KSP) on JPN48
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#example-6-logging-results-to-file" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example 6: Logging Results to File
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../capacity_bounds/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Capacity Bound Estimation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../flags_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Command-line options
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Function reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reproducing the Papers
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reproducing the Papers
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../papers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview & papers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reproduce_jocn2024/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hype or Hope? (JOCN 2025)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reproduce_rwalr/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    RWA-LR (ONDM 2025)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reproduce_ecoc2026/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Capacity bounds comparison (ECOC 2026 submitted)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reproduce_jocn_xlron/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    XLRON framework (in prep.)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reproduce_jocn_transformer/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Graph Transformer (in prep.)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    About
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    About
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../license/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    License and Support
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#building-a-command" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Building a Command
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#1-problem-environment-flags" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Problem Environment Flags
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="1. Problem Environment Flags">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#-env_type" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --env_type
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-topology_name" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --topology_name
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-link_resources" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --link_resources
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-k" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --k
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-slot_size" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --slot_size
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-guardband" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --guardband
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-modulations_csv_filepath" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --modulations_csv_filepath
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-disjoint_paths" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --disjoint_paths
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-values_bw" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --values_bw
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-min_bw-max_bw-step_bw" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --min_bw / --max_bw / --step_bw
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-traffic-characteristics-flags" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Traffic Characteristics Flags
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. Traffic Characteristics Flags">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#-load" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --load
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-min_load-max_load-step_load" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --min_load / --max_load / --step_load
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-mean_service_holding_time" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --mean_service_holding_time
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-continuous_operation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --continuous_operation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-env_warmup_steps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --ENV_WARMUP_STEPS
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-max_requests" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --max_requests
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-incremental_loading" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --incremental_loading
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-end_first_blocking" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --end_first_blocking
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-truncate_holding_time" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --truncate_holding_time
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-relative_arrival_times" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --relative_arrival_times
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#traffic-matrix-options" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Traffic Matrix Options
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-heuristic-behaviour-flags" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Heuristic Behaviour Flags
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. Heuristic Behaviour Flags">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#-path_heuristic" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --path_heuristic
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-path_sort_criteria" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --path_sort_criteria
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-execution-control-flags" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Execution Control Flags
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4. Execution Control Flags">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#-num_envs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --NUM_ENVS
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-total_timesteps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --TOTAL_TIMESTEPS
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-steps_per_increment" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --STEPS_PER_INCREMENT
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-seed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --SEED
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-logging-and-output-flags" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Logging and Output Flags
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5. Logging and Output Flags">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#-wandb" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --WANDB
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-project-experiment_name" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --PROJECT / --EXPERIMENT_NAME
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-data_output_file" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --DATA_OUTPUT_FILE
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-traj_data_output_file" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --TRAJ_DATA_OUTPUT_FILE
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-downsample_factor" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --DOWNSAMPLE_FACTOR
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#rwa-lightpath-reuse-specific-flags" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        RWA-Lightpath Reuse Specific Flags
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="RWA-Lightpath Reuse Specific Flags">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#-scale_factor" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --scale_factor
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-symbol_rate" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --symbol_rate
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-path_sort_criteriacapacity" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --path_sort_criteria=capacity
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#gn-model-specific-flags" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        GN Model Specific Flags
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="GN Model Specific Flags">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#-launch_power_type" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --launch_power_type
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-snr_margin" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --snr_margin
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-max_power-min_power-step_power" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --max_power / --min_power / --step_power
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-last_fit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --last_fit
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-noise_data_filepath" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --noise_data_filepath
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-max_power_per_fibre" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --max_power_per_fibre
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#physical-layer-parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Physical Layer Parameters
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Examples
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Examples">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#example-1-deeprmsa-style-evaluation-on-nsfnet" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example 1: DeepRMSA-Style Evaluation on NSFNET
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#example-2-sweep-over-multiple-loads" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example 2: Sweep Over Multiple Loads
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#example-3-rsa-with-unit-bandwidth" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example 3: RSA with Unit Bandwidth
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#example-4-incremental-loading-on-rwa-lr" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example 4: Incremental Loading on RWA-LR
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#example-5-first-fit-across-all-paths-ff-ksp-on-jpn48" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example 5: First-Fit Across All Paths (FF-KSP) on JPN48
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#example-6-logging-results-to-file" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example 6: Logging Results to File
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="heuristic-evaluation">Heuristic Evaluation</h1>
+<p>XLRON includes implementations of classical heuristic algorithms for optical network resource allocation. These heuristics serve as baselines for comparison with RL-trained agents, and can also be used standalone to evaluate network performance under different traffic and topology configurations.</p>
+<p>Heuristic evaluation is accessed through the same <code>train.py</code> script used for RL training, with the <code>--EVAL_HEURISTIC</code> flag. When this flag is set, no neural network is created or trained — instead, the selected heuristic algorithm is used to make resource allocation decisions.</p>
+<h2 id="building-a-command">Building a Command</h2>
+<p>A heuristic evaluation command is constructed from several groups of flags:</p>
+<ol>
+<li><strong>The heuristic flag</strong> (<code>--EVAL_HEURISTIC</code>) — required to enable heuristic mode</li>
+<li><strong>Problem environment</strong> — topology, link resources, environment type</li>
+<li><strong>Traffic characteristics</strong> — load, holding time, arrival patterns</li>
+<li><strong>Heuristic behaviour</strong> — which algorithm to use, how to sort paths</li>
+<li><strong>Execution control</strong> — parallelism, timesteps, logging</li>
+</ol>
+<p>The minimal command is:</p>
+<div class="highlight"><pre><span></span><code>python<span class="w"> </span>-m<span class="w"> </span>xlron.train.train<span class="w"> </span>--EVAL_HEURISTIC<span class="w"> </span>--path_heuristic<span class="o">=</span>ksp_ff
+</code></pre></div>
+<p>This uses all default values (4-node topology, 5 link resources, etc.). In practice you will want to configure each group of flags for your specific scenario.</p>
+<h2 id="1-problem-environment-flags">1. Problem Environment Flags</h2>
+<p>These flags define the network topology and its resources.</p>
+<h3 id="-env_type"><code>--env_type</code></h3>
+<p>The environment type. For heuristic evaluation, the most commonly used types are:</p>
+<table>
+<thead>
+<tr>
+<th>Value</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>rsa</code></td>
+<td>Routing and Spectrum Assignment</td>
+</tr>
+<tr>
+<td><code>rmsa</code></td>
+<td>Routing, Modulation and Spectrum Assignment</td>
+</tr>
+<tr>
+<td><code>rwa</code></td>
+<td>Routing and Wavelength Assignment. A convenience wrapper around <code>rsa</code> that defaults to requested datarate of 1, slot size of 1, and spectral efficiency of 1 — i.e. each service occupies exactly one slot.</td>
+</tr>
+<tr>
+<td><code>deeprmsa</code></td>
+<td>DeepRMSA-compatible (same as <code>rmsa</code> but with a specific observation/action space)</td>
+</tr>
+<tr>
+<td><code>rsa_gn_model</code></td>
+<td>RSA with GN model physical layer impairments (see <a href="#gn-model-specific-flags">GN Model section</a>)</td>
+</tr>
+<tr>
+<td><code>rmsa_gn_model</code></td>
+<td>RMSA with GN model physical layer impairments (see <a href="#gn-model-specific-flags">GN Model section</a>)</td>
+</tr>
+<tr>
+<td><code>rwa_lightpath_reuse</code></td>
+<td>RWA with lightpath reuse (see <a href="#rwa-lightpath-reuse-specific-flags">RWA-LR section</a>)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="-topology_name"><code>--topology_name</code></h3>
+<p>The network topology to simulate. XLRON loads topologies from JSON files in <code>xlron/data/topologies/</code>. The topology name corresponds to the filename without the <code>.json</code> extension.</p>
+<p>Available topologies:</p>
+<table>
+<thead>
+<tr>
+<th>Topology</th>
+<th>Directed</th>
+<th>Undirected</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>NSFNET (DeepRMSA)</strong></td>
+<td><code>nsfnet_deeprmsa_directed</code></td>
+<td><code>nsfnet_deeprmsa_undirected</code></td>
+</tr>
+<tr>
+<td><strong>NSFNET (Nevin)</strong></td>
+<td>—</td>
+<td><code>nsfnet_nevin_undirected</code></td>
+</tr>
+<tr>
+<td><strong>COST239 (DeepRMSA)</strong></td>
+<td><code>cost239_deeprmsa_directed</code></td>
+<td><code>cost239_deeprmsa_undirected</code></td>
+</tr>
+<tr>
+<td><strong>COST239 (Nevin)</strong></td>
+<td>—</td>
+<td><code>cost239_nevin_undirected</code></td>
+</tr>
+<tr>
+<td><strong>COST239 (PtrNet published)</strong></td>
+<td><code>cost239_ptrnet_published_directed</code></td>
+<td><code>cost239_ptrnet_published_undirected</code></td>
+</tr>
+<tr>
+<td><strong>COST239 (PtrNet real)</strong></td>
+<td><code>cost239_ptrnet_real_directed</code></td>
+<td><code>cost239_ptrnet_real_undirected</code></td>
+</tr>
+<tr>
+<td><strong>USNET (GCN-RNN)</strong></td>
+<td><code>usnet_gcnrnn_directed</code></td>
+<td><code>usnet_gcnrnn_undirected</code></td>
+</tr>
+<tr>
+<td><strong>USNET (PtrNet)</strong></td>
+<td><code>usnet_ptrnet_directed</code></td>
+<td><code>usnet_ptrnet_undirected</code></td>
+</tr>
+<tr>
+<td><strong>JPN48</strong></td>
+<td><code>jpn48_directed</code></td>
+<td><code>jpn48_undirected</code></td>
+</tr>
+<tr>
+<td><strong>German17</strong></td>
+<td><code>german17_directed</code></td>
+<td><code>german17_undirected</code></td>
+</tr>
+<tr>
+<td><strong>CONUS</strong></td>
+<td><code>conus_directed</code></td>
+<td><code>conus_undirected</code></td>
+</tr>
+<tr>
+<td><strong>5-node</strong></td>
+<td><code>5node_directed</code></td>
+<td><code>5node_undirected</code></td>
+</tr>
+</tbody>
+</table>
+<div class="admonition note">
+<p class="admonition-title">Directed vs Undirected Topologies</p>
+<p><strong>Directed</strong> topologies treat each fibre direction as a separate link (e.g. A→B and B→A are distinct links with independent spectrum). <strong>Undirected</strong> topologies share spectrum between both directions of a link. The choice affects the number of links in the network, the k-shortest paths computed, and the resulting blocking probability. Use the variant that matches the assumptions of the paper or scenario you are reproducing.</p>
+</div>
+<p>You can also supply a custom topology directory with <code>--topology_directory</code>.</p>
+<div class="admonition note">
+<p class="admonition-title">Optional Node Coordinates for Rendering</p>
+<p>Topology JSON node entries can include <code>longitude</code> and <code>latitude</code> attributes.
+When present, XLRON render uses these coordinates to seed topology layout positions.</p>
+</div>
+<h3 id="-link_resources"><code>--link_resources</code></h3>
+<p>Number of frequency slot units (FSUs) per link. Common values: <code>40</code>, <code>80</code>, <code>100</code>.</p>
+<h3 id="-k"><code>--k</code></h3>
+<p>Number of k-shortest paths to pre-compute between each node pair. A higher value (e.g. <code>50</code>) gives heuristics more routing options but increases computation. Default: <code>5</code>.</p>
+<h3 id="-slot_size"><code>--slot_size</code></h3>
+<p>Spectral width of each frequency slot in GHz. Default: <code>12.5</code>.</p>
+<h3 id="-guardband"><code>--guardband</code></h3>
+<p>Number of guard band slots between adjacent services. Default: <code>1</code>. Set to <code>0</code> for scenarios that don't use guard bands.</p>
+<h3 id="-modulations_csv_filepath"><code>--modulations_csv_filepath</code></h3>
+<p>Path to a CSV file defining available modulation formats and their reach/spectral efficiency. Default: <code>./xlron/data/modulations/modulations_deeprmsa.csv</code>. Required for RMSA environments.</p>
+<h3 id="-disjoint_paths"><code>--disjoint_paths</code></h3>
+<p>Use link-disjoint paths instead of standard k-shortest paths.</p>
+<h3 id="-values_bw"><code>--values_bw</code></h3>
+<p>Comma-separated list of possible bandwidth (more precisely, data-rate) request values (in Gbps). For example, <code>--values_bw=1</code> for unit bandwidth or <code>--values_bw=1,1,1,1,1,1,1,1,1,1,1,1,1,1,2,2,2,3,3,4</code> for a distribution of bandwidth classes. When set, bandwidth requests are sampled uniformly from this list.</p>
+<h3 id="-min_bw-max_bw-step_bw"><code>--min_bw</code> / <code>--max_bw</code> / <code>--step_bw</code></h3>
+<p>Alternative to <code>--values_bw</code>. Define a range of bandwidth request values. Default: <code>25</code> to <code>100</code> Gbps in steps of <code>1</code>.</p>
+<h2 id="2-traffic-characteristics-flags">2. Traffic Characteristics Flags</h2>
+<p>These flags control how traffic is generated in the simulation.</p>
+<h3 id="-load"><code>--load</code></h3>
+<p>The offered traffic load in Erlangs. This is the primary traffic parameter — it equals <code>arrival_rate * mean_service_holding_time</code>. The arrival rate is derived from the load and holding time. Higher load means more congestion and higher blocking probability.</p>
+<h3 id="-min_load-max_load-step_load"><code>--min_load</code> / <code>--max_load</code> / <code>--step_load</code></h3>
+<p>When all three are set, the script sweeps loads from <code>min_load</code> to <code>max_load</code> (inclusive) in steps of <code>step_load</code>. The environment is compiled once and reused across all loads without JIT recompilation, which is significantly faster than running separate processes per load. Each load produces its own JSONL summary line. <code>--load</code> should be set to the maximum load in the sweep range for initial compilation. Example:</p>
+<div class="highlight"><pre><span></span><code>python<span class="w"> </span>-m<span class="w"> </span>xlron.train.train<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--load<span class="o">=</span><span class="m">300</span><span class="w"> </span>--min_load<span class="o">=</span><span class="m">150</span><span class="w"> </span>--max_load<span class="o">=</span><span class="m">300</span><span class="w"> </span>--step_load<span class="o">=</span><span class="m">10</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--env_type<span class="o">=</span>rmsa<span class="w"> </span>--topology_name<span class="o">=</span>nsfnet_deeprmsa_directed<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--link_resources<span class="o">=</span><span class="m">100</span><span class="w"> </span>--k<span class="o">=</span><span class="m">50</span><span class="w"> </span>--continuous_operation<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--ENV_WARMUP_STEPS<span class="o">=</span><span class="m">3000</span><span class="w"> </span>--TOTAL_TIMESTEPS<span class="o">=</span><span class="m">100000</span><span class="w"> </span>--NUM_ENVS<span class="o">=</span><span class="m">10</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--EVAL_HEURISTIC<span class="w"> </span>--path_heuristic<span class="o">=</span>ksp_ff
+</code></pre></div>
+<h3 id="-mean_service_holding_time"><code>--mean_service_holding_time</code></h3>
+<p>Mean holding time for connection requests. Default: <code>25</code>. The arrival rate is calculated as <code>load / mean_service_holding_time</code>. You can set this to match the assumptions of a specific paper (e.g. <code>20</code> for DeepRMSA), but the load in Erlangs is what determines network congestion.</p>
+<h3 id="-continuous_operation"><code>--continuous_operation</code></h3>
+<p>When enabled, the environment does not reset between episodes. Services arrive and depart continuously, and the network state carries over. This is the standard mode for steady-state blocking probability measurements. <strong>Recommended for heuristic evaluation.</strong></p>
+<h3 id="-env_warmup_steps"><code>--ENV_WARMUP_STEPS</code></h3>
+<p>Number of initial environment steps to run before collecting statistics. This allows the network to reach a steady state before measurements begin. A typical value is <code>3000</code> but higher loads may require more warmup steps to stabilize. Only meaningful when <code>--continuous_operation</code> is enabled.</p>
+<h3 id="-max_requests"><code>--max_requests</code></h3>
+<p>Maximum number of connection requests per episode. This only applies to <strong>episodic</strong> (non-continuous) operation, where it defines the episode length. In <code>--continuous_operation</code> mode, this flag is ignored — <code>max_requests</code> is automatically set to <code>TOTAL_TIMESTEPS</code>. Default: <code>4</code>.</p>
+<h3 id="-incremental_loading"><code>--incremental_loading</code></h3>
+<p>Non-expiring requests — services never depart once established. Used for incremental loading scenarios where you measure how many services can be packed into the network before blocking occurs. Typically used together with <code>--end_first_blocking</code>.</p>
+<h3 id="-end_first_blocking"><code>--end_first_blocking</code></h3>
+<p>End the episode as soon as the first blocking event occurs. Useful in combination with <code>--incremental_loading</code> to measure exactly how many services can be successfully established before the network runs out of resources.</p>
+<h3 id="-truncate_holding_time"><code>--truncate_holding_time</code></h3>
+<p>Truncate sampled holding times to be less than <code>2 * mean_service_holding_time</code>. This is used specifically to match the DeepRMSA paper's traffic model. Not needed for most other scenarios.</p>
+<h3 id="-relative_arrival_times"><code>--relative_arrival_times</code></h3>
+<p>Track relative inter-arrival times rather than absolute timestamps. Default: <code>True</code>. This is the standard approach.</p>
+<h3 id="traffic-matrix-options">Traffic Matrix Options</h3>
+<p>By default, traffic is uniformly distributed across all source-destination pairs. You can change this with:</p>
+<ul>
+<li><code>--random_traffic</code> — Generate a random traffic matrix on each environment reset</li>
+<li><code>--custom_traffic_matrix_csv_filepath</code> — Load a specific traffic matrix from a CSV file</li>
+</ul>
+<h2 id="3-heuristic-behaviour-flags">3. Heuristic Behaviour Flags</h2>
+<h3 id="-path_heuristic"><code>--path_heuristic</code></h3>
+<p>The heuristic algorithm to use. Available options:</p>
+<table>
+<thead>
+<tr>
+<th>Heuristic</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ksp_ff</code></td>
+<td><strong>K-Shortest Path, First-Fit.</strong> Try paths in order (shortest first); on each path, allocate the first available contiguous slot block. The most common baseline.</td>
+</tr>
+<tr>
+<td><code>ksp_lf</code></td>
+<td><strong>K-Shortest Path, Last-Fit.</strong> Try paths in order; allocate the last available slot block on each path.</td>
+</tr>
+<tr>
+<td><code>ksp_bf</code></td>
+<td><strong>K-Shortest Path, Best-Fit.</strong> Try paths in order; allocate the slot block that leaves the smallest remaining gap.</td>
+</tr>
+<tr>
+<td><code>ksp_mu</code></td>
+<td><strong>K-Shortest Path, Most-Used.</strong> Try paths in order; prefer slots in the most congested region of the spectrum.</td>
+</tr>
+<tr>
+<td><code>ff_ksp</code></td>
+<td><strong>First-Fit across K-Shortest Paths.</strong> Search all k paths simultaneously for the globally first available slot.</td>
+</tr>
+<tr>
+<td><code>lf_ksp</code></td>
+<td><strong>Last-Fit across K-Shortest Paths.</strong> Search all k paths for the globally last available slot.</td>
+</tr>
+<tr>
+<td><code>bf_ksp</code></td>
+<td><strong>Best-Fit across K-Shortest Paths.</strong> Search all k paths for the globally best-fit slot.</td>
+</tr>
+<tr>
+<td><code>mu_ksp</code></td>
+<td><strong>Most-Used across K-Shortest Paths.</strong> Search all k paths; prefer globally most-used slots.</td>
+</tr>
+<tr>
+<td><code>kmc_ff</code></td>
+<td><strong>K-Minimum Cut, First-Fit.</strong> Select path that minimises cut metric, then first-fit.</td>
+</tr>
+<tr>
+<td><code>kmf_ff</code></td>
+<td><strong>K-Minimum Fragmentation, First-Fit.</strong> Select path that minimises fragmentation, then first-fit.</td>
+</tr>
+<tr>
+<td><code>kme_ff</code></td>
+<td><strong>K-Minimum Entropy, First-Fit.</strong> Select path that minimises spectrum entropy, then first-fit.</td>
+</tr>
+<tr>
+<td><code>kca_ff</code></td>
+<td><strong>Congestion-Aware, First-Fit.</strong> Select path considering link congestion, then first-fit.</td>
+</tr>
+</tbody>
+</table>
+<p>Default: <code>ksp_ff</code>.</p>
+<h3 id="-path_sort_criteria"><code>--path_sort_criteria</code></h3>
+<p>Controls how the k-shortest paths are sorted before being presented to the heuristic. This affects which path is "first" in KSP-based heuristics.</p>
+<table>
+<thead>
+<tr>
+<th>Value</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>spectral_resources</code></td>
+<td>Sort by ratio of hops to spectral efficiency (default). Balances path length against modulation efficiency.</td>
+</tr>
+<tr>
+<td><code>hops</code></td>
+<td>Sort by number of hops (fewest first).</td>
+</tr>
+<tr>
+<td><code>distance</code></td>
+<td>Sort by physical distance (shortest first).</td>
+</tr>
+<tr>
+<td><code>hops_distance</code></td>
+<td>Sort by hops first, then by distance as a tiebreaker.</td>
+</tr>
+<tr>
+<td><code>capacity</code></td>
+<td>Sort by path capacity (for RWA-LR environments only).</td>
+</tr>
+</tbody>
+</table>
+<h2 id="4-execution-control-flags">4. Execution Control Flags</h2>
+<h3 id="-num_envs"><code>--NUM_ENVS</code></h3>
+<p>Number of parallel environment instances. Each environment runs an independent simulation with its own random seed. More environments give better statistical estimates. Typical values: <code>100</code> to <code>2000</code>.</p>
+<h3 id="-total_timesteps"><code>--TOTAL_TIMESTEPS</code></h3>
+<p>Total number of environment steps to simulate, divided across all environments. For example, <code>--TOTAL_TIMESTEPS=20000000</code> with <code>--NUM_ENVS=2000</code> gives 10,000 steps per environment. Higher values give more precise blocking probability estimates.</p>
+<h3 id="-steps_per_increment"><code>--STEPS_PER_INCREMENT</code></h3>
+<p>Number of steps between logging/reporting intervals. Statistics are computed and printed at the end of each increment. For example, with <code>--TOTAL_TIMESTEPS=20000000</code> and <code>--STEPS_PER_INCREMENT=20000000</code>, statistics are reported once at the end. With <code>--STEPS_PER_INCREMENT=1000000</code>, you get 20 intermediate reports.</p>
+<h3 id="-seed"><code>--SEED</code></h3>
+<p>Random seed for reproducibility. Default: <code>42</code>.</p>
+<h2 id="5-logging-and-output-flags">5. Logging and Output Flags</h2>
+<h3 id="-wandb"><code>--WANDB</code></h3>
+<p>Enable logging to <a href="https://wandb.ai/">Weights &amp; Biases</a>. See <a href="../understanding_xlron/#weights-biases-wandb-integration">Understanding XLRON</a> for setup instructions.</p>
+<h3 id="-project-experiment_name"><code>--PROJECT</code> / <code>--EXPERIMENT_NAME</code></h3>
+<p>Set the W&amp;B project and run name. If unspecified, an experiment name is auto-generated from the flags.</p>
+<h3 id="-data_output_file"><code>--DATA_OUTPUT_FILE</code></h3>
+<p>Path to a CSV file for saving per-episode metrics. For example: <code>--DATA_OUTPUT_FILE=results.csv</code>.</p>
+<h3 id="-traj_data_output_file"><code>--TRAJ_DATA_OUTPUT_FILE</code></h3>
+<p>Path to a CSV file for saving per-step trajectory data (actions, requests, etc.).</p>
+<h3 id="-downsample_factor"><code>--DOWNSAMPLE_FACTOR</code></h3>
+<p>Reduce the amount of data uploaded to W&amp;B by averaging every N consecutive data points into one (a block/windowed average). For example, <code>--DOWNSAMPLE_FACTOR=10</code> averages each group of 10 data points into a single logged value. Default: <code>1</code> (no averaging).</p>
+<h2 id="rwa-lightpath-reuse-specific-flags">RWA-Lightpath Reuse Specific Flags</h2>
+<p>The <code>rwa_lightpath_reuse</code> environment models wavelength-level routing where multiple sub-wavelength services can share a lightpath. It has a few additional flags:</p>
+<h3 id="-scale_factor"><code>--scale_factor</code></h3>
+<p>Scale factor for lightpath capacity. Multiplies the calculated capacity of each lightpath. Default: <code>1.0</code>. Increase to model higher-capacity transceivers or decrease to model more conservative capacity estimates or reduce episode length. This interacts with the <code>--max_requests</code> flag in episodic mode, effectively controlling the episode length when using incremental loading.</p>
+<h3 id="-symbol_rate"><code>--symbol_rate</code></h3>
+<p>Symbol rate in Gbaud. Used to calculate lightpath capacity. Default: <code>100</code>.</p>
+<h3 id="-path_sort_criteriacapacity"><code>--path_sort_criteria=capacity</code></h3>
+<p>The <code>capacity</code> sort criterion is specific to the RWA-LR environment — it sorts paths by their lightpath capacity.</p>
+<p>When using <code>rwa_lightpath_reuse</code>, the <code>--max_requests</code> flag interacts with <code>--scale_factor</code>: the effective episode length becomes <code>max_requests * scale_factor</code>.</p>
+<h2 id="gn-model-specific-flags">GN Model Specific Flags</h2>
+<p>The <code>rsa_gn_model</code> and <code>rmsa_gn_model</code> environments include a closed-form ISRS GN model for estimating physical layer impairments. When running heuristic evaluation with these environments, the heuristic selects the path and spectrum assignment as usual, and launch power is automatically calculated (the <code>--launch_power_type</code> must not be <code>rl</code> for heuristic evaluation).</p>
+<h3 id="-launch_power_type"><code>--launch_power_type</code></h3>
+<p>How launch power is determined. For heuristic evaluation, use <code>fixed</code> (same power per transceiver, default) or <code>tabular</code> (power depends on path). The <code>rl</code> option is not compatible with <code>--EVAL_HEURISTIC</code>.</p>
+<h3 id="-snr_margin"><code>--snr_margin</code></h3>
+<p>Required SNR margin (in dB) above the modulation format threshold for a connection to be accepted. Default: <code>0.5</code>.</p>
+<h3 id="-max_power-min_power-step_power"><code>--max_power</code> / <code>--min_power</code> / <code>--step_power</code></h3>
+<p>Launch power range and step size in dBm. Default: <code>0.5</code>, <code>-5</code>, <code>0.1</code>.</p>
+<h3 id="-last_fit"><code>--last_fit</code></h3>
+<p>When enabled, use KSP-LF (last-fit) instead of KSP-FF (first-fit) for the path action in GN model environments. Default: <code>False</code>.</p>
+<h3 id="-noise_data_filepath"><code>--noise_data_filepath</code></h3>
+<p>Path to transceiver and amplifier noise data file. Default: <code>None</code> (uses analytical noise model).</p>
+<h3 id="-max_power_per_fibre"><code>--max_power_per_fibre</code></h3>
+<p>Maximum total launch power per fibre in dBm. Default: <code>21.0</code>. The per-channel launch power is <code>max_power_per_fibre - 10*log10(link_resources)</code> in dBm. For <code>link_resources=150</code>, the default of 21 dBm gives approximately -0.76 dBm per channel, which is in the optimal range for C-band EDFA systems. If the GN model mask finds zero valid actions on an empty network, increase this value.</p>
+<h3 id="physical-layer-parameters">Physical Layer Parameters</h3>
+<p>These control the fibre and amplifier characteristics used in the GN model:</p>
+<table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Description</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--alpha</code></td>
+<td>Fibre attenuation coefficient [dB/km]</td>
+<td><code>0.2</code></td>
+</tr>
+<tr>
+<td><code>--beta_2</code></td>
+<td>Dispersion parameter [ps^2/km]</td>
+<td><code>-21.7</code></td>
+</tr>
+<tr>
+<td><code>--gamma</code></td>
+<td>Nonlinear coefficient</td>
+<td><code>1.2</code></td>
+</tr>
+<tr>
+<td><code>--span_length</code></td>
+<td>Span length [km]</td>
+<td><code>100</code></td>
+</tr>
+<tr>
+<td><code>--amplifier_noise_figure</code></td>
+<td>Amplifier noise figure [dB]</td>
+<td><code>4.5</code></td>
+</tr>
+<tr>
+<td><code>--ref_lambda</code></td>
+<td>Reference wavelength [m]</td>
+<td><code>1564e-9</code></td>
+</tr>
+<tr>
+<td><code>--coherent</code></td>
+<td>Add NLI contribution coherently per span</td>
+<td><code>False</code></td>
+</tr>
+<tr>
+<td><code>--uniform_spans</code></td>
+<td>Use uniform spans (simplifies calculations)</td>
+<td><code>True</code></td>
+</tr>
+</tbody>
+</table>
+<h2 id="examples">Examples</h2>
+<h3 id="example-1-deeprmsa-style-evaluation-on-nsfnet">Example 1: DeepRMSA-Style Evaluation on NSFNET</h3>
+<p>Reproduce the KSP-FF baseline from the DeepRMSA paper on the directed NSFNET topology:</p>
+<div class="highlight"><pre><span></span><code>python<span class="w"> </span>-m<span class="w"> </span>xlron.train.train<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--EVAL_HEURISTIC<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--path_heuristic<span class="o">=</span>ksp_ff<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--env_type<span class="o">=</span>rmsa<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--topology_name<span class="o">=</span>nsfnet_deeprmsa_directed<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--link_resources<span class="o">=</span><span class="m">100</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--k<span class="o">=</span><span class="m">50</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--mean_service_holding_time<span class="o">=</span><span class="m">20</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--truncate_holding_time<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--continuous_operation<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--ENV_WARMUP_STEPS<span class="o">=</span><span class="m">3000</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--modulations_csv_filepath<span class="o">=</span><span class="s2">&quot;./xlron/data/modulations/modulations_deeprmsa.csv&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--TOTAL_TIMESTEPS<span class="o">=</span><span class="m">20000000</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--NUM_ENVS<span class="o">=</span><span class="m">2000</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--load<span class="o">=</span><span class="m">250</span>
+</code></pre></div>
+<p>Key points:</p>
+<ul>
+<li><code>--truncate_holding_time</code> and <code>--mean_service_holding_time=20</code> match the DeepRMSA paper's traffic model.</li>
+<li><code>--k=50</code> provides a large set of candidate paths.</li>
+<li><code>--ENV_WARMUP_STEPS=3000</code> lets the network reach steady state before measuring.</li>
+<li><code>--NUM_ENVS=2000</code> runs 2000 parallel simulations for statistical confidence.</li>
+<li>Vary <code>--load</code> (e.g. from 150 to 300) to sweep the traffic load and plot blocking probability curves.</li>
+</ul>
+<h3 id="example-2-sweep-over-multiple-loads">Example 2: Sweep Over Multiple Loads</h3>
+<p>To generate a blocking probability curve, run the same command for multiple load values:</p>
+<div class="highlight"><pre><span></span><code><span class="k">for</span><span class="w"> </span>load<span class="w"> </span><span class="k">in</span><span class="w"> </span><span class="m">150</span><span class="w"> </span><span class="m">160</span><span class="w"> </span><span class="m">170</span><span class="w"> </span><span class="m">180</span><span class="w"> </span><span class="m">190</span><span class="w"> </span><span class="m">200</span><span class="w"> </span><span class="m">210</span><span class="w"> </span><span class="m">220</span><span class="w"> </span><span class="m">230</span><span class="w"> </span><span class="m">240</span><span class="w"> </span><span class="m">250</span><span class="w"> </span><span class="m">260</span><span class="w"> </span><span class="m">270</span><span class="w"> </span><span class="m">280</span><span class="w"> </span><span class="m">290</span><span class="w"> </span><span class="m">300</span><span class="p">;</span><span class="w"> </span><span class="k">do</span>
+<span class="w">    </span>python<span class="w"> </span>-m<span class="w"> </span>xlron.train.train<span class="w"> </span><span class="se">\</span>
+<span class="w">        </span>--EVAL_HEURISTIC<span class="w"> </span><span class="se">\</span>
+<span class="w">        </span>--path_heuristic<span class="o">=</span>ksp_ff<span class="w"> </span><span class="se">\</span>
+<span class="w">        </span>--env_type<span class="o">=</span>rmsa<span class="w"> </span><span class="se">\</span>
+<span class="w">        </span>--topology_name<span class="o">=</span>nsfnet_deeprmsa_directed<span class="w"> </span><span class="se">\</span>
+<span class="w">        </span>--link_resources<span class="o">=</span><span class="m">100</span><span class="w"> </span><span class="se">\</span>
+<span class="w">        </span>--k<span class="o">=</span><span class="m">50</span><span class="w"> </span><span class="se">\</span>
+<span class="w">        </span>--mean_service_holding_time<span class="o">=</span><span class="m">20</span><span class="w"> </span><span class="se">\</span>
+<span class="w">        </span>--truncate_holding_time<span class="w"> </span><span class="se">\</span>
+<span class="w">        </span>--continuous_operation<span class="w"> </span><span class="se">\</span>
+<span class="w">        </span>--ENV_WARMUP_STEPS<span class="o">=</span><span class="m">3000</span><span class="w"> </span><span class="se">\</span>
+<span class="w">        </span>--TOTAL_TIMESTEPS<span class="o">=</span><span class="m">20000000</span><span class="w"> </span><span class="se">\</span>
+<span class="w">        </span>--NUM_ENVS<span class="o">=</span><span class="m">2000</span><span class="w"> </span><span class="se">\</span>
+<span class="w">        </span>--load<span class="o">=</span><span class="nv">$load</span>
+<span class="k">done</span>
+</code></pre></div>
+<h3 id="example-3-rsa-with-unit-bandwidth">Example 3: RSA with Unit Bandwidth</h3>
+<p>Evaluate KSP-FF on an undirected NSFNET with 40 FSUs and unit-bandwidth requests (no modulation-dependent slot sizing):</p>
+<div class="highlight"><pre><span></span><code>python<span class="w"> </span>-m<span class="w"> </span>xlron.train.train<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--EVAL_HEURISTIC<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--path_heuristic<span class="o">=</span>ksp_ff<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--env_type<span class="o">=</span>rsa<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--topology_name<span class="o">=</span>nsfnet_deeprmsa_undirected<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--link_resources<span class="o">=</span><span class="m">40</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--k<span class="o">=</span><span class="m">50</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--slot_size<span class="o">=</span><span class="m">1</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--guardband<span class="o">=</span><span class="m">0</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--mean_service_holding_time<span class="o">=</span><span class="m">10</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--values_bw<span class="o">=</span><span class="m">1</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--continuous_operation<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--ENV_WARMUP_STEPS<span class="o">=</span><span class="m">3000</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--TOTAL_TIMESTEPS<span class="o">=</span><span class="m">20000000</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--NUM_ENVS<span class="o">=</span><span class="m">2000</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--load<span class="o">=</span><span class="m">250</span>
+</code></pre></div>
+<h3 id="example-4-incremental-loading-on-rwa-lr">Example 4: Incremental Loading on RWA-LR</h3>
+<p>Evaluate incremental loading (non-expiring requests) on the NSFNET with the <code>rwa_lightpath_reuse</code> environment:</p>
+<div class="highlight"><pre><span></span><code>python<span class="w"> </span>-m<span class="w"> </span>xlron.train.train<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--EVAL_HEURISTIC<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--path_heuristic<span class="o">=</span>ksp_ff<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--env_type<span class="o">=</span>rwa_lightpath_reuse<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--topology_name<span class="o">=</span>nsfnet_nevin_undirected<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--link_resources<span class="o">=</span><span class="m">80</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--k<span class="o">=</span><span class="m">5</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--scale_factor<span class="o">=</span><span class="m">1</span>.0<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--incremental_loading<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--path_sort_criteria<span class="o">=</span>capacity<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--TOTAL_TIMESTEPS<span class="o">=</span><span class="m">1000000</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--NUM_ENVS<span class="o">=</span><span class="m">100</span>
+</code></pre></div>
+<p>Key points:</p>
+<ul>
+<li><code>--incremental_loading</code> means services never expire — the network fills up until blocking.</li>
+<li><code>--scale_factor</code> controls lightpath capacity scaling.</li>
+<li><code>--path_sort_criteria=capacity</code> sorts candidate paths by their lightpath capacity, which is specific to the RWA-LR environment.</li>
+<li>No <code>--ENV_WARMUP_STEPS</code> or <code>--continuous_operation</code> needed for incremental loading.</li>
+</ul>
+<h3 id="example-5-first-fit-across-all-paths-ff-ksp-on-jpn48">Example 5: First-Fit Across All Paths (FF-KSP) on JPN48</h3>
+<p>Use the <code>ff_ksp</code> heuristic which searches all k paths for the globally first available slot:</p>
+<div class="highlight"><pre><span></span><code>python<span class="w"> </span>-m<span class="w"> </span>xlron.train.train<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--EVAL_HEURISTIC<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--path_heuristic<span class="o">=</span>ff_ksp<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--env_type<span class="o">=</span>rmsa<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--topology_name<span class="o">=</span>jpn48_undirected<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--link_resources<span class="o">=</span><span class="m">80</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--k<span class="o">=</span><span class="m">50</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--max_bw<span class="o">=</span><span class="m">50</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--guardband<span class="o">=</span><span class="m">0</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--slot_size<span class="o">=</span><span class="m">12</span>.5<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--mean_service_holding_time<span class="o">=</span><span class="m">12</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--continuous_operation<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--ENV_WARMUP_STEPS<span class="o">=</span><span class="m">3000</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--TOTAL_TIMESTEPS<span class="o">=</span><span class="m">20000000</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--NUM_ENVS<span class="o">=</span><span class="m">2000</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--load<span class="o">=</span><span class="m">200</span>
+</code></pre></div>
+<h3 id="example-6-logging-results-to-file">Example 6: Logging Results to File</h3>
+<p>Save results to a CSV file for post-processing:</p>
+<div class="highlight"><pre><span></span><code>python<span class="w"> </span>-m<span class="w"> </span>xlron.train.train<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--EVAL_HEURISTIC<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--path_heuristic<span class="o">=</span>ksp_ff<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--env_type<span class="o">=</span>rmsa<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--topology_name<span class="o">=</span>nsfnet_deeprmsa_directed<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--link_resources<span class="o">=</span><span class="m">100</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--k<span class="o">=</span><span class="m">50</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--continuous_operation<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--ENV_WARMUP_STEPS<span class="o">=</span><span class="m">3000</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--TOTAL_TIMESTEPS<span class="o">=</span><span class="m">20000000</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--NUM_ENVS<span class="o">=</span><span class="m">2000</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--load<span class="o">=</span><span class="m">250</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--DATA_OUTPUT_FILE<span class="o">=</span>results.csv
+</code></pre></div>
+<p>Or log to Weights &amp; Biases:</p>
+<div class="highlight"><pre><span></span><code>python<span class="w"> </span>-m<span class="w"> </span>xlron.train.train<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--EVAL_HEURISTIC<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--path_heuristic<span class="o">=</span>ksp_ff<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--env_type<span class="o">=</span>rmsa<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--topology_name<span class="o">=</span>nsfnet_deeprmsa_directed<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--link_resources<span class="o">=</span><span class="m">100</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--k<span class="o">=</span><span class="m">50</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--continuous_operation<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--ENV_WARMUP_STEPS<span class="o">=</span><span class="m">3000</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--TOTAL_TIMESTEPS<span class="o">=</span><span class="m">20000000</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--NUM_ENVS<span class="o">=</span><span class="m">2000</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--load<span class="o">=</span><span class="m">250</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--WANDB<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--PROJECT<span class="o">=</span><span class="s2">&quot;heuristic_baselines&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--EXPERIMENT_NAME<span class="o">=</span><span class="s2">&quot;ksp_ff_nsfnet_250E&quot;</span>
+</code></pre></div>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["content.tabs.link", "search.suggest"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+        <script src="../javascripts/mathjax.js"></script>
+      
+        <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
+      
+        <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+      
+    
+  </body>
+</html>

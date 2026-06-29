@@ -1,0 +1,3608 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+        <link rel="canonical" href="https://micdoh.github.io/XLRON/gn_model/">
+      
+      
+        <link rel="prev" href="../understanding_xlron/">
+      
+      
+        <link rel="next" href="../differentiable_dra/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.4">
+    
+    
+      
+        <title>GN Model Physical Layer - XLRON - Accelerated Learning and Resource Allocation for Optical Networks</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/_mkdocstrings.css">
+    
+      <link rel="stylesheet" href="../stylesheets/xlron.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="teal">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#gn-model-physical-layer" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="XLRON - Accelerated Learning and Resource Allocation for Optical Networks" class="md-header__button md-logo" aria-label="XLRON - Accelerated Learning and Resource Allocation for Optical Networks" data-md-component="logo">
+      
+  <img src="../images/xlron_nobackground.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            XLRON - Accelerated Learning and Resource Allocation for Optical Networks
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              GN Model Physical Layer
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+    
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="XLRON - Accelerated Learning and Resource Allocation for Optical Networks" class="md-nav__button md-logo" aria-label="XLRON - Accelerated Learning and Resource Allocation for Optical Networks" data-md-component="logo">
+      
+  <img src="../images/xlron_nobackground.png" alt="logo">
+
+    </a>
+    XLRON - Accelerated Learning and Resource Allocation for Optical Networks
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Why XLRON
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Why XLRON
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../features/speed/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Comparisons & Speed
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../features/physical_layer/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Physical Layer Model
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../features/differentiable/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Differentiable Simulation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../features/transformer/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Graph Transformer for RMSA
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../features/topologies/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Topologies
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../features/gui/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Graphical User Interface
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../understanding_xlron/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Understanding XLRON
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GN Model Physical Layer
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GN Model Physical Layer
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#overview-of-the-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Overview of the Model
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#link-model-fibre-spans-and-inline-amplifiers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Link Model: Fibre Spans and Inline Amplifiers
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Link Model: Fibre Spans and Inline Amplifiers">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#fibre-attenuation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fibre Attenuation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#inline-amplifier-ase-noise" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Inline Amplifier ASE Noise
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#nonlinear-interference-nli" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Nonlinear Interference (NLI)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#modulation-format-correction" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Modulation Format Correction
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#transceiver-noise" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Transceiver Noise
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#roadm-node-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ROADM Node Model
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#power-budget-enforcement" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Power Budget Enforcement
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#spectral-band-data" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Spectral Band Data
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Spectral Band Data">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#band-preference-for-heuristic-slot-allocation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Band Preference for Heuristic Slot Allocation
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#modulation-formats" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Modulation Formats
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Modulation Formats">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#calculating-snr-thresholds-from-spectral-efficiency" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Calculating SNR Thresholds from Spectral Efficiency
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#path-level-snr-computation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Path-Level SNR Computation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#nyquist-subchannel-modelling-num_subchannels" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Nyquist Subchannel Modelling (num_subchannels)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Nyquist Subchannel Modelling (num_subchannels)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#motivation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Motivation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#how-it-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How It Works
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#best-practice" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Best Practice
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#worked-example-per-slot-state-arrays" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Worked Example: Per-Slot State Arrays
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#centre-frequency-caching" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Centre Frequency Caching
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#rsa_gn_model-environment" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        rsa_gn_model Environment
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="rsa_gn_model Environment">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#intended-use" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Intended Use
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#how-it-works_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How It Works
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#observation-space" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Observation Space
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#when-to-use" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When to Use
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#rmsa_gn_model-environment" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        rmsa_gn_model Environment
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="rmsa_gn_model Environment">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#intended-use_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Intended Use
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#how-it-works_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How It Works
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#performance-considerations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Performance Considerations
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fec-code-rate" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        FEC Code Rate
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#metrics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Metrics
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#distributed-raman-amplification-dra" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Distributed Raman Amplification (DRA)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Distributed Raman Amplification (DRA)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#physics-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Physics Model
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#triangular-raman-approximation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Triangular Raman Approximation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fitting-the-dra-parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fitting the DRA Parameters
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Fitting the DRA Parameters">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#step-1-solve-the-raman-ode" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 1: Solve the Raman ODE
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-2-extract-per-channel-ode-raman-gain-row-5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 2: Extract per-channel ODE Raman gain (row 5)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-3-fit-the-semi-analytical-profile-rows-0-4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 3: Fit the semi-analytical profile (rows 0-4)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#relationship-between-ode-and-semi-analytical-results" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Relationship between ODE and semi-analytical results
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#differentiable-variant-fit_dra_params_jax" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Differentiable variant (fit_dra_params_jax)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#enabling-dra" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Enabling DRA
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bandwidth-limiting-with-slots_per_band" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bandwidth Limiting with --slots_per_band
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ase-noise-with-dra" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ASE Noise with DRA
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#dra-configuration-parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DRA Configuration Parameters
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#configuration-parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuration Parameters
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Configuration Parameters">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#fibre-parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fibre Parameters
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#roadm-parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ROADM Parameters
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#power-parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Power Parameters
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#snr-and-modulation-parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SNR and Modulation Parameters
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#spectral-parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Spectral Parameters
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#summary-rsa_gn_model-vs-rmsa_gn_model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Summary: rsa_gn_model vs rmsa_gn_model
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#see-also" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        See Also
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../differentiable_dra/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Differentiable DRA Pipeline
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../training/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Training with PPO
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../heuristic_evaluation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Heuristic Evaluation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../capacity_bounds/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Capacity Bound Estimation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../flags_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Command-line options
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Function reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reproducing the Papers
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reproducing the Papers
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../papers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview & papers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reproduce_jocn2024/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hype or Hope? (JOCN 2025)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reproduce_rwalr/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    RWA-LR (ONDM 2025)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reproduce_ecoc2026/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Capacity bounds comparison (ECOC 2026 submitted)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reproduce_jocn_xlron/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    XLRON framework (in prep.)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reproduce_jocn_transformer/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Graph Transformer (in prep.)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    About
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    About
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../license/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    License and Support
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#overview-of-the-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Overview of the Model
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#link-model-fibre-spans-and-inline-amplifiers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Link Model: Fibre Spans and Inline Amplifiers
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Link Model: Fibre Spans and Inline Amplifiers">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#fibre-attenuation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fibre Attenuation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#inline-amplifier-ase-noise" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Inline Amplifier ASE Noise
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#nonlinear-interference-nli" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Nonlinear Interference (NLI)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#modulation-format-correction" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Modulation Format Correction
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#transceiver-noise" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Transceiver Noise
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#roadm-node-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ROADM Node Model
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#power-budget-enforcement" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Power Budget Enforcement
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#spectral-band-data" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Spectral Band Data
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Spectral Band Data">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#band-preference-for-heuristic-slot-allocation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Band Preference for Heuristic Slot Allocation
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#modulation-formats" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Modulation Formats
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Modulation Formats">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#calculating-snr-thresholds-from-spectral-efficiency" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Calculating SNR Thresholds from Spectral Efficiency
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#path-level-snr-computation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Path-Level SNR Computation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#nyquist-subchannel-modelling-num_subchannels" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Nyquist Subchannel Modelling (num_subchannels)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Nyquist Subchannel Modelling (num_subchannels)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#motivation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Motivation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#how-it-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How It Works
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#best-practice" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Best Practice
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#worked-example-per-slot-state-arrays" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Worked Example: Per-Slot State Arrays
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#centre-frequency-caching" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Centre Frequency Caching
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#rsa_gn_model-environment" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        rsa_gn_model Environment
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="rsa_gn_model Environment">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#intended-use" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Intended Use
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#how-it-works_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How It Works
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#observation-space" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Observation Space
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#when-to-use" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When to Use
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#rmsa_gn_model-environment" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        rmsa_gn_model Environment
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="rmsa_gn_model Environment">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#intended-use_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Intended Use
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#how-it-works_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How It Works
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#performance-considerations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Performance Considerations
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fec-code-rate" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        FEC Code Rate
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#metrics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Metrics
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#distributed-raman-amplification-dra" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Distributed Raman Amplification (DRA)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Distributed Raman Amplification (DRA)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#physics-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Physics Model
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#triangular-raman-approximation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Triangular Raman Approximation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fitting-the-dra-parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fitting the DRA Parameters
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Fitting the DRA Parameters">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#step-1-solve-the-raman-ode" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 1: Solve the Raman ODE
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-2-extract-per-channel-ode-raman-gain-row-5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 2: Extract per-channel ODE Raman gain (row 5)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-3-fit-the-semi-analytical-profile-rows-0-4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 3: Fit the semi-analytical profile (rows 0-4)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#relationship-between-ode-and-semi-analytical-results" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Relationship between ODE and semi-analytical results
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#differentiable-variant-fit_dra_params_jax" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Differentiable variant (fit_dra_params_jax)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#enabling-dra" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Enabling DRA
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bandwidth-limiting-with-slots_per_band" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bandwidth Limiting with --slots_per_band
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ase-noise-with-dra" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ASE Noise with DRA
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#dra-configuration-parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DRA Configuration Parameters
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#configuration-parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuration Parameters
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Configuration Parameters">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#fibre-parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fibre Parameters
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#roadm-parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ROADM Parameters
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#power-parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Power Parameters
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#snr-and-modulation-parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SNR and Modulation Parameters
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#spectral-parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Spectral Parameters
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#summary-rsa_gn_model-vs-rmsa_gn_model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Summary: rsa_gn_model vs rmsa_gn_model
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#see-also" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        See Also
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="gn-model-physical-layer">GN Model Physical Layer</h1>
+<p>This page describes the physical layer model used by XLRON's GN model environments (<code>rsa_gn_model</code> and <code>rmsa_gn_model</code>). It covers the modelling assumptions, noise sources, how ROADM nodes are treated, and what each configuration parameter controls.</p>
+<p>The implementation is based on the closed-form ISRS GN model from:</p>
+<blockquote>
+<p>D. Semrau, R. I. Killey, P. Bayvel, "A Closed-Form Approximation of the Gaussian Noise Model in the Presence of Inter-Channel Stimulated Raman Scattering," <em>J. Lightw. Technol.</em>, vol. 37, no. 9, pp. 1924-1936, May 2019.</p>
+</blockquote>
+<h2 id="overview-of-the-model">Overview of the Model</h2>
+<p>The GN model computes the signal-to-noise ratio (SNR) for each frequency slot on each fibre link in the network. The total noise on a channel is the sum of four independent contributions:</p>
+<div class="highlight"><pre><span></span><code>P_noise = P_ASE_inline + P_ASE_ROADM + P_NLI + P_TRX
+</code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Noise source</th>
+<th>Symbol</th>
+<th>Origin</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Inline amplifier ASE</td>
+<td>P_ASE_inline</td>
+<td>Erbium-doped fibre amplifier (EDFA) spontaneous emission at each span</td>
+</tr>
+<tr>
+<td>ROADM ASE</td>
+<td>P_ASE_ROADM</td>
+<td>Booster amplifiers at express and add/drop ROADM nodes</td>
+</tr>
+<tr>
+<td>Nonlinear interference</td>
+<td>P_NLI</td>
+<td>Kerr effect in the fibre (SPM + XPM, with ISRS correction)</td>
+</tr>
+<tr>
+<td>Transceiver noise</td>
+<td>P_TRX</td>
+<td>Back-to-back transceiver SNR limit</td>
+</tr>
+</tbody>
+</table>
+<p>The per-channel SNR on a single link is then:</p>
+<div class="highlight"><pre><span></span><code>SNR_link = P_signal / P_noise
+</code></pre></div>
+<p>For a multi-link path, noise-to-signal ratios are summed across links (independent noise sources add in power):</p>
+<div class="highlight"><pre><span></span><code>1/SNR_path = sum over links on path of (1/SNR_link) + ROADM_ASE/P_signal
+</code></pre></div>
+<p>Note that inline ASE and NLI are computed <strong>per link</strong>, while ROADM ASE is computed <strong>per path</strong> (since it depends on the number of intermediate nodes traversed).</p>
+<h2 id="link-model-fibre-spans-and-inline-amplifiers">Link Model: Fibre Spans and Inline Amplifiers</h2>
+<p>Each link in the topology is divided into fibre spans. Topology files store link distances in km; the environment converts these to metres and divides each link into equal-length spans:</p>
+<div class="highlight"><pre><span></span><code>num_spans = ceil(link_length_m / max_span_length)
+span_length = link_length_m / num_spans
+</code></pre></div>
+<p>The default <code>max_span_length</code> is 100 km. For example, a 350 km link has 4 spans of 87.5 km each.</p>
+<p>Each span has an inline EDFA at the output that compensates for fibre loss. The amplifier gain accounts for both fibre attenuation and the ISRS (Inter-channel Stimulated Raman Scattering) Raman tilt, which causes higher-frequency channels to transfer power to lower-frequency channels during propagation. The ISRS-aware gain per channel is:</p>
+<div class="highlight"><pre><span></span><code>G_i = exp(alpha * L) / g_SRS_i
+</code></pre></div>
+<p>where <code>g_SRS_i</code> corrects for the frequency-dependent power transfer due to Raman scattering.</p>
+<h3 id="fibre-attenuation">Fibre Attenuation</h3>
+<p>Fibre loss is characterised by the attenuation coefficient <code>alpha</code> in Nepers per metre. The default is 0.2 dB/km, which converts to approximately 4.605 x 10^-5 Np/m. The <code>attenuation_bar</code> parameter (mean attenuation, used internally for ISRS tilt calculations) defaults to the same value.</p>
+<h3 id="inline-amplifier-ase-noise">Inline Amplifier ASE Noise</h3>
+<p>Each inline EDFA adds ASE noise according to:</p>
+<div class="highlight"><pre><span></span><code>P_ASE = 2 * N_sp * (G - 1) * h * f * B
+</code></pre></div>
+<p>where:</p>
+<ul>
+<li><code>N_sp = (NF_lin * G) / (2 * (G - 1))</code> is the spontaneous emission factor</li>
+<li><code>NF_lin = 10^(NF_dB / 10)</code> is the amplifier noise figure in linear units</li>
+<li><code>G</code> is the ISRS-aware amplifier gain</li>
+<li><code>h</code> is Planck's constant (6.626 x 10^-34 J.s)</li>
+<li><code>f</code> is the absolute channel frequency in Hz</li>
+<li><code>B</code> is the channel bandwidth in Hz</li>
+<li>The factor of 2 accounts for both polarisation modes</li>
+</ul>
+<p>The total inline ASE on a link is the sum over all spans: <code>P_ASE_inline = num_spans * P_ASE_per_span</code>.</p>
+<p>The amplifier noise figure can vary across the spectrum. XLRON supports per-slot NF values loaded from a CSV file that maps spectral bands to noise figure and transceiver SNR values (see <a href="#spectral-band-data">Spectral Band Data</a> below).</p>
+<h3 id="nonlinear-interference-nli">Nonlinear Interference (NLI)</h3>
+<p>NLI arises from the Kerr effect in the fibre and has two components:</p>
+<ul>
+<li><strong>SPM (Self-Phase Modulation)</strong>: a channel interferes with itself</li>
+<li><strong>XPM (Cross-Phase Modulation)</strong>: other channels create interference through inter-channel nonlinear mixing</li>
+</ul>
+<p>The GN model computes NLI power as:</p>
+<div class="highlight"><pre><span></span><code>P_NLI_i = P_i^3 * eta_n_i
+</code></pre></div>
+<p>where <code>eta_n_i = eta_SPM_i + eta_XPM_i</code> is the NLI efficiency coefficient, which depends on fibre parameters (gamma, beta_2, beta_3, alpha), channel spacing, channel bandwidths, and channel powers.</p>
+<p><strong>ISRS correction</strong>: The model incorporates the effect of stimulated Raman scattering on NLI. The Raman gain slope <code>C_r</code> modifies the effective attenuation seen by each channel, which in turn affects NLI efficiency. This means that NLI is not just a function of local channel properties but also depends on the total power and frequency distribution of all channels on the link.</p>
+<p><strong>Coherent vs incoherent accumulation</strong>: NLI from successive spans can accumulate either coherently (phased) or incoherently (power-summed), controlled by the <code>--coherent</code> flag. The coherence factor epsilon determines the scaling:</p>
+<ul>
+<li>Incoherent (<code>--coherent=False</code>, default): SPM scales linearly with span count, XPM scales linearly</li>
+<li>Coherent (<code>--coherent=True</code>): SPM scales as <code>num_spans^(1 + epsilon)</code> where <code>epsilon &gt; 0</code>, producing slightly higher NLI</li>
+</ul>
+<p>In practice, incoherent accumulation is a reasonable approximation for most fibre types and is the default.</p>
+<p><strong>Uniform vs non-uniform spans</strong>: When <code>--uniform_spans=True</code> (default), all spans on a link are assumed to have equal length, enabling a fast closed-form computation. When <code>--uniform_spans=False</code>, a <code>jax.lax.scan</code> loop iterates over spans with potentially different lengths.</p>
+<h3 id="modulation-format-correction">Modulation Format Correction</h3>
+<p>When <code>--mod_format_correction=True</code>, the NLI calculation includes correction terms that account for the non-Gaussian statistics of specific modulation formats. Each format has an <code>excess_kurtosis</code> value (e.g., BPSK = -1, 16QAM = -0.68) that modifies the XPM contribution. Formats closer to Gaussian (kurtosis = -1) produce less NLI correction. This is only relevant for the <code>rmsa_gn_model</code> environment where modulation formats are explicitly tracked per channel.</p>
+<h3 id="transceiver-noise">Transceiver Noise</h3>
+<p>The transceiver SNR represents the back-to-back performance limit of the transmitter and receiver, independent of fibre propagation. It is modelled as an additive noise term:</p>
+<div class="highlight"><pre><span></span><code>P_TRX = P_signal / SNR_TRX_linear
+</code></pre></div>
+<p>Like the amplifier noise figure, the transceiver SNR can vary across the spectrum via the per-band CSV data file.</p>
+<h2 id="roadm-node-model">ROADM Node Model</h2>
+<p>ROADM (Reconfigurable Optical Add-Drop Multiplexer) nodes are modelled with separate express and add/drop loss parameters. Each ROADM contains a booster amplifier that compensates for the ROADM insertion loss, and this amplifier adds ASE noise.</p>
+<p>For a lightpath traversing a path with <code>N_links</code> links:</p>
+<ul>
+<li><strong>Source node</strong>: 1 add ROADM with loss <code>roadm_add_drop_loss</code> (default 8 dB)</li>
+<li><strong>Intermediate nodes</strong>: <code>N_links - 1</code> express ROADMs with loss <code>roadm_express_loss</code> (default 5 dB) each</li>
+<li><strong>Destination node</strong>: 1 drop ROADM with loss <code>roadm_add_drop_loss</code> (default 8 dB)</li>
+<li><strong>All ROADM amplifiers</strong>: noise figure <code>roadm_noise_figure</code> (default 5 dB)</li>
+</ul>
+<p>The ROADM ASE noise is computed per path (not per link) because the number of intermediate nodes depends on the end-to-end route. The formula follows the same ASE calculation as inline amplifiers, but using the ROADM loss as the gain to be compensated:</p>
+<div class="highlight"><pre><span></span><code>G_express = 10^(roadm_express_loss / 10)
+G_add_drop = 10^(roadm_add_drop_loss / 10)
+
+P_ROADM_ASE = N_intermediate * ASE(G_express, NF_roadm) + 2 * ASE(G_add_drop, NF_roadm)
+</code></pre></div>
+<h2 id="power-budget-enforcement">Power Budget Enforcement</h2>
+<p>The total optical power on each fibre link is constrained by <code>max_power_per_fibre</code> (default 21 dBm). When a new channel would cause the total power on any link along its path to exceed this limit, the action is rejected:</p>
+<ul>
+<li><strong>During masking</strong>: candidate placements that would exceed the power limit are masked out</li>
+<li><strong>During action checking</strong>: the power constraint is verified after tentative placement</li>
+</ul>
+<p>The per-channel launch power is set by <code>power_per_channel</code> (in dBm). If not specified, it defaults to <code>max_power_per_fibre</code> divided equally among all slots. For example, with <code>max_power_per_fibre=21</code> dBm (125.9 mW) and <code>link_resources=100</code>, the default per-channel power is approximately 1.26 mW (1.0 dBm).</p>
+<h2 id="spectral-band-data">Spectral Band Data</h2>
+<p>The amplifier noise figure and transceiver SNR can vary across the optical spectrum. XLRON loads per-band values from a CSV file (<code>transceiver_amplifier_data.csv</code>) that defines spectral bands with associated NF and transceiver SNR. Each frequency slot is assigned the values of the band it falls within.</p>
+<p>The default data covers five bands spanning the partial S-band, C-band, and L-band (approximately 1485-1625 nm):</p>
+<table>
+<thead>
+<tr>
+<th>Band</th>
+<th>Wavelength range</th>
+<th>Amplifier NF</th>
+<th>Transceiver SNR</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Partial S-band</td>
+<td>1485-1520 nm</td>
+<td>7.0 dB</td>
+<td>15.8 dB</td>
+</tr>
+<tr>
+<td>S/C transition</td>
+<td>1520-1529 nm</td>
+<td>9.0 dB</td>
+<td>17.8 dB</td>
+</tr>
+<tr>
+<td>C-band</td>
+<td>1529-1568 nm</td>
+<td>5.5 dB</td>
+<td>21.2 dB</td>
+</tr>
+<tr>
+<td>L-band (main)</td>
+<td>1568-1608 nm</td>
+<td>6.0 dB</td>
+<td>21.2 dB</td>
+</tr>
+<tr>
+<td>L-band (edge)</td>
+<td>1608-1625 nm</td>
+<td>9.0 dB</td>
+<td>17.1 dB</td>
+</tr>
+</tbody>
+</table>
+<p>The C-band has the best amplifier performance (lowest NF) and transceiver performance (highest SNR), reflecting the maturity of C-band EDFA technology.</p>
+<p>Band boundaries for inter-band gap enforcement are set by default (<code>--enforce_band_gaps</code>) and are defined in a separate file (<code>band_data.csv</code>), which specifies the standard optical bands (O, E, S, C, L, U) and their frequency ranges. This can be overridden with <code>--band_data_filepath</code>.</p>
+<h3 id="band-preference-for-heuristic-slot-allocation">Band Preference for Heuristic Slot Allocation</h3>
+<p>When using first-fit or last-fit heuristics with a GN model environment, the <code>--band_preference</code> flag controls the order in which optical bands are filled. By default, slots are allocated in raw index order (i.e. by frequency). With <code>--band_preference</code>, slots in the most-preferred band are exhausted before moving to the next band.</p>
+<p>For example, <code>--band_preference=C,L</code> will fill C-band slots first, then L-band slots. This is useful for multi-band scenarios where operators want to prioritise certain bands (e.g. fill C-band before spilling into L-band).</p>
+<div class="highlight"><pre><span></span><code>python<span class="w"> </span>-m<span class="w"> </span>xlron.train.train<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--env_type<span class="o">=</span>rsa_gn_model<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--topology_name<span class="o">=</span>nsfnet_deeprmsa_directed<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--link_resources<span class="o">=</span><span class="m">100</span><span class="w"> </span>--k<span class="o">=</span><span class="m">5</span><span class="w"> </span>--load<span class="o">=</span><span class="m">250</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--continuous_operation<span class="w"> </span>--ENV_WARMUP_STEPS<span class="o">=</span><span class="m">3000</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--TOTAL_TIMESTEPS<span class="o">=</span><span class="m">100000</span><span class="w"> </span>--NUM_ENVS<span class="o">=</span><span class="m">1</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--EVAL_HEURISTIC<span class="w"> </span>--path_heuristic<span class="o">=</span>ksp_ff<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--band_preference<span class="o">=</span>C,L
+</code></pre></div>
+<p>The preference string is a comma-separated list of band names (matching the <code>band_name</code> column in <code>band_data.csv</code>). Bands not listed are appended in CSV order after the specified ones. The flag affects both first-fit and last-fit heuristics; for last-fit, slots within each band are filled from the high end first, but bands are still tried in preference order.</p>
+<h2 id="modulation-formats">Modulation Formats</h2>
+<p>For <code>rmsa_gn_model</code>, modulation formats are loaded from a CSV file. Each format specifies:</p>
+<table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>name</code></td>
+<td>Format name (e.g., QPSK, 16QAM)</td>
+</tr>
+<tr>
+<td><code>maximum_length</code></td>
+<td>Maximum optical reach in km (used for path pruning)</td>
+</tr>
+<tr>
+<td><code>spectral_efficiency</code></td>
+<td>Bits per symbol per polarisation (determines required slots)</td>
+</tr>
+<tr>
+<td><code>minimum_osnr</code></td>
+<td>Minimum required SNR threshold in dB</td>
+</tr>
+<tr>
+<td><code>inband_xt</code></td>
+<td>Inband crosstalk tolerance in dB</td>
+</tr>
+<tr>
+<td><code>excess_kurtosis</code></td>
+<td>Excess kurtosis for modulation format NLI correction</td>
+</tr>
+</tbody>
+</table>
+<p>The number of slots required for a request is <code>ceil(requested_bandwidth / (slot_size * spectral_efficiency))</code>.</p>
+<p>The SNR margin parameter (<code>--snr_margin</code>, default 1 dB) is added to the <code>minimum_osnr</code> threshold when checking whether a channel's SNR is sufficient.</p>
+<p>Default formats for the GN model environments (from <code>modulations_gn_model.csv</code>):</p>
+<table>
+<thead>
+<tr>
+<th>Format</th>
+<th>SE (b/s/Hz)</th>
+<th>SNR threshold</th>
+<th>Excess kurtosis</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>BPSK</td>
+<td>1</td>
+<td>12.6 dB</td>
+<td>-1.00</td>
+</tr>
+<tr>
+<td>QPSK</td>
+<td>2</td>
+<td>12.6 dB</td>
+<td>-1.00</td>
+</tr>
+<tr>
+<td>8QAM</td>
+<td>3</td>
+<td>18.6 dB</td>
+<td>-0.82</td>
+</tr>
+<tr>
+<td>16QAM</td>
+<td>4</td>
+<td>22.4 dB</td>
+<td>-0.68</td>
+</tr>
+<tr>
+<td>32QAM</td>
+<td>5</td>
+<td>26.4 dB</td>
+<td>-0.52</td>
+</tr>
+<tr>
+<td>64QAM</td>
+<td>6</td>
+<td>30.4 dB</td>
+<td>-0.32</td>
+</tr>
+</tbody>
+</table>
+<h3 id="calculating-snr-thresholds-from-spectral-efficiency">Calculating SNR Thresholds from Spectral Efficiency</h3>
+<p>Instead of using pre-specified <code>minimum_osnr</code> values from the CSV, the GSNR threshold can be calculated analytically from the modulation order using the <code>--calc_minimum_osnr</code> flag. When enabled, the <code>minimum_osnr</code> column is overwritten with values computed from:</p>
+<div class="highlight"><pre><span></span><code>GSNR_th(m&#39;) = f(m&#39;) * erfc_inv(g(m&#39;, beta_FEC))
+</code></pre></div>
+<p>where <code>m' = spectral_efficiency</code> is the modulation level (so that <code>M = 2^m'</code>), <code>beta_FEC</code> is the pre-FEC BER target (<code>--beta_fec</code>, default 1.5e-2), and <code>erfc_inv</code> is the inverse complementary error function. The formula has three cases:</p>
+<ul>
+<li><strong>m' in {1, 2}</strong> (BPSK, QPSK): <code>GSNR_th = m' * erfc_inv(2 * beta_FEC)</code></li>
+<li><strong>m' = 3</strong> (8QAM): <code>GSNR_th = (2(M-1)/3) * erfc_inv(1.5 * beta_FEC)</code></li>
+<li><strong>m' in {4, 5, 6}</strong> (16QAM, 32QAM, 64QAM): <code>GSNR_th = (2(M-1)/3) * erfc_inv(m' * beta_FEC / (2(1 - 1/sqrt(M))))</code></li>
+</ul>
+<p>The result is converted to dB: <code>GSNR_th_dB = 10 * log10(GSNR_th)</code>.</p>
+<p>With the default <code>beta_fec=1.5e-2</code>, the calculated thresholds are:</p>
+<table>
+<thead>
+<tr>
+<th>Format</th>
+<th>SE</th>
+<th>Calculated GSNR threshold</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>BPSK</td>
+<td>1</td>
+<td>1.9 dB</td>
+</tr>
+<tr>
+<td>QPSK</td>
+<td>2</td>
+<td>4.9 dB</td>
+</tr>
+<tr>
+<td>8QAM</td>
+<td>3</td>
+<td>8.8 dB</td>
+</tr>
+<tr>
+<td>16QAM</td>
+<td>4</td>
+<td>11.6 dB</td>
+</tr>
+<tr>
+<td>32QAM</td>
+<td>5</td>
+<td>14.7 dB</td>
+</tr>
+<tr>
+<td>64QAM</td>
+<td>6</td>
+<td>17.6 dB</td>
+</tr>
+</tbody>
+</table>
+<h2 id="path-level-snr-computation">Path-Level SNR Computation</h2>
+<p>The per-link SNR values (computed as described above) are combined into a path-level SNR for each frequency slot:</p>
+<ol>
+<li>For each link on the path, convert link SNR to NSR (noise-to-signal ratio): <code>NSR_link = 1 / SNR_link</code></li>
+<li>Sum NSRs across all links on the path (independent noise sources add in power)</li>
+<li>Add ROADM ASE contribution as <code>P_ROADM_ASE / P_signal</code> for occupied slots</li>
+<li>Convert back to SNR in dB: <code>SNR_path_dB = 10 * log10(1 / NSR_total)</code></li>
+</ol>
+<p>This path-level SNR is what gets compared against modulation format thresholds.</p>
+<h2 id="nyquist-subchannel-modelling-num_subchannels">Nyquist Subchannel Modelling (<code>num_subchannels</code>)</h2>
+<h3 id="motivation">Motivation</h3>
+<p>A wideband optical channel (e.g. 100 GHz / 100 GBd) can be implemented as multiple narrower Nyquist subchannels (e.g. 8 x 12.5 GHz / 12.5 GBd subcarriers). The lower effective baud rate per subchannel reduces the self-phase modulation (SPM) nonlinear interference, because SPM depends on the square of the channel bandwidth through the <code>arcsinh</code> term in the GN model formula.</p>
+<p>Without <code>num_subchannels</code>, the only way to model this effect would be to set <code>slot_size=12.5</code> and use 8 slots per channel. But this inflates the number of frequency slots per link, the action space, and the O(N^2) XPM computation. The <code>--num_subchannels</code> parameter avoids this cost by analytically correcting the SPM term.</p>
+<h3 id="how-it-works">How It Works</h3>
+<p>The <code>--num_subchannels</code> flag (default 1) divides each slot's bandwidth into N Nyquist subchannels for the purpose of SPM calculation only:</p>
+<ul>
+<li><strong>Effective bandwidth</strong>: <code>B_eff = slot_size / num_subchannels</code></li>
+<li><strong>SPM eta</strong> is computed using <code>B_eff</code> in place of <code>slot_size</code> in the GN model formula (both in the main <code>arcsinh</code> terms and in the coherence factor epsilon)</li>
+<li><strong>Power scaling</strong>: Each subchannel carries <code>P/N</code> power, so total NLI from N subchannels is <code>N * (P/N)^3 * eta(B_eff) = P^3 * eta(B_eff) / N^2</code>. The SPM efficiency is therefore divided by <code>num_subchannels^2</code>.</li>
+<li><strong>XPM</strong>: Unchanged. Cross-phase modulation between different frequency slots uses the physical slot bandwidth.</li>
+<li><strong>ASE</strong>: Unchanged. The noise bandwidth is the physical slot bandwidth.</li>
+<li><strong>Backward compatible</strong>: <code>num_subchannels=1</code> gives <code>B_eff = slot_size</code> and scaling = 1, producing identical results to the default.</li>
+</ul>
+<h3 id="best-practice">Best Practice</h3>
+<p>For Nyquist subchannel modelling, set <code>slot_size</code> equal to the desired channel bandwidth and <code>num_subchannels</code> equal to the number of subcarriers. For example, to model 100 GBd channels with 8 x 12.5 GBd subcarriers:</p>
+<div class="highlight"><pre><span></span><code>python<span class="w"> </span>-m<span class="w"> </span>xlron.train.train<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--env_type<span class="o">=</span>rsa_gn_model<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--topology_name<span class="o">=</span>nsfnet_deeprmsa_directed<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--slot_size<span class="o">=</span><span class="m">100</span><span class="w"> </span>--num_subchannels<span class="o">=</span><span class="m">8</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--link_resources<span class="o">=</span><span class="m">50</span><span class="w"> </span>--k<span class="o">=</span><span class="m">5</span><span class="w"> </span>--load<span class="o">=</span><span class="m">250</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--continuous_operation<span class="w"> </span>--ENV_WARMUP_STEPS<span class="o">=</span><span class="m">3000</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--TOTAL_TIMESTEPS<span class="o">=</span><span class="m">100000</span><span class="w"> </span>--NUM_ENVS<span class="o">=</span><span class="m">1</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--EVAL_HEURISTIC<span class="w"> </span>--path_heuristic<span class="o">=</span>ksp_ff
+</code></pre></div>
+<h3 id="worked-example-per-slot-state-arrays">Worked Example: Per-Slot State Arrays</h3>
+<p>Consider a 400 Gbps request with spectral efficiency 2 b/s/Hz, <code>slot_size=100</code> GHz, <code>guardband=1</code>, and <code>num_subchannels=8</code>.</p>
+<p>The number of required slots is <code>ceil(400 / (2 * 100)) + guardband = 2 + 1 = 3</code>. Suppose the request is placed at initial slot index 5 on a link, occupying slots 5, 6, and 7.</p>
+<p>The per-slot state arrays on that link are updated as follows:</p>
+<table>
+<thead>
+<tr>
+<th>Array</th>
+<th>Slot 5</th>
+<th>Slot 6</th>
+<th>Slot 7</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>link_slot_array</code></td>
+<td>1</td>
+<td>1</td>
+<td>1</td>
+<td>Occupied (was 0)</td>
+</tr>
+<tr>
+<td><code>channel_centre_bw_array</code></td>
+<td>100</td>
+<td>100</td>
+<td>100</td>
+<td>Always <code>slot_size</code> in GHz</td>
+</tr>
+<tr>
+<td><code>channel_power_array</code></td>
+<td>P</td>
+<td>P</td>
+<td>P</td>
+<td>Launch power in watts (same for all slots in the channel)</td>
+</tr>
+<tr>
+<td><code>channel_centre_freq_array</code></td>
+<td>f_c</td>
+<td>f_c</td>
+<td>f_c</td>
+<td>Centre frequency of the 3-slot block in GHz (midpoint of slot 5 and slot 7)</td>
+</tr>
+<tr>
+<td><code>path_index_array</code></td>
+<td>idx</td>
+<td>idx</td>
+<td>idx</td>
+<td>Lightpath index identifying the path</td>
+</tr>
+</tbody>
+</table>
+<p>Key observations:</p>
+<ul>
+<li><strong><code>channel_centre_bw_array</code></strong> stores <code>slot_size</code> (100 GHz) for every occupied slot, not the total channel bandwidth (300 GHz). The GN model sees 3 independent 100 GHz channels.</li>
+<li><strong><code>channel_centre_freq_array</code></strong> stores the same centre frequency for all 3 slots -- the midpoint of the block. This is used for XPM calculations between different channels.</li>
+<li><strong><code>channel_power_array</code></strong> stores the per-channel launch power. Each slot is treated as an independent channel with full launch power.</li>
+</ul>
+<p>With <code>num_subchannels=8</code>, the GN model computes SPM for each slot as if its 100 GHz bandwidth were divided into 8 x 12.5 GHz subchannels (<code>B_eff = 12.5 GHz</code>), with <code>eta_spm</code> scaled by <code>1/64</code>. XPM between the three slots (and between these slots and other channels on the link) is computed using the physical 100 GHz bandwidth, unchanged.</p>
+<h3 id="centre-frequency-caching">Centre Frequency Caching</h3>
+<p>The <code>channel_centre_freq_array</code> is maintained as part of the environment state to avoid recomputing centre frequencies on every SNR calculation. It is:</p>
+<ul>
+<li><strong>Initialised</strong> to zeros on environment reset</li>
+<li><strong>Set</strong> when a lightpath is placed (same value written to all slots in the channel)</li>
+<li><strong>Cleared</strong> when a lightpath expires (multiplied by the expiry mask, same pattern as other per-slot arrays)</li>
+<li><strong>Restored</strong> from a previous snapshot (<code>channel_centre_freq_array_prev</code>) if an action is rolled back due to a failed SNR or power check</li>
+</ul>
+<p>This caching is especially beneficial in <code>rmsa_gn_model</code>, where the masking step evaluates the GN model for many candidate placements.</p>
+<hr />
+<h2 id="rsa_gn_model-environment"><code>rsa_gn_model</code> Environment</h2>
+<p>The <code>rsa_gn_model</code> environment performs Routing and Spectrum Assignment with the GN model providing physical layer awareness, but without per-step modulation-format-aware masking.</p>
+<h3 id="intended-use">Intended Use</h3>
+<ul>
+<li><strong>Throughput capacity studies</strong>: measure network-level Shannon throughput under realistic physical layer constraints</li>
+<li><strong>Fast simulations</strong>: action masking uses standard RSA slot-availability checks (no GN model evaluation during masking), making it significantly faster than <code>rmsa_gn_model</code></li>
+<li><strong>Scenarios with predetermined modulation</strong>: when modulation format is fixed or determined by path distance rather than real-time SNR</li>
+</ul>
+<h3 id="how-it-works_1">How It Works</h3>
+<ol>
+<li><strong>Action masking</strong>: uses the standard RSA mask (contiguous free-slot check). No GN model evaluation during masking.</li>
+<li><strong>Action execution</strong>: places the lightpath and updates <code>channel_power_array</code>, <code>channel_centre_bw_array</code>, and <code>path_index_array</code> on the affected links.</li>
+<li><strong>SNR update</strong>: after each step, <code>link_snr_array</code> is recomputed for all links using the GN model.</li>
+<li><strong>Action check</strong>: <code>check_action_rmsa_gn_model</code> verifies that all active lightpaths still meet a basic SNR threshold and that the power budget is not exceeded. If the check fails, the placement is rolled back.</li>
+<li><strong>Throughput measurement</strong>: at episode end, in the RSA GN Model env (RMSA GN env already tracks bitrate), computes Shannon-Hartley throughput for all active lightpaths:</li>
+</ol>
+<div class="highlight"><pre><span></span><code>throughput_per_LP = log2(1 + SNR_linear) * slot_size_GHz * 2 * (1 - FEC_overhead)
+</code></pre></div>
+<p>The factor of 2 is for dual polarisation. The default FEC overhead is 28% (<code>--fec_threshold=0.28</code>).</p>
+<h3 id="observation-space">Observation Space</h3>
+<p>The observation includes the request (source, destination, bandwidth, holding time) plus per-path statistics:</p>
+<ul>
+<li>Mean free block size and free slot count</li>
+<li>Path length in hops and distance</li>
+<li>Number of active connections, mean power, and mean SNR of connections on each path</li>
+</ul>
+<h3 id="when-to-use">When to Use</h3>
+<p>Use <code>rsa_gn_model</code> when you want physically-aware throughput measurement but don't need the GN model to be evaluated at every masking step. This is appropriate for studying how routing and spectrum assignment strategies affect achievable throughput, or for large-scale simulations where the per-step cost of full GN model masking would be prohibitive.</p>
+<hr />
+<h2 id="rmsa_gn_model-environment"><code>rmsa_gn_model</code> Environment</h2>
+<p>The <code>rmsa_gn_model</code> environment performs Routing, Modulation and Spectrum Assignment with full GN model evaluation during action masking. This is the most physically realistic environment in XLRON.</p>
+<h3 id="intended-use_1">Intended Use</h3>
+<ul>
+<li><strong>Physically realistic RL training</strong>: the agent sees only genuinely feasible actions, learning to make decisions that respect nonlinear interference constraints</li>
+<li><strong>Modulation-adaptive networking</strong>: the environment automatically selects the best modulation format for each placement based on current network conditions</li>
+<li><strong>Studying NLI-aware resource allocation</strong>: understanding how channel placement affects neighbouring channels through nonlinear interference</li>
+</ul>
+<h3 id="how-it-works_2">How It Works</h3>
+<ol>
+<li>
+<p><strong>Action masking</strong> (the key difference from <code>rsa_gn_model</code>): for each candidate combination of (path, modulation format, slot position), the mask function:</p>
+<ul>
+<li>Tentatively places the channel with the candidate's power and bandwidth</li>
+<li>Runs the full ISRS GN model to recompute SNR across all affected links</li>
+<li>Checks that the new channel meets its modulation format's SNR threshold</li>
+<li>Checks that all existing channels still meet their respective thresholds</li>
+<li>Checks that the total power on each link does not exceed <code>max_power_per_fibre</code></li>
+<li>Only marks the action as valid if all checks pass</li>
+</ul>
+</li>
+<li>
+<p><strong>Candidate evaluation strategy</strong>: to keep the candidate count manageable, only the first-fit (FF) and last-fit (LF) slot positions are evaluated per (path, modulation format) pair, giving <code>2 * k * M</code> candidates total (where <code>k</code> = number of paths, <code>M</code> = number of modulation formats). All candidates are evaluated in parallel using <code>jax.vmap</code>.</p>
+</li>
+<li>
+<p><strong>Modulation format selection</strong>: the mask stores the winning modulation format index for each valid slot position in <code>mod_format_mask</code>. When an action is taken, the environment looks up the pre-computed modulation format rather than re-evaluating.</p>
+</li>
+<li>
+<p><strong>Action execution</strong>: places the lightpath with the selected modulation format's spectral efficiency (determining slot count) and the configured launch power. Updates all per-slot state arrays.</p>
+</li>
+<li>
+<p><strong>Action check</strong>: same as <code>rsa_gn_model</code> -- verifies SNR sufficiency, RSA validity, and power budget.</p>
+</li>
+</ol>
+<h3 id="performance-considerations">Performance Considerations</h3>
+<p>The masking step is computationally expensive because it runs the GN model for every candidate. Two optimisations are available:</p>
+<ul>
+<li><strong><code>get_snr_link_array_fused</code></strong> (used when <code>--uniform_spans=True</code> and <code>--mod_format_correction=False</code>): a fully inlined version that reduces XLA operations by ~41-48% compared to the standard version</li>
+<li><strong>FF/LF only</strong>: evaluating only first-fit and last-fit positions (rather than all free slots) keeps the candidate count at <code>O(k * M)</code> rather than <code>O(k * M * link_resources)</code></li>
+</ul>
+<h3 id="fec-code-rate">FEC Code Rate</h3>
+<p>The <code>--fec_rate</code> parameter (default 0.8) models the overhead introduced by forward error correction. When a request is successfully accepted, the bitrate counted towards <code>accepted_bitrate</code> is scaled by this factor:</p>
+<div class="highlight"><pre><span></span><code>accepted_bitrate += requested_datarate * fec_rate
+</code></pre></div>
+<p>This reflects the fact that a fraction <code>(1 - fec_rate)</code> of the transmitted symbols carry FEC redundancy rather than user data. For example, with <code>fec_rate=0.8</code>, a 100 Gbit/s request contributes 80 Gbit/s of effective user throughput to the <code>accepted_bitrate</code> metric.</p>
+<p>This parameter only applies to <code>rmsa_gn_model</code>.</p>
+<h3 id="metrics">Metrics</h3>
+<p>The <code>rmsa_gn_model</code> environment tracks:</p>
+<ul>
+<li><code>accepted_services</code>: count of successfully routed requests</li>
+<li><code>accepted_bitrate</code>: cumulative effective bandwidth of accepted requests (scaled by <code>fec_rate</code>)</li>
+<li>Blocking probability: fraction of requests that could not be served</li>
+</ul>
+<p>It does not compute Shannon throughput (unlike <code>rsa_gn_model</code>).</p>
+<hr />
+<h2 id="distributed-raman-amplification-dra">Distributed Raman Amplification (DRA)</h2>
+<blockquote>
+<p><strong>Source code availability:</strong> The DRA model implementation is part of ongoing research and is withheld from the public XLRON release pending publication. It is available on request from the authors, Henrique Buglia and Mindaugas Jarmolovicius (UCL Optical Networks Group). The public package ships a stub that raises <code>NotImplementedError</code> if the DRA functions are called.</p>
+</blockquote>
+<p>XLRON supports an optional Distributed Raman Amplification (DRA) model that replaces the EDFA-only ISRS NLI calculation with a Raman-pump-aware model. When enabled via <code>--use_raman_amp</code>, the nonlinear interference is computed using a 9-mode combination approach that accounts for the frequency-dependent Raman gain profile created by co- and counter-propagating pump lasers.</p>
+<h3 id="physics-model">Physics Model</h3>
+<p>In a Raman-amplified span, pump lasers inject power into the fibre at frequencies offset from the signal band. Through stimulated Raman scattering, pump power is transferred to the signal channels, providing distributed gain along the fibre rather than lumped gain at span boundaries. This changes the signal power profile along the fibre, which in turn modifies the nonlinear interference.</p>
+<p>The DRA NLI model computes the effective power profile using fit parameters <code>[C_f, a_f, C_b, a_b, a]</code> that describe the forward pump contribution, backward pump contribution, and fibre attenuation. These parameters are used to evaluate 9 mode combinations <code>(l_1, l_2, l_1', l_2')</code> of forward/backward Raman directions, each contributing to the total NLI efficiency coefficient.</p>
+<p>The model supports both SPM and XPM contributions with coherent accumulation across spans, including correction terms for correlated inter-channel effects.</p>
+<h3 id="triangular-raman-approximation">Triangular Raman Approximation</h3>
+<p>The Raman gain spectrum g_R(delta_f) of silica fibre has a broad, irregular shape peaking around 13 THz offset. The <strong>triangular Raman approximation</strong> simplifies this to a linear function of frequency offset:</p>
+<div class="highlight"><pre><span></span><code>g_R(delta_f) = C_r * |delta_f|
+</code></pre></div>
+<p>where <code>C_r</code> is the <strong>Raman gain slope</strong> (<code>--raman_gain_slope</code>), a single parameter that captures the strength of the Raman interaction. <code>C_r</code> has units of 1/(W<em>m</em>Hz) and characterises how much power is transferred per unit frequency offset, per watt of pump power, per metre of fibre. It combines the intrinsic Raman scattering cross-section of the silica glass with the fibre effective area.</p>
+<p>Typical values:</p>
+<ul>
+<li><strong>Standard single-mode fibre (SMF-28)</strong>: <code>C_r ~ 2.8e-17</code> 1/(W<em>m</em>Hz) (the default)</li>
+<li><strong>Higher-nonlinearity fibres</strong> or effective values used for wideband models may be larger</li>
+</ul>
+<p>The triangular approximation is valid within approximately 15 THz of modulated bandwidth. When DRA is enabled, <code>compute_band_layout</code> automatically trims bands to fit within <code>--raman_max_bandwidth_thz</code> (default 15.0 THz), removing slots from the lowest-priority band first.</p>
+<h3 id="fitting-the-dra-parameters">Fitting the DRA Parameters</h3>
+<p>The DRA model stores a per-channel parameter array of shape <code>(6, num_channels, max_spans)</code>. The 6 rows have distinct origins and serve different purposes in the simulation:</p>
+<table>
+<thead>
+<tr>
+<th>Row</th>
+<th>Symbol</th>
+<th>Origin</th>
+<th>Used by</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td><code>C_f</code></td>
+<td>LM fit to ODE profile</td>
+<td><code>gn_model_dra()</code> — NLI calculation</td>
+</tr>
+<tr>
+<td>1</td>
+<td><code>a_f</code></td>
+<td>LM fit to ODE profile</td>
+<td><code>gn_model_dra()</code> — NLI calculation</td>
+</tr>
+<tr>
+<td>2</td>
+<td><code>C_b</code></td>
+<td>LM fit to ODE profile</td>
+<td><code>gn_model_dra()</code> — NLI calculation</td>
+</tr>
+<tr>
+<td>3</td>
+<td><code>a_b</code></td>
+<td>LM fit to ODE profile</td>
+<td><code>gn_model_dra()</code> — NLI calculation</td>
+</tr>
+<tr>
+<td>4</td>
+<td><code>a</code></td>
+<td>LM fit to ODE profile</td>
+<td><code>gn_model_dra()</code> — NLI calculation</td>
+</tr>
+<tr>
+<td>5</td>
+<td><code>G_Raman</code></td>
+<td>Direct from ODE endpoint</td>
+<td><code>get_snr_dra()</code> — ASE noise / Friis cascade</td>
+</tr>
+</tbody>
+</table>
+<p>Rows 0-4 and row 5 are <strong>both derived from the same ODE solution</strong> but serve different roles:</p>
+<ul>
+<li><strong>Rows 0-4</strong> parameterise the semi-analytical power profile shape along the entire span, which enters the NLI integral via the Raman tilt factors (Tf, Tb, T) in the 9-mode eta functions of <code>gn_model_dra()</code>.</li>
+<li><strong>Row 5</strong> is the per-channel Raman gain at the span endpoint, used only for the ASE noise figure calculation in <code>get_snr_dra()</code>.</li>
+</ul>
+<h4 id="step-1-solve-the-raman-ode">Step 1: Solve the Raman ODE</h4>
+<p>The coupled signal+pump propagation ODE is solved along the span using <code>jax.experimental.ode.odeint</code> (Dormand-Prince adaptive method). The state vector <code>y</code> contains all signal channels and backward pump lasers:</p>
+<div class="highlight"><pre><span></span><code>dy/dt = (g_R @ y - att_vec) * y
+</code></pre></div>
+<p>where <code>g_R</code> is the Raman coupling matrix (triangular approximation, 15 THz cutoff) and <code>att_vec</code> is <code>+attenuation</code> for forward-propagating signals and <code>-attenuation</code> for counter-propagating backward pumps. The ODE is evaluated at 501 equally-spaced z-points along <code>[0, L]</code> (201 in the differentiable variant <code>fit_dra_params_jax</code>).</p>
+<p><strong>Signal-signal ISRS is excluded</strong> from the ODE by zeroing <code>g_R[:num_channels, :num_channels]</code>, because the GN model handles signal-signal ISRS separately via its perturbative tilt formula. Including it would double-count the effect.</p>
+<p><strong>Backward pump boundary condition</strong>: The backward pump propagates from z=L to z=0, but the ODE integrates forward. The initial BW pump power at z=0 is found via <code>scipy.optimize.minimize</code> (TNC method) so that the pump power at z=L matches the configured <code>--raman_pump_power_bw</code> values.</p>
+<h4 id="step-2-extract-per-channel-ode-raman-gain-row-5">Step 2: Extract per-channel ODE Raman gain (row 5)</h4>
+<p>From the ODE power profile <code>P(z)</code>, the per-channel Raman gain is computed directly as:</p>
+<div class="highlight"><pre><span></span><code>G_Raman(i) = P_i(z=L) / [P_i(z=0) * exp(-alpha * L)]
+</code></pre></div>
+<p>This is the ratio of actual signal power at the span output to what it would be with pure fibre attenuation (no pumps). It captures pump depletion, multi-pump interference, and all ODE-resolved effects. <strong>No fitting or approximation is applied</strong> — this is a direct readout from the numerical ODE solution.</p>
+<h4 id="step-3-fit-the-semi-analytical-profile-rows-0-4">Step 3: Fit the semi-analytical profile (rows 0-4)</h4>
+<p>The normalised ODE profile <code>rho_norm(z) = P(z) / P(0)</code> is fitted per-channel to the semi-analytical formula from Semrau et al.:</p>
+<div class="highlight"><pre><span></span><code>rho(z) = exp(-a * z) * (1 - delta_f * (C_f * P_f * L_eff_f(z) + C_b * L_eff_b(z)))
+</code></pre></div>
+<p>where:</p>
+<ul>
+<li><code>L_eff_f(z) = (1 - exp(-a_f * z)) / a_f</code> — forward pump effective length</li>
+<li><code>L_eff_b(z) = (exp(-a_b * (L-z)) - exp(-a_b * L)) / a_b</code> — backward pump effective length</li>
+<li><code>delta_f = f_channel - f_hat</code> — frequency offset from the mean pump frequency</li>
+<li><code>P_f</code> = total forward power (signals + forward pumps); uses <strong>P_b=1 convention</strong> where backward pump power is absorbed into <code>C_b</code></li>
+</ul>
+<p>The 5 parameters <code>[C_f, a_f, C_b, a_b, a]</code> are fitted via <code>jaxopt.LevenbergMarquardt</code> as multipliers of physically-motivated initial values <code>[Cr, att, Cr, att, att]</code>. The fit minimises the residual between <code>rho_semi(z)</code> and <code>rho_norm(z)</code> across all z-points along the span.</p>
+<p><strong>Important</strong>: The fitted attenuation <code>a</code> (row 4) generally differs from the physical fibre attenuation <code>alpha</code>. The LM fit adjusts <code>a</code> to best match the overall profile shape, which means it absorbs some of the Raman gain into the exponential decay term. For channels with strong Raman gain, <code>a</code> can be significantly smaller than <code>alpha</code> (or even negative). This is by design — the semi-analytical formula is optimised for the NLI integral where the profile shape along the whole span matters, not just the endpoint gain.</p>
+<h4 id="relationship-between-ode-and-semi-analytical-results">Relationship between ODE and semi-analytical results</h4>
+<p>Since both are derived from the same ODE solution:</p>
+<ul>
+<li><strong>Row 5</strong> (ODE gain) is the ground truth for endpoint Raman gain — it is used wherever an accurate per-channel gain value is needed (ASE noise figure).</li>
+<li><strong>Rows 0-4</strong> (semi-analytical fit) approximate the power profile shape — they are used in the NLI integral where the z-dependent behaviour matters. They are a good but imperfect approximation; the fit quality is optimised for the integral, not for the endpoint value.</li>
+</ul>
+<p>The triangular Raman approximation used in the ODE produces smooth, monotonic gain profiles by construction. To capture the true peaked/structured Raman gain spectrum of silica fibre (which would show spectral ripple from multi-pump interactions), a measured Raman gain profile would be needed instead of the triangular model.</p>
+<p><strong>Why offline fitting is valid</strong>: The signal power profile along a Raman-amplified span depends only on the fibre properties (attenuation, Raman gain slope), span length, and pump configuration — not on which signal channels are currently active. The Raman pump power dominates the interaction. Therefore the fit parameters can be computed once at environment creation time and reused for all subsequent calculations during the simulation.</p>
+<p>The entire fitting procedure runs once during <code>make_env.py</code> environment creation (outside JAX JIT compilation) and typically completes in a few seconds. The parameters are stored as a static array (uniform across spans) in <code>EnvParams.raman_fit_params</code>.</p>
+<p><strong>Pump depletion</strong>: With high Raman gain slopes or many signal channels, the backward pump can be substantially depleted within the first few kilometres of the span. For example, with <code>C_r = 2.37e-16</code> and 91 channels, the pump e-folding distance is approximately 4 km. The net Raman gain after pump depletion may be modest (e.g. 0.5 dB for small pump powers), but the distributed nature of the gain still improves the signal power profile compared to EDFA-only amplification.</p>
+<h4 id="differentiable-variant-fit_dra_params_jax">Differentiable variant (<code>fit_dra_params_jax</code>)</h4>
+<p>The <code>--raman_fit_method=jax</code> option uses <code>fit_dra_params_jax()</code>, a differentiable twin of the default fitter. The key differences:</p>
+<ul>
+<li><strong>Backward pump boundary</strong>: Uses <code>jax.custom_vjp</code> wrapping scipy TNC. The forward pass calls scipy; the backward pass uses the implicit function theorem via <code>jax.jacobian</code> (reverse-mode, since <code>odeint</code> provides <code>custom_vjp</code> not <code>custom_jvp</code>).</li>
+<li><strong>Gradient flow</strong>: Rows 0-4 are detached via <code>jax.lax.stop_gradient</code>. Row 5 (ODE Raman gain) carries full gradients through the ODE solution, enabling pump power optimisation.</li>
+<li><strong>LM fitting</strong>: Uses <code>jaxopt.LevenbergMarquardt</code> with <code>implicit_diff=False</code>. The normalisation <code>ch_norm</code> is detached to prevent gradient leakage through the profile shape.</li>
+</ul>
+<h3 id="enabling-dra">Enabling DRA</h3>
+<p>Enable DRA with the <code>--use_raman_amp</code> flag and provide backward (and optionally forward) Raman pump parameters:</p>
+<div class="highlight"><pre><span></span><code>python<span class="w"> </span>-m<span class="w"> </span>xlron.train.train<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--env_type<span class="o">=</span>rsa_gn_model<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--topology_name<span class="o">=</span>nsfnet_deeprmsa_directed<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--link_resources<span class="o">=</span><span class="m">100</span><span class="w"> </span>--k<span class="o">=</span><span class="m">5</span><span class="w"> </span>--load<span class="o">=</span><span class="m">250</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--continuous_operation<span class="w"> </span>--use_raman_amp<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--raman_pump_power_bw<span class="o">=</span><span class="m">0</span>.3,0.3<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--raman_pump_freq_bw<span class="o">=</span>205e12,210e12<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--coherent<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--TOTAL_TIMESTEPS<span class="o">=</span><span class="m">1000000</span><span class="w"> </span>--NUM_ENVS<span class="o">=</span><span class="m">100</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--EVAL_HEURISTIC<span class="w"> </span>--path_heuristic<span class="o">=</span>ksp_ff
+</code></pre></div>
+<p>Pump powers are specified in Watts and pump frequencies in Hz, as comma-separated lists. Each entry corresponds to one pump laser. The same pump configuration is applied uniformly to all spans on all links.</p>
+<h3 id="bandwidth-limiting-with-slots_per_band">Bandwidth Limiting with <code>--slots_per_band</code></h3>
+<p>The <code>--slots_per_band</code> flag allows explicit control over how many frequency slots are allocated per band, overriding the default behaviour of filling each band's full spectral width. This is particularly useful with DRA to ensure the total modulated bandwidth stays within the triangular Raman validity range.</p>
+<div class="highlight"><pre><span></span><code><span class="c1"># C-band with 43 slots + L-band with 47 slots at 100 GHz slot size</span>
+<span class="c1"># Total: 43 + 47 = 90 data slots + 1 gap slot = 91 link_resources</span>
+python<span class="w"> </span>-m<span class="w"> </span>xlron.train.train<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--env_type<span class="o">=</span>rsa_gn_model<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--slot_size<span class="o">=</span><span class="m">100</span><span class="w"> </span>--guardband<span class="o">=</span><span class="m">0</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--band_preference<span class="o">=</span>C,L<span class="w"> </span>--slots_per_band<span class="o">=</span><span class="m">43</span>,47<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--inter_band_gap_ghz<span class="o">=</span><span class="m">500</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--link_resources<span class="o">=</span><span class="m">91</span><span class="w"> </span>--use_raman_amp<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>...
+</code></pre></div>
+<p>The number of entries in <code>--slots_per_band</code> must match the number of bands in <code>--band_preference</code>. Each value is capped at the maximum number of slots that physically fit in that band.</p>
+<h3 id="ase-noise-with-dra">ASE Noise with DRA</h3>
+<p>When DRA is enabled, the ASE noise is computed using a <strong>Friis cascade model</strong> that treats the DRA and EDFA as two amplifier stages in series. This is implemented in <code>get_snr_dra()</code> in <code>isrs_gn_model_dra.py</code> and uses row 5 (ODE Raman gain) of the fit parameters.</p>
+<p><strong>DRA noise figure</strong>: The backward-pumped DRA is modelled as a lumped amplifier with noise figure:</p>
+<div class="highlight"><pre><span></span><code>NF_DRA = 1/G_Raman + 2 * n_sp * (1 - 1/G_Raman)
+</code></pre></div>
+<p>where <code>G_Raman</code> is the per-channel ODE Raman gain (row 5, clamped to &gt;= 1) and <code>n_sp ≈ 1.13</code> is the phonon population factor at room temperature (300 K) for silica's dominant Raman shift of ~13 THz.</p>
+<p><strong>Hybrid noise figure</strong>: The DRA and EDFA are combined via the Friis cascade formula:</p>
+<div class="highlight"><pre><span></span><code>NF_hybrid = NF_DRA + (NF_EDFA - 1) / G_Raman
+</code></pre></div>
+<p>where <code>NF_EDFA</code> is the EDFA noise figure (from <code>--amplifier_noise_figure</code> or per-band CSV data). The Raman pre-amplification reduces the EDFA's noise contribution by a factor of <code>G_Raman</code>.</p>
+<p><strong>ASE per span</strong>: The total inline ASE uses the standard formula with the hybrid noise figure:</p>
+<div class="highlight"><pre><span></span><code>P_ASE_span = NF_hybrid * G_total * h * f * B
+</code></pre></div>
+<p>where <code>G_total</code> is the ISRS-aware total span gain (compensating fibre loss + lumped connector loss) computed by <code>calculate_amplifier_gain_isrs()</code>. The total ASE is accumulated linearly across all spans: <code>P_ASE = num_spans * P_ASE_span</code>.</p>
+<p><strong>Behaviour at different Raman gains</strong>: At low Raman gain (G_Raman ~ 1), NF_hybrid approaches NF_EDFA (DRA has negligible effect). At high Raman gain (&gt;10 dB), the <code>(NF_EDFA - 1) / G_Raman</code> term becomes small and NF_hybrid approaches NF_DRA ≈ 2*n_sp ≈ 2.26 (3.5 dB) — the quantum-limited DRA noise figure. This limits the net OSNR improvement from increasing pump power.</p>
+<p>The per-channel Raman gain varies across the spectrum (typically higher for L-band than C-band with standard pump configurations), which introduces a frequency-dependent tilt in the OSNR_ASE profile. This tilt can be managed through pump power distribution and per-band amplifier noise figure settings in the transceiver/amplifier CSV data file.</p>
+<h3 id="dra-configuration-parameters">DRA Configuration Parameters</h3>
+<table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Default</th>
+<th>Units</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--use_raman_amp</code></td>
+<td>False</td>
+<td>--</td>
+<td>Enable DRA model for NLI calculation</td>
+</tr>
+<tr>
+<td><code>--raman_pump_power_fw</code></td>
+<td>None</td>
+<td>W</td>
+<td>Forward pump powers (comma-separated)</td>
+</tr>
+<tr>
+<td><code>--raman_pump_power_bw</code></td>
+<td>None</td>
+<td>W</td>
+<td>Backward pump powers (comma-separated)</td>
+</tr>
+<tr>
+<td><code>--raman_pump_freq_fw</code></td>
+<td>None</td>
+<td>Hz</td>
+<td>Forward pump frequencies (comma-separated)</td>
+</tr>
+<tr>
+<td><code>--raman_pump_freq_bw</code></td>
+<td>None</td>
+<td>Hz</td>
+<td>Backward pump frequencies (comma-separated)</td>
+</tr>
+<tr>
+<td><code>--raman_fit_method</code></td>
+<td><code>triangular</code></td>
+<td>--</td>
+<td>Fitting method: <code>triangular</code> (scipy, default) or <code>jax</code> (differentiable)</td>
+</tr>
+<tr>
+<td><code>--raman_max_bandwidth_thz</code></td>
+<td>15.0</td>
+<td>THz</td>
+<td>Max modulated bandwidth for triangular Raman validity</td>
+</tr>
+<tr>
+<td><code>--slots_per_band</code></td>
+<td>None</td>
+<td>--</td>
+<td>Comma-separated slot count per band (e.g. <code>43,47</code>)</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="configuration-parameters">Configuration Parameters</h2>
+<h3 id="fibre-parameters">Fibre Parameters</h3>
+<table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Default</th>
+<th>Units</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--attenuation</code></td>
+<td>4.605e-5</td>
+<td>Np/m</td>
+<td>Fibre attenuation (0.2 dB/km)</td>
+</tr>
+<tr>
+<td><code>--nonlinear_coefficient</code></td>
+<td>1.2e-3</td>
+<td>1/(W.m)</td>
+<td>Kerr nonlinear coefficient</td>
+</tr>
+<tr>
+<td><code>--dispersion_coeff</code></td>
+<td>17e-6</td>
+<td>s/m^2</td>
+<td>Group velocity dispersion D (17 ps/nm/km)</td>
+</tr>
+<tr>
+<td><code>--dispersion_slope</code></td>
+<td>60.7</td>
+<td>s/m^3</td>
+<td>Dispersion slope dD/dlambda (0.067 ps/nm^2/km)</td>
+</tr>
+<tr>
+<td><code>--raman_gain_slope</code></td>
+<td>2.8e-17</td>
+<td>1/(W.m.Hz)</td>
+<td>ISRS Raman gain slope</td>
+</tr>
+<tr>
+<td><code>--ref_lambda</code></td>
+<td>1564e-9</td>
+<td>m</td>
+<td>Reference wavelength (C+L band centre)</td>
+</tr>
+<tr>
+<td><code>--max_span_length</code></td>
+<td>100000</td>
+<td>m</td>
+<td>Maximum span length (100 km)</td>
+</tr>
+<tr>
+<td><code>--coherent</code></td>
+<td>False</td>
+<td>--</td>
+<td>Coherent NLI accumulation across spans</td>
+</tr>
+<tr>
+<td><code>--uniform_spans</code></td>
+<td>True</td>
+<td>--</td>
+<td>Assume equal-length spans per link</td>
+</tr>
+</tbody>
+</table>
+<h3 id="roadm-parameters">ROADM Parameters</h3>
+<table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Default</th>
+<th>Units</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--roadm_express_loss</code></td>
+<td>5.0</td>
+<td>dB</td>
+<td>Insertion loss of express (pass-through) ROADM</td>
+</tr>
+<tr>
+<td><code>--roadm_add_drop_loss</code></td>
+<td>8.0</td>
+<td>dB</td>
+<td>Insertion loss of add/drop ROADM</td>
+</tr>
+<tr>
+<td><code>--roadm_noise_figure</code></td>
+<td>5.0</td>
+<td>dB</td>
+<td>Noise figure of ROADM booster amplifiers</td>
+</tr>
+</tbody>
+</table>
+<h3 id="power-parameters">Power Parameters</h3>
+<table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Default</th>
+<th>Units</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--max_power_per_fibre</code></td>
+<td>21.0</td>
+<td>dBm</td>
+<td>Maximum total launch power per fibre link</td>
+</tr>
+<tr>
+<td><code>--power_per_channel</code></td>
+<td>None</td>
+<td>dBm</td>
+<td>Per-channel launch power. If None, defaults to <code>max_power_per_fibre / link_resources</code></td>
+</tr>
+<tr>
+<td><code>--launch_power_type</code></td>
+<td>fixed</td>
+<td>--</td>
+<td>Power assignment strategy: <code>fixed</code>, <code>tabular</code>, <code>rl</code>, or <code>scaled</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="snr-and-modulation-parameters">SNR and Modulation Parameters</h3>
+<table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Default</th>
+<th>Units</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--snr_margin</code></td>
+<td>1</td>
+<td>dB</td>
+<td>Margin added to modulation format SNR thresholds</td>
+</tr>
+<tr>
+<td><code>--mod_format_correction</code></td>
+<td>False</td>
+<td>--</td>
+<td>Enable modulation-format-dependent NLI correction</td>
+</tr>
+<tr>
+<td><code>--modulations_csv_filepath</code></td>
+<td>(built-in)</td>
+<td>--</td>
+<td>Path to modulation formats CSV file</td>
+</tr>
+<tr>
+<td><code>--calc_minimum_osnr</code></td>
+<td>False</td>
+<td>--</td>
+<td>Calculate <code>minimum_osnr</code> from spectral efficiency using GSNR threshold formula (ignores CSV values)</td>
+</tr>
+<tr>
+<td><code>--beta_fec</code></td>
+<td>1.5e-2</td>
+<td>--</td>
+<td>Pre-FEC BER target for GSNR threshold calculation (used with <code>--calc_minimum_osnr</code>)</td>
+</tr>
+<tr>
+<td><code>--fec_rate</code></td>
+<td>0.8</td>
+<td>--</td>
+<td>FEC code rate applied to accepted bitrate in <code>rmsa_gn_model</code> (<code>effective_bitrate = requested * fec_rate</code>)</td>
+</tr>
+<tr>
+<td><code>--fec_threshold</code></td>
+<td>0.28</td>
+<td>--</td>
+<td>FEC overhead fraction (28%) for throughput calculation in <code>rsa_gn_model</code></td>
+</tr>
+<tr>
+<td><code>--num_subchannels</code></td>
+<td>1</td>
+<td>--</td>
+<td>Nyquist subchannels per slot. Divides slot bandwidth by N for SPM; XPM and ASE unchanged. See <a href="#nyquist-subchannel-modelling-num_subchannels">Nyquist Subchannel Modelling</a>.</td>
+</tr>
+<tr>
+<td><code>--max_snr</code></td>
+<td>50.0</td>
+<td>dB</td>
+<td>Upper SNR clamp for observations</td>
+</tr>
+<tr>
+<td><code>--min_snr</code></td>
+<td>7.0</td>
+<td>dB</td>
+<td>Lower SNR limit for throughput calculation</td>
+</tr>
+</tbody>
+</table>
+<h3 id="spectral-parameters">Spectral Parameters</h3>
+<table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Default</th>
+<th>Units</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--slot_size</code></td>
+<td>12.5</td>
+<td>GHz</td>
+<td>Spectral width of each frequency slot</td>
+</tr>
+<tr>
+<td><code>--link_resources</code></td>
+<td>--</td>
+<td>--</td>
+<td>Number of frequency slots per link</td>
+</tr>
+<tr>
+<td><code>--guardband</code></td>
+<td>1</td>
+<td>slots</td>
+<td>Guard band between adjacent channels</td>
+</tr>
+<tr>
+<td><code>--enforce_band_gaps</code></td>
+<td>True</td>
+<td>--</td>
+<td>Mark inter-band gap slots as unusable (from <code>band_data.csv</code>)</td>
+</tr>
+<tr>
+<td><code>--band_data_filepath</code></td>
+<td>None</td>
+<td>--</td>
+<td>Path to band definition CSV (defaults to built-in <code>band_data.csv</code>)</td>
+</tr>
+<tr>
+<td><code>--band_preference</code></td>
+<td>None</td>
+<td>--</td>
+<td>Comma-separated band fill order for first-fit/last-fit (e.g. <code>C,L,S</code>)</td>
+</tr>
+<tr>
+<td><code>--slots_per_band</code></td>
+<td>None</td>
+<td>--</td>
+<td>Comma-separated slot count per band (overrides auto-fill, e.g. <code>43,47</code>)</td>
+</tr>
+</tbody>
+</table>
+<h2 id="summary-rsa_gn_model-vs-rmsa_gn_model">Summary: <code>rsa_gn_model</code> vs <code>rmsa_gn_model</code></h2>
+<table>
+<thead>
+<tr>
+<th>Aspect</th>
+<th><code>rsa_gn_model</code></th>
+<th><code>rmsa_gn_model</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Modulation format</td>
+<td>Fixed (implicit)</td>
+<td>Per-channel, SNR-adaptive</td>
+</tr>
+<tr>
+<td>Action masking</td>
+<td>Standard RSA (free-slot check)</td>
+<td>Full GN model evaluation per candidate</td>
+</tr>
+<tr>
+<td>Masking speed</td>
+<td>Fast</td>
+<td>Slow (GN model per candidate)</td>
+</tr>
+<tr>
+<td>SNR check on action</td>
+<td>Yes (post-placement)</td>
+<td>Yes (post-placement)</td>
+</tr>
+<tr>
+<td>Power budget check</td>
+<td>Yes</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td>Throughput computation</td>
+<td>Shannon-Hartley (optional)</td>
+<td>Not available</td>
+</tr>
+<tr>
+<td>Key metric</td>
+<td>Throughput (Gbit/s)</td>
+<td>Blocking probability, accepted bitrate</td>
+</tr>
+<tr>
+<td>Best for</td>
+<td>Capacity studies, fast evaluation</td>
+<td>Realistic RL training, NLI-aware allocation</td>
+</tr>
+<tr>
+<td>Modulation format correction</td>
+<td>Not applicable</td>
+<td>Optional (<code>--mod_format_correction</code>)</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="see-also">See Also</h2>
+<ul>
+<li><a href="../gn_model_comparison/">Comparison with optical-networking-gym OSNR Model</a> -- detailed comparison of XLRON's ISRS GN model with the simplified GN model implementation in optical-networking-gym</li>
+<li><a href="../differentiable_dra/">Differentiable DRA Pipeline</a> -- how the DRA pipeline is made end-to-end differentiable for gradient-based pump-power optimisation, with a primer on automatic differentiation, the implicit function theorem, and the surrogate gradient used through the Levenberg-Marquardt profile fit</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["content.tabs.link", "search.suggest"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+        <script src="../javascripts/mathjax.js"></script>
+      
+        <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
+      
+        <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+      
+    
+  </body>
+</html>
