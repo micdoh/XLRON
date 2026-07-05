@@ -971,8 +971,7 @@ def select_action(select_action_state, env, env_params, train_state, config):
 
         env_state = env_state.replace(env_state=vmap_mask_nodes(env_state.env_state, env_params))
         pi_source = distrax.Categorical(
-            logits=pi[0]._logits
-            + (-1e8 * (1 - env_state.env_state.node_mask_s.astype(jnp.float32)))
+            logits=pi._logits + (-1e8 * (1 - env_state.env_state.node_mask_s.astype(jnp.float32)))
         )
 
         action_s = (
@@ -984,8 +983,7 @@ def select_action(select_action_state, env, env_params, train_state, config):
             env_state=vmap_mask_dest_node(env_state.env_state, env_params, action_s)
         )
         pi_dest = distrax.Categorical(
-            logits=pi[0]._logits
-            + (-1e8 * (1 - env_state.env_state.node_mask_d.astype(jnp.float32)))
+            logits=pi._logits + (-1e8 * (1 - env_state.env_state.node_mask_d.astype(jnp.float32)))
         )
 
         action_p = jnp.full(action_s.shape, 0)
@@ -996,7 +994,7 @@ def select_action(select_action_state, env, env_params, train_state, config):
             env_state=vmap_mask_slots(env_state.env_state, env_params, action)
         )
         pi_path = distrax.Categorical(
-            logits=pi[0]._logits
+            logits=pi._logits
             + (-1e8 * (1 - env_state.env_state.link_slot_mask.astype(jnp.float32)))
         )
         action_p = pi_path.sample(seed=action_key) if not config.deterministic else pi_path.mode()
@@ -1006,7 +1004,7 @@ def select_action(select_action_state, env, env_params, train_state, config):
         log_prob_path = pi_path.log_prob(action_p)
         log_prob_dest = pi_dest.log_prob(action_d)
         log_prob = log_prob_dest + log_prob_path + log_prob_source
-        probs = jax.nn.softmax(pi[0]._logits, axis=-1)
+        probs = jax.nn.softmax(pi._logits, axis=-1)
         valid_mass = jnp.sum(probs * action_mask, axis=-1)
 
     elif "gn_model" in config.env_type.lower() and config.launch_power_type == "rl":
@@ -1047,11 +1045,11 @@ def select_action(select_action_state, env, env_params, train_state, config):
 
     else:
         pi_masked = distrax.Categorical(
-            logits=pi[0]._logits + (-1e8 * (1 - action_mask.astype(jnp.float32)))
+            logits=pi._logits + (-1e8 * (1 - action_mask.astype(jnp.float32)))
         )
         action = pi_masked.sample(seed=action_key) if not config.deterministic else pi_masked.mode()
         log_prob = pi_masked.log_prob(action)
-        probs = jax.nn.softmax(pi[0]._logits, axis=-1)
+        probs = jax.nn.softmax(pi._logits, axis=-1)
         valid_mass = jnp.sum(probs * action_mask, axis=-1)
 
     # Single state update at the end. Store masks at SMALL_FLOAT so the carried field dtype is

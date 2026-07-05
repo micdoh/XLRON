@@ -530,9 +530,10 @@ def _loss_fn(
             jax.debug.print("log_prob {}", log_prob, ordered=config.ORDERED)
             jax.debug.print("entropy {}", entropy, ordered=config.ORDERED)
     else:
-        # Standard action masking
+        # Standard action masking. pi is a bare batched Categorical here (logits (B, A));
+        # pi[0] would be distrax batch-indexing, i.e. sample 0's logits broadcast to the batch.
         pi_masked = distrax.Categorical(
-            logits=pi[0]._logits + (-1e8 * (1 - traj_batch.action_mask.astype(jnp.float32)))
+            logits=pi._logits + (-1e8 * (1 - traj_batch.action_mask.astype(jnp.float32)))
         )
         # Ratio will be policy/masked_policy - also known as off-policy invalid action masking
         log_prob = (
@@ -617,9 +618,10 @@ def _loss_fn(
     # count): restores the congestion-aware mu-scaling that the non-recentered ratio (rho ~ mu)
     # applies implicitly but IAM_RECENTER_CLIP removes.
     actor_num = actor_w * valid_mass if config.get("MU_WEIGHT_ACTOR", False) else actor_w
-    actor_loss = -(jnp.minimum(loss_actor1, loss_actor2) * actor_num).sum() / jnp.maximum(
-        actor_w.sum(), 1e-8
-    )
+    # Normalize by the full gated count (w_sum), not the positive-only count, so the gradient
+    # scale under POSITIVE_ADV_ONLY matches the emergent non-recentered clip (which averages the
+    # zeroed negative-adv steps into the denominator) and LR is comparable across the two modes.
+    actor_loss = -(jnp.minimum(loss_actor1, loss_actor2) * actor_num).sum() / w_sum
 
     # --- Value loss (ungated) ----------------------------------------------------
     value_loss = 0.5 * jnp.square(value - targets).mean()
@@ -644,7 +646,7 @@ def _loss_fn(
             current_probs = jax.nn.softmax(pi._logits, axis=-1)
             current_valid_mass = jnp.sum(current_probs * traj_batch.action_mask, axis=-1)
         else:
-            current_probs = jax.nn.softmax(pi[0]._logits, axis=-1)
+            current_probs = jax.nn.softmax(pi._logits, axis=-1)
             current_valid_mass = jnp.sum(current_probs * traj_batch.action_mask, axis=-1)
         validmass_loss = -jnp.log(current_valid_mass + 1e-8).mean()
     else:
