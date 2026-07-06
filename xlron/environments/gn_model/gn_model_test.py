@@ -1207,7 +1207,7 @@ class ActiveLightpathRegistryTest(chex.TestCase):
 
         # --- Two accepted placements -> two fully-populated live rows ---
         for i in range(2):
-            mask = env.action_mask(state, params)  # ty: ignore[unresolved-attribute]
+            mask = env.action_mask(state, params)
             mask = mask[0] if isinstance(mask, tuple) else mask
             self.assertTrue(bool(jnp.any(mask > 0)))
             key, akey = jax.random.split(key)
@@ -1223,7 +1223,7 @@ class ActiveLightpathRegistryTest(chex.TestCase):
         self.assertTrue(bool(jnp.all(registry[jnp.where(dep[:, 0] > 0)[0], 2] > 0)))
 
         # --- A blocked request must NOT touch the live registry ---
-        mask = env.action_mask(state, params)  # ty: ignore[unresolved-attribute]
+        mask = env.action_mask(state, params)
         mask = mask[0] if isinstance(mask, tuple) else mask
         self.assertTrue(bool(jnp.any(mask == 0)))
         invalid_action = jnp.argmin(mask)
@@ -1252,6 +1252,100 @@ class ActiveLightpathRegistryTest(chex.TestCase):
         )
         self.assertTrue(bool(jnp.all(expired.active_lightpaths_array == -1)))  # ty: ignore[unresolved-attribute]
         self.assertTrue(bool(jnp.all(expired.active_lightpaths_array_departure == 0)))  # ty: ignore[unresolved-attribute]
+
+
+class TotalPowerPerLinkTest(chex.TestCase):
+    """Adjacent same-path-index channels must be counted as separate channels via their
+    centre-frequency transition (path index alone merged them, dropping the second
+    block's power from the max_power_per_fibre checks)."""
+
+    def test_adjacent_same_path_channels_both_counted(self):
+        power = jnp.full((1, 4), 1e-3)
+        freq = jnp.array([[10.0, 10.0, 20.0, 20.0]])
+        same_path = jnp.array([[5, 5, 5, 5]])
+        total = compute_total_power_per_link(power, same_path, freq)
+        chex.assert_trees_all_close(total, jnp.array([2e-3]))
+        # Distinct paths unchanged; empty slots ignored
+        two_paths = jnp.array([[5, 5, 7, 7]])
+        chex.assert_trees_all_close(
+            compute_total_power_per_link(power, two_paths, freq), jnp.array([2e-3])
+        )
+        empty = jnp.array([[-1, -1, -1, -1]])
+        chex.assert_trees_all_close(
+            compute_total_power_per_link(power, empty, freq), jnp.array([0.0])
+        )
+
+
+class ScaledLaunchPowerTest(chex.TestCase):
+    """launch_power_type='scaled' must scale slot power by true-path-length fraction.
+
+    Regression: the branch indexed the per-link length vector with a PATH index and took
+    the max over per-span partial sums, producing garbage scalings (and an IndexError
+    under pack_path_bits)."""
+
+    def test_scaled_power_is_path_length_fraction(self):
+        settings = dict(
+            k=4,
+            topology_name="nsfnet_deeprmsa_directed",
+            link_resources=10,
+            max_requests=100,
+            values_bw=[100],
+            incremental_loading=True,
+            env_type="rsa_gn_model",
+            slot_size=12.5,
+            guardband=0,
+            mod_format_correction=False,
+            max_power_per_fibre=10.0,
+            coherent=False,
+            include_no_op=False,
+            launch_power_type="scaled",
+        )
+        env, params = make(settings, log_wrapper=False)
+        key = jax.random.PRNGKey(3)
+        obs, state = env.reset(key, params)
+        power = get_launch_power(  # ty: ignore[invalid-argument-type,unresolved-attribute]
+            state, jnp.array(0), jnp.array(0.0), jnp.array(0), params
+        )
+
+        nodes_sd, _ = read_rsa_request(state.request_array)
+        source, dest = nodes_sd
+        i = get_path_indices(
+            params,
+            source,
+            dest,
+            params.k_paths,
+            params.num_nodes,
+            directed=params.directed_graph,
+        ).astype(jnp.int32)
+        link_lengths = jnp.sum(params.link_length_array.val, axis=1)
+        pla = params.path_link_array.val.astype(link_lengths.dtype)
+        expected = params.slot_launch_power_array.val[0] * (  # ty: ignore[unresolved-attribute]
+            (pla[i] @ link_lengths) / jnp.max(pla @ link_lengths)
+        )
+        chex.assert_trees_all_close(jnp.squeeze(power), jnp.squeeze(expected), rtol=1e-5)
+        self.assertGreater(float(jnp.squeeze(power)), 0.0)
+        self.assertLessEqual(
+            float(jnp.squeeze(power)),
+            float(params.slot_launch_power_array.val[0]),  # ty: ignore[unresolved-attribute]
+        )
+
+
+class GetPathsObsGNModelTest(chex.TestCase):
+    """The launch-power observation must feed NORMALISED path lengths (regression: the
+    normalisation was computed then discarded, so raw metres ~1e5-1e7 entered the obs)."""
+
+    def test_path_length_feature_is_normalised(self):
+        _, env, _, state, params = rsa_gn_model_4_nsfnet_test_setup()
+        request = state.request_array.reshape((-1,))
+        ps_w = calculate_path_stats(state, params, request).shape[1] - 3  # ty: ignore[unresolved-attribute]
+        obs = get_paths_obs_gn_model(state, params)
+        stats = obs[4:].reshape(params.k_paths, ps_w + 5)
+        path_length_norm = stats[:, ps_w]
+        self.assertTrue(bool(jnp.all(path_length_norm > 0)))
+        self.assertTrue(bool(jnp.all(path_length_norm <= 1.0)))
+        # The stats block is bounded (raw metres would be >= 1e5); obs[3] is holding_time,
+        # which is ~1e6 under incremental loading and not part of this regression
+        self.assertLess(float(jnp.max(jnp.abs(obs[4:]))), 1e3)
 
 
 if __name__ == "__main__":

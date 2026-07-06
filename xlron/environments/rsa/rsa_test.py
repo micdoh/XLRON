@@ -43,7 +43,11 @@ class GenerateRSARequestTest(chex.TestCase):
     def test_generate_rsa_request_from_list(self, expected):
         key = np.array([1, 2], dtype=np.uint32)
         self.params = self.params.replace(deterministic_requests=True)
-        self.state = self.state.replace(list_of_requests=jnp.array([[0, 1, 1], [1, 1, 2]]))
+        # Fresh-episode counter (-1): the next generated request is number 0 = list row 0
+        self.state = self.state.replace(
+            list_of_requests=jnp.array([[0, 1, 1], [1, 1, 2]]),
+            total_requests=jnp.array(-1, dtype=self.state.total_requests.dtype),
+        )
         self.state = self.variant(generate_request_rsa)(key, self.state, self.params)
         request1 = self.state.request_array
         self.state = self.variant(generate_request_rsa)(key, self.state, self.params)

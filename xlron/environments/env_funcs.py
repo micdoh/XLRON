@@ -1216,9 +1216,12 @@ def generate_request_rsa(
     key_sd, key_slot, key_times = jax.random.split(key, 3)
 
     if params.deterministic_requests:
+        # total_requests starts at -1 and is incremented in the replace below, so the
+        # request being generated is number total_requests + 1. Reading at the raw counter
+        # served list_of_requests[-1] (wrapped) as the first request of every episode.
         request = differentiable_indexing(
             state.list_of_requests,
-            state.total_requests,
+            state.total_requests + 1,
             params.temperature,
             params.differentiable,
         )
@@ -1304,9 +1307,10 @@ def generate_request_rwalr(
     # Flatten the probabilities to a 1D array
     key_sd, key_slot, key_times = jax.random.split(key, 3)
     if params.deterministic_requests:
+        # See generate_request_rsa: the request being generated is total_requests + 1
         request = differentiable_indexing(
             state.list_of_requests,
-            state.total_requests.astype(jnp.float32),
+            (state.total_requests + 1).astype(jnp.float32),
             params.temperature,
             params.differentiable,
         )
@@ -3938,28 +3942,42 @@ def get_lightpath_snr(state: GNModelEnvState, params: GNModelEnvParams) -> Array
     return lightpath_snr_array
 
 
-def compute_total_power_per_link(channel_power_array, path_index_array):
+def compute_total_power_per_link(channel_power_array, path_index_array, channel_centre_freq_array):
     """Compute total optical power per link by summing one power value per channel.
 
-    Each channel spans multiple contiguous slots with the same power value and
-    the same path_index. We identify channel starts (where path_index differs
-    from previous slot and is >= 0) and sum their power values.
+    Each channel spans multiple contiguous slots with the same power value, path_index and
+    centre frequency. Channel starts are detected where path_index OR centre frequency
+    changes: two concurrent connections on the same k-path in adjacent slot blocks share a
+    path index, but their centre frequencies always differ, so the frequency transition
+    keeps them distinct (path index alone merged them, dropping the second block's power
+    from the max_power_per_fibre checks).
 
     Args:
         channel_power_array: (num_links, link_resources) per-channel power in linear Watts
         path_index_array: (num_links, link_resources) lightpath index (-1 for empty)
+        channel_centre_freq_array: (num_links, link_resources) channel centre frequency
     Returns:
         (num_links,) total optical power per link in linear Watts
     """
     occupied = path_index_array >= 0
+    num_links = path_index_array.shape[0]
     prev_path_idx = jnp.concatenate(
         [
-            jnp.full((path_index_array.shape[0], 1), -1, dtype=path_index_array.dtype),
+            jnp.full((num_links, 1), -1, dtype=path_index_array.dtype),
             path_index_array[:, :-1],
         ],
         axis=1,
     )
-    is_channel_start = occupied & (path_index_array != prev_path_idx)
+    prev_freq = jnp.concatenate(
+        [
+            jnp.full((num_links, 1), -1.0, dtype=channel_centre_freq_array.dtype),
+            channel_centre_freq_array[:, :-1],
+        ],
+        axis=1,
+    )
+    is_channel_start = occupied & (
+        (path_index_array != prev_path_idx) | (channel_centre_freq_array != prev_freq)
+    )
     channel_start_powers = jnp.where(is_channel_start, channel_power_array, 0.0)
     return jnp.sum(channel_start_powers, axis=1)
 
@@ -4260,7 +4278,9 @@ def check_action_rmsa_gn_model(
     snr_sufficient_check = check_snr_sufficient(state, params)
     rsa_check = check_action_rsa(state, action_info, params)
     # Check total power per link doesn't exceed max_power_per_fibre
-    total_power = compute_total_power_per_link(state.channel_power_array, state.path_index_array)
+    total_power = compute_total_power_per_link(
+        state.channel_power_array, state.path_index_array, state.channel_centre_freq_array
+    )
     power_check = jnp.any(total_power > params.max_power_per_fibre)
     return jnp.any(
         jnp.stack(
@@ -4817,7 +4837,7 @@ def mask_slots_rmsa_gn_model(
         existing_ok = (1.0 - existing_fail).astype(jnp.float32)
 
         # Check 3: Total power on each link doesn't exceed max_power_per_fibre
-        total_power = compute_total_power_per_link(ch_power, path_idx_arr)
+        total_power = compute_total_power_per_link(ch_power, path_idx_arr, centre_freq_arr)
         power_ok = (~jnp.any(total_power > params.max_power_per_fibre)).astype(jnp.float32)
 
         return new_ok * existing_ok * power_ok * has_cand.astype(jnp.float32)
@@ -4949,15 +4969,20 @@ def get_launch_power(
             params.num_nodes,
             directed=params.directed_graph,
         )
-        # Get path length
+        # Path length = path-link incidence row dotted with per-link total (span-summed)
+        # lengths. (Indexing the per-link length vector with a path index, and taking the
+        # max over per-span partial sums, both produced garbage scalings here.)
         link_length_array = jnp.sum(params.link_length_array.val, axis=1, promote_integers=False)
-        path_length = jnp.sum(link_length_array[i + k_path_index], promote_integers=False)
         path_link_array = (
-            jnp.unpackbits(params.path_link_array.val)[:, params.num_links]
+            jnp.unpackbits(params.path_link_array.val, axis=1)[:, : params.num_links]
             if params.pack_path_bits
             else params.path_link_array.val
         )
-        maximum_path_length = jnp.max(jnp.dot(path_link_array, params.link_length_array.val))
+        path = path_link_array[(i + k_path_index).astype(dtype_config.INDEX_DTYPE)]
+        path_length = jnp.dot(path.astype(link_length_array.dtype), link_length_array)
+        maximum_path_length = jnp.max(
+            jnp.dot(path_link_array.astype(link_length_array.dtype), link_length_array)
+        )
         return params.slot_launch_power_array.val[initial_slot_index] * (
             path_length / maximum_path_length
         )
@@ -4984,17 +5009,25 @@ def get_paths_obs_gn_model(state: RSAGNModelEnvState, params: RSAGNModelEnvParam
     def calculate_gn_path_stats(k_path_index, init_val):
         # Get path index
         path_index = (
-            get_path_indices(params, source, dest, params.k_paths, params.num_nodes) + k_path_index
+            get_path_indices(
+                params,
+                source,
+                dest,
+                params.k_paths,
+                params.num_nodes,
+                directed=params.directed_graph,
+            )
+            + k_path_index
         )
         path_link_array = (
             jnp.unpackbits(params.path_link_array.val, axis=1)[:, : params.num_links]
             if params.pack_path_bits
             else params.path_link_array.val
         )
-        path = params.path_link_array[path_index]
+        path = path_link_array[path_index.astype(dtype_config.INDEX_DTYPE)]
         path_length = jnp.dot(path, link_length_array)
         max_path_length = jnp.max(jnp.dot(path_link_array, link_length_array))
-        path_length / max_path_length
+        path_length_norm = path_length / max_path_length
         max_path_length_hops = jnp.max(jnp.sum(path_link_array, axis=1, promote_integers=False))
         path_length_hops_norm = (
             jnp.sum(path, promote_integers=False).astype(dtype_config.LARGE_FLOAT_DTYPE)
@@ -5026,7 +5059,7 @@ def get_paths_obs_gn_model(state: RSAGNModelEnvState, params: RSAGNModelEnvParam
             jnp.array(
                 [
                     [
-                        path_length,
+                        path_length_norm,
                         path_length_hops_norm,
                         num_connections_norm,
                         mean_power_norm,

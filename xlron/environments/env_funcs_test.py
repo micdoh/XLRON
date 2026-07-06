@@ -1344,6 +1344,41 @@ class UndirectedEdgeFeatureLayoutTest(chex.TestCase):
         np.testing.assert_allclose(got[e:], expected_rows, rtol=1e-2)
 
 
+class DeterministicReplayOrderTest(chex.TestCase):
+    """Deterministic replay must serve list_of_requests in order from row 0.
+
+    Regression: total_requests starts at -1 and the request was read before the
+    increment, so every episode began with list_of_requests[-1] (wrapped index) and ran
+    [n-1, 0, 1, ...]."""
+
+    def test_requests_served_in_order(self):
+        rows = [
+            [0, 12, 1, 0.5, 5.0, 0.5],
+            [1, 12, 2, 1.0, 5.0, 1.0],
+            [2, 12, 3, 1.5, 5.0, 1.5],
+        ]
+        settings = dict(
+            k=2,
+            topology_name="4node",
+            link_resources=8,
+            values_bw=[12],
+            env_type="rsa",
+            deterministic_requests=True,
+            list_of_requests=rows,
+            incremental_loading=True,
+        )
+        env, params = make(settings, log_wrapper=False)
+        key = jax.random.PRNGKey(0)
+        obs, state = env.reset(key, params)
+        step = jax.jit(env.step, static_argnums=(3,))
+        served = [np.asarray(state.request_array, dtype=np.float32)]
+        for _ in range(2):
+            _, state, *_ = step(key, state, jnp.array(0), params)
+            served.append(np.asarray(state.request_array, dtype=np.float32))
+        for got, row in zip(served, rows):
+            np.testing.assert_allclose(got, np.array([row[0], row[1], row[2]], dtype=np.float32))
+
+
 if __name__ == "__main__":
     jax.config.update("jax_numpy_rank_promotion", "raise")
     absltest.main()
