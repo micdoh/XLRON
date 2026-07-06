@@ -1312,6 +1312,38 @@ class TopologyNodeIdNormalisationTest(chex.TestCase):
         np.testing.assert_array_equal(receivers[e:], edges[:, 0])
 
 
+class UndirectedEdgeFeatureLayoutTest(chex.TestCase):
+    """Undirected graph tuples must block-duplicate edge features ([f; f]), matching the
+    [fwd..., bwd...] senders/receivers layout and the GNN readout's edges[: E] slice.
+    jnp.repeat interleaved them ([f0, f0, f1, f1, ...]), attaching link j's features to the
+    wrong edges for every j > 0."""
+
+    def test_edge_features_match_links_in_both_blocks(self):
+        _, _, _, state, params = rsa_nsfnet_16_test_setup()
+        e = int(params.num_links)
+        # Distinctive per-link feature rows: row j = (j + 1) / mean_service_holding_time
+        departures = jnp.tile(
+            jnp.arange(1.0, e + 1.0)[:, None], (1, int(params.link_resources))
+        ).astype(state.link_slot_departure_array.dtype)
+        state = state.replace(link_slot_departure_array=departures)
+        expected_rows = np.asarray(departures, dtype=np.float32) / float(
+            state.mean_service_holding_time
+        )
+
+        graph = init_graph_tuple(state, params, jnp.eye(int(params.num_nodes)))
+        got = np.asarray(graph.edges, dtype=np.float32)  # ty: ignore[unresolved-attribute]
+        self.assertEqual(got.shape[0], 2 * e)
+        np.testing.assert_allclose(got[:e], expected_rows, rtol=1e-2)  # forward block, link order
+        np.testing.assert_allclose(got[e:], expected_rows, rtol=1e-2)  # reverse block, link order
+
+        # update_graph_tuple must produce the same layout for the carried graph
+        state = state.replace(graph=graph)
+        state = update_graph_tuple(state, params)
+        got = np.asarray(state.graph.edges, dtype=np.float32)
+        np.testing.assert_allclose(got[:e], expected_rows, rtol=1e-2)
+        np.testing.assert_allclose(got[e:], expected_rows, rtol=1e-2)
+
+
 if __name__ == "__main__":
     jax.config.update("jax_numpy_rank_promotion", "raise")
     absltest.main()

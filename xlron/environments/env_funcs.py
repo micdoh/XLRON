@@ -232,12 +232,16 @@ def init_graph_tuple(
     if params.disable_node_features:
         node_features = jnp.zeros((1,), dtype=dtype_config.LARGE_FLOAT_DTYPE)
 
-    # Handle undirected graphs (duplicate edges after normalization)
+    # Handle undirected graphs (duplicate edges after normalization).
+    # senders/receivers are laid out as [fwd_0..fwd_E-1, bwd_0..bwd_E-1], so features must be
+    # block-duplicated to match (jnp.repeat would interleave [f0, f0, f1, f1, ...], attaching
+    # link j's features to concatenated edges 2j/2j+1 instead of j and E+j; the GNN readout
+    # slices edges[: E] as per-link features).
     if not params.directed_graph:
         senders_ = jnp.concatenate([senders, receivers])
         receivers = jnp.concatenate([receivers, senders])
         senders = senders_
-        edge_features = jnp.repeat(edge_features, 2, axis=0)
+        edge_features = jnp.concatenate([edge_features, edge_features], axis=0)
 
     # Bulk float tier: GNN input features (normalised remaining holding time / SNR / power, ~[-1,1]
     # or [0,1]). Stored at SMALL_FLOAT to cut memory (graph.edges is the largest E*S array under
@@ -334,7 +338,12 @@ def update_graph_tuple(state: RSAEnvState, params: RSAEnvParams) -> RSAEnvState:
     if params.disable_node_features:
         node_features = jnp.zeros((1,), dtype=dtype_config.LARGE_FLOAT_DTYPE)
 
-    edge_features = edge_features if params.directed_graph else jnp.repeat(edge_features, 2, axis=0)
+    # Block-duplicate to match the [fwd..., bwd...] senders/receivers layout (see init_graph_tuple)
+    edge_features = (
+        edge_features
+        if params.directed_graph
+        else jnp.concatenate([edge_features, edge_features], axis=0)
+    )
     # Match init_graph_tuple: store GNN input features at SMALL_FLOAT so the carried graph dtype
     # is stable across the scan (the model boundary casts them back up to COMPUTE_DTYPE).
     node_features = node_features.astype(dtype_config.SMALL_FLOAT_DTYPE)
