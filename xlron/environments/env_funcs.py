@@ -1643,7 +1643,7 @@ def remove_expired_services_rsa(state: RSAEnvState, params: EnvParams) -> RSAEnv
     dep = state.link_slot_departure_array
 
     keep = differentiable_compare(
-        dep, t, ">", params.differentiable, params.temperature
+        dep, t, ">", temperature=params.temperature, differentiable=params.differentiable
     )  # 1 where dep > t, else 0
     keep_f = keep.astype(dep.dtype)  # 0/1 in dep dtype  # ty: ignore[unresolved-attribute]
 
@@ -1678,32 +1678,42 @@ def remove_expired_services_rwalr(
     """
     # Set one where link_slot_departure_array is >= zero and <= current time
     current_time = state.current_time if not params.relative_arrival_times else state.arrival_time
+    dep = state.link_slot_departure_array
     mask_remove = differentiable_compare(
-        state.link_slot_departure_array,
+        dep,
         current_time,
         "<=",
-        params.differentiable,
-        params.temperature,
+        temperature=params.temperature,
+        differentiable=params.differentiable,
     ) * differentiable_compare(
-        state.link_slot_departure_array,
+        dep,
         zero,
         ">=",
-        params.differentiable,
-        params.temperature,
+        temperature=params.temperature,
+        differentiable=params.differentiable,
     )
-    updated_link_slot_departure_array = state.link_slot_departure_array * (
-        1 - mask_remove
-    )  # Set to zero where mask is one
+    keep = 1 - mask_remove
+    # Cast per carried array so the lax.scan carry dtype is stable (see CLAUDE.md dtype rules)
+    keep_dep = keep.astype(dep.dtype)
+    updated_link_slot_departure_array = dep * keep_dep  # Set to zero where mask is one
     if params.relative_arrival_times:
         mask_subtract = differentiable_compare(
-            updated_link_slot_departure_array, zero, ">", params.differentiable, params.temperature
-        )
+            updated_link_slot_departure_array,
+            zero,
+            ">",
+            temperature=params.temperature,
+            differentiable=params.differentiable,
+        ).astype(dep.dtype)  # ty: ignore[unresolved-attribute]
         updated_link_slot_departure_array = (
-            updated_link_slot_departure_array - jnp.squeeze(current_time) * mask_subtract
+            updated_link_slot_departure_array
+            - jnp.squeeze(current_time).astype(dep.dtype) * mask_subtract
         )
+    keep_i = keep.astype(state.path_index_array.dtype)
+    mask_remove_i = mask_remove.astype(state.path_index_array.dtype)
+    neg_one_i = jnp.array(-1, dtype=state.path_index_array.dtype)
     state = state.replace(
-        link_slot_array=state.link_slot_array * (1 - mask_remove),
-        path_index_array=state.path_index_array * (1 - mask_remove) + (-one) * mask_remove,
+        link_slot_array=state.link_slot_array * keep.astype(state.link_slot_array.dtype),
+        path_index_array=state.path_index_array * keep_i + neg_one_i * mask_remove_i,
         link_slot_departure_array=updated_link_slot_departure_array,
     )
     return state
@@ -1718,8 +1728,10 @@ def remove_expired_services_rsa_gn_model(
 
     # expired: 0 <= dep <= t
     mask_remove = differentiable_compare(
-        dep, zero, ">=", params.differentiable, params.temperature
-    ) * differentiable_compare(dep, t, "<=", params.differentiable, params.temperature)
+        dep, zero, ">=", temperature=params.temperature, differentiable=params.differentiable
+    ) * differentiable_compare(
+        dep, t, "<=", temperature=params.temperature, differentiable=params.differentiable
+    )
 
     keep = 1 - mask_remove
     keep_f = keep.astype(dep.dtype)
@@ -1751,8 +1763,10 @@ def remove_expired_services_rsa_gn_model(
     dep_lp = state.active_lightpaths_array_departure
 
     mask_remove_lp = differentiable_compare(
-        dep_lp, zero, ">=", params.differentiable, params.temperature
-    ) * differentiable_compare(dep_lp, t, "<=", params.differentiable, params.temperature)
+        dep_lp, zero, ">=", temperature=params.temperature, differentiable=params.differentiable
+    ) * differentiable_compare(
+        dep_lp, t, "<=", temperature=params.temperature, differentiable=params.differentiable
+    )
 
     keep_lp = 1 - mask_remove_lp
     keep_lp_f = keep_lp.astype(dep_lp.dtype)
@@ -1778,8 +1792,10 @@ def remove_expired_services_rmsa_gn_model(
 
     # expired: 0 <= dep <= t
     mask_remove = differentiable_compare(
-        dep, zero, ">=", params.differentiable, params.temperature
-    ) * differentiable_compare(dep, t, "<=", params.differentiable, params.temperature)
+        dep, zero, ">=", temperature=params.temperature, differentiable=params.differentiable
+    ) * differentiable_compare(
+        dep, t, "<=", temperature=params.temperature, differentiable=params.differentiable
+    )
 
     keep = 1 - mask_remove
     keep_f = keep.astype(dep.dtype)
