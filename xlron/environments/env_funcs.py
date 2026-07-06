@@ -2333,6 +2333,21 @@ def make_graph(topology_name: str = "conus", topology_directory: str | None = No
     else:
         with open(topology_path / f"{topology_name}.json") as f:
             graph = nx.node_link_graph(json.load(f), edges="links")
+    # Topology JSONs are mixed-base (TopologyBench-derived files number nodes 1..N, others
+    # 0..N-1), but node labels are used directly as row indices into node-feature arrays
+    # (spectral features, source/dest one-hots, adjacency/Laplacian) and as GNN
+    # senders/receivers. Normalise to 0..N-1 in sorted-id order. The relabelling is monotone,
+    # so sorted(graph.edges) column order (spectrum arrays, path_link_array) is unchanged.
+    graph = nx.convert_node_labels_to_integers(graph, ordering="sorted")
+    if list(graph.nodes) != sorted(graph.nodes):
+        # convert_node_labels_to_integers keeps the file's node insertion order; rebuild so
+        # iteration order == 0..N-1, which adjacency/Laplacian row order and
+        # combinations(graph.nodes, 2) (path table / triangular indexing) rely on.
+        ordered = graph.__class__()
+        ordered.graph.update(graph.graph)
+        ordered.add_nodes_from(sorted(graph.nodes(data=True)))
+        ordered.add_edges_from(graph.edges(data=True))
+        graph = ordered
     return graph
 
 

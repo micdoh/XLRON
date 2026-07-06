@@ -8,11 +8,14 @@ chex.all_variants() decorator runs the test once for each variant (e.g. jitted, 
 parameterized.named_parameters() decorator runs the test once for each set of parameters passed to the function under test.
 """
 
+import json
 import pathlib
+import tempfile
 
 import chex
 import jax
 import jax.numpy as jnp
+import numpy as np
 from absl.testing import absltest, parameterized
 
 from xlron.environments.dataclasses import *
@@ -239,8 +242,8 @@ class GetPathsTest(chex.TestCase):
                 [
                     [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
                     [0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                    [0, 0, 1, 0, 1, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
                     [0, 1, 0, 0, 1, 1, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 1, 0, 1, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
                     [0, 0, 1, 1, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0],
                 ]
             ),
@@ -1250,6 +1253,63 @@ class FindBlockSizesTest(chex.TestCase):
             slots, starts_only=False
         )
         chex.assert_trees_all_close(actual, expected)
+
+
+class TopologyNodeIdNormalisationTest(chex.TestCase):
+    """make_graph must relabel mixed-base topology JSONs to 0..N-1 in sorted-id order.
+
+    TopologyBench-derived JSONs number nodes 1..N, but node labels are used directly as row
+    indices into 0-based node-feature arrays (spectral features, source/dest one-hots) and as
+    GNN senders/receivers — 1-based labels silently misroute every edge's features and drop
+    messages to the highest node (segment_sum with num_segments=N).
+    """
+
+    def test_one_based_json_relabelled_to_zero_based(self):
+        graph = make_graph("nsfnet_deeprmsa_directed")
+        self.assertEqual(list(graph.nodes), list(range(14)))
+
+    def test_shuffled_out_of_order_json_sorted_and_attrs_preserved(self):
+        topology = {
+            "directed": False,
+            "multigraph": False,
+            "graph": {},
+            "nodes": [{"id": 3}, {"id": 1}, {"id": 4}, {"id": 2}],
+            "links": [
+                {"source": 1, "target": 2, "distance": 100},
+                {"source": 2, "target": 3, "distance": 200},
+                {"source": 3, "target": 4, "distance": 300},
+                {"source": 4, "target": 1, "distance": 400},
+            ],
+        }
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with open(pathlib.Path(tmpdir) / "tiny_one_based.json", "w") as f:
+                json.dump(topology, f)
+            graph = make_graph("tiny_one_based", topology_directory=tmpdir)
+        # Iteration order must equal sorted relabelled ids regardless of JSON node order
+        self.assertEqual(list(graph.nodes), [0, 1, 2, 3])
+        # Old id i maps to i-1; edge attributes must follow their (relabelled) endpoints
+        self.assertEqual(graph.edges[(0, 1)]["distance"], 100)
+        self.assertEqual(graph.edges[(1, 2)]["distance"], 200)
+        self.assertEqual(graph.edges[(2, 3)]["distance"], 300)
+        self.assertEqual(graph.edges[(0, 3)]["distance"], 400)
+
+    def test_graph_tuple_senders_receivers_are_valid_row_indices(self):
+        # Full pipeline on a 1-based topology: make() -> reset -> state.graph
+        _, _, _, state, params = rsa_nsfnet_16_test_setup()
+        n = int(params.num_nodes)
+        senders = np.asarray(state.graph.senders)
+        receivers = np.asarray(state.graph.receivers)
+        self.assertEqual(min(senders.min(), receivers.min()), 0)  # was 1 pre-normalisation
+        self.assertLess(int(max(senders.max(), receivers.max())), n)  # id N used to clamp/drop
+        # senders/receivers must equal the sorted edge list of the relabelled graph, so
+        # nodes[senders] gathers each edge's true endpoint feature row
+        edges = np.array(sorted(make_graph("nsfnet_deeprmsa_undirected").edges))
+        e = edges.shape[0]
+        np.testing.assert_array_equal(senders[:e], edges[:, 0])
+        np.testing.assert_array_equal(receivers[:e], edges[:, 1])
+        # Undirected graphs append the reverse direction as a second block
+        np.testing.assert_array_equal(senders[e:], edges[:, 1])
+        np.testing.assert_array_equal(receivers[e:], edges[:, 0])
 
 
 if __name__ == "__main__":

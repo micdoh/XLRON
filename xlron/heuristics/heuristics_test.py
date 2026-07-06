@@ -2066,7 +2066,7 @@ class KspBfTest(chex.TestCase):
                     ],
                 ]
             ),
-            jnp.array(33),
+            jnp.array(49),
         ),  # slot 1 in path k=2
         (
             "case_best_fit",
@@ -4183,7 +4183,7 @@ class BfKspTest(chex.TestCase):
                     ],
                 ]
             ),
-            jnp.array(33),
+            jnp.array(49),
         ),  # slot 1 in path k=2
         (
             "case_best_fit",
@@ -4993,7 +4993,7 @@ class BfKspTest(chex.TestCase):
                     ],
                 ]
             ),
-            jnp.array(43),
+            jnp.array(59),
         ),
     )
     def test_bf_ksp_nsfnet(self, request_array, link_slot_array, expected):
@@ -13054,7 +13054,7 @@ class MUKspTest(chex.TestCase):
                     [0, 0, 0, 1],
                 ]
             ),
-            jnp.array(9),
+            jnp.array(13),
             True,
             True,
         ),
@@ -13183,7 +13183,7 @@ class KcaFfTest(chex.TestCase):
                     [0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
                 ]
             ),
-            jnp.array(33),
+            jnp.array(49),
         ),  # slot 1 in path k=1
     )
     def test_kca_ff_nsfnet(self, request_array, link_slot_array, expected):

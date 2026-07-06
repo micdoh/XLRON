@@ -366,12 +366,8 @@ class RSAEnv(environment.Environment):
 
         lengths = self._to_numpy(params.link_length_array.val).astype(float).reshape(-1)
         g = nx.Graph()
-        min_node = int(np.min(edges))
-        max_node = int(np.max(edges))
-        if min_node == 1 and max_node == params.num_nodes:
-            g.add_nodes_from(range(1, params.num_nodes + 1))
-        else:
-            g.add_nodes_from(range(params.num_nodes))
+        # make_graph normalises node ids to 0..N-1, so edges are always 0-based
+        g.add_nodes_from(range(params.num_nodes))
         edge_lookup = {}
         for idx, (u, v) in enumerate(edges):
             u_int, v_int = int(u), int(v)
