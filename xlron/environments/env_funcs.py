@@ -3086,16 +3086,16 @@ def init_link_length_array_gn_model(graph: nx.Graph, max_span_length: int, max_s
     Returns:
         jnp.array: Link length array (L x max_spans) in metres
     """
-    link_lengths = []
-    directed = graph.is_directed()
-    graph = graph.to_undirected()
-    edges = sorted(graph.edges)
-    for edge in edges:
+    # Row order must be sorted(graph.edges) of the graph AS GIVEN - the ordering used for
+    # path_link_array columns, params.edges and init_link_length_array. (The previous
+    # doubled-undirected layout permuted lengths across links on directed topologies,
+    # silently corrupting span counts and per-link SNR wherever the two directions'
+    # lexicographic positions interleave.)
+    link_lengths = [
         # Topology distances are in km; convert to metres for GN model
-        link_lengths.append(graph.edges[edge]["distance"] * 1e3)
-    if directed:
-        for edge in edges:
-            link_lengths.append(graph.edges[edge]["distance"] * 1e3)
+        graph.edges[edge]["distance"] * 1e3
+        for edge in sorted(graph.edges)
+    ]
     span_length_array = []
     for length in link_lengths:
         num_spans = math.ceil(length / max_span_length)
@@ -3103,7 +3103,9 @@ def init_link_length_array_gn_model(graph: nx.Graph, max_span_length: int, max_s
         span_lengths = [avg_span_length] * num_spans
         span_lengths.extend([0] * (max_spans - num_spans))
         span_length_array.append(span_lengths)
-    return jnp.array(span_length_array, dtype=dtype_config.LARGE_INT_DTYPE)
+    # Float: average span lengths are fractional (length / num_spans); the int cast truncated
+    # up to 1 m per span
+    return jnp.array(span_length_array, dtype=dtype_config.LARGE_FLOAT_DTYPE)
 
 
 def init_link_snr_array(params: EnvParams):

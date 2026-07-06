@@ -1138,6 +1138,41 @@ class RMSAGNAggregateSlotsTest(chex.TestCase):
         self.assertEqual(float(implemented), float(expected_format))
 
 
+class InitLinkLengthArrayGNModelTest(chex.TestCase):
+    """GN-model link lengths must follow sorted(graph.edges) of the graph as given.
+
+    Regression: the old implementation built [sorted undirected] + [sorted undirected], which
+    permutes lengths across links on directed topologies whenever the two directions'
+    lexicographic positions interleave (silently wrong span counts and per-link SNR)."""
+
+    def test_directed_asymmetric_lengths_follow_edge_order(self):
+        g = nx.DiGraph()
+        # Asymmetric distances so any permutation is detectable
+        g.add_edge(0, 1, distance=100)
+        g.add_edge(1, 0, distance=150)
+        g.add_edge(1, 2, distance=200)
+        g.add_edge(2, 1, distance=250)
+        g.add_edge(0, 2, distance=300)
+        g.add_edge(2, 0, distance=350)
+
+        span_array = init_link_length_array_gn_model(g, max_span_length=100e3, max_spans=6)
+        totals_km = jnp.sum(span_array, axis=1) / 1e3
+
+        expected = jnp.array(
+            [g.edges[e]["distance"] for e in sorted(g.edges)], dtype=totals_km.dtype
+        )
+        chex.assert_trees_all_close(totals_km, expected)
+        # Cross-check: same ordering as the non-GN link length array
+        chex.assert_trees_all_close(totals_km, init_link_length_array(g).astype(totals_km.dtype))
+
+    def test_undirected_unchanged(self):
+        g = nx.Graph()
+        g.add_edge(0, 1, distance=100)
+        g.add_edge(1, 2, distance=200)
+        span_array = init_link_length_array_gn_model(g, max_span_length=100e3, max_spans=3)
+        chex.assert_trees_all_close(jnp.sum(span_array, axis=1) / 1e3, jnp.array([100.0, 200.0]))
+
+
 if __name__ == "__main__":
     jax.config.update("jax_numpy_rank_promotion", "raise")
     absltest.main()
