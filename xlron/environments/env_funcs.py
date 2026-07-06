@@ -875,9 +875,11 @@ def get_obs_transformer(state: RSAEnvState, params: RSAEnvParams) -> Array:
         edge_features = state.link_slot_array
     elif params.transformer_obs_type == "capacity":
         # 0 where no active lightpath, normalized remaining capacity otherwise
-        # capacity mode is only used with RWA-LR which carries link_capacity_array
+        # capacity mode is only used with RWA-LR which carries link_capacity_array.
+        # Occupancy is keyed off path_index_array: RWA-LR's link_slot_array is nonzero only
+        # where capacity is EXHAUSTED, so it cannot indicate active lightpaths.
         rwalr_state = cast(RWALightpathReuseEnvState, state)
-        active_mask = (rwalr_state.link_slot_array > 0).astype(dtype_config.LARGE_FLOAT_DTYPE)
+        active_mask = (rwalr_state.path_index_array != -1).astype(dtype_config.LARGE_FLOAT_DTYPE)
         edge_features = (
             active_mask * rwalr_state.link_capacity_array / (jnp.mean(params.values_bw.val) * 100)
         )
@@ -1344,11 +1346,9 @@ def generate_request_rwalr(
         time_since_last_departure=state.time_since_last_departure + arrival_time,
     )
     # Removal of expired services is different for RWA-LR
+    # (arrival_time is already added to time_since_last_departure in the replace above)
     remove_expired_services = remove_expired_services_rsa
     if params.__class__.__name__ == "RWALightpathReuseEnvParams":
-        state = state.replace(
-            time_since_last_departure=state.time_since_last_departure + arrival_time
-        )
         remove_expired_services = remove_expired_services_rwalr
     state = remove_expired_services(state, params) if not params.incremental_loading else state
     return state
@@ -1711,10 +1711,17 @@ def remove_expired_services_rwalr(
     keep_i = keep.astype(state.path_index_array.dtype)
     mask_remove_i = mask_remove.astype(state.path_index_array.dtype)
     neg_one_i = jnp.array(-1, dtype=state.path_index_array.dtype)
+    # Freed slots return to the 1e6 "empty" capacity sentinel (matching
+    # init_link_capacity_array); leaving the stale reduced capacity permanently masked
+    # them at their old value in mask_slots_rwalr
+    cap = state.link_capacity_array
+    keep_cap = keep.astype(cap.dtype)
+    empty_capacity = jnp.asarray(1e6, dtype=cap.dtype)
     state = state.replace(
         link_slot_array=state.link_slot_array * keep.astype(state.link_slot_array.dtype),
         path_index_array=state.path_index_array * keep_i + neg_one_i * mask_remove_i,
         link_slot_departure_array=updated_link_slot_departure_array,
+        link_capacity_array=cap * keep_cap + empty_capacity * mask_remove.astype(cap.dtype),
     )
     return state
 
@@ -2167,32 +2174,9 @@ def implement_action_rsa(
     Returns:
         state: updated state
     """
-    if params.__class__.__name__ == "RWALightpathReuseEnvParams":
-        rwalr_state = cast(RWALightpathReuseEnvState, state)
-        state = rwalr_state.replace(
-            link_capacity_array=update_path_links(
-                rwalr_state.link_capacity_array,
-                action_info,
-                action_info.requested_datarate,
-            )
-        )
-        # TODO (Dynamic-RWALR) - to support diverse requested_datarates for RWA-LR, need to update masking
-        # TODO (Dynamic-RWALR) - In order to enable dynamic RWA with lightpath reuse (as opposed to just incremental loading),
-        #  need to keep track of active requests OR just randomly remove connections
-        #  (could do this by using the link_slot_departure array in a novel way... i.e. don't fill it with departure time but current bw)
-        capacity_mask = jnp.where(rwalr_state.link_capacity_array <= 0.0, 1.0, 0.0)
-        over_capacity_mask = jnp.where(rwalr_state.link_capacity_array < 0.0, 1.0, 0.0)
-        total_mask = capacity_mask + over_capacity_mask
-        state = state.replace(
-            link_slot_array=total_mask,
-            link_slot_departure_array=update_path_links(
-                state.link_slot_departure_array,
-                action_info,
-                state.current_time + state.holding_time,
-            ),
-        )
-    else:
-        state = implement_path_action(state, action_info, params)
+    # RWA-LR dispatches to implement_action_rwalr in step_env, never here (the old RWALR
+    # branch in this function was dead and carried an inverted capacity update)
+    state = implement_path_action(state, action_info, params)
     return state
 
 
@@ -2954,23 +2938,29 @@ def implement_action_rwalr(
     )
     path_index_array = state.path_index_array * (1 - available) + new_path_index * available
 
+    # Capacity mask: 1 where capacity <= 0, plus 1 more where < 0 (over). Both MUST be
+    # computed on the pre-restore capacities so an over-capacity placement yields the
+    # total_mask == 2 sentinel that check_no_spectrum_reuse rejects; computing them after
+    # the restore let mask-bypassing over-capacity actions be counted as accepted while no
+    # capacity was deducted.
+    over_capacity = link_capacity_array < 0.0
+    capacity_mask = (link_capacity_array <= 0.0).astype(dtype_config.LARGE_FLOAT_DTYPE)
+    total_mask = capacity_mask + over_capacity.astype(dtype_config.LARGE_FLOAT_DTYPE)
+
     # Undo over-capacity: restore to pre-action capacity
     lightpath_capacity_before = (
         lightpath_existing_check * curr_lightpath_capacity + (1 - lightpath_existing_check) * 1e6
     )
-    over_capacity = link_capacity_array < 0.0
     link_capacity_array = (
         link_capacity_array * (1 - over_capacity) + lightpath_capacity_before * over_capacity
     )
 
-    # Capacity mask: 1 where capacity <= 0, plus 1 more where < 0 (over)
-    capacity_mask = (link_capacity_array <= 0.0).astype(dtype_config.LARGE_FLOAT_DTYPE)
-    total_mask = capacity_mask + over_capacity.astype(dtype_config.LARGE_FLOAT_DTYPE)
-
     state = state.replace(
         link_capacity_array=link_capacity_array,
         path_index_array=path_index_array,
-        link_slot_array=total_mask,
+        # SMALL_FLOAT: link_slot_array is a carried bulk array (see dtype reclassification
+        # rule); values are {0, 1, 2} so the narrow cast is exact
+        link_slot_array=total_mask.astype(dtype_config.SMALL_FLOAT_DTYPE),
         link_slot_departure_array=update_path_links(
             state.link_slot_departure_array,
             action_info,
