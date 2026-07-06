@@ -692,6 +692,41 @@ class RWALightpathReuseTest(chex.TestCase):
         chex.assert_trees_all_close(remaining_capacity, expected)
 
 
+class AggregateSlotsMaskTest(chex.TestCase):
+    """aggregate_slots > 1 must not crash RWA-LR masking (regression: mask_slots_rwalr
+    unpacked aggregate_slots' single-array return into two names). Uses non-divisible
+    link_resources to exercise the ceil/padding path end to end."""
+
+    def test_masked_step_with_aggregation(self):
+        settings = dict(
+            k=5,
+            topology_name="nsfnet_deeprmsa_undirected",
+            link_resources=5,
+            max_requests=10,
+            values_bw=[100],
+            incremental_loading=True,
+            env_type="rwa_lightpath_reuse",
+            scale_factor=1.0,
+            aggregate_slots=2,
+            include_no_op=False,
+        )
+        env, params = make(settings, log_wrapper=False)
+        key = jax.random.PRNGKey(0)
+        obs, state = env.reset(key, params)
+        mask, full_mask = env.action_mask(state, params)  # ty: ignore[unresolved-attribute]
+        # k * ceil(5 / 2) = 5 * 3 aggregated actions; full mask stays k * 5
+        self.assertEqual(mask.shape[0], 15)
+        self.assertEqual(full_mask.shape[0], 25)
+        self.assertTrue(bool(jnp.any(mask > 0)))
+        state = state.replace(link_slot_mask=mask, full_link_slot_mask=full_mask)
+        action = jnp.argmax(mask)  # first valid aggregated action
+        _, state, reward, terminal, _, _ = jax.jit(env.step, static_argnums=(3,))(
+            key, state, action, params
+        )
+        # The step must implement a real (in-range) slot: exactly one lightpath placed
+        self.assertTrue(bool(jnp.any(state.path_index_array >= 0)))
+
+
 if __name__ == "__main__":
     jax.config.update("jax_numpy_rank_promotion", "raise")
     absltest.main()

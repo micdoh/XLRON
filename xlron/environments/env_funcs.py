@@ -2073,7 +2073,9 @@ def process_path_action(
         int: path index
         int: initial slot index
     """
-    num_slot_actions = params.link_resources // params.aggregate_slots
+    # ceil, matching init_link_slot_mask / aggregate_slots / the model action-space size
+    # (floor would mis-decode path/slot whenever link_resources % aggregate_slots != 0)
+    num_slot_actions = math.ceil(params.link_resources / params.aggregate_slots)
     path_action = differentiable_round_simple(
         path_action, params.temperature, params.differentiable
     )
@@ -2085,9 +2087,12 @@ def process_path_action(
 
     if params.aggregate_slots > 1:
         # Compute flat index into 1D array of shape (k_paths * link_resources,)
-        full_mask = state.full_link_slot_mask.reshape(
-            (params.k_paths, num_slot_actions, params.aggregate_slots)
-        )
+        full_mask = state.full_link_slot_mask.reshape((params.k_paths, params.link_resources))
+        # Mirror aggregate_slots: pad the trailing partial window with invalid (0) slots
+        pad_size = num_slot_actions * params.aggregate_slots - params.link_resources
+        if pad_size > 0:
+            full_mask = jnp.pad(full_mask, ((0, 0), (0, pad_size)), constant_values=0)
+        full_mask = full_mask.reshape((params.k_paths, num_slot_actions, params.aggregate_slots))
         window = jax.lax.dynamic_slice(
             full_mask,
             (path_index, initial_aggregated_slot_index, 0),
@@ -3020,8 +3025,7 @@ def mask_slots_rwalr(
     full_link_slot_mask = link_slot_mask
 
     if params.aggregate_slots > 1:
-        link_slot_mask, _ = aggregate_slots(link_slot_mask.reshape(params.k_paths, -1), params)
-        link_slot_mask = link_slot_mask.reshape(-1)
+        link_slot_mask = aggregate_slots(link_slot_mask, params)
 
     if params.include_no_op:
         link_slot_mask = jnp.concatenate([link_slot_mask, jnp.ones((1,))])
@@ -4349,9 +4353,15 @@ def implement_action_rmsa_gn_model(
         state, path_action, action_info.power_action, action_info.initial_slot_index, params
     )
     # TODO(GN MODEL) - get mod. format based on maximum reach
-    mod_format_index = jax.lax.dynamic_slice(state.mod_format_mask, (path_action,), (1,)).astype(
-        dtype_config.LARGE_INT_DTYPE
-    )[0]
+    # mod_format_mask is full-resolution (k * link_resources); under slot aggregation the raw
+    # action indexes the aggregated space, so rebuild the flat index from the decoded path/slot
+    # (identical to the raw action when aggregate_slots == 1).
+    full_res_action = (
+        action_info.path_index * params.link_resources + action_info.initial_slot_index
+    ).astype(dtype_config.LARGE_INT_DTYPE)
+    mod_format_index = jax.lax.dynamic_slice(
+        state.mod_format_mask, (full_res_action,), (1,)
+    ).astype(dtype_config.LARGE_INT_DTYPE)[0]
     # Update link_slot_array and link_slot_departure_array, then other arrays
     state = implement_path_action(state, action_info, params)
     state = state.replace(
@@ -4850,14 +4860,13 @@ def mask_slots_rmsa_gn_model(
     link_slot_mask = jnp.where(mod_format_mask >= 0, 1.0, 0.0)
     full_link_slot_mask = link_slot_mask
     if params.aggregate_slots > 1:
-        link_slot_mask, _ = aggregate_slots(link_slot_mask.reshape(params.k_paths, -1), params)
-        link_slot_mask = link_slot_mask.reshape(-1)
+        link_slot_mask = aggregate_slots(link_slot_mask, params)
     if params.include_no_op:
         link_slot_mask = jnp.hstack([link_slot_mask, jnp.ones((1,))])
     # Store masks at SMALL_FLOAT to keep the carried field dtype stable under mixed precision
     # (matches init_link_slot_mask / init_mod_format_mask); values are {0,1} / small indices.
     state = state.replace(
-        link_slot_mask=link_slot_mask.astype(dtype_config.SMALL_FLOAT_DTYPE),
+        link_slot_mask=link_slot_mask.astype(dtype_config.SMALL_FLOAT_DTYPE),  # ty: ignore[unresolved-attribute]
         full_link_slot_mask=full_link_slot_mask.astype(dtype_config.SMALL_FLOAT_DTYPE),
         mod_format_mask=mod_format_mask.astype(dtype_config.SMALL_FLOAT_DTYPE),
     )

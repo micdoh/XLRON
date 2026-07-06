@@ -1086,6 +1086,58 @@ class Gerard2025RegressionTest(absltest.TestCase):
         )
 
 
+class RMSAGNAggregateSlotsTest(chex.TestCase):
+    """aggregate_slots > 1 must not crash RMSA-GN masking (regression: single-array unpack)
+    and the implemented modulation format must come from the full-resolution mod_format_mask
+    entry of the decoded slot, not the raw aggregated action index."""
+
+    def test_masked_step_selects_correct_mod_format(self):
+        settings = dict(
+            k=4,
+            topology_name="nsfnet_deeprmsa_directed",
+            link_resources=10,
+            max_requests=100,
+            values_bw=[100],
+            incremental_loading=True,
+            env_type="rmsa_gn_model",
+            slot_size=12.5,
+            guardband=0,
+            mod_format_correction=False,
+            max_power_per_fibre=10.0,
+            coherent=False,
+            include_no_op=False,
+            aggregate_slots=2,
+        )
+        env, params = make(settings, log_wrapper=False)
+        key = jax.random.PRNGKey(3)  # short-path request that passes SNR checks
+        obs, state = env.reset(key, params)
+        mask, full_mask, mod_format_mask = env.action_mask(state, params)  # ty: ignore[unresolved-attribute]
+        self.assertEqual(mask.shape[0], params.k_paths * 5)  # ceil(10 / 2) = 5
+        self.assertEqual(mod_format_mask.shape[0], params.k_paths * 10)  # full resolution
+        self.assertTrue(bool(jnp.any(mask > 0)))
+        state = state.replace(
+            link_slot_mask=mask, full_link_slot_mask=full_mask, mod_format_mask=mod_format_mask
+        )
+        # Pick the valid aggregated action whose decoded slot has the largest format index so
+        # the assertion below cannot pass vacuously on format 0
+        valid_actions = jnp.where(mask > 0)[0]
+        decoded = [process_path_action(state, params, a) for a in valid_actions]
+        full_idx = jnp.array([int(p) * int(params.link_resources) + int(s) for p, s in decoded])
+        formats = mod_format_mask[full_idx]
+        best = int(jnp.argmax(formats))
+        action, expected_format = valid_actions[best], formats[best]
+        self.assertGreaterEqual(float(expected_format), 0)
+        path_index, initial_slot = decoded[best]
+
+        _, state, reward, terminal, _, _ = jax.jit(env.step, static_argnums=(3,))(
+            key, state, action, params
+        )
+        # Accepted on an empty network: the implemented format at the decoded slot must equal
+        # the full-resolution mask entry
+        implemented = jnp.max(state.modulation_format_index_array[:, int(initial_slot)])
+        self.assertEqual(float(implemented), float(expected_format))
+
+
 if __name__ == "__main__":
     jax.config.update("jax_numpy_rank_promotion", "raise")
     absltest.main()

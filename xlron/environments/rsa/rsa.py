@@ -1109,8 +1109,14 @@ class RSAEnv(environment.Environment):
         if params.__class__.__name__ == "RMSAGNModelEnvParams":
             rmsa_state = cast(RMSAGNModelEnvState, state)
             rmsa_params = cast(RMSAGNModelEnvParams, params)
+            # mod_format_mask is full-resolution (k * link_resources); under slot aggregation
+            # the raw action indexes the aggregated space, so rebuild the flat index from the
+            # decoded path/slot (equal to path_action_discrete when aggregate_slots == 1).
+            full_res_action = (path_index * params.link_resources + initial_slot_index).astype(
+                dtype_config.LARGE_INT_DTYPE
+            )
             mod_format_index = jax.lax.dynamic_slice(
-                rmsa_state.mod_format_mask, (path_action_discrete,), (1,)
+                rmsa_state.mod_format_mask, (full_res_action,), (1,)
             )[0].astype(dtype_config.LARGE_INT_DTYPE)
             path_se = rmsa_params.modulations_array.val[mod_format_index, 1]
         else:
