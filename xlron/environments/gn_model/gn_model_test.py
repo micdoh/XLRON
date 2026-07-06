@@ -1173,6 +1173,87 @@ class InitLinkLengthArrayGNModelTest(chex.TestCase):
         chex.assert_trees_all_close(jnp.sum(span_array, axis=1) / 1e3, jnp.array([100.0, 200.0]))
 
 
+class ActiveLightpathRegistryTest(chex.TestCase):
+    """Registry lifecycle under dynamic traffic with blocking.
+
+    Regressions covered: departure row-writes smeared down column 0 (a (3,1) update);
+    departures were inserted negative and never flipped positive on success, so any blocked
+    request wiped every live entry via the failure-undo; and live entries never expired."""
+
+    def _dynamic_env(self):
+        settings = dict(
+            k=4,
+            topology_name="nsfnet_deeprmsa_directed",
+            link_resources=10,
+            max_requests=100,
+            values_bw=[100],
+            env_type="rsa_gn_model",
+            slot_size=12.5,
+            guardband=0,
+            mod_format_correction=False,
+            max_power_per_fibre=10.0,
+            coherent=False,
+            include_no_op=False,
+            load=100,
+            mean_service_holding_time=25,
+        )
+        return make(settings, log_wrapper=False)
+
+    def test_lifecycle_accept_block_expire(self):
+        env, params = self._dynamic_env()
+        key = jax.random.PRNGKey(3)  # short-path first request that passes SNR checks
+        obs, state = env.reset(key, params)
+        step = jax.jit(env.step, static_argnums=(3,))
+
+        # --- Two accepted placements -> two fully-populated live rows ---
+        for i in range(2):
+            mask = env.action_mask(state, params)  # ty: ignore[unresolved-attribute]
+            mask = mask[0] if isinstance(mask, tuple) else mask
+            self.assertTrue(bool(jnp.any(mask > 0)))
+            key, akey = jax.random.split(key)
+            obs, state, reward, terminal, _, _ = step(akey, state, jnp.argmax(mask), params)
+        self.assertEqual(int(state.accepted_services), 2)
+        dep = state.active_lightpaths_array_departure
+        registry = state.active_lightpaths_array
+        # No pending (negative) entries survive complete_step
+        self.assertTrue(bool(jnp.all(dep >= 0)))
+        # Row-write regression: each accepted lightpath fills ALL 3 columns of its row
+        self.assertEqual(int(jnp.sum(dep > 0)), 6)
+        self.assertEqual(int(jnp.sum(registry[:, 0] >= 0)), 2)
+        self.assertTrue(bool(jnp.all(registry[jnp.where(dep[:, 0] > 0)[0], 2] > 0)))
+
+        # --- A blocked request must NOT touch the live registry ---
+        mask = env.action_mask(state, params)  # ty: ignore[unresolved-attribute]
+        mask = mask[0] if isinstance(mask, tuple) else mask
+        self.assertTrue(bool(jnp.any(mask == 0)))
+        invalid_action = jnp.argmin(mask)
+        key, akey = jax.random.split(key)
+        obs, state2, reward, terminal, _, _ = step(akey, state, invalid_action, params)
+        self.assertEqual(int(state2.accepted_services), 2)  # blocked
+        chex.assert_trees_all_close(state2.active_lightpaths_array, state.active_lightpaths_array)
+        chex.assert_trees_all_close(
+            state2.active_lightpaths_array_departure,
+            state.active_lightpaths_array_departure,
+        )
+        # The failure restore must recover the exact pre-action GN state, not init values
+        # (regression: *_prev snapshots were never written, wiping these arrays on block)
+        chex.assert_trees_all_close(state2.path_index_array, state.path_index_array)
+        chex.assert_trees_all_close(state2.channel_power_array, state.channel_power_array)
+
+        # --- Throughput is finite and positive with live lightpaths ---
+        throughput = calculate_throughput_from_active_lightpaths(state2, params)
+        self.assertTrue(bool(jnp.isfinite(throughput)))
+        self.assertGreater(float(throughput), 0.0)
+
+        # --- Advancing time past the departures expires the rows ---
+        far_future = jnp.full_like(state2.current_time, 1e7)
+        expired = remove_expired_services_rsa_gn_model(
+            state2.replace(current_time=far_future), params
+        )
+        self.assertTrue(bool(jnp.all(expired.active_lightpaths_array == -1)))  # ty: ignore[unresolved-attribute]
+        self.assertTrue(bool(jnp.all(expired.active_lightpaths_array_departure == 0)))  # ty: ignore[unresolved-attribute]
+
+
 if __name__ == "__main__":
     jax.config.update("jax_numpy_rank_promotion", "raise")
     absltest.main()

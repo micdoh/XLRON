@@ -1762,9 +1762,11 @@ def remove_expired_services_rsa_gn_model(
 
     dep_lp = state.active_lightpaths_array_departure
 
-    mask_remove_lp = differentiable_compare(
-        dep_lp, zero, ">=", temperature=params.temperature, differentiable=params.differentiable
-    ) * differentiable_compare(
+    # Live rows carry strictly positive departures (0 = empty row); expired: 0 < dep <= t
+    live_lp = differentiable_compare(
+        dep_lp, zero, ">", temperature=params.temperature, differentiable=params.differentiable
+    )
+    mask_remove_lp = live_lp * differentiable_compare(
         dep_lp, t, "<=", temperature=params.temperature, differentiable=params.differentiable
     )
 
@@ -1773,10 +1775,17 @@ def remove_expired_services_rsa_gn_model(
     keep_lp_i = keep_lp.astype(state.active_lightpaths_array.dtype)
     mask_remove_lp_i = mask_remove_lp.astype(state.active_lightpaths_array.dtype)
 
+    # Under relative arrival times the surviving departures must shift by -t in lockstep
+    # with link_slot_departure_array (empty rows stay 0)
+    if params.relative_arrival_times:
+        new_dep_lp = (dep_lp - t * live_lp.astype(dep_lp.dtype)) * keep_lp_f  # ty: ignore[unresolved-attribute]
+    else:
+        new_dep_lp = dep_lp * keep_lp_f
+
     state = state.replace(
         active_lightpaths_array=state.active_lightpaths_array * keep_lp_i
         + jnp.array(-1, dtype=state.active_lightpaths_array.dtype) * mask_remove_lp_i,
-        active_lightpaths_array_departure=dep_lp * keep_lp_f,
+        active_lightpaths_array_departure=new_dep_lp,
     )
 
     return state
@@ -1871,18 +1880,21 @@ def complete_step_rsa_gn_model(
         + state.path_index_array_prev * fail.astype(state.path_index_array.dtype),
     )
 
-    # Only undo partially-added lightpaths (negative departure), and only if fail==1
-    neg = (state.active_lightpaths_array_departure < zero).astype(
-        state.active_lightpaths_array_departure.dtype
-    )
-    do_undo_dep = neg * fail.astype(state.active_lightpaths_array_departure.dtype)
-    do_undo_lp = do_undo_dep.astype(state.active_lightpaths_array.dtype)
+    # --- Resolve the pending registry entry (departure inserted negative by implement) ---
+    # Confirmed entries carry positive departures, so exactly one row (the just-added one)
+    # is negative here. On success flip it positive; on failure zero it and clear the row.
+    dep_arr = state.active_lightpaths_array_departure
+    neg = (dep_arr < zero).astype(dep_arr.dtype)
+    success_dep = success.astype(dep_arr.dtype)
+    fail_dep = fail.astype(dep_arr.dtype)
+    # pending+success: *(1-2) flips the sign; pending+fail: *(1-1) zeroes; others unchanged
+    new_dep_arr = dep_arr * (1 - 2 * neg * success_dep - neg * fail_dep)
+    do_undo_lp = (neg * fail_dep).astype(state.active_lightpaths_array.dtype)
 
     state = state.replace(
         active_lightpaths_array=state.active_lightpaths_array * (1 - do_undo_lp)
         + jnp.array(-1, dtype=state.active_lightpaths_array.dtype) * do_undo_lp,
-        active_lightpaths_array_departure=state.active_lightpaths_array_departure
-        + do_undo_dep * (state.current_time + state.holding_time),
+        active_lightpaths_array_departure=new_dep_arr,
     )
 
     # --- Book-keeping (always) ---
@@ -3786,41 +3798,44 @@ def get_path_from_path_index_array(path_index_array: Array, path_link_array: Arr
     return jax.vmap(get_index_from_link, in_axes=(0,))(path_index_array)
 
 
+def _max_active_lightpaths(params: RSAGNModelEnvParams) -> int:
+    """Upper bound on concurrent lightpaths: total slots / smallest request footprint.
+
+    The smallest request (min values_bw) has the smallest slot footprint, so it maximises
+    how many lightpaths can coexist. (Sizing by max(values_bw) undersized the registry by
+    up to max_bw/min_bw for heterogeneous bandwidths, silently overwriting live rows once
+    full.)
+    """
+    total_slots = params.num_links * params.link_resources  # total slots on network
+    min_slots = max(1.0, float(jnp.min(params.values_bw.val)) / params.slot_size)
+    return int(min(total_slots / min_slots, params.max_requests))
+
+
 def init_active_lightpaths_array(params: RSAGNModelEnvParams):
-    """Initialise active lightpath array. Stores path indices of all active paths on the network in a 1 x M array.
-    M is MIN(max_requests, num_links * link_resources / min_slots).
-    min_slots is the minimum number of slots required for a lightpath i.e. max(values_bw)/ slot_size.
+    """Initialise active lightpath registry: rows of [path_index, initial_slot, num_slots].
 
     Args:
         params (RSAGNModelEnvParams): Environment parameters
     Returns:
-        jnp.array: Active path array (default value -1, empty path)
+        jnp.array: (M, 3) registry (default value -1, empty row)
     """
-    total_slots = params.num_links * params.link_resources  # total slots on networks
-    min_slots = (
-        jnp.max(params.values_bw.val) / params.slot_size
-    )  # minimum number of slots required for lightpath
-    max_num_lightpaths = int(min(total_slots / min_slots, params.max_requests))
-    return jnp.full((max_num_lightpaths, 3), -1, dtype=dtype_config.LARGE_INT_DTYPE)
+    return jnp.full((_max_active_lightpaths(params), 3), -1, dtype=dtype_config.LARGE_INT_DTYPE)
 
 
 def init_active_lightpaths_array_departure(params: RSAGNModelEnvParams):
-    """Initialise active lightpath array. Stores path indices of all active paths on the network in a 1 x M array.
-    M is MIN(max_requests, num_links * link_resources / min_slots).
-    min_slots is the minimum number of slots required for a lightpath i.e. max(values_bw)/ slot_size.
+    """Initialise per-lightpath departure times, aligned row-wise with the registry.
+
+    Lifecycle: inserted NEGATIVE (-(current+holding)) as a pending marker by
+    implement_action_rsa_gn_model; complete_step_rsa_gn_model flips it positive on success
+    or zeroes the row on failure; remove_expired_services_rsa_gn_model expires
+    0 < dep <= t rows.
 
     Args:
         params (RSAGNModelEnvParams): Environment parameters
     Returns:
-        jnp.array: Active path array (default value -1, empty path)
+        jnp.array: (M, 3) departure times (0 = empty) -> TIME tier
     """
-    total_slots = params.num_links * params.link_resources  # total slots on networks
-    min_slots = (
-        jnp.max(params.values_bw.val) / params.slot_size
-    )  # minimum number of slots required for lightpath
-    max_num_lightpaths = int(min(total_slots / min_slots, params.max_requests))
-    # Stores per-lightpath departure times (current_time + holding_time) -> TIME tier.
-    return jnp.full((max_num_lightpaths, 3), 0.0, dtype=dtype_config.TIME_DTYPE)
+    return jnp.full((_max_active_lightpaths(params), 3), 0.0, dtype=dtype_config.TIME_DTYPE)
 
 
 def update_active_lightpaths_array(
@@ -3847,22 +3862,21 @@ def update_active_lightpaths_array(
 
 
 def update_active_lightpaths_array_departure(state: RSAGNModelEnvState, time: float) -> Array:
-    """Update active lightpaths array with new path index.
-    Find the first index of the array with value -1 and replace with path index.
+    """Write the departure time into the registry row chosen by update_active_lightpaths_array.
     Args:
         state (RSAGNModelEnvState): Environment state
-        time (float): Departure time
+        time (float): Departure time (negative = pending marker, see init docstring)
     Returns:
-        jnp.array: Updated active lightpaths array
+        jnp.array: Updated departure array
     """
     first_empty_index = jnp.argmin(
         state.active_lightpaths_array[:, 0]
     )  # Just look at the first column
-    return jax.lax.dynamic_update_slice(
-        state.active_lightpaths_array_departure,
-        jnp.stack((time, time, time)),
-        (first_empty_index, 0),
-    )
+    dep = state.active_lightpaths_array_departure
+    # (1, 3) row update: time arrives with shape () or (1,); jnp.stack((t, t, t)) of a (1,)
+    # input is (3, 1) and used to smear the write down column 0 of three rows.
+    row = jnp.broadcast_to(jnp.reshape(time, (1, 1)), (1, 3)).astype(dep.dtype)
+    return jax.lax.dynamic_update_slice(dep, row, (first_empty_index, 0))
 
 
 def get_snr_for_path(path, link_snr_array, params, state=None):
@@ -4287,6 +4301,16 @@ def implement_action_rsa_gn_model(
     Returns:
         EnvState: Updated environment state
     """
+    # Snapshot the GN auxiliary arrays before the tentative write so complete_step's
+    # failure path restores the exact pre-action state. (These *_prev fields were never
+    # written after init, so the failure restore wiped the whole network's GN state on
+    # any blocked request.)
+    state = state.replace(
+        path_index_array_prev=state.path_index_array,
+        channel_centre_bw_array_prev=state.channel_centre_bw_array,
+        channel_power_array_prev=state.channel_power_array,
+        channel_centre_freq_array_prev=state.channel_centre_freq_array,
+    )
     path_action = action_info.action.astype(dtype_config.LARGE_INT_DTYPE)
     lightpath_index = get_lightpath_index(params, action_info.nodes_sd, action_info.path_index)
     launch_power = get_launch_power(
@@ -4349,6 +4373,15 @@ def implement_action_rmsa_gn_model(
     Returns:
         EnvState: Updated environment state
     """
+    # Snapshot the GN auxiliary arrays before the tentative write (see
+    # implement_action_rsa_gn_model; rmsa additionally restores the modulation format array).
+    state = state.replace(
+        path_index_array_prev=state.path_index_array,
+        channel_centre_bw_array_prev=state.channel_centre_bw_array,
+        channel_power_array_prev=state.channel_power_array,
+        channel_centre_freq_array_prev=state.channel_centre_freq_array,
+        modulation_format_index_array_prev=state.modulation_format_index_array,
+    )
     path_action = action_info.action.astype(dtype_config.LARGE_INT_DTYPE)
     lightpath_index = get_lightpath_index(params, action_info.nodes_sd, action_info.path_index)
     launch_power = get_launch_power(
