@@ -417,12 +417,17 @@ def make(
             link_resources, ref_lambda, slot_size, config.get("band_data_filepath", None)
         )
     else:
-        interband_gap_width = [200, 200] if config.get("interband_gap_width", None) is None else []
+        _gap_width = config.get("interband_gap_width", None)
+        interband_gap_width = [200, 200] if _gap_width is None else list(_gap_width)
         gap_width_slots = [int(math.ceil(width / slot_size)) for width in interband_gap_width]
-        interband_gap_start = (
-            [4425, 8425] if config.get("interband_gap_start", None) is None else []
-        )
+        _gap_start = config.get("interband_gap_start", None)
+        interband_gap_start = [4425, 8425] if _gap_start is None else list(_gap_start)
         gap_start_slots = [int(math.ceil(start / slot_size)) for start in interband_gap_start]
+        if len(gap_width_slots) != len(gap_start_slots):
+            raise ValueError(
+                "interband_gap_width and interband_gap_start must have the same length; "
+                f"got {len(gap_width_slots)} widths and {len(gap_start_slots)} starts"
+            )
     mod_format_correction = (
         config.get("mod_format_correction", True) if env_type == "rmsa_gn_model" else False
     )
