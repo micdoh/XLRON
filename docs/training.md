@@ -182,6 +182,12 @@ When enabled, `log(mu_old)` is subtracted from the log ratio before clipping, gi
 
 Zero the actor-loss contribution of negative-advantage steps (default: `False`), making the explicit equivalent of the self-imitation filter that the non-recentered off-policy IAM clip applies emergently (job (a) above). Bad actions are then demoted only via softmax renormalisation when good actions are promoted, never by direct negative gradients. Intended to be combined with `IAM_RECENTER_CLIP` (which removes the emergent filter) to decouple the filter from clip centring. The actor loss stays normalised by the full gated count, so the gradient scale matches the emergent configuration at equal learning rate. Unlike the emergent filter, which binds only in congested states (`mu < 1 - eps`), this explicit filter applies in **every** state — including the uncongested `mu ~ 1` lobe that carries most of the effective learning weight and that the emergent configuration trains two-sided. Deleting negative feedback there is the leading explanation for its late-training degradation under float32.
 
+#### `--PO_MU_GATE`
+
+Apply `POSITIVE_ADV_ONLY` only in states with `mu < 1 - CLIP_EPS` (default: `False`; requires `POSITIVE_ADV_ONLY`). This is exactly the per-state rule the emergent clip applies: negative advantages train two-sided in the uncongested lobe and are filtered only in congested states. Combined with `IAM_RECENTER_CLIP` + `MU_WEIGHT_ACTOR`, the explicit stack's actor gradient becomes **identical** to the emergent configuration at no-update for every sample, in both lobes (unit-tested in `ppo_test.py`); the decomposition is then complete and each flag can be ablated independently.
+
+With `--ENHANCED_LOGGING`, the lobe structure itself is observable via `diagnostics/mu_low_frac` (share of states below `VALID_MASS_TARGET`), `diagnostics/mu_high_frac` (share at `mu >= 1 - CLIP_EPS`) and `diagnostics/mu_high_w_frac` (the damped-weighted high share = fraction of effective actor-loss weight training two-sided).
+
 #### `--MU_WEIGHT_ACTOR`
 
 Multiply each step's actor-loss contribution by its valid mass `mu(s)` (default: `False`), making the explicit equivalent of the per-state congestion-aware down-weighting that the non-recentered ratio (`ratio = mu_old`) applies implicitly (job (b) above). Intended to be combined with `IAM_RECENTER_CLIP` + `POSITIVE_ADV_ONLY`; in ablations it was a ~3× lever on final blocking probability once the other two flags were active (damping alone, which only ramps below `VALID_MASS_TARGET`, does not recover it).

@@ -611,9 +611,17 @@ def _loss_fn(
     loss_actor2 = jnp.clip(ratio, 1.0 - config.CLIP_EPS, 1.0 + config.CLIP_EPS) * adv_weighted
 
     # Self-imitation: optionally drop the policy-gradient term for negative-advantage steps.
-    actor_w = (
-        w * (adv_weighted > 0).astype(jnp.float32) if config.get("POSITIVE_ADV_ONLY", False) else w
-    )
+    if config.get("POSITIVE_ADV_ONLY", False):
+        keep_step = adv_weighted > 0
+        if config.get("PO_MU_GATED", False):
+            # The emergent rule: the non-recentered clip only blocks negative advantages where
+            # the ratio (= valid mass) sits below the clip floor; states at mu >= 1 - eps train
+            # two-sided. Gating the explicit filter identically completes the exact gradient
+            # identity with the emergent configuration (see ppo_test.py).
+            keep_step = keep_step | (valid_mass >= 1.0 - config.CLIP_EPS)
+        actor_w = w * keep_step.astype(jnp.float32)
+    else:
+        actor_w = w
     # Optional per-state valid-mass weighting (numerator only; still normalised by the unweighted
     # count): restores the congestion-aware mu-scaling that the non-recentered ratio (rho ~ mu)
     # applies implicitly but IAM_RECENTER_CLIP removes.
@@ -707,6 +715,9 @@ def _loss_fn(
         taken_valid_min = taken_valid.min()
         # recentered ratio pi_new/pi_old (computed regardless of IAM_RECENTER_CLIP so the two
         # modes are comparable): ~1 when recentering would centre the clip, vs ratio ~ mu_old.
+        # w-weighted: unweighted stats explode towards exp(LOGR_CLIP) on samples whose stored
+        # valid mass underflows to ~0 (the +1e-8 guard dominates); damping drives their weight
+        # to ~0, so the weighted moments stay meaningful.
         recenter_ratio = jnp.exp(
             jnp.clip(
                 log_prob - traj_batch.log_prob - jnp.log(valid_mass + 1e-8),
@@ -714,8 +725,10 @@ def _loss_fn(
                 config.LOGR_CLIP,
             )
         )
-        recenter_ratio_mean = recenter_ratio.mean()
-        recenter_ratio_std = recenter_ratio.std()
+        recenter_ratio_mean = (recenter_ratio * w).sum() / w_sum
+        recenter_ratio_std = jnp.sqrt(
+            jnp.maximum((recenter_ratio**2 * w).sum() / w_sum - recenter_ratio_mean**2, 0.0)
+        )
         # fraction of weighted negative-advantage steps whose actor term is clipped (no gradient):
         # high in unit mode (ratio floored below 1-eps), low once the clip is recentered.
         neg = (adv_weighted < 0).astype(jnp.float32) * w
@@ -724,6 +737,15 @@ def _loss_fn(
         # fraction of weighted valid steps with positive advantage = the steps the actor learns
         # from under POSITIVE_ADV_ONLY (and the unclipped side of the surrogate).
         frac_pos_adv = ((adv_weighted > 0).astype(jnp.float32) * w).sum() / w_sum
+        # Valid-mass lobe shares: the mu distribution is strongly bimodal at high load, and the
+        # mean hides it. Low lobe = damped congested states; high lobe = states where the
+        # non-recentered ratio sits inside the clip band (two-sided PPO). The weighted high
+        # share is the fraction of effective actor-loss weight training two-sided.
+        mu_low = (valid_mass < config.VALID_MASS_TARGET).astype(jnp.float32)
+        mu_high = (valid_mass >= 1.0 - config.CLIP_EPS).astype(jnp.float32)
+        mu_low_frac = mu_low.mean()
+        mu_high_frac = mu_high.mean()
+        mu_high_w_frac = (mu_high * w).sum() / w_sum
 
         diagnostics = LossDiagnostics(
             valid_frac=valid_frac,
@@ -751,6 +773,9 @@ def _loss_fn(
             recenter_ratio_std=recenter_ratio_std,
             neg_adv_clip_frac=neg_adv_clip_frac,
             frac_pos_adv=frac_pos_adv,
+            mu_low_frac=mu_low_frac,
+            mu_high_frac=mu_high_frac,
+            mu_high_w_frac=mu_high_w_frac,
         )
     else:
         # Placeholder zeros to keep the scan output structure consistent.

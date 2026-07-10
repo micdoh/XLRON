@@ -169,6 +169,71 @@ class ActorGradientEquivalenceTest(chex.TestCase):
         g_explicit = jax.grad(explicit_loss)(theta_old)
         chex.assert_trees_all_close(g_emergent, g_explicit, atol=1e-5)
 
+    def test_mu_gated_po_completes_identity_for_mixed_lobes(self):
+        """With PO_MU_GATE, the identity extends to states at mu >= 1 - eps.
+
+        The emergent clip only blocks negative advantages where the ratio (= mu) sits below
+        the clip floor; in the uncongested mu ~ 1 lobe the ratio is inside the band and BOTH
+        advantage signs flow (two-sided PPO, with the implicit mu-scaling ~ 1). Gating the
+        explicit filter by mu < 1 - eps therefore makes the explicit REC+PO+MU gradient
+        identical to the emergent one for every sample — including negative advantages in
+        high-mu states, which plain POSITIVE_ADV_ONLY (previous test's precondition) filters.
+        """
+        b, a = 8, 12
+        clip_eps_emergent, clip_eps_explicit = 0.04, 0.2
+        key = jax.random.PRNGKey(5)
+        theta_old = jax.random.normal(key, (b, a))
+        masks = jnp.stack([_make_state(jax.random.PRNGKey(s + 20), a, 4)[1] for s in range(b)])
+        # Push the last 4 samples into the high-mu lobe: bury their invalid logits so the
+        # unmasked policy places ~all mass on valid actions (mu ~ 1)
+        high = jnp.arange(b) >= b // 2
+        theta_old = jnp.where(high[:, None] * (1 - masks) > 0, theta_old - 30.0, theta_old)
+        # Negative advantages present in BOTH lobes (the high-lobe negatives are the case
+        # plain POSITIVE_ADV_ONLY gets wrong)
+        adv = jnp.array([1.3, -0.7, 0.2, -1.5, 0.9, -0.6, -1.1, 0.4])
+        w = jnp.ones((b,))
+        w_sum = w.sum()
+
+        pi_m_old = distrax.Categorical(logits=theta_old + (-1e8 * (1 - masks)))
+        actions = pi_m_old.sample(seed=jax.random.PRNGKey(2))
+        behaviour_log_prob = pi_m_old.log_prob(actions)
+        mu_old = jnp.sum(jax.nn.softmax(theta_old, axis=-1) * masks, axis=-1)
+        # Mixed-lobe precondition: both lobes populated
+        assert bool((mu_old[~high] < 1.0 - clip_eps_emergent).all()), "low lobe precondition"
+        assert bool((mu_old[high] >= 1.0 - clip_eps_emergent).all()), "high lobe precondition"
+
+        def surrogate(ratio, eps):
+            la1 = ratio * adv
+            la2 = jnp.clip(ratio, 1.0 - eps, 1.0 + eps) * adv
+            return jnp.minimum(la1, la2)
+
+        def emergent_loss(theta):
+            log_prob = distrax.Categorical(logits=theta).log_prob(actions)  # unmasked
+            ratio = jnp.exp(log_prob - behaviour_log_prob)
+            return -(surrogate(ratio, clip_eps_emergent) * w).sum() / w_sum
+
+        def explicit_gated_loss(theta):
+            log_prob = distrax.Categorical(logits=theta).log_prob(actions)
+            log_ratio = log_prob - behaviour_log_prob - jnp.log(mu_old + 1e-8)  # recentred
+            ratio = jnp.exp(log_ratio)
+            keep = (adv > 0) | (mu_old >= 1.0 - clip_eps_emergent)  # PO_MU_GATE rule
+            actor_num = w * keep * mu_old  # + MU_WEIGHT_ACTOR
+            return -(surrogate(ratio, clip_eps_explicit) * actor_num).sum() / w_sum
+
+        g_emergent = jax.grad(emergent_loss)(theta_old)
+        g_explicit = jax.grad(explicit_gated_loss)(theta_old)
+        chex.assert_trees_all_close(g_emergent, g_explicit, atol=1e-5)
+
+        # Sanity: WITHOUT the gate the identity must break on high-lobe negatives
+        def explicit_ungated_loss(theta):
+            log_prob = distrax.Categorical(logits=theta).log_prob(actions)
+            ratio = jnp.exp(log_prob - behaviour_log_prob - jnp.log(mu_old + 1e-8))
+            actor_num = w * (adv > 0) * mu_old
+            return -(surrogate(ratio, clip_eps_explicit) * actor_num).sum() / w_sum
+
+        g_ungated = jax.grad(explicit_ungated_loss)(theta_old)
+        self.assertGreater(float(jnp.abs(g_emergent - g_ungated).max()), 1e-3)
+
 
 if __name__ == "__main__":
     absltest.main()
