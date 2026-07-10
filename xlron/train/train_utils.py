@@ -43,6 +43,7 @@ from xlron.heuristics.heuristics import (
     ksp_ff,
     ksp_lf,
     ksp_mu,
+    lf_ksp,
     mu_ksp,
 )
 from xlron.models.gnn import ActorCriticGNN
@@ -1124,6 +1125,8 @@ def select_action_eval(select_action_state, env, env_params, eval_state, config)
                 action = bf_ksp(env_state.env_state, env_params)
             elif config.path_heuristic.lower() == "ksp_lf":
                 action = ksp_lf(env_state.env_state, env_params)
+            elif config.path_heuristic.lower() == "lf_ksp":
+                action = lf_ksp(env_state.env_state, env_params)
             else:
                 raise ValueError(f"Invalid path heuristic {config.path_heuristic}")
             if env_params.__class__.__name__ in ["RSAGNModelEnvParams", "RMSAGNModelEnvParams"]:
@@ -1163,6 +1166,24 @@ def get_warmup_fn(warmup_state, env, params, train_state, config) -> Callable[[T
         )
     use_heuristic_warmup = config.EVAL_HEURISTIC or warmup_action_type == "heuristic"
     use_random_warmup = warmup_action_type == "random"
+    # select_action_eval dispatches to the heuristics on config.EVAL_HEURISTIC, so when
+    # heuristic warmup is requested during RL training we pass it a copy of the config
+    # with EVAL_HEURISTIC set. GN-model runs with RL launch power are exempt: their
+    # warmup path action is overwritten by the ksp_ff/ksp_lf override below, and
+    # select_action_eval rejects EVAL_HEURISTIC combined with launch_power_type='rl'.
+    warmup_config = config
+    if (
+        use_heuristic_warmup
+        and not config.EVAL_HEURISTIC
+        and not ("gn_model" in config.env_type.lower() and config.launch_power_type == "rl")
+    ):
+        if config.get("aggregate_slots", 1) > 1:
+            raise ValueError(
+                "warmup_action_type='heuristic' is not supported with aggregate_slots > 1: "
+                "heuristics emit full-resolution actions but the env decodes aggregated ones"
+            )
+        warmup_config = Box(config)
+        warmup_config.EVAL_HEURISTIC = True
 
     def warmup_fn(warmup_state) -> Tuple[EnvState, Array]:
         rng, state, last_obs = warmup_state
@@ -1179,10 +1200,14 @@ def get_warmup_fn(warmup_state, env, params, train_state, config) -> Callable[[T
                 action = jax.random.categorical(action_key, jnp.log(jnp.maximum(action_mask, 1e-8)))
             else:
                 select_action_state = (_rng, _state, _last_obs)
-                action_fn = select_action if not use_heuristic_warmup else select_action_eval
-                _state, action, log_prob, value = action_fn(
-                    select_action_state, env, _params, _train_state, config
-                )
+                if use_heuristic_warmup:
+                    _state, action, log_prob, value = select_action_eval(
+                        select_action_state, env, _params, _train_state, warmup_config
+                    )
+                else:
+                    _state, action, log_prob, value = select_action(
+                        select_action_state, env, _params, _train_state, config
+                    )
             if "gn_model" in config.env_type.lower() and config.launch_power_type == "rl":
                 # If the action is launch power, the action is this shape:
                 # jnp.concatenate([path_action.reshape((1,)), power_action.reshape((1,))], axis=0)
