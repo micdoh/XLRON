@@ -314,7 +314,8 @@ flags.DEFINE_boolean(
     "ABLATION FLAG - learn the actor from positive-advantage steps only (self-imitation style): "
     "zero the policy-gradient contribution of negative-advantage steps. Explicit equivalent of "
     "the filter the non-recentered off-policy IAM clip applies emergently; pairs with "
-    "IAM_RECENTER_CLIP. Unlike the emergent filter it never anneals off as valid mass rises, "
+    "IAM_RECENTER_CLIP. Unlike the emergent filter (which binds only in congested states with "
+    "valid mass < 1-eps), this filters every state including the uncongested mu~1 majority, "
     "and it degraded late in training under float32 in matched comparisons",
 )
 flags.DEFINE_boolean(
