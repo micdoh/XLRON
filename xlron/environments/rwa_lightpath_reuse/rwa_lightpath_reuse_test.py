@@ -631,28 +631,28 @@ class RWALightpathReuseTest(chex.TestCase):
             "case_end_episode",
             jnp.array(
                 [
+                    [1.0e06, 1.0e06, 6.0e02, 7.0e02],
+                    [1.0e06, 1.0e06, 1.0e06, 1.0e06],
+                    [1.0e06, 1.0e06, 6.0e02, 7.0e02],
+                    [1.0e06, 1.0e06, 1.0e06, 1.0e06],
                     [1.0e06, 1.0e06, 6.0e02, 1.0e06],
-                    [1.0e06, 1.0e06, 1.0e06, 5.0e02],
-                    [1.0e06, 1.0e06, 6.0e02, 5.0e02],
-                    [1.0e06, 1.0e06, 1.0e06, 7.0e02],
+                    [1.0e06, 1.0e06, 1.0e06, 1.0e06],
+                    [7.0e02, 1.0e06, 1.0e06, 1.0e06],
+                    [7.0e02, 1.0e06, 1.0e06, 1.0e06],
+                    [7.0e02, 1.0e06, 1.0e06, 1.0e06],
+                    [1.0e06, 1.0e06, 1.0e06, 1.0e06],
+                    [1.0e06, 7.0e02, 1.0e06, 1.0e06],
+                    [1.0e06, 7.0e02, 1.0e06, 9.0e02],
+                    [1.0e06, 1.0e06, 1.0e06, 1.0e06],
+                    [1.0e06, 1.0e06, 1.0e06, 1.0e06],
+                    [1.0e06, 1.0e06, 6.0e02, 7.0e02],
+                    [1.0e06, 7.0e02, 1.0e06, 1.0e03],
                     [1.0e06, 7.0e02, 6.0e02, 7.0e02],
-                    [1.0e06, 6.0e02, 1.0e06, 5.0e02],
-                    [7.0e02, 7.0e02, 6.0e02, 1.0e03],
-                    [7.0e02, 8.0e02, 6.0e02, 7.0e02],
-                    [7.0e02, 7.0e02, 6.0e02, 1.0e06],
-                    [1.0e06, 6.0e02, 1.0e06, 1.0e03],
-                    [7.0e02, 6.0e02, 1.0e06, 5.0e02],
-                    [7.0e02, 7.0e02, 6.0e02, 9.0e02],
-                    [1.0e06, 1.0e06, 1.0e06, 5.0e02],
-                    [1.0e06, 6.0e02, 1.0e06, 1.0e06],
-                    [1.0e06, 1.0e06, 6.0e02, 1.0e06],
-                    [7.0e02, 1.0e06, 1.0e03, 1.0e03],
-                    [7.0e02, 1.0e06, 6.0e02, 1.0e06],
-                    [1.0e06, 1.0e06, 1.0e03, 1.0e03],
-                    [7.0e02, 8.0e02, 1.2e03, 1.0e06],
-                    [7.0e02, 1.0e06, 6.0e02, 1.0e06],
-                    [1.0e06, 7.0e02, 1.0e03, 1.4e03],
-                    [7.0e02, 1.0e06, 1.0e03, 1.0e03],
+                    [1.0e06, 1.0e06, 1.0e06, 1.0e03],
+                    [1.0e06, 7.0e02, 1.2e03, 1.0e06],
+                    [7.0e02, 1.0e06, 1.0e06, 1.0e06],
+                    [1.0e06, 1.0e06, 1.0e06, 1.0e03],
+                    [1.0e06, 7.0e02, 1.0e06, 1.0e03],
                 ]
             ),
         ),
@@ -690,6 +690,155 @@ class RWALightpathReuseTest(chex.TestCase):
             if i == 1000:
                 break
         chex.assert_trees_all_close(remaining_capacity, expected)
+
+
+class AggregateSlotsMaskTest(chex.TestCase):
+    """aggregate_slots > 1 must not crash RWA-LR masking (regression: mask_slots_rwalr
+    unpacked aggregate_slots' single-array return into two names). Uses non-divisible
+    link_resources to exercise the ceil/padding path end to end."""
+
+    def test_masked_step_with_aggregation(self):
+        settings = dict(
+            k=5,
+            topology_name="nsfnet_deeprmsa_undirected",
+            link_resources=5,
+            max_requests=10,
+            values_bw=[100],
+            incremental_loading=True,
+            env_type="rwa_lightpath_reuse",
+            scale_factor=1.0,
+            aggregate_slots=2,
+            include_no_op=False,
+        )
+        env, params = make(settings, log_wrapper=False)
+        key = jax.random.PRNGKey(0)
+        obs, state = env.reset(key, params)
+        mask, full_mask = env.action_mask(state, params)  # ty: ignore[unresolved-attribute]
+        # k * ceil(5 / 2) = 5 * 3 aggregated actions; full mask stays k * 5
+        self.assertEqual(mask.shape[0], 15)
+        self.assertEqual(full_mask.shape[0], 25)
+        self.assertTrue(bool(jnp.any(mask > 0)))
+        state = state.replace(link_slot_mask=mask, full_link_slot_mask=full_mask)
+        action = jnp.argmax(mask)  # first valid aggregated action
+        _, state, reward, terminal, _, _ = jax.jit(env.step, static_argnums=(3,))(
+            key, state, action, params
+        )
+        # The step must implement a real (in-range) slot: exactly one lightpath placed
+        self.assertTrue(bool(jnp.any(state.path_index_array >= 0)))
+
+
+class OverCapacityRejectionTest(chex.TestCase):
+    """Over-capacity placements must be rejected via the total_mask == 2 sentinel.
+
+    Regression: the exhausted/over masks were computed after restoring the over-drawn
+    capacity, so a mask-bypassing action on a full lightpath was counted as accepted
+    while no capacity was deducted."""
+
+    def test_repeated_action_stops_being_accepted_at_zero_capacity(self):
+        key, env, obs, state, params = rwa_lightpath_reuse_4_nsfnet_test_setup()
+        step = jax.jit(env.step, static_argnums=(3,))
+        # Fix the request so every step asks for the same 100 on the same source-dest
+        request = state.request_array
+        action = jnp.array(0)  # first path, first slot
+        accepted_history = []
+        capacity = None
+        slots = None
+        for i in range(14):
+            state = state.replace(request_array=request)
+            if i == 0:
+                # Locate the affected slots from the pre-step state with the fixed request
+                action_info = env.process_action(state, action, params)
+                slots = jnp.where(action_info.affected_slots_mask > 0)
+            _, state, reward, *_ = step(key, state, action, params)
+            accepted_history.append(int(state.accepted_services))
+            if i == 0:
+                # Lightpath established: remaining = initial - 100
+                capacity = float(state.link_capacity_array[slots][0])
+        initial_capacity = capacity + 100.0
+        expected_accepts = int(initial_capacity // 100.0)
+        # Accepts must stop exactly when capacity is exhausted, then stay frozen
+        self.assertEqual(accepted_history[-1], expected_accepts)
+        self.assertEqual(accepted_history[expected_accepts - 1], expected_accepts)
+        # The full lightpath sits at exactly 0 and no capacity ever goes negative
+        self.assertEqual(float(state.link_capacity_array[slots][0]), 0.0)
+        self.assertGreaterEqual(float(jnp.min(state.link_capacity_array)), 0.0)
+
+
+class MixedPrecisionCarryTest(chex.TestCase):
+    """RWA-LR under --mixed_precision must keep link_slot_array at the SMALL_FLOAT tier
+    (regression: implement_action_rwalr wrote it back as LARGE_FLOAT, a lax.scan carry
+    dtype mismatch)."""
+
+    def test_step_preserves_small_float_link_slot_array(self):
+        from xlron import dtype_config
+
+        settings = dict(
+            k=5,
+            topology_name="nsfnet_deeprmsa_undirected",
+            link_resources=4,
+            max_requests=10,
+            values_bw=[100],
+            incremental_loading=True,
+            env_type="rwa_lightpath_reuse",
+            scale_factor=1.0,
+            mixed_precision=True,
+        )
+        try:
+            env, params = make(settings, log_wrapper=False)
+            key = jax.random.PRNGKey(0)
+            obs, state = env.reset(key, params)
+            init_dtype = state.link_slot_array.dtype
+            self.assertEqual(init_dtype, dtype_config.SMALL_FLOAT_DTYPE)
+            mask, full_mask = env.action_mask(state, params)  # ty: ignore[unresolved-attribute]
+            # Store masks at SMALL_FLOAT exactly as select_action does
+            state = state.replace(
+                link_slot_mask=mask.astype(dtype_config.SMALL_FLOAT_DTYPE),
+                full_link_slot_mask=full_mask.astype(dtype_config.SMALL_FLOAT_DTYPE),
+            )
+            _, state, *_ = jax.jit(env.step, static_argnums=(3,))(
+                key, state, jnp.argmax(mask), params
+            )
+            self.assertEqual(state.link_slot_array.dtype, init_dtype)
+        finally:
+            # initialize_dtypes mutates module globals; restore defaults for other tests
+            settings["mixed_precision"] = False
+            make(settings, log_wrapper=False)
+
+
+class DynamicExpiryCapacityRestoreTest(chex.TestCase):
+    """Expired RWA-LR services must return their slots to the 1e6 empty-capacity sentinel
+    (regression: capacity was never restored, so freed slots stayed masked at their stale
+    reduced capacity)."""
+
+    def test_expiry_restores_capacity(self):
+        settings = dict(
+            k=5,
+            topology_name="nsfnet_deeprmsa_undirected",
+            link_resources=4,
+            max_requests=100,
+            values_bw=[100],
+            incremental_loading=False,
+            env_type="rwa_lightpath_reuse",
+            scale_factor=1.0,
+            load=100,
+            mean_service_holding_time=25,
+        )
+        env, params = make(settings, log_wrapper=False)
+        key = jax.random.PRNGKey(0)
+        obs, state = env.reset(key, params)
+        mask, full_mask = env.action_mask(state, params)  # ty: ignore[unresolved-attribute]
+        self.assertTrue(bool(jnp.any(mask > 0)))
+        state = state.replace(link_slot_mask=mask, full_link_slot_mask=full_mask)
+        _, state, *_ = jax.jit(env.step, static_argnums=(3,))(key, state, jnp.argmax(mask), params)
+        occupied = state.path_index_array != -1
+        self.assertTrue(bool(jnp.any(occupied)))
+        self.assertLess(float(state.link_capacity_array[occupied].min()), 1e6)
+
+        far_future = jnp.full_like(state.current_time, 1e7)
+        expired = remove_expired_services_rwalr(state.replace(current_time=far_future), params)
+        self.assertTrue(bool(jnp.all(expired.path_index_array == -1)))  # ty: ignore[unresolved-attribute]
+        self.assertTrue(bool(jnp.all(expired.link_capacity_array == 1e6)))  # ty: ignore[unresolved-attribute]
+        self.assertTrue(bool(jnp.all(expired.link_slot_array == 0)))  # ty: ignore[unresolved-attribute]
 
 
 if __name__ == "__main__":

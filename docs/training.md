@@ -52,6 +52,15 @@ Total environment steps across all environments. The number of PPO updates is `T
 
 Steps per logging increment. Training is divided into `TOTAL_TIMESTEPS / STEPS_PER_INCREMENT` increments, with metrics reported after each. Default: `100000`.
 
+### Configuration validation
+
+`process_config` sanity-checks the run once derived values are set. It raises on structurally impossible values (`NUM_ENVS`, `ROLLOUT_LENGTH`, `NUM_MINIBATCHES`, `TOTAL_TIMESTEPS` must all be ≥ 1) and prints warnings for combinations that train but produce degenerate metrics:
+
+- `ROLLOUT_LENGTH * NUM_ENVS` not divisible by `NUM_MINIBATCHES` (the final minibatch is truncated).
+- For episodic training (not `continuous_operation`, not `end_first_blocking`), a per-env rollout window `NUM_UPDATES * ROLLOUT_LENGTH` shorter than one episode (`max_requests`). No episode then completes within an increment, leaving the episode-end metrics empty (`NaN`) — which also trips `--DEBUG_NANS`. Increase `STEPS_PER_INCREMENT`/`ROLLOUT_LENGTH` or reduce `max_requests`.
+
+Heuristic and model evaluation skip the training-specific checks, since `process_config` already sizes their episodes; `continuous_operation` skips the episode-window check, as it measures steady-state with no episode endings.
+
 ### `--UPDATE_EPOCHS`
 
 Number of passes over the rollout buffer per update step. Multiple epochs reuse the same data, improving sample efficiency at the risk of becoming too off-policy. Default: `1`. Typical values: `1` to `10`.
@@ -151,6 +160,31 @@ Enable invalid action masking (default: `True`). The environment provides a mask
 #### `--OFF_POLICY_IAM`
 
 Off-policy invalid action masking (default: `False`). When enabled, the importance ratio in PPO is computed as `unmasked_policy / masked_policy` rather than `masked_policy / masked_policy`. This means the ratio reflects the probability the *unmasked* (behavior) policy would have assigned to the taken action, which can be beneficial when the valid action set changes significantly between rollout and update time.
+
+**Recommended configuration (validated on transformer/RSA at high load):** `OFF_POLICY_IAM` with a *tight, non-recentered* clip (`CLIP_EPS` ≈ `0.04`), gating + damping on (their defaults), and a small valid-mass loss (`VALID_MASS_LOSS_COEF` ≈ `0.002`). Use float32 for final runs — `--compute_dtype=bfloat16` is ~2× faster but cost ~25% in final blocking probability in matched comparisons. This configuration outperformed every explicit reformulation tried (the ablation flags below) and a matched on-policy control by ~12×.
+
+Why it works: with one update per rollout the ratio at update time equals the valid mass `mu_old` exactly, so the unit-centred clip does three jobs for free. (a) It zeroes the gradient of negative-advantage samples in constrained states (`mu < 1 - eps`) — an emergent self-imitation filter. (b) It scales each sample's gradient by `mu(s)` — a per-state, congestion-aware step size. (c) The unmasked score function drains probability off invalid actions through the shared softmax, letting the policy commit (a masked score renormalises over valid actions only; matched on-policy runs plateau near-uniform). Job (a) is *per-state, not global*: at high load the valid-mass distribution is strongly bimodal (lobes near 0 and 1; a mean of ~0.43 with std ~0.48 has almost no mass at the mean), and in the `mu >= 1 - eps` lobe the ratio sits inside the clip band, so negative advantages flow and the update is standard two-sided PPO — with `mu ~ 1` the implicit scaling of job (b) is also ~1 there. Because damping multiplies the congested lobe by `mu / VALID_MASS_TARGET` (~0.2 at `mu ~ 0.01`), roughly three quarters of the *effective* actor-loss weight behaves two-sided once the lobes form early in training (`diagnostics/neg_adv_clip_frac` starts ~0.9 and settles ~0.22; unweighted `diagnostics/clip_frac` = share of states with `mu < 1 - eps` falls from ~0.9 to ~0.5). Net effect: vanilla PPO in uncongested states, doubly-suppressed (damped + mu-scaled) self-imitation in congested ones. The three ablation flags below reproduce (a) and (b) explicitly but apply them in *every* state; none of the explicit combinations beat this emergent configuration.
+
+#### `--IAM_RECENTER_CLIP`
+
+Recenter the PPO clip on the off-policy IAM ratio's no-update value (default: `False`; only used when `OFF_POLICY_IAM` is `True`). With off-policy IAM the ratio at no update equals the *valid mass* `mu_old = sum over valid actions of unmasked_policy` (the same for every valid action), which is well below 1 in a loaded network (~0.5 at steady state). The unit-centred clip `[1 - eps, 1 + eps]` then sits above the ratio, so for negative-advantage (bad) actions the clipped branch wins the `min` and the gradient is zero — the actor only learns from positive-advantage actions, and the ratio implicitly down-weights the gradient by `mu_old`.
+
+When enabled, `log(mu_old)` is subtracted from the log ratio before clipping, giving the recentered ratio `pi_new / pi_old` (≈ 1 at no update). Both advantage signs then receive gradient symmetrically inside the trust region, and the implicit `mu_old` scaling is removed.
+
+- **Interaction with `--IAM_DAMPING`:** recentering removes the implicit `mu_old` down-weighting of the actor gradient, so damping (`w *= clip(valid_mass / VALID_MASS_TARGET, 0, 1)`) becomes the only valid-mass-based down-weighting of congested states. Keep `IAM_DAMPING` on when using this flag. Damping and gating address valid-mass collapse (the off-policy gap), which is orthogonal to clip centring.
+- **Re-tune `--CLIP_EPS`:** because the gradient is now two-sided and no longer `mu_old`-scaled, the effective step size changes. A tight value such as `0.04` is usually too small once recentered; sweep `0.1`, `0.2`, `0.3` (and possibly the actor learning rate).
+- **Diagnostics:** with `--ENHANCED_LOGGING`, `diagnostics/recenter_ratio_mean`/`_std` report the recentered ratio (computed in both modes for comparison) and `diagnostics/neg_adv_clip_frac` reports the fraction of negative-advantage steps whose actor term is clipped — high in unit mode, low once recentered.
+- **Note:** the recentering applies only to the standard off-policy IAM branch. It is not applied to the VONE or launch-power branches. If VTrace-style clipping is enabled (`RHO_CLIP > 0` and `C_CLIP > 0`) the recentered ratio also feeds the importance correction in the advantage calculation; whether that ratio should be recentered too is left as an open question (VTrace is off by default).
+- **Ablation outcome:** recentering alone is much worse than the non-recentered clip (it deletes the self-imitation filter and the `mu` weighting). Combined with `POSITIVE_ADV_ONLY` + `MU_WEIGHT_ACTOR` it matches the non-recentered configuration under bfloat16 but *loses and degrades late in training* under float32 — the explicit filter applies in every state, whereas the emergent one binds only in congested (`mu < 1 - eps`) states while the uncongested `mu ~ 1` lobe (most of the effective learning weight) trains two-sided. Treat these three flags as ablation instruments for studying the mechanism, not as a better-performing configuration.
+- **Diagnostics caveat:** `diagnostics/recenter_ratio_mean`/`_std` blow up (towards `exp(LOGR_CLIP)`) whenever a sample's stored valid mass underflows to ~0 — the `+1e-8` guard dominates — so ignore those columns on batches containing near-zero-`mu` states. Zero-valid-action states (masked sampling falls back to uniform) can also push the *unweighted* `ratio_max` above 1; they are gated out of the loss itself.
+
+#### `--POSITIVE_ADV_ONLY`
+
+Zero the actor-loss contribution of negative-advantage steps (default: `False`), making the explicit equivalent of the self-imitation filter that the non-recentered off-policy IAM clip applies emergently (job (a) above). Bad actions are then demoted only via softmax renormalisation when good actions are promoted, never by direct negative gradients. Intended to be combined with `IAM_RECENTER_CLIP` (which removes the emergent filter) to decouple the filter from clip centring. The actor loss stays normalised by the full gated count, so the gradient scale matches the emergent configuration at equal learning rate. Unlike the emergent filter, which binds only in congested states (`mu < 1 - eps`), this explicit filter applies in **every** state — including the uncongested `mu ~ 1` lobe that carries most of the effective learning weight and that the emergent configuration trains two-sided. Deleting negative feedback there is the leading explanation for its late-training degradation under float32.
+
+#### `--MU_WEIGHT_ACTOR`
+
+Multiply each step's actor-loss contribution by its valid mass `mu(s)` (default: `False`), making the explicit equivalent of the per-state congestion-aware down-weighting that the non-recentered ratio (`ratio = mu_old`) applies implicitly (job (b) above). Intended to be combined with `IAM_RECENTER_CLIP` + `POSITIVE_ADV_ONLY`; in ablations it was a ~3× lever on final blocking probability once the other two flags were active (damping alone, which only ramps below `VALID_MASS_TARGET`, does not recover it).
 
 ### Valid Mass and Gating
 

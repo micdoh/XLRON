@@ -299,6 +299,34 @@ flags.DEFINE_boolean(
     "Use off-policy invalid action masking i.e. log prob ratio is unmasked policy / masked",
 )
 flags.DEFINE_boolean(
+    "IAM_RECENTER_CLIP",
+    False,
+    "ABLATION FLAG - recenter the PPO clip on the off-policy IAM ratio's no-update value (the "
+    "valid mass). Only used when OFF_POLICY_IAM is True. The off-policy ratio equals the valid "
+    "mass (~0.5), not 1, at no update, so the unit-centred clip floors out negative-advantage "
+    "gradients; subtracting log(valid_mass) from the log ratio recenters it to ~1 so both "
+    "advantage signs get gradient symmetrically. Validated outcome: does NOT outperform the "
+    "non-recentered clip (see docs/training.md, off-policy IAM recommended configuration)",
+)
+flags.DEFINE_boolean(
+    "POSITIVE_ADV_ONLY",
+    False,
+    "ABLATION FLAG - learn the actor from positive-advantage steps only (self-imitation style): "
+    "zero the policy-gradient contribution of negative-advantage steps. Explicit equivalent of "
+    "the filter the non-recentered off-policy IAM clip applies emergently; pairs with "
+    "IAM_RECENTER_CLIP. Unlike the emergent filter (which binds only in congested states with "
+    "valid mass < 1-eps), this filters every state including the uncongested mu~1 majority, "
+    "and it degraded late in training under float32 in matched comparisons",
+)
+flags.DEFINE_boolean(
+    "MU_WEIGHT_ACTOR",
+    False,
+    "ABLATION FLAG - weight the per-step actor loss by the valid mass mu (unmasked policy mass "
+    "on valid actions). Explicit equivalent of the per-state, congestion-aware scaling the "
+    "non-recentered off-policy IAM ratio (rho ~ mu) applies implicitly but IAM_RECENTER_CLIP "
+    "removes; combine with IAM_RECENTER_CLIP + POSITIVE_ADV_ONLY (a ~3x lever there)",
+)
+flags.DEFINE_boolean(
     "IAM_DAMPING",
     True,
     "Enable soft damping of actor/entropy losses based on valid mass "
