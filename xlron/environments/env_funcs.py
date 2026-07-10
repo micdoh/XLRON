@@ -1651,8 +1651,13 @@ def remove_expired_services_rsa(state: RSAEnvState, params: EnvParams) -> RSAEnv
     )  # 1 where dep > t, else 0
     keep_f = keep.astype(dep.dtype)  # 0/1 in dep dtype  # ty: ignore[unresolved-attribute]
 
-    # Clear expired slots
-    new_slots = state.link_slot_array * keep_f
+    # Clear only slots occupied by an expired service (0 < dep <= t). Band-gap
+    # sentinels (-1 in link_slot_array) carry dep == 0 and must survive expiry.
+    active = differentiable_compare(
+        dep, zero, ">", temperature=params.temperature, differentiable=params.differentiable
+    )
+    expired = active * (1 - keep)
+    new_slots = state.link_slot_array * (1 - expired).astype(state.link_slot_array.dtype)
 
     if params.relative_arrival_times:
         # Keep only those that are still active and shift them by -t
@@ -1755,8 +1760,14 @@ def remove_expired_services_rsa_gn_model(
 
     keep_i = keep.astype(state.path_index_array.dtype)
     mask_remove_i = mask_remove.astype(state.path_index_array.dtype)
+    # Band-gap sentinels (-1 in link_slot_array) carry dep == 0, so only clear slots
+    # of actually-expired services (dep > 0) in link_slot_array
+    active = differentiable_compare(
+        dep, zero, ">", temperature=params.temperature, differentiable=params.differentiable
+    )
+    lsa_keep = (1 - mask_remove * active).astype(state.link_slot_array.dtype)
     state = state.replace(
-        link_slot_array=state.link_slot_array * keep_f,
+        link_slot_array=state.link_slot_array * lsa_keep,
         link_slot_departure_array=new_dep,
         link_snr_array=state.link_snr_array * keep_f,
         path_index_array=state.path_index_array * keep_i
@@ -1829,8 +1840,14 @@ def remove_expired_services_rmsa_gn_model(
     keep_i = keep.astype(state.path_index_array.dtype)
     mask_remove_i = mask_remove.astype(state.path_index_array.dtype)
     neg_one_i = jnp.array(-1, dtype=state.path_index_array.dtype)
+    # Band-gap sentinels (-1 in link_slot_array) carry dep == 0, so only clear slots
+    # of actually-expired services (dep > 0) in link_slot_array
+    active = differentiable_compare(
+        dep, zero, ">", temperature=params.temperature, differentiable=params.differentiable
+    )
+    lsa_keep = (1 - mask_remove * active).astype(state.link_slot_array.dtype)
     state = state.replace(
-        link_slot_array=state.link_slot_array * keep_f,
+        link_slot_array=state.link_slot_array * lsa_keep,
         link_slot_departure_array=new_dep,
         link_snr_array=state.link_snr_array * keep_f,
         path_index_array=state.path_index_array * keep_i + neg_one_i * mask_remove_i,
