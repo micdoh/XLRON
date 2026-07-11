@@ -51,6 +51,7 @@ class LogWrapper(GymnaxWrapper):
             accepted_bitrate=jnp.array(0, dtype=dtype_config.LARGE_FLOAT_DTYPE),
             total_bitrate=jnp.array(0, dtype=dtype_config.LARGE_FLOAT_DTYPE),
             utilisation=jnp.array(0, dtype=dtype_config.LARGE_FLOAT_DTYPE),
+            fragmentation=jnp.array(0, dtype=dtype_config.LARGE_FLOAT_DTYPE),
             terminal=jnp.array(False),
             truncated=jnp.array(False),
         )
@@ -73,6 +74,10 @@ class LogWrapper(GymnaxWrapper):
         accepted_bitrate = info.pop("_accepted_bitrate")
         total_bitrate = info.pop("_total_bitrate")
         utilisation = info.pop("_utilisation")
+        # Default for envs (e.g. VONE) that don't stash fragmentation in step_env
+        fragmentation = info.pop(
+            "_fragmentation", jnp.array(0, dtype=dtype_config.LARGE_FLOAT_DTYPE)
+        )
         # Compute final episode length (for reporting) before resetting
         episode_length = log_state.lengths + 1
         cum_returns = log_state.cum_returns + reward
@@ -86,6 +91,7 @@ class LogWrapper(GymnaxWrapper):
             accepted_bitrate=accepted_bitrate,
             total_bitrate=total_bitrate,
             utilisation=utilisation,
+            fragmentation=fragmentation,
             terminal=terminal,
             truncated=truncated,
         )
@@ -98,6 +104,7 @@ class LogWrapper(GymnaxWrapper):
         info["accepted_bitrate"] = log_state.accepted_bitrate
         info["total_bitrate"] = log_state.total_bitrate
         info["utilisation"] = log_state.utilisation
+        info["fragmentation"] = log_state.fragmentation
         info["terminal"] = terminal
         info["truncated"] = truncated
         # First check if we're dealing with RSAGNModelEnvParams

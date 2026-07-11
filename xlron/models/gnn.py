@@ -1011,10 +1011,13 @@ class ActorGNN(eqx.Module):
             if self.discrete:
                 power_action_dist = distrax.Categorical(logits=power_logits)
             else:
-                alpha = self.min_concentration + jax.nn.softplus(power_logits) * (
+                # The power head outputs 2 components per path: one parameterises alpha, the
+                # other beta (mirrors LaunchPowerActorCriticMLP). Splitting them gives a Beta
+                # with batch shape (k_paths,) whose mean the agent can actually learn.
+                alpha = self.min_concentration + jax.nn.softplus(power_logits[..., 0]) * (
                     self.max_concentration - self.min_concentration
                 )
-                beta = self.min_concentration + jax.nn.softplus(power_logits) * (
+                beta = self.min_concentration + jax.nn.softplus(power_logits[..., 1]) * (
                     self.max_concentration - self.min_concentration
                 )
                 power_action_dist = distrax.Beta(alpha, beta)
@@ -1198,7 +1201,7 @@ class ActorCriticGNN(eqx.Module):
     def sample_action_path(self, seed, dist, log_prob=False, deterministic=False):
         """Sample an action from the distribution."""
         action = (
-            jnp.argmax(dist.probs()).astype(dtype_config.INDEX_DTYPE)
+            dist.mode().astype(dtype_config.INDEX_DTYPE)
             if deterministic
             else dist.sample(seed=seed)
         )
@@ -1230,11 +1233,14 @@ class ActorCriticGNN(eqx.Module):
 
     def sample_action_path_power(self, seed, dist, log_prob=False, deterministic=False):
         """Sample an action from the distributions."""
+        # Independent keys per draw: reusing the same key couples the path and power samples,
+        # so the joint would not be the product of marginals that the summed log_prob assumes.
+        path_seed, power_seed = jax.random.split(seed)
         path_action = self.sample_action_path(
-            seed, dist[0], log_prob=log_prob, deterministic=deterministic
+            path_seed, dist[0], log_prob=log_prob, deterministic=deterministic
         )
         power_action = self.sample_action_power(
-            seed, dist[1], log_prob=log_prob, deterministic=deterministic
+            power_seed, dist[1], log_prob=log_prob, deterministic=deterministic
         )
         if log_prob:
             return path_action[0], power_action[0], path_action[1] + power_action[1]
