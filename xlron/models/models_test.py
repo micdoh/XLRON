@@ -20,7 +20,13 @@ And GNN construction/forward regressions:
   (num_spectral_features + 3 wide); ``init_network`` must build an ActorCriticGNN for
   VONE with ``--USE_GNN`` (previously it always returned the MLP) and size the node
   embedder env-type-aware from the same rule as ``init_graph_tuple``/``update_graph_tuple``.
+  The actor must also emit the full per-head logits layout
+  ``[source(N) | dest(N) | path-slot(k * ceil(S/agg))]`` that select_action/_loss_fn
+  slice (node-decoder heads for source/dest, pooled-edge MLP head for path-slots) —
+  path-slot-only logits crash the first warmup step.
 """
+
+import math
 
 import chex
 import distrax
@@ -632,11 +638,16 @@ class GNNModelConstructionTest(chex.TestCase):
     def test_vone_forward_finite(self):
         """Forward pass on the env-built VONE graph must trace and be finite.
 
-        Regression: ActorGNN.__call__ read the 2D VONE request_array directly, feeding
-        (2, N)-shaped source/dest arrays into the path readout.
+        Regression: ActorGNN emitted path-slot logits only (k * ceil(S/agg)), while
+        select_action/_loss_fn slice [source(N) | dest(N) | path-slot] heads out of
+        pi._logits — broadcast error at the path-mask add on the first (warmup) step.
+        The VONE readout must emit the full per-head layout.
         """
         config, params, state, model, pi, value = self._build_and_forward("vone")
         self.assertIsInstance(pi, distrax.Categorical)
+        # Pin the per-head logits layout expected by select_action/_loss_fn
+        path_dim = params.k_paths * math.ceil(params.link_resources / config.aggregate_slots)
+        self.assertEqual(pi.logits.shape, (2 * params.num_nodes + path_dim,))
         chex.assert_tree_all_finite(pi.logits)
         chex.assert_tree_all_finite(value)
         # update_graph_tuple must keep the carried nodes shape/dtype stable and preserve
@@ -682,6 +693,72 @@ class GNNModelConstructionTest(chex.TestCase):
         config = process_config(cfg)
         network = init_network(config, jax.random.PRNGKey(0))
         self.assertIsInstance(network, ActorCriticMLP)
+
+    def test_vone_transformer_fails_fast(self):
+        """USE_TRANSFORMER emits path-slot logits only, so VONE must fail fast."""
+        cfg = _flag_defaults()
+        cfg.update(
+            env_type="vone",
+            topology_name="nsfnet_deeprmsa_directed",
+            link_resources=10,
+            k=4,
+            values_bw=[100],
+            incremental_loading=True,
+            ROLLOUT_LENGTH=10,
+            TOTAL_TIMESTEPS=20,
+            STEPS_PER_INCREMENT=10,
+            NUM_ENVS=1,
+            ENV_WARMUP_STEPS=0,
+            USE_GNN=False,
+            USE_TRANSFORMER=True,
+        )
+        config = process_config(cfg)
+        with self.assertRaises(NotImplementedError):
+            init_network(config, jax.random.PRNGKey(0))
+
+    def test_vone_gnn_select_action_and_step(self):
+        """End-to-end select_action + env.step for VONE with the GNN policy.
+
+        Regression: the forward-pass-only tests passed while VONE+GNN crashed on the
+        first (warmup) step — select_action's VONE branch slices pi._logits into
+        [source | dest | path-slot] heads, but ActorGNN emitted only k * ceil(S/agg)
+        path-slot logits ('add got incompatible shapes for broadcasting: (12,), (40,)'
+        at the source-mask add). This goes through the real select_action -> env.step
+        path with the LogWrapper-wrapped env, as in training.
+        """
+        cfg = _flag_defaults()
+        cfg.update(
+            env_type="vone",
+            topology_name="nsfnet_deeprmsa_directed",
+            link_resources=10,
+            k=4,
+            values_bw=[100],
+            incremental_loading=True,
+            ROLLOUT_LENGTH=10,
+            TOTAL_TIMESTEPS=20,
+            STEPS_PER_INCREMENT=10,
+            NUM_ENVS=1,
+            ENV_WARMUP_STEPS=0,
+            USE_GNN=True,
+        )
+        config = process_config(cfg)
+        env, params = make(config)  # LogWrapper-wrapped: select_action reads .env_state
+        obs, state = env.reset(jax.random.PRNGKey(0), params)
+        model = init_network(config, jax.random.PRNGKey(1))
+        train_state = TrainState.create(model=model, tx=optax.adam(1e-3))
+        for seed, deterministic in [(2, False), (3, True)]:
+            config.deterministic = deterministic
+            env_state, action, log_prob, value = select_action(
+                (jax.random.PRNGKey(seed), state, None), env, params, train_state, config
+            )
+            chex.assert_shape(action, (3,))  # (source node, path-slot, dest node)
+            chex.assert_tree_all_finite(log_prob)
+            chex.assert_tree_all_finite(value)
+            # The sampled action must step the environment
+            _, stepped_state, reward, terminal, truncated, _ = env.step(
+                jax.random.PRNGKey(seed + 10), env_state, action, params
+            )
+            chex.assert_tree_all_finite(reward)
 
     def test_rsa_gn_model_disable_node_features_forward(self):
         """DISABLE_NODE_FEATURES composes with GN-model envs (stacked edge features)."""

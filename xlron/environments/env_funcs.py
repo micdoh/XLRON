@@ -337,8 +337,15 @@ def update_graph_tuple(state: RSAEnvState, params: RSAEnvParams) -> RSAEnvState:
         # static spectral columns sit at offset 1 (the generic slice above would grab the
         # capacity column and drop the last spectral eigenvector).
         vone_spectral_features = state.graph.nodes[..., 1 : 1 + params.num_spectral_features]
+        # Match the env's init_graph_tuple(..., exclude_source_dest=True) convention:
+        # VONE's request row 0 holds node-capacity request values, not node indices, so
+        # the generic one-hot source_dest_features above would encode capacities as node
+        # positions. Keep the two source-dest columns zeroed instead. (VONEEnv currently
+        # rebuilds the graph via init_graph_tuple each step; this keeps a direct call
+        # consistent with that path.)
+        vone_source_dest_features = jnp.zeros_like(source_dest_features)
         node_features = jnp.concatenate(
-            [node_features, vone_spectral_features, source_dest_features], axis=-1
+            [node_features, vone_spectral_features, vone_source_dest_features], axis=-1
         )
     else:
         edge_features = (
