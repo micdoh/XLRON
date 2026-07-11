@@ -1535,8 +1535,10 @@ def generate_arrival_holding_times(key, params, arrival_rate, mean_service_holdi
         # For DeepRMSA, need to generate holding times that are less than 2*mean_service_holding_time
         key_holding = jax.random.split(key, 5)
         holding_times = jax.vmap(
-            lambda x: jax.random.exponential(x, shape=(1,), dtype=dtype_config.TIME_DTYPE)
-            * mean_service_holding_time
+            lambda x: (
+                jax.random.exponential(x, shape=(1,), dtype=dtype_config.TIME_DTYPE)
+                * mean_service_holding_time
+            )
         )(key_holding).reshape(-1)
         holding_times = jnp.where(
             holding_times < 2 * mean_service_holding_time, holding_times, zero
@@ -3945,10 +3947,60 @@ def get_lightpath_snr(state: GNModelEnvState, params: GNModelEnvParams) -> Array
     Returns:
         Array: SNR for each link on path
     """
-    # Get the SNR for the channel that the path occupies
-    path_snr_array = jax.vmap(get_snr_for_path, in_axes=(0, None, None, None))(
-        params.path_link_array.val, state.link_snr_array, params, state
-    )
+    # Get the SNR for the channel that the path occupies.
+    # Batched path-level SNR as a single (P, num_links) @ (num_links, S) matmul, mirroring
+    # calculate_throughput_from_active_lightpaths (replaces a vmap of get_snr_for_path over
+    # all P paths, which materialises a (P, num_links, S) broadcast/select intermediate).
+    paths = params.path_link_array.val
+    if params.pack_path_bits:
+        paths = jnp.unpackbits(paths, axis=1)[:, : params.num_links]
+    paths_float = paths.astype(state.link_snr_array.dtype)  # (P, num_links)
+
+    # NSR accumulation: nsr_all[p, s] = sum_over_links( path[p, l] * (1 / link_snr[l, s]) )
+    # Zero SNR entries (e.g. slots zeroed by lightpath removal before the next SNR refresh)
+    # must not enter the matmul as 1/0 = inf, since off-path 0 * inf = NaN would poison the
+    # column for every path. Divide with zeros masked, then restore the inf total for paths
+    # that actually traverse a zero-SNR entry (matching the where/select semantics).
+    snr_is_zero = (state.link_snr_array == 0).astype(paths_float.dtype)  # (num_links, S)
+    inv_snr = jnp.where(
+        state.link_snr_array == 0, 0.0, 1.0 / state.link_snr_array
+    )  # (num_links, S)
+    nsr_all = paths_float @ inv_snr  # (P, S) matmul
+    nsr_all = jnp.where(paths_float @ snr_is_zero > 0, jnp.inf, nsr_all)
+
+    # Add path-level ROADM ASE noise (vectorised over paths, as in get_snr_for_path)
+    if hasattr(params, "roadm_express_loss"):
+        num_links_on_path = jnp.sum(paths_float, axis=1)  # (P,)
+        num_express = jnp.maximum(num_links_on_path - 1, 0)  # (P,)
+        # Channel power/bandwidth from first link on path
+        # (all links on a path carry the same channels)
+        first_link_idx = jnp.argmax(paths, axis=1)  # (P,)
+        ch_power = state.channel_power_array[first_link_idx]  # (P, S)
+        ch_bw_hz = state.channel_centre_bw_array[first_link_idx] * 1e9  # GHz -> Hz
+        ch_centres_hz = state.channel_centre_freq_array[first_link_idx] * 1e9  # GHz -> Hz
+        roadm_ase = jax.vmap(
+            lambda ne, cc, cb: isrs_gn_model.calculate_roadm_ase(
+                roadm_express_loss=params.roadm_express_loss.val,
+                roadm_add_drop_loss=params.roadm_add_drop_loss.val,
+                roadm_noise_figure=params.roadm_noise_figure.val,
+                num_roadm_express=ne,
+                ref_lambda=params.ref_lambda,
+                ch_centre_i=cc,
+                ch_bandwidth_i=cb,
+            )
+        )(num_express, ch_centres_hz, ch_bw_hz)  # (P, S)
+        nsr_roadm = jnp.where(ch_power > 0, roadm_ase / ch_power, 0.0)
+        nsr_all = nsr_all + nsr_roadm
+
+    # Add transceiver noise once at path level (see get_snr_for_path)
+    if hasattr(params, "transceiver_snr"):
+        trx_snr_linear = isrs_gn_model.from_db(params.transceiver_snr.val)
+        nsr_trx = jnp.where(trx_snr_linear > 1.0, 1.0 / trx_snr_linear, 0.0)
+        nsr_all = nsr_all + nsr_trx
+
+    path_snr_array = jnp.nan_to_num(
+        isrs_gn_model.to_db(1 / nsr_all), nan=-50, neginf=-50, posinf=50
+    )  # Link SNR array must be in linear units so that 1/inf = 0
     # Where value in path_index_array matches index of path_snr_array, substitute in SNR value
     slot_indices = jnp.arange(params.link_resources)
     lightpath_snr_array = jax.vmap(
@@ -5021,7 +5073,7 @@ def get_paths_obs_gn_model(state: RSAGNModelEnvState, params: RSAGNModelEnvParam
     nodes_sd, requested_datarate = read_rsa_request(request_array)
     source, dest = nodes_sd
 
-    def calculate_gn_path_stats(k_path_index, init_val):
+    def calculate_gn_path_stats(k_path_index):
         # Get path index
         path_index = (
             get_path_indices(
@@ -5069,24 +5121,20 @@ def get_paths_obs_gn_model(state: RSAGNModelEnvState, params: RSAGNModelEnvParam
         mean_snr_norm = jnp.where(path == one, lightpath_snr_array.sum(axis=1), zero).sum(
             promote_integers=False
         ) / (jnp.where(num_connections > zero, num_connections, one) * max_snr)
-        return jax.lax.dynamic_update_slice(
-            init_val,
-            jnp.array(
-                [
-                    [
-                        path_length_norm,
-                        path_length_hops_norm,
-                        num_connections_norm,
-                        mean_power_norm,
-                        mean_snr_norm,
-                    ]
-                ]
-            ),
-            (k_path_index, 0),
+        return jnp.array(
+            [
+                path_length_norm,
+                path_length_hops_norm,
+                num_connections_norm,
+                mean_power_norm,
+                mean_snr_norm,
+            ],
+            dtype=dtype_config.LARGE_FLOAT_DTYPE,
         )
 
-    gn_path_stats = jnp.zeros((params.k_paths, 5), dtype=dtype_config.LARGE_FLOAT_DTYPE)
-    gn_path_stats = jax.lax.fori_loop(0, params.k_paths, calculate_gn_path_stats, gn_path_stats)
+    # Paths are independent, so batch the per-path stats with vmap rather than
+    # serialising k iterations through a fori_loop (see calculate_path_stats)
+    gn_path_stats = jax.vmap(calculate_gn_path_stats)(jnp.arange(params.k_paths))
     all_stats = jnp.concatenate([path_stats, gn_path_stats], axis=1)
     return jnp.concatenate(
         (

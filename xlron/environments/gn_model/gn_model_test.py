@@ -6,6 +6,7 @@ import chex
 import distrax
 import jax
 import jax.numpy as jnp
+import numpy as np
 from absl.testing import absltest, parameterized
 
 from xlron.environments.dataclasses import *
@@ -1346,6 +1347,164 @@ class GetPathsObsGNModelTest(chex.TestCase):
         # The stats block is bounded (raw metres would be >= 1e5); obs[3] is holding_time,
         # which is ~1e6 under incremental loading and not part of this regression
         self.assertLess(float(jnp.max(jnp.abs(obs[4:]))), 1e3)
+
+
+class GetLightpathSnrMatmulTest(chex.TestCase):
+    """get_lightpath_snr's matmul formulation must match the per-path where/select
+    reference (a vmap of get_snr_for_path over all paths) over randomised states."""
+
+    def setUp(self):
+        super().setUp()
+        self.key, self.env, self.obs, self.state, self.params = rmsa_gn_model_test_setup()
+
+    def _reference_lightpath_snr(self, state, params):
+        # Brute-force per-path formulation (the pre-matmul implementation)
+        path_snr_array = jax.vmap(get_snr_for_path, in_axes=(0, None, None, None))(
+            params.path_link_array.val, state.link_snr_array, params, state
+        )
+        slot_indices = jnp.arange(params.link_resources)
+        return jax.vmap(
+            jax.vmap(lambda x, si: path_snr_array[x][si], in_axes=(0, 0)), in_axes=(0, None)
+        )(state.path_index_array, slot_indices)
+
+    def test_matches_reference_empty_network(self):
+        state = self.state.replace(link_snr_array=get_snr_link_array(self.state, self.params))
+        chex.assert_trees_all_close(
+            get_lightpath_snr(state, self.params),
+            self._reference_lightpath_snr(state, self.params),
+            atol=1e-4,
+        )
+
+    def test_matches_reference_randomised_states(self):
+        rng = np.random.default_rng(0)
+        num_links = self.params.num_links
+        num_slots = self.params.link_resources
+        num_paths = self.params.path_link_array.val.shape[0]
+        for _ in range(3):
+            # Linear SNR values with the -1e5 sentinel for empty slots (as get_snr returns)
+            # and exact zeros (as left behind by lightpath removal before an SNR refresh)
+            snr = rng.uniform(0.5, 1000.0, size=(num_links, num_slots))
+            snr = np.where(rng.random((num_links, num_slots)) < 0.3, -1e5, snr)
+            snr = np.where(rng.random((num_links, num_slots)) < 0.1, 0.0, snr)
+            path_idx = rng.integers(-1, num_paths, size=(num_links, num_slots))
+            ch_power = np.where(
+                rng.random((num_links, num_slots)) < 0.5,
+                rng.uniform(1e-4, 1e-2, size=(num_links, num_slots)),
+                0.0,
+            )
+            ch_bw = np.where(ch_power > 0, 25.0, 0.0)
+            ch_freq = np.where(
+                ch_power > 0, rng.uniform(190000.0, 195000.0, size=(num_links, num_slots)), 0.0
+            )
+            state = self.state.replace(
+                link_snr_array=jnp.array(snr, dtype=self.state.link_snr_array.dtype),
+                path_index_array=jnp.array(path_idx, dtype=self.state.path_index_array.dtype),
+                channel_power_array=jnp.array(ch_power, dtype=self.state.channel_power_array.dtype),
+                channel_centre_bw_array=jnp.array(
+                    ch_bw, dtype=self.state.channel_centre_bw_array.dtype
+                ),
+                channel_centre_freq_array=jnp.array(
+                    ch_freq, dtype=self.state.channel_centre_freq_array.dtype
+                ),
+            )
+            chex.assert_trees_all_close(
+                get_lightpath_snr(state, self.params),
+                self._reference_lightpath_snr(state, self.params),
+                atol=1e-4,
+            )
+
+    def test_matches_reference_loaded_network(self):
+        # Populate the network with masked steps, then compare on the resulting state
+        rng = self.key
+        state = self.state
+        step = jax.jit(self.env.step, static_argnums=(3,))
+        for _ in range(5):
+            mask, _, mod_format_mask = self.env.action_mask(state, self.params)
+            state = state.replace(link_slot_mask=mask, mod_format_mask=mod_format_mask)
+            rng, rng_sample, rng_step = jax.random.split(rng, 3)
+            action_dist = distrax.Categorical(logits=jnp.where(mask > 0, 0.0, -1e8))
+            path_action = action_dist.sample(seed=rng_sample)
+            action = jnp.concatenate(
+                [path_action.reshape((1,)), jnp.array([0]).reshape((1,))], axis=0
+            )
+            _, state, *_ = step(rng_step, state, action, self.params)
+        state = state.replace(link_snr_array=get_snr_link_array(state, self.params))
+        chex.assert_trees_all_close(
+            get_lightpath_snr(state, self.params),
+            self._reference_lightpath_snr(state, self.params),
+            atol=1e-4,
+        )
+
+
+class GetPathsObsGNModelVmapTest(chex.TestCase):
+    """The vmapped per-path GN stats in get_paths_obs_gn_model must match a brute-force
+    per-path reference over randomised channel powers."""
+
+    def setUp(self):
+        super().setUp()
+        self.key, self.env, self.obs, self.state, self.params = rsa_gn_model_4_nsfnet_test_setup()
+
+    def _reference_gn_path_stats(self, state, params):
+        request_array = state.request_array.reshape((-1,))
+        nodes_sd, _ = read_rsa_request(request_array)
+        source, dest = nodes_sd
+        base = int(
+            get_path_indices(
+                params,
+                source,
+                dest,
+                params.k_paths,
+                params.num_nodes,
+                directed=params.directed_graph,
+            )
+        )
+        plink = np.asarray(params.path_link_array.val, dtype=np.float64)
+        lengths = np.asarray(jnp.sum(params.link_length_array.val, axis=1), dtype=np.float64)
+        lp_snr = np.asarray(get_lightpath_snr(state, params), dtype=np.float64)
+        ch_power = np.asarray(state.channel_power_array, dtype=np.float64)
+        max_length = (plink @ lengths).max()
+        max_hops = plink.sum(axis=1).max()
+        expected = []
+        for i in range(params.k_paths):
+            path = plink[base + i]
+            on_path = path == 1
+            num_connections = float((ch_power[on_path] > 0).sum())
+            denom = num_connections if num_connections > 0 else 1.0
+            expected.append(
+                [
+                    (path * lengths).sum() / max_length,
+                    on_path.sum() / max_hops,
+                    num_connections / params.link_resources,
+                    ch_power[on_path].sum() / (denom * params.max_power),
+                    lp_snr[on_path].sum() / (denom * 50.0),
+                ]
+            )
+        return np.array(expected)
+
+    def test_gn_path_stats_match_bruteforce_randomised(self):
+        rng = np.random.default_rng(1)
+        params = self.params
+        num_links = params.num_links
+        num_slots = params.link_resources
+        num_paths = params.path_link_array.val.shape[0]
+        for _ in range(3):
+            ch_power = np.where(
+                rng.random((num_links, num_slots)) < 0.5,
+                rng.uniform(1e-4, 1e-2, size=(num_links, num_slots)),
+                0.0,
+            )
+            path_idx = rng.integers(-1, num_paths, size=(num_links, num_slots))
+            state = self.state.replace(
+                channel_power_array=jnp.array(ch_power, dtype=self.state.channel_power_array.dtype),
+                path_index_array=jnp.array(path_idx, dtype=self.state.path_index_array.dtype),
+                link_snr_array=get_snr_link_array(self.state, params),
+            )
+            request = state.request_array.reshape((-1,))
+            ps_w = calculate_path_stats(state, params, request).shape[1] - 3  # ty: ignore[unresolved-attribute]
+            obs = get_paths_obs_gn_model(state, params)
+            gn_stats = np.asarray(obs)[4:].reshape(params.k_paths, ps_w + 5)[:, ps_w:]
+            expected = self._reference_gn_path_stats(state, params)
+            np.testing.assert_allclose(gn_stats, expected, rtol=1e-4, atol=1e-6)
 
 
 if __name__ == "__main__":
