@@ -277,6 +277,9 @@ xlron.train.parameter_flags:
     (default: 'false')
   --values_bw: List of requested bandwidth values
     (a comma separated list)
+  --values_bw_probs: Comma-separated sampling probabilities for each value in values_bw
+    (must match values_bw length; normalised to sum to 1). If unset, bandwidth
+    values are sampled uniformly.
   --virtual_topologies: Virtual topologies
     (default: '3_ring')
     (a comma separated list)

@@ -143,6 +143,7 @@ DEFAULTS = {
     # Traffic
     "load": 250,
     "mean_service_holding_time": 25,
+    "values_bw_probs": None,
     "continuous_operation": False,
     "ENV_WARMUP_STEPS": 0,
     "warmup_action_type": "default",
@@ -741,6 +742,14 @@ def traffic_section() -> dict:
         )
         if values_bw.strip():
             flags["values_bw"] = values_bw.strip()
+
+        values_bw_probs = st.text_input(
+            "Bandwidth Probabilities (comma-separated, leave blank for uniform)",
+            value=str(_get_preset_val("values_bw_probs") or ""),
+            help=_h("values_bw_probs"),
+        )
+        if values_bw_probs.strip():
+            flags["values_bw_probs"] = values_bw_probs.strip()
 
         max_req = st.number_input(
             "Max Requests",

@@ -123,6 +123,7 @@ Uses `get_eval_fn` with a loaded model (`--MODEL_PATH`). Runs the trained policy
 - `--guardband` - Guard band slots (default: 1)
 - `--modulations_csv_filepath` - Modulation format definitions CSV
 - `--values_bw` - Comma-separated bandwidth request values
+- `--values_bw_probs` - Comma-separated sampling probabilities for values_bw (same length; normalised to sum to 1; default uniform)
 - `--incremental_loading` - Non-expiring requests (for capacity measurement)
 - `--end_first_blocking` - End episode on first block (used with incremental_loading)
 - `--truncate_holding_time` - Truncate to < 2*mean (for DeepRMSA paper compatibility)
