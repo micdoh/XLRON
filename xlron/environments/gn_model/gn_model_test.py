@@ -1244,6 +1244,11 @@ class ActiveLightpathRegistryTest(chex.TestCase):
             include_no_op=False,
             load=100,
             mean_service_holding_time=25,
+            # The blocked-request check below asserts the departure registry is
+            # bit-identical across a step, which only holds for absolute times
+            # (under the relative-time flag default, every step rescales the
+            # stored departures).
+            relative_arrival_times=False,
         )
         return make(settings, log_wrapper=False)
 

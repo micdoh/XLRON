@@ -141,6 +141,10 @@ def rsa_nsfnet_16_mod_test_setup(**kwargs):
         slot_size=12.5,
         mean_service_holding_time=10,
         env_type="rsa",
+        # Expectations in the tests below were computed with this modulations table
+        # (the pre-unification implicit default); the flag default is now
+        # modulations_deeprmsa.csv, so pin it explicitly.
+        modulations_csv_filepath="./xlron/data/modulations/modulations.csv",
     )
     if not kwargs:
         return _cached_setup("rsa_nsfnet_16_mod", base_settings)
@@ -470,7 +474,11 @@ class UpdatePathLinksTest(chex.TestCase):
 class RemoveExpiredSlotRequestsTest(chex.TestCase):
     def setUp(self):
         super().setUp()
-        self.key, self.env, self.obs, self.state, self.params = rwa_4node_test_setup()
+        # This test sets absolute departure/current times, so pin the absolute-time
+        # mode (the flag default, now applied to dict configs too, is relative).
+        self.key, self.env, self.obs, self.state, self.params = rwa_4node_test_setup(
+            relative_arrival_times=False
+        )
         # Set link 0, slots 0-1 as occupied (path=[1,0,0,0], initial_slot=0, num_slots=2)
         link_slot = self.state.link_slot_array.at[0, 0].set(1).at[0, 1].set(1)
         # Departure is now positive (time when service expires)
