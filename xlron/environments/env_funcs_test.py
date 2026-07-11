@@ -1255,6 +1255,47 @@ class FindBlockSizesTest(chex.TestCase):
         chex.assert_trees_all_close(actual, expected)
 
 
+class CalculateFragmentationTest(chex.TestCase):
+    def setUp(self):
+        super().setUp()
+
+    @chex.all_variants()
+    @parameterized.named_parameters(
+        ("case_empty", jnp.zeros((2, 8)), 0.0),
+        ("case_full", jnp.ones((2, 8)), 0.0),
+        ("case_contiguous_free", jnp.array([[1, 1, 1, 0, 0, 0, 0, 0]]), 0.0),
+        ("case_checkerboard", jnp.array([[0, 1, 0, 1, 0, 1, 0, 1]]), 0.75),
+        # Negative values (in-service slots) count as occupied: free runs of 2 and 4
+        ("case_negative_occupied", jnp.array([[-1, 0, 0, -1, 0, 0, 0, 0]]), 1 - 4 / 6),
+        # Mean across links: contiguous link (0) and checkerboard link (0.75)
+        (
+            "case_mean_over_links",
+            jnp.array([[0, 0, 0, 0, 0, 0, 0, 0], [0, 1, 0, 1, 0, 1, 0, 1]]),
+            0.375,
+        ),
+    )
+    def test_calculate_fragmentation(self, link_slot_array, expected):
+        actual = self.variant(calculate_fragmentation)(link_slot_array)
+        chex.assert_trees_all_close(actual, jnp.array(expected, dtype=actual.dtype))
+
+
+class FragmentationLoggingTest(chex.TestCase):
+    """LogWrapper must surface the fragmentation metric stashed by step_env."""
+
+    def test_fragmentation_in_info_and_log_state(self):
+        env, params = make(settings_rwa_4node())
+        key = jax.random.PRNGKey(0)
+        obs, log_state = env.reset(key, params)
+        chex.assert_trees_all_close(
+            log_state.fragmentation, jnp.array(0, dtype=log_state.fragmentation.dtype)
+        )
+        step = jax.jit(env.step, static_argnums=(3,))
+        _, log_state, _, _, _, info = step(key, log_state, jnp.array(0), params)
+        expected = calculate_fragmentation(log_state.env_state.link_slot_array)
+        chex.assert_trees_all_close(info["fragmentation"], expected)
+        chex.assert_trees_all_close(log_state.fragmentation, expected)
+
+
 class TopologyNodeIdNormalisationTest(chex.TestCase):
     """make_graph must relabel mixed-base topology JSONs to 0..N-1 in sorted-id order.
 
@@ -1377,6 +1418,30 @@ class DeterministicReplayOrderTest(chex.TestCase):
             served.append(np.asarray(state.request_array, dtype=np.float32))
         for got, row in zip(served, rows):
             np.testing.assert_allclose(got, np.array([row[0], row[1], row[2]], dtype=np.float32))
+
+
+class MakeGraphUnknownTopologyTest(chex.TestCase):
+    """make_graph must fail with a helpful ValueError (not a raw FileNotFoundError)
+    listing close-match suggestions when --topology_name doesn't match a bundled JSON."""
+
+    def test_typo_raises_value_error_with_suggestion(self):
+        with self.assertRaisesRegex(ValueError, "Unknown topology 'nfsnet_deeprmsa_directed'"):
+            make_graph("nfsnet_deeprmsa_directed")
+        try:
+            make_graph("nfsnet_deeprmsa_directed")
+        except ValueError as e:
+            self.assertIn("nsfnet_deeprmsa_directed", str(e))
+
+    def test_no_close_match_still_helpful(self):
+        with self.assertRaisesRegex(ValueError, "topologies are available in"):
+            make_graph("zzzzzz_not_a_topology")
+
+    def test_custom_topology_directory_used_for_suggestions(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with open(pathlib.Path(tmpdir) / "mynet.json", "w") as f:
+                json.dump({"nodes": [], "links": []}, f)
+            with self.assertRaisesRegex(ValueError, "mynet"):
+                make_graph("mynett", topology_directory=tmpdir)
 
 
 if __name__ == "__main__":

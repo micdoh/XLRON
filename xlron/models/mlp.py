@@ -8,7 +8,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from jax import Array
-from jax._src.typing import ArrayLike
+from jax.typing import ArrayLike
 
 from xlron import dtype_config
 from xlron.environments.gn_model.isrs_gn_model import from_dbm
@@ -133,6 +133,7 @@ class MLP(eqx.Module):
         dropout_rate: float = 0.0,
         deterministic: bool = True,
         layer_norm: bool = False,
+        output_scale: float = np.sqrt(2),
         *,
         key: Array,
     ):
@@ -145,8 +146,11 @@ class MLP(eqx.Module):
         current_in = in_features
 
         for i, out_features in enumerate(features):
+            # Hidden layers use the standard sqrt(2) orthogonal gain; the output layer
+            # uses output_scale (e.g. 0.01 for a policy head, 1.0 for a value head).
+            scale = output_scale if i == len(features) - 1 else np.sqrt(2)
             linear = make_linear_with_orthogonal_init(
-                current_in, out_features, keys[i], scale=np.sqrt(2)
+                current_in, out_features, keys[i], scale=scale
             )
             layers_list.append(linear)
             if layer_norm and i < len(features) - 1:
@@ -173,8 +177,8 @@ class MLP(eqx.Module):
 class ActorCriticMLP(eqx.Module):
     """Actor-Critic MLP using Equinox."""
 
-    actor: eqx.Module
-    critic: eqx.Module
+    actor: MLP
+    critic: MLP
     activation_fn: Callable
     temperature: float
 
@@ -196,7 +200,7 @@ class ActorCriticMLP(eqx.Module):
         self.activation_fn = select_activation(activation)
         self.temperature = temperature
 
-        # Build actor layers
+        # Build actor layers (logits head init scale 0.01 for a near-uniform initial policy)
         actor_features = [num_units] * num_layers + [action_dim]
         self.actor = MLP(
             actor_features,
@@ -205,6 +209,7 @@ class ActorCriticMLP(eqx.Module):
             layer_norm=layer_norm,
             dropout_rate=dropout_rate,
             deterministic=deterministic,
+            output_scale=0.01,
             key=actor_key,
         )
         critic_features = [num_units] * num_layers + [1]
@@ -215,7 +220,8 @@ class ActorCriticMLP(eqx.Module):
             layer_norm=layer_norm,
             dropout_rate=dropout_rate,
             deterministic=deterministic,
-            key=actor_key,
+            output_scale=1.0,
+            key=critic_key,
         )
 
     def __call__(self, x: Array, key: Optional[Array] = None) -> Tuple[distrax.Categorical, Array]:
@@ -239,7 +245,7 @@ class ActorCriticMLP(eqx.Module):
         deterministic: bool = False,
     ) -> Union[Array, Tuple[Array, Array]]:
         """Sample an action from the distribution"""
-        action = jnp.argmax(dist.probs()) if deterministic else dist.sample(seed=seed)
+        action = dist.mode() if deterministic else dist.sample(seed=seed)
         if log_prob:
             return action, dist.log_prob(action)
         return action
@@ -252,15 +258,17 @@ class LaunchPowerActorCriticMLP(eqx.Module):
     Makes K forward passes, one for each path, and outputs a distribution over power levels for each path.
     """
 
-    # Actor (per-path) and critic (full observation) networks
+    # Actor trunk and discrete head
     actor_layers: tuple
     actor_output: Optional[eqx.nn.Linear]
-    critic_layers: tuple
-    critic_output: eqx.nn.Linear
 
     # For continuous action space (Beta distribution)
     alpha_out: Optional[eqx.nn.Linear]
     beta_out: Optional[eqx.nn.Linear]
+
+    # Critic trunk and value head
+    critic_layers: tuple
+    critic_output: eqx.nn.Linear
 
     # Static configuration
     activation: str = eqx.field(static=True)
@@ -331,23 +339,6 @@ class LaunchPowerActorCriticMLP(eqx.Module):
             current_in = num_units
         self.actor_layers = tuple(actor_layers_list)
 
-        # Build critic layers (full observation input)
-        critic_keys = jax.random.split(critic_key, num_layers + 1)
-        critic_layers_list = []
-        current_in = input_dim
-        for i in range(num_layers):
-            linear = make_linear_with_orthogonal_init(
-                current_in, num_units, critic_keys[i], scale=np.sqrt(2)
-            )
-            critic_layers_list.append(linear)
-            if layer_norm:
-                critic_layers_list.append(eqx.nn.LayerNorm(num_units))
-            current_in = num_units
-        self.critic_layers = tuple(critic_layers_list)
-        self.critic_output = make_linear_with_orthogonal_init(
-            num_units, 1, critic_keys[num_layers], scale=1.0
-        )
-
         # Actor output
         out_key1, out_key2, out_key3 = jax.random.split(output_key, 3)
         if discrete:
@@ -361,6 +352,24 @@ class LaunchPowerActorCriticMLP(eqx.Module):
             self.actor_output = None  # Not used for continuous
             self.alpha_out = make_linear_with_orthogonal_init(num_units, 1, out_key2, scale=0.01)
             self.beta_out = make_linear_with_orthogonal_init(num_units, 1, out_key3, scale=0.01)
+
+        # Build critic layers (take the full observation: base + all K paths' features)
+        critic_trunk_key, critic_out_key = jax.random.split(critic_key)
+        critic_keys = jax.random.split(critic_trunk_key, num_layers)
+        critic_layers_list = []
+        current_in = num_base_features + k_paths * num_path_features
+        for i in range(num_layers):
+            linear = make_linear_with_orthogonal_init(
+                current_in, num_units, critic_keys[i], scale=np.sqrt(2)
+            )
+            critic_layers_list.append(linear)
+            if layer_norm:
+                critic_layers_list.append(eqx.nn.LayerNorm(num_units))
+            current_in = num_units
+        self.critic_layers = tuple(critic_layers_list)
+        self.critic_output = make_linear_with_orthogonal_init(
+            num_units, 1, critic_out_key, scale=1.0
+        )
 
     @property
     def num_power_levels(self):
@@ -392,8 +401,8 @@ class LaunchPowerActorCriticMLP(eqx.Module):
         return x
 
     def __call__(self, x: Array) -> Tuple[Tuple[None, distrax.Distribution], Array]:
-        # Cast the (possibly low-precision under mixed precision) observation up to the NN
-        # compute dtype (see ActorCriticMLP.__call__)
+        # Cast the (possibly low-precision under mixed precision) observation up to the NN compute
+        # dtype so weights, activations and the optimizer stay at full precision for stability.
         x = x.astype(dtype_config.COMPUTE_DTYPE)
 
         # Process each path
@@ -425,6 +434,11 @@ class LaunchPowerActorCriticMLP(eqx.Module):
         critic_hidden = self._forward_layers(x, self.critic_layers)
         value = jnp.squeeze(self.critic_output(critic_hidden), axis=-1)
 
+        # Cast outputs back to PARAMS_DTYPE (float32) so bf16 stays inside the model (see
+        # ActorCriticMLP for rationale).
+        dist_params = dist_params.astype(dtype_config.PARAMS_DTYPE)
+        value = value.astype(dtype_config.PARAMS_DTYPE)
+
         # Create distribution
         if self.discrete:
             dist = distrax.Categorical(logits=dist_params)
@@ -442,7 +456,8 @@ class LaunchPowerActorCriticMLP(eqx.Module):
                 raw_action = dist.mode()
             else:
                 raw_action = dist.sample(seed=seed)
-            processed_action = self.power_levels[raw_action].reshape((self.k_paths, 1))
+            # (k_paths,) to match the carried launch_power_array shape
+            processed_action = self.power_levels[raw_action].reshape((self.k_paths,))
         else:
             if deterministic:
                 mean = dist.alpha / (dist.alpha + dist.beta)
@@ -460,7 +475,7 @@ class LaunchPowerActorCriticMLP(eqx.Module):
     def get_action_probs(self, dist):
         """Get probabilities for discrete case or pdf for continuous case"""
         if self.discrete:
-            return dist.probs()
+            return dist.probs
         else:
             x = jnp.linspace(0, 1, 100)
             return dist.prob(x)

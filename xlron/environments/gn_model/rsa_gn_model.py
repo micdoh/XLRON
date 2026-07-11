@@ -112,6 +112,9 @@ class RSAGNModelEnv(RSAEnv):
         ),
     )
     def get_obs(self, state: RSAGNModelEnvState, params: RSAGNModelEnvParams) -> Array:
+        # Must match observation_space (4 + 7*k_paths features); a 0-d placeholder here
+        # crashes any flat-obs model (e.g. LaunchPowerActorCriticMLP) at trace time.
+        # Same fix as on the gn-physics branch (kept identical to merge cleanly).
         return get_paths_obs_gn_model(state, params)
 
     @staticmethod
