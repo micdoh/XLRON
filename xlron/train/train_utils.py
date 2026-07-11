@@ -583,7 +583,14 @@ def save_model(model: eqx.Module, config: Box, first_save: bool = True) -> pathl
 
 
 def init_network(config: Box, key: chex.PRNGKey) -> eqx.Module:
-    if config.env_type.lower() == "vone":
+    if config.env_type.lower() == "vone" and config.USE_TRANSFORMER:
+        # Fail fast: the transformer emits per-path-slot logits only, but VONE's
+        # select_action/_loss_fn slice [source | dest | path-slot] heads.
+        raise NotImplementedError(
+            "env_type=vone supports MLP (default) and --USE_GNN policies; "
+            "--USE_TRANSFORMER is not implemented for VONE"
+        )
+    if config.env_type.lower() == "vone" and not config.USE_GNN:
         network = ActorCriticMLP(
             config.ACTION_DIM + (1 * config.include_no_op),  # +1 for "no op"
             config.INPUT_DIM,
@@ -602,6 +609,7 @@ def init_network(config: Box, key: chex.PRNGKey) -> eqx.Module:
         "rsa_gn_model",
         "rmsa_gn_model",
         "rsa_multiband",
+        "vone",  # vone only reaches here with USE_GNN (MLP handled above)
     ]:
         if config.USE_TRANSFORMER:
             # For transformer: input_size is the per-token feature dimension
@@ -650,11 +658,23 @@ def init_network(config: Box, key: chex.PRNGKey) -> eqx.Module:
                 )
             else:
                 global_output_size_actor = config.global_output_size_actor
-            input_node_feature_size = (
-                1
-                if config.DISABLE_NODE_FEATURES
-                else config.num_spectral_features + 2  # 2 for source/dest indicators
-            )
+            # Node feature width must match graph.nodes built by init_graph_tuple/
+            # update_graph_tuple: [spectral | source-dest(2)] for most envs; VONE
+            # prepends a node_capacity column ([capacity(1) | spectral | source-dest(2)]).
+            # DISABLE_NODE_FEATURES collapses to the width-1 zero placeholder.
+            if config.DISABLE_NODE_FEATURES:
+                input_node_feature_size = 1
+            else:
+                input_node_feature_size = (
+                    config.num_spectral_features + 2  # 2 for source/dest indicators
+                )
+                if config.env_type.lower() == "vone":
+                    input_node_feature_size += 1  # node_capacity column
+            # VONE per-head readout: source/dest logits come from a width-2 node decoder
+            # and the path-slot logits from a dedicated MLP head (see ActorGNN.__call__),
+            # matching the [source | dest | path-slot] slicing in select_action/_loss_fn.
+            vone_heads = config.env_type.lower() == "vone"
+            node_output_size_actor = 2 if vone_heads else config.node_output_size_actor
             # Edge feature width must match graph.edges built by init_graph_tuple/
             # update_graph_tuple: GN-model envs stack [normalized_snr, normalized_power]
             # per slot (flattened to 2*link_resources at the GraphNet boundary); all other
@@ -688,7 +708,7 @@ def init_network(config: Box, key: chex.PRNGKey) -> eqx.Module:
                 node_embedding_size=config.node_embedding_size,
                 node_mlp_layers=config.node_mlp_layers,
                 node_mlp_latent=config.node_mlp_latent,
-                node_output_size_actor=config.node_output_size_actor,
+                node_output_size_actor=node_output_size_actor,
                 node_output_size_critic=config.node_output_size_critic,
                 attn_mlp_layers=config.attn_mlp_layers,
                 attn_mlp_latent=config.attn_mlp_latent,
@@ -705,6 +725,8 @@ def init_network(config: Box, key: chex.PRNGKey) -> eqx.Module:
                 max_concentration=config.max_concentration,
                 epsilon=config.EPSILON,
                 vmap=False,
+                vone_heads=vone_heads,
+                k_paths=config.k,
                 key=key,
             )
         elif "gn_model" in config.env_type.lower() and config.launch_power_type == "rl":

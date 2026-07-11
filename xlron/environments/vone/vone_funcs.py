@@ -278,11 +278,22 @@ def init_vone_request_array(params: VONEEnvParams):
 @partial(jax.jit, static_argnums=(0,))
 def init_node_capacity_array(params: VONEEnvParams):
     """Initialize node array with uniform resources.
+
+    Carried and incrementally mutated: every write-back (implement_node_action,
+    undo_node_action, remove_expired_node_requests) adds float32 node_resource_array
+    sums, so the carry must start at LARGE_FLOAT too. An integer init only survives
+    until the first expiry sweep in continuous mode, and under incremental_loading
+    (no sweep) it reaches implement_vone_action's lax.cond as int32 against the
+    float32 implement_node_action branch — trace-time dtype mismatch. Capacities are
+    small integers, exact in float32.
+
     Args:
         params (EnvParams): Environment parameters
     Returns:
         jnp.array: Node capacity array (N x 1) where N is number of nodes"""
-    return jnp.array([params.node_resources] * params.num_nodes, dtype=dtype_config.LARGE_INT_DTYPE)
+    return jnp.array(
+        [params.node_resources] * params.num_nodes, dtype=dtype_config.LARGE_FLOAT_DTYPE
+    )
 
 
 @partial(jax.jit, static_argnums=(0,))

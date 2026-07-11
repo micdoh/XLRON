@@ -277,7 +277,12 @@ def update_graph_tuple(state: RSAEnvState, params: RSAEnvParams) -> RSAEnvState:
         state (EnvState): Environment state with updated graph tuple
     """
     # Get source and dest from request array
-    source_dest, datarate = read_rsa_request(state.request_array)
+    # VONE has 2D request_array (2, max_edges*2+1), use first row for node info
+    # (same convention as init_graph_tuple)
+    request_array = state.request_array
+    if request_array.ndim == 2:
+        request_array = request_array[0]
+    source_dest, datarate = read_rsa_request(request_array)
     source, dest = source_dest[0], source_dest[2]
     # Current request as global feature
     globals = jnp.array(
@@ -328,8 +333,19 @@ def update_graph_tuple(state: RSAEnvState, params: RSAEnvParams) -> RSAEnvState:
         )
         node_features = getattr(state, "node_capacity_array", jnp.zeros(params.num_nodes))
         node_features = node_features.reshape(-1, 1)
+        # VONE carries [capacity(1) | spectral | source-dest(2)] node features, so the
+        # static spectral columns sit at offset 1 (the generic slice above would grab the
+        # capacity column and drop the last spectral eigenvector).
+        vone_spectral_features = state.graph.nodes[..., 1 : 1 + params.num_spectral_features]
+        # Match the env's init_graph_tuple(..., exclude_source_dest=True) convention:
+        # VONE's request row 0 holds node-capacity request values, not node indices, so
+        # the generic one-hot source_dest_features above would encode capacities as node
+        # positions. Keep the two source-dest columns zeroed instead. (VONEEnv currently
+        # rebuilds the graph via init_graph_tuple each step; this keeps a direct call
+        # consistent with that path.)
+        vone_source_dest_features = jnp.zeros_like(source_dest_features)
         node_features = jnp.concatenate(
-            [node_features, spectral_features, source_dest_features], axis=-1
+            [node_features, vone_spectral_features, vone_source_dest_features], axis=-1
         )
     else:
         edge_features = (
