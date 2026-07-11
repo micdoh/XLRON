@@ -979,48 +979,50 @@ def select_action(select_action_state, env, env_params, train_state, config):
 
     # Always do action masking with VONE
     if config.env_type.lower() == "vone":
-        # TODO - change this to work with single set of logits (probably just slice them)
-        vmap_mask_nodes = jax.vmap(env.action_mask_nodes, in_axes=(0, None))
-        vmap_mask_slots = jax.vmap(env.action_mask_slots, in_axes=(0, None, 0))
-        vmap_mask_dest_node = jax.vmap(env.action_mask_dest_node, in_axes=(0, None, 0))
+        # The single set of logits is sliced into three heads. Layout matches
+        # VONEEnv.num_actions: [source nodes | dest nodes | path-slot actions]
+        # (a trailing no-op logit, if include_no_op, belongs to no head).
+        # select_action operates on a single (unbatched) env state; batching over
+        # NUM_ENVS is applied by the outer vmap of _env_step in ppo.py.
+        num_nodes = env_params.num_nodes
+        source_logits = pi._logits[..., :num_nodes]
+        dest_logits = pi._logits[..., num_nodes : 2 * num_nodes]
+        key_s, key_p, key_d = jax.random.split(action_key, 3)
 
-        env_state = env_state.replace(env_state=vmap_mask_nodes(env_state.env_state, env_params))
+        inner_state = env.action_mask_nodes(env_state.env_state, env_params)
         pi_source = distrax.Categorical(
-            logits=pi._logits + (-1e8 * (1 - env_state.env_state.node_mask_s.astype(jnp.float32)))
+            logits=source_logits + (-1e8 * (1 - inner_state.node_mask_s.astype(jnp.float32)))
         )
-
-        action_s = (
-            pi_source.sample(seed=action_key) if not config.deterministic else pi_source.mode()
-        )
+        action_s = pi_source.sample(seed=key_s) if not config.deterministic else pi_source.mode()
 
         # Update destination mask now source has been selected
-        env_state = env_state.replace(
-            env_state=vmap_mask_dest_node(env_state.env_state, env_params, action_s)
-        )
+        inner_state = env.action_mask_dest_node(inner_state, env_params, action_s)
         pi_dest = distrax.Categorical(
-            logits=pi._logits + (-1e8 * (1 - env_state.env_state.node_mask_d.astype(jnp.float32)))
+            logits=dest_logits + (-1e8 * (1 - inner_state.node_mask_d.astype(jnp.float32)))
         )
+        action_d = pi_dest.sample(seed=key_d) if not config.deterministic else pi_dest.mode()
 
-        action_p = jnp.full(action_s.shape, 0)
-        action_d = pi_dest.sample(seed=action_key) if not config.deterministic else pi_dest.mode()
-        action = jnp.stack((action_s, action_p, action_d), axis=1)
-
-        env_state = env_state.replace(
-            env_state=vmap_mask_slots(env_state.env_state, env_params, action)
-        )
+        action = jnp.stack((action_s, jnp.zeros_like(action_s), action_d))
+        inner_state = env.action_mask_slots(inner_state, env_params, action)
+        path_dim = inner_state.link_slot_mask.shape[-1]
+        path_logits = pi._logits[..., 2 * num_nodes : 2 * num_nodes + path_dim]
         pi_path = distrax.Categorical(
-            logits=pi._logits
-            + (-1e8 * (1 - env_state.env_state.link_slot_mask.astype(jnp.float32)))
+            logits=path_logits + (-1e8 * (1 - inner_state.link_slot_mask.astype(jnp.float32)))
         )
-        action_p = pi_path.sample(seed=action_key) if not config.deterministic else pi_path.mode()
-        action = jnp.stack((action_s, action_p, action_d), axis=1)
+        action_p = pi_path.sample(seed=key_p) if not config.deterministic else pi_path.mode()
+        action = jnp.stack((action_s, action_p, action_d))
 
         log_prob_source = pi_source.log_prob(action_s)
         log_prob_path = pi_path.log_prob(action_p)
         log_prob_dest = pi_dest.log_prob(action_d)
         log_prob = log_prob_dest + log_prob_path + log_prob_source
-        probs = jax.nn.softmax(pi._logits, axis=-1)
-        valid_mass = jnp.sum(probs * action_mask, axis=-1)
+        env_state = env_state.replace(env_state=inner_state)
+        # Overwrite the (stale) pre-branch masks with the freshly computed path masks so the
+        # final state update below stores them; valid_mass mirrors the RSA path-head semantics.
+        action_mask = inner_state.link_slot_mask
+        full_action_mask = inner_state.full_link_slot_mask
+        probs = jax.nn.softmax(path_logits, axis=-1)
+        valid_mass = jnp.sum(probs * action_mask.astype(jnp.float32), axis=-1)
 
     elif "gn_model" in config.env_type.lower() and config.launch_power_type == "rl":
         # Sampling dispatches to the model's own sample_action* methods (the models know how

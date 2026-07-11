@@ -1158,7 +1158,7 @@ class RMSAGNAggregateSlotsTest(chex.TestCase):
         env, params = make(settings, log_wrapper=False)
         key = jax.random.PRNGKey(3)  # short-path request that passes SNR checks
         obs, state = env.reset(key, params)
-        mask, full_mask, mod_format_mask = env.action_mask(state, params)  # ty: ignore[unresolved-attribute]
+        mask, full_mask, mod_format_mask = env.action_mask(state, params)
         self.assertEqual(mask.shape[0], params.k_paths * 5)  # ceil(10 / 2) = 5
         self.assertEqual(mod_format_mask.shape[0], params.k_paths * 10)  # full resolution
         self.assertTrue(bool(jnp.any(mask > 0)))
@@ -1350,9 +1350,7 @@ class ScaledLaunchPowerTest(chex.TestCase):
         env, params = make(settings, log_wrapper=False)
         key = jax.random.PRNGKey(3)
         obs, state = env.reset(key, params)
-        power = get_launch_power(  # ty: ignore[invalid-argument-type,unresolved-attribute]
-            state, jnp.array(0), jnp.array(0.0), jnp.array(0), params
-        )
+        power = get_launch_power(state, jnp.array(0), jnp.array(0.0), jnp.array(0), params)
 
         nodes_sd, _ = read_rsa_request(state.request_array)
         source, dest = nodes_sd
