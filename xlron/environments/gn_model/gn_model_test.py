@@ -586,6 +586,53 @@ class EnforceBandGapsTest(chex.TestCase):
             )
 
 
+class BandGapExpiryTest(chex.TestCase):
+    """Expiring services must not erase the -1 band-gap sentinels from link_slot_array.
+
+    Regression: remove_expired_services_* zeroed every slot whose departure time was
+    <= current time, and gap slots carry dep == 0, so the first expiry pass in any
+    dynamic run erased the sentinels and opened the inter-band gaps to placement."""
+
+    def _expire(self, state, params, remove_fn):
+        lsa = state.link_slot_array
+        dep = state.link_slot_departure_array
+        # Occupy slot 0 on link 0 with a service departing at t=5, then expire at t=10
+        lsa = lsa.at[0, 0].set(jnp.asarray(1, dtype=lsa.dtype))
+        dep = dep.at[0, 0].set(jnp.asarray(5, dtype=dep.dtype))
+        t = jnp.asarray(10)
+        state = state.replace(
+            link_slot_array=lsa,
+            link_slot_departure_array=dep,
+            current_time=t.astype(state.current_time.dtype),
+            arrival_time=t.astype(state.arrival_time.dtype),
+        )
+        return remove_fn(state, params)
+
+    def _assert_gaps_survive(self, new_state, params):
+        self.assertEqual(float(new_state.link_slot_array[0, 0]), 0.0)
+        self.assertTrue(jnp.all(new_state.link_slot_departure_array == 0))
+        gap_starts = params.gap_starts.val
+        gap_widths = params.gap_widths.val
+        self.assertGreater(len(gap_starts), 0)
+        for i in range(len(gap_starts)):
+            start = int(gap_starts[i])
+            width = int(gap_widths[i])
+            self.assertTrue(
+                jnp.all(new_state.link_slot_array[:, start : start + width] == -1),
+                f"Gap at slot {start} should still be -1 after expiry",
+            )
+
+    def test_rmsa_gn_model_gaps_survive_expiry(self):
+        _, _, _, state, params = rmsa_gn_model_enforce_band_gaps_test_setup()
+        new_state = self._expire(state, params, remove_expired_services_rmsa_gn_model)
+        self._assert_gaps_survive(new_state, params)
+
+    def test_rsa_gn_model_gaps_survive_expiry(self):
+        _, _, _, state, params = rsa_gn_model_band_preference_test_setup("C,L")
+        new_state = self._expire(state, params, remove_expired_services_rsa_gn_model)
+        self._assert_gaps_survive(new_state, params)
+
+
 def rsa_gn_model_band_preference_test_setup(band_preference):
     return _gn_cached_setup(
         f"rsa_gn_model_band_pref_{band_preference}",
@@ -1111,7 +1158,7 @@ class RMSAGNAggregateSlotsTest(chex.TestCase):
         env, params = make(settings, log_wrapper=False)
         key = jax.random.PRNGKey(3)  # short-path request that passes SNR checks
         obs, state = env.reset(key, params)
-        mask, full_mask, mod_format_mask = env.action_mask(state, params)  # ty: ignore[unresolved-attribute]
+        mask, full_mask, mod_format_mask = env.action_mask(state, params)
         self.assertEqual(mask.shape[0], params.k_paths * 5)  # ceil(10 / 2) = 5
         self.assertEqual(mod_format_mask.shape[0], params.k_paths * 10)  # full resolution
         self.assertTrue(bool(jnp.any(mask > 0)))

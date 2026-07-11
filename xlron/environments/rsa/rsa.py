@@ -20,6 +20,7 @@ from xlron.environments.dataclasses import (
 )
 from xlron.environments.diff_utils import *
 from xlron.environments.env_funcs import (
+    calculate_fragmentation,
     calculate_path_stats,
     check_action_rmsa_gn_model,
     check_action_rsa,
@@ -314,7 +315,14 @@ class RSAEnv(environment.Environment):
         info["_accepted_services"] = state.accepted_services
         info["_accepted_bitrate"] = state.accepted_bitrate
         info["_total_bitrate"] = state.total_bitrate
-        info["_utilisation"] = jnp.count_nonzero(state.link_slot_array) / state.link_slot_array.size
+        # Band-gap sentinels (-1) are neither occupied nor usable spectrum, so count
+        # positively-occupied slots over the usable (non-gap) slots only
+        occupied_slots = jnp.count_nonzero(state.link_slot_array > 0)
+        usable_slots = jnp.count_nonzero(state.link_slot_array >= 0)
+        info["_utilisation"] = (occupied_slots / jnp.maximum(usable_slots, 1)).astype(
+            dtype_config.LARGE_FLOAT_DTYPE
+        )
+        info["_fragmentation"] = calculate_fragmentation(state.link_slot_array)
         if params.render:
             # Expose exact action_info/check used internally by step_env for render/debug paths.
             info["_render_action"] = action_info.action
@@ -922,9 +930,9 @@ class RSAEnv(environment.Environment):
         total_bitrate = self._to_scalar(state.total_bitrate)
         service_bp = 1.0 - (accepted_services / max(total_requests, 1))
         bitrate_bp = 1.0 - (accepted_bitrate / max(total_bitrate, 1e-6))
-        util = float(
-            np.count_nonzero(self._to_numpy(state.link_slot_array)) / state.link_slot_array.size
-        )
+        # Exclude band-gap sentinels (-1) from both numerator and denominator
+        lsa = self._to_numpy(state.link_slot_array)
+        util = float(np.count_nonzero(lsa > 0) / max(np.count_nonzero(lsa >= 0), 1))
 
         req_fsu = (
             int(round(self._to_scalar(action_info.num_slots)))

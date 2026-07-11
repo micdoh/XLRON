@@ -782,6 +782,102 @@ class EndFirstBlockingBitrateTest(chex.TestCase):
         self.assertGreater(len(set(bitrates)), 1)
 
 
+def rsa_multiband_4node_test_setup(**kwargs):
+    settings = dict(
+        load=100,
+        k=2,
+        topology_name="4node",
+        link_resources=20,
+        max_requests=10,
+        mean_service_holding_time=10,
+        env_type="rsa_multiband",
+        values_bw=[25],
+        slot_size=12.5,
+        guardband=0,
+        # 25 GHz gap starting at 100 GHz -> 2-slot gap at slots 8-9
+        interband_gap_width=[25],
+        interband_gap_start=[100],
+    )
+    settings.update(kwargs)
+    key = jax.random.PRNGKey(0)
+    env, params = make(settings, log_wrapper=False)
+    obs, state = env.reset(key, params)
+    return key, env, obs, state, params
+
+
+class RsaMultibandBandGapTest(chex.TestCase):
+    def setUp(self):
+        super().setUp()
+        (
+            self.key,
+            self.env,
+            self.obs,
+            self.state,
+            self.params,
+        ) = rsa_multiband_4node_test_setup()
+
+    def test_custom_gap_flags_respected(self):
+        """--interband_gap_width/--interband_gap_start must produce the requested gaps.
+
+        Regression: an inverted conditional in make() discarded user-supplied values
+        (yielding no gaps at all) and only ever applied the hardcoded defaults."""
+        chex.assert_trees_all_equal(self.params.gap_starts.val, jnp.array([8]))
+        chex.assert_trees_all_equal(self.params.gap_widths.val, jnp.array([2]))
+        self.assertTrue(jnp.all(self.state.link_slot_array[:, 8:10] == -1))
+        self.assertTrue(jnp.all(self.state.link_slot_array[:, :8] == 0))
+        self.assertTrue(jnp.all(self.state.link_slot_array[:, 10:] == 0))
+
+    def test_default_gaps_when_flags_unset(self):
+        """Without gap flags, the [200, 200] GHz @ [4425, 8425] GHz defaults apply."""
+        _, _, _, _, params = rsa_multiband_4node_test_setup(
+            interband_gap_width=None, interband_gap_start=None
+        )
+        chex.assert_trees_all_equal(params.gap_starts.val, jnp.array([354, 674]))
+        chex.assert_trees_all_equal(params.gap_widths.val, jnp.array([16, 16]))
+
+    def test_expiry_preserves_gap_sentinels(self):
+        """remove_expired_services_rsa must clear expired services but keep -1 gaps.
+
+        Regression: link_slot_array was multiplied by keep=(dep > t), and gap slots
+        carry dep == 0, so the first expiry pass erased the sentinels and opened the
+        inter-band gaps to placement."""
+        lsa = self.state.link_slot_array
+        dep = self.state.link_slot_departure_array
+        # Occupy slot 0 on link 0 with a service departing at t=5, then expire at t=10
+        lsa = lsa.at[0, 0].set(jnp.asarray(1, dtype=lsa.dtype))
+        dep = dep.at[0, 0].set(jnp.asarray(5, dtype=dep.dtype))
+        t = jnp.asarray(10)
+        state = self.state.replace(
+            link_slot_array=lsa,
+            link_slot_departure_array=dep,
+            current_time=t.astype(self.state.current_time.dtype),
+            arrival_time=t.astype(self.state.arrival_time.dtype),
+        )
+        new_state = remove_expired_services_rsa(state, self.params)
+        self.assertEqual(float(new_state.link_slot_array[0, 0]), 0.0)  # ty: ignore[unresolved-attribute]
+        self.assertTrue(jnp.all(new_state.link_slot_departure_array == 0))  # ty: ignore[unresolved-attribute]
+        self.assertTrue(
+            jnp.all(new_state.link_slot_array[:, 8:10] == -1),  # ty: ignore[unresolved-attribute]
+            f"Gap sentinels erased by expiry: {new_state.link_slot_array}",  # ty: ignore[unresolved-attribute]
+        )
+
+    def test_utilisation_excludes_gap_slots(self):
+        """Utilisation must count only positively-occupied slots over usable slots."""
+        mask, _ = self.env.action_mask(self.state, self.params)
+        self.assertTrue(bool(jnp.any(mask > 0)))
+        action = jnp.argmax(mask)
+        _, new_state, _, _, _, info = self.env.step(self.key, self.state, action, self.params)
+        lsa = np.asarray(new_state.link_slot_array)
+        occupied = np.count_nonzero(lsa > 0)
+        usable = np.count_nonzero(lsa >= 0)
+        # Gap slots (2 per link) are excluded from the usable spectrum
+        self.assertEqual(usable, lsa.size - 2 * lsa.shape[0])
+        self.assertGreater(occupied, 0)
+        chex.assert_trees_all_close(
+            info["_utilisation"], jnp.asarray(occupied / usable, dtype=info["_utilisation"].dtype)
+        )
+
+
 if __name__ == "__main__":
     jax.config.update("jax_numpy_rank_promotion", "raise")
     absltest.main()

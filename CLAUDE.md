@@ -162,8 +162,8 @@ Uses `get_eval_fn` with a loaded model (`--MODEL_PATH`). Runs the trained policy
 - `--path_heuristic` - Algorithm: `ksp_ff`, `ksp_lf`, `ksp_bf`, `ksp_mu`, `ff_ksp`, `lf_ksp`, `bf_ksp`, `mu_ksp`, `kmc_ff`, `kmf_ff`, `kme_ff`, `kca_ff`
 
 ### Capacity Bounds (standalone scripts, not through train.py)
-- Cut-sets (`python -m xlron.bounds.cutsets_bounds`): `--max_requests` (requests per trial), `--num_trials`, `--CUTSET_EXHAUSTIVE`, `--CUTSET_TOP_K`, `--cutset_link_selection_mode`
-- Reconfigurable routing (`python xlron/bounds/reconfigurable_routing_bounds.py`): `--COMPILE_RR_BOUNDS`, `--path_heuristic`. Forces `relative_arrival_times=False` and `max_requests=TOTAL_TIMESTEPS` internally.
+- Cut-sets (`python -m xlron.bounds.cutsets_bounds`): `--max_requests` (requests per trial), `--num_trials`, `--CUTSET_EXHAUSTIVE`, `--CUTSET_TOP_K`
+- Reconfigurable routing (`python xlron/bounds/reconfigurable_routing_bounds.py`): `--COMPILE_RR_BOUNDS`, `--path_heuristic` (only `ksp_ff` and `ff_ksp` supported; other values raise an error). Forces `relative_arrival_times=False` and `max_requests=TOTAL_TIMESTEPS` internally.
 
 ### Differentiable Mode
 - `--differentiable` - Enable differentiable approximations (default: False)

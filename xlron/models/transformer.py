@@ -457,6 +457,10 @@ class ActorCriticTransformer(eqx.Module):
         self.embedding_size = embedding_size
         self.critic_pooling = critic_pooling
         self.actor_pooling = actor_pooling
+        # Give the critic encoder an independent init key so that with share_layers=False it
+        # does not start as an exact copy of the actor. The actor keeps encoder_key so its
+        # init is unchanged for a fixed seed.
+        critic_enc_key = jax.random.fold_in(encoder_key, 1)
         actor = Encoder(
             input_size=input_size,
             intermediate_size=intermediate_size,
@@ -477,7 +481,7 @@ class ActorCriticTransformer(eqx.Module):
             num_wire_features=num_wire_features,
             dropout_rate=dropout_rate,
             attention_dropout_rate=attention_dropout_rate,
-            key=encoder_key,
+            key=critic_enc_key,
         )
         if self.share_layers:
             # When sharing layers, use the same encoder for both actor and critic
@@ -618,7 +622,7 @@ class ActorCriticTransformer(eqx.Module):
         deterministic: bool = False,
     ) -> Union[Array, Tuple[Array, Array]]:
         """Sample an action from the distribution"""
-        action = jnp.argmax(dist.probs()) if deterministic else dist.sample(seed=seed)
+        action = dist.mode() if deterministic else dist.sample(seed=seed)
         if log_prob:
             return action, dist.log_prob(action)
         return action

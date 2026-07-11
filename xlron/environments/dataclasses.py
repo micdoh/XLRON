@@ -176,6 +176,7 @@ class LogEnvState:
         accepted_bitrate (chex.Scalar): Accepted bitrate
         total_bitrate (chex.Scalar): Total bitrate requested
         utilisation (chex.Scalar): Network utilisation
+        fragmentation (chex.Scalar): Mean external spectrum fragmentation across links
         terminal (chex.Scalar): Terminal flag (true termination condition met)
         truncated (chex.Scalar): Truncated flag (max steps reached)
     """
@@ -188,6 +189,7 @@ class LogEnvState:
     accepted_bitrate: Array
     total_bitrate: Array
     utilisation: Array
+    fragmentation: Array
     terminal: Array
     truncated: Array
 
