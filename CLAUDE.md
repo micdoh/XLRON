@@ -159,7 +159,7 @@ Uses `get_eval_fn` with a loaded model (`--MODEL_PATH`). Runs the trained policy
 
 ### Heuristics
 - `--EVAL_HEURISTIC` - Run heuristic evaluation instead of RL
-- `--path_heuristic` - Algorithm: `ksp_ff`, `ksp_lf`, `ksp_bf`, `ksp_mu`, `ff_ksp`, `lf_ksp`, `bf_ksp`, `mu_ksp`, `kmc_ff`, `kmf_ff`, `kme_ff`, `kca_ff`
+- `--path_heuristic` - Algorithm: `ksp_ff`, `ksp_lf`, `ksp_bf`, `ksp_ef`, `ksp_mu`, `ksp_flf`, `ksp_flef`, `ksp_mscl`, `ff_ksp`, `lf_ksp`, `bf_ksp`, `mu_ksp`, `flf_ksp`, `mscl_ksp`, `kmc_ff`, `kmf_ff`, `kme_ff`, `kca_ff`
 
 ### Capacity Bounds (standalone scripts, not through train.py)
 - Cut-sets (`python -m xlron.bounds.cutsets_bounds`): `--max_requests` (requests per trial), `--num_trials`, `--CUTSET_EXHAUSTIVE`, `--CUTSET_TOP_K`, `--cutset_link_selection_mode`

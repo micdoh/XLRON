@@ -19,14 +19,23 @@ from xlron.environments.rwa_lightpath_reuse.rwa_lightpath_reuse_test import (
 # from xlron.environments.rsa import *
 from xlron.heuristics.heuristics import (
     bf_ksp,
+    capacity_loss,
+    exact_fit,
     ff_ksp,
+    flf_ksp,
+    get_action_mask,
     kca_ff,
     kmc_ff,
     kmf_ff,
     ksp_bf,
+    ksp_ef,
     ksp_ff,
+    ksp_flef,
+    ksp_flf,
     ksp_lf,
+    ksp_mscl,
     ksp_mu,
+    mscl_ksp,
     mu_ksp,
 )
 
@@ -14093,6 +14102,462 @@ class KsplfTest(chex.TestCase):
         )
         action = self.variant(ksp_lf, static_argnums=(1,))(self.state, self.params)
         chex.assert_trees_all_close(action, expected)
+
+
+class KspLfFallthroughTest(chex.TestCase):
+    """Regression test: ksp_lf must fall through to the next path when the
+    shortest path has no available slot (last_fit returns -1 for such paths)."""
+
+    def setUp(self):
+        super().setUp()
+        self.key, self.env, self.obs, self.state, self.params = rwa_4node_test_setup()
+
+    @chex.all_variants()
+    def test_ksp_lf_falls_through_to_second_path(self):
+        request_array = jnp.array([0, 1, 1])
+        # Path 0 for 0->1 uses link 0 (full); path 1 uses links 1,2,3 (free)
+        link_slot_array = jnp.array(
+            [
+                [1, 1, 1, 1],
+                [0, 0, 0, 0],
+                [0, 0, 0, 0],
+                [0, 0, 0, 0],
+            ]
+        )
+        self.state = self.state.replace(
+            request_array=request_array, link_slot_array=link_slot_array
+        )
+        action = self.variant(ksp_lf, static_argnums=(1,))(self.state, self.params)
+        # Path 1, last slot: action = 1 * 4 + 3 = 7
+        chex.assert_trees_all_close(action, jnp.array(7))
+
+
+class KspEfTest(chex.TestCase):
+    """4-node RSA setup with 10 slots per link and 3-slot requests.
+    Path 0 for 0->1 uses link 0; path 1 uses links 1,2,3."""
+
+    def setUp(self):
+        super().setUp()
+        self.key, self.env, self.obs, self.state, self.params = rsa_4node_3_slot_request_test_setup(
+            link_resources=10
+        )
+
+    @chex.all_variants()
+    @parameterized.named_parameters(
+        # Empty spectrum: no exact 3-block (one run of 10), fall back to first-fit
+        ("case_empty", jnp.array([0, 3, 1]), jnp.zeros((4, 10)), jnp.array(0)),
+        (
+            # Blocks on link 0: [0-3] (size 4), [5-7] (size 3, exact). Exact-fit
+            # prefers the exact block at 5 over the first-fit slot at 0
+            "case_exact_preferred",
+            jnp.array([0, 3, 1]),
+            jnp.array(
+                [
+                    [0, 0, 0, 0, 1, 0, 0, 0, 1, 1],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                ]
+            ),
+            jnp.array(5),
+        ),
+        (
+            # Blocks on link 0: [0-3] (size 4), [5-8] (size 4). No exact fit,
+            # fall back to first-fit at 0
+            "case_no_exact_fallback_ff",
+            jnp.array([0, 3, 1]),
+            jnp.array(
+                [
+                    [0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                ]
+            ),
+            jnp.array(0),
+        ),
+        (
+            # Path 0 (link 0) full; paths fall through to path 1 (links 1,2,3)
+            # which has an exact 3-block at slot 1: action = 1 * 10 + 1 = 11
+            "case_exact_on_second_path",
+            jnp.array([0, 3, 1]),
+            jnp.array(
+                [
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 0, 0, 0, 1, 0, 0, 0, 0, 0],
+                    [1, 0, 0, 0, 1, 0, 0, 0, 0, 0],
+                    [1, 0, 0, 0, 1, 0, 0, 0, 0, 0],
+                ]
+            ),
+            jnp.array(11),
+        ),
+    )
+    def test_ksp_ef(self, request_array, link_slot_array, expected):
+        self.state = self.state.replace(
+            request_array=request_array, link_slot_array=link_slot_array
+        )
+        action = self.variant(ksp_ef, static_argnums=(1,))(self.state, self.params)
+        chex.assert_trees_all_close(action, expected)
+
+
+class KspFlfTest(chex.TestCase):
+    """4-node RSA setup, 5 slots, request sizes 1 or 3 (threshold = 2)."""
+
+    def setUp(self):
+        super().setUp()
+        self.key, self.env, self.obs, self.state, self.params = rsa_4node_3_slot_request_test_setup(
+            values_bw=[1, 3]
+        )
+
+    @chex.all_variants()
+    @parameterized.named_parameters(
+        # Small request (bw=1 <= threshold): first-fit at 0
+        ("case_small_ff", jnp.array([0, 1, 1]), jnp.zeros((4, 5)), jnp.array(0)),
+        # Large request (bw=3 > threshold): last-fit; valid starts 0,1,2 -> 2
+        ("case_large_lf", jnp.array([0, 3, 1]), jnp.zeros((4, 5)), jnp.array(2)),
+        (
+            # Large request, shortest path full: falls through to path 1 (last-fit)
+            "case_large_lf_second_path",
+            jnp.array([0, 3, 1]),
+            jnp.array(
+                [
+                    [1, 1, 1, 1, 1],
+                    [0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0],
+                ]
+            ),
+            jnp.array(7),
+        ),
+    )
+    def test_ksp_flf(self, request_array, link_slot_array, expected):
+        self.state = self.state.replace(
+            request_array=request_array, link_slot_array=link_slot_array
+        )
+        action = self.variant(ksp_flf, static_argnums=(1,))(self.state, self.params)
+        chex.assert_trees_all_close(action, expected)
+
+    @chex.all_variants()
+    @parameterized.named_parameters(
+        # Small request: globally first slot across paths
+        ("case_small", jnp.array([0, 1, 1]), jnp.zeros((4, 5)), jnp.array(0)),
+        # Large request: globally last slot across paths (both paths free ->
+        # highest last-fit index wins; ties at 2 -> argmax picks path 0)
+        ("case_large", jnp.array([0, 3, 1]), jnp.zeros((4, 5)), jnp.array(2)),
+    )
+    def test_flf_ksp(self, request_array, link_slot_array, expected):
+        self.state = self.state.replace(
+            request_array=request_array, link_slot_array=link_slot_array
+        )
+        action = self.variant(flf_ksp, static_argnums=(1,))(self.state, self.params)
+        chex.assert_trees_all_close(action, expected)
+
+
+class KspFlefTest(chex.TestCase):
+    """4-node RSA setup with 10 slots, request sizes 1 or 3 (threshold = 2)."""
+
+    def setUp(self):
+        super().setUp()
+        self.key, self.env, self.obs, self.state, self.params = rsa_4node_3_slot_request_test_setup(
+            values_bw=[1, 3], link_resources=10
+        )
+
+    @chex.all_variants()
+    @parameterized.named_parameters(
+        (
+            # Small request (1 slot). Blocks on link 0: [0-1] (2), [3] (1, exact),
+            # [5-9] (5). Lowest exact block start = 3 (first-fit would give 0)
+            "case_small_exact",
+            jnp.array([0, 1, 1]),
+            jnp.array(
+                [
+                    [0, 0, 1, 0, 1, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                ]
+            ),
+            jnp.array(3),
+        ),
+        (
+            # Small request, no exact 1-block: fall back to first-fit at 0
+            "case_small_no_exact",
+            jnp.array([0, 1, 1]),
+            jnp.array(
+                [
+                    [0, 0, 1, 0, 0, 1, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                ]
+            ),
+            jnp.array(0),
+        ),
+        (
+            # Large request (3 slots). Blocks on link 0: [0] (1), [2-4] (3, exact),
+            # [6-9] (4). Highest exact block start = 2 (last-fit would give 7)
+            "case_large_exact",
+            jnp.array([0, 3, 1]),
+            jnp.array(
+                [
+                    [0, 1, 0, 0, 0, 1, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                ]
+            ),
+            jnp.array(2),
+        ),
+        (
+            # Large request, no exact 3-block: fall back to last-fit at 7
+            "case_large_no_exact",
+            jnp.array([0, 3, 1]),
+            jnp.array(
+                [
+                    [0, 1, 0, 0, 0, 0, 1, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                ]
+            ),
+            jnp.array(7),
+        ),
+    )
+    def test_ksp_flef(self, request_array, link_slot_array, expected):
+        self.state = self.state.replace(
+            request_array=request_array, link_slot_array=link_slot_array
+        )
+        action = self.variant(ksp_flef, static_argnums=(1,))(self.state, self.params)
+        chex.assert_trees_all_close(action, expected)
+
+
+class MsclTest(chex.TestCase):
+    """Fixed-case tests for the MSCL heuristics on the 4-node RSA setup
+    (5 slots, 3-slot requests; path 0 for 0->1 uses link 0, path 1 uses links 1,2,3)."""
+
+    def setUp(self):
+        super().setUp()
+        self.key, self.env, self.obs, self.state, self.params = (
+            rsa_4node_3_slot_request_test_setup()
+        )
+
+    @chex.all_variants()
+    @parameterized.named_parameters(
+        # Empty spectrum: edge placements (slots 0 and 2) tie at minimum loss on
+        # the shortest path; ties break to the lowest slot
+        ("case_empty", jnp.array([0, 3, 1]), jnp.zeros((4, 5)), jnp.array(0)),
+        (
+            # Only slot 1 fits on path 0 (run of exactly 3 at slots 1-3)
+            "case_single_option",
+            jnp.array([0, 3, 1]),
+            jnp.array(
+                [
+                    [1, 0, 0, 0, 1],
+                    [0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0],
+                ]
+            ),
+            jnp.array(1),
+        ),
+        (
+            # Path 0 full: fall through to path 1 (both heuristics)
+            "case_second_path",
+            jnp.array([0, 3, 1]),
+            jnp.array(
+                [
+                    [1, 1, 1, 1, 1],
+                    [0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0],
+                ]
+            ),
+            jnp.array(5),
+        ),
+    )
+    def test_ksp_mscl(self, request_array, link_slot_array, expected):
+        self.state = self.state.replace(
+            request_array=request_array, link_slot_array=link_slot_array
+        )
+        action = self.variant(ksp_mscl, static_argnums=(1,))(self.state, self.params)
+        chex.assert_trees_all_close(action, expected)
+
+    @chex.all_variants()
+    @parameterized.named_parameters(
+        ("case_empty", jnp.array([0, 3, 1]), jnp.zeros((4, 5)), jnp.array(0)),
+        (
+            "case_second_path",
+            jnp.array([0, 3, 1]),
+            jnp.array(
+                [
+                    [1, 1, 1, 1, 1],
+                    [0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0],
+                ]
+            ),
+            jnp.array(5),
+        ),
+    )
+    def test_mscl_ksp(self, request_array, link_slot_array, expected):
+        self.state = self.state.replace(
+            request_array=request_array, link_slot_array=link_slot_array
+        )
+        action = self.variant(mscl_ksp, static_argnums=(1,))(self.state, self.params)
+        chex.assert_trees_all_close(action, expected)
+
+
+def _bruteforce_capacity_loss(state, params):
+    """Reference implementation of the MSCL capacity loss: recompute the number of
+    feasible contiguous placements before/after each candidate assignment by direct
+    counting over updated spectrum states."""
+    import numpy as np
+
+    from xlron.environments.env_funcs import get_paths, read_rsa_request
+
+    from xlron.heuristics.heuristics import get_request_num_slots
+
+    k = params.k_paths
+    num_slots_arr = np.asarray(get_request_num_slots(state, params))
+    mask = np.asarray(get_action_mask(state, params))
+    S = params.link_resources
+    lsa_occ = np.asarray(state.link_slot_array) != 0
+    path_link_array = np.asarray(params.path_link_array.val)
+    shortest = path_link_array[::k]
+    nodes_sd, _ = read_rsa_request(state.request_array)
+    cand_paths = np.asarray(get_paths(params, nodes_sd))
+
+    values_bw = np.asarray(params.values_bw.val)
+    min_se = (
+        float(np.min(np.asarray(params.path_se_array.val)))
+        if params.consider_modulation_format
+        else 1.0
+    )
+    w_cap = int(np.ceil(float(np.max(values_bw)) / (min_se * float(params.slot_size))))
+    w_cap = max(w_cap + int(params.guardband), 1)
+
+    def path_free(route):
+        used_links = lsa_occ[route > 0]
+        occ = used_links.any(axis=0) if used_links.shape[0] else np.zeros(S, bool)
+        return ~occ
+
+    def capacity(free):
+        # sum over w in 1..w_cap of (number of positions starting a free run >= w)
+        run_len = np.zeros(S, int)
+        run = 0
+        for i in reversed(range(S)):
+            run = run + 1 if free[i] else 0
+            run_len[i] = run
+        return int(np.minimum(run_len, w_cap).sum())
+
+    loss = np.full((k, S), np.inf)
+    for r in range(k):
+        routes = [
+            shortest[p] for p in range(shortest.shape[0]) if (shortest[p] * cand_paths[r]).sum() > 0
+        ]
+        if r != 0:
+            routes.append(cand_paths[r])
+        for s in range(S):
+            if mask[r, s] == 0:
+                continue
+            e = min(s + int(num_slots_arr[r]), S)
+            block = np.zeros(S, bool)
+            block[s:e] = True
+            total = 0
+            for route in routes:
+                free_before = path_free(route)
+                free_after = free_before & ~block
+                total += capacity(free_before) - capacity(free_after)
+            loss[r, s] = total
+    return loss
+
+
+class CapacityLossBruteforceTest(chex.TestCase):
+    """Property test: the closed-form capacity_loss must match a direct
+    before/after recount of feasible placements on random spectrum states."""
+
+    def _run_comparison(self, setup_fn, request_array, seed, occupancy=0.4, **setup_kwargs):
+        import numpy as np
+
+        key, env, obs, state, params = setup_fn(**setup_kwargs)
+        rng = np.random.default_rng(seed)
+        lsa = (rng.random((params.num_links, params.link_resources)) < occupancy).astype(np.float32)
+        # Use negative values for some occupied slots (active services are stored
+        # as negative in continuous operation)
+        signs = rng.choice([-1.0, 1.0], size=lsa.shape)
+        state = state.replace(
+            request_array=jnp.array(request_array),
+            link_slot_array=jnp.array(lsa * signs),
+        )
+        expected = _bruteforce_capacity_loss(state, params)
+        actual, _ = capacity_loss(state, params)
+        chex.assert_trees_all_close(jnp.array(expected), actual)
+
+    def test_4node(self):
+        for seed in range(5):
+            self._run_comparison(
+                rsa_4node_3_slot_request_test_setup, [0, 3, 1], seed, link_resources=10
+            )
+
+    def test_4node_other_pair(self):
+        for seed in range(5):
+            self._run_comparison(
+                rsa_4node_3_slot_request_test_setup, [1, 3, 3], seed, link_resources=10
+            )
+
+    def test_nsfnet(self):
+        for seed in range(3):
+            self._run_comparison(rsa_nsfnet_16_test_setup, [0, 3, 7], seed)
+
+    def test_nsfnet_modulation(self):
+        for seed in range(3):
+            self._run_comparison(rsa_nsfnet_16_mod_test_setup, [0, 100, 7], seed)
+
+
+class ExactFitBruteforceTest(chex.TestCase):
+    """Property test: exact_fit must locate exactly-sized free blocks."""
+
+    def test_random_states(self):
+        import numpy as np
+
+        from xlron.environments.env_funcs import get_paths, read_rsa_request
+
+        from xlron.heuristics.heuristics import get_request_num_slots
+
+        key, env, obs, state, params = rsa_4node_3_slot_request_test_setup(link_resources=10)
+        for seed in range(10):
+            rng = np.random.default_rng(seed)
+            lsa = (rng.random((params.num_links, params.link_resources)) < 0.4).astype(np.float32)
+            state = state.replace(
+                request_array=jnp.array([0, 3, 1]), link_slot_array=jnp.array(lsa)
+            )
+            first_exact, last_exact, mask = exact_fit(state, params)
+            num_slots_arr = np.asarray(get_request_num_slots(state, params))
+            nodes_sd, _ = read_rsa_request(state.request_array)
+            cand_paths = np.asarray(get_paths(params, nodes_sd))
+            lsa_occ = np.asarray(state.link_slot_array) != 0
+            S = params.link_resources
+            for r in range(params.k_paths):
+                used_links = lsa_occ[cand_paths[r] > 0]
+                occ = used_links.any(axis=0)
+                free = ~occ
+                # Find maximal free blocks of exactly the required size
+                exact_starts = []
+                i = 0
+                while i < S:
+                    if free[i]:
+                        j = i
+                        while j < S and free[j]:
+                            j += 1
+                        if j - i == num_slots_arr[r] and np.asarray(mask)[r, i] == 1:
+                            exact_starts.append(i)
+                        i = j
+                    else:
+                        i += 1
+                expected_first = exact_starts[0] if exact_starts else S
+                expected_last = exact_starts[-1] if exact_starts else S
+                self.assertEqual(int(first_exact[r]), expected_first, f"seed={seed} r={r}")
+                self.assertEqual(int(last_exact[r]), expected_last, f"seed={seed} r={r}")
 
 
 if __name__ == "__main__":

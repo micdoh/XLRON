@@ -3,6 +3,7 @@ from typing import Tuple
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 from jax import Array
 
 from typing import cast
@@ -82,11 +83,170 @@ def ksp_lf(state: RSAEnvState, params: RSAEnvParams) -> Array:
         Array: Action
     """
     last_slots = last_fit(state, params)
-    # Chosen path is the first one with an available slot
-    path_index = jnp.argmax(last_slots < params.link_resources)
+    # Chosen path is the first one with an available slot (last_fit returns -1 if none,
+    # or link_resources in the band-ordered GN-model branch)
+    path_index = jnp.argmax((last_slots >= 0) & (last_slots < params.link_resources))
     slot_index = last_slots[path_index] % params.link_resources
     # Convert indices to action
     action = path_index * params.link_resources + slot_index
+    return action
+
+
+@partial(jax.jit, static_argnums=(1,))
+def ksp_ef(state: RSAEnvState, params: RSAEnvParams) -> Array:
+    """K-Shortest Path, Exact-Fit. Only suitable for RSA/RMSA.
+    On the shortest available path, allocate the first free block whose size exactly
+    matches the required slots; if no exact-fit block exists, fall back to first-fit.
+    Exact-fit consumes blocks whole, avoiding the creation of small unusable fragments.
+    Reference: Chatterjee, Sarma & Oki, "Routing and spectrum allocation in elastic
+    optical networks: A tutorial", IEEE Comms. Surveys & Tutorials 17(3), 2015.
+
+    Args:
+        state (EnvState): Environment state
+        params (EnvParams): Environment parameters
+
+    Returns:
+        Array: Action
+    """
+    first_exact, _, _ = exact_fit(state, params)
+    first_slots = first_fit(state, params)
+    # Chosen path is the first one with an available slot (as in ksp_ff)
+    path_index = jnp.argmax(first_slots < params.link_resources)
+    slot_index = jnp.where(
+        first_exact[path_index] < params.link_resources,
+        first_exact[path_index],
+        first_slots[path_index] % params.link_resources,
+    )
+    action = path_index * params.link_resources + slot_index
+    return action
+
+
+@partial(jax.jit, static_argnums=(1,))
+def ksp_flf(state: RSAEnvState, params: RSAEnvParams) -> Array:
+    """K-Shortest Path, First-Last-Fit.
+    On the shortest available path, allocate small requests first-fit (from the low
+    end of the spectrum) and large requests last-fit (from the high end). Requests
+    are "large" if their datarate exceeds the midpoint of the requestable range.
+    Segregating request sizes to opposite spectrum ends reduces the size-mismatch
+    fragmentation that a single first-fit pointer creates.
+    Reference: Fadini & Oki, "A subcarrier-slot partition scheme for wavelength
+    assignment in elastic optical networks", IEEE ICC 2014; Chatterjee, Sarma & Oki,
+    IEEE Comms. Surveys & Tutorials 17(3), 2015.
+
+    Args:
+        state (EnvState): Environment state
+        params (EnvParams): Environment parameters
+
+    Returns:
+        Array: Action
+    """
+    is_large = is_large_request(state, params)
+    ff_action = ksp_ff(state, params)
+    lf_action = ksp_lf(state, params)
+    return jnp.where(is_large, lf_action, ff_action)
+
+
+@partial(jax.jit, static_argnums=(1,))
+def flf_ksp(state: RSAEnvState, params: RSAEnvParams) -> Array:
+    """First-Last-Fit across K-Shortest Paths.
+    Small requests take the globally first available slot across all paths (ff_ksp);
+    large requests take the globally last available slot across all paths (lf_ksp).
+    See ksp_flf for the partitioning rationale and references.
+
+    Args:
+        state (EnvState): Environment state
+        params (EnvParams): Environment parameters
+
+    Returns:
+        Array: Action
+    """
+    is_large = is_large_request(state, params)
+    ff_action = ff_ksp(state, params)
+    lf_action = lf_ksp(state, params)
+    return jnp.where(is_large, lf_action, ff_action)
+
+
+@partial(jax.jit, static_argnums=(1,))
+def ksp_flef(state: RSAEnvState, params: RSAEnvParams) -> Array:
+    """K-Shortest Path, First-Last-Exact-Fit. Only suitable for RSA/RMSA.
+    On the shortest available path: small requests take the lowest exactly-fitting
+    free block, falling back to first-fit; large requests take the highest
+    exactly-fitting free block, falling back to last-fit. Combines the size-class
+    segregation of first-last-fit with exact-fit's fragment avoidance.
+    Reference: Chatterjee, Fadini & Oki, "A spectrum allocation scheme based on
+    first-last-exact fit policy for elastic optical networks", JNCA 68, 2016.
+
+    Args:
+        state (EnvState): Environment state
+        params (EnvParams): Environment parameters
+
+    Returns:
+        Array: Action
+    """
+    is_large = is_large_request(state, params)
+    first_exact, last_exact, _ = exact_fit(state, params)
+    first_slots = first_fit(state, params)
+    last_slots = last_fit(state, params)
+    # Chosen path is the first one with an available slot (as in ksp_ff)
+    path_index = jnp.argmax(first_slots < params.link_resources)
+    small_slot = jnp.where(
+        first_exact[path_index] < params.link_resources,
+        first_exact[path_index],
+        first_slots[path_index] % params.link_resources,
+    )
+    large_slot = jnp.where(
+        last_exact[path_index] < params.link_resources,
+        last_exact[path_index],
+        last_slots[path_index] % params.link_resources,
+    )
+    slot_index = jnp.where(is_large, large_slot, small_slot)
+    action = path_index * params.link_resources + slot_index
+    return action
+
+
+@partial(jax.jit, static_argnums=(1,))
+def ksp_mscl(state: RSAEnvState, params: RSAEnvParams) -> Array:
+    """K-Shortest Path, Minimum Slot-continuity Capacity Loss. Only suitable for RSA/RMSA.
+    On the shortest available path, allocate the slot block that minimises the loss
+    of contiguous-slot allocation capacity summed over the candidate path and all
+    interfering routes (routes sharing a link), for every future demand size.
+    Reference: Almeida Jr. et al., "Slot assignment strategy to reduce loss of
+    capacity of contiguous-slot path requests in flexible grid optical networks",
+    Electronics Letters 49(5), 2013.
+
+    Args:
+        state (EnvState): Environment state
+        params (EnvParams): Environment parameters
+
+    Returns:
+        Array: Action
+    """
+    loss, mask = capacity_loss(state, params)
+    # Chosen path is the first one with an available slot
+    available_paths = jnp.max(mask, axis=1)
+    path_index = jnp.argmax(available_paths)
+    slot_index = jnp.argmin(loss[path_index])
+    action = path_index * params.link_resources + slot_index
+    return action
+
+
+@partial(jax.jit, static_argnums=(1,))
+def mscl_ksp(state: RSAEnvState, params: RSAEnvParams) -> Array:
+    """Minimum Slot-continuity Capacity Loss across K-Shortest Paths.
+    Jointly select the (path, slot) pair minimising the capacity loss over the
+    candidate path and all interfering routes. Ties break to the shortest path and
+    lowest slot index. See ksp_mscl for the metric definition and reference.
+
+    Args:
+        state (EnvState): Environment state
+        params (EnvParams): Environment parameters
+
+    Returns:
+        Array: Action
+    """
+    loss, _ = capacity_loss(state, params)
+    # argmin over path-major flattened array ties-breaks to shortest path, lowest slot
+    action = jnp.argmin(loss.reshape(-1))
     return action
 
 
@@ -125,6 +285,8 @@ def lf_ksp(state: EnvState, params: RSAEnvParams) -> Array:
     """
     last_slots = last_fit(state, params)
     # Chosen path is the one with the highest index of last available slot
+    # (treat the band-ordered GN-model no-slot sentinel of link_resources as invalid)
+    last_slots = jnp.where(last_slots < params.link_resources, last_slots, -1)
     path_index = jnp.argmax(last_slots)
     slot_index = last_slots[path_index] % params.link_resources
     # Convert indices to action
@@ -600,6 +762,192 @@ def last_fit(state: EnvState, params: RSAEnvParams) -> Array:
         last_slots = jnp.argmax(mask[:, ::-1], axis=1)
         last_slots = params.link_resources - last_slots - 1
     return last_slots
+
+
+def is_large_request(state: EnvState, params: RSAEnvParams) -> Array:
+    """Classify the current request as large (True) or small (False) by comparing its
+    datarate to the midpoint of the requestable datarate range. Used by the
+    first-last-fit family to segregate request size classes at opposite spectrum ends."""
+    _, requested_bw = read_rsa_request(state.request_array)
+    threshold = (jnp.min(params.values_bw.val) + jnp.max(params.values_bw.val)) / 2
+    return requested_bw > threshold
+
+
+def get_request_num_slots(state: EnvState, params: RSAEnvParams) -> Array:
+    """Required slots (incl. guardband) for the current request on each of the k paths."""
+    nodes_sd, requested_bw = read_rsa_request(state.request_array)
+    se = (
+        get_paths_se(params, nodes_sd)
+        if params.consider_modulation_format
+        else jnp.ones((params.k_paths,))
+    )
+    num_slots = jax.vmap(required_slots, in_axes=(None, 0, None, None))(
+        requested_bw, se, params.slot_size, params.guardband
+    )
+    return num_slots.astype(jnp.int32)
+
+
+def get_path_free_arrays(link_slot_array: Array, path_links: Array) -> Array:
+    """Aggregate slot occupancy over the links of each path.
+
+    Args:
+        link_slot_array: (num_links, num_slots) array; nonzero = occupied
+        path_links: (num_paths, num_links) binary path-link incidence
+
+    Returns:
+        Array: bool (num_paths, num_slots); True where the slot is free on every link
+    """
+    occupied = jnp.where(link_slot_array != 0, 1.0, 0.0)
+    path_occ = jnp.dot(path_links.astype(jnp.float32), occupied)
+    return path_occ == 0
+
+
+def get_run_lengths_and_bounds(free: Array) -> Tuple[Array, Array, Array]:
+    """For each slot position, the length of the free run starting there and the
+    [start, end) bounds of the free run containing it.
+
+    Args:
+        free: bool (..., num_slots)
+
+    Returns:
+        Tuple: (run_len, run_start, run_end), each (..., num_slots) int32.
+        For occupied positions run_len = 0 and run_start = run_end = position.
+    """
+    num_slots = free.shape[-1]
+    axis = free.ndim - 1  # associative_scan(reverse=True) requires a non-negative axis
+    idx = jnp.arange(num_slots, dtype=jnp.int32)
+    prev_occ = jax.lax.associative_scan(jnp.maximum, jnp.where(free, -1, idx), axis=axis)
+    next_occ = jax.lax.associative_scan(
+        jnp.minimum, jnp.where(free, num_slots, idx), axis=axis, reverse=True
+    )
+    run_start = jnp.where(free, prev_occ + 1, idx)
+    run_end = jnp.where(free, next_occ, idx)
+    run_len = jnp.where(free, next_occ - idx, 0)
+    return run_len, run_start, run_end
+
+
+def exact_fit(state: EnvState, params: RSAEnvParams) -> Tuple[Array, Array, Array]:
+    """Exact-Fit Spectrum Allocation. For each path, find free blocks whose size
+    exactly equals the required slots for the request.
+
+    Returns:
+        Tuple: (first_exact, last_exact, mask). first_exact/last_exact hold the
+        lowest/highest exactly-fitting block start per path, or link_resources if
+        no exact fit exists on that path.
+    """
+    mask = get_action_mask(state, params)
+    nodes_sd, _ = read_rsa_request(state.request_array)
+    num_slots = get_request_num_slots(state, params)
+    paths = get_paths(params, nodes_sd)
+    free = get_path_free_arrays(state.link_slot_array, paths)
+    run_len, run_start, _ = get_run_lengths_and_bounds(free)
+    slot_indices = jnp.arange(params.link_resources, dtype=jnp.int32)
+    is_block_start = free & (run_start == slot_indices[None, :])
+    exact = is_block_start & (run_len == num_slots[:, None]) & (mask == 1)
+    # First exact-fit block start per path (link_resources if none)
+    exact_pad = jnp.concatenate((exact, jnp.full((exact.shape[0], 1), True)), axis=1)
+    first_exact = jnp.argmax(exact_pad, axis=1).astype(jnp.int32)
+    # Last exact-fit block start per path (link_resources if none)
+    last_exact = jnp.where(
+        jnp.any(exact, axis=1),
+        params.link_resources - jnp.argmax(exact[:, ::-1], axis=1) - 1,
+        params.link_resources,
+    ).astype(jnp.int32)
+    return first_exact, last_exact, mask
+
+
+def capacity_loss(state: EnvState, params: RSAEnvParams) -> Tuple[Array, Array]:
+    """Slot-continuity capacity loss of every candidate (path, slot) assignment.
+
+    For each candidate route r and starting slot s, the loss is the reduction in the
+    number of feasible contiguous-slot placements, summed over all future demand
+    sizes w in {1..W} and over the affected routes: the candidate route itself plus
+    the shortest route of every node pair that shares a link with it (the
+    single-route-per-pair interfering set of the original MSCL formulation;
+    Almeida Jr. et al., Electronics Letters 49(5), 2013).
+
+    The loss is computed in closed form from run-length prefix sums, so the whole
+    (k_paths, link_resources) candidate matrix is evaluated without materialising
+    updated spectrum states.
+
+    Returns:
+        Tuple: (loss, mask). loss is (k_paths, link_resources) float32 with jnp.inf
+        at invalid actions; mask is the (k_paths, link_resources) action mask.
+    """
+    mask = get_action_mask(state, params)
+    nodes_sd, _ = read_rsa_request(state.request_array)
+    num_slots = get_request_num_slots(state, params)
+    num_resources = params.link_resources
+
+    # Maximum future demand size (in slots, incl. guardband) to account capacity for.
+    # params fields are static under jit so this is computed at trace time.
+    values_bw = np.asarray(params.values_bw.val)
+    min_se = (
+        float(np.min(np.asarray(params.path_se_array.val)))
+        if params.consider_modulation_format
+        else 1.0
+    )
+    w_cap = int(np.ceil(float(np.max(values_bw)) / (min_se * float(params.slot_size))))
+    w_cap = max(w_cap + int(params.guardband), 1)
+
+    # Interfering route set: the shortest path of every node pair (rows of the
+    # path-link array are pair-major with k consecutive rows per pair)
+    path_link_array = params.path_link_array.val
+    if params.pack_path_bits:
+        path_link_array = jnp.unpackbits(path_link_array, axis=1)[:, : params.num_links]
+    shortest_paths = jnp.asarray(path_link_array[:: params.k_paths], dtype=jnp.float32)
+    cand_paths = jnp.asarray(get_paths(params, nodes_sd), dtype=jnp.float32)
+
+    def prep(paths):
+        free = get_path_free_arrays(state.link_slot_array, paths)
+        run_len, run_start, run_end = get_run_lengths_and_bounds(free)
+        # Capacity contribution of each start position, capped at the max demand size
+        capped = jnp.minimum(run_len, w_cap)
+        cum_cap = jnp.concatenate(
+            (jnp.zeros((capped.shape[0], 1), dtype=jnp.int32), jnp.cumsum(capped, axis=-1)),
+            axis=-1,
+        )
+        return run_start, run_end, cum_cap
+
+    slot_indices = jnp.arange(num_resources, dtype=jnp.int32)
+    # Block end (exclusive) of each candidate assignment; clipped for safe gathering
+    # (assignments that overrun the spectrum are already invalid in the mask)
+    ends = jnp.minimum(slot_indices[None, :] + num_slots[:, None], num_resources)
+
+    def sum_min(d, offset):
+        # sum_{i=1..d} min(i + offset, w_cap), for the left-of-block truncation term
+        t = jnp.clip(w_cap - offset, 0, d)
+        return t * offset + t * (t + 1) // 2 + (d - t) * w_cap
+
+    def truncation_loss(run_start, run_end):
+        # Capacity lost by positions left of the assignment whose free run is cut at s
+        d = slot_indices[None, :] - run_start
+        gap = run_end - slot_indices[None, :]
+        return sum_min(d, gap) - sum_min(d, 0)
+
+    short_start, short_end, short_cum = prep(shortest_paths)
+    cand_start, cand_end, cand_cum = prep(cand_paths)
+
+    # Loss on interfering (shortest-per-pair) routes: truncation left of s plus the
+    # capacity of positions inside [s, e) that become occupied
+    short_trunc = truncation_loss(short_start, short_end)  # (num_pairs, S)
+    short_inside = short_cum[:, ends] - short_cum[:, :num_resources][:, None, :]  # (P, k, S)
+    short_delta = short_trunc[:, None, :] + short_inside
+
+    # Same loss terms on the candidate route itself
+    cand_trunc = truncation_loss(cand_start, cand_end)  # (k, S)
+    cand_inside = jnp.take_along_axis(cand_cum, ends, axis=1) - cand_cum[:, :num_resources]
+    cand_delta = cand_trunc + cand_inside
+
+    # Sum over interfering routes (those sharing >= 1 link with the candidate route)
+    shares = (jnp.dot(cand_paths, shortest_paths.T) > 0).astype(jnp.float32)
+    loss = jnp.einsum("kp,pks->ks", shares, short_delta.astype(jnp.float32))
+    # The candidate route is already in the interfering set iff it is its pair's
+    # shortest path (k index 0); otherwise add its own loss explicitly
+    not_shortest = (jnp.arange(params.k_paths) != 0).astype(jnp.float32)[:, None]
+    loss = loss + cand_delta.astype(jnp.float32) * not_shortest
+    loss = jnp.where(mask == 0, jnp.inf, loss)
+    return loss, mask
 
 
 @partial(jax.jit, static_argnums=(1, 2, 3))
