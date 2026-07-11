@@ -206,13 +206,21 @@ def ksp_flef(state: RSAEnvState, params: RSAEnvParams) -> Array:
 
 @partial(jax.jit, static_argnums=(1,))
 def ksp_mscl(state: RSAEnvState, params: RSAEnvParams) -> Array:
-    """K-Shortest Path, Minimum Slot-continuity Capacity Loss. Only suitable for RSA/RMSA.
-    On the shortest available path, allocate the slot block that minimises the loss
-    of contiguous-slot allocation capacity summed over the candidate path and all
-    interfering routes (routes sharing a link), for every future demand size.
-    Reference: Almeida Jr. et al., "Slot assignment strategy to reduce loss of
-    capacity of contiguous-slot path requests in flexible grid optical networks",
-    Electronics Letters 49(5), 2013.
+    """K-Shortest Path, Minimum Slot-continuity Capacity Loss (MSCL).
+    Only suitable for RSA/RMSA.
+
+    Path selection follows KSP order (first candidate path with any valid slot,
+    exactly as in ksp_ff); the slot on that path is then chosen to minimise the
+    slot-continuity capacity loss. In short: every placement destroys some of the
+    network's remaining ability to host future contiguous-slot requests - on the
+    chosen route and on every route sharing a link with it. MSCL evaluates that
+    destruction exactly, one step ahead, for every candidate slot, and picks the
+    placement that destroys least. See capacity_loss for the metric definition,
+    the closed-form computation, and full references.
+
+    Reference: R. C. Almeida Jr. et al., "Slot assignment strategy to reduce loss
+    of capacity of contiguous-slot path requests in flexible grid optical
+    networks", Electronics Letters 49(5), 2013, doi:10.1049/el.2012.4247.
 
     Args:
         state (EnvState): Environment state
@@ -232,10 +240,15 @@ def ksp_mscl(state: RSAEnvState, params: RSAEnvParams) -> Array:
 
 @partial(jax.jit, static_argnums=(1,))
 def mscl_ksp(state: RSAEnvState, params: RSAEnvParams) -> Array:
-    """Minimum Slot-continuity Capacity Loss across K-Shortest Paths.
-    Jointly select the (path, slot) pair minimising the capacity loss over the
-    candidate path and all interfering routes. Ties break to the shortest path and
-    lowest slot index. See ksp_mscl for the metric definition and reference.
+    """Minimum Slot-continuity Capacity Loss (MSCL) across K-Shortest Paths.
+    Only suitable for RSA/RMSA.
+
+    Jointly selects the (path, slot) pair minimising the slot-continuity capacity
+    loss over all k candidate paths and all slots - i.e. routing and spectrum
+    assignment are decided together by the same one-step-lookahead metric, rather
+    than fixing the path first as ksp_mscl does. Ties break to the shortest path,
+    then the lowest slot index. See capacity_loss for the metric definition, the
+    closed-form computation, and full references.
 
     Args:
         state (EnvState): Environment state
@@ -857,18 +870,77 @@ def exact_fit(state: EnvState, params: RSAEnvParams) -> Tuple[Array, Array, Arra
 
 
 def capacity_loss(state: EnvState, params: RSAEnvParams) -> Tuple[Array, Array]:
-    """Slot-continuity capacity loss of every candidate (path, slot) assignment.
+    """Slot-continuity capacity loss (the MSCL metric) of every candidate
+    (path, slot) assignment for the current request.
 
-    For each candidate route r and starting slot s, the loss is the reduction in the
-    number of feasible contiguous-slot placements, summed over all future demand
-    sizes w in {1..W} and over the affected routes: the candidate route itself plus
-    the shortest route of every node pair that shares a link with it (the
-    single-route-per-pair interfering set of the original MSCL formulation;
-    Almeida Jr. et al., Electronics Letters 49(5), 2013).
+    Capacity
+        A future request needing w contiguous slots fits on path p at starting
+        position i iff slots i..i+w-1 are free on every link of p. Writing
+        run_p[i] for the length of the contiguous free run starting at slot i of
+        p's link-aggregated spectrum (0 if slot i is occupied on any link), the
+        number of feasible placements for size w is N_p(w) = #{i : run_p[i] >= w},
+        and the slot-continuity capacity of p is the total over all demand sizes:
 
-    The loss is computed in closed form from run-length prefix sums, so the whole
-    (k_paths, link_resources) candidate matrix is evaluated without materialising
-    updated spectrum states.
+            C_p = sum_{w=1..W} N_p(w) = sum_i min(run_p[i], W)
+
+        W is the largest possible request in slots (from the max datarate, the
+        lowest spectral efficiency and the slot size, plus guardband); demand
+        sizes are weighted uniformly, as in the original formulation.
+
+    Loss
+        Serving the current request on route r from slot s occupies slots
+        [s, e) on every link of r (e = s + required slots incl. guardband). That
+        reduces C_q for r itself and for every route q sharing >= 1 link with r;
+        spectrum elsewhere is untouched. The MSCL loss of candidate (r, s) is
+
+            loss(r, s) = sum_{q affected} [ C_q before - C_q after ]
+
+        and the MSCL heuristics choose the candidate minimising it: a one-step
+        lookahead that consumes dead-end fragments and spares large aligned voids
+        on heavily-shared links, rather than packing blindly like first-fit.
+
+    Closed form
+        Instead of materialising the updated spectrum for each of the k x S
+        candidates, the per-route loss decomposes exactly into two terms computed
+        from run-length arrays and a single prefix sum:
+
+        - inside the block: each free position i in [s, e) drops from
+          min(run[i], W) to 0; summed as a difference of the prefix sum of
+          min(run, W) at e and s.
+        - left of the block: positions i in the free run containing s (run start
+          a, run end b) are truncated from run length b - i to s - i, losing
+          min(b - i, W) - min(s - i, W); summing over d = s - i = 1..D with
+          D = s - a and gap g = b - s gives sum_min(D, g) - sum_min(D, 0), where
+          sum_min(D, off) = sum_{d=1..D} min(d + off, W) has the closed form
+          t*off + t(t+1)/2 + (D-t)*W with t = clip(W - off, 0, D).
+
+        Positions at or beyond e keep their runs (a free run starting there
+        cannot reach back across the newly occupied block), and runs not touching
+        [s, e) are unaffected. If s is already occupied for a route then a = b = s
+        and both terms vanish for it, which is exactly right. This closed form is
+        verified against a brute-force before/after recount in
+        heuristics_test.py::CapacityLossBruteforceTest.
+
+    Interfering route set
+        The affected routes are the shortest path of every node pair that shares
+        a link with the candidate route (the single-route-per-pair route set of
+        the original 2013 formulation), plus the candidate route itself - counted
+        once, since when the candidate is its pair's k=0 path it already is that
+        pair's shortest. Multi-route interfering sets (every stored path of every
+        pair) are a published extension (Santos et al., SBrT 2021) and would cost
+        k times more here.
+
+    References
+        R. C. Almeida Jr., A. F. dos Santos, K. D. R. Assis, H. Waldman &
+        J. F. Martins-Filho, "Slot assignment strategy to reduce loss of capacity
+        of contiguous-slot path requests in flexible grid optical networks",
+        Electronics Letters 49(5), pp. 358-360, 2013. doi:10.1049/el.2012.4247
+        X. Zhang & C. Qiao, "Wavelength assignment for dynamic traffic in
+        multi-fiber WDM networks", ICCCN 1998 - the relative-capacity-loss RWA
+        metric that MSCL generalises to contiguous-spectrum RSA/RMSA.
+        M. L. Santos, R. C. Almeida Jr. & D. R. B. Araujo, "Multi-route spectrum
+        assignment by slot-continuity capacity loss in elastic optical networks",
+        SBrT 2021 - multi-route interfering sets.
 
     Returns:
         Tuple: (loss, mask). loss is (k_paths, link_resources) float32 with jnp.inf
