@@ -1,3 +1,4 @@
+import difflib
 import hashlib
 import itertools
 import json
@@ -7,7 +8,7 @@ import pathlib
 from collections import defaultdict
 from functools import partial
 from itertools import combinations, islice
-from typing import Dict, List, Sequence, Tuple, TypeVar, Union, cast
+from typing import Dict, List, Tuple, TypeVar, Union, cast
 from concurrent.futures import ProcessPoolExecutor
 
 import box
@@ -17,8 +18,7 @@ import jax.numpy as jnp
 import jraph
 import networkx as nx
 import numpy as np
-from jax._src import core, dtypes, prng
-from jax._src.typing import Array, ArrayLike, DTypeLike
+from jax import Array
 from scipy.constants import c, h
 
 from xlron import dtype_config
@@ -51,7 +51,6 @@ from xlron.environments.diff_utils import (
 from xlron.environments.gn_model import isrs_gn_model, isrs_gn_model_dra
 from xlron.environments.gn_model.isrs_gn_model import from_db
 
-Shape = Sequence[int]
 T = TypeVar("T")  # Declare type variable
 
 one = jnp.array(1.0, dtype=dtype_config.SMALL_INT_DTYPE)
@@ -1457,49 +1456,6 @@ def get_path_and_se(params: EnvParams, nodes: Array, k_path_index: int) -> Tuple
     return path, se
 
 
-@partial(jax.jit, static_argnums=(1, 2, 3))
-def poisson(
-    key: Union[Array, prng.PRNGKeyArray],
-    lam: ArrayLike,
-    shape: Shape = (),
-    dtype: DTypeLike = dtypes.float_,
-) -> Array:
-    r"""Sample Exponential random values with given shape and float dtype.
-
-    The values are distributed according to the probability density function:
-
-    .. math::
-     f(x) = \lambda e^{-\lambda x}
-
-    on the domain :math:`0 \le x < \infty`.
-
-    Args:
-    key: a PRNG key used as the random key.
-    lam: a positive float32 or float64 `Tensor` indicating the rate parameter
-    shape: optional, a tuple of nonnegative integers representing the result
-      shape. Default ().
-    dtype: optional, a float dtype for the returned values (default float64 if
-      jax_enable_x64 is true, otherwise float32).
-
-    Returns:
-    A random array with the specified shape and dtype.
-    """
-    key, _ = jax._src.random._check_prng_key(key)
-    if not dtypes.issubdtype(dtype, np.floating):
-        raise ValueError(f"dtype argument to `exponential` must be a float dtype, got {dtype}")
-    dtype = dtypes.canonicalize_dtype(dtype)
-    shape = core.canonicalize_shape(shape)
-    return _poisson(key, lam, shape, dtype)
-
-
-@partial(jax.jit, static_argnums=(1, 2, 3))
-def _poisson(key, lam, shape, dtype) -> Array:
-    jax._src.random._check_shape("exponential", shape)
-    u = jax.random.uniform(key, shape, dtype)
-    # taking 1 - u to move the domain of log to (0, 1] instead of [0, 1)
-    return jax.lax.div(jax.lax.neg(jax.lax.log1p(jax.lax.neg(u))), lam)
-
-
 # TODO - consider just making a differentiable version of this whole function
 @partial(jax.jit, static_argnums=(1,))
 def generate_arrival_holding_times(key, params, arrival_rate, mean_service_holding_time):
@@ -1535,8 +1491,10 @@ def generate_arrival_holding_times(key, params, arrival_rate, mean_service_holdi
         # For DeepRMSA, need to generate holding times that are less than 2*mean_service_holding_time
         key_holding = jax.random.split(key, 5)
         holding_times = jax.vmap(
-            lambda x: jax.random.exponential(x, shape=(1,), dtype=dtype_config.TIME_DTYPE)
-            * mean_service_holding_time
+            lambda x: (
+                jax.random.exponential(x, shape=(1,), dtype=dtype_config.TIME_DTYPE)
+                * mean_service_holding_time
+            )
         )(key_holding).reshape(-1)
         holding_times = jnp.where(
             holding_times < 2 * mean_service_holding_time, holding_times, zero
@@ -2378,7 +2336,19 @@ def make_graph(topology_name: str = "conus", topology_directory: str | None = No
             "distance",
         )
     else:
-        with open(topology_path / f"{topology_name}.json") as f:
+        topology_file = topology_path / f"{topology_name}.json"
+        if not topology_file.is_file():
+            available = sorted(p.stem for p in topology_path.glob("*.json")) + ["4node", "7node"]
+            suggestions = difflib.get_close_matches(topology_name, available, n=3, cutoff=0.5)
+            msg = f"Unknown topology '{topology_name}'."
+            if suggestions:
+                msg += f" Did you mean: {', '.join(suggestions)}?"
+            msg += (
+                f" {len(available)} topologies are available in {topology_path} "
+                f"(use the filename without the .json extension)."
+            )
+            raise ValueError(msg)
+        with open(topology_file) as f:
             graph = nx.node_link_graph(json.load(f), edges="links")
     # Topology JSONs are mixed-base (TopologyBench-derived files number nodes 1..N, others
     # 0..N-1), but node labels are used directly as row indices into node-feature arrays
@@ -2686,6 +2656,43 @@ def find_block_sizes(
         block_sizes = block_sizes * free
 
     return block_sizes
+
+
+@jax.jit
+def calculate_fragmentation(link_slot_array: Array) -> Array:
+    """Calculate mean external spectrum fragmentation across links.
+
+    External fragmentation per link = 1 - largest_free_block / total_free_slots.
+    It is 0 when each link's free capacity is contiguous (or the link is completely
+    full/empty) and approaches 1 as free slots are scattered into many small blocks.
+
+    Occupancy follows the same convention as the utilisation metric: any non-zero
+    value counts as occupied (in-service slots are stored as negative values).
+    Uses an O(links x slots) cumulative-max scan (no NxN block-size matrices as in
+    find_block_sizes), so it is cheap enough to compute on the hot path every step.
+
+    Args:
+        link_slot_array: Link-slot occupancy array of shape (num_links, num_slots)
+
+    Returns:
+        Scalar mean external fragmentation across links
+    """
+    occupied = link_slot_array != 0
+    num_slots = link_slot_array.shape[1]
+    slot_indices = jnp.arange(num_slots, dtype=dtype_config.INDEX_DTYPE)[None, :]
+    # Index of the most recent occupied slot at or before each position (-1 if none),
+    # so (slot_index - last_occupied) is the length of the free run ending at each slot
+    last_occupied = jax.lax.cummax(jnp.where(occupied, slot_indices, -1), axis=1)
+    free_run_lengths = jnp.where(occupied, 0, slot_indices - last_occupied)
+    largest_free_block = jnp.max(free_run_lengths, axis=1)
+    total_free_slots = jnp.sum(~occupied, axis=1)
+    # Fully-occupied links have no free capacity to fragment, so report 0
+    fragmentation_per_link = jnp.where(
+        total_free_slots > 0,
+        1.0 - largest_free_block / jnp.maximum(total_free_slots, 1),
+        0.0,
+    )
+    return jnp.mean(fragmentation_per_link).astype(dtype_config.LARGE_FLOAT_DTYPE)
 
 
 @partial(jax.jit, static_argnums=(1,))

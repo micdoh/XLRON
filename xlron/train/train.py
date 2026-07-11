@@ -712,7 +712,7 @@ def train(argv: list[str], config: Dict[str, Any] = {}) -> None:
             )
             # Save model params (skip if EVAL_DURING_TRAINING, which saves only the best model)
             if config.SAVE_MODEL and not config.EVAL_DURING_TRAINING:
-                train_state = out["runner_state"][0]  # Get TrainState from the first learner
+                train_state = out["runner_state"][0]  # TrainState element of the runner-state tuple
                 # Determine current metric value to decide whether to save
                 if config.continuous_operation:
                     if config.reward_type == "bitrate":
@@ -734,7 +734,13 @@ def train(argv: list[str], config: Dict[str, Any] = {}) -> None:
                         )
                 if current_metric <= best_eval_metric:
                     best_eval_metric = current_metric
-                    model = eqx.combine(train_state.model_params, train_state.model_static)
+                    model_params = train_state.model_params
+                    if config.NUM_LEARNERS > 1:
+                        # vmap over the learner axis stacks every param leaf to
+                        # [NUM_LEARNERS, ...]; save learner 0's weights so the checkpoint
+                        # matches the unbatched template used by load_model.
+                        model_params = jax.tree.map(lambda x: x[0], model_params)
+                    model = eqx.combine(model_params, train_state.model_static)
                     saved_path = save_model(model, config, first_save=first_save)
                     if first_save:
                         config.MODEL_PATH = str(saved_path)
