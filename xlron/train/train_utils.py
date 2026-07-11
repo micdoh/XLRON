@@ -624,11 +624,13 @@ def init_network(config: Box, key: chex.PRNGKey) -> eqx.Module:
                 actor_pooling=config.transformer_actor_pooling,
             )
         elif config.USE_GNN:
-            if "gn_model" in config.env_type.lower() and config.output_globals_size_actor > 0:
+            if "gn_model" in config.env_type.lower() and config.global_output_size_actor > 0:
+                # Discrete: one logit per power level. Continuous: 2 outputs (alpha, beta) for
+                # the Beta distribution.
                 global_output_size_actor = (
                     int((config.max_power - config.min_power) / config.step_power) + 1
                     if config.discrete_launch_power
-                    else 1
+                    else 2
                 )
             else:
                 global_output_size_actor = config.global_output_size_actor
@@ -680,10 +682,10 @@ def init_network(config: Box, key: chex.PRNGKey) -> eqx.Module:
                 vmap=False,
                 key=key,
             )
-        elif "gn_model" in config.env_type.lower() and config.launch_power_type == 3:
+        elif "gn_model" in config.env_type.lower() and config.launch_power_type == "rl":
             network = LaunchPowerActorCriticMLP(
-                config.INPUT_DIM,
                 config.ACTION_DIM + (1 * config.include_no_op),  # +1 for "no op"
+                config.INPUT_DIM,
                 activation=config.ACTIVATION,
                 num_layers=config.NUM_LAYERS,
                 num_units=config.NUM_UNITS,
@@ -692,7 +694,7 @@ def init_network(config: Box, key: chex.PRNGKey) -> eqx.Module:
                 min_power_dbm=config.min_power,
                 max_power_dbm=config.max_power,
                 step_power_dbm=config.step_power,
-                k_paths=config.k_paths,
+                k_paths=config.k,
                 key=key,
             )
         else:
@@ -932,6 +934,18 @@ def cast_model_for_compute(model: eqx.Module) -> eqx.Module:
     )
 
 
+def _as_launch_power_array(power_action: Array, env_params) -> Array:
+    """Normalise a sampled power action to the carried launch_power_array format.
+
+    The carried array is shape (k_paths,) at LARGE_FLOAT_DTYPE (see make_env.py); sampled
+    powers may be scalar (global head), (1,) (fixed default) or (k_paths,) (per-path head),
+    so broadcast and cast to keep the lax.scan carry shape/dtype stable.
+    """
+    return jnp.broadcast_to(power_action.reshape(-1), (env_params.k_paths,)).astype(
+        dtype_config.LARGE_FLOAT_DTYPE
+    )
+
+
 def select_action(select_action_state, env, env_params, train_state, config):
     """Select an action from the policy.
     If using VONE, the action is a tuple of (source, path, destination).
@@ -1008,40 +1022,59 @@ def select_action(select_action_state, env, env_params, train_state, config):
         valid_mass = jnp.sum(probs * action_mask, axis=-1)
 
     elif "gn_model" in config.env_type.lower() and config.launch_power_type == "rl":
-        pi_masked = distrax.Categorical(
-            logits=pi[0]._logits + (-1e8 * (1 - action_mask.astype(jnp.float32)))
-        )
+        # Sampling dispatches to the model's own sample_action* methods (the models know how
+        # to convert raw samples to power levels); LaunchPowerActorCriticMLP returns
+        # (None, power_dist) so the path logits/mask only exist when the GNN outputs RSA.
         if config.GNN_OUTPUT_RSA and not config.GNN_OUTPUT_LP:
-            path_action, log_prob = train_state.sample_fn(
+            pi_masked = distrax.Categorical(
+                logits=pi[0]._logits + (-1e8 * (1 - action_mask.astype(jnp.float32)))
+            )
+            path_action, log_prob = model.sample_action_path(  # ty: ignore[unresolved-attribute]
                 action_key, pi_masked, log_prob=True, deterministic=config.deterministic
             )
             power_action = jnp.array([env_params.default_launch_power])
         elif config.GNN_OUTPUT_RSA and config.GNN_OUTPUT_LP:
-            path_action, power_action, log_prob = train_state.sample_fn(
+            pi_masked = distrax.Categorical(
+                logits=pi[0]._logits + (-1e8 * (1 - action_mask.astype(jnp.float32)))
+            )
+            path_action, power_action, log_prob = model.sample_action_path_power(  # ty: ignore[unresolved-attribute]
                 action_key,
                 (pi_masked, pi[1]),
                 log_prob=True,
                 deterministic=config.deterministic,
             )
         else:
-            power_action, log_prob = train_state.sample_fn(
+            # Power-only policy: path selected by heuristic (needs launch power set first)
+            power_sample_fn = getattr(model, "sample_action_power", model.sample_action)  # ty: ignore[unresolved-attribute]
+            power_action, log_prob = power_sample_fn(
                 action_key, pi[1], log_prob=True, deterministic=config.deterministic
             )
-            inner_state = env_state.env_state.replace(launch_power_array=power_action)
+            inner_state = env_state.env_state.replace(
+                launch_power_array=_as_launch_power_array(power_action, env_params)
+            )
             env_state = env_state.replace(env_state=inner_state)
             path_action = (
                 ksp_lf(env_state.env_state, env_params)
                 if env_params.last_fit is True
                 else ksp_ff(env_state.env_state, env_params)
             )
-        inner_state = env_state.env_state.replace(launch_power_array=power_action)
+        inner_state = env_state.env_state.replace(
+            launch_power_array=_as_launch_power_array(power_action, env_params)
+        )
         env_state = env_state.replace(env_state=inner_state)
-        if config.output_globals_size_actor == 0:
+        if config.global_output_size_actor == 0 and (
+            config.GNN_OUTPUT_LP or not config.GNN_OUTPUT_RSA
+        ):
+            # Per-path power head: keep only the sampled path's power/log_prob
             path_index, _ = process_path_action(env_state.env_state, env_params, path_action)
             power_action, log_prob = power_action[path_index], log_prob[path_index]
         action = jnp.concatenate([path_action.reshape((1,)), power_action.reshape((1,))], axis=0)  # ty: ignore[unresolved-attribute]
-        probs = jax.nn.softmax(pi[0]._logits, axis=-1)
-        valid_mass = jnp.sum(probs * action_mask, axis=-1)
+        if config.GNN_OUTPUT_RSA:
+            probs = jax.nn.softmax(pi[0]._logits, axis=-1)
+            valid_mass = jnp.sum(probs * action_mask, axis=-1)
+        else:
+            # No learned path policy: the heuristic path choice is always valid
+            valid_mass = jnp.array(1.0, dtype=dtype_config.LARGE_FLOAT_DTYPE)
 
     else:
         pi_masked = distrax.Categorical(
@@ -1178,7 +1211,9 @@ def get_warmup_fn(warmup_state, env, params, train_state, config) -> Callable[[T
                 action_mask = mask_result[0]
                 action = jax.random.categorical(action_key, jnp.log(jnp.maximum(action_mask, 1e-8)))
             else:
-                select_action_state = (_rng, _state, _last_obs)
+                # Pass the dedicated action_key, not the loop-carry _rng (which is re-split
+                # next iteration and must never also be consumed for sampling).
+                select_action_state = (action_key, _state, _last_obs)
                 action_fn = select_action if not use_heuristic_warmup else select_action_eval
                 _state, action, log_prob, value = action_fn(
                     select_action_state, env, _params, _train_state, config
@@ -1228,6 +1263,19 @@ def get_warmup_fn(warmup_state, env, params, train_state, config) -> Callable[[T
         return vals[1], vals[4]
 
     return warmup_fn
+
+
+def steps_per_train_state_unit(config: Box) -> int:
+    """Number of train_state.step increments per update loop.
+
+    train_state.step increments once per gradient (minibatch) step when STEP_ON_GRADIENT
+    is set, otherwise once per update loop. Any schedule or anneal evaluated at
+    train_state.step (entropy/VML schedules, GAE-lambda and prio-beta anneals) must scale
+    its horizon by this factor so it completes exactly at the end of training. The LR
+    schedules are exempt: they are driven by optax's internal count, which always ticks
+    once per tx.update (i.e. per minibatch).
+    """
+    return config.UPDATE_EPOCHS * config.NUM_MINIBATCHES if config.STEP_ON_GRADIENT else 1
 
 
 def _make_schedule(
@@ -1358,14 +1406,15 @@ def make_ent_schedule(config: Box) -> optax.Schedule:
 
     ENT_COEF = config.ENT_COEF
     ENT_END_FRACTION = config.ENT_END_FRACTION
-    NUM_MINIBATCHES = config.NUM_MINIBATCHES
     NUM_UPDATES = config.NUM_UPDATES * config.NUM_INCREMENTS
-    UPDATE_EPOCHS = config.UPDATE_EPOCHS
+    # Evaluated at train_state.step (not optax's per-minibatch count), so the horizon
+    # must use the train_state.step unit.
+    STEPS_PER_UNIT = steps_per_train_state_unit(config)
     SCHEDULE_MULTIPLIER = config.ENT_SCHEDULE_MULTIPLIER
     end_value = ENT_COEF * ENT_END_FRACTION
 
     def ent_schedule(count: chex.Numeric) -> chex.Numeric:
-        total_steps = NUM_UPDATES * UPDATE_EPOCHS * NUM_MINIBATCHES * SCHEDULE_MULTIPLIER
+        total_steps = NUM_UPDATES * STEPS_PER_UNIT * SCHEDULE_MULTIPLIER
         if config.ENT_SCHEDULE == "cosine":
             schedule = optax.cosine_decay_schedule(
                 init_value=ENT_COEF,
@@ -1392,14 +1441,15 @@ def make_vml_schedule(config: Box) -> optax.Schedule:
 
     VML_COEF = config.VALID_MASS_LOSS_COEF
     VML_END_FRACTION = config.VML_END_FRACTION
-    NUM_MINIBATCHES = config.NUM_MINIBATCHES
     NUM_UPDATES = config.NUM_UPDATES * config.NUM_INCREMENTS
-    UPDATE_EPOCHS = config.UPDATE_EPOCHS
+    # Evaluated at train_state.step (not optax's per-minibatch count), so the horizon
+    # must use the train_state.step unit.
+    STEPS_PER_UNIT = steps_per_train_state_unit(config)
     SCHEDULE_MULTIPLIER = config.VML_SCHEDULE_MULTIPLIER
     end_value = VML_COEF * VML_END_FRACTION
 
     def vml_schedule(count: chex.Numeric) -> chex.Numeric:
-        total_steps = NUM_UPDATES * UPDATE_EPOCHS * NUM_MINIBATCHES * SCHEDULE_MULTIPLIER
+        total_steps = NUM_UPDATES * STEPS_PER_UNIT * SCHEDULE_MULTIPLIER
         if config.VML_SCHEDULE == "cosine":
             schedule = optax.cosine_decay_schedule(
                 init_value=VML_COEF,
@@ -1583,7 +1633,13 @@ def run_eval_during_training(
         best_eval_metric = eval_metric_mean
         print(f"New best eval {eval_metric_name}: {best_eval_metric:.6f}")
         if config.SAVE_MODEL:
-            model = eqx.combine(current_train_state.model_params, current_train_state.model_static)
+            model_params = current_train_state.model_params
+            if config.NUM_LEARNERS > 1:
+                # vmap over the learner axis stacks every param leaf to [NUM_LEARNERS, ...];
+                # save learner 0's weights so the checkpoint matches the unbatched template
+                # used by load_model.
+                model_params = jax.tree.map(lambda x: x[0], model_params)
+            model = eqx.combine(model_params, current_train_state.model_static)
             saved_path = save_model(model, config, first_save=first_save)
             if first_save:
                 config.MODEL_PATH = str(saved_path)
@@ -1639,9 +1695,11 @@ def process_metrics(config, out, merge_func):
         num_learners_or_1 = config.NUM_LEARNERS if config.NUM_LEARNERS > 1 else 1
         merged_out_loss = {
             k: jax.tree.map(
-                lambda x: x.reshape((num_learners_or_1, config.NUM_UPDATES, -1))
-                .mean(axis=-1)
-                .reshape((-1,)),
+                lambda x: (
+                    x.reshape((num_learners_or_1, config.NUM_UPDATES, -1))
+                    .mean(axis=-1)
+                    .reshape((-1,))
+                ),
                 v,
             )
             for k, v in out.get("loss_info", {}).items()

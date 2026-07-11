@@ -105,6 +105,9 @@ ignore = ["E731"]
 [tool.pytest.ini_options]
 testpaths = ["."]
 norecursedirs = [".claude", "experimental", ".venv", "build", "site", "wandb"]
+markers = [
+    "slow: end-to-end smoke tests that compile a full training run (deselect with -m \"not slow\")",
+]
 
 [tool.isort]
 multi_line_output = 3
