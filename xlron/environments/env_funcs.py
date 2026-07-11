@@ -1533,7 +1533,9 @@ def generate_arrival_holding_times(key, params, arrival_rate, mean_service_holdi
     )  # Divide because it is rate (lambda)
     if params.truncate_holding_time:
         # For DeepRMSA, need to generate holding times that are less than 2*mean_service_holding_time
-        key_holding = jax.random.split(key, 5)
+        # Split the child key (not the parent): split(key, 5)[:2] == split(key, 2), so
+        # re-splitting the parent would alias candidate keys with key_arrival
+        key_holding = jax.random.split(key_holding, 5)
         holding_times = jax.vmap(
             lambda x: jax.random.exponential(x, shape=(1,), dtype=dtype_config.TIME_DTYPE)
             * mean_service_holding_time
