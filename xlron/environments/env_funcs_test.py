@@ -1379,6 +1379,30 @@ class DeterministicReplayOrderTest(chex.TestCase):
             np.testing.assert_allclose(got, np.array([row[0], row[1], row[2]], dtype=np.float32))
 
 
+class MakeGraphUnknownTopologyTest(chex.TestCase):
+    """make_graph must fail with a helpful ValueError (not a raw FileNotFoundError)
+    listing close-match suggestions when --topology_name doesn't match a bundled JSON."""
+
+    def test_typo_raises_value_error_with_suggestion(self):
+        with self.assertRaisesRegex(ValueError, "Unknown topology 'nfsnet_deeprmsa_directed'"):
+            make_graph("nfsnet_deeprmsa_directed")
+        try:
+            make_graph("nfsnet_deeprmsa_directed")
+        except ValueError as e:
+            self.assertIn("nsfnet_deeprmsa_directed", str(e))
+
+    def test_no_close_match_still_helpful(self):
+        with self.assertRaisesRegex(ValueError, "topologies are available in"):
+            make_graph("zzzzzz_not_a_topology")
+
+    def test_custom_topology_directory_used_for_suggestions(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with open(pathlib.Path(tmpdir) / "mynet.json", "w") as f:
+                json.dump({"nodes": [], "links": []}, f)
+            with self.assertRaisesRegex(ValueError, "mynet"):
+                make_graph("mynett", topology_directory=tmpdir)
+
+
 if __name__ == "__main__":
     jax.config.update("jax_numpy_rank_promotion", "raise")
     absltest.main()
