@@ -152,8 +152,8 @@ python -m xlron.bounds.cutsets_bounds \
   --env_type=rmsa \
   --link_resources=100 --k=50 --load=250 \
   --continuous_operation --truncate_holding_time \
-  --num_sim_requests=100000 --num_trials=10 \
-  --sim_min_load=150 --sim_max_load=300 --sim_step_load=10 \
+  --max_requests=100000 --num_trials=10 \
+  --min_load=150 --max_load=300 --step_load=10 \
   --CUTSET_EXHAUSTIVE --CUTSET_TOP_K=256
 
 # Reconfigurable routing bounds

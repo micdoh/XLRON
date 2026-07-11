@@ -11,6 +11,7 @@ from gymnax.environments import spaces
 
 from xlron.environments.dataclasses import *
 from xlron.environments.env_funcs import (
+    get_paths_obs_gn_model,
     init_active_lightpaths_array,
     init_active_lightpaths_array_departure,
     init_channel_centre_bw_array,
@@ -69,7 +70,9 @@ class RSAGNModelEnv(RSAEnv):
             link_slot_array=set_band_gaps(init_link_slot_array(params), params, -1.0),
             link_slot_departure_array=init_link_slot_departure_array(params),
             request_array=init_rsa_request_array(),
-            link_slot_mask=init_link_slot_mask(params, agg=params.aggregate_slots),
+            link_slot_mask=init_link_slot_mask(
+                params, include_no_op=params.include_no_op, agg=params.aggregate_slots
+            ),
             traffic_matrix=traffic_matrix
             if traffic_matrix is not None
             else init_traffic_matrix(key, params),
@@ -80,6 +83,7 @@ class RSAGNModelEnv(RSAEnv):
             total_bitrate=0.0,
             list_of_requests=list_of_requests,
             link_snr_array=init_link_snr_array(params),
+            link_snr_array_prev=init_link_snr_array(params),
             path_index_array=init_path_index_array(params),
             path_index_array_prev=init_path_index_array(params),
             channel_centre_bw_array=init_channel_centre_bw_array(params),
@@ -108,8 +112,10 @@ class RSAGNModelEnv(RSAEnv):
         ),
     )
     def get_obs(self, state: RSAGNModelEnvState, params: RSAGNModelEnvParams) -> Array:
-        # Return minimal observation since we're monitoring active lightpaths for throughput tracking
-        return jnp.array(0)
+        # Must match observation_space (4 + 7*k_paths features); a 0-d placeholder here
+        # crashes any flat-obs model (e.g. LaunchPowerActorCriticMLP) at trace time.
+        # Same fix as on the gn-physics branch (kept identical to merge cleanly).
+        return get_paths_obs_gn_model(state, params)
 
     @staticmethod
     def num_actions(params: RSAEnvParams) -> int:

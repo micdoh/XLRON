@@ -143,6 +143,8 @@ Weights and Biases is a tool for experiment tracking, model management, and hype
 
 Hyperparameters (e.g. learning rate, batch size, rollout length, discount factor (gamma), generalized advantage estimation (GAE) lambda factor, number of MLP layers, number of hidden units, number of parallel environments, etc.) are extremely important for the success of any deep learning model and especially for reinforcement learning, which introduces additional parameters.
 
+Each logging increment reports per-step and episode-end aggregates (mean, std, IQR) of the core metrics: returns, episode lengths, accepted services/bitrate, service and bitrate blocking probabilities, spectrum utilisation and spectrum fragmentation. Utilisation is the fraction of occupied slots in the link-slot array. Fragmentation is the mean external fragmentation across links, `1 - largest_free_block / total_free_slots` per link — 0 when each link's free spectrum is contiguous (or the link is completely full or empty), approaching 1 as free slots splinter into many small blocks. Both are computed from the post-step network state every step and flow to wandb and `--EPISODE_DATA_OUTPUT_FILE` alongside the other metrics.
+
 XLRON features support for wandb experiment tracking and hyperparameter sweeps. The following commandline flags, when running the 'train.py' script, will enable wandb integration:
 
 ```bash

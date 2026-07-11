@@ -22,11 +22,13 @@ from xlron.heuristics.heuristics import (
     ff_ksp,
     kca_ff,
     kmc_ff,
+    kme_ff,
     kmf_ff,
     ksp_bf,
     ksp_ff,
     ksp_lf,
     ksp_mu,
+    lf_ksp,
     mu_ksp,
 )
 
@@ -13144,6 +13146,21 @@ class KcaFfTest(chex.TestCase):
             ),
             jnp.array(4),
         ),
+        (
+            # Least-congested path (path 0) has no free slot; must fall back to
+            # the feasible alternative path despite its higher congestion
+            "case_least_congested_infeasible",
+            jnp.array([0, 1, 1]),
+            jnp.array(
+                [
+                    [1, 1, 1, 1],
+                    [0, 1, 1, 1],
+                    [0, 1, 1, 1],
+                    [0, 1, 1, 1],
+                ]
+            ),
+            jnp.array(4),
+        ),
     )
     def test_kca_ff(self, request_array, link_slot_array, expected):
         self.state = self.state.replace(
@@ -13695,7 +13712,9 @@ class KcaFfTest(chex.TestCase):
                     [1000000.0, 1000000.0, 1000000.0, 1000000.0],
                 ]
             ),
-            jnp.array(0),
+            # Path 0's congested lightpath has no remaining capacity (mask all-zero),
+            # so kca_ff must fall back to the feasible path 1 (slot 0 -> action 4)
+            jnp.array(4),
         ),
     )
     def test_kca_ff_rwa_lightpath_reuse(
@@ -13809,6 +13828,20 @@ class KsplfTest(chex.TestCase):
                 ]
             ),
             jnp.array(2),
+        ),
+        (
+            # Shortest path full but alternative path free: must skip to path 1
+            "case_first_path_full",
+            jnp.array([0, 1, 1]),
+            jnp.array(
+                [
+                    [1, 1, 1, 1],
+                    [0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                ]
+            ),
+            jnp.array(7),
         ),
     )
     def test_ksp_lf(self, request_array, link_slot_array, expected):
@@ -14092,6 +14125,150 @@ class KsplfTest(chex.TestCase):
             request_array=request_array, link_slot_array=link_slot_array
         )
         action = self.variant(ksp_lf, static_argnums=(1,))(self.state, self.params)
+        chex.assert_trees_all_close(action, expected)
+
+
+class LfKspTest(chex.TestCase):
+    def setUp(self):
+        super().setUp()
+        self.key, self.env, self.obs, self.state, self.params = rwa_4node_test_setup()
+
+    @chex.all_variants()
+    @parameterized.named_parameters(
+        (
+            # Both paths have last slot 3; ties broken by lowest path index
+            "case_empty",
+            jnp.array([0, 1, 1]),
+            jnp.array(
+                [
+                    [0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                ]
+            ),
+            jnp.array(3),
+        ),
+        (
+            "case_full",
+            jnp.array([0, 1, 1]),
+            jnp.array(
+                [
+                    [1, 1, 1, 1],
+                    [1, 1, 1, 1],
+                    [1, 1, 1, 1],
+                    [1, 1, 1, 1],
+                ]
+            ),
+            jnp.array(3),
+        ),
+        (
+            # Path 0 last slot is 2, path 1 last slot is 3: path 1 wins
+            "case_highest_last_slot",
+            jnp.array([0, 1, 1]),
+            jnp.array(
+                [
+                    [1, 0, 0, 1],
+                    [0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                ]
+            ),
+            jnp.array(7),
+        ),
+        (
+            # Path 0 full: its -1 sentinel must lose the argmax to path 1
+            "case_first_path_full",
+            jnp.array([0, 1, 1]),
+            jnp.array(
+                [
+                    [1, 1, 1, 1],
+                    [0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                ]
+            ),
+            jnp.array(7),
+        ),
+    )
+    def test_lf_ksp(self, request_array, link_slot_array, expected):
+        self.state = self.state.replace(
+            request_array=request_array, link_slot_array=link_slot_array
+        )
+        action = self.variant(lf_ksp, static_argnums=(1,))(self.state, self.params)
+        chex.assert_trees_all_close(action, expected)
+
+
+class KmeFfTest(chex.TestCase):
+    def setUp(self):
+        super().setUp()
+        self.key, self.env, self.obs, self.state, self.params = rwa_4node_test_setup()
+
+    @chex.all_variants()
+    @parameterized.named_parameters(
+        (
+            "case_empty",
+            jnp.array([0, 1, 1]),
+            jnp.array(
+                [
+                    [0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                ]
+            ),
+            jnp.array(0),
+        ),
+        (
+            "case_full",
+            jnp.array([0, 1, 1]),
+            jnp.array(
+                [
+                    [1, 1, 1, 1],
+                    [1, 1, 1, 1],
+                    [1, 1, 1, 1],
+                    [1, 1, 1, 1],
+                ]
+            ),
+            jnp.array(0),
+        ),
+        (
+            # Path 0 (empty link) sees an entropy increase from breaking its free block;
+            # path 1's links each lose an isolated free slot, decreasing entropy.
+            # Absolute post-allocation entropy would pick path 0 (0.216 vs 1.04 nats);
+            # entropy change picks path 1 (+0.216 vs -1.04 nats).
+            "case_delta_vs_absolute",
+            jnp.array([0, 1, 1]),
+            jnp.array(
+                [
+                    [0, 0, 0, 0],
+                    [0, 1, 0, 1],
+                    [0, 1, 0, 1],
+                    [0, 1, 0, 1],
+                ]
+            ),
+            jnp.array(4),
+        ),
+        (
+            # Only path 1 is feasible; path 0 must be penalised despite lower entropy
+            "case_first_path_full",
+            jnp.array([0, 1, 1]),
+            jnp.array(
+                [
+                    [1, 1, 1, 1],
+                    [0, 1, 1, 1],
+                    [0, 1, 1, 1],
+                    [0, 1, 1, 1],
+                ]
+            ),
+            jnp.array(4),
+        ),
+    )
+    def test_kme_ff(self, request_array, link_slot_array, expected):
+        self.state = self.state.replace(
+            request_array=request_array, link_slot_array=link_slot_array
+        )
+        action = self.variant(kme_ff, static_argnums=(1,))(self.state, self.params)
         chex.assert_trees_all_close(action, expected)
 
 

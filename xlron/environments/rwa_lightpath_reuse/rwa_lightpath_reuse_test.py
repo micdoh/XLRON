@@ -713,7 +713,7 @@ class AggregateSlotsMaskTest(chex.TestCase):
         env, params = make(settings, log_wrapper=False)
         key = jax.random.PRNGKey(0)
         obs, state = env.reset(key, params)
-        mask, full_mask = env.action_mask(state, params)  # ty: ignore[unresolved-attribute]
+        mask, full_mask = env.action_mask(state, params)
         # k * ceil(5 / 2) = 5 * 3 aggregated actions; full mask stays k * 5
         self.assertEqual(mask.shape[0], 15)
         self.assertEqual(full_mask.shape[0], 25)
@@ -789,7 +789,7 @@ class MixedPrecisionCarryTest(chex.TestCase):
             obs, state = env.reset(key, params)
             init_dtype = state.link_slot_array.dtype
             self.assertEqual(init_dtype, dtype_config.SMALL_FLOAT_DTYPE)
-            mask, full_mask = env.action_mask(state, params)  # ty: ignore[unresolved-attribute]
+            mask, full_mask = env.action_mask(state, params)
             # Store masks at SMALL_FLOAT exactly as select_action does
             state = state.replace(
                 link_slot_mask=mask.astype(dtype_config.SMALL_FLOAT_DTYPE),
@@ -826,7 +826,7 @@ class DynamicExpiryCapacityRestoreTest(chex.TestCase):
         env, params = make(settings, log_wrapper=False)
         key = jax.random.PRNGKey(0)
         obs, state = env.reset(key, params)
-        mask, full_mask = env.action_mask(state, params)  # ty: ignore[unresolved-attribute]
+        mask, full_mask = env.action_mask(state, params)
         self.assertTrue(bool(jnp.any(mask > 0)))
         state = state.replace(link_slot_mask=mask, full_link_slot_mask=full_mask)
         _, state, *_ = jax.jit(env.step, static_argnums=(3,))(key, state, jnp.argmax(mask), params)

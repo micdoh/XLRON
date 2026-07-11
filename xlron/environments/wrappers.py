@@ -51,6 +51,7 @@ class LogWrapper(GymnaxWrapper):
             accepted_bitrate=jnp.array(0, dtype=dtype_config.LARGE_FLOAT_DTYPE),
             total_bitrate=jnp.array(0, dtype=dtype_config.LARGE_FLOAT_DTYPE),
             utilisation=jnp.array(0, dtype=dtype_config.LARGE_FLOAT_DTYPE),
+            fragmentation=jnp.array(0, dtype=dtype_config.LARGE_FLOAT_DTYPE),
             terminal=jnp.array(False),
             truncated=jnp.array(False),
         )
@@ -64,6 +65,10 @@ class LogWrapper(GymnaxWrapper):
         action: Union[int, float] | Tuple[Union[int, float], Union[int, float]],
         params: RSAEnvParams,
     ) -> Tuple[Array, LogEnvState, float, bool, bool, dict]:
+        # Keep the pre-step state: the action/request fields logged below must describe
+        # the request the action was taken for, but step_env's generate_request replaces
+        # request_array/current_time/holding_time with the next request's values
+        prev_env_state = log_state.env_state
         obs, env_state, reward, terminal, truncated, info = self._env.step(
             key, log_state.env_state, action, params
         )
@@ -73,6 +78,10 @@ class LogWrapper(GymnaxWrapper):
         accepted_bitrate = info.pop("_accepted_bitrate")
         total_bitrate = info.pop("_total_bitrate")
         utilisation = info.pop("_utilisation")
+        # Default for envs (e.g. VONE) that don't stash fragmentation in step_env
+        fragmentation = info.pop(
+            "_fragmentation", jnp.array(0, dtype=dtype_config.LARGE_FLOAT_DTYPE)
+        )
         # Compute final episode length (for reporting) before resetting
         episode_length = log_state.lengths + 1
         cum_returns = log_state.cum_returns + reward
@@ -86,6 +95,7 @@ class LogWrapper(GymnaxWrapper):
             accepted_bitrate=accepted_bitrate,
             total_bitrate=total_bitrate,
             utilisation=utilisation,
+            fragmentation=fragmentation,
             terminal=terminal,
             truncated=truncated,
         )
@@ -98,6 +108,7 @@ class LogWrapper(GymnaxWrapper):
         info["accepted_bitrate"] = log_state.accepted_bitrate
         info["total_bitrate"] = log_state.total_bitrate
         info["utilisation"] = log_state.utilisation
+        info["fragmentation"] = log_state.fragmentation
         info["terminal"] = terminal
         info["truncated"] = truncated
         # First check if we're dealing with RSAGNModelEnvParams
@@ -110,8 +121,8 @@ class LogWrapper(GymnaxWrapper):
 
         # Now, if we need to log actions OR we have RSA params, compute the common fields
         if is_gn_params or params.log_actions:
-            # Compute common fields
-            nodes_sd, dr_request = read_rsa_request(log_state.env_state.request_array)
+            # Compute common fields from the pre-step state (see prev_env_state above)
+            nodes_sd, dr_request = read_rsa_request(prev_env_state.request_array)
             source, dest = nodes_sd
             i = get_path_indices(
                 params,
@@ -121,7 +132,7 @@ class LogWrapper(GymnaxWrapper):
                 params.num_nodes,
                 directed=params.directed_graph,
             ).astype(jnp.int32)
-            path_index, slot_index = process_path_action(log_state.env_state, params, action)
+            path_index, slot_index = process_path_action(prev_env_state, params, action)
 
             # Set common info
             info["path_index"] = i + path_index
@@ -138,13 +149,26 @@ class LogWrapper(GymnaxWrapper):
             if params.log_actions:
                 # RSA-specific logging
                 if is_gn_params:
-                    path = params.path_link_array.val[path_index.astype(jnp.int32)]
-                    info["path_snr"] = get_snr_for_path(path, env_state.link_snr_array, params)[
-                        slot_index.astype(jnp.int32)
-                    ]
-                # Common logging fields
-                info["arrival_time"] = env_state.current_time[0]
-                info["departure_time"] = env_state.current_time[0] + env_state.holding_time[0]
+                    # Index with the global path row (node-pair offset + k-index),
+                    # unpacking bits if the path-link array is bit-packed
+                    path_link_array = (
+                        jnp.unpackbits(params.path_link_array.val, axis=1)[:, : params.num_links]
+                        if params.pack_path_bits
+                        else params.path_link_array.val
+                    )
+                    path = path_link_array[(i + path_index).astype(jnp.int32)]
+                    # Post-step link_snr_array so the placement is reflected; pass the
+                    # state so the logged SNR includes path-level ROADM ASE, matching
+                    # the SNR used by the masking/acceptance checks
+                    info["path_snr"] = get_snr_for_path(
+                        path, env_state.link_snr_array, params, env_state
+                    )[slot_index.astype(jnp.int32)]
+                # Common logging fields: use the pre-step state so the times belong to
+                # the request being logged (step_env's generate_request advances them)
+                info["arrival_time"] = prev_env_state.current_time[0]
+                info["departure_time"] = (
+                    prev_env_state.current_time[0] + prev_env_state.holding_time[0]
+                )
         return obs, log_state, reward, terminal, truncated, info
 
     def _tree_flatten(self) -> Tuple[Tuple[Any, ...], Tuple[Any, ...]]:

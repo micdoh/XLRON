@@ -97,7 +97,11 @@ Use link-disjoint paths instead of standard k-shortest paths.
 
 ### `--values_bw`
 
-Comma-separated list of possible bandwidth (more precisely, data-rate) request values (in Gbps). For example, `--values_bw=1` for unit bandwidth or `--values_bw=1,1,1,1,1,1,1,1,1,1,1,1,1,1,2,2,2,3,3,4` for a distribution of bandwidth classes. When set, bandwidth requests are sampled uniformly from this list.
+Comma-separated list of possible bandwidth (more precisely, data-rate) request values (in Gbps). For example, `--values_bw=1` for unit bandwidth or `--values_bw=1,1,1,1,1,1,1,1,1,1,1,1,1,1,2,2,2,3,3,4` for a distribution of bandwidth classes. When set, bandwidth requests are sampled uniformly from this list, unless `--values_bw_probs` is also set.
+
+### `--values_bw_probs`
+
+Comma-separated list of sampling probabilities for each bandwidth value, e.g. `--values_bw=40,100,400 --values_bw_probs=0.5,0.3,0.2`. Must have the same length as the final bandwidth value list (from `--values_bw` or the `--min_bw`/`--max_bw`/`--step_bw` range). Values are normalised to sum to 1, so relative weights such as `5,3,2` are also accepted. If unset, bandwidth values are sampled uniformly.
 
 ### `--min_bw` / `--max_bw` / `--step_bw`
 
@@ -183,8 +187,8 @@ The heuristic algorithm to use. Available options:
 | `mu_ksp` | **Most-Used across K-Shortest Paths.** Search all k paths; prefer globally most-used slots. |
 | `kmc_ff` | **K-Minimum Cut, First-Fit.** Select path that minimises cut metric, then first-fit. |
 | `kmf_ff` | **K-Minimum Fragmentation, First-Fit.** Select path that minimises fragmentation, then first-fit. |
-| `kme_ff` | **K-Minimum Entropy, First-Fit.** Select path that minimises spectrum entropy, then first-fit. |
-| `kca_ff` | **Congestion-Aware, First-Fit.** Select path considering link congestion, then first-fit. |
+| `kme_ff` | **K-Minimum Entropy, First-Fit.** Select path whose allocation causes the smallest increase in spectrum fragmentation entropy (Wright, Parker & Lord, JOCN 2015), then first-fit. |
+| `kca_ff` | **Congestion-Aware, First-Fit.** Select the least-congested feasible path (occupancy-weighted link length), then first-fit. |
 
 Default: `ksp_ff`.
 

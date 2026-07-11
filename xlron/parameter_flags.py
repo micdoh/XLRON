@@ -460,6 +460,13 @@ flags.DEFINE_integer("min_bw", 25, "Minimum requested bandwidth")
 flags.DEFINE_integer("max_bw", 100, "Maximum requested bandwidth")
 flags.DEFINE_integer("step_bw", 1, "Step size for requested bandwidth values between min and max")
 flags.DEFINE_string("values_bw", None, "List of requested bandwidth values")
+flags.DEFINE_string(
+    "values_bw_probs",
+    None,
+    "Comma-separated sampling probabilities for each value in values_bw "
+    "(must match values_bw length; normalised to sum to 1). "
+    "If unset, bandwidth values are sampled uniformly.",
+)
 flags.DEFINE_float("slot_size", 12.5, "Spectral width of frequency slot in GHz")
 flags.DEFINE_boolean(
     "incremental_loading",
@@ -536,7 +543,7 @@ flags.DEFINE_string(
 )
 flags.DEFINE_float("traffic_intensity", 0, "Traffic intensity (arrival rate * mean holding time)")
 flags.DEFINE_boolean(
-    "maximise_throughout",
+    "maximise_throughput",
     False,
     "Maximise throughput instead of minimising blocking probability",
 )
@@ -933,25 +940,12 @@ flags.DEFINE_float(
     "If > 0, keep top this percentage of congested cutsets (overrides CUTSET_TOP_K). "
     "The actual count is max(1, round(total_unique_cutsets * CUTSET_TOP_PCT / 100)).",
 )
-flags.DEFINE_boolean(
-    "NEGLECT_SPECTRUM_CONTINUITY",
-    False,
-    "When True, the cut-set capacity bound tracks only total free capacity per link "
-    "rather than slot-level occupancy. This removes the spectrum continuity constraint "
-    "across cut-set links, giving a tighter (more optimistic) upper bound.",
-)
 # Shared capacity bound estimation flags
 flags.DEFINE_integer(
     "num_trials",
     10,
     "Number of independent random-seed trials for capacity bound estimation "
     "(used by both cut-set and reconfigurable routing bounds)",
-)
-flags.DEFINE_string(
-    "cutset_link_selection_mode",
-    "least_congested",
-    "Link selection heuristic for cut-set capacity bound simulation: "
-    "least_congested, most_congested, best_fit, random",
 )
 # Flags for capacity estimation with Baroni (reconfigurable routing / resource-prioritized defragmentation) method
 flags.DEFINE_boolean("deterministic_requests", False, "Use deterministic requests")

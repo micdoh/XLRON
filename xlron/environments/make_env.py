@@ -194,9 +194,21 @@ def process_config(config: Optional[Union[dict, FlagValues]], **kwargs: Any) -> 
         )
         config.EPISODE_DATA_OUTPUT_FILE = config.DATA_OUTPUT_FILE
         config.DATA_OUTPUT_FILE = None
+    # Backward compatibility: the flag was historically misspelled "maximise_throughout".
+    # Dict-config callers may still pass the old key; map it to the corrected spelling.
+    if config.get("maximise_throughout") and not config.get("maximise_throughput"):
+        import warnings
+
+        warnings.warn(
+            "'maximise_throughout' is a deprecated misspelling; use 'maximise_throughput' instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        config.maximise_throughput = config.maximise_throughout
     # This if statement is just to ensure compatibility with some tests that don't define all config options
     if config.get("TOTAL_TIMESTEPS", False):
         config.TOTAL_TIMESTEPS = int(config.TOTAL_TIMESTEPS)
+        requested_total_timesteps = config.TOTAL_TIMESTEPS
         # For incremental logging, we need to set the number of increments
         config.STEPS_PER_INCREMENT = min(config.TOTAL_TIMESTEPS, config.STEPS_PER_INCREMENT)
 
@@ -212,6 +224,11 @@ def process_config(config: Optional[Union[dict, FlagValues]], **kwargs: Any) -> 
             episode_length = max_requests * scale_factor
             min_steps = episode_length * config.NUM_ENVS
             if config.STEPS_PER_INCREMENT < min_steps:
+                print(
+                    f"WARNING: STEPS_PER_INCREMENT ({config.STEPS_PER_INCREMENT}) is smaller "
+                    f"than one full eval episode across all envs (max_requests * scale_factor "
+                    f"* NUM_ENVS = {min_steps}). Increasing STEPS_PER_INCREMENT to {min_steps}."
+                )
                 config.STEPS_PER_INCREMENT = min_steps
 
         if is_eval and config.get("continuous_operation", False):
@@ -220,7 +237,14 @@ def process_config(config: Optional[Union[dict, FlagValues]], **kwargs: Any) -> 
             # per env, so total steps per episode = max_requests * NUM_ENVS.
             num_envs = config.get("NUM_ENVS", 1)
             scale_factor = int(config.get("scale_factor", 1))
-            config.max_requests = int(config.STEPS_PER_INCREMENT) // num_envs // scale_factor
+            derived_max_requests = int(config.STEPS_PER_INCREMENT) // num_envs // scale_factor
+            if config.get("max_requests") and int(config.max_requests) != derived_max_requests:
+                print(
+                    f"WARNING: max_requests ({config.max_requests}) is overridden to "
+                    f"{derived_max_requests} (STEPS_PER_INCREMENT // NUM_ENVS // scale_factor) "
+                    f"for continuous-operation eval."
+                )
+            config.max_requests = derived_max_requests
 
         if not is_eval:
             # For RL training, an increment must contain at least one full PPO update
@@ -252,6 +276,16 @@ def process_config(config: Optional[Union[dict, FlagValues]], **kwargs: Any) -> 
                 config.ROLLOUT_LENGTH * config.NUM_ENVS * config.NUM_UPDATES
             )
             config.TOTAL_TIMESTEPS = n_increments * config.STEPS_PER_INCREMENT
+        if config.TOTAL_TIMESTEPS != requested_total_timesteps:
+            reason = (
+                "episode sizing (one full eval episode per increment)"
+                if is_eval
+                else "increment/rollout rounding"
+            )
+            print(
+                f"WARNING: TOTAL_TIMESTEPS adjusted from {requested_total_timesteps} to "
+                f"{config.TOTAL_TIMESTEPS} due to {reason}."
+            )
         validate_config(config, bool(is_eval))
     config.aggregate_slots = 1 if config.get("EVAL_HEURISTIC") else config.get("aggregate_slots", 1)
     return config
@@ -310,9 +344,14 @@ def make(
     )
     link_resources = config.get("link_resources", 100)
     values_bw = config.get("values_bw", None)
-    node_probabilities = config.get("node_probabilities", None)
+    values_bw_probs = config.get("values_bw_probs", None)
+    node_probabilities = config.get("node_probs", None)
     if values_bw:
         values_bw = convert_str_to_list_of_numerics(values_bw, num_type="int")
+    if values_bw_probs:
+        values_bw_probs = convert_str_to_list_of_numerics(values_bw_probs, num_type="float")
+    else:
+        values_bw_probs = None
     slot_size = config.get("slot_size", 12.5)
     min_bw = config.get("min_bw", 25)
     max_bw = config.get("max_bw", 100)
@@ -321,7 +360,11 @@ def make(
     traffic_requests_csv_filepath = config.get("traffic_requests_csv_filepath", None)
     multiple_topologies_directory = config.get("multiple_topologies_directory", None)
     aggregate_slots = config.get("aggregate_slots", 1)
-    disable_node_features = config.get("disable_node_features", False)
+    # The flag is uppercase DISABLE_NODE_FEATURES (train_utils.py sizes the GNN node input
+    # from it); accept the lowercase key too for dict-config callers.
+    disable_node_features = config.get(
+        "DISABLE_NODE_FEATURES", config.get("disable_node_features", False)
+    )
     disjoint_paths = config.get("disjoint_paths", False)
     log_actions = config.get("log_actions", False)
     profile = config.get("PROFILE", False)
@@ -329,7 +372,10 @@ def make(
     maximum_path_length_km = config.get("maximum_path_length_km", None)
     path_sort_criteria = config.get("path_sort_criteria", "hops")
     remove_array_wrappers = config.get("remove_array_wrappers", False)
-    maximise_throughput = config.get("maximise_throughput", False)
+    # "maximise_throughout" is the deprecated misspelling (see process_config)
+    maximise_throughput = config.get(
+        "maximise_throughput", config.get("maximise_throughout", False)
+    )
     reward_type = config.get("reward_type", "service")
     truncate_holding_time = config.get("truncate_holding_time", False)
     alpha = config.get("alpha", 0.2) * 1e-3
@@ -417,12 +463,17 @@ def make(
             link_resources, ref_lambda, slot_size, config.get("band_data_filepath", None)
         )
     else:
-        interband_gap_width = [200, 200] if config.get("interband_gap_width", None) is None else []
+        _gap_width = config.get("interband_gap_width", None)
+        interband_gap_width = [200, 200] if _gap_width is None else list(_gap_width)
         gap_width_slots = [int(math.ceil(width / slot_size)) for width in interband_gap_width]
-        interband_gap_start = (
-            [4425, 8425] if config.get("interband_gap_start", None) is None else []
-        )
+        _gap_start = config.get("interband_gap_start", None)
+        interband_gap_start = [4425, 8425] if _gap_start is None else list(_gap_start)
         gap_start_slots = [int(math.ceil(start / slot_size)) for start in interband_gap_start]
+        if len(gap_width_slots) != len(gap_start_slots):
+            raise ValueError(
+                "interband_gap_width and interband_gap_start must have the same length; "
+                f"got {len(gap_width_slots)} widths and {len(gap_start_slots)} starts"
+            )
     mod_format_correction = (
         config.get("mod_format_correction", True) if env_type == "rmsa_gn_model" else False
     )
@@ -503,9 +554,12 @@ def make(
     # expensive KSP computation here for env types that don't need it,
     # UNLESS it's a GN model type that reads path_link_array.shape before
     # the second call.
-    _needs_modulation_resort = (
-        env_type not in ("rsa", "rwa", "rwa_lightpath_reuse") and path_sort_criteria != "distance"
+    # Mirror the consider_modulation_format derivation below: vone with slot_size==1
+    # never makes the modulation-aware call, so it must take the first call here.
+    _uses_modulation = env_type not in ("rsa", "rwa", "rwa_lightpath_reuse") and not (
+        env_type == "vone" and slot_size == 1
     )
+    _needs_modulation_resort = _uses_modulation and path_sort_criteria != "distance"
     _needs_first_call = not _needs_modulation_resort or env_type in (
         "rmsa_gn_model",
         "rsa_gn_model",
@@ -570,7 +624,7 @@ def make(
         traffic_matrix = normalise_traffic_matrix(traffic_matrix)
     elif node_probabilities:
         random_traffic = False  # Set this False so that traffic matrix isn't replaced on reset
-        node_probabilities = convert_str_to_list_of_numerics(config.get("node_probs"))
+        node_probabilities = convert_str_to_list_of_numerics(node_probabilities)
         traffic_matrix = convert_node_probs_to_traffic_matrix(node_probabilities)
     elif traffic_array:
         traffic_matrix = generate_source_dest_pairs(num_nodes, graph.is_directed())
@@ -616,6 +670,22 @@ def make(
         consider_modulation_format = True
 
     max_bw = max(values_bw)
+
+    # Validate bandwidth sampling probabilities against the final values_bw array
+    # (values_bw may come from min/max/step or be overridden by the env type above)
+    if values_bw_probs is not None:
+        if len(values_bw_probs) != len(values_bw):
+            raise ValueError(
+                f"values_bw_probs must have the same length as values_bw: "
+                f"got {len(values_bw_probs)} probabilities for {len(values_bw)} bandwidth values"
+            )
+        if any(p < 0 for p in values_bw_probs) or sum(values_bw_probs) <= 0:
+            raise ValueError(
+                f"values_bw_probs must be non-negative and sum to a positive value, "
+                f"got {values_bw_probs}"
+            )
+        values_bw_probs = jnp.array(values_bw_probs, dtype=jnp.float32)
+        values_bw_probs = values_bw_probs / jnp.sum(values_bw_probs)
 
     link_length_array = init_link_length_array(graph).reshape((num_links, 1))
 
@@ -781,6 +851,9 @@ def make(
         directed_graph=graph.is_directed(),
         maximise_throughput=maximise_throughput,
         values_bw=HashableArrayWrapper(values_bw) if not remove_array_wrappers else values_bw,
+        values_bw_probs=HashableArrayWrapper(values_bw_probs)
+        if (values_bw_probs is not None and not remove_array_wrappers)
+        else values_bw_probs,
         reward_type=reward_type,
         truncate_holding_time=truncate_holding_time,
         log_actions=log_actions,
