@@ -964,10 +964,10 @@ def capacity_loss(state: EnvState, params: RSAEnvParams) -> Tuple[Array, Array]:
 
     # Interfering route set: the shortest path of every node pair (rows of the
     # path-link array are pair-major with k consecutive rows per pair)
-    path_link_array = params.path_link_array.val
+    shortest_paths = params.path_link_array.val[:: params.k_paths]
     if params.pack_path_bits:
-        path_link_array = jnp.unpackbits(path_link_array, axis=1)[:, : params.num_links]
-    shortest_paths = jnp.asarray(path_link_array[:: params.k_paths], dtype=jnp.float32)
+        shortest_paths = jnp.unpackbits(shortest_paths, axis=1)[:, : params.num_links]
+    shortest_paths = jnp.asarray(shortest_paths, dtype=jnp.float32)
     cand_paths = jnp.asarray(get_paths(params, nodes_sd), dtype=jnp.float32)
 
     def prep(paths):
@@ -1001,21 +1001,28 @@ def capacity_loss(state: EnvState, params: RSAEnvParams) -> Tuple[Array, Array]:
     cand_start, cand_end, cand_cum = prep(cand_paths)
 
     # Loss on interfering (shortest-per-pair) routes: truncation left of s plus the
-    # capacity of positions inside [s, e) that become occupied
+    # capacity of positions inside [s, e) that become occupied. Since the block end
+    # e = s + w_r depends on the candidate path only through its width w_r, the sum
+    # over interfering routes commutes with the gather at e: everything reduces to
+    # matmuls over the pair dimension plus one shifted gather of the aggregate,
+    # avoiding a (num_pairs, k, S) intermediate. Aggregates can reach ~1e7 on
+    # 100+-node topologies, so float32 rounding of ~1 capacity unit is possible in
+    # near-tied candidates; the ranking is unaffected for practical purposes (the
+    # brute-force equality test runs on small topologies where sums stay exact).
     short_trunc = truncation_loss(short_start, short_end)  # (num_pairs, S)
-    short_inside = short_cum[:, ends] - short_cum[:, :num_resources][:, None, :]  # (P, k, S)
-    short_delta = short_trunc[:, None, :] + short_inside
+    shares = (jnp.dot(cand_paths, shortest_paths.T) > 0).astype(jnp.float32)  # (k, P)
+    base = jnp.dot(
+        shares, (short_trunc - short_cum[:, :num_resources]).astype(jnp.float32)
+    )  # (k, S)
+    cum_agg = jnp.dot(shares, short_cum.astype(jnp.float32))  # (k, S + 1)
+    loss = base + jnp.take_along_axis(cum_agg, ends, axis=1)
 
-    # Same loss terms on the candidate route itself
+    # Same loss terms on the candidate route itself. The candidate is already in
+    # the interfering set iff it is its pair's shortest path (k index 0);
+    # otherwise add its own loss explicitly
     cand_trunc = truncation_loss(cand_start, cand_end)  # (k, S)
     cand_inside = jnp.take_along_axis(cand_cum, ends, axis=1) - cand_cum[:, :num_resources]
     cand_delta = cand_trunc + cand_inside
-
-    # Sum over interfering routes (those sharing >= 1 link with the candidate route)
-    shares = (jnp.dot(cand_paths, shortest_paths.T) > 0).astype(jnp.float32)
-    loss = jnp.einsum("kp,pks->ks", shares, short_delta.astype(jnp.float32))
-    # The candidate route is already in the interfering set iff it is its pair's
-    # shortest path (k index 0); otherwise add its own loss explicitly
     not_shortest = (jnp.arange(params.k_paths) != 0).astype(jnp.float32)[:, None]
     loss = loss + cand_delta.astype(jnp.float32) * not_shortest
     loss = jnp.where(mask == 0, jnp.inf, loss)
