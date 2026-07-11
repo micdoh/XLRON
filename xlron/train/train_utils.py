@@ -624,7 +624,7 @@ def init_network(config: Box, key: chex.PRNGKey) -> eqx.Module:
                 actor_pooling=config.transformer_actor_pooling,
             )
         elif config.USE_GNN:
-            if "gn_model" in config.env_type.lower() and config.output_globals_size_actor > 0:
+            if "gn_model" in config.env_type.lower() and config.global_output_size_actor > 0:
                 global_output_size_actor = (
                     int((config.max_power - config.min_power) / config.step_power) + 1
                     if config.discrete_launch_power
@@ -637,8 +637,17 @@ def init_network(config: Box, key: chex.PRNGKey) -> eqx.Module:
                 if config.DISABLE_NODE_FEATURES
                 else config.num_spectral_features + 2  # 2 for source/dest indicators
             )
+            # Edge feature width must match graph.edges built by init_graph_tuple/
+            # update_graph_tuple: GN-model envs stack [normalized_snr, normalized_power]
+            # per slot (flattened to 2*link_resources at the GraphNet boundary); all other
+            # envs use link_slot_array/holding-time features (link_resources).
+            input_edge_feature_size = (
+                2 * config.link_resources
+                if "gn_model" in config.env_type.lower()
+                else config.link_resources
+            )
             network = ActorCriticGNN(
-                config.link_resources,
+                input_edge_feature_size,
                 input_node_feature_size,
                 1,  # Global input feature is just normalized requested datarate
                 activation=config.ACTIVATION,
@@ -1036,7 +1045,7 @@ def select_action(select_action_state, env, env_params, train_state, config):
             )
         inner_state = env_state.env_state.replace(launch_power_array=power_action)
         env_state = env_state.replace(env_state=inner_state)
-        if config.output_globals_size_actor == 0:
+        if config.global_output_size_actor == 0:
             path_index, _ = process_path_action(env_state.env_state, env_params, path_action)
             power_action, log_prob = power_action[path_index], log_prob[path_index]
         action = jnp.concatenate([path_action.reshape((1,)), power_action.reshape((1,))], axis=0)  # ty: ignore[unresolved-attribute]
@@ -1206,9 +1215,12 @@ def get_warmup_fn(warmup_state, env, params, train_state, config) -> Callable[[T
             elif (
                 "gn_model" in config.env_type.lower()
                 and config.launch_power_type != "rl"
+                and not config.USE_GNN
                 and not use_heuristic_warmup
                 and not use_random_warmup
             ):
+                # GNN policies emit plain path actions, which GN-model envs accept with
+                # non-RL launch power (process_action defaults the power element).
                 raise ValueError("Check that EVAL_HEURISTIC is set to True if using a heuristic")
             # STEP ENV
             obsv, _state, reward, terminal, truncated, info = env.step(
