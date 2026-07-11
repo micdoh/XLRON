@@ -43,6 +43,7 @@ from xlron.heuristics.heuristics import (
     ksp_ff,
     ksp_lf,
     ksp_mu,
+    lf_ksp,
     mu_ksp,
 )
 from xlron.models.gnn import ActorCriticGNN
@@ -96,6 +97,13 @@ loss_metrics = [
 reward_centering_metrics = [
     "reward_centering/avg_reward",
     "reward_centering/value_mean",
+]
+
+# Prioritized experience replay diagnostics (always populated in loss_info by ppo.py)
+prioritization_metrics = [
+    "prioritization/beta",
+    "prioritization/priority_mean",
+    "prioritization/priority_std",
 ]
 
 
@@ -835,6 +843,31 @@ def _make_multi_transform_optimizer(config: Box, actor_lr_schedule, vf_lr_schedu
     return actor_optimizer, critic_optimizer
 
 
+def reset_warmup_metric_counters(env_state):
+    """Zero the metric counters accumulated during warmup.
+
+    With continuous_operation the env is never reset, so the cumulative counters
+    (accepted_services, accepted_bitrate, total_bitrate) and the LogWrapper's
+    lengths/cum_returns would otherwise include the near-zero-blocking network-fill
+    transient, biasing every logged blocking probability (ENV_WARMUP_STEPS is
+    documented as 'steps before collecting stats'). These fields are metrics-only;
+    total_requests, which drives episode truncation, is deliberately kept.
+    jnp.zeros_like preserves per-env shapes and dtypes for the jitted learner.
+    """
+    return env_state.replace(
+        lengths=jnp.zeros_like(env_state.lengths),
+        cum_returns=jnp.zeros_like(env_state.cum_returns),
+        accepted_services=jnp.zeros_like(env_state.accepted_services),
+        accepted_bitrate=jnp.zeros_like(env_state.accepted_bitrate),
+        total_bitrate=jnp.zeros_like(env_state.total_bitrate),
+        env_state=env_state.env_state.replace(
+            accepted_services=jnp.zeros_like(env_state.env_state.accepted_services),
+            accepted_bitrate=jnp.zeros_like(env_state.env_state.accepted_bitrate),
+            total_bitrate=jnp.zeros_like(env_state.env_state.total_bitrate),
+        ),
+    )
+
+
 def experiment_data_setup(config: Box, rng: chex.PRNGKey) -> Tuple:
     # INIT ENV
     env, env_params = make(config)
@@ -920,6 +953,9 @@ def experiment_data_setup(config: Box, rng: chex.PRNGKey) -> Tuple:
     warmup_fn = jax.vmap(warmup_fn) if config.NUM_ENVS > 1 else warmup_fn
     env_state, obsv = warmup_fn(warmup_state)
 
+    if config.ENV_WARMUP_STEPS:
+        env_state = reset_warmup_metric_counters(env_state)
+
     # Initialise eval state
     init_runner_state = (runner_state, env_state, obsv, rng_step, rng_epoch)
 
@@ -988,48 +1024,50 @@ def select_action(select_action_state, env, env_params, train_state, config):
 
     # Always do action masking with VONE
     if config.env_type.lower() == "vone":
-        # TODO - change this to work with single set of logits (probably just slice them)
-        vmap_mask_nodes = jax.vmap(env.action_mask_nodes, in_axes=(0, None))
-        vmap_mask_slots = jax.vmap(env.action_mask_slots, in_axes=(0, None, 0))
-        vmap_mask_dest_node = jax.vmap(env.action_mask_dest_node, in_axes=(0, None, 0))
+        # The single set of logits is sliced into three heads. Layout matches
+        # VONEEnv.num_actions: [source nodes | dest nodes | path-slot actions]
+        # (a trailing no-op logit, if include_no_op, belongs to no head).
+        # select_action operates on a single (unbatched) env state; batching over
+        # NUM_ENVS is applied by the outer vmap of _env_step in ppo.py.
+        num_nodes = env_params.num_nodes
+        source_logits = pi._logits[..., :num_nodes]
+        dest_logits = pi._logits[..., num_nodes : 2 * num_nodes]
+        key_s, key_p, key_d = jax.random.split(action_key, 3)
 
-        env_state = env_state.replace(env_state=vmap_mask_nodes(env_state.env_state, env_params))
+        inner_state = env.action_mask_nodes(env_state.env_state, env_params)
         pi_source = distrax.Categorical(
-            logits=pi._logits + (-1e8 * (1 - env_state.env_state.node_mask_s.astype(jnp.float32)))
+            logits=source_logits + (-1e8 * (1 - inner_state.node_mask_s.astype(jnp.float32)))
         )
-
-        action_s = (
-            pi_source.sample(seed=action_key) if not config.deterministic else pi_source.mode()
-        )
+        action_s = pi_source.sample(seed=key_s) if not config.deterministic else pi_source.mode()
 
         # Update destination mask now source has been selected
-        env_state = env_state.replace(
-            env_state=vmap_mask_dest_node(env_state.env_state, env_params, action_s)
-        )
+        inner_state = env.action_mask_dest_node(inner_state, env_params, action_s)
         pi_dest = distrax.Categorical(
-            logits=pi._logits + (-1e8 * (1 - env_state.env_state.node_mask_d.astype(jnp.float32)))
+            logits=dest_logits + (-1e8 * (1 - inner_state.node_mask_d.astype(jnp.float32)))
         )
+        action_d = pi_dest.sample(seed=key_d) if not config.deterministic else pi_dest.mode()
 
-        action_p = jnp.full(action_s.shape, 0)
-        action_d = pi_dest.sample(seed=action_key) if not config.deterministic else pi_dest.mode()
-        action = jnp.stack((action_s, action_p, action_d), axis=1)
-
-        env_state = env_state.replace(
-            env_state=vmap_mask_slots(env_state.env_state, env_params, action)
-        )
+        action = jnp.stack((action_s, jnp.zeros_like(action_s), action_d))
+        inner_state = env.action_mask_slots(inner_state, env_params, action)
+        path_dim = inner_state.link_slot_mask.shape[-1]
+        path_logits = pi._logits[..., 2 * num_nodes : 2 * num_nodes + path_dim]
         pi_path = distrax.Categorical(
-            logits=pi._logits
-            + (-1e8 * (1 - env_state.env_state.link_slot_mask.astype(jnp.float32)))
+            logits=path_logits + (-1e8 * (1 - inner_state.link_slot_mask.astype(jnp.float32)))
         )
-        action_p = pi_path.sample(seed=action_key) if not config.deterministic else pi_path.mode()
-        action = jnp.stack((action_s, action_p, action_d), axis=1)
+        action_p = pi_path.sample(seed=key_p) if not config.deterministic else pi_path.mode()
+        action = jnp.stack((action_s, action_p, action_d))
 
         log_prob_source = pi_source.log_prob(action_s)
         log_prob_path = pi_path.log_prob(action_p)
         log_prob_dest = pi_dest.log_prob(action_d)
         log_prob = log_prob_dest + log_prob_path + log_prob_source
-        probs = jax.nn.softmax(pi._logits, axis=-1)
-        valid_mass = jnp.sum(probs * action_mask, axis=-1)
+        env_state = env_state.replace(env_state=inner_state)
+        # Overwrite the (stale) pre-branch masks with the freshly computed path masks so the
+        # final state update below stores them; valid_mass mirrors the RSA path-head semantics.
+        action_mask = inner_state.link_slot_mask
+        full_action_mask = inner_state.full_link_slot_mask
+        probs = jax.nn.softmax(path_logits, axis=-1)
+        valid_mass = jnp.sum(probs * action_mask.astype(jnp.float32), axis=-1)
 
     elif "gn_model" in config.env_type.lower() and config.launch_power_type == "rl":
         # Sampling dispatches to the model's own sample_action* methods (the models know how
@@ -1167,6 +1205,8 @@ def select_action_eval(select_action_state, env, env_params, eval_state, config)
                 action = bf_ksp(env_state.env_state, env_params)
             elif config.path_heuristic.lower() == "ksp_lf":
                 action = ksp_lf(env_state.env_state, env_params)
+            elif config.path_heuristic.lower() == "lf_ksp":
+                action = lf_ksp(env_state.env_state, env_params)
             else:
                 raise ValueError(f"Invalid path heuristic {config.path_heuristic}")
             if env_params.__class__.__name__ in ["RSAGNModelEnvParams", "RMSAGNModelEnvParams"]:
@@ -1206,6 +1246,24 @@ def get_warmup_fn(warmup_state, env, params, train_state, config) -> Callable[[T
         )
     use_heuristic_warmup = config.EVAL_HEURISTIC or warmup_action_type == "heuristic"
     use_random_warmup = warmup_action_type == "random"
+    # select_action_eval dispatches to the heuristics on config.EVAL_HEURISTIC, so when
+    # heuristic warmup is requested during RL training we pass it a copy of the config
+    # with EVAL_HEURISTIC set. GN-model runs with RL launch power are exempt: their
+    # warmup path action is overwritten by the ksp_ff/ksp_lf override below, and
+    # select_action_eval rejects EVAL_HEURISTIC combined with launch_power_type='rl'.
+    warmup_config = config
+    if (
+        use_heuristic_warmup
+        and not config.EVAL_HEURISTIC
+        and not ("gn_model" in config.env_type.lower() and config.launch_power_type == "rl")
+    ):
+        if config.get("aggregate_slots", 1) > 1:
+            raise ValueError(
+                "warmup_action_type='heuristic' is not supported with aggregate_slots > 1: "
+                "heuristics emit full-resolution actions but the env decodes aggregated ones"
+            )
+        warmup_config = Box(config)
+        warmup_config.EVAL_HEURISTIC = True
 
     def warmup_fn(warmup_state) -> Tuple[EnvState, Array]:
         rng, state, last_obs = warmup_state
@@ -1224,10 +1282,14 @@ def get_warmup_fn(warmup_state, env, params, train_state, config) -> Callable[[T
                 # Pass the dedicated action_key, not the loop-carry _rng (which is re-split
                 # next iteration and must never also be consumed for sampling).
                 select_action_state = (action_key, _state, _last_obs)
-                action_fn = select_action if not use_heuristic_warmup else select_action_eval
-                _state, action, log_prob, value = action_fn(
-                    select_action_state, env, _params, _train_state, config
-                )
+                if use_heuristic_warmup:
+                    _state, action, log_prob, value = select_action_eval(
+                        select_action_state, env, _params, _train_state, warmup_config
+                    )
+                else:
+                    _state, action, log_prob, value = select_action(
+                        select_action_state, env, _params, _train_state, config
+                    )
             if "gn_model" in config.env_type.lower() and config.launch_power_type == "rl":
                 # If the action is launch power, the action is this shape:
                 # jnp.concatenate([path_action.reshape((1,)), power_action.reshape((1,))], axis=0)
@@ -1520,6 +1582,8 @@ def setup_wandb(config, project_name, experiment_name):
                 f"{metric}_episode_end_{agg}", step_metric="episode_count", summary="max"
             )
     for metric in loss_metrics:
+        wandb.define_metric(f"{metric}", step_metric="update_epoch")
+    for metric in prioritization_metrics:
         wandb.define_metric(f"{metric}", step_metric="update_epoch")
     # Register reward centering metrics if REWARD_CENTERING is enabled
     if config.get("REWARD_CENTERING", False):
@@ -2290,6 +2354,12 @@ def log_metrics(
                 print("Logging loss info")
                 for i in range(len(merged_out_loss["loss/total_loss"])):
                     log_dict = {f"{metric}": merged_out_loss[metric][i] for metric in loss_metrics}
+                    log_dict.update(
+                        {
+                            f"{metric}": merged_out_loss[metric][i]
+                            for metric in prioritization_metrics
+                        }
+                    )
                     if config.REWARD_CENTERING:
                         log_dict_rc = {
                             f"{metric}": merged_out_loss[metric][i]

@@ -344,9 +344,14 @@ def make(
     )
     link_resources = config.get("link_resources", 100)
     values_bw = config.get("values_bw", None)
+    values_bw_probs = config.get("values_bw_probs", None)
     node_probabilities = config.get("node_probs", None)
     if values_bw:
         values_bw = convert_str_to_list_of_numerics(values_bw, num_type="int")
+    if values_bw_probs:
+        values_bw_probs = convert_str_to_list_of_numerics(values_bw_probs, num_type="float")
+    else:
+        values_bw_probs = None
     slot_size = config.get("slot_size", 12.5)
     min_bw = config.get("min_bw", 25)
     max_bw = config.get("max_bw", 100)
@@ -458,12 +463,17 @@ def make(
             link_resources, ref_lambda, slot_size, config.get("band_data_filepath", None)
         )
     else:
-        interband_gap_width = [200, 200] if config.get("interband_gap_width", None) is None else []
+        _gap_width = config.get("interband_gap_width", None)
+        interband_gap_width = [200, 200] if _gap_width is None else list(_gap_width)
         gap_width_slots = [int(math.ceil(width / slot_size)) for width in interband_gap_width]
-        interband_gap_start = (
-            [4425, 8425] if config.get("interband_gap_start", None) is None else []
-        )
+        _gap_start = config.get("interband_gap_start", None)
+        interband_gap_start = [4425, 8425] if _gap_start is None else list(_gap_start)
         gap_start_slots = [int(math.ceil(start / slot_size)) for start in interband_gap_start]
+        if len(gap_width_slots) != len(gap_start_slots):
+            raise ValueError(
+                "interband_gap_width and interband_gap_start must have the same length; "
+                f"got {len(gap_width_slots)} widths and {len(gap_start_slots)} starts"
+            )
     mod_format_correction = (
         config.get("mod_format_correction", True) if env_type == "rmsa_gn_model" else False
     )
@@ -544,9 +554,12 @@ def make(
     # expensive KSP computation here for env types that don't need it,
     # UNLESS it's a GN model type that reads path_link_array.shape before
     # the second call.
-    _needs_modulation_resort = (
-        env_type not in ("rsa", "rwa", "rwa_lightpath_reuse") and path_sort_criteria != "distance"
+    # Mirror the consider_modulation_format derivation below: vone with slot_size==1
+    # never makes the modulation-aware call, so it must take the first call here.
+    _uses_modulation = env_type not in ("rsa", "rwa", "rwa_lightpath_reuse") and not (
+        env_type == "vone" and slot_size == 1
     )
+    _needs_modulation_resort = _uses_modulation and path_sort_criteria != "distance"
     _needs_first_call = not _needs_modulation_resort or env_type in (
         "rmsa_gn_model",
         "rsa_gn_model",
@@ -657,6 +670,22 @@ def make(
         consider_modulation_format = True
 
     max_bw = max(values_bw)
+
+    # Validate bandwidth sampling probabilities against the final values_bw array
+    # (values_bw may come from min/max/step or be overridden by the env type above)
+    if values_bw_probs is not None:
+        if len(values_bw_probs) != len(values_bw):
+            raise ValueError(
+                f"values_bw_probs must have the same length as values_bw: "
+                f"got {len(values_bw_probs)} probabilities for {len(values_bw)} bandwidth values"
+            )
+        if any(p < 0 for p in values_bw_probs) or sum(values_bw_probs) <= 0:
+            raise ValueError(
+                f"values_bw_probs must be non-negative and sum to a positive value, "
+                f"got {values_bw_probs}"
+            )
+        values_bw_probs = jnp.array(values_bw_probs, dtype=jnp.float32)
+        values_bw_probs = values_bw_probs / jnp.sum(values_bw_probs)
 
     link_length_array = init_link_length_array(graph).reshape((num_links, 1))
 
@@ -822,6 +851,9 @@ def make(
         directed_graph=graph.is_directed(),
         maximise_throughput=maximise_throughput,
         values_bw=HashableArrayWrapper(values_bw) if not remove_array_wrappers else values_bw,
+        values_bw_probs=HashableArrayWrapper(values_bw_probs)
+        if (values_bw_probs is not None and not remove_array_wrappers)
+        else values_bw_probs,
         reward_type=reward_type,
         truncate_holding_time=truncate_holding_time,
         log_actions=log_actions,

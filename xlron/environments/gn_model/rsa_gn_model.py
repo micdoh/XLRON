@@ -70,7 +70,9 @@ class RSAGNModelEnv(RSAEnv):
             link_slot_array=set_band_gaps(init_link_slot_array(params), params, -1.0),
             link_slot_departure_array=init_link_slot_departure_array(params),
             request_array=init_rsa_request_array(),
-            link_slot_mask=init_link_slot_mask(params, agg=params.aggregate_slots),
+            link_slot_mask=init_link_slot_mask(
+                params, include_no_op=params.include_no_op, agg=params.aggregate_slots
+            ),
             traffic_matrix=traffic_matrix
             if traffic_matrix is not None
             else init_traffic_matrix(key, params),
@@ -81,6 +83,7 @@ class RSAGNModelEnv(RSAEnv):
             total_bitrate=0.0,
             list_of_requests=list_of_requests,
             link_snr_array=init_link_snr_array(params),
+            link_snr_array_prev=init_link_snr_array(params),
             path_index_array=init_path_index_array(params),
             path_index_array_prev=init_path_index_array(params),
             channel_centre_bw_array=init_channel_centre_bw_array(params),

@@ -315,7 +315,13 @@ class RSAEnv(environment.Environment):
         info["_accepted_services"] = state.accepted_services
         info["_accepted_bitrate"] = state.accepted_bitrate
         info["_total_bitrate"] = state.total_bitrate
-        info["_utilisation"] = jnp.count_nonzero(state.link_slot_array) / state.link_slot_array.size
+        # Band-gap sentinels (-1) are neither occupied nor usable spectrum, so count
+        # positively-occupied slots over the usable (non-gap) slots only
+        occupied_slots = jnp.count_nonzero(state.link_slot_array > 0)
+        usable_slots = jnp.count_nonzero(state.link_slot_array >= 0)
+        info["_utilisation"] = (occupied_slots / jnp.maximum(usable_slots, 1)).astype(
+            dtype_config.LARGE_FLOAT_DTYPE
+        )
         info["_fragmentation"] = calculate_fragmentation(state.link_slot_array)
         if params.render:
             # Expose exact action_info/check used internally by step_env for render/debug paths.
@@ -924,9 +930,9 @@ class RSAEnv(environment.Environment):
         total_bitrate = self._to_scalar(state.total_bitrate)
         service_bp = 1.0 - (accepted_services / max(total_requests, 1))
         bitrate_bp = 1.0 - (accepted_bitrate / max(total_bitrate, 1e-6))
-        util = float(
-            np.count_nonzero(self._to_numpy(state.link_slot_array)) / state.link_slot_array.size
-        )
+        # Exclude band-gap sentinels (-1) from both numerator and denominator
+        lsa = self._to_numpy(state.link_slot_array)
+        util = float(np.count_nonzero(lsa > 0) / max(np.count_nonzero(lsa >= 0), 1))
 
         req_fsu = (
             int(round(self._to_scalar(action_info.num_slots)))
@@ -1315,29 +1321,17 @@ class RSAEnv(environment.Environment):
             reward: Reward for failure
         """
         reward = -one
+        # Use action_info.requested_datarate (captured in process_action before the
+        # request is regenerated) rather than state.request_array, so the value is
+        # identical at both call sites: calculate_reward (pre-mutation state) and
+        # is_terminal for end_first_blocking (post-generate_request state).
         if params.reward_type == "service":
             pass
         elif params.reward_type == "bitrate":
-            reward = (
-                differentiable_index(
-                    state.request_array,
-                    1,
-                    temperature=params.temperature,
-                    differentiable=params.differentiable,
-                )
-                * reward
-                / jnp.max(params.values_bw.val)
-            )
+            reward = action_info.requested_datarate * reward / jnp.max(params.values_bw.val)
         else:
             reward = (
-                reward
-                * differentiable_index(
-                    read_rsa_request(state.request_array),
-                    1,
-                    temperature=params.temperature,
-                    differentiable=params.differentiable,
-                )
-                / jnp.max(params.values_bw.val)
+                reward * action_info.requested_datarate / jnp.max(params.values_bw.val)
                 if params.maximise_throughput
                 else reward
             )
@@ -1360,7 +1354,7 @@ class RSAEnv(environment.Environment):
         reward = zero
 
         if params.reward_type != "service":
-            reward = state.request_array[1] * reward / jnp.max(params.values_bw.val)
+            reward = action_info.requested_datarate * one / jnp.max(params.values_bw.val)
             if params.reward_type == "bitrate":
                 pass  # No additional calculation needed
             elif params.reward_type == "snr":
@@ -1368,16 +1362,19 @@ class RSAEnv(environment.Environment):
                 assert params.__class__.__name__ == "RSAGNModelEnvParams"
                 gn_state = cast(GNModelEnvState, state)
                 gn_params = cast(RSAGNModelEnvParams, params)
-                path_snr = get_snr_for_path(action_info.path, gn_state.link_snr_array, gn_params)[
-                    action_info.initial_slot_index.astype(dtype_config.LARGE_INT_DTYPE)
-                ]
+                # Pass the state so the reward SNR includes path-level ROADM ASE,
+                # matching the SNR used by the masking/acceptance checks
+                path_snr = get_snr_for_path(
+                    action_info.path, gn_state.link_snr_array, gn_params, gn_state
+                )[action_info.initial_slot_index.astype(dtype_config.LARGE_INT_DTYPE)]
                 # set to 0 if negative and divide by large SNR (e.g. 50. dB) to scale below 1
                 # N.B. negative SNR in dB would be a fail anyway since min. required is 10dB
                 path_snr_norm = jnp.where(path_snr < zero, zero, path_snr) / gn_params.max_snr
                 return reward + path_snr_norm
             elif params.reward_type == "mod_format":
                 # Modulation format calculation...
-                assert params.__class__.__name__ == "RSAGNModelEnvParams"
+                # modulation_format_index_array only exists on RMSAGNModelEnvState
+                assert params.__class__.__name__ == "RMSAGNModelEnvParams"
                 rmsa_state = cast(RMSAGNModelEnvState, state)
                 mod_format_index = get_path_slots(
                     rmsa_state.modulation_format_index_array,
