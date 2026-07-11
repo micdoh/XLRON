@@ -68,7 +68,9 @@ class VONEEnv(environment.Environment):
             action_counter=init_action_counter(),
             action_history=init_action_history(params),
             node_mask_s=init_node_mask(params),
-            link_slot_mask=init_link_slot_mask(params, agg=params.aggregate_slots),
+            link_slot_mask=init_link_slot_mask(
+                params, include_no_op=params.include_no_op, agg=params.aggregate_slots
+            ),
             node_mask_d=init_node_mask(params),
             virtual_topology_patterns=init_virtual_topology_patterns(
                 virtual_topologies if virtual_topologies is not None else ["3_ring"]
@@ -127,10 +129,13 @@ class VONEEnv(environment.Environment):
         ),
     )
     def reset(
-        self, key: chex.PRNGKey, params: Optional[EnvParams] = None
+        self,
+        key: chex.PRNGKey,
+        params: Optional[EnvParams] = None,
+        state: Optional[VONEEnvState] = None,
     ) -> Tuple[Array, EnvState]:
         """Performs resetting of environment."""
-        obs, state = self.reset_env(key, params)
+        obs, state = self.reset_env(key, params, state)
         return obs, state
 
     def step_env(
@@ -203,6 +208,12 @@ class VONEEnv(environment.Environment):
             graph=init_graph_tuple(state, params, self.laplacian_matrix, exclude_source_dest=True)
         )
         info = {}
+        # Stash metrics so they survive the auto-reset in step(); LogWrapper pops these
+        # instead of reading the (possibly reset) state.
+        info["_accepted_services"] = state.accepted_services
+        info["_accepted_bitrate"] = state.accepted_bitrate
+        info["_total_bitrate"] = state.total_bitrate
+        info["_utilisation"] = jnp.count_nonzero(state.link_slot_array) / state.link_slot_array.size
         return self.get_obs(state), state, reward, terminal, truncated, info
 
     @partial(
@@ -212,11 +223,26 @@ class VONEEnv(environment.Environment):
             2,
         ),
     )
-    def reset_env(self, key: chex.PRNGKey, params: VONEEnvParams) -> Tuple[Array, VONEEnvState]:
+    def reset_env(
+        self,
+        key: chex.PRNGKey,
+        params: VONEEnvParams,
+        state: Optional[VONEEnvState] = None,
+    ) -> Tuple[Array, VONEEnvState]:
         """Environment-specific reset."""
         state = self.initial_state
         state = generate_vone_request(key, state, params)
         return self.get_obs(state), state
+
+    def action_mask(self, state: VONEEnvState, params: VONEEnvParams) -> Tuple[Array, Array]:
+        """Return the current path-slot masks (API parity with RSA-family envs).
+
+        VONE masking is per-head (action_mask_nodes / action_mask_dest_node /
+        action_mask_slots); this returns the stored path masks so shared code that
+        calls env.action_mask uniformly (e.g. select_action) works. The values are
+        only meaningful after action_mask_slots has been applied.
+        """
+        return state.link_slot_mask, state.full_link_slot_mask
 
     def action_mask_nodes(self, state: VONEEnvState, params: VONEEnvParams) -> Array:
         """Returns action mask for state."""
@@ -236,12 +262,17 @@ class VONEEnv(environment.Environment):
 
     def action_mask_slots(self, state: EnvState, params: EnvParams, action: Array) -> EnvState:
         """Returns action mask for state."""
+        # Temporarily swap in the RSA-style (source, slots, dest) request so the shared
+        # mask_slots can read it; restore the original VONE request_array before returning
+        # since the caller stores the returned state back into the carried env state.
+        orig_request_array = state.request_array
         formatted_request = format_vone_slot_request(state, action)
         state = state.replace(request_array=formatted_request)
         link_slot_mask, full_link_slot_mask = mask_slots(state, params)
         # Store at SMALL_FLOAT to keep the carried field dtype stable under mixed precision
         # (matches init_link_slot_mask); mask values are {0, 1}, exact in float16.
         state = state.replace(
+            request_array=orig_request_array,
             link_slot_mask=link_slot_mask.astype(dtype_config.SMALL_FLOAT_DTYPE),
             full_link_slot_mask=full_link_slot_mask.astype(dtype_config.SMALL_FLOAT_DTYPE),
         )

@@ -195,6 +195,16 @@ def calculate_congestion_batch(
     )
 
 
+def compute_exhaustive_starts(parallel_processes: int, iterations_per_process: int):
+    """Per-process start offsets for find_congested_cuts_exhaustive.
+
+    Starts are in ITERATION units: find_congested_cuts_exhaustive multiplies by
+    num_batches_per_iteration and then batch_size internally, so process p covers
+    combination indices [p*ipp*bpi*bs, (p+1)*ipp*bpi*bs).
+    """
+    return jnp.arange(parallel_processes) * iterations_per_process
+
+
 def find_congested_cuts_exhaustive(
     start,
     num_iterations,
@@ -596,7 +606,7 @@ def _simulation_step(
              service_slot_start, service_slot_count,
              accepted_count, blocked_count, always_accepted_count,
              accepted_bitrate, blocked_bitrate, always_accepted_bitrate,
-             total_bitrate)
+             total_bitrate, overflow_count)
     """
     (
         state,
@@ -613,6 +623,7 @@ def _simulation_step(
         blocked_bitrate,
         always_accepted_bitrate,
         total_bitrate,
+        overflow_count,
     ) = carry
 
     # --- 1. Generate request (advances time, generates source/dest/bw/holding_time) ---
@@ -698,6 +709,11 @@ def _simulation_step(
     # --- 8. Record service in table (for later departure) ---
     empty_mask = service_departure_times == 0  # (M,)
     service_idx = jnp.argmax(empty_mask).astype(jnp.int32)
+    # If the table is full, argmax over all-False returns 0 and the write below
+    # would overwrite an active service, permanently leaking cut-set capacity.
+    # Count these events so corruption is detectable rather than silent.
+    table_full = ~jnp.any(empty_mask)
+    overflow_count = overflow_count + (accepted & table_full).astype(jnp.int32)
     departure_time = holding_time.astype(service_departure_times.dtype).squeeze()
 
     service_departure_times = jnp.where(
@@ -759,6 +775,7 @@ def _simulation_step(
         blocked_bitrate,
         always_accepted_bitrate,
         total_bitrate,
+        overflow_count,
     )
     return new_carry, None
 
@@ -793,7 +810,8 @@ def run_single_trial(
 
     Returns:
         (accepted_count, blocked_count, always_accepted_count,
-         accepted_bitrate, blocked_bitrate, always_accepted_bitrate, total_bitrate)
+         accepted_bitrate, blocked_bitrate, always_accepted_bitrate, total_bitrate,
+         overflow_count)
     """
     num_cutsets = partition1.shape[0]
     num_total_slots = params.link_resources
@@ -826,6 +844,7 @@ def run_single_trial(
         jnp.float32(0.0),  # blocked_bitrate
         jnp.float32(0.0),  # always_accepted_bitrate
         jnp.float32(0.0),  # total_bitrate
+        jnp.int32(0),  # overflow_count
         jnp.int32(0),  # step_idx
     )
 
@@ -862,6 +881,7 @@ def run_single_trial(
         blocked_bitrate,
         always_accepted_bitrate,
         total_bitrate,
+        overflow_count,
         _step_idx,
     ) = final_carry
 
@@ -873,6 +893,7 @@ def run_single_trial(
         blocked_bitrate,
         always_accepted_bitrate,
         total_bitrate,
+        overflow_count,
     )
 
 
@@ -989,7 +1010,7 @@ def run_capacity_bound_simulation(
 
         # Execution (reuses compiled function, no recompilation)
         with profiler.section(
-            f"EXECUTION (load={load_val:.0f})",
+            f"EXECUTION (load={float(load_val):g})",
             frames=num_requests * num_trials,
         ):
             (
@@ -1000,6 +1021,7 @@ def run_capacity_bound_simulation(
                 blocked_br,
                 always_accepted_br,
                 total_br,
+                overflow,
             ) = jitted_single(trial_rngs, initial_state)
             # Block until results are ready for accurate timing
             jax.block_until_ready((accepted, blocked))
@@ -1011,6 +1033,14 @@ def run_capacity_bound_simulation(
         blocked_br = np.asarray(blocked_br)
         always_accepted_br = np.asarray(always_accepted_br)
         total_br = np.asarray(total_br)
+        overflow = np.asarray(overflow)
+        if np.any(overflow > 0):
+            print(
+                f"  WARNING: service table overflowed in {int(np.sum(overflow > 0))}/"
+                f"{num_trials} trials (per-trial overflow counts: {overflow.tolist()}). "
+                f"Results at this load are corrupted (capacity leaks permanently); "
+                f"increase max_services (currently {max_services})."
+            )
 
         total = accepted + blocked
         blocking_prob = blocked / np.maximum(total, 1)
@@ -1034,6 +1064,7 @@ def run_capacity_bound_simulation(
             "always_accepted_bitrate": always_accepted_br,
             "total_bitrate": total_br,
             "bitrate_blocking_prob": bitrate_blocking_prob,
+            "service_table_overflow": overflow,
         }
 
     profiler.summary()
@@ -1117,23 +1148,28 @@ def main(argv):
         print(f"Batches per process: {batches_per_process}")
         print(f"Batches per iteration: {batches_per_iteration}")
         print(f"Iterations per process: {iterations_per_process}")
-        starts = jnp.arange(parallel_processes) * iterations_per_process * batch_size
+        starts = compute_exhaustive_starts(parallel_processes, iterations_per_process)
         if FLAGS.VISIBLE_DEVICES:
             starts = jax.device_put(starts, jax.devices()[int(FLAGS.VISIBLE_DEVICES)])
         if FLAGS.DISABLE_JIT:
-            heavy_cut_sets_raw = find_congested_cuts_exhaustive(
-                starts,
-                iterations_per_process,
-                batches_per_iteration,
-                adj_matrix_haw,
-                traffic_matrix_haw,
-                params.num_nodes,
-                top_k,
-                batch_size,
-                source_nodes_haw,
-                destination_nodes_haw,
-                params.directed_graph,
-            )
+            # Run each process's slice sequentially (a scalar start per call)
+            per_process = [
+                find_congested_cuts_exhaustive(
+                    start,
+                    iterations_per_process,
+                    batches_per_iteration,
+                    adj_matrix_haw,
+                    traffic_matrix_haw,
+                    params.num_nodes,
+                    top_k,
+                    batch_size,
+                    source_nodes_haw,
+                    destination_nodes_haw,
+                    params.directed_graph,
+                )
+                for start in starts
+            ]
+            heavy_cut_sets_raw = tuple(jnp.stack(arrs) for arrs in zip(*per_process))
         else:
             with TimeIt("CUT-SET COMPILATION:"):
                 func = (
@@ -1262,6 +1298,10 @@ def main(argv):
     else:
         loads = np.array([FLAGS.load])
 
+    # Size the service table from the sweep: expected concurrent services equal the
+    # offered load in Erlangs (Poisson with mean=load), so 3x is a safe tail bound.
+    max_services = max(2000, int(3 * float(np.max(loads))))
+
     results, sim_profiler = run_capacity_bound_simulation(
         heavy_cut_sets=heavy_cut_sets,
         env=raw_env,
@@ -1271,6 +1311,7 @@ def main(argv):
         num_requests=int(FLAGS.max_requests),
         num_trials=FLAGS.num_trials,
         seed=FLAGS.SEED,
+        max_services=max_services,
         source_nodes=source_nodes_haw if params.directed_graph else None,
         dest_nodes=destination_nodes_haw if params.directed_graph else None,
     )
@@ -1278,7 +1319,7 @@ def main(argv):
     print_results_table(results)
 
     # Build and write standardized run summary for each load
-    for load in sorted(results.keys()):
+    for load_idx, load in enumerate(sorted(results.keys())):
         r = results[load]
         bp = r["blocking_prob"]
         bbp = r["bitrate_blocking_prob"]
@@ -1316,11 +1357,13 @@ def main(argv):
             },
         }
 
-        # Extract timing from profiler for this load
+        # Extract timing from profiler for this load. Compilation happens once
+        # (shared across loads), so attach it only to the first load's summary
+        # to avoid multiply-counting it in downstream aggregation.
         timing = {}
-        comp_key = f"COMPILATION (load={load:.0f})"
-        exec_key = f"EXECUTION (load={load:.0f})"
-        if comp_key in sim_profiler._records:
+        comp_key = "COMPILATION"
+        exec_key = f"EXECUTION (load={load:g})"
+        if load_idx == 0 and comp_key in sim_profiler._records:
             timing["compilation_time_s"] = sum(e for e, _ in sim_profiler._records[comp_key])
         if exec_key in sim_profiler._records:
             exec_entries = sim_profiler._records[exec_key]

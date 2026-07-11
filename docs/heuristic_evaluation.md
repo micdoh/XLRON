@@ -187,8 +187,8 @@ The heuristic algorithm to use. Available options:
 | `mu_ksp` | **Most-Used across K-Shortest Paths.** Search all k paths; prefer globally most-used slots. |
 | `kmc_ff` | **K-Minimum Cut, First-Fit.** Select path that minimises cut metric, then first-fit. |
 | `kmf_ff` | **K-Minimum Fragmentation, First-Fit.** Select path that minimises fragmentation, then first-fit. |
-| `kme_ff` | **K-Minimum Entropy, First-Fit.** Select path that minimises spectrum entropy, then first-fit. |
-| `kca_ff` | **Congestion-Aware, First-Fit.** Select path considering link congestion, then first-fit. |
+| `kme_ff` | **K-Minimum Entropy, First-Fit.** Select path whose allocation causes the smallest increase in spectrum fragmentation entropy (Wright, Parker & Lord, JOCN 2015), then first-fit. |
+| `kca_ff` | **Congestion-Aware, First-Fit.** Select the least-congested feasible path (occupancy-weighted link length), then first-fit. |
 
 Default: `ksp_ff`.
 

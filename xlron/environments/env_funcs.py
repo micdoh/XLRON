@@ -1,3 +1,4 @@
+import difflib
 import hashlib
 import itertools
 import json
@@ -7,7 +8,7 @@ import pathlib
 from collections import defaultdict
 from functools import partial
 from itertools import combinations, islice
-from typing import Dict, List, Sequence, Tuple, TypeVar, Union, cast
+from typing import Dict, List, Tuple, TypeVar, Union, cast
 from concurrent.futures import ProcessPoolExecutor
 
 import box
@@ -17,8 +18,7 @@ import jax.numpy as jnp
 import jraph
 import networkx as nx
 import numpy as np
-from jax._src import core, dtypes, prng
-from jax._src.typing import Array, ArrayLike, DTypeLike
+from jax import Array
 from scipy.constants import c, h
 
 from xlron import dtype_config
@@ -51,7 +51,6 @@ from xlron.environments.diff_utils import (
 from xlron.environments.gn_model import isrs_gn_model, isrs_gn_model_dra
 from xlron.environments.gn_model.isrs_gn_model import from_db
 
-Shape = Sequence[int]
 T = TypeVar("T")  # Declare type variable
 
 one = jnp.array(1.0, dtype=dtype_config.SMALL_INT_DTYPE)
@@ -1462,49 +1461,6 @@ def get_path_and_se(params: EnvParams, nodes: Array, k_path_index: int) -> Tuple
     return path, se
 
 
-@partial(jax.jit, static_argnums=(1, 2, 3))
-def poisson(
-    key: Union[Array, prng.PRNGKeyArray],
-    lam: ArrayLike,
-    shape: Shape = (),
-    dtype: DTypeLike = dtypes.float_,
-) -> Array:
-    r"""Sample Exponential random values with given shape and float dtype.
-
-    The values are distributed according to the probability density function:
-
-    .. math::
-     f(x) = \lambda e^{-\lambda x}
-
-    on the domain :math:`0 \le x < \infty`.
-
-    Args:
-    key: a PRNG key used as the random key.
-    lam: a positive float32 or float64 `Tensor` indicating the rate parameter
-    shape: optional, a tuple of nonnegative integers representing the result
-      shape. Default ().
-    dtype: optional, a float dtype for the returned values (default float64 if
-      jax_enable_x64 is true, otherwise float32).
-
-    Returns:
-    A random array with the specified shape and dtype.
-    """
-    key, _ = jax._src.random._check_prng_key(key)
-    if not dtypes.issubdtype(dtype, np.floating):
-        raise ValueError(f"dtype argument to `exponential` must be a float dtype, got {dtype}")
-    dtype = dtypes.canonicalize_dtype(dtype)
-    shape = core.canonicalize_shape(shape)
-    return _poisson(key, lam, shape, dtype)
-
-
-@partial(jax.jit, static_argnums=(1, 2, 3))
-def _poisson(key, lam, shape, dtype) -> Array:
-    jax._src.random._check_shape("exponential", shape)
-    u = jax.random.uniform(key, shape, dtype)
-    # taking 1 - u to move the domain of log to (0, 1] instead of [0, 1)
-    return jax.lax.div(jax.lax.neg(jax.lax.log1p(jax.lax.neg(u))), lam)
-
-
 # TODO - consider just making a differentiable version of this whole function
 @partial(jax.jit, static_argnums=(1,))
 def generate_arrival_holding_times(key, params, arrival_rate, mean_service_holding_time):
@@ -1538,10 +1494,14 @@ def generate_arrival_holding_times(key, params, arrival_rate, mean_service_holdi
     )  # Divide because it is rate (lambda)
     if params.truncate_holding_time:
         # For DeepRMSA, need to generate holding times that are less than 2*mean_service_holding_time
-        key_holding = jax.random.split(key, 5)
+        # Split the child key (not the parent): split(key, 5)[:2] == split(key, 2), so
+        # re-splitting the parent would alias candidate keys with key_arrival
+        key_holding = jax.random.split(key_holding, 5)
         holding_times = jax.vmap(
-            lambda x: jax.random.exponential(x, shape=(1,), dtype=dtype_config.TIME_DTYPE)
-            * mean_service_holding_time
+            lambda x: (
+                jax.random.exponential(x, shape=(1,), dtype=dtype_config.TIME_DTYPE)
+                * mean_service_holding_time
+            )
         )(key_holding).reshape(-1)
         holding_times = jnp.where(
             holding_times < 2 * mean_service_holding_time, holding_times, zero
@@ -1656,8 +1616,13 @@ def remove_expired_services_rsa(state: RSAEnvState, params: EnvParams) -> RSAEnv
     )  # 1 where dep > t, else 0
     keep_f = keep.astype(dep.dtype)  # 0/1 in dep dtype  # ty: ignore[unresolved-attribute]
 
-    # Clear expired slots
-    new_slots = state.link_slot_array * keep_f
+    # Clear only slots occupied by an expired service (0 < dep <= t). Band-gap
+    # sentinels (-1 in link_slot_array) carry dep == 0 and must survive expiry.
+    active = differentiable_compare(
+        dep, zero, ">", temperature=params.temperature, differentiable=params.differentiable
+    )
+    expired = active * (1 - keep)
+    new_slots = state.link_slot_array * (1 - expired).astype(state.link_slot_array.dtype)
 
     if params.relative_arrival_times:
         # Keep only those that are still active and shift them by -t
@@ -1760,8 +1725,14 @@ def remove_expired_services_rsa_gn_model(
 
     keep_i = keep.astype(state.path_index_array.dtype)
     mask_remove_i = mask_remove.astype(state.path_index_array.dtype)
+    # Band-gap sentinels (-1 in link_slot_array) carry dep == 0, so only clear slots
+    # of actually-expired services (dep > 0) in link_slot_array
+    active = differentiable_compare(
+        dep, zero, ">", temperature=params.temperature, differentiable=params.differentiable
+    )
+    lsa_keep = (1 - mask_remove * active).astype(state.link_slot_array.dtype)
     state = state.replace(
-        link_slot_array=state.link_slot_array * keep_f,
+        link_slot_array=state.link_slot_array * lsa_keep,
         link_slot_departure_array=new_dep,
         link_snr_array=state.link_snr_array * keep_f,
         path_index_array=state.path_index_array * keep_i
@@ -1774,6 +1745,7 @@ def remove_expired_services_rsa_gn_model(
         channel_centre_bw_array_prev=state.channel_centre_bw_array_prev * keep_f,
         channel_power_array_prev=state.channel_power_array_prev * keep_f,
         channel_centre_freq_array_prev=state.channel_centre_freq_array_prev * keep_f,
+        link_snr_array_prev=state.link_snr_array_prev * keep_f,
     )
 
     dep_lp = state.active_lightpaths_array_departure
@@ -1834,8 +1806,14 @@ def remove_expired_services_rmsa_gn_model(
     keep_i = keep.astype(state.path_index_array.dtype)
     mask_remove_i = mask_remove.astype(state.path_index_array.dtype)
     neg_one_i = jnp.array(-1, dtype=state.path_index_array.dtype)
+    # Band-gap sentinels (-1 in link_slot_array) carry dep == 0, so only clear slots
+    # of actually-expired services (dep > 0) in link_slot_array
+    active = differentiable_compare(
+        dep, zero, ">", temperature=params.temperature, differentiable=params.differentiable
+    )
+    lsa_keep = (1 - mask_remove * active).astype(state.link_slot_array.dtype)
     state = state.replace(
-        link_slot_array=state.link_slot_array * keep_f,
+        link_slot_array=state.link_slot_array * lsa_keep,
         link_slot_departure_array=new_dep,
         link_snr_array=state.link_snr_array * keep_f,
         path_index_array=state.path_index_array * keep_i + neg_one_i * mask_remove_i,
@@ -1850,6 +1828,7 @@ def remove_expired_services_rmsa_gn_model(
         channel_centre_freq_array_prev=state.channel_centre_freq_array_prev * keep_f,
         modulation_format_index_array_prev=state.modulation_format_index_array_prev * keep_i
         + neg_one_i * mask_remove_i,
+        link_snr_array_prev=state.link_snr_array_prev * keep_f,
     )
     return state
 
@@ -1894,6 +1873,8 @@ def complete_step_rsa_gn_model(
         + state.channel_centre_freq_array_prev * fail.astype(state.channel_centre_freq_array.dtype),
         path_index_array=state.path_index_array * one_m_fail.astype(state.path_index_array.dtype)
         + state.path_index_array_prev * fail.astype(state.path_index_array.dtype),
+        link_snr_array=state.link_snr_array * one_m_fail.astype(state.link_snr_array.dtype)
+        + state.link_snr_array_prev * fail.astype(state.link_snr_array.dtype),
     )
 
     # --- Resolve the pending registry entry (departure inserted negative by implement) ---
@@ -1965,6 +1946,10 @@ def complete_step_rmsa_gn_model(
         * one_m_fail.astype(state.modulation_format_index_array.dtype)
         + state.modulation_format_index_array_prev
         * fail.astype(state.modulation_format_index_array.dtype),
+        # implement_action_rmsa_gn_model recomputed link_snr_array from the tentative
+        # placement, so restore the pre-action SNR when the request is blocked
+        link_snr_array=state.link_snr_array * one_m_fail.astype(state.link_snr_array.dtype)
+        + state.link_snr_array_prev * fail.astype(state.link_snr_array.dtype),
     )
 
     # --- Book-keeping (always) ---
@@ -2286,6 +2271,7 @@ def convert_node_probs_to_traffic_matrix(node_probs: list) -> Array:
     Returns:
         traffic_matrix: traffic matrix
     """
+    node_probs = jnp.asarray(node_probs)
     matrix = jnp.outer(node_probs, node_probs).astype(dtype_config.SMALL_FLOAT_DTYPE)
     # Set lead diagonal to zero
     matrix = jnp.where(jnp.eye(matrix.shape[0]) == 1, 0, matrix)
@@ -2366,7 +2352,19 @@ def make_graph(topology_name: str = "conus", topology_directory: str | None = No
             "distance",
         )
     else:
-        with open(topology_path / f"{topology_name}.json") as f:
+        topology_file = topology_path / f"{topology_name}.json"
+        if not topology_file.is_file():
+            available = sorted(p.stem for p in topology_path.glob("*.json")) + ["4node", "7node"]
+            suggestions = difflib.get_close_matches(topology_name, available, n=3, cutoff=0.5)
+            msg = f"Unknown topology '{topology_name}'."
+            if suggestions:
+                msg += f" Did you mean: {', '.join(suggestions)}?"
+            msg += (
+                f" {len(available)} topologies are available in {topology_path} "
+                f"(use the filename without the .json extension)."
+            )
+            raise ValueError(msg)
+        with open(topology_file) as f:
             graph = nx.node_link_graph(json.load(f), edges="links")
     # Topology JSONs are mixed-base (TopologyBench-derived files number nodes 1..N, others
     # 0..N-1), but node labels are used directly as row indices into node-feature arrays
@@ -2674,6 +2672,43 @@ def find_block_sizes(
         block_sizes = block_sizes * free
 
     return block_sizes
+
+
+@jax.jit
+def calculate_fragmentation(link_slot_array: Array) -> Array:
+    """Calculate mean external spectrum fragmentation across links.
+
+    External fragmentation per link = 1 - largest_free_block / total_free_slots.
+    It is 0 when each link's free capacity is contiguous (or the link is completely
+    full/empty) and approaches 1 as free slots are scattered into many small blocks.
+
+    Occupancy follows the same convention as the utilisation metric: any non-zero
+    value counts as occupied (in-service slots are stored as negative values).
+    Uses an O(links x slots) cumulative-max scan (no NxN block-size matrices as in
+    find_block_sizes), so it is cheap enough to compute on the hot path every step.
+
+    Args:
+        link_slot_array: Link-slot occupancy array of shape (num_links, num_slots)
+
+    Returns:
+        Scalar mean external fragmentation across links
+    """
+    occupied = link_slot_array != 0
+    num_slots = link_slot_array.shape[1]
+    slot_indices = jnp.arange(num_slots, dtype=dtype_config.INDEX_DTYPE)[None, :]
+    # Index of the most recent occupied slot at or before each position (-1 if none),
+    # so (slot_index - last_occupied) is the length of the free run ending at each slot
+    last_occupied = jax.lax.cummax(jnp.where(occupied, slot_indices, -1), axis=1)
+    free_run_lengths = jnp.where(occupied, 0, slot_indices - last_occupied)
+    largest_free_block = jnp.max(free_run_lengths, axis=1)
+    total_free_slots = jnp.sum(~occupied, axis=1)
+    # Fully-occupied links have no free capacity to fragment, so report 0
+    fragmentation_per_link = jnp.where(
+        total_free_slots > 0,
+        1.0 - largest_free_block / jnp.maximum(total_free_slots, 1),
+        0.0,
+    )
+    return jnp.mean(fragmentation_per_link).astype(dtype_config.LARGE_FLOAT_DTYPE)
 
 
 @partial(jax.jit, static_argnums=(1,))
@@ -4325,6 +4360,7 @@ def implement_action_rsa_gn_model(
         channel_centre_bw_array_prev=state.channel_centre_bw_array,
         channel_power_array_prev=state.channel_power_array,
         channel_centre_freq_array_prev=state.channel_centre_freq_array,
+        link_snr_array_prev=state.link_snr_array,
     )
     path_action = action_info.action.astype(dtype_config.LARGE_INT_DTYPE)
     lightpath_index = get_lightpath_index(params, action_info.nodes_sd, action_info.path_index)
@@ -4396,6 +4432,7 @@ def implement_action_rmsa_gn_model(
         channel_power_array_prev=state.channel_power_array,
         channel_centre_freq_array_prev=state.channel_centre_freq_array,
         modulation_format_index_array_prev=state.modulation_format_index_array,
+        link_snr_array_prev=state.link_snr_array,
     )
     path_action = action_info.action.astype(dtype_config.LARGE_INT_DTYPE)
     lightpath_index = get_lightpath_index(params, action_info.nodes_sd, action_info.path_index)
@@ -4710,10 +4747,13 @@ def mask_slots_rmsa_gn_model(
     if params.launch_power_type == "fixed":
         all_launch_powers = params.slot_launch_power_array.val[all_slot_indices]
     else:
+        # Synthesise a path action for path i in the aggregated action space; must use
+        # ceil to round-trip through process_path_action (floor mis-decodes the path
+        # index whenever link_resources % aggregate_slots != 0)
         per_path_launch_powers = jax.vmap(
             lambda i, si: get_launch_power(
                 state,
-                i * (params.link_resources // params.aggregate_slots),
+                i * math.ceil(params.link_resources / params.aggregate_slots),
                 state.launch_power_array[i],
                 si,
                 params,

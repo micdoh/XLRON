@@ -21,7 +21,9 @@ def get_eval_fn(
         def _env_step(runner_state, unused):
             eval_state, env_state, last_obs, step_key, rng_epoch = runner_state
 
-            action_key, next_step_key = jax.random.split(step_key)
+            # Dedicated keys for action selection and env stepping; the parent step_key is
+            # only ever split, never consumed directly.
+            action_key, env_key, next_step_key = jax.random.split(step_key, 3)
 
             # SELECT ACTION
             select_action_state = (action_key, env_state, last_obs)
@@ -31,7 +33,7 @@ def get_eval_fn(
 
             # STEP ENV
             obsv, env_state, reward, terminal, truncated, info = env.step(
-                step_key, env_state, action, env_params
+                env_key, env_state, action, env_params
             )
 
             obsv = (

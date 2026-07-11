@@ -300,7 +300,6 @@ DEFAULTS = {
     "aggregate_slots": 1,
     # Capacity bounds
     "num_trials": 10,
-    "cutset_link_selection_mode": "least_congested",
     "CUTSET_EXHAUSTIVE": False,
     "CUTSET_TOP_K": 256,
     "CUTSET_BATCH_SIZE": 512,
@@ -351,14 +350,6 @@ def _get_preset_val(key):
 # ---------------------------------------------------------------------------
 # Section builders
 # ---------------------------------------------------------------------------
-
-
-CUTSET_LINK_SELECTION_MODES = [
-    "least_congested",
-    "most_congested",
-    "best_fit",
-    "random",
-]
 
 
 def execution_mode_section() -> dict:
@@ -499,18 +490,6 @@ def execution_mode_section() -> dict:
                         help=_h("CUTSET_PARALLEL_PROCESSES"),
                     )
                     _emit(flags, "CUTSET_PARALLEL_PROCESSES", int(parallel))
-
-            st.markdown("**Simulation**")
-            link_modes = CUTSET_LINK_SELECTION_MODES
-            default_lsm = _get_preset_val("cutset_link_selection_mode")
-            lsm_idx = link_modes.index(default_lsm) if default_lsm in link_modes else 0
-            link_sel = st.selectbox(
-                "Link Selection Mode",
-                link_modes,
-                index=lsm_idx,
-                help=_h("cutset_link_selection_mode"),
-            )
-            _emit(flags, "cutset_link_selection_mode", link_sel)
 
         else:  # reconfigurable
             heuristic = st.selectbox(

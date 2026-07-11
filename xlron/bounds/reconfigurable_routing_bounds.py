@@ -24,6 +24,23 @@ from xlron.train.train_utils import build_run_summary, get_user_flags, write_run
 
 FLAGS = flags.FLAGS
 
+# Heuristics with a (state, params) -> action signature supported by this script.
+_SUPPORTED_HEURISTICS = {"ksp_ff": ksp_ff, "ff_ksp": ff_ksp}
+
+
+def _get_select_action(name: str) -> Callable:
+    """Resolve a --path_heuristic name to a heuristic function.
+
+    Raises ValueError for unsupported names instead of silently falling back.
+    """
+    try:
+        return _SUPPORTED_HEURISTICS[name]
+    except KeyError:
+        raise ValueError(
+            f"reconfigurable_routing_bounds supports path_heuristic in "
+            f"{sorted(_SUPPORTED_HEURISTICS)}, got {name!r}"
+        ) from None
+
 
 @partial(jax.jit, static_argnums=(1, 3))
 def generate_request_list(
@@ -186,7 +203,7 @@ def get_eval_fn(config, env, env_params, compile_defrag=False) -> Callable:
     # Auto-reset causes dtype/shape mismatches when list_of_requests differs
     # between the injected requests and the default reset state.
     raw_env = env._env if hasattr(env, "_env") else env
-    select_action = ksp_ff if config.path_heuristic == "ksp_ff" else ff_ksp
+    select_action = _get_select_action(config.path_heuristic)
 
     if compile_defrag:
         # --- Compiled path: full main loop as jax.lax.scan ---
@@ -281,11 +298,23 @@ def get_eval_fn(config, env, env_params, compile_defrag=False) -> Callable:
 
             trimmed = fix_timing_after_trim(trim_active_requests(active_requests))
 
+            # total_requests starts at -1 so generate_request_rsa loads trimmed[0]
+            # (deterministic replay reads list_of_requests[total_requests + 1]).
             defrag_state = defrag_initial_state.replace(
                 env_state=defrag_initial_state.env_state.replace(
                     list_of_requests=trimmed,
-                    total_requests=jnp.array(0),
+                    total_requests=jnp.array(
+                        -1, dtype=defrag_initial_state.env_state.total_requests.dtype
+                    ),
                 )
+            )
+            # Load trimmed[0] into request_array before the episode: step_env
+            # implements the current request THEN generates the next, so without
+            # this the stale request carried in defrag_initial_state would be
+            # implemented and trimmed[0] never placed.
+            rng, gen_key = jax.random.split(rng)
+            defrag_state = defrag_state.replace(
+                env_state=generate_request_rsa(gen_key, defrag_state.env_state, env_params)
             )
             runner_state = (defrag_state, init_obs, rng)
             final_state, blocking = _env_episode_defrag(runner_state, trimmed)
@@ -392,10 +421,14 @@ def get_eval_fn(config, env, env_params, compile_defrag=False) -> Callable:
             num_active = active_requests.shape[0]
 
             # Compute real departure times (current_time + holding_time) for each
-            # active request BEFORE we overwrite timing columns with synthetic values.
-            # active_requests still has original columns at this point:
-            #   [source, bitrate, dest, arrival, holding, current_time]
-            real_deps = active_requests[:, 5] + active_requests[:, 4]  # (num_active,)
+            # active request from the ORIGINAL request rows. get_active_requests
+            # (called inside get_active_requests_filtered) has already replaced the
+            # timing columns of active_requests with synthetic values, so we must
+            # go back to sorted_requests for the real times.
+            active_mask = get_active_requests(sorted_requests, sort_index)[:, 1] != 0
+            real_deps = get_real_departures(sorted_requests, sort_index)[
+                active_mask
+            ]  # (num_active,)
 
             # Re-number timing columns for the compacted active requests:
             # arrival=1, holding=num_active, current_time=0..num_active-1
@@ -413,7 +446,9 @@ def get_eval_fn(config, env, env_params, compile_defrag=False) -> Callable:
             padded = padded.at[:num_active].set(active_requests)
             inner_state = env_state.env_state.replace(
                 list_of_requests=padded,
-                total_requests=jnp.array(0),  # Reset so defrag reads from index 0
+                # total_requests starts at -1 so generate_request_rsa below loads
+                # padded[0] (deterministic replay reads list_of_requests[total_requests + 1])
+                total_requests=jnp.array(-1, dtype=env_state.env_state.total_requests.dtype),
             )
             inner_state = generate_request_rsa(rng, inner_state, env_params)
             env_state = env_state.replace(env_state=inner_state)
@@ -465,7 +500,7 @@ def step_env(rng, raw_env, env_state, env_params, profile=False):
     rng, action_key, step_key = jax.random.split(rng, 3)
     # SELECT ACTION
     inner_state = env_state.env_state
-    select_action = ksp_ff if FLAGS.path_heuristic == "ksp_ff" else ff_ksp
+    select_action = _get_select_action(FLAGS.path_heuristic)
     action = jit_profiler.call(
         profile, select_action, inner_state, env_params, name="main_select_action"
     )
@@ -490,16 +525,6 @@ def _build_loads(flags_obj):
             flags_obj.min_load, flags_obj.max_load + flags_obj.step_load / 2, flags_obj.step_load
         )
     return np.array([flags_obj.load])
-
-
-def _update_state_arrival_rate(env_state, load_val, mean_service_holding_time):
-    """Update arrival_rate (and mean_service_holding_time) in a LogEnvState."""
-    arrival_rate = load_val / mean_service_holding_time
-    inner = env_state.env_state.replace(
-        arrival_rate=jnp.array(arrival_rate, dtype=jnp.float32),
-        mean_service_holding_time=jnp.array(mean_service_holding_time, dtype=jnp.float32),
-    )
-    return env_state.replace(env_state=inner)
 
 
 def main(argv):

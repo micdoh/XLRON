@@ -586,6 +586,53 @@ class EnforceBandGapsTest(chex.TestCase):
             )
 
 
+class BandGapExpiryTest(chex.TestCase):
+    """Expiring services must not erase the -1 band-gap sentinels from link_slot_array.
+
+    Regression: remove_expired_services_* zeroed every slot whose departure time was
+    <= current time, and gap slots carry dep == 0, so the first expiry pass in any
+    dynamic run erased the sentinels and opened the inter-band gaps to placement."""
+
+    def _expire(self, state, params, remove_fn):
+        lsa = state.link_slot_array
+        dep = state.link_slot_departure_array
+        # Occupy slot 0 on link 0 with a service departing at t=5, then expire at t=10
+        lsa = lsa.at[0, 0].set(jnp.asarray(1, dtype=lsa.dtype))
+        dep = dep.at[0, 0].set(jnp.asarray(5, dtype=dep.dtype))
+        t = jnp.asarray(10)
+        state = state.replace(
+            link_slot_array=lsa,
+            link_slot_departure_array=dep,
+            current_time=t.astype(state.current_time.dtype),
+            arrival_time=t.astype(state.arrival_time.dtype),
+        )
+        return remove_fn(state, params)
+
+    def _assert_gaps_survive(self, new_state, params):
+        self.assertEqual(float(new_state.link_slot_array[0, 0]), 0.0)
+        self.assertTrue(jnp.all(new_state.link_slot_departure_array == 0))
+        gap_starts = params.gap_starts.val
+        gap_widths = params.gap_widths.val
+        self.assertGreater(len(gap_starts), 0)
+        for i in range(len(gap_starts)):
+            start = int(gap_starts[i])
+            width = int(gap_widths[i])
+            self.assertTrue(
+                jnp.all(new_state.link_slot_array[:, start : start + width] == -1),
+                f"Gap at slot {start} should still be -1 after expiry",
+            )
+
+    def test_rmsa_gn_model_gaps_survive_expiry(self):
+        _, _, _, state, params = rmsa_gn_model_enforce_band_gaps_test_setup()
+        new_state = self._expire(state, params, remove_expired_services_rmsa_gn_model)
+        self._assert_gaps_survive(new_state, params)
+
+    def test_rsa_gn_model_gaps_survive_expiry(self):
+        _, _, _, state, params = rsa_gn_model_band_preference_test_setup("C,L")
+        new_state = self._expire(state, params, remove_expired_services_rsa_gn_model)
+        self._assert_gaps_survive(new_state, params)
+
+
 def rsa_gn_model_band_preference_test_setup(band_preference):
     return _gn_cached_setup(
         f"rsa_gn_model_band_pref_{band_preference}",
@@ -1111,7 +1158,7 @@ class RMSAGNAggregateSlotsTest(chex.TestCase):
         env, params = make(settings, log_wrapper=False)
         key = jax.random.PRNGKey(3)  # short-path request that passes SNR checks
         obs, state = env.reset(key, params)
-        mask, full_mask, mod_format_mask = env.action_mask(state, params)  # ty: ignore[unresolved-attribute]
+        mask, full_mask, mod_format_mask = env.action_mask(state, params)
         self.assertEqual(mask.shape[0], params.k_paths * 5)  # ceil(10 / 2) = 5
         self.assertEqual(mod_format_mask.shape[0], params.k_paths * 10)  # full resolution
         self.assertTrue(bool(jnp.any(mask > 0)))
@@ -1303,9 +1350,7 @@ class ScaledLaunchPowerTest(chex.TestCase):
         env, params = make(settings, log_wrapper=False)
         key = jax.random.PRNGKey(3)
         obs, state = env.reset(key, params)
-        power = get_launch_power(  # ty: ignore[invalid-argument-type,unresolved-attribute]
-            state, jnp.array(0), jnp.array(0.0), jnp.array(0), params
-        )
+        power = get_launch_power(state, jnp.array(0), jnp.array(0.0), jnp.array(0), params)
 
         nodes_sd, _ = read_rsa_request(state.request_array)
         source, dest = nodes_sd
@@ -1346,6 +1391,665 @@ class GetPathsObsGNModelTest(chex.TestCase):
         # The stats block is bounded (raw metres would be >= 1e5); obs[3] is holding_time,
         # which is ~1e6 under incremental loading and not part of this regression
         self.assertLess(float(jnp.max(jnp.abs(obs[4:]))), 1e3)
+
+
+class AmplifierGainIsrsTiltTest(chex.TestCase):
+    """calculate_amplifier_gain_isrs must produce a real ISRS gain tilt.
+
+    Regressions covered: the exp(-f_i*C) factors in the numerator and denominator
+    cancelled exactly, so the returned gain was flat for ANY power distribution; and
+    mixed THz/km vs SI units made the tilt exponent 1000x too small even in principle."""
+
+    def _defaults(self):
+        a = 0.2 / 4.343 / 1e3  # Np/m
+        length = 100e3  # m
+        cr = 0.028 / 1e3 / 1e12  # 1/(W*m*Hz), SI as passed by the env
+        return a, length, cr
+
+    def test_gain_tilt_sign_and_magnitude_uniform_loading(self):
+        from xlron.environments.gn_model.isrs_gn_model import (
+            calculate_amplifier_gain_isrs,
+            to_db,
+        )
+
+        a, length, cr = self._defaults()
+        P = jnp.full(5, 1e-3)
+        f = jnp.linspace(-2.5e12, 2.5e12, 5)  # Hz offsets over a 5 THz band
+        gain_db = to_db(calculate_amplifier_gain_isrs(a, length, cr, P, f))
+        # SRS depletes high-frequency channels, so gain must increase with frequency
+        self.assertTrue(bool(jnp.all(jnp.diff(gain_db) > 0)))
+        # The Zirngibl tilt exists even for uniform powers; spread must be nonzero
+        # but small relative to the ~20 dB loss compensation
+        spread = float(jnp.max(gain_db) - jnp.min(gain_db))
+        self.assertGreater(spread, 0.01)
+        self.assertLess(spread, 10.0)
+        loss_comp_db = float(to_db(jnp.exp(a * length)))
+        self.assertAlmostEqual(float(jnp.mean(gain_db)), loss_comp_db, delta=1.0)
+
+    def test_gain_tilt_asymmetric_loading(self):
+        from xlron.environments.gn_model.isrs_gn_model import (
+            calculate_amplifier_gain_isrs,
+            to_db,
+        )
+
+        a, length, cr = self._defaults()
+        P = jnp.array([0.1, 0.05, 0.3, 0.02, 0.001])
+        f = jnp.linspace(-2.5e12, 2.5e12, 5)
+        gain_db = to_db(calculate_amplifier_gain_isrs(a, length, cr, P, f))
+        self.assertTrue(bool(jnp.all(jnp.diff(gain_db) > 0)))
+        self.assertGreater(float(jnp.max(gain_db) - jnp.min(gain_db)), 1.0)
+
+    def test_flat_gain_without_raman(self):
+        from xlron.environments.gn_model.isrs_gn_model import calculate_amplifier_gain_isrs
+
+        a, length, _ = self._defaults()
+        P = jnp.array([0.1, 0.05, 0.3, 0.02, 0.001])
+        f = jnp.linspace(-2.5e12, 2.5e12, 5)
+        gain = calculate_amplifier_gain_isrs(a, length, 0.0, P, f)
+        chex.assert_trees_all_close(gain, jnp.full(5, jnp.exp(a * length)), rtol=1e-6)
+
+    def test_zero_power_channels_get_loss_compensation(self):
+        from xlron.environments.gn_model.isrs_gn_model import calculate_amplifier_gain_isrs
+
+        a, length, cr = self._defaults()
+        P = jnp.array([1e-3, 0.0, 1e-3])
+        f = jnp.array([-1e12, 0.0, 1e12])
+        gain = calculate_amplifier_gain_isrs(a, length, cr, P, f)
+        self.assertAlmostEqual(float(gain[1]), float(jnp.exp(a * length)), delta=1e-6)
+
+
+class ModFormatCorrectionTest(chex.TestCase):
+    """mod_format_correction must apply a finite, small kurtosis correction.
+
+    Regressions covered: `p_i > 1.0` guards on Watt-scale powers zeroed the intended
+    power ratio, `gamma ** (2 / B_k)` in place of `gamma**2 / B_k`, a mis-parenthesised
+    second arctan term with an unguarded 0/0 on the i == k diagonal (NaN eta for every
+    channel, mapped to -50 dB SNR by nan_to_num => silent 100% blocking), and an
+    asymptotic term garbled from Ref. [3, Eq. (12)] that overflowed float32."""
+
+    def _uniform_kwargs(self):
+        return dict(
+            num_channels=3,
+            num_spans=10,
+            ref_lambda=1550e-9,
+            length=80e3,
+            ch_power_W_i=jnp.full(3, 1e-3),
+            ch_centre_i=jnp.array([-100e9, 0.0, 100e9]),
+            ch_bandwidth_i=jnp.full(3, 100e9),
+            coherent=False,
+        )
+
+    def test_zero_kurtosis_equals_correction_off(self):
+        from xlron.environments.gn_model.isrs_gn_model import isrs_gn_model_uniform
+
+        kwargs = self._uniform_kwargs()
+        _, eta_off, _, _ = isrs_gn_model_uniform(**kwargs, mod_format_correction=False)
+        _, eta_on, _, _ = isrs_gn_model_uniform(
+            **kwargs, mod_format_correction=True, excess_kurtosis_i=jnp.zeros(3)
+        )
+        chex.assert_trees_all_close(eta_on, eta_off)
+
+    def test_negative_kurtosis_reduces_nli(self):
+        from xlron.environments.gn_model.isrs_gn_model import isrs_gn_model_uniform
+
+        kwargs = self._uniform_kwargs()
+        _, eta_off, _, _ = isrs_gn_model_uniform(**kwargs, mod_format_correction=False)
+        # Excess kurtosis of uniform 16-QAM (Ref. [3, Table I])
+        _, eta_on, _, _ = isrs_gn_model_uniform(
+            **kwargs, mod_format_correction=True, excess_kurtosis_i=jnp.full(3, -0.68)
+        )
+        self.assertTrue(bool(jnp.all(jnp.isfinite(eta_on))))
+        # Negative kurtosis => reduced NLI, but the correction must stay small
+        self.assertTrue(bool(jnp.all(eta_on < eta_off)))
+        self.assertTrue(bool(jnp.all(eta_on > 0.5 * eta_off)))
+
+    def test_non_uniform_span_model_finite(self):
+        from xlron.environments.gn_model.isrs_gn_model import isrs_gn_model
+
+        kwargs = self._uniform_kwargs()
+        kwargs["length"] = jnp.full(10, 80e3)
+        _, eta_off, _, _ = isrs_gn_model(**kwargs, max_spans=10, mod_format_correction=False)
+        _, eta_on, _, _ = isrs_gn_model(
+            **kwargs,
+            max_spans=10,
+            mod_format_correction=True,
+            excess_kurtosis_i=jnp.full(3, -0.68),
+        )
+        self.assertTrue(bool(jnp.all(jnp.isfinite(eta_on))))
+        self.assertTrue(bool(jnp.all(eta_on < eta_off)))
+        self.assertTrue(bool(jnp.all(eta_on > 0.5 * eta_off)))
+
+    def test_get_snr_finite_with_correction(self):
+        from xlron.environments.gn_model.isrs_gn_model import get_snr, to_db
+
+        a = 0.2 / 4.343 / 1e3
+        common = dict(
+            num_channels=3,
+            max_spans=10,
+            num_spans=10,
+            length=jnp.full(10, 80e3),
+            ch_power_w_i=jnp.full(3, 1e-3),
+            ch_centre_i=jnp.array([-100e9, 0.0, 100e9]),
+            ch_bandwidth_i=jnp.full(3, 100e9),
+            attenuation_i=jnp.array(a),
+            attenuation_bar_i=jnp.array(a),
+            amplifier_noise_figure=jnp.array([5.0, 5.0, 5.0]),
+            transceiver_snr=jnp.array([0.0, 0.0, 0.0]),
+            excess_kurtosis_i=jnp.full(3, -0.68),
+            uniform_spans=False,
+        )
+        snr_off = get_snr(**common, mod_format_correction=False)[0]
+        snr_on = get_snr(**common, mod_format_correction=True)[0]
+        self.assertTrue(bool(jnp.all(jnp.isfinite(snr_on))))
+        # Less NLI => higher SNR, by at most ~1 dB in this configuration
+        self.assertTrue(bool(jnp.all(snr_on >= snr_off)))
+        self.assertLess(float(jnp.max(to_db(snr_on) - to_db(snr_off))), 1.0)
+
+
+class NonUniformSpanPaddingTest(chex.TestCase):
+    """Zero-padded span-length arrays must give identical NLI to unpadded ones.
+
+    Regression: spm_single/xpm_single were added on every one of max_spans scan
+    iterations regardless of span activity, inflating NLI by max_spans/num_spans for
+    every link shorter than the topology's longest (the env always zero-pads rows of
+    link_length_array up to the global max_spans)."""
+
+    def _kwargs(self):
+        return dict(
+            num_channels=3,
+            num_spans=2,
+            ref_lambda=1550e-9,
+            ch_power_W_i=jnp.full(3, 1e-3),
+            ch_centre_i=jnp.array([-100e9, 0.0, 100e9]),
+            ch_bandwidth_i=jnp.full(3, 100e9),
+            coherent=False,
+            excess_kurtosis_i=jnp.zeros(3),
+        )
+
+    def test_padded_equals_unpadded(self):
+        from xlron.environments.gn_model.isrs_gn_model import isrs_gn_model
+
+        kwargs = self._kwargs()
+        length = jnp.array([80e3, 80e3])
+        nli_exact, eta_exact, spm_exact, xpm_exact = isrs_gn_model(
+            **kwargs, max_spans=2, length=length, mod_format_correction=False
+        )
+        nli_pad, eta_pad, spm_pad, xpm_pad = isrs_gn_model(
+            **kwargs,
+            max_spans=10,
+            length=jnp.concatenate([length, jnp.zeros(8)]),
+            mod_format_correction=False,
+        )
+        chex.assert_trees_all_close(spm_pad, spm_exact, rtol=1e-6)
+        chex.assert_trees_all_close(xpm_pad, xpm_exact, rtol=1e-6)
+        chex.assert_trees_all_close(nli_pad, nli_exact, rtol=1e-6)
+
+    def test_padded_with_mod_format_correction_finite(self):
+        from xlron.environments.gn_model.isrs_gn_model import isrs_gn_model
+
+        kwargs = self._kwargs()
+        kwargs["excess_kurtosis_i"] = jnp.full(3, -0.68)
+        length = jnp.array([80e3, 80e3])
+        _, eta_exact, _, _ = isrs_gn_model(
+            **kwargs, max_spans=2, length=length, mod_format_correction=True
+        )
+        # Padding spans have L == 0: the asymptotic correction divides by L and must
+        # be masked, not produce inf/NaN
+        _, eta_pad, _, _ = isrs_gn_model(
+            **kwargs,
+            max_spans=10,
+            length=jnp.concatenate([length, jnp.zeros(8)]),
+            mod_format_correction=True,
+        )
+        self.assertTrue(bool(jnp.all(jnp.isfinite(eta_pad))))
+        chex.assert_trees_all_close(eta_pad, eta_exact, rtol=1e-6)
+
+
+class BlockedRequestLinkSnrRestoreTest(chex.TestCase):
+    """A blocked request must restore link_snr_array to its pre-action value.
+
+    Regression: implement_action_rmsa_gn_model recomputes link_snr_array from the
+    tentative placement, but complete_step_rmsa_gn_model's failure restore omitted it,
+    so the blocked (undone) lightpath's NLI contribution leaked into the SNR features
+    of the next observation for every co-propagating channel."""
+
+    def test_blocked_step_restores_link_snr(self):
+        key, env, obs, state, params = rmsa_gn_model_test_setup()
+        step = jax.jit(env.step, static_argnums=(3,))
+        request0 = state.request_array
+
+        # --- Accepted placement ---
+        mask, full_mask, mfm = env.action_mask(state, params)
+        self.assertTrue(bool(jnp.any(mask > 0)))
+        path_action = jnp.argmax(mask)
+        state = state.replace(
+            link_slot_mask=mask, full_link_slot_mask=full_mask, mod_format_mask=mfm
+        )
+        action = jnp.concatenate([path_action.reshape((1,)), jnp.zeros((1,))])
+        key, akey = jax.random.split(key)
+        _, state1, _, _, _, _ = step(akey, state, action, params)
+        self.assertEqual(int(state1.accepted_services), 1)
+
+        # --- Replay the same request so the same action is a guaranteed collision ---
+        state1 = state1.replace(request_array=request0)
+        mask2, full2, mfm2 = env.action_mask(state1, params)
+        self.assertEqual(float(mask2[path_action]), 0.0)
+        state1 = state1.replace(
+            link_slot_mask=mask2, full_link_slot_mask=full2, mod_format_mask=mfm2
+        )
+        key, akey = jax.random.split(key)
+        _, state2, _, _, _, _ = step(akey, state1, action, params)
+        self.assertEqual(int(state2.accepted_services), 1)  # blocked
+        chex.assert_trees_all_close(state2.link_snr_array, state1.link_snr_array)
+        # And the accepted lightpath's other GN arrays survive too
+        chex.assert_trees_all_close(state2.channel_power_array, state1.channel_power_array)
+
+
+def _gn_log_actions_wrapped_env(seed=3):
+    """LogWrapper-wrapped rsa_gn_model env with log_actions=True (cached env/params)."""
+    key = jax.random.PRNGKey(seed)
+    if "rsa_gn_model_log_actions" not in _gn_cache:
+        settings = dict(
+            k=4,
+            topology_name="nsfnet_deeprmsa_directed",
+            link_resources=10,
+            max_requests=100,
+            values_bw=[100],
+            incremental_loading=True,
+            env_type="rsa_gn_model",
+            slot_size=12.5,
+            guardband=0,
+            mod_format_correction=False,
+            max_power_per_fibre=10.0,
+            coherent=False,
+            include_no_op=False,
+            log_actions=True,
+        )
+        _gn_cache["rsa_gn_model_log_actions"] = make(settings, log_wrapper=True)
+    env, params = _gn_cache["rsa_gn_model_log_actions"]
+    obs, log_state = env.reset(key, params)
+    return key, env, log_state, params
+
+
+class RoadmAseInLoggedSnrTest(chex.TestCase):
+    """Logged info['path_snr'] must include path-level ROADM ASE like the
+    masking/acceptance checks (regression: the LogWrapper and SNR-reward call sites
+    omitted the state argument, so they reported a systematically higher SNR than the
+    one used to accept or reject the same lightpath; the wrapper also indexed
+    path_link_array with the local k-path index instead of the global one)."""
+
+    def _wrapped_env(self):
+        return _gn_log_actions_wrapped_env(seed=3)
+
+    def _global_path_index(self, state, params, path_action):
+        nodes_sd, _ = read_rsa_request(state.request_array)
+        source, dest = nodes_sd
+        i = get_path_indices(
+            params,
+            source,
+            dest,
+            params.k_paths,
+            params.num_nodes,
+            directed=params.directed_graph,
+        ).astype(jnp.int32)
+        path_index, slot_index = process_path_action(state, params, path_action)
+        return i + path_index, slot_index
+
+    def test_path_snr_with_state_is_lower(self):
+        """ROADM ASE adds noise: SNR with state must be strictly below stateless SNR."""
+        key, env, log_state, params = self._wrapped_env()
+        raw_env = env._env
+        state = log_state.env_state
+        mask = raw_env.action_mask(state, params)
+        mask = mask[0] if isinstance(mask, tuple) else mask
+        path_action = jnp.argmax(mask)
+        # Placed path of the acted (pre-step) request
+        global_path_index, slot_index = self._global_path_index(state, params, path_action)
+        action = jnp.concatenate([path_action.reshape((1,)), jnp.zeros((1,))])
+        key, akey = jax.random.split(key)
+        _, state1, _, _, _, _ = jax.jit(raw_env.step, static_argnums=(3,))(
+            akey, state, action, params
+        )
+        self.assertEqual(int(state1.accepted_services), 1)
+        path = params.path_link_array.val[int(global_path_index)]
+        snr_with_state = get_snr_for_path(path, state1.link_snr_array, params, state1)
+        snr_without_state = get_snr_for_path(path, state1.link_snr_array, params)
+        slot = int(slot_index)
+        self.assertLess(float(snr_with_state[slot]), float(snr_without_state[slot]))
+
+    def test_logged_path_snr_matches_state_snr(self):
+        key, env, log_state, params = self._wrapped_env()
+        raw_env = env._env
+        state = log_state.env_state
+        mask = raw_env.action_mask(state, params)
+        mask = mask[0] if isinstance(mask, tuple) else mask
+        path_action = jnp.argmax(mask)
+        action = jnp.concatenate([path_action.reshape((1,)), jnp.zeros((1,))])
+        key, akey = jax.random.split(key)
+        _, log_state1, _, _, _, info = jax.jit(env.step, static_argnums=(3,))(
+            akey, log_state, action, params
+        )
+        env_state = log_state1.env_state
+        # Recompute expected SNR exactly as the wrapper does (post-step state and
+        # global path index), WITH the state argument
+        expected = get_snr_for_path(
+            params.path_link_array.val[jnp.asarray(info["path_index"], dtype=jnp.int32)],
+            env_state.link_snr_array,
+            params,
+            env_state,
+        )[jnp.asarray(info["slot_index"], dtype=jnp.int32)]
+        chex.assert_trees_all_close(info["path_snr"], expected)
+
+
+class LoggedInfoPreStepRequestTest(chex.TestCase):
+    """Every logged per-step field must describe the request that was ACTED ON this
+    step (regression: step_env's generate_request replaces request_array/current_time/
+    holding_time with the NEXT request's values before LogWrapper reads them, so
+    source/dest/data_rate/path_index paired the action with the wrong request whenever
+    consecutive requests had different source-dest pairs)."""
+
+    def test_logged_request_fields_are_prestep(self):
+        key, env, log_state, params = _gn_log_actions_wrapped_env(seed=7)
+        raw_env = env._env
+        step = jax.jit(env.step, static_argnums=(3,))
+        saw_request_change = False
+        for _ in range(8):
+            state = log_state.env_state
+            # Read the acted request BEFORE stepping
+            pre_nodes, pre_dr = read_rsa_request(state.request_array)
+            pre_source, pre_dest = pre_nodes
+            pre_arrival = state.current_time[0]
+            pre_departure = state.current_time[0] + state.holding_time[0]
+            # argmax of an all-zero mask is action 0 (a blocked placement) — the
+            # logged fields must describe the acted request either way
+            mask = raw_env.action_mask(state, params)
+            mask = mask[0] if isinstance(mask, tuple) else mask
+            path_action = jnp.argmax(mask)
+            # Expected global path row and slot, decoded from the pre-step state
+            i = get_path_indices(
+                params,
+                pre_source,
+                pre_dest,
+                params.k_paths,
+                params.num_nodes,
+                directed=params.directed_graph,
+            ).astype(jnp.int32)
+            k_index, slot_index = process_path_action(state, params, path_action)
+            action = jnp.concatenate([path_action.reshape((1,)), jnp.zeros((1,))])
+            key, akey = jax.random.split(key)
+            _, log_state, _, _, _, info = step(akey, log_state, action, params)
+            # After stepping, request_array holds the NEXT request; the logged fields
+            # must nevertheless describe the pre-step (acted) request
+            post_nodes, _ = read_rsa_request(log_state.env_state.request_array)
+            if (int(post_nodes[0]), int(post_nodes[1])) != (int(pre_source), int(pre_dest)):
+                saw_request_change = True
+            self.assertEqual(int(info["source"]), int(pre_source))
+            self.assertEqual(int(info["dest"]), int(pre_dest))
+            self.assertEqual(float(info["data_rate"]), float(pre_dr))
+            self.assertEqual(int(info["path_index"]), int(i + k_index))
+            self.assertEqual(int(info["slot_index"]), int(slot_index))
+            chex.assert_trees_all_close(info["arrival_time"], pre_arrival)
+            chex.assert_trees_all_close(info["departure_time"], pre_departure)
+        # The assertions above only discriminate if consecutive requests differed
+        self.assertTrue(saw_request_change)
+
+
+class RSAGNModelObsShapeTest(chex.TestCase):
+    """RSAGNModelEnv.get_obs must match the advertised observation space (regression:
+    it returned a 0-d scalar while observation_space declared 4 + 7*k_paths features,
+    crashing any flat-obs model at trace time)."""
+
+    def test_obs_matches_observation_space(self):
+        _, env, obs, state, params = rsa_gn_model_4_nsfnet_test_setup()
+        obs = env.get_obs(state, params)
+        self.assertEqual(obs.ndim, 1)
+        self.assertEqual(obs.shape[0], int(env.observation_space(params).n))
+        # RMSA GN model advertises the same obs; the two variants must agree
+        _, renv, _, rstate, rparams = rmsa_gn_model_test_setup()
+        robs = renv.get_obs(rstate, rparams)
+        self.assertEqual(robs.shape[0], int(renv.observation_space(rparams).n))
+
+
+class LaunchPowerActorCriticMLPTest(chex.TestCase):
+    """LaunchPowerActorCriticMLP must construct and process the restored GN observation
+    (regression: it assigned undeclared eqx fields, raising FrozenInstanceError, and its
+    critic network was never built; it was also unreachable because init_network compared
+    the string launch_power_type flag against the integer 3)."""
+
+    def test_construct_and_forward(self):
+        from xlron.models.mlp import LaunchPowerActorCriticMLP
+
+        k_paths = 4
+        input_dim = 4 + 7 * k_paths  # matches RSAGNModelEnv.observation_space
+        model = LaunchPowerActorCriticMLP(
+            1,
+            input_dim,
+            k_paths=k_paths,
+            min_power_dbm=0.0,
+            max_power_dbm=2.0,
+            step_power_dbm=0.1,
+            key=jax.random.PRNGKey(0),
+        )
+        obs = jax.random.normal(jax.random.PRNGKey(1), (input_dim,))
+        (path_dist, power_dist), value = model(obs)
+        self.assertIsNone(path_dist)
+        logits = power_dist.logits  # ty: ignore[unresolved-attribute]
+        self.assertEqual(logits.shape, (k_paths, model.num_power_levels))
+        self.assertEqual(value.shape, ())
+        self.assertTrue(bool(jnp.all(jnp.isfinite(logits))))
+        self.assertTrue(bool(jnp.isfinite(value)))
+
+
+class IncludeNoOpMaskInitTest(chex.TestCase):
+    """GN-model envs must initialise link_slot_mask with the no-op element (regression:
+    init omitted include_no_op while every recomputed mask appends it, so the lax.scan
+    carry structure mismatched at trace time and --include_no_op was unusable)."""
+
+    def _settings(self, env_type):
+        return dict(
+            k=4,
+            topology_name="nsfnet_deeprmsa_directed",
+            link_resources=10,
+            max_requests=100,
+            values_bw=[100],
+            incremental_loading=True,
+            env_type=env_type,
+            slot_size=12.5,
+            guardband=0,
+            mod_format_correction=False,
+            max_power_per_fibre=10.0,
+            coherent=False,
+            include_no_op=True,
+        )
+
+    def test_rmsa_gn_model_mask_shapes_match(self):
+        key, env, obs, state, params = _gn_cached_setup(
+            "rmsa_gn_model_no_op", self._settings("rmsa_gn_model"), seed=3
+        )
+        mask, _, _ = env.action_mask(state, params)
+        expected = params.k_paths * params.link_resources + 1
+        self.assertEqual(mask.shape, (expected,))
+        self.assertEqual(state.link_slot_mask.shape, mask.shape)
+
+    def test_rsa_gn_model_mask_shapes_match(self):
+        key, env, obs, state, params = _gn_cached_setup(
+            "rsa_gn_model_no_op", self._settings("rsa_gn_model"), seed=3
+        )
+        mask = env.action_mask(state, params)
+        mask = mask[0] if isinstance(mask, tuple) else mask
+        expected = params.k_paths * params.link_resources + 1
+        self.assertEqual(mask.shape, (expected,))
+        self.assertEqual(state.link_slot_mask.shape, mask.shape)
+
+
+class AggregatedLaunchPowerDecodeTest(chex.TestCase):
+    """The synthesised per-path action used for launch-power lookup during RMSA-GN
+    masking must round-trip through process_path_action (regression: a floor-division
+    stride mis-decoded the path index whenever link_resources % aggregate_slots != 0,
+    so masks were evaluated with the wrong path's tabular/scaled launch power)."""
+
+    def test_path_action_roundtrip_nondivisible_aggregation(self):
+        import math
+
+        settings = dict(
+            k=4,
+            topology_name="nsfnet_deeprmsa_directed",
+            link_resources=10,
+            max_requests=100,
+            values_bw=[100],
+            incremental_loading=True,
+            env_type="rmsa_gn_model",
+            slot_size=12.5,
+            guardband=0,
+            mod_format_correction=False,
+            max_power_per_fibre=10.0,
+            coherent=False,
+            include_no_op=False,
+            aggregate_slots=4,  # ceil(10/4)=3 != floor(10/4)=2
+        )
+        key, env, obs, state, params = _gn_cached_setup("rmsa_gn_model_agg4", settings, seed=3)
+        stride = math.ceil(params.link_resources / params.aggregate_slots)
+        for i in range(params.k_paths):
+            path_index, _ = process_path_action(state, params, jnp.array(i * stride))
+            self.assertEqual(int(path_index), i)
+        # The floor stride used by the regressed encoding does NOT round-trip
+        floor_stride = params.link_resources // params.aggregate_slots
+        path_index, _ = process_path_action(state, params, jnp.array(1 * floor_stride))
+        self.assertNotEqual(int(path_index), 1)
+
+
+def rmsa_gn_model_mod_format_reward_test_setup():
+    return _gn_cached_setup(
+        "rmsa_gn_model_mod_format_reward",
+        dict(
+            k=4,
+            topology_name="nsfnet_deeprmsa_directed",
+            link_resources=10,
+            max_requests=100,
+            values_bw=[100],
+            incremental_loading=True,
+            env_type="rmsa_gn_model",
+            slot_size=12.5,
+            guardband=0,
+            mod_format_correction=False,
+            max_power_per_fibre=10.0,
+            coherent=False,
+            include_no_op=False,
+            reward_type="mod_format",
+        ),
+        seed=3,
+    )
+
+
+class ModFormatRewardTest(chex.TestCase):
+    """Regression test: reward_type='mod_format' used to assert RSAGNModelEnvParams but
+    read modulation_format_index_array, which only exists on RMSAGNModelEnvState, so it
+    failed at trace time in every configuration.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.key, self.env, self.obs, self.state, self.params = (
+            rmsa_gn_model_mod_format_reward_test_setup()
+        )
+
+    def test_step_traces_and_returns_finite_reward(self):
+        rng, rng_sample, rng_step = jax.random.split(self.key, 3)
+        mask, _, mod_format_mask = self.env.action_mask(self.state, self.params)
+        state = self.state.replace(link_slot_mask=mask, mod_format_mask=mod_format_mask)
+        action_dist = distrax.Categorical(logits=jnp.where(mask > 0, 0.0, -1e8))
+        path_action = action_dist.sample(seed=rng_sample)
+        power_action = jnp.array([0])
+        action = jnp.concatenate([path_action.reshape((1,)), power_action.reshape((1,))], axis=0)
+        obs, new_state, reward, terminal, truncated, info = self.env.step(
+            rng_step, state, action, self.params
+        )
+        self.assertTrue(bool(jnp.isfinite(reward)))
+
+
+def rsa_gn_model_log_actions_test_setup():
+    # Not via _gn_cached_setup, which forces log_wrapper=False: this test targets LogWrapper
+    key = jax.random.PRNGKey(0)
+    if "rsa_gn_model_log_actions" not in _gn_cache:
+        settings = dict(
+            k=5,
+            topology_name="nsfnet_deeprmsa_undirected",
+            link_resources=10,
+            max_requests=100,
+            values_bw=[100],
+            env_type="rsa_gn_model",
+            interband_gap=0,
+            slot_size=25,
+            mod_format_correction=False,
+            launch_power=0.0,
+            load=100,
+            mean_service_holding_time=10,
+            log_actions=True,
+            relative_arrival_times=False,
+        )
+        env, params = make(settings, log_wrapper=True)
+        _gn_cache["rsa_gn_model_log_actions"] = (env, params)
+    env, params = _gn_cache["rsa_gn_model_log_actions"]
+    obs, state = env.reset(key, params)
+    return key, env, obs, state, params
+
+
+class LogWrapperActionLoggingTest(chex.TestCase):
+    """Regression tests for LogWrapper's log_actions fields.
+
+    path_snr used to be looked up with the k-relative path index (missing the
+    node-pair offset into path_link_array), and arrival/departure times were read
+    from the post-step state, i.e. from the NEXT request.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.key, self.env, self.obs, self.state, self.params = (
+            rsa_gn_model_log_actions_test_setup()
+        )
+
+    def test_path_snr_and_times_describe_acting_request(self):
+        params = self.params
+        pre_state = self.state.env_state
+        # Pre-step values (read before step: the acting request's fields are
+        # overwritten by generate_request inside step_env)
+        nodes_sd, _ = read_rsa_request(pre_state.request_array)
+        source, dest = nodes_sd
+        i = int(
+            get_path_indices(
+                params,
+                source,
+                dest,
+                params.k_paths,
+                params.num_nodes,
+                directed=params.directed_graph,
+            )
+        )
+        # Sanity: the request is not for the first node pair, so the missing
+        # offset would have selected the wrong path row before the fix
+        self.assertGreater(i, 0)
+        expected_arrival = float(pre_state.current_time[0])
+        expected_departure = float(pre_state.current_time[0] + pre_state.holding_time[0])
+        # Select k-index 1, slot 0 (aggregate_slots=1 => action = k_index * link_resources)
+        k_index = 1
+        path_action = jnp.array(k_index * params.link_resources, dtype=jnp.float32)
+        action = jnp.stack([path_action, jnp.array(0.0, dtype=jnp.float32)])
+
+        rng, step_key = jax.random.split(self.key)
+        obs, log_state, reward, terminal, truncated, info = self.env.step(
+            step_key, self.state, action, params
+        )
+
+        expected_path = params.path_link_array.val[i + k_index]
+        # Post-step state passed so the expected SNR includes path-level ROADM ASE,
+        # matching the wrapper (and the masking/acceptance checks)
+        expected_snr = get_snr_for_path(
+            expected_path, log_state.env_state.link_snr_array, params, log_state.env_state
+        )[0]
+        chex.assert_trees_all_close(info["path_snr"], expected_snr)
+        self.assertEqual(int(info["path_index"]), i + k_index)
+        self.assertAlmostEqual(float(info["arrival_time"]), expected_arrival, places=5)
+        self.assertAlmostEqual(float(info["departure_time"]), expected_departure, places=4)
 
 
 if __name__ == "__main__":
