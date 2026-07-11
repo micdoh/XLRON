@@ -229,7 +229,10 @@ def init_graph_tuple(
         node_features = jnp.concatenate([spectral_features, source_dest_features], axis=-1)
 
     if params.disable_node_features:
-        node_features = jnp.zeros((1,), dtype=dtype_config.LARGE_FLOAT_DTYPE)
+        # One zero feature per node: keeps the (num_nodes, features) rank expected by
+        # jax.vmap(node_embedder) in the GNN, matching the width-1 embedder that
+        # init_network builds when DISABLE_NODE_FEATURES is set.
+        node_features = jnp.zeros((params.num_nodes, 1), dtype=dtype_config.LARGE_FLOAT_DTYPE)
 
     # Handle undirected graphs (duplicate edges after normalization).
     # senders/receivers are laid out as [fwd_0..fwd_E-1, bwd_0..bwd_E-1], so features must be
@@ -335,7 +338,9 @@ def update_graph_tuple(state: RSAEnvState, params: RSAEnvParams) -> RSAEnvState:
         node_features = jnp.concatenate([spectral_features, source_dest_features], axis=-1)
 
     if params.disable_node_features:
-        node_features = jnp.zeros((1,), dtype=dtype_config.LARGE_FLOAT_DTYPE)
+        # Match init_graph_tuple: (num_nodes, 1) zeros so the carried graph.nodes shape is
+        # stable across the scan and rank-1 rows reach the width-1 node embedder.
+        node_features = jnp.zeros((params.num_nodes, 1), dtype=dtype_config.LARGE_FLOAT_DTYPE)
 
     # Block-duplicate to match the [fwd..., bwd...] senders/receivers layout (see init_graph_tuple)
     edge_features = (

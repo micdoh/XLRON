@@ -30,6 +30,7 @@ from box import Box
 
 import xlron.parameter_flags  # noqa: F401  (registers all XLRON flags)
 from xlron import dtype_config
+from xlron.environments.env_funcs import update_graph_tuple
 from xlron.environments.gn_model.isrs_gn_model import from_dbm
 from xlron.environments.make_env import make, process_config
 from xlron.models.gnn import ActorCriticGNN
@@ -569,6 +570,48 @@ class GNNModelConstructionTest(chex.TestCase):
         self.assertEqual(
             model.actor.graph_net.edge_embedder.weight.shape[1],
             config.link_resources,
+        )
+        self.assertIsInstance(pi, distrax.Categorical)
+        chex.assert_tree_all_finite(pi.logits)
+        chex.assert_tree_all_finite(value)
+
+    def test_rsa_disable_node_features_forward(self):
+        """DISABLE_NODE_FEATURES: env emits (num_nodes, 1) zero node features and the
+        model sizes the node embedder to width 1; forward pass must trace and be finite.
+
+        Regression: the env used to read the lowercase 'disable_node_features' config key
+        (missing the uppercase flag, so it emitted full-width features against a width-1
+        embedder -> dot_general contracting-dimension mismatch), and the placeholder was a
+        rank-1 zeros((1,)) which fed rank-0 scalars to jax.vmap(node_embedder).
+        """
+        config, params, state, model, pi, value = self._build_and_forward(
+            "rsa", DISABLE_NODE_FEATURES=True
+        )
+        # Env side: graph built by init_graph_tuple carries one zero feature per node
+        self.assertTrue(params.disable_node_features)
+        self.assertEqual(state.graph.nodes.shape, (params.num_nodes, 1))
+        self.assertFalse(bool(jnp.any(state.graph.nodes)))
+        # Model side: node embedder input width must match
+        self.assertEqual(model.actor.graph_net.node_embedder.weight.shape[1], 1)
+        self.assertEqual(model.critic.graph_net.node_embedder.weight.shape[1], 1)
+        self.assertIsInstance(pi, distrax.Categorical)
+        chex.assert_tree_all_finite(pi.logits)
+        chex.assert_tree_all_finite(value)
+        # update_graph_tuple must keep the carried nodes shape/dtype stable across the scan
+        new_state = update_graph_tuple(state, params)
+        self.assertEqual(new_state.graph.nodes.shape, state.graph.nodes.shape)  # ty: ignore[unresolved-attribute]
+        self.assertEqual(new_state.graph.nodes.dtype, state.graph.nodes.dtype)  # ty: ignore[unresolved-attribute]
+
+    def test_rsa_gn_model_disable_node_features_forward(self):
+        """DISABLE_NODE_FEATURES composes with GN-model envs (stacked edge features)."""
+        config, params, state, model, pi, value = self._build_and_forward(
+            "rsa_gn_model", DISABLE_NODE_FEATURES=True
+        )
+        self.assertEqual(state.graph.nodes.shape, (params.num_nodes, 1))
+        self.assertEqual(model.actor.graph_net.node_embedder.weight.shape[1], 1)
+        self.assertEqual(
+            model.actor.graph_net.edge_embedder.weight.shape[1],
+            2 * config.link_resources,
         )
         self.assertIsInstance(pi, distrax.Categorical)
         chex.assert_tree_all_finite(pi.logits)
