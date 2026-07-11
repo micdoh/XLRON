@@ -2671,6 +2671,43 @@ def find_block_sizes(
     return block_sizes
 
 
+@jax.jit
+def calculate_fragmentation(link_slot_array: Array) -> Array:
+    """Calculate mean external spectrum fragmentation across links.
+
+    External fragmentation per link = 1 - largest_free_block / total_free_slots.
+    It is 0 when each link's free capacity is contiguous (or the link is completely
+    full/empty) and approaches 1 as free slots are scattered into many small blocks.
+
+    Occupancy follows the same convention as the utilisation metric: any non-zero
+    value counts as occupied (in-service slots are stored as negative values).
+    Uses an O(links x slots) cumulative-max scan (no NxN block-size matrices as in
+    find_block_sizes), so it is cheap enough to compute on the hot path every step.
+
+    Args:
+        link_slot_array: Link-slot occupancy array of shape (num_links, num_slots)
+
+    Returns:
+        Scalar mean external fragmentation across links
+    """
+    occupied = link_slot_array != 0
+    num_slots = link_slot_array.shape[1]
+    slot_indices = jnp.arange(num_slots, dtype=dtype_config.INDEX_DTYPE)[None, :]
+    # Index of the most recent occupied slot at or before each position (-1 if none),
+    # so (slot_index - last_occupied) is the length of the free run ending at each slot
+    last_occupied = jax.lax.cummax(jnp.where(occupied, slot_indices, -1), axis=1)
+    free_run_lengths = jnp.where(occupied, 0, slot_indices - last_occupied)
+    largest_free_block = jnp.max(free_run_lengths, axis=1)
+    total_free_slots = jnp.sum(~occupied, axis=1)
+    # Fully-occupied links have no free capacity to fragment, so report 0
+    fragmentation_per_link = jnp.where(
+        total_free_slots > 0,
+        1.0 - largest_free_block / jnp.maximum(total_free_slots, 1),
+        0.0,
+    )
+    return jnp.mean(fragmentation_per_link).astype(dtype_config.LARGE_FLOAT_DTYPE)
+
+
 @partial(jax.jit, static_argnums=(1,))
 def calculate_path_stats(state, params, request):
     nodes_sd, requested_datarate = read_rsa_request(request)
