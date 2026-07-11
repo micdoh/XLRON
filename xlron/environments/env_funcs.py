@@ -2256,6 +2256,7 @@ def convert_node_probs_to_traffic_matrix(node_probs: list) -> Array:
     Returns:
         traffic_matrix: traffic matrix
     """
+    node_probs = jnp.asarray(node_probs)
     matrix = jnp.outer(node_probs, node_probs).astype(dtype_config.SMALL_FLOAT_DTYPE)
     # Set lead diagonal to zero
     matrix = jnp.where(jnp.eye(matrix.shape[0]) == 1, 0, matrix)
