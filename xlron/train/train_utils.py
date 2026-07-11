@@ -624,11 +624,13 @@ def init_network(config: Box, key: chex.PRNGKey) -> eqx.Module:
                 actor_pooling=config.transformer_actor_pooling,
             )
         elif config.USE_GNN:
-            if "gn_model" in config.env_type.lower() and config.output_globals_size_actor > 0:
+            if "gn_model" in config.env_type.lower() and config.global_output_size_actor > 0:
+                # Discrete: one logit per power level. Continuous: 2 outputs (alpha, beta) for
+                # the Beta distribution.
                 global_output_size_actor = (
                     int((config.max_power - config.min_power) / config.step_power) + 1
                     if config.discrete_launch_power
-                    else 1
+                    else 2
                 )
             else:
                 global_output_size_actor = config.global_output_size_actor
@@ -680,10 +682,10 @@ def init_network(config: Box, key: chex.PRNGKey) -> eqx.Module:
                 vmap=False,
                 key=key,
             )
-        elif "gn_model" in config.env_type.lower() and config.launch_power_type == 3:
+        elif "gn_model" in config.env_type.lower() and config.launch_power_type == "rl":
             network = LaunchPowerActorCriticMLP(
-                config.INPUT_DIM,
                 config.ACTION_DIM + (1 * config.include_no_op),  # +1 for "no op"
+                config.INPUT_DIM,
                 activation=config.ACTIVATION,
                 num_layers=config.NUM_LAYERS,
                 num_units=config.NUM_UNITS,
@@ -932,6 +934,18 @@ def cast_model_for_compute(model: eqx.Module) -> eqx.Module:
     )
 
 
+def _as_launch_power_array(power_action: Array, env_params) -> Array:
+    """Normalise a sampled power action to the carried launch_power_array format.
+
+    The carried array is shape (k_paths,) at LARGE_FLOAT_DTYPE (see make_env.py); sampled
+    powers may be scalar (global head), (1,) (fixed default) or (k_paths,) (per-path head),
+    so broadcast and cast to keep the lax.scan carry shape/dtype stable.
+    """
+    return jnp.broadcast_to(power_action.reshape(-1), (env_params.k_paths,)).astype(
+        dtype_config.LARGE_FLOAT_DTYPE
+    )
+
+
 def select_action(select_action_state, env, env_params, train_state, config):
     """Select an action from the policy.
     If using VONE, the action is a tuple of (source, path, destination).
@@ -1008,40 +1022,59 @@ def select_action(select_action_state, env, env_params, train_state, config):
         valid_mass = jnp.sum(probs * action_mask, axis=-1)
 
     elif "gn_model" in config.env_type.lower() and config.launch_power_type == "rl":
-        pi_masked = distrax.Categorical(
-            logits=pi[0]._logits + (-1e8 * (1 - action_mask.astype(jnp.float32)))
-        )
+        # Sampling dispatches to the model's own sample_action* methods (the models know how
+        # to convert raw samples to power levels); LaunchPowerActorCriticMLP returns
+        # (None, power_dist) so the path logits/mask only exist when the GNN outputs RSA.
         if config.GNN_OUTPUT_RSA and not config.GNN_OUTPUT_LP:
-            path_action, log_prob = train_state.sample_fn(
+            pi_masked = distrax.Categorical(
+                logits=pi[0]._logits + (-1e8 * (1 - action_mask.astype(jnp.float32)))
+            )
+            path_action, log_prob = model.sample_action_path(  # ty: ignore[unresolved-attribute]
                 action_key, pi_masked, log_prob=True, deterministic=config.deterministic
             )
             power_action = jnp.array([env_params.default_launch_power])
         elif config.GNN_OUTPUT_RSA and config.GNN_OUTPUT_LP:
-            path_action, power_action, log_prob = train_state.sample_fn(
+            pi_masked = distrax.Categorical(
+                logits=pi[0]._logits + (-1e8 * (1 - action_mask.astype(jnp.float32)))
+            )
+            path_action, power_action, log_prob = model.sample_action_path_power(  # ty: ignore[unresolved-attribute]
                 action_key,
                 (pi_masked, pi[1]),
                 log_prob=True,
                 deterministic=config.deterministic,
             )
         else:
-            power_action, log_prob = train_state.sample_fn(
+            # Power-only policy: path selected by heuristic (needs launch power set first)
+            power_sample_fn = getattr(model, "sample_action_power", model.sample_action)  # ty: ignore[unresolved-attribute]
+            power_action, log_prob = power_sample_fn(
                 action_key, pi[1], log_prob=True, deterministic=config.deterministic
             )
-            inner_state = env_state.env_state.replace(launch_power_array=power_action)
+            inner_state = env_state.env_state.replace(
+                launch_power_array=_as_launch_power_array(power_action, env_params)
+            )
             env_state = env_state.replace(env_state=inner_state)
             path_action = (
                 ksp_lf(env_state.env_state, env_params)
                 if env_params.last_fit is True
                 else ksp_ff(env_state.env_state, env_params)
             )
-        inner_state = env_state.env_state.replace(launch_power_array=power_action)
+        inner_state = env_state.env_state.replace(
+            launch_power_array=_as_launch_power_array(power_action, env_params)
+        )
         env_state = env_state.replace(env_state=inner_state)
-        if config.output_globals_size_actor == 0:
+        if config.global_output_size_actor == 0 and (
+            config.GNN_OUTPUT_LP or not config.GNN_OUTPUT_RSA
+        ):
+            # Per-path power head: keep only the sampled path's power/log_prob
             path_index, _ = process_path_action(env_state.env_state, env_params, path_action)
             power_action, log_prob = power_action[path_index], log_prob[path_index]
         action = jnp.concatenate([path_action.reshape((1,)), power_action.reshape((1,))], axis=0)  # ty: ignore[unresolved-attribute]
-        probs = jax.nn.softmax(pi[0]._logits, axis=-1)
-        valid_mass = jnp.sum(probs * action_mask, axis=-1)
+        if config.GNN_OUTPUT_RSA:
+            probs = jax.nn.softmax(pi[0]._logits, axis=-1)
+            valid_mass = jnp.sum(probs * action_mask, axis=-1)
+        else:
+            # No learned path policy: the heuristic path choice is always valid
+            valid_mass = jnp.array(1.0, dtype=dtype_config.LARGE_FLOAT_DTYPE)
 
     else:
         pi_masked = distrax.Categorical(
@@ -1639,9 +1672,11 @@ def process_metrics(config, out, merge_func):
         num_learners_or_1 = config.NUM_LEARNERS if config.NUM_LEARNERS > 1 else 1
         merged_out_loss = {
             k: jax.tree.map(
-                lambda x: x.reshape((num_learners_or_1, config.NUM_UPDATES, -1))
-                .mean(axis=-1)
-                .reshape((-1,)),
+                lambda x: (
+                    x.reshape((num_learners_or_1, config.NUM_UPDATES, -1))
+                    .mean(axis=-1)
+                    .reshape((-1,))
+                ),
                 v,
             )
             for k, v in out.get("loss_info", {}).items()
