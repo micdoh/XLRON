@@ -297,6 +297,22 @@ class GenerateArrivalHoldingTimesTest(chex.TestCase):
         chex.assert_trees_all_close(arrival_time, expected[0])
         chex.assert_trees_all_close(holding_time, expected[1])
 
+    def test_truncated_holding_time_independent_of_arrival_time(self):
+        """Regression test: with truncate_holding_time, the candidate holding-time keys
+        were re-split from the parent key, so (split being prefix-stable) candidate 0
+        reused key_arrival. When candidates 1-4 were all truncated, the holding time was
+        the same exponential draw as the arrival time (perfectly correlated).
+        """
+        _, _, _, _, params = rwa_4node_test_setup(truncate_holding_time=True)
+        keys = jax.random.split(jax.random.PRNGKey(42), 50000)
+        # With rate == mean == 1, an aliased draw makes holding_time == arrival_time exactly
+        arrival, holding = jax.vmap(generate_arrival_holding_times, in_axes=(0, None, None, None))(
+            keys, params, jnp.array(1.0), jnp.array(1.0)
+        )
+        arrival, holding = arrival.reshape(-1), holding.reshape(-1)
+        aliased = jnp.sum((holding == arrival) & (holding > 0))
+        self.assertEqual(int(aliased), 0)
+
 
 class SetPathLinksTest(chex.TestCase):
     def setUp(self):
