@@ -933,25 +933,12 @@ flags.DEFINE_float(
     "If > 0, keep top this percentage of congested cutsets (overrides CUTSET_TOP_K). "
     "The actual count is max(1, round(total_unique_cutsets * CUTSET_TOP_PCT / 100)).",
 )
-flags.DEFINE_boolean(
-    "NEGLECT_SPECTRUM_CONTINUITY",
-    False,
-    "When True, the cut-set capacity bound tracks only total free capacity per link "
-    "rather than slot-level occupancy. This removes the spectrum continuity constraint "
-    "across cut-set links, giving a tighter (more optimistic) upper bound.",
-)
 # Shared capacity bound estimation flags
 flags.DEFINE_integer(
     "num_trials",
     10,
     "Number of independent random-seed trials for capacity bound estimation "
     "(used by both cut-set and reconfigurable routing bounds)",
-)
-flags.DEFINE_string(
-    "cutset_link_selection_mode",
-    "least_congested",
-    "Link selection heuristic for cut-set capacity bound simulation: "
-    "least_congested, most_congested, best_fit, random",
 )
 # Flags for capacity estimation with Baroni (reconfigurable routing / resource-prioritized defragmentation) method
 flags.DEFINE_boolean("deterministic_requests", False, "Use deterministic requests")
