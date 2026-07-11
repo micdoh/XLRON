@@ -1,3 +1,4 @@
+import math
 from typing import Any, Callable, Dict, Tuple, cast
 
 import distrax
@@ -25,6 +26,7 @@ from xlron.train.train_utils import (
     TrainState,
     cast_model_for_compute,
     select_action,
+    steps_per_train_state_unit,
 )
 
 RunnerState = Tuple[TrainState, LogEnvState, Obsv, Array, Array]
@@ -73,7 +75,14 @@ def _sample_prioritized_batch(
                 sample_key, batch_size, shape=(batch_size,), p=priority_probs.reshape((batch_size,))
             )
 
-            importance_weights = jnp.power(jnp.take(priority_probs, sampled_indices), -beta)
+            # Standard PER importance weights (Schaul et al. 2016): w_i = (N * P(i))^-beta,
+            # normalized by max_i w_i so weights are <= 1 and match the scale of the uniform
+            # path above (which uses weights of exactly 1.0).
+            importance_weights = jnp.power(
+                batch_size * jnp.take(priority_probs, sampled_indices), -beta
+            )
+            importance_weights = importance_weights / jnp.maximum(jnp.max(importance_weights), 1e-8)
+            importance_weights = importance_weights.astype(dtype_config.LARGE_FLOAT_DTYPE)
 
             batch = jax.tree.map(
                 lambda x: jnp.take(x.reshape((-1, *x.shape[2:])), sampled_indices, axis=0).reshape(
@@ -88,8 +97,14 @@ def _sample_prioritized_batch(
                 sample_key, config.NUM_ENVS, shape=(config.NUM_ENVS,), p=priority_probs
             )
 
+            # Standard PER importance weights over trajectories: w_i = (N * P(i))^-beta,
+            # max-normalized (N = NUM_ENVS trajectories).
+            trajectory_weights = jnp.power(
+                config.NUM_ENVS * jnp.take(priority_probs, sampled_indices), -beta
+            )
+            trajectory_weights = trajectory_weights / jnp.maximum(jnp.max(trajectory_weights), 1e-8)
             importance_weights = jnp.tile(
-                jnp.power(jnp.take(priority_probs, sampled_indices), -beta),
+                trajectory_weights.astype(dtype_config.LARGE_FLOAT_DTYPE),
                 (config.ROLLOUT_LENGTH, 1),
             )
 
@@ -130,16 +145,22 @@ def _env_step(
     """Single environment step. Called via scan with closure wrapper."""
     train_state, env_state, last_obs, rng_step, rng_epoch = runner_state
 
-    # Use fold_in to generate unique key for this step, maintains shape
-    step_key, action_key = jax.random.split(rng_step)
+    # Split dedicated keys for action sampling and env stepping (a key must never be
+    # consumed by two different random consumers); step_key remains the scan carry.
+    step_key, action_key, env_key = jax.random.split(rng_step, 3)
 
     select_action_state = (action_key, env_state, last_obs)
     env_state, action, log_prob, value = jit_profiler.call(
         env_params.profile, select_action, select_action_state, env, env_params, train_state, config
     )
 
+    # Capture the acting state before env.step: on done steps env.step auto-resets, which
+    # would replace the action mask / valid mass actually used by select_action with the
+    # initial state's all-ones mask and valid_mass=1.0 in the stored transition.
+    acting_state = env_state.env_state
+
     obsv, env_state, reward, terminal, truncated, info = jit_profiler.call(
-        env_params.profile, env.step, action_key, env_state, action, env_params
+        env_params.profile, env.step, env_key, env_state, action, env_params
     )
     # Apply reward scaling if configured
     reward = reward * config.REWARD_SCALE
@@ -162,11 +183,11 @@ def _env_step(
             log_prob,
             last_obs,
             info,
-            env_state.env_state.node_mask_s,
-            env_state.env_state.link_slot_mask,
-            env_state.env_state.node_mask_d,
-            env_state.env_state.valid_mass,
-            env_state.env_state.link_slot_mask,
+            acting_state.node_mask_s,
+            acting_state.link_slot_mask,
+            acting_state.node_mask_d,
+            acting_state.valid_mass,
+            acting_state.link_slot_mask,
         )
     else:
         transition = RSATransition(
@@ -178,8 +199,8 @@ def _env_step(
             log_prob,
             last_obs,
             info,
-            env_state.env_state.link_slot_mask,
-            env_state.env_state.valid_mass,
+            acting_state.link_slot_mask,
+            acting_state.valid_mass,
         )
 
     # DEBUG LOGGING FOR OPTICAL NETWORKS
@@ -281,10 +302,17 @@ def _calculate_puffer_advantage(
     # Optionally anneal GAE_LAMBDA to higher value to increase horizon
     if config.GAE_LAMBDA is None:
         # Multiply by 3 so that more time spent in high lambda at end of training
+        # (denominator in train_state.step units: per gradient step if STEP_ON_GRADIENT,
+        # else per update loop)
         frac = (
             3
             * train_state.step
-            / (config.NUM_INCREMENTS * config.NUM_UPDATES * config.LAMBDA_SCHEDULE_MULTIPLIER)
+            / (
+                config.NUM_INCREMENTS
+                * config.NUM_UPDATES
+                * steps_per_train_state_unit(config)
+                * config.LAMBDA_SCHEDULE_MULTIPLIER
+            )
         )
         sech_frac = 1 - 1 / jnp.cosh(frac)
         lambda_delta = config.FINAL_LAMBDA - config.INITIAL_LAMBDA
@@ -298,11 +326,18 @@ def _calculate_puffer_advantage(
     ) -> Tuple[Tuple[Array, Array], Tuple[Array, Array]]:
         gae, next_value = gae_and_next_value
         transition, importance = transition_and_importance
-        terminal, value, reward = (
+        terminal, truncated, value, reward = (
             transition.terminal,
+            transition.truncated,
             transition.value,
             transition.reward,
         )
+        # env.step auto-resets on terminal OR truncated, so next_value at a truncation
+        # boundary is V(post-reset state) and credit must not flow across it. Masking the
+        # bootstrap with done treats truncation as termination (bootstrap 0 rather than
+        # V(pre-reset s_t+1)); the faithful alternative would require exposing the
+        # pre-reset final observation from env.step.
+        done = jnp.logical_or(terminal, truncated)
         centered_reward = reward - train_state.avg_reward if config.REWARD_CENTERING else reward
 
         if config.RHO_CLIP <= 0 or config.C_CLIP <= 0:
@@ -315,12 +350,12 @@ def _calculate_puffer_advantage(
             c_t = jnp.minimum(importance, config.C_CLIP)
 
         # Modified TD error calculation with importance sampling
-        # delta = rho_t * (r_t+1 + gamma * V(s_t+1) * (1 - terminal_t+1) - V(s_t))
-        delta = rho_t * (centered_reward + config.GAMMA * next_value * (1 - terminal) - value)
+        # delta = rho_t * (r_t+1 + gamma * V(s_t+1) * (1 - done_t+1) - V(s_t))
+        delta = rho_t * (centered_reward + config.GAMMA * next_value * (1 - done) - value)
 
         # Modified GAE accumulation with clipped importance ratios
-        # A_t = delta_t + gamma * lambda * c_t * (1 - terminal_t+1) * A_t+1
-        gae = delta + config.GAMMA * current_lambda * c_t * (1 - terminal) * gae
+        # A_t = delta_t + gamma * lambda * c_t * (1 - done_t+1) * A_t+1
+        gae = delta + config.GAMMA * current_lambda * c_t * (1 - done) * gae
 
         return (gae, value), (gae, delta)
 
@@ -428,9 +463,11 @@ def _env_rollout_advantages(
         else compute_trajectory_priority_weights(adv, train_state.prio_alpha)
     )
     # Anneal beta from initial value to 1.0 over course of training
-    progress = (
-        train_state.prio_alpha * train_state.step / (config.NUM_UPDATES * config.NUM_INCREMENTS)
+    # (denominator in train_state.step units; clip so beta never exceeds 1.0)
+    progress = train_state.step / (
+        config.NUM_UPDATES * config.NUM_INCREMENTS * steps_per_train_state_unit(config)
     )
+    progress = jnp.clip(progress, 0.0, 1.0)
     annealed_beta = train_state.prio_beta0 + (1.0 - train_state.prio_beta0) * progress
     train_state = eqx.tree_at(
         lambda state: state.prio_beta,
@@ -499,21 +536,36 @@ def _loss_fn(
             path_log_prob = pi_masked.log_prob(path_actions)
             path_entropy = pi_masked.entropy()
 
-        path_indices = jax.vmap(process_path_action, in_axes=(0, None, 0))(
-            traj_batch.obs[0], config, path_actions
-        )[0]
-        # Re-scale action from [min_power, max_power] to [0, 1]
-        power_actions = jnp.astype(
-            (to_dbm(power_actions) - config.min_power) / config.step_power, jnp.int32
-        )
+        # Decode the k-path index from the flat action. process_path_action needs the env
+        # state and hashable static env_params, neither of which is available here; only
+        # the path index is needed, so mirror its decode directly (ceil matches
+        # init_link_slot_mask / aggregate_slots).
+        num_slot_actions = math.ceil(config.link_resources / config.aggregate_slots)
+        path_indices = (path_actions // num_slot_actions).astype(jnp.int32)
+        # Invert the sampling-time mapping (see LaunchPowerActorCriticMLP.sample_action):
+        # stored actions are linear-unit powers; recover the raw sample the distribution's
+        # log_prob expects (power-level index for discrete, [0, 1] Beta sample otherwise).
+        if config.discrete_launch_power:
+            power_actions = jnp.astype(
+                jnp.round((to_dbm(power_actions) - config.min_power) / config.step_power),
+                jnp.int32,
+            )
+        else:
+            power_actions = jnp.clip(
+                (to_dbm(power_actions) - config.min_power) / (config.max_power - config.min_power),
+                config.EPSILON,
+                1.0 - config.EPSILON,
+            )
         # Repeat the power action along the last axis K-paths time
-        power_actions = jnp.tile(power_actions[..., None], (1, config.k_paths))
+        power_actions = jnp.tile(power_actions[..., None], (1, config.k))
         power_log_prob = power_dist.log_prob(power_actions)
-        # Slice log prob to just take the path index
-        power_log_prob = jax.vmap(lambda x, i: jax.lax.dynamic_slice(x, (i,), (1,)))(
-            power_log_prob, path_indices
-        )
-        power_entropy = power_dist.entropy()
+        # Select the chosen path's log prob / entropy, keeping shape (B,) to match
+        # path_log_prob and the rollout-time stored log_prob (a (B,1)/(B,k) leftover here
+        # would silently broadcast the ratio to (B,B) or fail at trace time).
+        power_log_prob = jnp.take_along_axis(power_log_prob, path_indices[:, None], axis=1)[:, 0]
+        power_entropy = jnp.take_along_axis(power_dist.entropy(), path_indices[:, None], axis=1)[
+            :, 0
+        ]
 
         log_prob = path_log_prob + power_log_prob
         entropy = path_entropy + power_entropy

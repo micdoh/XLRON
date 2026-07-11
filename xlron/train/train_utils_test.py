@@ -1,21 +1,24 @@
-"""Unit tests for heuristic action selection plumbing in train_utils.
+"""Unit tests for train_utils heuristic plumbing, schedules, and checkpointing."""
 
-Covers:
-* select_action_eval dispatches every heuristic name exposed in the GUI
-  (xlron/gui/widgets.py PATH_HEURISTICS) without raising.
-* get_warmup_fn with --warmup_action_type=heuristic uses the heuristic during
-  RL training (EVAL_HEURISTIC=False) rather than silently falling back to the
-  (untrained) policy.
-"""
+import io
 
 import chex
+import equinox as eqx
 import jax
+import jax.numpy as jnp
 from absl.testing import absltest, parameterized
 from box import Box
 
 from xlron.environments.make_env import make
 from xlron.heuristics.heuristics import ksp_ff
-from xlron.train.train_utils import get_warmup_fn, select_action_eval
+from xlron.models.mlp import ActorCriticMLP
+from xlron.train.train_utils import (
+    get_warmup_fn,
+    make_ent_schedule,
+    make_vml_schedule,
+    select_action_eval,
+    steps_per_train_state_unit,
+)
 
 # Mirrors PATH_HEURISTICS in xlron/gui/widgets.py: every name selectable in the
 # GUI (and documented in docs/heuristic_evaluation.md) must be dispatchable.
@@ -124,6 +127,86 @@ class WarmupHeuristicActionTest(chex.TestCase):
         warmup_state = (key, state, tuple([obs]))
         with self.assertRaisesRegex(ValueError, "aggregate_slots"):
             get_warmup_fn(warmup_state, env, params, None, config)
+
+
+def _schedule_config(step_on_gradient):
+    return Box(
+        dict(
+            NUM_UPDATES=10,
+            NUM_INCREMENTS=2,
+            UPDATE_EPOCHS=4,
+            NUM_MINIBATCHES=4,
+            STEP_ON_GRADIENT=step_on_gradient,
+            ENT_COEF=0.01,
+            ENT_END_FRACTION=0.1,
+            ENT_SCHEDULE="linear",
+            ENT_SCHEDULE_MULTIPLIER=1.0,
+            VALID_MASS_LOSS_COEF=0.5,
+            VML_END_FRACTION=0.2,
+            VML_SCHEDULE="linear",
+            VML_SCHEDULE_MULTIPLIER=1.0,
+        )
+    )
+
+
+class ScheduleStepUnitTest(chex.TestCase):
+    @parameterized.named_parameters(
+        ("per_update_loop", False),
+        ("per_gradient_step", True),
+    )
+    def test_ent_schedule_completes_at_end_of_training(self, step_on_gradient):
+        config = _schedule_config(step_on_gradient)
+        final_step = config.NUM_UPDATES * config.NUM_INCREMENTS * steps_per_train_state_unit(config)
+        ent_schedule = make_ent_schedule(config)
+        chex.assert_trees_all_close(
+            ent_schedule(final_step),
+            jnp.array(config.ENT_COEF * config.ENT_END_FRACTION),
+            atol=1e-8,
+        )
+        chex.assert_trees_all_close(ent_schedule(0), jnp.array(config.ENT_COEF), atol=1e-8)
+
+    @parameterized.named_parameters(
+        ("per_update_loop", False),
+        ("per_gradient_step", True),
+    )
+    def test_vml_schedule_completes_at_end_of_training(self, step_on_gradient):
+        config = _schedule_config(step_on_gradient)
+        final_step = config.NUM_UPDATES * config.NUM_INCREMENTS * steps_per_train_state_unit(config)
+        vml_schedule = make_vml_schedule(config)
+        chex.assert_trees_all_close(
+            vml_schedule(final_step),
+            jnp.array(config.VALID_MASS_LOSS_COEF * config.VML_END_FRACTION),
+            atol=1e-8,
+        )
+
+
+class LearnerStackedCheckpointTest(chex.TestCase):
+    def _model(self, key):
+        return ActorCriticMLP(4, 8, num_layers=1, num_units=8, key=key)
+
+    def test_unreplicated_params_roundtrip(self):
+        keys = jax.random.split(jax.random.PRNGKey(0), 2)
+        params_static = [eqx.partition(self._model(k), eqx.is_inexact_array) for k in keys]
+        static = params_static[0][1]
+        stacked = jax.tree.map(
+            lambda a, b: jnp.stack([a, b]), params_static[0][0], params_static[1][0]
+        )
+        template = self._model(jax.random.PRNGKey(1))
+
+        buf = io.BytesIO()
+        eqx.tree_serialise_leaves(buf, eqx.combine(stacked, static))
+        buf.seek(0)
+        with self.assertRaises(Exception):
+            eqx.tree_deserialise_leaves(buf, template)
+
+        buf = io.BytesIO()
+        unreplicated = jax.tree.map(lambda x: x[0], stacked)
+        eqx.tree_serialise_leaves(buf, eqx.combine(unreplicated, static))
+        buf.seek(0)
+        restored = eqx.tree_deserialise_leaves(buf, template)
+        chex.assert_trees_all_close(
+            eqx.partition(restored, eqx.is_inexact_array)[0], params_static[0][0]
+        )
 
 
 if __name__ == "__main__":
