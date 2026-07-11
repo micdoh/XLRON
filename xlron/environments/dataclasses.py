@@ -382,6 +382,7 @@ class GNModelEnvState(RSAEnvState):
     channel_power_array_prev: Array  # Channel power for each active connection in previous timestep
     channel_centre_freq_array: Array  # Per-slot centre frequency in GHz
     channel_centre_freq_array_prev: Array  # Previous timestep centre frequency for undo
+    link_snr_array_prev: Array  # Link SNR array in previous timestep (blocked-request restore)
     launch_power_array: Array  # Launch power array
 
 

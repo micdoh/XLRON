@@ -68,7 +68,9 @@ class VONEEnv(environment.Environment):
             action_counter=init_action_counter(),
             action_history=init_action_history(params),
             node_mask_s=init_node_mask(params),
-            link_slot_mask=init_link_slot_mask(params, agg=params.aggregate_slots),
+            link_slot_mask=init_link_slot_mask(
+                params, include_no_op=params.include_no_op, agg=params.aggregate_slots
+            ),
             node_mask_d=init_node_mask(params),
             virtual_topology_patterns=init_virtual_topology_patterns(
                 virtual_topologies if virtual_topologies is not None else ["3_ring"]

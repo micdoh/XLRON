@@ -1738,6 +1738,7 @@ def remove_expired_services_rsa_gn_model(
         channel_centre_bw_array_prev=state.channel_centre_bw_array_prev * keep_f,
         channel_power_array_prev=state.channel_power_array_prev * keep_f,
         channel_centre_freq_array_prev=state.channel_centre_freq_array_prev * keep_f,
+        link_snr_array_prev=state.link_snr_array_prev * keep_f,
     )
 
     dep_lp = state.active_lightpaths_array_departure
@@ -1820,6 +1821,7 @@ def remove_expired_services_rmsa_gn_model(
         channel_centre_freq_array_prev=state.channel_centre_freq_array_prev * keep_f,
         modulation_format_index_array_prev=state.modulation_format_index_array_prev * keep_i
         + neg_one_i * mask_remove_i,
+        link_snr_array_prev=state.link_snr_array_prev * keep_f,
     )
     return state
 
@@ -1864,6 +1866,8 @@ def complete_step_rsa_gn_model(
         + state.channel_centre_freq_array_prev * fail.astype(state.channel_centre_freq_array.dtype),
         path_index_array=state.path_index_array * one_m_fail.astype(state.path_index_array.dtype)
         + state.path_index_array_prev * fail.astype(state.path_index_array.dtype),
+        link_snr_array=state.link_snr_array * one_m_fail.astype(state.link_snr_array.dtype)
+        + state.link_snr_array_prev * fail.astype(state.link_snr_array.dtype),
     )
 
     # --- Resolve the pending registry entry (departure inserted negative by implement) ---
@@ -1935,6 +1939,10 @@ def complete_step_rmsa_gn_model(
         * one_m_fail.astype(state.modulation_format_index_array.dtype)
         + state.modulation_format_index_array_prev
         * fail.astype(state.modulation_format_index_array.dtype),
+        # implement_action_rmsa_gn_model recomputed link_snr_array from the tentative
+        # placement, so restore the pre-action SNR when the request is blocked
+        link_snr_array=state.link_snr_array * one_m_fail.astype(state.link_snr_array.dtype)
+        + state.link_snr_array_prev * fail.astype(state.link_snr_array.dtype),
     )
 
     # --- Book-keeping (always) ---
@@ -4345,6 +4353,7 @@ def implement_action_rsa_gn_model(
         channel_centre_bw_array_prev=state.channel_centre_bw_array,
         channel_power_array_prev=state.channel_power_array,
         channel_centre_freq_array_prev=state.channel_centre_freq_array,
+        link_snr_array_prev=state.link_snr_array,
     )
     path_action = action_info.action.astype(dtype_config.LARGE_INT_DTYPE)
     lightpath_index = get_lightpath_index(params, action_info.nodes_sd, action_info.path_index)
@@ -4416,6 +4425,7 @@ def implement_action_rmsa_gn_model(
         channel_power_array_prev=state.channel_power_array,
         channel_centre_freq_array_prev=state.channel_centre_freq_array,
         modulation_format_index_array_prev=state.modulation_format_index_array,
+        link_snr_array_prev=state.link_snr_array,
     )
     path_action = action_info.action.astype(dtype_config.LARGE_INT_DTYPE)
     lightpath_index = get_lightpath_index(params, action_info.nodes_sd, action_info.path_index)
@@ -4730,10 +4740,13 @@ def mask_slots_rmsa_gn_model(
     if params.launch_power_type == "fixed":
         all_launch_powers = params.slot_launch_power_array.val[all_slot_indices]
     else:
+        # Synthesise a path action for path i in the aggregated action space; must use
+        # ceil to round-trip through process_path_action (floor mis-decodes the path
+        # index whenever link_resources % aggregate_slots != 0)
         per_path_launch_powers = jax.vmap(
             lambda i, si: get_launch_power(
                 state,
-                i * (params.link_resources // params.aggregate_slots),
+                i * math.ceil(params.link_resources / params.aggregate_slots),
                 state.launch_power_array[i],
                 si,
                 params,
