@@ -201,9 +201,14 @@ def isrs_gn_model(
     xpm_single = _xpm(ch_pow, ch_pow_k, phi_ik, T_k, ch_bw, ch_bw_k, a.T, a_bar.T, gamma)
 
     def scan_fun(carry, l_span):
-        _eta_spm = carry[0] + spm_single
-        _eta_xpm = carry[1] + xpm_single
-        _eta_xpm_corr_asymp = carry[2] + _xpm_corr_asymp(
+        # The env zero-pads each link's span-length array up to the global max_spans
+        # (see init_link_length_array_gn_model), so mask out padding spans (l_span == 0)
+        # to avoid accumulating max_spans copies of the per-span NLI instead of num_spans.
+        active = (l_span > 0).astype(spm_single.dtype)
+        l_safe = jnp.where(l_span > 0, l_span, 1.0)
+        _eta_spm = carry[0] + spm_single * active
+        _eta_xpm = carry[1] + xpm_single * active
+        _eta_xpm_corr_asymp = carry[2] + active * _xpm_corr_asymp(
             ch_pow,
             ch_pow_k,
             phi_ik,
@@ -216,7 +221,7 @@ def isrs_gn_model(
             df,
             Phi.T,
             tx2_i,
-            l_span,
+            l_safe,
         )
         return (_eta_spm, _eta_xpm, _eta_xpm_corr_asymp), None
 
@@ -435,83 +440,112 @@ def _xpm(p_i, p_k, phi_ik, T_k, B_i, B_k, a_k, a_bar_k, gamma):
 
 
 def _xpm_corr(p_i, p_k, phi_ik, T_k, B_i, B_k, a_k, a_bar_k, gamma, Phi, TX1):
-    """XPM correction, see Ref. 1"""
-    p_i = jnp.where(p_i > 0.0, p_i, 1.0)
-    B_k = jnp.where(B_k > 0.0, B_k, 1.0)
-    a = Phi * TX1.T * jnp.where(p_i > 1.0, p_k / p_i, 0.0) ** 2
-    b = gamma ** jnp.where(B_k > 1.0, 2 / B_k, 0.0)
-    return (
+    """XPM correction, see Ref. 1
+
+    Mirrors _xpm (same prefactor and denominator guards) with the modulation-format
+    factor Phi * TX1 applied per interfering channel k.
+    """
+    p_i_safe = jnp.maximum(p_i, EPS)
+    power_ratio_sq = (p_k / p_i_safe) ** 2
+    denom = B_k * phi_ik * a_bar_k * (2 * a_k + a_bar_k)
+    denom_safe = jnp.where(denom != 0, denom, 1.0)
+    a_k_plus_abar_k = a_k + a_bar_k
+    corr_ik = (
         5
         / 6
         * 32
         / 27
-        * jnp.sum(
-            a
-            * b
-            / (phi_ik * a_bar_k * (2 * a_k + a_bar_k))
-            * (T_k - a_k**2)
-            / a_k
-            * jnp.arctan(phi_ik * B_i / a_k)
-            + ((a_k + a_bar_k) ** 2 - T_k)
-            / (a_k + a_bar_k)
-            * jnp.arctan(phi_ik * B_i / (a_k + a_bar_k)),
-            axis=1,
+        * Phi
+        * TX1.T
+        * power_ratio_sq
+        * gamma**2
+        / denom_safe
+        * (
+            (T_k - a_k**2) / a_k * jnp.arctan(phi_ik * B_i / a_k)
+            + (a_k_plus_abar_k**2 - T_k)
+            / a_k_plus_abar_k
+            * jnp.arctan(phi_ik * B_i / a_k_plus_abar_k)
         )
     )
+    return jnp.sum(jnp.where(denom != 0, corr_ik, 0.0), axis=1)
 
 
 def _xpm_corr_asymp(p_i, p_k, phi_ik, phi, T_k, B_k, a, a_bar, gamma, df, Phi, TX2, L):
-    """Asymptotic XPM correction, see Ref. 1"""
-    p_i = jnp.where(p_i > 0.0, p_i, 1)
-    B_k = jnp.where(B_k > 0.0, B_k, 1)
-    a0 = jnp.where(p_i > 1.0, p_k / p_i, 0.0) ** 2
-    a1 = jnp.where(B_k > 1, T_k / jnp.where(B_k > 1.0, phi / B_k, 1.0), 0.0) ** 3
-    a2 = jnp.where(
-        B_k > 1, jnp.log(jnp.clip((2 * df - B_k) / (2 * df + B_k), min=EPS) + 2 * B_k), 0
-    )
-    return (
+    """Asymptotic (per-span) XPM correction, see Ref. [3, Eqs. (8)-(12)]:
+
+        eta_corr_a = gamma_t * |mu(f_i, f_k, f_i)|^2 * 2*pi / (|phi_paper| * B_k^2)
+                     * ((2*df - B_k) * ln((2*df - B_k) / (2*df + B_k)) + 2*B_k)
+
+    with gamma_t = (P_k / P_i)^2 * 80/81 * gamma^2 * Phi / B_k, the phase mismatch
+    phi_paper = 4*pi^2 * |beta2 + pi*beta3*(f_i + f_k)| * L (the `phi` argument here
+    excludes the span length L, passed separately), and the phase-matched link
+    function of the ISRS GN model |mu(f_i, f_k, f_i)|^2 = T_k / (a^2 * (a + a_bar)^2).
+
+    [3] D. Semrau, E. Sillekens, R. I. Killey, P. Bayvel, "A Modulation Format
+    Correction Formula for the Gaussian Noise Model in the Presence of Inter-Channel
+    Stimulated Raman Scattering," IEEE Photon. Technol. Lett., 2019 (arXiv:1903.02506).
+    """
+    # Guard on the raw power/bandwidth (0 = unoccupied channel) before sanitising the
+    # divisors; powers are in Watts (~1e-3) so a `> 1.0` guard would zero everything.
+    p_i_safe = jnp.where(p_i > 0.0, p_i, 1.0)
+    a0 = jnp.where(p_i > 0.0, p_k / p_i_safe, 0.0) ** 2
+    B_k_safe = jnp.where(B_k > 0.0, B_k, 1.0)
+    phi_safe = jnp.where(phi != 0, phi, 1.0)
+    # The asymptotic formula assumes well-separated channels: only valid for
+    # 2*df > B_k, which also excludes the i == k (SPM) diagonal where df == 0.
+    valid = (2 * df > B_k) & (phi != 0) & (B_k > 0)
+    log_term = jnp.log(jnp.clip((2 * df - B_k) / (2 * df + B_k_safe), min=EPS))
+    bracket = (2 * df - B_k) * log_term + 2 * B_k
+    term = (
         5
         / 3
         * 32
-        / 27
-        * jnp.sum(
-            (phi_ik != 0)
-            * a0
-            * TX2
-            * gamma**2
-            / L
-            * Phi
-            * pi
-            * a1
-            / a**2
-            / (a + a_bar) ** 2
-            * (2.0 * df - B_k)
-            * a2,
-            axis=1,
-        )
+        / 27  # = 2 * 80/81
+        * a0
+        * TX2
+        * Phi
+        * gamma**2
+        * pi
+        * T_k
+        / a**2
+        / (a + a_bar) ** 2
+        / (phi_safe * L * B_k_safe**3)
+        * bracket
     )
+    return jnp.sum(jnp.where(valid, term, 0.0), axis=1)
 
 
 def calculate_amplifier_gain_isrs(attenuation, length, raman_slope, ch_power, ch_centre_freq):
     """
-    Calculate amplifier gain compensating for fiber loss and ISRS.
-    All inputs in SI units. ch_power and ch_centre_freq are 1D arrays of shape (N,).
+    Calculate amplifier gain compensating for fiber loss and ISRS power tilt.
+
+    Uses the Zirngibl closed-form SRS solution (M. Zirngibl, "Analytical model of Raman
+    gain effects in massive wavelength division multiplexed transmission systems,"
+    Electron. Lett. 34(8), 1998; see also Semrau et al., Ref. [1]): the fractional
+    power change of channel i over one span is
+
+        G_SRS(f_i) = Ptot * exp(-f_i * C) / sum_k P_k * exp(-f_k * C),  C = cr * Leff * Ptot
+
+    so higher-frequency channels are depleted (G_SRS < 1) in favour of lower-frequency
+    ones, and the amplifier applies correspondingly more gain to restore them.
+
+    All inputs in SI units: attenuation [Np/m], length [m], raman_slope [1/(W*m*Hz)].
+    ch_power [W] and ch_centre_freq [Hz, offsets from the reference frequency] are
+    1D arrays of shape (N,).
     """
-    a = attenuation * 1000
-    L = length / 1000
-    cr = raman_slope * 1e12
-    f_ch = jnp.squeeze(ch_centre_freq).flatten() / 1e12
+    a = attenuation
+    L = length
+    f_ch = jnp.squeeze(ch_centre_freq).flatten()
     P = jnp.squeeze(ch_power).flatten()
 
     Leff = (1 - jnp.exp(-a * L)) / a
     Ptot = jnp.sum(P)
-    cr_Leff_Ptot = cr * Leff * Ptot
+    cr_Leff_Ptot = raman_slope * Leff * Ptot
 
-    # N x N Raman transfer matrix
-    raman_transfer = jnp.exp(-(f_ch[:, None] - f_ch[None, :]) * cr_Leff_Ptot)
-    psd_sum = jnp.maximum(jnp.sum(P[None, :] * raman_transfer, axis=1), EPS)
+    exp_tilt = jnp.exp(-f_ch * cr_Leff_Ptot)
+    psd_sum = jnp.maximum(jnp.sum(P * exp_tilt), EPS)
 
-    gsrs_tilt = Ptot * jnp.exp(-f_ch * cr_Leff_Ptot) / psd_sum
+    gsrs_tilt = Ptot * exp_tilt / psd_sum
     total_loss_compensation = jnp.exp(L * a)
     gain = jnp.where(P > 0, total_loss_compensation / gsrs_tilt, total_loss_compensation)
 
@@ -851,24 +885,10 @@ def get_snr_fused(
     eta_n = eta_spm + eta_xpm
     p_nli = ch_pow**3 * eta_n
 
-    # === ASE inline (ISRS-aware gain) ===
-    # Replicate calculate_amplifier_gain_isrs logic with mixed THz/km units
-    a_si = a * 1000  # Np/m -> Np/km
-    L_km = span_length / 1000  # m -> km
-    cr_scaled = cr * 1e12  # 1/(W*m*Hz) -> 1/(W*m*THz)
-    f_THz = f / 1e12  # Hz -> THz
-
-    Leff = (1 - jnp.exp(-a_si * L_km)) / a_si
-    Ptot = jnp.sum(ch_pow)
-    cr_Leff_Ptot = cr_scaled * Leff * Ptot
-
-    raman_transfer = jnp.exp(-(f_THz[:, None] - f_THz[None, :]) * cr_Leff_Ptot)
-    psd_sum = jnp.maximum(jnp.sum(ch_pow[None, :] * raman_transfer, axis=1), EPS)
-    gsrs_tilt = Ptot * jnp.exp(-f_THz * cr_Leff_Ptot) / psd_sum
-    total_loss = jnp.exp(L_km * a_si)
+    # === ASE inline (ISRS-aware gain, shared Zirngibl closed form) ===
+    gain_inline = calculate_amplifier_gain_isrs(a, span_length, cr, ch_pow, f)
     if span_lumped_loss_db is not None:
-        total_loss = total_loss * (10 ** (span_lumped_loss_db / 10))
-    gain_inline = jnp.where(ch_pow > 0, total_loss / gsrs_tilt, total_loss)
+        gain_inline = gain_inline * (10 ** (span_lumped_loss_db / 10))
 
     gain_m1 = gain_inline - 1
     N_sp_inline = (10 ** (amplifier_noise_figure / 10) * gain_inline) / (2.0 * gain_m1)
