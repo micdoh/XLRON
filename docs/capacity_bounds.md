@@ -36,8 +36,7 @@ python -m xlron.bounds.cutsets_bounds \
     --CUTSET_EXHAUSTIVE \
     --CUTSET_BATCH_SIZE=512 \
     --CUTSET_ITERATIONS=32 \
-    --CUTSET_TOP_K=256 \
-    --cutset_link_selection_mode=least_congested
+    --CUTSET_TOP_K=256
 ```
 
 ### Cut-Set Specific Flags
@@ -82,19 +81,6 @@ Number of most-congested cut-sets to retain after discovery. Higher values consi
 
 When enabled, additionally filter cut-sets by removing those with congestion below the mean. Default: `False`.
 
-#### Link Selection Flag
-
-##### `--cutset_link_selection_mode`
-
-When multiple links could satisfy a cut-set constraint, this controls which link is preferred during greedy assignment:
-
-| Value | Description |
-|-------|-------------|
-| `least_congested` | Prefer links with the most free slots overall (default) |
-| `most_congested` | Prefer links with the fewest free slots |
-| `best_fit` | Prefer links where the contiguous free run around the block is tightest |
-| `random` | Random link selection |
-
 ### Output Metrics
 
 The cut-set method reports per-load statistics across trials:
@@ -125,8 +111,7 @@ python -m xlron.bounds.cutsets_bounds \
     --CUTSET_EXHAUSTIVE \
     --CUTSET_BATCH_SIZE=512 \
     --CUTSET_ITERATIONS=32 \
-    --CUTSET_TOP_K=256 \
-    --cutset_link_selection_mode=least_congested
+    --CUTSET_TOP_K=256
 ```
 
 #### Load Sweep on NSFNET
@@ -150,8 +135,7 @@ python -m xlron.bounds.cutsets_bounds \
     --CUTSET_EXHAUSTIVE \
     --CUTSET_BATCH_SIZE=512 \
     --CUTSET_ITERATIONS=32 \
-    --CUTSET_TOP_K=256 \
-    --cutset_link_selection_mode=least_congested
+    --CUTSET_TOP_K=256
 ```
 
 Note: `--load` should be set to the maximum load in the sweep range, as it is used for the initial environment setup and compilation.
@@ -175,8 +159,7 @@ python -m xlron.bounds.cutsets_bounds \
     --modulations_csv_filepath="./xlron/data/modulations/modulations_deeprmsa.csv" \
     --max_requests=100000 \
     --num_trials=10 \
-    --CUTSET_TOP_K=256 \
-    --cutset_link_selection_mode=least_congested
+    --CUTSET_TOP_K=256
 ```
 
 
