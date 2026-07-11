@@ -977,8 +977,12 @@ class ActorGNN(eqx.Module):
                 / jnp.sum(params.link_length_array.val, promote_integers=False)
             )
 
-        # Get current request
-        nodes_sd, requested_bw = read_rsa_request(state.request_array)
+        # Get current request. VONE has a 2D request_array (2, max_edges*2+1); use the
+        # first row for node info (same convention as init_graph_tuple).
+        request_array = state.request_array
+        if request_array.ndim == 2:
+            request_array = request_array[0]
+        nodes_sd, requested_bw = read_rsa_request(request_array)
 
         def get_path_features(i):
             return get_path_slots(edge_features, params, nodes_sd, i, agg_func="sum")

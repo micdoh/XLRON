@@ -576,7 +576,7 @@ def save_model(model: eqx.Module, config: Box, first_save: bool = True) -> pathl
 
 
 def init_network(config: Box, key: chex.PRNGKey) -> eqx.Module:
-    if config.env_type.lower() == "vone":
+    if config.env_type.lower() == "vone" and not config.USE_GNN:
         network = ActorCriticMLP(
             config.ACTION_DIM + (1 * config.include_no_op),  # +1 for "no op"
             config.INPUT_DIM,
@@ -595,6 +595,7 @@ def init_network(config: Box, key: chex.PRNGKey) -> eqx.Module:
         "rsa_gn_model",
         "rmsa_gn_model",
         "rsa_multiband",
+        "vone",  # vone only reaches here with USE_GNN (MLP handled above)
     ]:
         if config.USE_TRANSFORMER:
             # For transformer: input_size is the per-token feature dimension
@@ -643,11 +644,18 @@ def init_network(config: Box, key: chex.PRNGKey) -> eqx.Module:
                 )
             else:
                 global_output_size_actor = config.global_output_size_actor
-            input_node_feature_size = (
-                1
-                if config.DISABLE_NODE_FEATURES
-                else config.num_spectral_features + 2  # 2 for source/dest indicators
-            )
+            # Node feature width must match graph.nodes built by init_graph_tuple/
+            # update_graph_tuple: [spectral | source-dest(2)] for most envs; VONE
+            # prepends a node_capacity column ([capacity(1) | spectral | source-dest(2)]).
+            # DISABLE_NODE_FEATURES collapses to the width-1 zero placeholder.
+            if config.DISABLE_NODE_FEATURES:
+                input_node_feature_size = 1
+            else:
+                input_node_feature_size = (
+                    config.num_spectral_features + 2  # 2 for source/dest indicators
+                )
+                if config.env_type.lower() == "vone":
+                    input_node_feature_size += 1  # node_capacity column
             # Edge feature width must match graph.edges built by init_graph_tuple/
             # update_graph_tuple: GN-model envs stack [normalized_snr, normalized_power]
             # per slot (flattened to 2*link_resources at the GraphNet boundary); all other
