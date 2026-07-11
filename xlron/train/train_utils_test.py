@@ -269,6 +269,47 @@ class ResetWarmupMetricCountersTest(absltest.TestCase):
         # total_requests drives episode truncation and must be preserved
         self.assertEqual(int(new_state.env_state.total_requests), total_requests_before)
 
+    def test_gn_model_blocking_cause_counters_zeroed(self):
+        """The GN-model blocking-cause counters accumulate during warmup too; if they are
+        not zeroed alongside lengths, spectrum/snr/power_blocking_probability divide
+        warmup-contaminated counts by post-warmup lengths and no longer sum to
+        service_blocking_probability (they can even exceed 1 early in a run).
+        """
+        settings = dict(
+            env_type="rmsa_gn_model",
+            topology_name="5node_directed",
+            k=2,
+            link_resources=5,
+            values_bw=[100],
+            slot_size=25,
+            guardband=0,
+            mod_format_correction=False,
+            load=100,
+            mean_service_holding_time=10,
+            max_requests=10,
+            continuous_operation=True,
+        )
+        env, params = make(settings)  # LogWrapper-wrapped
+        obs, state = env.reset(jax.random.PRNGKey(0), params)
+        # Simulate warmup-accumulated blocking-cause counts at both levels
+        count = jnp.array(2, dtype=state.env_state.blocked_spectrum.dtype)
+        state = state.replace(
+            blocked_spectrum=count,
+            blocked_snr=count,
+            blocked_power=count,
+            env_state=state.env_state.replace(
+                blocked_spectrum=count,
+                blocked_snr=count,
+                blocked_power=count,
+            ),
+        )
+
+        new_state = reset_warmup_metric_counters(state)
+
+        for field in ("blocked_spectrum", "blocked_snr", "blocked_power"):
+            self.assertEqual(int(getattr(new_state, field)), 0, f"LogEnvState.{field}")
+            self.assertEqual(int(getattr(new_state.env_state, field)), 0, f"env.{field}")
+
     def test_shapes_and_dtypes_preserved(self):
         state = self._stepped_log_state()
         new_state = reset_warmup_metric_counters(state)

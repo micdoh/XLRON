@@ -22,7 +22,6 @@ from xlron.environments.diff_utils import *
 from xlron.environments.env_funcs import (
     calculate_fragmentation,
     calculate_path_stats,
-    check_action_rmsa_gn_model,
     check_action_rmsa_gn_model_components,
     check_action_rsa,
     check_action_rwalr,
@@ -268,7 +267,9 @@ class RSAEnv(environment.Environment):
             complete_step = complete_step_rsa_gn_model
         elif params.__class__.__name__ == "RMSAGNModelEnvParams":
             implement_action = implement_action_rmsa_gn_model
-            check_action = check_action_rmsa_gn_model
+            # check_action is deliberately not reassigned here: the RMSA GN-model check is
+            # computed below from check_action_rmsa_gn_model_components so the blocking
+            # cause (spectrum vs SNR vs power) can be counted without recomputation
             complete_step = complete_step_rmsa_gn_model
 
         # Implement action
