@@ -182,6 +182,9 @@ class LogEnvState:
         total_bitrate (chex.Scalar): Total bitrate requested
         utilisation (chex.Scalar): Network utilisation
         fragmentation (chex.Scalar): Mean external spectrum fragmentation across links
+        blocked_spectrum (chex.Scalar): Requests blocked by spectrum contention (GN-model envs, else 0)
+        blocked_snr (chex.Scalar): Requests blocked by insufficient SNR (GN-model envs, else 0)
+        blocked_power (chex.Scalar): Requests blocked by the per-fibre power budget (GN-model envs, else 0)
         terminal (chex.Scalar): Terminal flag (true termination condition met)
         truncated (chex.Scalar): Truncated flag (max steps reached)
     """
@@ -195,6 +198,9 @@ class LogEnvState:
     total_bitrate: Array
     utilisation: Array
     fragmentation: Array
+    blocked_spectrum: Array
+    blocked_snr: Array
+    blocked_power: Array
     terminal: Array
     truncated: Array
 
@@ -370,8 +376,16 @@ class GNModelEnvParams(RSAEnvParams):
 
 @struct.dataclass
 class GNModelEnvState(RSAEnvState):
-    """Dataclass to hold environment state for RSA with GN model."""
+    """Dataclass to hold environment state for RSA with GN model.
 
+    The blocked_* fields count blocked requests by cause (cumulative within an episode,
+    like accepted_services). Causes are attributed with spectrum > SNR > power priority,
+    so the counters are mutually exclusive and sum to the total number of blocked requests.
+    """
+
+    blocked_spectrum: Array  # Count of requests blocked by spectrum contention
+    blocked_snr: Array  # Count of requests blocked by insufficient SNR
+    blocked_power: Array  # Count of requests blocked by the per-fibre power budget
     link_snr_array: Array  # Available SNR on each link
     channel_centre_bw_array: Array  # Channel centre bandwidth for each active connection
     path_index_array: (

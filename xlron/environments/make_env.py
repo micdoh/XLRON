@@ -62,6 +62,7 @@ from xlron.environments.gn_model.isrs_gn_model_dra import (
     fit_dra_params_triangular,
 )
 from xlron.environments.wrappers import LogWrapper
+from xlron.parameter_flags import get_flag_defaults
 
 # Default KSP cache directory (next to the topology JSON files)
 KSP_CACHE_DIR = pathlib.Path(__file__).resolve().parent.parent / "data" / "topologies" / "ksp"
@@ -152,7 +153,7 @@ def validate_config(config: Box, is_eval: bool) -> None:
     end_first_blocking = config.get("end_first_blocking", False)
     if not continuous and not end_first_blocking:
         steps_per_env = int(config.NUM_UPDATES) * rollout_length
-        max_requests = int(config.get("max_requests", 0))
+        max_requests = int(config.get("max_requests", 4))
         if 0 < steps_per_env < max_requests:
             print(
                 f"WARNING: per-env rollout window (NUM_UPDATES * ROLLOUT_LENGTH = {steps_per_env}) "
@@ -170,9 +171,21 @@ def process_config(config: Optional[Union[dict, FlagValues]], **kwargs: Any) -> 
     # Allow config to be a dict or absl.flags.FlagValues
     if isinstance(config, FlagValues):
         config = {k: v.value for k, v in config.__flags.items()}
+    else:
+        config = dict(config)
     # if kwargs are passed, then include them in config
     config.update(kwargs)
-    config = Box(config)
+    # The GNN node-feature flag is uppercase DISABLE_NODE_FEATURES (train_utils.py
+    # sizes the GNN node input from it); accept the lowercase alias from dict-config
+    # callers before the flag defaults are layered in (after which the uppercase key
+    # is always present).
+    if "DISABLE_NODE_FEATURES" not in config and "disable_node_features" in config:
+        config["DISABLE_NODE_FEATURES"] = config["disable_node_features"]
+    # Layer user config over the flag defaults from parameter_flags.py, so dict-config
+    # callers (tests, notebooks, library users) get exactly the same defaults as a CLI
+    # run. For FlagValues configs this is a no-op (every flag key is already present).
+    # Must happen before initialize_dtypes below, which reads dtype-relevant keys.
+    config = Box({**get_flag_defaults(), **config})
     # Resolve the global dtype constants from this config BEFORE any env array is built.
     # Centralised here so every entry point (train, eval, bounds, GUI, tests) that goes through
     # make()/process_config() honours --mixed_precision and the per-tier *_dtype flags. Idempotent.
@@ -206,7 +219,7 @@ def process_config(config: Optional[Union[dict, FlagValues]], **kwargs: Any) -> 
         )
         config.maximise_throughput = config.maximise_throughout
     # This if statement is just to ensure compatibility with some tests that don't define all config options
-    if config.get("TOTAL_TIMESTEPS", False):
+    if config.get("TOTAL_TIMESTEPS"):
         config.TOTAL_TIMESTEPS = int(config.TOTAL_TIMESTEPS)
         requested_total_timesteps = config.TOTAL_TIMESTEPS
         # For incremental logging, we need to set the number of increments
@@ -219,7 +232,7 @@ def process_config(config: Optional[Union[dict, FlagValues]], **kwargs: Any) -> 
         # The eval scan runs max_requests*scale_factor steps per episode, and NUM_EPISODES
         # = STEPS_PER_INCREMENT // (max_requests * scale_factor) // NUM_ENVS.
         if is_eval and not config.get("continuous_operation", False):
-            max_requests = int(config.get("max_requests", 1000))
+            max_requests = int(config.get("max_requests", 4))
             scale_factor = int(config.get("scale_factor", 1))
             episode_length = max_requests * scale_factor
             min_steps = episode_length * config.NUM_ENVS
@@ -315,7 +328,7 @@ def make(
         params: Environment parameters
     """
     config = process_config(config, **kwargs)
-    env_type = config.get("env_type", "").lower()
+    env_type = config.get("env_type", "rmsa").lower()
     if env_type not in [
         "rsa",
         "rmsa",
@@ -330,19 +343,17 @@ def make(
         raise ValueError(f"Invalid environment type {env_type}")
 
     seed = config.get("seed", 0)
-    topology_name = config.get("topology_name", "conus")
-    load = config.get("load", 100)
+    topology_name = config.get("topology_name", "4node")
+    load = config.get("load", 250)
     k = config.get("k", 5)
     incremental_loading = config.get("incremental_loading", False)
     end_first_blocking = config.get("end_first_blocking", False)
     terminate_on_episode_end = config.get("terminate_on_episode_end", False)
     random_traffic = config.get("random_traffic", False)
     continuous_operation = config.get("continuous_operation", False)
-    total_timesteps = config.get("TOTAL_TIMESTEPS", 1e4)
-    max_requests = (
-        total_timesteps if continuous_operation else config.get("max_requests", total_timesteps)
-    )
-    link_resources = config.get("link_resources", 100)
+    total_timesteps = config.get("TOTAL_TIMESTEPS", 1e6)
+    max_requests = total_timesteps if continuous_operation else config.get("max_requests", 4)
+    link_resources = config.get("link_resources", 5)
     values_bw = config.get("values_bw", None)
     values_bw_probs = config.get("values_bw_probs", None)
     node_probabilities = config.get("node_probs", None)
@@ -360,22 +371,17 @@ def make(
     traffic_requests_csv_filepath = config.get("traffic_requests_csv_filepath", None)
     multiple_topologies_directory = config.get("multiple_topologies_directory", None)
     aggregate_slots = config.get("aggregate_slots", 1)
-    # The flag is uppercase DISABLE_NODE_FEATURES (train_utils.py sizes the GNN node input
-    # from it); accept the lowercase key too for dict-config callers.
-    disable_node_features = config.get(
-        "DISABLE_NODE_FEATURES", config.get("disable_node_features", False)
-    )
+    # The lowercase disable_node_features alias is resolved in process_config
+    disable_node_features = config.get("DISABLE_NODE_FEATURES", False)
     disjoint_paths = config.get("disjoint_paths", False)
     log_actions = config.get("log_actions", False)
     profile = config.get("PROFILE", False)
     guardband = config.get("guardband", 1)
     maximum_path_length_km = config.get("maximum_path_length_km", None)
-    path_sort_criteria = config.get("path_sort_criteria", "hops")
+    path_sort_criteria = config.get("path_sort_criteria", "spectral_resources")
     remove_array_wrappers = config.get("remove_array_wrappers", False)
-    # "maximise_throughout" is the deprecated misspelling (see process_config)
-    maximise_throughput = config.get(
-        "maximise_throughput", config.get("maximise_throughout", False)
-    )
+    # The deprecated misspelling "maximise_throughout" is resolved in process_config
+    maximise_throughput = config.get("maximise_throughput", False)
     reward_type = config.get("reward_type", "service")
     truncate_holding_time = config.get("truncate_holding_time", False)
     alpha = config.get("alpha", 0.2) * 1e-3
@@ -389,9 +395,9 @@ def make(
         raise ValueError("Cannot aggregate slots and evaluate heuristic")
 
     # VONE specific parameters
-    node_resources = config.get("node_resources", 30)
+    node_resources = config.get("node_resources", 4)
     min_node_resources = config.get("min_node_resources", 1)
-    max_node_resources = config.get("max_node_resources", 2)
+    max_node_resources = config.get("max_node_resources", 1)
     virtual_topologies = config.get("virtual_topologies", "3_ring")
     virtual_topologies = (
         virtual_topologies.split(",") if isinstance(virtual_topologies, str) else virtual_topologies
@@ -423,8 +429,8 @@ def make(
     attenuation = config.get("attenuation", 0.2 / 4.343 / 1e3)
     attenuation_bar = config.get("attenuation_bar", 0.2 / 4.343 / 1e3)
     dispersion_coeff = config.get("dispersion_coeff", 17 * 1e-12 / 1e-9 / 1e3)
-    dispersion_slope = config.get("dispersion_slope", 0.067 * 1e-12 / 1e-9 / 1e3 / 1e-9)
-    coherent = config.get("coherent", False)
+    dispersion_slope = config.get("dispersion_slope", 60.7)
+    coherent = config.get("coherent", True)
     config.get("noise_figure", 4)
     uniform_spans = config.get("uniform_spans", True)
     band_preference = config.get("band_preference", None)
@@ -458,7 +464,7 @@ def make(
         ref_lambda = _band_layout["ref_lambda"]
         gap_start_slots = _band_layout["gap_start_slots"]
         gap_width_slots = _band_layout["gap_width_slots"]
-    elif config.get("enforce_band_gaps", False):
+    elif config.get("enforce_band_gaps", True):
         gap_start_slots, gap_width_slots = compute_band_gaps_from_csv(
             link_resources, ref_lambda, slot_size, config.get("band_data_filepath", None)
         )
@@ -475,19 +481,19 @@ def make(
                 f"got {len(gap_width_slots)} widths and {len(gap_start_slots)} starts"
             )
     mod_format_correction = (
-        config.get("mod_format_correction", True) if env_type == "rmsa_gn_model" else False
+        config.get("mod_format_correction", False) if env_type == "rmsa_gn_model" else False
     )
     num_roadms = config.get("num_roadms", 1)
     roadm_loss = config.get("roadm_loss", 18)
     span_lumped_loss_db = config.get("span_lumped_loss_db", None)
-    snr_margin = config.get("snr_margin", 1)
+    snr_margin = config.get("snr_margin", 0.5)
     path_snr = True if env_type in ["rsa_gn_model", "rmsa_gn_model"] else False
-    max_snr = config.get("max_snr", 50.0)
+    max_snr = config.get("max_snr", 30.0)
     min_snr = config.get("min_snr", 7.0)
-    max_power = config.get("max_power", 9)
+    max_power = config.get("max_power", 0.5)
     min_power = config.get("min_power", -5)
-    step_power = config.get("step_power", 1)
-    max_power_per_fibre_dbm = config.get("max_power_per_fibre", 21.0)
+    step_power = config.get("step_power", 0.1)
+    max_power_per_fibre_dbm = config.get("max_power_per_fibre", 23.0)
     max_power_per_fibre = float(from_dbm(max_power_per_fibre_dbm))  # linear Watts
     power_per_channel_dbm = config.get("power_per_channel", None)
     if power_per_channel_dbm is not None:
@@ -499,10 +505,10 @@ def make(
     traffic_array = config.get("traffic_array", False)
     launch_power_array = config.get("launch_power_array", None)
     pack_path_bits = config.get("pack_path_bits", False)
-    relative_arrival_times = config.get("relative_arrival_times", False)
+    relative_arrival_times = config.get("relative_arrival_times", True)
 
     # Differentiable approximation params
-    temperature = config.get("temperature", 1.0)
+    temperature = config.get("temperature", 5.0)
     differentiable = config.get("differentiable", False)
 
     # optimize_launch_power.py parameters
@@ -512,7 +518,7 @@ def make(
     rng, _, _, _, _ = jax.random.split(rng, 5)
     graph = make_graph(topology_name, topology_directory=config.get("topology_directory", None))
     traffic_intensity = config.get("traffic_intensity", 0)
-    mean_service_holding_time = config.get("mean_service_holding_time", 10)
+    mean_service_holding_time = config.get("mean_service_holding_time", 25)
 
     # Precision guard for the time/departure arrays. These hold (current_time + holding_time).
     # NB the previous guard used ``isinstance(dtype, jnp.bfloat16)`` which is always False (the
@@ -638,13 +644,13 @@ def make(
             list_of_requests = np.loadtxt(traffic_requests_csv_filepath, delimiter=",")[1:, :]
             list_of_requests = jnp.array(list_of_requests)
         elif config.get("list_of_requests", None) is not None:
-            list_of_requests = jnp.array(config.get("list_of_requests", [0.0]), dtype=jnp.float32)
+            list_of_requests = jnp.array(config.list_of_requests, dtype=jnp.float32)
         else:
             list_of_requests = init_list_of_requests(int(max_requests))
         max_requests = len(list_of_requests)
     elif optimise_launch_power:
         deterministic_requests = True
-        list_of_requests = jnp.array(config.get("list_of_requests", [0.0]))
+        list_of_requests = jnp.array(config.get("list_of_requests") or [0.0])
     else:
         deterministic_requests = False
         list_of_requests = jnp.array([0.0])
@@ -696,7 +702,7 @@ def make(
     max_spans = int(jnp.ceil(max(link_length_array) * 1e3 / max_span_length)[0])
     if consider_modulation_format:
         modulations_array = init_modulations_array(config.get("modulations_csv_filepath", None))
-        if config.get("calc_minimum_osnr", False):
+        if config.get("calc_minimum_osnr", True):
             beta_fec = config.get("beta_fec", 1.5e-2)
             modulations_array = jnp.array(
                 _calc_modulations_osnr(np.array(modulations_array), beta_fec)
@@ -801,7 +807,7 @@ def make(
     else:
         line_graph_spectral_features = None
 
-    transformer_obs_type = config.get("transformer_obs_type", "")
+    transformer_obs_type = config.get("transformer_obs_type", "departure")
     if transformer_obs_type:
         assert transformer_obs_type in ["departure", "occupancy", "capacity"], (
             f"transformer_obs_type must be one of 'departure', 'occupancy', or 'capacity', got {transformer_obs_type}"
@@ -863,9 +869,9 @@ def make(
         relative_arrival_times=relative_arrival_times,
         temperature=temperature,
         differentiable=differentiable,
-        num_spectral_features=config.get("num_spectral_features", 3),
+        num_spectral_features=config.get("num_spectral_features", 8),
         line_graph_spectral_features=line_graph_spectral_features,
-        include_no_op=config.get("include_no_op", True),
+        include_no_op=config.get("include_no_op", False),
         transformer_obs_type=transformer_obs_type,
         use_gnn=config.get("USE_GNN"),
         profile=profile,

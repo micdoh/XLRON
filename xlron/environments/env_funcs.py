@@ -277,7 +277,12 @@ def update_graph_tuple(state: RSAEnvState, params: RSAEnvParams) -> RSAEnvState:
         state (EnvState): Environment state with updated graph tuple
     """
     # Get source and dest from request array
-    source_dest, datarate = read_rsa_request(state.request_array)
+    # VONE has 2D request_array (2, max_edges*2+1), use first row for node info
+    # (same convention as init_graph_tuple)
+    request_array = state.request_array
+    if request_array.ndim == 2:
+        request_array = request_array[0]
+    source_dest, datarate = read_rsa_request(request_array)
     source, dest = source_dest[0], source_dest[2]
     # Current request as global feature
     globals = jnp.array(
@@ -328,8 +333,19 @@ def update_graph_tuple(state: RSAEnvState, params: RSAEnvParams) -> RSAEnvState:
         )
         node_features = getattr(state, "node_capacity_array", jnp.zeros(params.num_nodes))
         node_features = node_features.reshape(-1, 1)
+        # VONE carries [capacity(1) | spectral | source-dest(2)] node features, so the
+        # static spectral columns sit at offset 1 (the generic slice above would grab the
+        # capacity column and drop the last spectral eigenvector).
+        vone_spectral_features = state.graph.nodes[..., 1 : 1 + params.num_spectral_features]
+        # Match the env's init_graph_tuple(..., exclude_source_dest=True) convention:
+        # VONE's request row 0 holds node-capacity request values, not node indices, so
+        # the generic one-hot source_dest_features above would encode capacities as node
+        # positions. Keep the two source-dest columns zeroed instead. (VONEEnv currently
+        # rebuilds the graph via init_graph_tuple each step; this keeps a direct call
+        # consistent with that path.)
+        vone_source_dest_features = jnp.zeros_like(source_dest_features)
         node_features = jnp.concatenate(
-            [node_features, spectral_features, source_dest_features], axis=-1
+            [node_features, vone_spectral_features, vone_source_dest_features], axis=-1
         )
     else:
         edge_features = (
@@ -4372,6 +4388,35 @@ def set_band_gaps(link_slot_array: Array, params: RSAGNModelEnvParams, val: int)
 
 
 @partial(jax.jit, static_argnums=(2,))
+def check_action_rmsa_gn_model_components(
+    state: GNModelEnvState, action_info: ActionInfo, params: GNModelEnvParams
+) -> tuple:
+    """Compute the individual acceptance checks for the RMSA GN model.
+
+    The three checks correspond to the possible blocking causes:
+    spectrum contention, insufficient SNR, and per-fibre power budget.
+    step_env uses the components to count blocking causes without recomputing them;
+    check_action_rmsa_gn_model aggregates them into the overall validity check.
+
+    Args:
+        state (EnvState): Environment state
+        action_info (ActionInfo): Action info
+        params (EnvParams): Environment parameters
+    Returns:
+        tuple: (rsa_check, snr_sufficient_check, power_check) - each truthy if the
+        corresponding check failed (action invalid)
+    """
+    snr_sufficient_check = check_snr_sufficient(state, params)
+    rsa_check = check_action_rsa(state, action_info, params)
+    # Check total power per link doesn't exceed max_power_per_fibre
+    total_power = compute_total_power_per_link(
+        state.channel_power_array, state.path_index_array, state.channel_centre_freq_array
+    )
+    power_check = jnp.any(total_power > params.max_power_per_fibre)
+    return rsa_check, snr_sufficient_check, power_check
+
+
+@partial(jax.jit, static_argnums=(2,))
 def check_action_rmsa_gn_model(
     state: GNModelEnvState, action_info: ActionInfo, params: GNModelEnvParams
 ) -> bool:
@@ -4383,15 +4428,9 @@ def check_action_rmsa_gn_model(
     Returns:
         bool: True if action is invalid, False if action is valid
     """
-    # Check if action is valid
-    # TODO - log failure reasons in info
-    snr_sufficient_check = check_snr_sufficient(state, params)
-    rsa_check = check_action_rsa(state, action_info, params)
-    # Check total power per link doesn't exceed max_power_per_fibre
-    total_power = compute_total_power_per_link(
-        state.channel_power_array, state.path_index_array, state.channel_centre_freq_array
+    rsa_check, snr_sufficient_check, power_check = check_action_rmsa_gn_model_components(
+        state, action_info, params
     )
-    power_check = jnp.any(total_power > params.max_power_per_fibre)
     return jnp.any(
         jnp.stack(
             (

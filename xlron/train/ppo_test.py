@@ -19,9 +19,17 @@ import optax
 from absl.testing import absltest, parameterized
 from box import Box
 
+from xlron.environments.dataclasses import RSATransition
 from xlron.environments.make_env import make
 from xlron.models.mlp import ActorCriticMLP
-from xlron.train.ppo import _calculate_puffer_advantage, _env_step, _sample_prioritized_batch
+from xlron.train.ppo import (
+    _calculate_puffer_advantage,
+    _env_step,
+    _loss_fn,
+    _recompute_vtrace_advantages,
+    _sample_prioritized_batch,
+    compute_sample_priority_weights,
+)
 from xlron.train.train_utils import TrainState
 
 LOGR_CLIP = 10.0
@@ -240,6 +248,162 @@ class PrioritizedReplayWeightsTest(chex.TestCase):
             self._batch(config), priorities, jnp.array(0.4), jax.random.PRNGKey(0), config
         )
         chex.assert_trees_all_close(weights, jnp.ones_like(weights), atol=1e-6)
+
+
+class VTracePrioritizedReplayTest(chex.TestCase):
+    """Regression tests for VTrace + prioritized replay ordering.
+
+    VTrace advantages/targets must be computed over the temporally-ordered rollout with
+    the true bootstrap value V(s_{T+1}) BEFORE prioritized resampling / shuffling can
+    permute the batch. The old code re-ran the reverse-time scan inside ``_loss_fn`` over
+    (potentially resampled) minibatches — chaining randomly resampled transitions as if
+    consecutive whenever PRIO_ALPHA > 0 — and bootstrapped each chunk's last row on its
+    own value instead of V(s_{T+1}).
+    """
+
+    T, E, OBS_DIM, N_ACTIONS = 6, 3, 6, 5
+
+    def _config(self, **overrides):
+        base = dict(
+            env_type="rwa",
+            USE_GNN=False,
+            USE_TRANSFORMER=False,
+            USE_RNN=False,
+            OFF_POLICY_IAM=False,
+            LOGR_CLIP=10.0,
+            ROLLOUT_LENGTH=self.T,
+            NUM_ENVS=self.E,
+            NUM_MINIBATCHES=2,
+            MINIBATCH_SIZE=self.T * self.E // 2,
+            NUM_LEARNERS=1,
+            GAMMA=0.99,
+            GAE_LAMBDA=0.9,
+            REWARD_CENTERING=False,
+            RHO_CLIP=1.0,
+            C_CLIP=1.0,
+            PRIO_ALPHA=0.6,
+            PRIO_BETA0=0.4,
+            PROFILE=False,
+            DEBUG=False,
+            DEBUG_LOSS=False,
+            ENHANCED_LOGGING=False,
+            IAM_GATING=False,
+            IAM_DAMPING=False,
+            ADV_CLIP=10.0,
+            CLIP_EPS=0.2,
+            VF_COEF=0.5,
+            VALID_MASS_LOSS_COEF=0.0,
+        )
+        base.update(overrides)
+        return Box(base)
+
+    def _rollout(self, seed=0):
+        """Synthetic ordered (T, E) rollout whose stored log-probs come from the same
+        model, so the recomputed VTrace importance ratio is exactly 1 at no-update."""
+        t, e, obs_dim, n_actions = self.T, self.E, self.OBS_DIM, self.N_ACTIONS
+        kmodel, kobs, kact, krew, klast = jax.random.split(jax.random.PRNGKey(seed), 5)
+        model = ActorCriticMLP(n_actions, obs_dim, num_layers=1, num_units=16, key=kmodel)
+        train_state = TrainState.create(model, optax.adam(1e-3))
+        obs = jax.random.normal(kobs, (t, e, obs_dim))
+        pi, value = jax.vmap(model)(obs.reshape(t * e, obs_dim))
+        action = pi.sample(seed=kact)
+        # All-ones mask: the masked behaviour policy equals the unmasked policy
+        log_prob = pi.log_prob(action)
+        traj = RSATransition(
+            terminal=jnp.zeros((t, e), dtype=bool),
+            truncated=jnp.zeros((t, e), dtype=bool),
+            action=action.reshape(t, e),
+            value=value.reshape(t, e),
+            reward=jax.random.normal(krew, (t, e)),
+            log_prob=log_prob.reshape(t, e),
+            obs=(obs,),
+            # Unique per-sample id rides through resampling to identify each transition
+            info={"idx": jnp.arange(t * e, dtype=jnp.float32).reshape(t, e)},
+            action_mask=jnp.ones((t, e, n_actions)),
+            valid_mass=jnp.ones((t, e)),
+        )
+        last_val = jax.random.normal(klast, (e,))
+        return model, train_state, traj, last_val
+
+    def test_recompute_matches_ordered_reference_at_no_update(self):
+        _, train_state, traj, last_val = self._rollout()
+        config = self._config()
+        adv, targets = _recompute_vtrace_advantages(train_state, traj, last_val, config)
+        # At no-update the importance ratio is 1 everywhere, so the VTrace recompute must
+        # equal the plain advantage scan over the ordered rollout with unit ratios.
+        ref_adv, ref_targets, _ = _calculate_puffer_advantage(
+            train_state, traj, last_val, jnp.ones_like(traj.reward), config
+        )
+        self.assertEqual(adv.shape, (self.T, self.E))
+        chex.assert_trees_all_close(adv, ref_adv, atol=1e-5)
+        chex.assert_trees_all_close(targets, ref_targets, atol=1e-5)
+
+    def test_last_row_bootstraps_on_supplied_last_value(self):
+        _, train_state, traj, last_val = self._rollout()
+        config = self._config()
+        adv, _ = _recompute_vtrace_advantages(train_state, traj, last_val, config)
+        # Final-row advantage: delta_T = rho * (r_T + gamma * V(s_{T+1}) - V(s_T)), rho == 1
+        expected_last = traj.reward[-1] + config.GAMMA * last_val - traj.value[-1]
+        chex.assert_trees_all_close(adv[-1], expected_last, atol=1e-5)
+        # Regression: the old in-loss recompute bootstrapped each chunk on its own last
+        # value (delta_T = r_T + gamma * V(s_T) - V(s_T)) instead of V(s_{T+1}).
+        self_bootstrap = traj.reward[-1] + config.GAMMA * traj.value[-1] - traj.value[-1]
+        self.assertGreater(float(jnp.abs(adv[-1] - self_bootstrap).max()), 1e-4)
+
+    def test_advantages_ride_with_samples_through_prioritized_resampling(self):
+        """Order-invariance: with PRIO_ALPHA > 0 + VTrace clipping, every resampled sample
+        must carry exactly the advantage/target computed for it on the ordered rollout,
+        regardless of the resampling permutation (different RNG keys)."""
+        _, train_state, traj, last_val = self._rollout()
+        config = self._config()
+        adv, targets = _recompute_vtrace_advantages(train_state, traj, last_val, config)
+        priorities = compute_sample_priority_weights(adv, jnp.array(config.PRIO_ALPHA))
+        flat_adv, flat_targets = adv.reshape(-1), targets.reshape(-1)
+        for seed in (0, 1):
+            minibatches, _ = _sample_prioritized_batch(
+                (traj, adv, targets),
+                priorities,
+                jnp.array(config.PRIO_BETA0),
+                jax.random.PRNGKey(seed),
+                config,
+            )
+            mb_traj, mb_adv, mb_targets = minibatches
+            idx = mb_traj.info["idx"].reshape(-1).astype(jnp.int32)
+            # Resampling with replacement must permute (traj, adv, targets) consistently
+            chex.assert_trees_all_close(mb_adv.reshape(-1), flat_adv[idx], atol=1e-6)
+            chex.assert_trees_all_close(mb_targets.reshape(-1), flat_targets[idx], atol=1e-6)
+
+    def test_loss_uses_precomputed_advantages_not_in_loss_scan(self):
+        """With VTrace advantages precomputed on ordered data, ``_loss_fn`` must consume
+        them as-is: identical batch_info gives identical loss/grads whether the VTrace
+        clipping flags are on or off (the old code re-ran the scan in-loss when on).
+
+        The loss is evaluated with a *drifted* policy (different weights from the
+        behaviour model that produced the stored log-probs) so ratio != 1: at no-update
+        the actor term is -mean(normalized adv) == 0 for any advantages, which would make
+        this check vacuous.
+        """
+        _, train_state, traj, last_val = self._rollout()
+        drifted = ActorCriticMLP(
+            self.N_ACTIONS, self.OBS_DIM, num_layers=1, num_units=16, key=jax.random.PRNGKey(99)
+        )
+        n = self.T * self.E
+        config_vtrace = self._config(NUM_MINIBATCHES=1, MINIBATCH_SIZE=n)
+        config_gae = self._config(NUM_MINIBATCHES=1, MINIBATCH_SIZE=n, RHO_CLIP=0.0, C_CLIP=0.0)
+        adv, targets = _recompute_vtrace_advantages(train_state, traj, last_val, config_vtrace)
+        flat = jax.tree.map(lambda x: x.reshape((n,) + x.shape[2:]), (traj, adv, targets))
+        batch_info = (*flat, jnp.ones((n,)))
+        (loss_v, _), grads_v = _loss_fn(drifted, train_state, batch_info, config_vtrace)
+        (loss_g, _), grads_g = _loss_fn(drifted, train_state, batch_info, config_gae)
+        chex.assert_trees_all_close(loss_v, loss_g, atol=1e-6)
+        chex.assert_trees_all_close(grads_v, grads_g, atol=1e-6)
+        # The passed advantages must actually be consumed under the VTrace config: a
+        # non-affine perturbation (invariant neither to the loss's mean/std advantage
+        # normalization nor to the old in-loss recompute, which ignored passed adv
+        # entirely) must change the loss.
+        perturbed_info = (flat[0], flat[1] + flat[1] ** 2, flat[2], jnp.ones((n,)))
+        (loss_p, _), _ = _loss_fn(drifted, train_state, perturbed_info, config_vtrace)
+        self.assertGreater(abs(float(loss_p - loss_v)), 1e-6)
 
 
 class _Traj(NamedTuple):

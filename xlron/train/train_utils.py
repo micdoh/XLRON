@@ -62,6 +62,13 @@ metrics = [
     "fragmentation",
     "service_blocking_probability",
     "bitrate_blocking_probability",
+    # Blocking-cause breakdown (GN-model envs only; keys absent for other env types)
+    "blocked_spectrum",
+    "blocked_snr",
+    "blocked_power",
+    "spectrum_blocking_probability",
+    "snr_blocking_probability",
+    "power_blocking_probability",
     "throughput",  # Only for RSA GN Model
     "launch_power",
     "path_snr",
@@ -576,7 +583,14 @@ def save_model(model: eqx.Module, config: Box, first_save: bool = True) -> pathl
 
 
 def init_network(config: Box, key: chex.PRNGKey) -> eqx.Module:
-    if config.env_type.lower() == "vone":
+    if config.env_type.lower() == "vone" and config.USE_TRANSFORMER:
+        # Fail fast: the transformer emits per-path-slot logits only, but VONE's
+        # select_action/_loss_fn slice [source | dest | path-slot] heads.
+        raise NotImplementedError(
+            "env_type=vone supports MLP (default) and --USE_GNN policies; "
+            "--USE_TRANSFORMER is not implemented for VONE"
+        )
+    if config.env_type.lower() == "vone" and not config.USE_GNN:
         network = ActorCriticMLP(
             config.ACTION_DIM + (1 * config.include_no_op),  # +1 for "no op"
             config.INPUT_DIM,
@@ -595,6 +609,7 @@ def init_network(config: Box, key: chex.PRNGKey) -> eqx.Module:
         "rsa_gn_model",
         "rmsa_gn_model",
         "rsa_multiband",
+        "vone",  # vone only reaches here with USE_GNN (MLP handled above)
     ]:
         if config.USE_TRANSFORMER:
             # For transformer: input_size is the per-token feature dimension
@@ -643,11 +658,23 @@ def init_network(config: Box, key: chex.PRNGKey) -> eqx.Module:
                 )
             else:
                 global_output_size_actor = config.global_output_size_actor
-            input_node_feature_size = (
-                1
-                if config.DISABLE_NODE_FEATURES
-                else config.num_spectral_features + 2  # 2 for source/dest indicators
-            )
+            # Node feature width must match graph.nodes built by init_graph_tuple/
+            # update_graph_tuple: [spectral | source-dest(2)] for most envs; VONE
+            # prepends a node_capacity column ([capacity(1) | spectral | source-dest(2)]).
+            # DISABLE_NODE_FEATURES collapses to the width-1 zero placeholder.
+            if config.DISABLE_NODE_FEATURES:
+                input_node_feature_size = 1
+            else:
+                input_node_feature_size = (
+                    config.num_spectral_features + 2  # 2 for source/dest indicators
+                )
+                if config.env_type.lower() == "vone":
+                    input_node_feature_size += 1  # node_capacity column
+            # VONE per-head readout: source/dest logits come from a width-2 node decoder
+            # and the path-slot logits from a dedicated MLP head (see ActorGNN.__call__),
+            # matching the [source | dest | path-slot] slicing in select_action/_loss_fn.
+            vone_heads = config.env_type.lower() == "vone"
+            node_output_size_actor = 2 if vone_heads else config.node_output_size_actor
             # Edge feature width must match graph.edges built by init_graph_tuple/
             # update_graph_tuple: GN-model envs stack [normalized_snr, normalized_power]
             # per slot (flattened to 2*link_resources at the GraphNet boundary); all other
@@ -681,7 +708,7 @@ def init_network(config: Box, key: chex.PRNGKey) -> eqx.Module:
                 node_embedding_size=config.node_embedding_size,
                 node_mlp_layers=config.node_mlp_layers,
                 node_mlp_latent=config.node_mlp_latent,
-                node_output_size_actor=config.node_output_size_actor,
+                node_output_size_actor=node_output_size_actor,
                 node_output_size_critic=config.node_output_size_critic,
                 attn_mlp_layers=config.attn_mlp_layers,
                 attn_mlp_latent=config.attn_mlp_latent,
@@ -698,6 +725,8 @@ def init_network(config: Box, key: chex.PRNGKey) -> eqx.Module:
                 max_concentration=config.max_concentration,
                 epsilon=config.EPSILON,
                 vmap=False,
+                vone_heads=vone_heads,
+                k_paths=config.k,
                 key=key,
             )
         elif "gn_model" in config.env_type.lower() and config.launch_power_type == "rl":
@@ -847,24 +876,40 @@ def reset_warmup_metric_counters(env_state):
     """Zero the metric counters accumulated during warmup.
 
     With continuous_operation the env is never reset, so the cumulative counters
-    (accepted_services, accepted_bitrate, total_bitrate) and the LogWrapper's
+    (accepted_services, accepted_bitrate, total_bitrate, and the GN-model
+    blocked_spectrum/blocked_snr/blocked_power counters) and the LogWrapper's
     lengths/cum_returns would otherwise include the near-zero-blocking network-fill
     transient, biasing every logged blocking probability (ENV_WARMUP_STEPS is
     documented as 'steps before collecting stats'). These fields are metrics-only;
     total_requests, which drives episode truncation, is deliberately kept.
     jnp.zeros_like preserves per-env shapes and dtypes for the jitted learner.
     """
+    inner_state = env_state.env_state
+    inner_updates = dict(
+        accepted_services=jnp.zeros_like(inner_state.accepted_services),
+        accepted_bitrate=jnp.zeros_like(inner_state.accepted_bitrate),
+        total_bitrate=jnp.zeros_like(inner_state.total_bitrate),
+    )
+    # GN-model env states also carry cumulative blocking-cause counters; zero them so
+    # spectrum/snr/power_blocking_probability exclude the warmup transient and keep
+    # summing to service_blocking_probability. hasattr inspects the static pytree
+    # structure (not traced values), so this branch is jit-safe.
+    if hasattr(inner_state, "blocked_spectrum"):
+        inner_updates.update(
+            blocked_spectrum=jnp.zeros_like(inner_state.blocked_spectrum),
+            blocked_snr=jnp.zeros_like(inner_state.blocked_snr),
+            blocked_power=jnp.zeros_like(inner_state.blocked_power),
+        )
     return env_state.replace(
         lengths=jnp.zeros_like(env_state.lengths),
         cum_returns=jnp.zeros_like(env_state.cum_returns),
         accepted_services=jnp.zeros_like(env_state.accepted_services),
         accepted_bitrate=jnp.zeros_like(env_state.accepted_bitrate),
         total_bitrate=jnp.zeros_like(env_state.total_bitrate),
-        env_state=env_state.env_state.replace(
-            accepted_services=jnp.zeros_like(env_state.env_state.accepted_services),
-            accepted_bitrate=jnp.zeros_like(env_state.env_state.accepted_bitrate),
-            total_bitrate=jnp.zeros_like(env_state.env_state.total_bitrate),
-        ),
+        blocked_spectrum=jnp.zeros_like(env_state.blocked_spectrum),
+        blocked_snr=jnp.zeros_like(env_state.blocked_snr),
+        blocked_power=jnp.zeros_like(env_state.blocked_power),
+        env_state=inner_state.replace(**inner_updates),
     )
 
 
@@ -1340,6 +1385,49 @@ def get_warmup_fn(warmup_state, env, params, train_state, config) -> Callable[[T
     return warmup_fn
 
 
+def get_sweep_rewarm_fn(env, env_params, config) -> Callable[[Tuple, chex.PRNGKey], Tuple]:
+    """Build a jitted re-equilibration function for load sweeps.
+
+    A load sweep reuses the compiled experiment across loads, but the network state
+    (link occupancy, departure times) in the base experiment_input was warmed up at
+    the original ``--load``. Starting every swept load from that state biases per-load
+    steady-state metrics: low loads inherit an over-full network (blocking
+    overestimated), high loads an under-full one (underestimated). The returned
+    function re-runs the ``ENV_WARMUP_STEPS`` warmup at the state's (already updated)
+    arrival rate, then zeroes the warmup metric counters so each swept load's metrics
+    exclude the re-equilibration transient. Build it once outside the load loop:
+    ``arrival_rate`` is a dynamic state leaf, so the single compilation is reused
+    across all loads (preserving the sweep's compile-once behaviour).
+
+    Args:
+        env: Environment (same one the experiment was compiled with)
+        env_params: Environment parameters
+        config: Config Box (reads ENV_WARMUP_STEPS, NUM_ENVS, NUM_LEARNERS, ...)
+
+    Returns:
+        Jitted function (experiment_input, warmup_key) -> experiment_input, where
+        experiment_input is (runner_state, env_state, obsv, rng_step, rng_epoch).
+        With NUM_LEARNERS > 1 the function is vmapped over the leading learner axis
+        and warmup_key must be a batch of NUM_LEARNERS keys.
+    """
+
+    def rewarm_fn(experiment_input: Tuple, warmup_key: chex.PRNGKey) -> Tuple:
+        runner_state, env_state, obsv, rng_step, rng_epoch = experiment_input
+        warmup_key = (
+            jax.random.split(warmup_key, config.NUM_ENVS) if config.NUM_ENVS > 1 else warmup_key
+        )
+        warmup_state = (warmup_key, env_state, obsv)
+        warmup_fn = get_warmup_fn(warmup_state, env, env_params, runner_state, config)
+        warmup_fn = jax.vmap(warmup_fn) if config.NUM_ENVS > 1 else warmup_fn
+        env_state, obsv = warmup_fn(warmup_state)
+        env_state = reset_warmup_metric_counters(env_state)
+        return (runner_state, env_state, obsv, rng_step, rng_epoch)
+
+    if config.NUM_LEARNERS > 1:
+        rewarm_fn = jax.vmap(rewarm_fn)
+    return jax.jit(rewarm_fn)
+
+
 def steps_per_train_state_unit(config: Box) -> int:
     """Number of train_state.step increments per update loop.
 
@@ -1791,6 +1879,15 @@ def process_metrics(config, out, merge_func):
         merged_out["accepted_bitrate"]
         / jnp.where(merged_out["total_bitrate"] == 0, 1, merged_out["total_bitrate"])
     )
+
+    # Blocking-cause breakdown (GN-model envs only; keys absent for other env types).
+    # Causes are mutually exclusive, so these probabilities sum to
+    # service_blocking_probability.
+    if "blocked_spectrum" in merged_out:
+        lengths_safe = jnp.where(merged_out["lengths"] == 0, 1, merged_out["lengths"])
+        merged_out["spectrum_blocking_probability"] = merged_out["blocked_spectrum"] / lengths_safe
+        merged_out["snr_blocking_probability"] = merged_out["blocked_snr"] / lengths_safe
+        merged_out["power_blocking_probability"] = merged_out["blocked_power"] / lengths_safe
 
     # Calculate episode ends
     merged_out["done"] = jnp.logical_or(merged_out["terminal"], merged_out["truncated"])

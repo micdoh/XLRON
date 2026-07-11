@@ -15,6 +15,7 @@ from xlron.models.mlp import ActorCriticMLP
 from xlron.train import ppo
 from xlron.train.train_utils import (
     diagnostics_metrics,
+    get_sweep_rewarm_fn,
     get_warmup_fn,
     loss_metrics,
     make_ent_schedule,
@@ -269,6 +270,47 @@ class ResetWarmupMetricCountersTest(absltest.TestCase):
         # total_requests drives episode truncation and must be preserved
         self.assertEqual(int(new_state.env_state.total_requests), total_requests_before)
 
+    def test_gn_model_blocking_cause_counters_zeroed(self):
+        """The GN-model blocking-cause counters accumulate during warmup too; if they are
+        not zeroed alongside lengths, spectrum/snr/power_blocking_probability divide
+        warmup-contaminated counts by post-warmup lengths and no longer sum to
+        service_blocking_probability (they can even exceed 1 early in a run).
+        """
+        settings = dict(
+            env_type="rmsa_gn_model",
+            topology_name="5node_directed",
+            k=2,
+            link_resources=5,
+            values_bw=[100],
+            slot_size=25,
+            guardband=0,
+            mod_format_correction=False,
+            load=100,
+            mean_service_holding_time=10,
+            max_requests=10,
+            continuous_operation=True,
+        )
+        env, params = make(settings)  # LogWrapper-wrapped
+        obs, state = env.reset(jax.random.PRNGKey(0), params)
+        # Simulate warmup-accumulated blocking-cause counts at both levels
+        count = jnp.array(2, dtype=state.env_state.blocked_spectrum.dtype)
+        state = state.replace(
+            blocked_spectrum=count,
+            blocked_snr=count,
+            blocked_power=count,
+            env_state=state.env_state.replace(
+                blocked_spectrum=count,
+                blocked_snr=count,
+                blocked_power=count,
+            ),
+        )
+
+        new_state = reset_warmup_metric_counters(state)
+
+        for field in ("blocked_spectrum", "blocked_snr", "blocked_power"):
+            self.assertEqual(int(getattr(new_state, field)), 0, f"LogEnvState.{field}")
+            self.assertEqual(int(getattr(new_state.env_state, field)), 0, f"env.{field}")
+
     def test_shapes_and_dtypes_preserved(self):
         state = self._stepped_log_state()
         new_state = reset_warmup_metric_counters(state)
@@ -278,6 +320,122 @@ class ResetWarmupMetricCountersTest(absltest.TestCase):
         for old, new in zip(old_leaves, new_leaves):
             self.assertEqual(jnp.shape(old), jnp.shape(new))
             self.assertEqual(jnp.asarray(old).dtype, jnp.asarray(new).dtype)
+
+
+class SweepRewarmTest(absltest.TestCase):
+    """Regression tests for the load-sweep warmup bias: each swept load must
+    re-equilibrate the network at its own arrival rate (re-running the
+    ENV_WARMUP_STEPS warmup) and zero the metric counters, instead of measuring
+    from a state equilibrated at the original --load.
+    """
+
+    WARMUP_STEPS = 40
+
+    def _setup(self, num_envs=1):
+        settings = dict(
+            env_type="rsa",
+            topology_name="4node",
+            k=2,
+            link_resources=5,
+            values_bw=[1],
+            slot_size=1,
+            guardband=0,
+            load=100,
+            mean_service_holding_time=10,
+            continuous_operation=True,
+        )
+        env, params = make(settings)  # LogWrapper-wrapped (max_requests defaults to 1e4)
+        config = Box(
+            dict(
+                EVAL_HEURISTIC=True,
+                env_type="rsa",
+                path_heuristic="ksp_ff",
+                launch_power_type="fixed",
+                ENV_WARMUP_STEPS=self.WARMUP_STEPS,
+                NUM_ENVS=num_envs,
+                NUM_LEARNERS=1,
+                USE_GNN=False,
+                USE_TRANSFORMER=False,
+            )
+        )
+        reset_key = jax.random.PRNGKey(0)
+        if num_envs > 1:
+            reset_key = jax.random.split(reset_key, num_envs)
+            obs, state = jax.vmap(env.reset, in_axes=(0, None))(reset_key, params)
+        else:
+            obs, state = env.reset(reset_key, params)
+        return env, params, config, state, tuple([obs])
+
+    @staticmethod
+    def _experiment_input(state, obsv):
+        rng = jax.random.PRNGKey(1)
+        # runner_state=None: heuristic eval has no train state (as in select_action_eval)
+        return (None, state, obsv, rng, rng)
+
+    def test_rewarm_advances_requests_and_zeroes_counters(self):
+        env, params, config, state, obsv = self._setup()
+        rewarm = get_sweep_rewarm_fn(env, params, config)
+        total_before = int(state.env_state.total_requests)
+        out = rewarm(self._experiment_input(state, obsv), jax.random.PRNGKey(2))
+        _, new_state, _, _, _ = out
+        # Warmup actually ran at the new load...
+        self.assertEqual(int(new_state.env_state.total_requests), total_before + self.WARMUP_STEPS)
+        # ...and its transient is excluded from the per-load metrics
+        for field in ("lengths", "cum_returns", "accepted_services"):
+            self.assertEqual(float(getattr(new_state, field)), 0.0, f"LogEnvState.{field}")
+        for field in ("accepted_services", "accepted_bitrate", "total_bitrate"):
+            self.assertEqual(float(getattr(new_state.env_state, field)), 0.0, f"env.{field}")
+
+    def test_rewarm_reequilibrates_occupancy_to_new_load(self):
+        """Sweeping from a high to a much lower load must not inherit the high-load
+        occupancy: after the re-warmup the network reflects the new steady state."""
+        env, params, config, state, obsv = self._setup()
+        rewarm = get_sweep_rewarm_fn(env, params, config)
+        # Equilibrate at the original (high) load: arrival_rate = 100/10 = 10
+        _, high_state, high_obsv, rng_step, rng_epoch = rewarm(
+            self._experiment_input(state, obsv), jax.random.PRNGKey(2)
+        )
+        occupied_high = int(jnp.count_nonzero(high_state.env_state.link_slot_array))
+        self.assertGreater(occupied_high, 0)
+
+        # Sweep to a near-zero load: only arrival_rate changes, exactly as
+        # train.py:_update_experiment_input_load does
+        inner = high_state.env_state.replace(
+            arrival_rate=jnp.full_like(high_state.env_state.arrival_rate, 0.01)
+        )
+        low_input = (None, high_state.replace(env_state=inner), high_obsv, rng_step, rng_epoch)
+        _, low_state, _, _, _ = rewarm(low_input, jax.random.PRNGKey(3))
+        occupied_low = int(jnp.count_nonzero(low_state.env_state.link_slot_array))
+        # Inter-arrival time (100) >> holding time (10): the high-load occupancy
+        # must have drained during the re-warmup
+        self.assertLess(occupied_low, occupied_high)
+
+    def test_rewarm_preserves_structure_for_compiled_experiment(self):
+        """The rewarmed experiment_input feeds the already-compiled experiment fn,
+        so every leaf must keep its shape and dtype."""
+        env, params, config, state, obsv = self._setup()
+        rewarm = get_sweep_rewarm_fn(env, params, config)
+        experiment_input = self._experiment_input(state, obsv)
+        out = rewarm(experiment_input, jax.random.PRNGKey(2))
+        old_leaves = jax.tree_util.tree_leaves(experiment_input)
+        new_leaves = jax.tree_util.tree_leaves(out)
+        self.assertEqual(len(old_leaves), len(new_leaves))
+        for old, new in zip(old_leaves, new_leaves):
+            self.assertEqual(jnp.shape(old), jnp.shape(new))
+            self.assertEqual(jnp.asarray(old).dtype, jnp.asarray(new).dtype)
+
+    def test_rewarm_vmapped_envs(self):
+        """NUM_ENVS > 1: the warmup is vmapped and each env gets its own key."""
+        num_envs = 2
+        env, params, config, state, obsv = self._setup(num_envs=num_envs)
+        rewarm = get_sweep_rewarm_fn(env, params, config)
+        total_before = jnp.asarray(state.env_state.total_requests)
+        out = rewarm(self._experiment_input(state, obsv), jax.random.PRNGKey(2))
+        _, new_state, _, _, _ = out
+        self.assertTrue(
+            bool(jnp.all(new_state.env_state.total_requests == total_before + self.WARMUP_STEPS))
+        )
+        self.assertTrue(bool(jnp.all(new_state.lengths == 0)))
 
 
 class LossInfoMetricRegistrationTest(absltest.TestCase):

@@ -434,7 +434,10 @@ flags.DEFINE_float(
     "min_load",
     None,
     "Minimum load for load sweep. When set (along with max_load and step_load), "
-    "runs the experiment across a range of loads using a single compilation.",
+    "runs the experiment across a range of loads using a single compilation. "
+    "Each swept load re-runs the ENV_WARMUP_STEPS warmup at its own arrival rate "
+    "and zeroes the metric counters, so per-load metrics reflect that load's "
+    "steady state.",
 )
 flags.DEFINE_float(
     "max_load",
@@ -990,3 +993,20 @@ flags.DEFINE_float(
     0.8,
     "Sigma for Gaussian smoothing kernel (larger = smoother landscape)",
 )
+
+
+def get_flag_defaults() -> dict:
+    """Return ``{flag_name: default_value}`` for every flag defined in this module.
+
+    This makes the flag definitions above the single source of truth for parameter
+    defaults: ``make_env.process_config`` layers user-supplied config keys over
+    these defaults, so dict-config callers (tests, notebooks, library users) get
+    exactly the same defaults as a CLI run. Flag ``.default`` values are readable
+    without parsing argv, so this is safe to call at any time.
+    """
+    module_flags = flags.FLAGS.flags_by_module_dict().get(__name__)
+    if not module_flags:  # pragma: no cover - defensive; absl keys flags by defining module
+        raise RuntimeError(
+            f"No flags registered under module {__name__!r}; cannot derive config defaults."
+        )
+    return {f.name: f.default for f in module_flags}

@@ -174,7 +174,7 @@ When enabled, `log(mu_old)` is subtracted from the log ratio before clipping, gi
 - **Interaction with `--IAM_DAMPING`:** recentering removes the implicit `mu_old` down-weighting of the actor gradient, so damping (`w *= clip(valid_mass / VALID_MASS_TARGET, 0, 1)`) becomes the only valid-mass-based down-weighting of congested states. Keep `IAM_DAMPING` on when using this flag. Damping and gating address valid-mass collapse (the off-policy gap), which is orthogonal to clip centring.
 - **Re-tune `--CLIP_EPS`:** because the gradient is now two-sided and no longer `mu_old`-scaled, the effective step size changes. A tight value such as `0.04` is usually too small once recentered; sweep `0.1`, `0.2`, `0.3` (and possibly the actor learning rate).
 - **Diagnostics:** with `--ENHANCED_LOGGING`, `diagnostics/recenter_ratio_mean`/`_std` report the recentered ratio (computed in both modes for comparison) and `diagnostics/neg_adv_clip_frac` reports the fraction of negative-advantage steps whose actor term is clipped — high in unit mode, low once recentered.
-- **Note:** the recentering applies only to the standard off-policy IAM branch. It is not applied to the VONE or launch-power branches. If VTrace-style clipping is enabled (`RHO_CLIP > 0` and `C_CLIP > 0`) the recentered ratio also feeds the importance correction in the advantage calculation; whether that ratio should be recentered too is left as an open question (VTrace is off by default).
+- **Note:** the recentering applies only to the standard off-policy IAM branch. It is not applied to the VONE or launch-power branches. If VTrace-style clipping is enabled (`RHO_CLIP > 0` and `C_CLIP > 0`) the recentered ratio also feeds the importance correction in the per-epoch VTrace advantage recomputation; whether that ratio should be recentered too is left as an open question (VTrace is off by default).
 - **Ablation outcome:** recentering alone is much worse than the non-recentered clip (it deletes the self-imitation filter and the `mu` weighting). Combined with `POSITIVE_ADV_ONLY` + `MU_WEIGHT_ACTOR` it matches the non-recentered configuration under bfloat16 but *loses and degrades late in training* under float32 — the explicit filter applies in every state, whereas the emergent one binds only in congested (`mu < 1 - eps`) states while the uncongested `mu ~ 1` lobe (most of the effective learning weight) trains two-sided. Treat these three flags as ablation instruments for studying the mechanism, not as a better-performing configuration.
 - **Diagnostics caveat:** `diagnostics/recenter_ratio_mean`/`_std` blow up (towards `exp(LOGR_CLIP)`) whenever a sample's stored valid mass underflows to ~0 — the `+1e-8` guard dominates — so ignore those columns on batches containing near-zero-`mu` states. Zero-valid-action states (masked sampling falls back to uniform) can also push the *unweighted* `ratio_max` above 1; they are gated out of the loss itself.
 
@@ -222,6 +222,8 @@ Initial average reward estimate and step size for the exponential moving average
 
 Priority exponent for prioritized sampling of the rollout buffer. `0.0` = uniform sampling (default), `1.0` = fully prioritized by absolute advantage. Samples with higher absolute advantage are replayed more often, with importance sampling corrections to maintain unbiased gradients.
 
+Prioritization is sample-level unless `USE_RNN` is set (RNN policies need whole trajectories, so entire environment rollouts are resampled instead). Sample-level prioritization composes safely with VTrace-style clipping (`RHO_CLIP`/`C_CLIP`): VTrace advantages and value targets are recomputed over the temporally-ordered rollout at the start of each update epoch, *before* resampling, so resampling cannot scramble the reverse-time scan.
+
 #### `--PRIO_BETA0`
 
 Initial importance sampling correction exponent. Annealed from `PRIO_BETA0` to `1.0` over training. `1.0` = full correction from the start (default). Lower values allow more biased but potentially faster early learning.
@@ -236,6 +238,8 @@ Clipping parameters for VTrace-style off-policy correction in the advantage calc
 - `C_CLIP`: Clips the ratio used in the GAE accumulation (`A_t = delta_t + gamma * lambda * c_t * A_{t+1}`)
 
 When both are `<= 0` (default), standard GAE is used without clipping. When `lambda=1` and both clips are set, this reduces to the VTrace algorithm. These are useful when doing multiple epochs of updates, as the policy changes between epochs making the data off-policy.
+
+When VTrace clipping is active, advantages and value targets are recomputed at the start of each update epoch: a fresh forward pass over the temporally-ordered rollout gives current-policy importance ratios, and the reverse-time scan runs with the true bootstrap value `V(s_{T+1})` captured after the rollout (values in the scan are the stored behaviour-policy values, as in standard VTrace). Ratios therefore track policy drift across `UPDATE_EPOCHS` but are frozen across the minibatches within an epoch. Because this happens before prioritized resampling or shuffling, VTrace is fully compatible with `PRIO_ALPHA > 0` and minibatch shuffling.
 
 ### `--include_no_op`
 
