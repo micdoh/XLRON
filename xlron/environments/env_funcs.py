@@ -1059,7 +1059,8 @@ def init_values_slots(min_value, max_value):
     return jnp.arange(min_value, max_value + 1, dtype=dtype_config.LARGE_INT_DTYPE)
 
 
-# TODO - allow bandwidths to be selected with a specified probability
+# Bandwidths are sampled uniformly unless --values_bw_probs specifies weights
+# (see generate_request_rsa / generate_request_rwalr)
 def init_values_bandwidth(
     min_value: int = 25, max_value: int = 100, step: int = 1, values: int | None = None
 ) -> Array:
@@ -1261,7 +1262,9 @@ def generate_request_rsa(
             dest = source_dest_index % shape[1]
             nodes = jnp.stack((source, dest), dtype=dtype_config.LARGE_INT_DTYPE)
 
-        bw = jax.random.choice(key_slot, params.values_bw.val)
+        # values_bw_probs is a static field: None means uniform sampling
+        bw_probs = params.values_bw_probs.val if params.values_bw_probs is not None else None
+        bw = jax.random.choice(key_slot, params.values_bw.val, p=bw_probs)
         source, dest = (
             nodes
             if params.directed_graph
@@ -1330,7 +1333,9 @@ def generate_request_rwalr(
         # Convert 1D index back to 2D
         nodes = jnp.unravel_index(source_dest_index, shape)
         # Vectorized conditional replacement using mask
-        bw = jax.random.choice(key_slot, params.values_bw.val)
+        # values_bw_probs is a static field: None means uniform sampling
+        bw_probs = params.values_bw_probs.val if params.values_bw_probs is not None else None
+        bw = jax.random.choice(key_slot, params.values_bw.val, p=bw_probs)
         nodes = jnp.stack(nodes, dtype=dtype_config.LARGE_INT_DTYPE)
         source, dest = nodes if params.directed_graph else jnp.sort(nodes)
         arrival_time, holding_time = generate_arrival_holding_times(

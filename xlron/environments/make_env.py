@@ -310,9 +310,14 @@ def make(
     )
     link_resources = config.get("link_resources", 100)
     values_bw = config.get("values_bw", None)
+    values_bw_probs = config.get("values_bw_probs", None)
     node_probabilities = config.get("node_probabilities", None)
     if values_bw:
         values_bw = convert_str_to_list_of_numerics(values_bw, num_type="int")
+    if values_bw_probs:
+        values_bw_probs = convert_str_to_list_of_numerics(values_bw_probs, num_type="float")
+    else:
+        values_bw_probs = None
     slot_size = config.get("slot_size", 12.5)
     min_bw = config.get("min_bw", 25)
     max_bw = config.get("max_bw", 100)
@@ -617,6 +622,22 @@ def make(
 
     max_bw = max(values_bw)
 
+    # Validate bandwidth sampling probabilities against the final values_bw array
+    # (values_bw may come from min/max/step or be overridden by the env type above)
+    if values_bw_probs is not None:
+        if len(values_bw_probs) != len(values_bw):
+            raise ValueError(
+                f"values_bw_probs must have the same length as values_bw: "
+                f"got {len(values_bw_probs)} probabilities for {len(values_bw)} bandwidth values"
+            )
+        if any(p < 0 for p in values_bw_probs) or sum(values_bw_probs) <= 0:
+            raise ValueError(
+                f"values_bw_probs must be non-negative and sum to a positive value, "
+                f"got {values_bw_probs}"
+            )
+        values_bw_probs = jnp.array(values_bw_probs, dtype=jnp.float32)
+        values_bw_probs = values_bw_probs / jnp.sum(values_bw_probs)
+
     link_length_array = init_link_length_array(graph).reshape((num_links, 1))
 
     # Automated calculation of max slots requested
@@ -781,6 +802,9 @@ def make(
         directed_graph=graph.is_directed(),
         maximise_throughput=maximise_throughput,
         values_bw=HashableArrayWrapper(values_bw) if not remove_array_wrappers else values_bw,
+        values_bw_probs=HashableArrayWrapper(values_bw_probs)
+        if (values_bw_probs is not None and not remove_array_wrappers)
+        else values_bw_probs,
         reward_type=reward_type,
         truncate_holding_time=truncate_holding_time,
         log_actions=log_actions,

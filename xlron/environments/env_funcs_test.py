@@ -1379,6 +1379,46 @@ class DeterministicReplayOrderTest(chex.TestCase):
             np.testing.assert_allclose(got, np.array([row[0], row[1], row[2]], dtype=np.float32))
 
 
+class GenerateRequestBwProbsTest(chex.TestCase):
+    """Tests for weighted bandwidth request sampling via values_bw_probs."""
+
+    def _empirical_bw_freqs(self, state, params, values, n=10000):
+        keys = jax.random.split(jax.random.PRNGKey(1), n)
+
+        def _gen_bw(k):
+            new_state = generate_request_rsa(k, state, params)
+            return new_state.request_array[1]  # ty: ignore[unresolved-attribute]
+
+        bws = jax.vmap(_gen_bw)(keys)
+        return jnp.array([jnp.mean(bws == v) for v in values])
+
+    def test_default_is_uniform(self):
+        key, env, obs, state, params = rsa_nsfnet_16_test_setup()
+        self.assertIsNone(params.values_bw_probs)
+        freqs = self._empirical_bw_freqs(state, params, [1, 2, 3])
+        chex.assert_trees_all_close(freqs, jnp.array([1 / 3, 1 / 3, 1 / 3]), atol=0.02)
+
+    def test_weighted_sampling_matches_probs(self):
+        key, env, obs, state, params = rsa_nsfnet_16_test_setup(values_bw_probs="0.7,0.2,0.1")
+        chex.assert_trees_all_close(jnp.sum(params.values_bw_probs.val), 1.0)
+        freqs = self._empirical_bw_freqs(state, params, [1, 2, 3])
+        chex.assert_trees_all_close(freqs, jnp.array([0.7, 0.2, 0.1]), atol=0.02)
+
+    def test_relative_weights_are_normalised(self):
+        key, env, obs, state, params = rsa_nsfnet_16_test_setup(values_bw_probs="7,2,1")
+        chex.assert_trees_all_close(
+            params.values_bw_probs.val, jnp.array([0.7, 0.2, 0.1], dtype=jnp.float32)
+        )
+
+    def test_length_mismatch_raises(self):
+        with self.assertRaises(ValueError):
+            rsa_nsfnet_16_test_setup(values_bw_probs="0.5,0.5")
+
+    def test_negative_prob_raises(self):
+        with self.assertRaises(ValueError):
+            rsa_nsfnet_16_test_setup(values_bw_probs="0.5,0.6,-0.1")
+
+
 if __name__ == "__main__":
     jax.config.update("jax_numpy_rank_promotion", "raise")
     absltest.main()
