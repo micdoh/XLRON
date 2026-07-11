@@ -292,11 +292,12 @@ class InitNetworkDispatchTest(chex.TestCase):
                 min_power=-5.0,
                 max_power=0.5,
                 step_power=0.1,
-                k_paths=4,
+                k=4,  # config key is "k" (experiment_data_setup syncs it to env k_paths)
             )
         )
         network = init_network(config, jax.random.PRNGKey(0))
         self.assertIsInstance(network, LaunchPowerActorCriticMLP)
+        self.assertEqual(network.k_paths, 4)  # ty: ignore[unresolved-attribute]
 
 
 class GNNPathPowerSamplingTest(chex.TestCase):

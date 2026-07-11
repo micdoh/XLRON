@@ -1,3 +1,4 @@
+import math
 from typing import Any, Callable, Dict, Tuple, cast
 
 import distrax
@@ -535,15 +536,28 @@ def _loss_fn(
             path_log_prob = pi_masked.log_prob(path_actions)
             path_entropy = pi_masked.entropy()
 
-        path_indices = jax.vmap(process_path_action, in_axes=(0, None, 0))(
-            traj_batch.obs[0], config, path_actions
-        )[0]
-        # Re-scale action from [min_power, max_power] to [0, 1]
-        power_actions = jnp.astype(
-            (to_dbm(power_actions) - config.min_power) / config.step_power, jnp.int32
-        )
+        # Decode the k-path index from the flat action. process_path_action needs the env
+        # state and hashable static env_params, neither of which is available here; only
+        # the path index is needed, so mirror its decode directly (ceil matches
+        # init_link_slot_mask / aggregate_slots).
+        num_slot_actions = math.ceil(config.link_resources / config.aggregate_slots)
+        path_indices = (path_actions // num_slot_actions).astype(jnp.int32)
+        # Invert the sampling-time mapping (see LaunchPowerActorCriticMLP.sample_action):
+        # stored actions are linear-unit powers; recover the raw sample the distribution's
+        # log_prob expects (power-level index for discrete, [0, 1] Beta sample otherwise).
+        if config.discrete_launch_power:
+            power_actions = jnp.astype(
+                jnp.round((to_dbm(power_actions) - config.min_power) / config.step_power),
+                jnp.int32,
+            )
+        else:
+            power_actions = jnp.clip(
+                (to_dbm(power_actions) - config.min_power) / (config.max_power - config.min_power),
+                config.EPSILON,
+                1.0 - config.EPSILON,
+            )
         # Repeat the power action along the last axis K-paths time
-        power_actions = jnp.tile(power_actions[..., None], (1, config.k_paths))
+        power_actions = jnp.tile(power_actions[..., None], (1, config.k))
         power_log_prob = power_dist.log_prob(power_actions)
         # Select the chosen path's log prob / entropy, keeping shape (B,) to match
         # path_log_prob and the rollout-time stored log_prob (a (B,1)/(B,k) leftover here

@@ -11,6 +11,7 @@ from gymnax.environments import spaces
 
 from xlron.environments.dataclasses import *
 from xlron.environments.env_funcs import (
+    get_paths_obs_gn_model,
     init_active_lightpaths_array,
     init_active_lightpaths_array_departure,
     init_channel_centre_bw_array,
@@ -108,8 +109,10 @@ class RSAGNModelEnv(RSAEnv):
         ),
     )
     def get_obs(self, state: RSAGNModelEnvState, params: RSAGNModelEnvParams) -> Array:
-        # Return minimal observation since we're monitoring active lightpaths for throughput tracking
-        return jnp.array(0)
+        # Must match observation_space (4 + 7*k_paths features); a 0-d placeholder here
+        # crashes any flat-obs model (e.g. LaunchPowerActorCriticMLP) at trace time.
+        # Same fix as on the gn-physics branch (kept identical to merge cleanly).
+        return get_paths_obs_gn_model(state, params)
 
     @staticmethod
     def num_actions(params: RSAEnvParams) -> int:

@@ -694,7 +694,7 @@ def init_network(config: Box, key: chex.PRNGKey) -> eqx.Module:
                 min_power_dbm=config.min_power,
                 max_power_dbm=config.max_power,
                 step_power_dbm=config.step_power,
-                k_paths=config.k_paths,
+                k_paths=config.k,
                 key=key,
             )
         else:
