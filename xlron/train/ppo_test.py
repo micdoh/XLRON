@@ -364,5 +364,45 @@ class TransitionMaskTest(chex.TestCase):
         self.assertTrue(bool(jnp.all(runner_state[1].env_state.link_slot_mask == 1)))
 
 
+class PowerHeadShapeTest(chex.TestCase):
+    """Regression for the chosen-path power log-prob/entropy selection in ``_loss_fn``.
+
+    The GNN power head is per-path: vmapped over the minibatch, power_dist has batch shape
+    (B, k). ``_loss_fn`` must reduce log_prob/entropy to shape (B,) for the chosen path.
+    The old vmapped ``dynamic_slice`` left log_prob at (B, 1) — silently broadcasting the
+    log-ratio to (B, B) — and never reduced entropy from (B, k).
+    """
+
+    def test_chosen_path_selection_shapes_and_values(self):
+        b, k, levels = 5, 3, 4
+        key = jax.random.PRNGKey(0)
+        logits = jax.random.normal(key, (b, k, levels))
+        power_dist = distrax.Categorical(logits=logits)
+        power_actions = jnp.tile(jnp.array([0, 1, 2, 3, 0])[:, None], (1, k))  # (B, k)
+        path_indices = jnp.array([0, 1, 2, 0, 1])
+        stored_log_prob = jnp.zeros((b,))  # rollout-time log_prob is (B,)
+
+        power_log_prob = power_dist.log_prob(power_actions)  # (B, k)
+        # The fixed selection used in _loss_fn
+        selected_lp = jnp.take_along_axis(power_log_prob, path_indices[:, None], axis=1)[:, 0]
+        selected_ent = jnp.take_along_axis(power_dist.entropy(), path_indices[:, None], axis=1)[
+            :, 0
+        ]
+        self.assertEqual(selected_lp.shape, (b,))
+        self.assertEqual(selected_ent.shape, (b,))
+        self.assertEqual((selected_lp - stored_log_prob).shape, (b,))  # log-ratio stays (B,)
+        expected = jnp.stack(
+            [power_dist.log_prob(power_actions)[i, path_indices[i]] for i in range(b)]
+        )
+        chex.assert_trees_all_close(selected_lp, expected, atol=1e-6)
+
+        # The old construction yields (B, 1): the log-ratio silently broadcasts to (B, B).
+        old = jax.vmap(lambda x, i: jax.lax.dynamic_slice(x, (i,), (1,)))(
+            power_log_prob, path_indices
+        )
+        self.assertEqual(old.shape, (b, 1))
+        self.assertEqual((old - stored_log_prob).shape, (b, b))
+
+
 if __name__ == "__main__":
     absltest.main()

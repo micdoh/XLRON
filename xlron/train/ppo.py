@@ -545,11 +545,13 @@ def _loss_fn(
         # Repeat the power action along the last axis K-paths time
         power_actions = jnp.tile(power_actions[..., None], (1, config.k_paths))
         power_log_prob = power_dist.log_prob(power_actions)
-        # Slice log prob to just take the path index
-        power_log_prob = jax.vmap(lambda x, i: jax.lax.dynamic_slice(x, (i,), (1,)))(
-            power_log_prob, path_indices
-        )
-        power_entropy = power_dist.entropy()
+        # Select the chosen path's log prob / entropy, keeping shape (B,) to match
+        # path_log_prob and the rollout-time stored log_prob (a (B,1)/(B,k) leftover here
+        # would silently broadcast the ratio to (B,B) or fail at trace time).
+        power_log_prob = jnp.take_along_axis(power_log_prob, path_indices[:, None], axis=1)[:, 0]
+        power_entropy = jnp.take_along_axis(power_dist.entropy(), path_indices[:, None], axis=1)[
+            :, 0
+        ]
 
         log_prob = path_log_prob + power_log_prob
         entropy = path_entropy + power_entropy

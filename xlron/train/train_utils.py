@@ -1600,7 +1600,13 @@ def run_eval_during_training(
         best_eval_metric = eval_metric_mean
         print(f"New best eval {eval_metric_name}: {best_eval_metric:.6f}")
         if config.SAVE_MODEL:
-            model = eqx.combine(current_train_state.model_params, current_train_state.model_static)
+            model_params = current_train_state.model_params
+            if config.NUM_LEARNERS > 1:
+                # vmap over the learner axis stacks every param leaf to [NUM_LEARNERS, ...];
+                # save learner 0's weights so the checkpoint matches the unbatched template
+                # used by load_model.
+                model_params = jax.tree.map(lambda x: x[0], model_params)
+            model = eqx.combine(model_params, current_train_state.model_static)
             saved_path = save_model(model, config, first_save=first_save)
             if first_save:
                 config.MODEL_PATH = str(saved_path)

@@ -7,11 +7,16 @@ or complete UPDATE_EPOCHS*NUM_MINIBATCHES times too early (STEP_ON_GRADIENT). Th
 schedules are exempt: optax drives them with its internal per-tx.update count.
 """
 
+import io
+
 import chex
+import equinox as eqx
+import jax
 import jax.numpy as jnp
 from absl.testing import absltest, parameterized
 from box import Box
 
+from xlron.models.mlp import ActorCriticMLP
 from xlron.train.train_utils import (
     make_ent_schedule,
     make_vml_schedule,
@@ -68,6 +73,45 @@ class ScheduleStepUnitTest(chex.TestCase):
             vml_schedule(final_step),
             jnp.array(config.VALID_MASS_LOSS_COEF * config.VML_END_FRACTION),
             atol=1e-8,
+        )
+
+
+class LearnerStackedCheckpointTest(chex.TestCase):
+    """Regression for saving models with NUM_LEARNERS > 1.
+
+    vmapping experiment_data_setup over the learner axis stacks every param leaf to
+    [NUM_LEARNERS, ...]. Serialising the stacked params produces a checkpoint that cannot
+    be deserialised into the unbatched template used by load_model; the save path must
+    unreplicate (take learner 0) first.
+    """
+
+    def _model(self, key):
+        return ActorCriticMLP(4, 8, num_layers=1, num_units=8, key=key)
+
+    def test_unreplicated_params_roundtrip(self):
+        keys = jax.random.split(jax.random.PRNGKey(0), 2)
+        params_static = [eqx.partition(self._model(k), eqx.is_inexact_array) for k in keys]
+        static = params_static[0][1]
+        stacked = jax.tree.map(
+            lambda a, b: jnp.stack([a, b]), params_static[0][0], params_static[1][0]
+        )
+        template = self._model(jax.random.PRNGKey(1))
+
+        # Stacked (buggy) checkpoint cannot be loaded into the unbatched template
+        buf = io.BytesIO()
+        eqx.tree_serialise_leaves(buf, eqx.combine(stacked, static))
+        buf.seek(0)
+        with self.assertRaises(Exception):
+            eqx.tree_deserialise_leaves(buf, template)
+
+        # Unreplicated (fixed) checkpoint round-trips to learner 0's weights
+        buf = io.BytesIO()
+        unreplicated = jax.tree.map(lambda x: x[0], stacked)
+        eqx.tree_serialise_leaves(buf, eqx.combine(unreplicated, static))
+        buf.seek(0)
+        restored = eqx.tree_deserialise_leaves(buf, template)
+        chex.assert_trees_all_close(
+            eqx.partition(restored, eqx.is_inexact_array)[0], params_static[0][0]
         )
 
 
