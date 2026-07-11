@@ -1,4 +1,4 @@
-"""Tests for xlron.models: init scales, launch-power heads, and action sampling.
+"""Tests for xlron.models: construction, init scales, launch-power heads, and sampling.
 
 Covers regressions fixed in the models bundle:
 - actor/critic output-head orthogonal init scales (0.01 / 1.0, matching the original
@@ -8,6 +8,14 @@ Covers regressions fixed in the models bundle:
 - distrax .probs property called as a method in deterministic sampling
 - shared PRNG key for joint path/power sampling
 - init_network dispatch for launch_power_type="rl" with the MLP model
+
+And GNN construction/forward regressions:
+- GNN + GN-model envs: ``init_graph_tuple``/``update_graph_tuple`` build ``graph.edges``
+  as ``stack([normalized_snr, normalized_power], axis=-1)`` -> shape (E, S, 2), which
+  ``GraphNet.__call__`` flattens to 2*link_resources features per edge. ``init_network``
+  must size the GNN edge embedder from the same rule (previously it hardcoded
+  ``link_resources``, crashing at trace time with a dot_general contracting-dimension
+  mismatch for any ``--USE_GNN`` + GN-model run).
 """
 
 import chex
@@ -16,12 +24,15 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import optax
+from absl import flags
 from absl.testing import absltest
 from box import Box
 
+import xlron.parameter_flags  # noqa: F401  (registers all XLRON flags)
 from xlron import dtype_config
+from xlron.environments.env_funcs import update_graph_tuple
 from xlron.environments.gn_model.isrs_gn_model import from_dbm
-from xlron.environments.make_env import make
+from xlron.environments.make_env import make, process_config
 from xlron.models.gnn import ActorCriticGNN
 from xlron.models.mlp import ActorCriticMLP, LaunchPowerActorCriticMLP
 from xlron.models.transformer import ActorCriticTransformer
@@ -141,6 +152,45 @@ def _gn_select_action_config(**overrides):
     )
     config.update(overrides)
     return config
+
+
+def _flag_defaults() -> dict:
+    """Full config dict from the registered absl flag defaults."""
+    f = flags.FLAGS
+    defaults = {}
+    for name in f:
+        try:
+            defaults[name] = f[name].default
+        except Exception:
+            continue
+    return defaults
+
+
+def _gnn_env_setup(env_type: str, **overrides):
+    """Tiny env + processed config for GNN model construction tests."""
+    cfg = _flag_defaults()
+    cfg.update(
+        env_type=env_type,
+        topology_name="nsfnet_deeprmsa_directed",
+        link_resources=10,
+        k=4,
+        values_bw=[100],
+        incremental_loading=True,
+        slot_size=12.5,
+        guardband=0,
+        ROLLOUT_LENGTH=10,
+        TOTAL_TIMESTEPS=20,
+        STEPS_PER_INCREMENT=10,
+        NUM_ENVS=1,
+        ENV_WARMUP_STEPS=0,
+        USE_GNN=True,
+    )
+    cfg.update(overrides)
+    config = process_config(cfg)
+    env, params = make(config, log_wrapper=False)
+    key = jax.random.PRNGKey(0)
+    obs, state = env.reset(key, params)
+    return config, env, params, state, key
 
 
 class MLPInitScaleTest(chex.TestCase):
@@ -450,6 +500,122 @@ class LaunchPowerMLPSelectActionTest(chex.TestCase):
             env_state.env_state.launch_power_array.dtype,
             jnp.dtype(dtype_config.LARGE_FLOAT_DTYPE),
         )
+
+
+class GNNModelConstructionTest(chex.TestCase):
+    """GNN model construction + forward pass on GN-model and plain RSA envs."""
+
+    def _build_and_forward(self, env_type: str, **overrides):
+        config, env, params, state, key = _gnn_env_setup(env_type, **overrides)
+        model = init_network(config, key)
+        pi, value = model(state, params)
+        return config, params, state, model, pi, value
+
+    def test_rsa_gn_model_edge_embedder_width(self):
+        """GN-model graph edges are (E, S, 2); embedder input must be 2*link_resources."""
+        config, params, state, model, pi, value = self._build_and_forward("rsa_gn_model")
+        # The env builds stacked [snr, power] per-slot edge features
+        self.assertEqual(
+            state.graph.edges.shape,
+            (params.num_links, config.link_resources, 2),
+        )
+        # The edge embedder must accept the flattened width
+        self.assertEqual(
+            model.actor.graph_net.edge_embedder.weight.shape[1],
+            2 * config.link_resources,
+        )
+        self.assertEqual(
+            model.critic.graph_net.edge_embedder.weight.shape[1],
+            2 * config.link_resources,
+        )
+
+    def test_rsa_gn_model_fixed_power_forward(self):
+        """With fixed launch power the actor returns a bare path distribution."""
+        config, params, state, model, pi, value = self._build_and_forward("rsa_gn_model")
+        self.assertIsInstance(pi, distrax.Categorical)
+        expected_actions = config.k * -(-config.link_resources // config.aggregate_slots)
+        self.assertEqual(pi.logits.shape, (expected_actions + int(params.include_no_op),))
+        chex.assert_tree_all_finite(pi.logits)
+        chex.assert_tree_all_finite(value)
+
+    def test_rsa_gn_model_rl_power_forward(self):
+        """With RL launch power the actor returns (path_dist, power_dist)."""
+        config, params, state, model, pi, value = self._build_and_forward(
+            "rsa_gn_model", launch_power_type="rl"
+        )
+        self.assertIsInstance(pi, tuple)
+        path_dist, power_dist = pi
+        self.assertIsInstance(path_dist, distrax.Categorical)
+        self.assertIsNotNone(power_dist)
+        chex.assert_tree_all_finite(path_dist.logits)
+
+    def test_rmsa_gn_model_forward(self):
+        """RMSA GN-model envs use the same stacked edge features."""
+        config, params, state, model, pi, value = self._build_and_forward("rmsa_gn_model")
+        self.assertEqual(
+            model.actor.graph_net.edge_embedder.weight.shape[1],
+            2 * config.link_resources,
+        )
+        self.assertIsInstance(pi, distrax.Categorical)
+        chex.assert_tree_all_finite(pi.logits)
+        chex.assert_tree_all_finite(value)
+
+    def test_rsa_forward_unchanged(self):
+        """Plain RSA envs keep link_resources-wide edge features (no regression)."""
+        config, params, state, model, pi, value = self._build_and_forward("rsa")
+        self.assertEqual(
+            state.graph.edges.shape,
+            (params.num_links, config.link_resources),
+        )
+        self.assertEqual(
+            model.actor.graph_net.edge_embedder.weight.shape[1],
+            config.link_resources,
+        )
+        self.assertIsInstance(pi, distrax.Categorical)
+        chex.assert_tree_all_finite(pi.logits)
+        chex.assert_tree_all_finite(value)
+
+    def test_rsa_disable_node_features_forward(self):
+        """DISABLE_NODE_FEATURES: env emits (num_nodes, 1) zero node features and the
+        model sizes the node embedder to width 1; forward pass must trace and be finite.
+
+        Regression: the env used to read the lowercase 'disable_node_features' config key
+        (missing the uppercase flag, so it emitted full-width features against a width-1
+        embedder -> dot_general contracting-dimension mismatch), and the placeholder was a
+        rank-1 zeros((1,)) which fed rank-0 scalars to jax.vmap(node_embedder).
+        """
+        config, params, state, model, pi, value = self._build_and_forward(
+            "rsa", DISABLE_NODE_FEATURES=True
+        )
+        # Env side: graph built by init_graph_tuple carries one zero feature per node
+        self.assertTrue(params.disable_node_features)
+        self.assertEqual(state.graph.nodes.shape, (params.num_nodes, 1))
+        self.assertFalse(bool(jnp.any(state.graph.nodes)))
+        # Model side: node embedder input width must match
+        self.assertEqual(model.actor.graph_net.node_embedder.weight.shape[1], 1)
+        self.assertEqual(model.critic.graph_net.node_embedder.weight.shape[1], 1)
+        self.assertIsInstance(pi, distrax.Categorical)
+        chex.assert_tree_all_finite(pi.logits)
+        chex.assert_tree_all_finite(value)
+        # update_graph_tuple must keep the carried nodes shape/dtype stable across the scan
+        new_state = update_graph_tuple(state, params)
+        self.assertEqual(new_state.graph.nodes.shape, state.graph.nodes.shape)  # ty: ignore[unresolved-attribute]
+        self.assertEqual(new_state.graph.nodes.dtype, state.graph.nodes.dtype)  # ty: ignore[unresolved-attribute]
+
+    def test_rsa_gn_model_disable_node_features_forward(self):
+        """DISABLE_NODE_FEATURES composes with GN-model envs (stacked edge features)."""
+        config, params, state, model, pi, value = self._build_and_forward(
+            "rsa_gn_model", DISABLE_NODE_FEATURES=True
+        )
+        self.assertEqual(state.graph.nodes.shape, (params.num_nodes, 1))
+        self.assertEqual(model.actor.graph_net.node_embedder.weight.shape[1], 1)
+        self.assertEqual(
+            model.actor.graph_net.edge_embedder.weight.shape[1],
+            2 * config.link_resources,
+        )
+        self.assertIsInstance(pi, distrax.Categorical)
+        chex.assert_tree_all_finite(pi.logits)
+        chex.assert_tree_all_finite(value)
 
 
 if __name__ == "__main__":

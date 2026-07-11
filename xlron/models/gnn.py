@@ -990,7 +990,14 @@ class ActorGNN(eqx.Module):
         path_action_dist = distrax.Categorical(logits=path_action_logits)
 
         power_action_dist = None
-        if params.__class__.__name__ == "RSAGNModelEnvParams":
+        # Only output a launch-power distribution when the RL agent controls launch power.
+        # launch_power_type is a static (pytree_node=False) str field on GNModelEnvParams,
+        # so this branch is resolved at trace time. With fixed/tabular/scaled launch power,
+        # downstream select_action/_loss_fn expect a bare path distribution.
+        if (
+            params.__class__.__name__ in ("RSAGNModelEnvParams", "RMSAGNModelEnvParams")
+            and getattr(params, "launch_power_type", None) == "rl"
+        ):
             if self.global_output_size > 0:
                 power_logits = processed_graph.globals.reshape((-1,)) / self.temperature  # ty: ignore[unresolved-attribute]
             else:

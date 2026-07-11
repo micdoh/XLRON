@@ -2,7 +2,7 @@ import time
 import timeit
 from collections import defaultdict
 from functools import partial
-from typing import Any, Optional, Tuple, Union
+from typing import Any, Optional, Tuple, Union, cast
 
 import chex
 import jax
@@ -114,9 +114,20 @@ class LogWrapper(GymnaxWrapper):
         # First check if we're dealing with RSAGNModelEnvParams
         is_gn_params = isinstance(params, RSAGNModelEnvParams)
 
-        # For RSA params, unpack the action
+        # For RSA params, unpack the action. The action is [path_slot_action, launch_power]
+        # when the RL agent controls launch power, or a bare path_slot_action otherwise
+        # (e.g. GNN path policy with fixed launch power) - mirror process_action's handling.
         if is_gn_params:
-            action, power_action = action
+            action = jnp.atleast_1d(action)
+            power_action = (
+                action[1]
+                if action.shape[0] > 1
+                else jnp.asarray(
+                    cast(RSAGNModelEnvParams, params).default_launch_power,
+                    dtype=dtype_config.LARGE_FLOAT_DTYPE,
+                )
+            )
+            action = action[0]
             info["launch_power"] = power_action
 
         # Now, if we need to log actions OR we have RSA params, compute the common fields
