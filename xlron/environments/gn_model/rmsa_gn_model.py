@@ -81,6 +81,11 @@ class RMSAGNModelEnv(RSAEnv):
             accepted_services=0,
             accepted_bitrate=0.0,
             total_bitrate=0.0,
+            # Blocking-cause counters: carried and incrementally mutated, so fix the
+            # dtype at init (LARGE_INT_DTYPE) and cast increments to match (scan carry rule)
+            blocked_spectrum=jnp.array(0, dtype=dtype_config.LARGE_INT_DTYPE),
+            blocked_snr=jnp.array(0, dtype=dtype_config.LARGE_INT_DTYPE),
+            blocked_power=jnp.array(0, dtype=dtype_config.LARGE_INT_DTYPE),
             list_of_requests=list_of_requests,
             link_snr_array=init_link_snr_array(params),
             link_snr_array_prev=init_link_snr_array(params),

@@ -62,6 +62,13 @@ metrics = [
     "fragmentation",
     "service_blocking_probability",
     "bitrate_blocking_probability",
+    # Blocking-cause breakdown (GN-model envs only; keys absent for other env types)
+    "blocked_spectrum",
+    "blocked_snr",
+    "blocked_power",
+    "spectrum_blocking_probability",
+    "snr_blocking_probability",
+    "power_blocking_probability",
     "throughput",  # Only for RSA GN Model
     "launch_power",
     "path_snr",
@@ -1791,6 +1798,15 @@ def process_metrics(config, out, merge_func):
         merged_out["accepted_bitrate"]
         / jnp.where(merged_out["total_bitrate"] == 0, 1, merged_out["total_bitrate"])
     )
+
+    # Blocking-cause breakdown (GN-model envs only; keys absent for other env types).
+    # Causes are mutually exclusive, so these probabilities sum to
+    # service_blocking_probability.
+    if "blocked_spectrum" in merged_out:
+        lengths_safe = jnp.where(merged_out["lengths"] == 0, 1, merged_out["lengths"])
+        merged_out["spectrum_blocking_probability"] = merged_out["blocked_spectrum"] / lengths_safe
+        merged_out["snr_blocking_probability"] = merged_out["blocked_snr"] / lengths_safe
+        merged_out["power_blocking_probability"] = merged_out["blocked_power"] / lengths_safe
 
     # Calculate episode ends
     merged_out["done"] = jnp.logical_or(merged_out["terminal"], merged_out["truncated"])
