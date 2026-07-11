@@ -707,6 +707,81 @@ class RsaActionMaskTest(chex.TestCase):
         chex.assert_trees_all_close(link_slot_mask, expected)
 
 
+class RewardTypeBitrateTest(chex.TestCase):
+    """Regression tests for reward_type='bitrate'.
+
+    The success reward was previously zeroed by multiplying the bitrate by the
+    zero-initialised reward, so a successful step returned 0 while a failure
+    returned -bitrate/max(values_bw) (asymmetric, no positive reinforcement).
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.key, self.env, self.obs, self.state, self.params = rsa_4node_3_slot_request_test_setup(
+            reward_type="bitrate"
+        )
+
+    @chex.all_variants()
+    def test_success_reward_is_normalised_bitrate(self):
+        # values_bw=[3], so a successful placement gives 3 / max([3]) = 1.0
+        obs, state, reward, done, truncated, info = self.variant(
+            self.env.step, static_argnums=(3,)
+        )(self.key, self.state, jnp.array(0), self.params)
+        chex.assert_trees_all_close(reward, jnp.array(1.0, dtype=reward.dtype))
+
+    @chex.all_variants()
+    def test_failure_reward_is_negative_normalised_bitrate(self):
+        # Force a blocked action by filling the network
+        state = self.state.replace(link_slot_array=jnp.ones_like(self.state.link_slot_array))
+        obs, state, reward, done, truncated, info = self.variant(
+            self.env.step, static_argnums=(3,)
+        )(self.key, state, jnp.array(0), self.params)
+        chex.assert_trees_all_close(reward, jnp.array(-1.0, dtype=reward.dtype))
+
+
+class EndFirstBlockingBitrateTest(chex.TestCase):
+    """Regression test: with end_first_blocking + reward_type='bitrate', is_terminal
+    used to compare the reward against the failure reward of the NEXT request (the
+    request array is regenerated before is_terminal runs), so blocked steps were not
+    terminal whenever consecutive request bitrates differed.
+    """
+
+    def setUp(self):
+        super().setUp()
+        settings = settings_rwa_4node()
+        settings.update(
+            env_type="rsa",
+            values_bw=[1, 3],
+            link_resources=5,
+            incremental_loading=True,
+            end_first_blocking=True,
+            reward_type="bitrate",
+        )
+        self.key = jax.random.PRNGKey(0)
+        self.env, self.params = make(settings, log_wrapper=False)
+        self.obs, self.state = self.env.reset(self.key, self.params)
+
+    def test_blocked_step_is_terminal(self):
+        step = jax.jit(self.env.step, static_argnums=(3,))
+        state = self.state
+        rng = self.key
+        bitrates = []
+        for _ in range(10):
+            rng, key_step = jax.random.split(rng)
+            # Force every action to be blocked by filling the network
+            state = state.replace(link_slot_array=jnp.ones_like(state.link_slot_array))
+            # Read the current bitrate before stepping (step donates state buffers)
+            bitrates.append(float(state.request_array[1]))
+            obs, state, reward, done, truncated, info = step(
+                key_step, state, jnp.array(0), self.params
+            )
+            self.assertLess(float(reward), 0.0)
+            self.assertTrue(bool(done), "Blocked step must terminate with end_first_blocking")
+        # Sanity: the traffic contains different bitrates, so the pre-fix behavior
+        # (terminal only when consecutive bitrates match) would have failed above
+        self.assertGreater(len(set(bitrates)), 1)
+
+
 def rsa_multiband_4node_test_setup(**kwargs):
     settings = dict(
         load=100,

@@ -99,6 +99,13 @@ reward_centering_metrics = [
     "reward_centering/value_mean",
 ]
 
+# Prioritized experience replay diagnostics (always populated in loss_info by ppo.py)
+prioritization_metrics = [
+    "prioritization/beta",
+    "prioritization/priority_mean",
+    "prioritization/priority_std",
+]
+
 
 class LossDiagnostics(NamedTuple):
     """Per-step diagnostics emitted from the PPO loss when ENHANCED_LOGGING is on.
@@ -827,6 +834,31 @@ def _make_multi_transform_optimizer(config: Box, actor_lr_schedule, vf_lr_schedu
     return actor_optimizer, critic_optimizer
 
 
+def reset_warmup_metric_counters(env_state):
+    """Zero the metric counters accumulated during warmup.
+
+    With continuous_operation the env is never reset, so the cumulative counters
+    (accepted_services, accepted_bitrate, total_bitrate) and the LogWrapper's
+    lengths/cum_returns would otherwise include the near-zero-blocking network-fill
+    transient, biasing every logged blocking probability (ENV_WARMUP_STEPS is
+    documented as 'steps before collecting stats'). These fields are metrics-only;
+    total_requests, which drives episode truncation, is deliberately kept.
+    jnp.zeros_like preserves per-env shapes and dtypes for the jitted learner.
+    """
+    return env_state.replace(
+        lengths=jnp.zeros_like(env_state.lengths),
+        cum_returns=jnp.zeros_like(env_state.cum_returns),
+        accepted_services=jnp.zeros_like(env_state.accepted_services),
+        accepted_bitrate=jnp.zeros_like(env_state.accepted_bitrate),
+        total_bitrate=jnp.zeros_like(env_state.total_bitrate),
+        env_state=env_state.env_state.replace(
+            accepted_services=jnp.zeros_like(env_state.env_state.accepted_services),
+            accepted_bitrate=jnp.zeros_like(env_state.env_state.accepted_bitrate),
+            total_bitrate=jnp.zeros_like(env_state.env_state.total_bitrate),
+        ),
+    )
+
+
 def experiment_data_setup(config: Box, rng: chex.PRNGKey) -> Tuple:
     # INIT ENV
     env, env_params = make(config)
@@ -911,6 +943,9 @@ def experiment_data_setup(config: Box, rng: chex.PRNGKey) -> Tuple:
     warmup_fn = get_warmup_fn(warmup_state, env, env_params, runner_state, config)
     warmup_fn = jax.vmap(warmup_fn) if config.NUM_ENVS > 1 else warmup_fn
     env_state, obsv = warmup_fn(warmup_state)
+
+    if config.ENV_WARMUP_STEPS:
+        env_state = reset_warmup_metric_counters(env_state)
 
     # Initialise eval state
     init_runner_state = (runner_state, env_state, obsv, rng_step, rng_epoch)
@@ -1535,6 +1570,8 @@ def setup_wandb(config, project_name, experiment_name):
                 f"{metric}_episode_end_{agg}", step_metric="episode_count", summary="max"
             )
     for metric in loss_metrics:
+        wandb.define_metric(f"{metric}", step_metric="update_epoch")
+    for metric in prioritization_metrics:
         wandb.define_metric(f"{metric}", step_metric="update_epoch")
     # Register reward centering metrics if REWARD_CENTERING is enabled
     if config.get("REWARD_CENTERING", False):
@@ -2305,6 +2342,12 @@ def log_metrics(
                 print("Logging loss info")
                 for i in range(len(merged_out_loss["loss/total_loss"])):
                     log_dict = {f"{metric}": merged_out_loss[metric][i] for metric in loss_metrics}
+                    log_dict.update(
+                        {
+                            f"{metric}": merged_out_loss[metric][i]
+                            for metric in prioritization_metrics
+                        }
+                    )
                     if config.REWARD_CENTERING:
                         log_dict_rc = {
                             f"{metric}": merged_out_loss[metric][i]

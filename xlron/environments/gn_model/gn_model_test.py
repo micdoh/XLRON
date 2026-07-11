@@ -1645,6 +1645,32 @@ class BlockedRequestLinkSnrRestoreTest(chex.TestCase):
         chex.assert_trees_all_close(state2.channel_power_array, state1.channel_power_array)
 
 
+def _gn_log_actions_wrapped_env(seed=3):
+    """LogWrapper-wrapped rsa_gn_model env with log_actions=True (cached env/params)."""
+    key = jax.random.PRNGKey(seed)
+    if "rsa_gn_model_log_actions" not in _gn_cache:
+        settings = dict(
+            k=4,
+            topology_name="nsfnet_deeprmsa_directed",
+            link_resources=10,
+            max_requests=100,
+            values_bw=[100],
+            incremental_loading=True,
+            env_type="rsa_gn_model",
+            slot_size=12.5,
+            guardband=0,
+            mod_format_correction=False,
+            max_power_per_fibre=10.0,
+            coherent=False,
+            include_no_op=False,
+            log_actions=True,
+        )
+        _gn_cache["rsa_gn_model_log_actions"] = make(settings, log_wrapper=True)
+    env, params = _gn_cache["rsa_gn_model_log_actions"]
+    obs, log_state = env.reset(key, params)
+    return key, env, log_state, params
+
+
 class RoadmAseInLoggedSnrTest(chex.TestCase):
     """Logged info['path_snr'] must include path-level ROADM ASE like the
     masking/acceptance checks (regression: the LogWrapper and SNR-reward call sites
@@ -1653,28 +1679,7 @@ class RoadmAseInLoggedSnrTest(chex.TestCase):
     path_link_array with the local k-path index instead of the global one)."""
 
     def _wrapped_env(self):
-        key = jax.random.PRNGKey(3)
-        if "rsa_gn_model_log_actions" not in _gn_cache:
-            settings = dict(
-                k=4,
-                topology_name="nsfnet_deeprmsa_directed",
-                link_resources=10,
-                max_requests=100,
-                values_bw=[100],
-                incremental_loading=True,
-                env_type="rsa_gn_model",
-                slot_size=12.5,
-                guardband=0,
-                mod_format_correction=False,
-                max_power_per_fibre=10.0,
-                coherent=False,
-                include_no_op=False,
-                log_actions=True,
-            )
-            _gn_cache["rsa_gn_model_log_actions"] = make(settings, log_wrapper=True)
-        env, params = _gn_cache["rsa_gn_model_log_actions"]
-        obs, log_state = env.reset(key, params)
-        return key, env, log_state, params
+        return _gn_log_actions_wrapped_env(seed=3)
 
     def _global_path_index(self, state, params, path_action):
         nodes_sd, _ = read_rsa_request(state.request_array)
@@ -1734,6 +1739,59 @@ class RoadmAseInLoggedSnrTest(chex.TestCase):
             env_state,
         )[jnp.asarray(info["slot_index"], dtype=jnp.int32)]
         chex.assert_trees_all_close(info["path_snr"], expected)
+
+
+class LoggedInfoPreStepRequestTest(chex.TestCase):
+    """Every logged per-step field must describe the request that was ACTED ON this
+    step (regression: step_env's generate_request replaces request_array/current_time/
+    holding_time with the NEXT request's values before LogWrapper reads them, so
+    source/dest/data_rate/path_index paired the action with the wrong request whenever
+    consecutive requests had different source-dest pairs)."""
+
+    def test_logged_request_fields_are_prestep(self):
+        key, env, log_state, params = _gn_log_actions_wrapped_env(seed=7)
+        raw_env = env._env
+        step = jax.jit(env.step, static_argnums=(3,))
+        saw_request_change = False
+        for _ in range(8):
+            state = log_state.env_state
+            # Read the acted request BEFORE stepping
+            pre_nodes, pre_dr = read_rsa_request(state.request_array)
+            pre_source, pre_dest = pre_nodes
+            pre_arrival = state.current_time[0]
+            pre_departure = state.current_time[0] + state.holding_time[0]
+            # argmax of an all-zero mask is action 0 (a blocked placement) — the
+            # logged fields must describe the acted request either way
+            mask = raw_env.action_mask(state, params)
+            mask = mask[0] if isinstance(mask, tuple) else mask
+            path_action = jnp.argmax(mask)
+            # Expected global path row and slot, decoded from the pre-step state
+            i = get_path_indices(
+                params,
+                pre_source,
+                pre_dest,
+                params.k_paths,
+                params.num_nodes,
+                directed=params.directed_graph,
+            ).astype(jnp.int32)
+            k_index, slot_index = process_path_action(state, params, path_action)
+            action = jnp.concatenate([path_action.reshape((1,)), jnp.zeros((1,))])
+            key, akey = jax.random.split(key)
+            _, log_state, _, _, _, info = step(akey, log_state, action, params)
+            # After stepping, request_array holds the NEXT request; the logged fields
+            # must nevertheless describe the pre-step (acted) request
+            post_nodes, _ = read_rsa_request(log_state.env_state.request_array)
+            if (int(post_nodes[0]), int(post_nodes[1])) != (int(pre_source), int(pre_dest)):
+                saw_request_change = True
+            self.assertEqual(int(info["source"]), int(pre_source))
+            self.assertEqual(int(info["dest"]), int(pre_dest))
+            self.assertEqual(float(info["data_rate"]), float(pre_dr))
+            self.assertEqual(int(info["path_index"]), int(i + k_index))
+            self.assertEqual(int(info["slot_index"]), int(slot_index))
+            chex.assert_trees_all_close(info["arrival_time"], pre_arrival)
+            chex.assert_trees_all_close(info["departure_time"], pre_departure)
+        # The assertions above only discriminate if consecutive requests differed
+        self.assertTrue(saw_request_change)
 
 
 class RSAGNModelObsShapeTest(chex.TestCase):
@@ -1858,6 +1916,140 @@ class AggregatedLaunchPowerDecodeTest(chex.TestCase):
         floor_stride = params.link_resources // params.aggregate_slots
         path_index, _ = process_path_action(state, params, jnp.array(1 * floor_stride))
         self.assertNotEqual(int(path_index), 1)
+
+
+def rmsa_gn_model_mod_format_reward_test_setup():
+    return _gn_cached_setup(
+        "rmsa_gn_model_mod_format_reward",
+        dict(
+            k=4,
+            topology_name="nsfnet_deeprmsa_directed",
+            link_resources=10,
+            max_requests=100,
+            values_bw=[100],
+            incremental_loading=True,
+            env_type="rmsa_gn_model",
+            slot_size=12.5,
+            guardband=0,
+            mod_format_correction=False,
+            max_power_per_fibre=10.0,
+            coherent=False,
+            include_no_op=False,
+            reward_type="mod_format",
+        ),
+        seed=3,
+    )
+
+
+class ModFormatRewardTest(chex.TestCase):
+    """Regression test: reward_type='mod_format' used to assert RSAGNModelEnvParams but
+    read modulation_format_index_array, which only exists on RMSAGNModelEnvState, so it
+    failed at trace time in every configuration.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.key, self.env, self.obs, self.state, self.params = (
+            rmsa_gn_model_mod_format_reward_test_setup()
+        )
+
+    def test_step_traces_and_returns_finite_reward(self):
+        rng, rng_sample, rng_step = jax.random.split(self.key, 3)
+        mask, _, mod_format_mask = self.env.action_mask(self.state, self.params)
+        state = self.state.replace(link_slot_mask=mask, mod_format_mask=mod_format_mask)
+        action_dist = distrax.Categorical(logits=jnp.where(mask > 0, 0.0, -1e8))
+        path_action = action_dist.sample(seed=rng_sample)
+        power_action = jnp.array([0])
+        action = jnp.concatenate([path_action.reshape((1,)), power_action.reshape((1,))], axis=0)
+        obs, new_state, reward, terminal, truncated, info = self.env.step(
+            rng_step, state, action, self.params
+        )
+        self.assertTrue(bool(jnp.isfinite(reward)))
+
+
+def rsa_gn_model_log_actions_test_setup():
+    # Not via _gn_cached_setup, which forces log_wrapper=False: this test targets LogWrapper
+    key = jax.random.PRNGKey(0)
+    if "rsa_gn_model_log_actions" not in _gn_cache:
+        settings = dict(
+            k=5,
+            topology_name="nsfnet_deeprmsa_undirected",
+            link_resources=10,
+            max_requests=100,
+            values_bw=[100],
+            env_type="rsa_gn_model",
+            interband_gap=0,
+            slot_size=25,
+            mod_format_correction=False,
+            launch_power=0.0,
+            load=100,
+            mean_service_holding_time=10,
+            log_actions=True,
+            relative_arrival_times=False,
+        )
+        env, params = make(settings, log_wrapper=True)
+        _gn_cache["rsa_gn_model_log_actions"] = (env, params)
+    env, params = _gn_cache["rsa_gn_model_log_actions"]
+    obs, state = env.reset(key, params)
+    return key, env, obs, state, params
+
+
+class LogWrapperActionLoggingTest(chex.TestCase):
+    """Regression tests for LogWrapper's log_actions fields.
+
+    path_snr used to be looked up with the k-relative path index (missing the
+    node-pair offset into path_link_array), and arrival/departure times were read
+    from the post-step state, i.e. from the NEXT request.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.key, self.env, self.obs, self.state, self.params = (
+            rsa_gn_model_log_actions_test_setup()
+        )
+
+    def test_path_snr_and_times_describe_acting_request(self):
+        params = self.params
+        pre_state = self.state.env_state
+        # Pre-step values (read before step: the acting request's fields are
+        # overwritten by generate_request inside step_env)
+        nodes_sd, _ = read_rsa_request(pre_state.request_array)
+        source, dest = nodes_sd
+        i = int(
+            get_path_indices(
+                params,
+                source,
+                dest,
+                params.k_paths,
+                params.num_nodes,
+                directed=params.directed_graph,
+            )
+        )
+        # Sanity: the request is not for the first node pair, so the missing
+        # offset would have selected the wrong path row before the fix
+        self.assertGreater(i, 0)
+        expected_arrival = float(pre_state.current_time[0])
+        expected_departure = float(pre_state.current_time[0] + pre_state.holding_time[0])
+        # Select k-index 1, slot 0 (aggregate_slots=1 => action = k_index * link_resources)
+        k_index = 1
+        path_action = jnp.array(k_index * params.link_resources, dtype=jnp.float32)
+        action = jnp.stack([path_action, jnp.array(0.0, dtype=jnp.float32)])
+
+        rng, step_key = jax.random.split(self.key)
+        obs, log_state, reward, terminal, truncated, info = self.env.step(
+            step_key, self.state, action, params
+        )
+
+        expected_path = params.path_link_array.val[i + k_index]
+        # Post-step state passed so the expected SNR includes path-level ROADM ASE,
+        # matching the wrapper (and the masking/acceptance checks)
+        expected_snr = get_snr_for_path(
+            expected_path, log_state.env_state.link_snr_array, params, log_state.env_state
+        )[0]
+        chex.assert_trees_all_close(info["path_snr"], expected_snr)
+        self.assertEqual(int(info["path_index"]), i + k_index)
+        self.assertAlmostEqual(float(info["arrival_time"]), expected_arrival, places=5)
+        self.assertAlmostEqual(float(info["departure_time"]), expected_departure, places=4)
 
 
 if __name__ == "__main__":
