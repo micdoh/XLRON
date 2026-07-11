@@ -17,7 +17,6 @@ from xlron.environments.dataclasses import (
     LogEnvState,
     RSAEnvParams,
     RSAEnvState,
-    RSAGNModelEnvParams,
 )
 from xlron.environments.env_funcs import (
     get_path_indices,
@@ -129,19 +128,21 @@ class LogWrapper(GymnaxWrapper):
             info["blocked_power"] = log_state.blocked_power
         info["terminal"] = terminal
         info["truncated"] = truncated
-        # First check if we're dealing with RSAGNModelEnvParams
-        is_gn_params = isinstance(params, RSAGNModelEnvParams)
+        # First check if we're dealing with a GN-model env (RSA or RMSA variant; both
+        # params classes derive from GNModelEnvParams)
+        is_gn_params = isinstance(params, GNModelEnvParams)
 
-        # For RSA params, unpack the action. The action is [path_slot_action, launch_power]
-        # when the RL agent controls launch power, or a bare path_slot_action otherwise
-        # (e.g. GNN path policy with fixed launch power) - mirror process_action's handling.
+        # For GN-model params, unpack the action. The action is [path_slot_action,
+        # launch_power] when the RL agent controls launch power, or a bare
+        # path_slot_action otherwise (e.g. GNN path policy with fixed launch power)
+        # - mirror process_action's handling.
         if is_gn_params:
             action = jnp.atleast_1d(action)
             power_action = (
                 action[1]
                 if action.shape[0] > 1
                 else jnp.asarray(
-                    cast(RSAGNModelEnvParams, params).default_launch_power,
+                    cast(GNModelEnvParams, params).default_launch_power,
                     dtype=dtype_config.LARGE_FLOAT_DTYPE,
                 )
             )
@@ -170,8 +171,9 @@ class LogWrapper(GymnaxWrapper):
             info["dest"] = dest
             info["data_rate"] = dr_request
 
-            # RSA-specific throughput info (use pre-reset value from step_env)
-            if is_gn_params:
+            # RSA-GN-specific throughput info (use pre-reset value from step_env; only
+            # the RSA-GN state tracks throughput, so the RMSA variant has no "_throughput")
+            if is_gn_params and "_throughput" in info:
                 info["throughput"] = info.pop("_throughput")
 
             # Logging-specific info

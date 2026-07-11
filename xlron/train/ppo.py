@@ -213,7 +213,9 @@ def _env_step(
 
     # DEBUG LOGGING FOR OPTICAL NETWORKS
     if config.DEBUG:
-        path_action = action[0][0] if config.env_type.lower() == "rsa_gn_model" else action
+        # GN-model envs with RL launch power emit [path_slot_action, power] actions
+        is_gn_rl_power = "gn_model" in config.env_type.lower() and config.launch_power_type == "rl"
+        path_action = action[0] if is_gn_rl_power else action
         path_index, slot_index = process_path_action(env_state.env_state, env_params, path_action)
         path = env_params.path_link_array[path_index]
 
@@ -253,12 +255,14 @@ def _env_step(
                 env_state.env_state.node_capacity_array,
                 ordered=config.ORDERED,
             )
-        elif config.env_type.lower() == "rsa_gn_model":
-            jax.debug.print(
-                "modulation_format_index_array {}",
-                get_path_links(env_state.env_state.modulation_format_index_array),
-                ordered=config.ORDERED,
-            )
+        elif "gn_model" in config.env_type.lower():
+            # Only the RMSA-GN state carries a modulation format array
+            if hasattr(env_state.env_state, "modulation_format_index_array"):
+                jax.debug.print(
+                    "modulation_format_index_array {}",
+                    get_path_links(env_state.env_state.modulation_format_index_array),
+                    ordered=config.ORDERED,
+                )
             jax.debug.print(
                 "channel_centre_bw_array {}",
                 get_path_links(env_state.env_state.channel_centre_bw_array),
@@ -543,8 +547,9 @@ def _policy_log_prob_entropy(
         log_prob = log_prob_source + log_prob_path + log_prob_dest
         entropy = pi_source.entropy() + pi_path.entropy() + pi_dest.entropy()
 
-    elif config.env_type.lower() == "rsa_gn_model" and config.launch_power_type == "rl":
-        # RSA with power control
+    elif "gn_model" in config.env_type.lower() and config.launch_power_type == "rl":
+        # RSA/RMSA with power control (RMSA shares the flat path-slot action decode:
+        # the modulation format is derived from the env's mod_format_mask, not the action)
         path_actions = traj_batch.action[..., 0]
         power_actions = traj_batch.action[..., 1]
         path_dist, power_dist = pi
@@ -600,7 +605,9 @@ def _policy_log_prob_entropy(
             jax.debug.print("power_log_prob {}", power_log_prob, ordered=config.ORDERED)
             jax.debug.print("path_entropy {}", path_entropy, ordered=config.ORDERED)
             jax.debug.print("power_entropy {}", power_entropy, ordered=config.ORDERED)
-            jax.debug.print("power logits {}", power_dist._logits, ordered=config.ORDERED)
+            if config.discrete_launch_power:
+                # Continuous mode uses a Beta distribution, which has no logits
+                jax.debug.print("power logits {}", power_dist._logits, ordered=config.ORDERED)
             jax.debug.print("log_prob {}", log_prob, ordered=config.ORDERED)
             jax.debug.print("entropy {}", entropy, ordered=config.ORDERED)
     else:
@@ -786,7 +793,7 @@ def _loss_fn(
             current_valid_mass = jnp.sum(
                 current_probs * vone_batch.action_mask_p.astype(jnp.float32), axis=-1
             )
-        elif config.env_type.lower() == "rsa_gn_model" and config.launch_power_type == "rl":
+        elif "gn_model" in config.env_type.lower() and config.launch_power_type == "rl":
             current_probs = jax.nn.softmax(pi[0]._logits, axis=-1)
             current_valid_mass = jnp.sum(current_probs * traj_batch.action_mask, axis=-1)
         elif config.OFF_POLICY_IAM:
