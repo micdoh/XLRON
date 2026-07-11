@@ -58,6 +58,7 @@ metrics = [
     "accepted_bitrate",
     "total_bitrate",
     "utilisation",
+    "fragmentation",
     "service_blocking_probability",
     "bitrate_blocking_probability",
     "throughput",  # Only for RSA GN Model

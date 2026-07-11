@@ -20,6 +20,7 @@ from xlron.environments.dataclasses import (
 )
 from xlron.environments.diff_utils import *
 from xlron.environments.env_funcs import (
+    calculate_fragmentation,
     calculate_path_stats,
     check_action_rmsa_gn_model,
     check_action_rsa,
@@ -315,6 +316,7 @@ class RSAEnv(environment.Environment):
         info["_accepted_bitrate"] = state.accepted_bitrate
         info["_total_bitrate"] = state.total_bitrate
         info["_utilisation"] = jnp.count_nonzero(state.link_slot_array) / state.link_slot_array.size
+        info["_fragmentation"] = calculate_fragmentation(state.link_slot_array)
         if params.render:
             # Expose exact action_info/check used internally by step_env for render/debug paths.
             info["_render_action"] = action_info.action
