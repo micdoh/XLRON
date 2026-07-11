@@ -990,7 +990,14 @@ class ActorGNN(eqx.Module):
         path_action_dist = distrax.Categorical(logits=path_action_logits)
 
         power_action_dist = None
-        if params.__class__.__name__ == "RSAGNModelEnvParams":
+        # Only output a launch-power distribution when the RL agent controls launch power.
+        # launch_power_type is a static (pytree_node=False) str field on GNModelEnvParams,
+        # so this branch is resolved at trace time. With fixed/tabular/scaled launch power,
+        # downstream select_action/_loss_fn expect a bare path distribution.
+        if (
+            params.__class__.__name__ in ("RSAGNModelEnvParams", "RMSAGNModelEnvParams")
+            and getattr(params, "launch_power_type", None) == "rl"
+        ):
             if self.global_output_size > 0:
                 power_logits = processed_graph.globals.reshape((-1,)) / self.temperature  # ty: ignore[unresolved-attribute]
             else:
@@ -1004,10 +1011,13 @@ class ActorGNN(eqx.Module):
             if self.discrete:
                 power_action_dist = distrax.Categorical(logits=power_logits)
             else:
-                alpha = self.min_concentration + jax.nn.softplus(power_logits) * (
+                # The power head outputs 2 components per path: one parameterises alpha, the
+                # other beta (mirrors LaunchPowerActorCriticMLP). Splitting them gives a Beta
+                # with batch shape (k_paths,) whose mean the agent can actually learn.
+                alpha = self.min_concentration + jax.nn.softplus(power_logits[..., 0]) * (
                     self.max_concentration - self.min_concentration
                 )
-                beta = self.min_concentration + jax.nn.softplus(power_logits) * (
+                beta = self.min_concentration + jax.nn.softplus(power_logits[..., 1]) * (
                     self.max_concentration - self.min_concentration
                 )
                 power_action_dist = distrax.Beta(alpha, beta)
@@ -1191,7 +1201,7 @@ class ActorCriticGNN(eqx.Module):
     def sample_action_path(self, seed, dist, log_prob=False, deterministic=False):
         """Sample an action from the distribution."""
         action = (
-            jnp.argmax(dist.probs()).astype(dtype_config.INDEX_DTYPE)
+            dist.mode().astype(dtype_config.INDEX_DTYPE)
             if deterministic
             else dist.sample(seed=seed)
         )
@@ -1223,11 +1233,14 @@ class ActorCriticGNN(eqx.Module):
 
     def sample_action_path_power(self, seed, dist, log_prob=False, deterministic=False):
         """Sample an action from the distributions."""
+        # Independent keys per draw: reusing the same key couples the path and power samples,
+        # so the joint would not be the product of marginals that the summed log_prob assumes.
+        path_seed, power_seed = jax.random.split(seed)
         path_action = self.sample_action_path(
-            seed, dist[0], log_prob=log_prob, deterministic=deterministic
+            path_seed, dist[0], log_prob=log_prob, deterministic=deterministic
         )
         power_action = self.sample_action_power(
-            seed, dist[1], log_prob=log_prob, deterministic=deterministic
+            power_seed, dist[1], log_prob=log_prob, deterministic=deterministic
         )
         if log_prob:
             return path_action[0], power_action[0], path_action[1] + power_action[1]

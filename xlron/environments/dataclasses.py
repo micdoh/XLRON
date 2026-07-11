@@ -51,6 +51,10 @@ class HashableArrayWrapper(Generic[T]):
     def __eq__(self, other):
         if isinstance(other, HashableArrayWrapper):
             return self.__hash__() == other.__hash__()
+        if other is None:
+            # Optional wrapper fields (e.g. values_bw_probs) compare against None
+            # during jit-cache equality checks of static params
+            return False
 
         f = getattr(self.val, "__eq__")
         return f(self, other)
@@ -138,6 +142,7 @@ class EnvParams(_StructBase):
     maximise_throughput: bool = struct.field(pytree_node=False)
     reward_type: str = struct.field(pytree_node=False)
     values_bw: HashableArrayWrapper = struct.field(pytree_node=False)
+    values_bw_probs: HashableArrayWrapper | None = struct.field(pytree_node=False)
     truncate_holding_time: bool = struct.field(pytree_node=False)
     traffic_array: bool = struct.field(pytree_node=False)
     pack_path_bits: bool = struct.field(pytree_node=False)
@@ -176,6 +181,7 @@ class LogEnvState:
         accepted_bitrate (chex.Scalar): Accepted bitrate
         total_bitrate (chex.Scalar): Total bitrate requested
         utilisation (chex.Scalar): Network utilisation
+        fragmentation (chex.Scalar): Mean external spectrum fragmentation across links
         terminal (chex.Scalar): Terminal flag (true termination condition met)
         truncated (chex.Scalar): Truncated flag (max steps reached)
     """
@@ -188,6 +194,7 @@ class LogEnvState:
     accepted_bitrate: Array
     total_bitrate: Array
     utilisation: Array
+    fragmentation: Array
     terminal: Array
     truncated: Array
 
@@ -380,6 +387,7 @@ class GNModelEnvState(RSAEnvState):
     channel_power_array_prev: Array  # Channel power for each active connection in previous timestep
     channel_centre_freq_array: Array  # Per-slot centre frequency in GHz
     channel_centre_freq_array_prev: Array  # Previous timestep centre frequency for undo
+    link_snr_array_prev: Array  # Link SNR array in previous timestep (blocked-request restore)
     launch_power_array: Array  # Launch power array
 
 

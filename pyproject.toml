@@ -4,52 +4,47 @@ build-backend = "hatchling.build"
 
 [project]
 name = "xlron"
-version = "1.0.3"
-description = "Add your description here"
+version = "1.4.0"
+description = "Accelerated Learning and Resource Allocation for Optical Networks: JAX-based optical network simulation environments and reinforcement learning"
 readme = "README.md"
+license = { file = "LICENSE" }
+authors = [{ name = "Michael Doherty" }]
 requires-python = ">=3.12"
 dependencies = [
     "absl-py>=2.3.1",
-    "black>=25.9.0",
     "cffi>=2.0.0",
     "chex>=0.1.91",
     "cython>=3.1.5",
     "diffrax>=0.7.1",
     "distrax>=0.1.7",
     "equinox>=0.13.2",
-    "griffe>=1.14.0",
     "gymnax>=0.0.9",
     "imageio[ffmpeg,pyav]>=2.37.2",
-    "ipykernel>=7.0.1",
-    "isort>=7.0.0",
     "jax>=0.8.0",
     "jaxopt>=0.8.5",
     "jaxtyping>=0.3.3",
     "joblib>=1.5.2",
     "jraph>=0.0.6.dev0",
-    "jupyter>=1.1.1",
-    "mkinit>=1.1.0",
     "ml-dtypes>=0.5.3",
     "networkx>=3.5",
     "numpy>=2.4.1",
     "orbax>=0.1.9",
     "penzai>=0.2.5",
-    "pip>=25.2",
     "progress>=1.6.1",
-    "pylance>=0.38.2",
     "pymongo>=4.15.3",
-    "pytest>=8.4.2",
-    "pytest-cov>=7.0.0",
     "python-box>=7.3.2",
     "pyyaml>=6.0.3",
-    "ruff>=0.14.1",
     "scikit-learn>=1.7.2",
     "scipy>=1.16.2",
     "streamlit>=1.38.0",
     "tqdm>=4.67.1",
-    "ty>=0.0.1a25",
     "wandb>=0.22.2",
 ]
+
+[project.urls]
+Homepage = "https://micdoh.github.io/XLRON/"
+Documentation = "https://micdoh.github.io/XLRON/"
+Repository = "https://github.com/micdoh/XLRON"
 
 [project.scripts]
 xlron = "xlron.gui:main"
@@ -57,7 +52,17 @@ xlron = "xlron.gui:main"
 
 [dependency-groups]
 dev = [
+    "black>=25.9.0",
+    "griffe>=1.14.0",
+    "ipykernel>=7.0.1",
+    "isort>=7.0.0",
+    "jupyter>=1.1.1",
+    "mkinit>=1.1.0",
     "pre-commit>=4.6.0",
+    "pytest>=8.4.2",
+    "pytest-cov>=7.0.0",
+    "ruff>=0.14.1",
+    "ty>=0.0.1a25",
 ]
 gpu = [
   "jax[cuda12]"
@@ -105,6 +110,9 @@ ignore = ["E731"]
 [tool.pytest.ini_options]
 testpaths = ["."]
 norecursedirs = [".claude", "experimental", ".venv", "build", "site", "wandb"]
+markers = [
+    "slow: end-to-end smoke tests that compile a full training run (deselect with -m \"not slow\")",
+]
 
 [tool.isort]
 multi_line_output = 3
