@@ -280,7 +280,11 @@ class RsaResetTest(chex.TestCase):
 class RsaActionMaskTest(chex.TestCase):
     def setUp(self):
         super().setUp()
-        self.key, self.env, self.obs, self.state, self.params = rwa_4node_test_setup()
+        # Expected masks below include the trailing no-op action, so pin
+        # include_no_op=True (the flag default, now applied to dict configs too, is False).
+        self.key, self.env, self.obs, self.state, self.params = rwa_4node_test_setup(
+            include_no_op=True
+        )
 
     @chex.all_variants()
     @parameterized.named_parameters(
@@ -442,8 +446,8 @@ class RsaActionMaskTest(chex.TestCase):
         ),
     )
     def test_rsa_action_mask_3_slot_request(self, request_array, link_slot_array, expected):
-        self.key, self.env, self.obs, self.state, self.params = (
-            rsa_4node_3_slot_request_test_setup()
+        self.key, self.env, self.obs, self.state, self.params = rsa_4node_3_slot_request_test_setup(
+            include_no_op=True
         )
         self.state = self.state.replace(
             request_array=request_array, link_slot_array=link_slot_array
@@ -694,7 +698,13 @@ class RsaActionMaskTest(chex.TestCase):
         self, request_array, consider_mod, link_slot_array, expected
     ):
         self.key, self.env, self.obs, self.state, self.params = rsa_nsfnet_16_test_setup(
-            guardband=0, env_type="rmsa"
+            guardband=0,
+            env_type="rmsa",
+            include_no_op=True,
+            # Expectations were computed with this modulations table (the
+            # pre-unification implicit default); the flag default is now
+            # modulations_deeprmsa.csv, so pin it explicitly.
+            modulations_csv_filepath="./xlron/data/modulations/modulations.csv",
         )
         self.state = self.state.replace(
             request_array=request_array, link_slot_array=link_slot_array
@@ -797,6 +807,10 @@ def rsa_multiband_4node_test_setup(**kwargs):
         # 25 GHz gap starting at 100 GHz -> 2-slot gap at slots 8-9
         interband_gap_width=[25],
         interband_gap_start=[100],
+        # These tests exercise the custom interband_gap_* branch, which is only
+        # reached when enforce_band_gaps is off (the flag default, now applied to
+        # dict configs too, is True = CSV-derived band gaps).
+        enforce_band_gaps=False,
     )
     settings.update(kwargs)
     key = jax.random.PRNGKey(0)

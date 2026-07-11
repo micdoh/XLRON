@@ -106,9 +106,10 @@ def initialize_dtypes(flags: flags.FlagValues | Box | Dict) -> None:
     mixed_precision = bool(get_flag_value_or_none("mixed_precision", False))
     # Relative arrival times keep the simulation clock bounded by the holding time, which makes
     # 16-bit time arrays safe. Absolute time accumulates without bound -> keep float32.
-    # Default False to match make_env's internal default, so any config that omits the key
-    # conservatively keeps time at float32 (the --relative_arrival_times flag defaults True, so
-    # real runs through FLAGS still get the float16 memory win).
+    # Configs that reach here via process_config always carry the key (the flag default True is
+    # layered in from parameter_flags.get_flag_defaults), so real runs get the float16 memory
+    # win; the conservative False fallback below only applies to callers invoking
+    # initialize_dtypes directly with a partial dict, which keeps time at float32.
     relative_arrival_times = bool(get_flag_value_or_none("relative_arrival_times", False))
     # incremental_loading sets mean_service_holding_time ~1e6 (non-expiring requests), so even
     # relative departure values reach ~1e6 and overflow float16 -> force float32 times.

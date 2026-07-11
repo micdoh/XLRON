@@ -24,6 +24,11 @@ def _rsa_4node_setup():
         values_bw=[1, 2],
         slot_size=1,
         guardband=0,
+        # The RR-bounds entry point forces absolute times (see
+        # reconfigurable_routing_bounds.py: relative_arrival_times=False) and the
+        # request tuples below carry absolute arrival/departure times; pin the same
+        # here since the flag default (now applied to dict configs too) is relative.
+        relative_arrival_times=False,
     )
     env, params = make(settings, log_wrapper=True)
     params_det = params.replace(deterministic_requests=True)
