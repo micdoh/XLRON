@@ -434,7 +434,10 @@ flags.DEFINE_float(
     "min_load",
     None,
     "Minimum load for load sweep. When set (along with max_load and step_load), "
-    "runs the experiment across a range of loads using a single compilation.",
+    "runs the experiment across a range of loads using a single compilation. "
+    "Each swept load re-runs the ENV_WARMUP_STEPS warmup at its own arrival rate "
+    "and zeroes the metric counters, so per-load metrics reflect that load's "
+    "steady state.",
 )
 flags.DEFINE_float(
     "max_load",

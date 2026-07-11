@@ -1340,6 +1340,49 @@ def get_warmup_fn(warmup_state, env, params, train_state, config) -> Callable[[T
     return warmup_fn
 
 
+def get_sweep_rewarm_fn(env, env_params, config) -> Callable[[Tuple, chex.PRNGKey], Tuple]:
+    """Build a jitted re-equilibration function for load sweeps.
+
+    A load sweep reuses the compiled experiment across loads, but the network state
+    (link occupancy, departure times) in the base experiment_input was warmed up at
+    the original ``--load``. Starting every swept load from that state biases per-load
+    steady-state metrics: low loads inherit an over-full network (blocking
+    overestimated), high loads an under-full one (underestimated). The returned
+    function re-runs the ``ENV_WARMUP_STEPS`` warmup at the state's (already updated)
+    arrival rate, then zeroes the warmup metric counters so each swept load's metrics
+    exclude the re-equilibration transient. Build it once outside the load loop:
+    ``arrival_rate`` is a dynamic state leaf, so the single compilation is reused
+    across all loads (preserving the sweep's compile-once behaviour).
+
+    Args:
+        env: Environment (same one the experiment was compiled with)
+        env_params: Environment parameters
+        config: Config Box (reads ENV_WARMUP_STEPS, NUM_ENVS, NUM_LEARNERS, ...)
+
+    Returns:
+        Jitted function (experiment_input, warmup_key) -> experiment_input, where
+        experiment_input is (runner_state, env_state, obsv, rng_step, rng_epoch).
+        With NUM_LEARNERS > 1 the function is vmapped over the leading learner axis
+        and warmup_key must be a batch of NUM_LEARNERS keys.
+    """
+
+    def rewarm_fn(experiment_input: Tuple, warmup_key: chex.PRNGKey) -> Tuple:
+        runner_state, env_state, obsv, rng_step, rng_epoch = experiment_input
+        warmup_key = (
+            jax.random.split(warmup_key, config.NUM_ENVS) if config.NUM_ENVS > 1 else warmup_key
+        )
+        warmup_state = (warmup_key, env_state, obsv)
+        warmup_fn = get_warmup_fn(warmup_state, env, env_params, runner_state, config)
+        warmup_fn = jax.vmap(warmup_fn) if config.NUM_ENVS > 1 else warmup_fn
+        env_state, obsv = warmup_fn(warmup_state)
+        env_state = reset_warmup_metric_counters(env_state)
+        return (runner_state, env_state, obsv, rng_step, rng_epoch)
+
+    if config.NUM_LEARNERS > 1:
+        rewarm_fn = jax.vmap(rewarm_fn)
+    return jax.jit(rewarm_fn)
+
+
 def steps_per_train_state_unit(config: Box) -> int:
     """Number of train_state.step increments per update loop.
 
