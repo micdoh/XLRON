@@ -1211,7 +1211,9 @@ def get_warmup_fn(warmup_state, env, params, train_state, config) -> Callable[[T
                 action_mask = mask_result[0]
                 action = jax.random.categorical(action_key, jnp.log(jnp.maximum(action_mask, 1e-8)))
             else:
-                select_action_state = (_rng, _state, _last_obs)
+                # Pass the dedicated action_key, not the loop-carry _rng (which is re-split
+                # next iteration and must never also be consumed for sampling).
+                select_action_state = (action_key, _state, _last_obs)
                 action_fn = select_action if not use_heuristic_warmup else select_action_eval
                 _state, action, log_prob, value = action_fn(
                     select_action_state, env, _params, _train_state, config
@@ -1261,6 +1263,19 @@ def get_warmup_fn(warmup_state, env, params, train_state, config) -> Callable[[T
         return vals[1], vals[4]
 
     return warmup_fn
+
+
+def steps_per_train_state_unit(config: Box) -> int:
+    """Number of train_state.step increments per update loop.
+
+    train_state.step increments once per gradient (minibatch) step when STEP_ON_GRADIENT
+    is set, otherwise once per update loop. Any schedule or anneal evaluated at
+    train_state.step (entropy/VML schedules, GAE-lambda and prio-beta anneals) must scale
+    its horizon by this factor so it completes exactly at the end of training. The LR
+    schedules are exempt: they are driven by optax's internal count, which always ticks
+    once per tx.update (i.e. per minibatch).
+    """
+    return config.UPDATE_EPOCHS * config.NUM_MINIBATCHES if config.STEP_ON_GRADIENT else 1
 
 
 def _make_schedule(
@@ -1391,14 +1406,15 @@ def make_ent_schedule(config: Box) -> optax.Schedule:
 
     ENT_COEF = config.ENT_COEF
     ENT_END_FRACTION = config.ENT_END_FRACTION
-    NUM_MINIBATCHES = config.NUM_MINIBATCHES
     NUM_UPDATES = config.NUM_UPDATES * config.NUM_INCREMENTS
-    UPDATE_EPOCHS = config.UPDATE_EPOCHS
+    # Evaluated at train_state.step (not optax's per-minibatch count), so the horizon
+    # must use the train_state.step unit.
+    STEPS_PER_UNIT = steps_per_train_state_unit(config)
     SCHEDULE_MULTIPLIER = config.ENT_SCHEDULE_MULTIPLIER
     end_value = ENT_COEF * ENT_END_FRACTION
 
     def ent_schedule(count: chex.Numeric) -> chex.Numeric:
-        total_steps = NUM_UPDATES * UPDATE_EPOCHS * NUM_MINIBATCHES * SCHEDULE_MULTIPLIER
+        total_steps = NUM_UPDATES * STEPS_PER_UNIT * SCHEDULE_MULTIPLIER
         if config.ENT_SCHEDULE == "cosine":
             schedule = optax.cosine_decay_schedule(
                 init_value=ENT_COEF,
@@ -1425,14 +1441,15 @@ def make_vml_schedule(config: Box) -> optax.Schedule:
 
     VML_COEF = config.VALID_MASS_LOSS_COEF
     VML_END_FRACTION = config.VML_END_FRACTION
-    NUM_MINIBATCHES = config.NUM_MINIBATCHES
     NUM_UPDATES = config.NUM_UPDATES * config.NUM_INCREMENTS
-    UPDATE_EPOCHS = config.UPDATE_EPOCHS
+    # Evaluated at train_state.step (not optax's per-minibatch count), so the horizon
+    # must use the train_state.step unit.
+    STEPS_PER_UNIT = steps_per_train_state_unit(config)
     SCHEDULE_MULTIPLIER = config.VML_SCHEDULE_MULTIPLIER
     end_value = VML_COEF * VML_END_FRACTION
 
     def vml_schedule(count: chex.Numeric) -> chex.Numeric:
-        total_steps = NUM_UPDATES * UPDATE_EPOCHS * NUM_MINIBATCHES * SCHEDULE_MULTIPLIER
+        total_steps = NUM_UPDATES * STEPS_PER_UNIT * SCHEDULE_MULTIPLIER
         if config.VML_SCHEDULE == "cosine":
             schedule = optax.cosine_decay_schedule(
                 init_value=VML_COEF,
@@ -1616,7 +1633,13 @@ def run_eval_during_training(
         best_eval_metric = eval_metric_mean
         print(f"New best eval {eval_metric_name}: {best_eval_metric:.6f}")
         if config.SAVE_MODEL:
-            model = eqx.combine(current_train_state.model_params, current_train_state.model_static)
+            model_params = current_train_state.model_params
+            if config.NUM_LEARNERS > 1:
+                # vmap over the learner axis stacks every param leaf to [NUM_LEARNERS, ...];
+                # save learner 0's weights so the checkpoint matches the unbatched template
+                # used by load_model.
+                model_params = jax.tree.map(lambda x: x[0], model_params)
+            model = eqx.combine(model_params, current_train_state.model_static)
             saved_path = save_model(model, config, first_save=first_save)
             if first_save:
                 config.MODEL_PATH = str(saved_path)
