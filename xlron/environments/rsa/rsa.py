@@ -1313,29 +1313,17 @@ class RSAEnv(environment.Environment):
             reward: Reward for failure
         """
         reward = -one
+        # Use action_info.requested_datarate (captured in process_action before the
+        # request is regenerated) rather than state.request_array, so the value is
+        # identical at both call sites: calculate_reward (pre-mutation state) and
+        # is_terminal for end_first_blocking (post-generate_request state).
         if params.reward_type == "service":
             pass
         elif params.reward_type == "bitrate":
-            reward = (
-                differentiable_index(
-                    state.request_array,
-                    1,
-                    temperature=params.temperature,
-                    differentiable=params.differentiable,
-                )
-                * reward
-                / jnp.max(params.values_bw.val)
-            )
+            reward = action_info.requested_datarate * reward / jnp.max(params.values_bw.val)
         else:
             reward = (
-                reward
-                * differentiable_index(
-                    read_rsa_request(state.request_array),
-                    1,
-                    temperature=params.temperature,
-                    differentiable=params.differentiable,
-                )
-                / jnp.max(params.values_bw.val)
+                reward * action_info.requested_datarate / jnp.max(params.values_bw.val)
                 if params.maximise_throughput
                 else reward
             )
@@ -1358,7 +1346,7 @@ class RSAEnv(environment.Environment):
         reward = zero
 
         if params.reward_type != "service":
-            reward = state.request_array[1] * reward / jnp.max(params.values_bw.val)
+            reward = action_info.requested_datarate * one / jnp.max(params.values_bw.val)
             if params.reward_type == "bitrate":
                 pass  # No additional calculation needed
             elif params.reward_type == "snr":
@@ -1375,7 +1363,8 @@ class RSAEnv(environment.Environment):
                 return reward + path_snr_norm
             elif params.reward_type == "mod_format":
                 # Modulation format calculation...
-                assert params.__class__.__name__ == "RSAGNModelEnvParams"
+                # modulation_format_index_array only exists on RMSAGNModelEnvState
+                assert params.__class__.__name__ == "RMSAGNModelEnvParams"
                 rmsa_state = cast(RMSAGNModelEnvState, state)
                 mod_format_index = get_path_slots(
                     rmsa_state.modulation_format_index_array,
