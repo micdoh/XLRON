@@ -3,7 +3,7 @@ from functools import partial
 import chex
 import jax
 import jax.numpy as jnp
-from jax._src.typing import Array
+from jax import Array
 
 from xlron import dtype_config
 from xlron.environments.dataclasses import (

@@ -8,7 +8,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from jax import Array
-from jax._src.typing import ArrayLike
+from jax.typing import ArrayLike
 
 from xlron import dtype_config
 from xlron.environments.gn_model.isrs_gn_model import from_dbm
