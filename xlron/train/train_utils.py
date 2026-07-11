@@ -62,6 +62,13 @@ metrics = [
     "fragmentation",
     "service_blocking_probability",
     "bitrate_blocking_probability",
+    # Blocking-cause breakdown (GN-model envs only; keys absent for other env types)
+    "blocked_spectrum",
+    "blocked_snr",
+    "blocked_power",
+    "spectrum_blocking_probability",
+    "snr_blocking_probability",
+    "power_blocking_probability",
     "throughput",  # Only for RSA GN Model
     "launch_power",
     "path_snr",
@@ -847,24 +854,40 @@ def reset_warmup_metric_counters(env_state):
     """Zero the metric counters accumulated during warmup.
 
     With continuous_operation the env is never reset, so the cumulative counters
-    (accepted_services, accepted_bitrate, total_bitrate) and the LogWrapper's
+    (accepted_services, accepted_bitrate, total_bitrate, and the GN-model
+    blocked_spectrum/blocked_snr/blocked_power counters) and the LogWrapper's
     lengths/cum_returns would otherwise include the near-zero-blocking network-fill
     transient, biasing every logged blocking probability (ENV_WARMUP_STEPS is
     documented as 'steps before collecting stats'). These fields are metrics-only;
     total_requests, which drives episode truncation, is deliberately kept.
     jnp.zeros_like preserves per-env shapes and dtypes for the jitted learner.
     """
+    inner_state = env_state.env_state
+    inner_updates = dict(
+        accepted_services=jnp.zeros_like(inner_state.accepted_services),
+        accepted_bitrate=jnp.zeros_like(inner_state.accepted_bitrate),
+        total_bitrate=jnp.zeros_like(inner_state.total_bitrate),
+    )
+    # GN-model env states also carry cumulative blocking-cause counters; zero them so
+    # spectrum/snr/power_blocking_probability exclude the warmup transient and keep
+    # summing to service_blocking_probability. hasattr inspects the static pytree
+    # structure (not traced values), so this branch is jit-safe.
+    if hasattr(inner_state, "blocked_spectrum"):
+        inner_updates.update(
+            blocked_spectrum=jnp.zeros_like(inner_state.blocked_spectrum),
+            blocked_snr=jnp.zeros_like(inner_state.blocked_snr),
+            blocked_power=jnp.zeros_like(inner_state.blocked_power),
+        )
     return env_state.replace(
         lengths=jnp.zeros_like(env_state.lengths),
         cum_returns=jnp.zeros_like(env_state.cum_returns),
         accepted_services=jnp.zeros_like(env_state.accepted_services),
         accepted_bitrate=jnp.zeros_like(env_state.accepted_bitrate),
         total_bitrate=jnp.zeros_like(env_state.total_bitrate),
-        env_state=env_state.env_state.replace(
-            accepted_services=jnp.zeros_like(env_state.env_state.accepted_services),
-            accepted_bitrate=jnp.zeros_like(env_state.env_state.accepted_bitrate),
-            total_bitrate=jnp.zeros_like(env_state.env_state.total_bitrate),
-        ),
+        blocked_spectrum=jnp.zeros_like(env_state.blocked_spectrum),
+        blocked_snr=jnp.zeros_like(env_state.blocked_snr),
+        blocked_power=jnp.zeros_like(env_state.blocked_power),
+        env_state=inner_state.replace(**inner_updates),
     )
 
 
@@ -1834,6 +1857,15 @@ def process_metrics(config, out, merge_func):
         merged_out["accepted_bitrate"]
         / jnp.where(merged_out["total_bitrate"] == 0, 1, merged_out["total_bitrate"])
     )
+
+    # Blocking-cause breakdown (GN-model envs only; keys absent for other env types).
+    # Causes are mutually exclusive, so these probabilities sum to
+    # service_blocking_probability.
+    if "blocked_spectrum" in merged_out:
+        lengths_safe = jnp.where(merged_out["lengths"] == 0, 1, merged_out["lengths"])
+        merged_out["spectrum_blocking_probability"] = merged_out["blocked_spectrum"] / lengths_safe
+        merged_out["snr_blocking_probability"] = merged_out["blocked_snr"] / lengths_safe
+        merged_out["power_blocking_probability"] = merged_out["blocked_power"] / lengths_safe
 
     # Calculate episode ends
     merged_out["done"] = jnp.logical_or(merged_out["terminal"], merged_out["truncated"])

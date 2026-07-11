@@ -4372,6 +4372,35 @@ def set_band_gaps(link_slot_array: Array, params: RSAGNModelEnvParams, val: int)
 
 
 @partial(jax.jit, static_argnums=(2,))
+def check_action_rmsa_gn_model_components(
+    state: GNModelEnvState, action_info: ActionInfo, params: GNModelEnvParams
+) -> tuple:
+    """Compute the individual acceptance checks for the RMSA GN model.
+
+    The three checks correspond to the possible blocking causes:
+    spectrum contention, insufficient SNR, and per-fibre power budget.
+    step_env uses the components to count blocking causes without recomputing them;
+    check_action_rmsa_gn_model aggregates them into the overall validity check.
+
+    Args:
+        state (EnvState): Environment state
+        action_info (ActionInfo): Action info
+        params (EnvParams): Environment parameters
+    Returns:
+        tuple: (rsa_check, snr_sufficient_check, power_check) - each truthy if the
+        corresponding check failed (action invalid)
+    """
+    snr_sufficient_check = check_snr_sufficient(state, params)
+    rsa_check = check_action_rsa(state, action_info, params)
+    # Check total power per link doesn't exceed max_power_per_fibre
+    total_power = compute_total_power_per_link(
+        state.channel_power_array, state.path_index_array, state.channel_centre_freq_array
+    )
+    power_check = jnp.any(total_power > params.max_power_per_fibre)
+    return rsa_check, snr_sufficient_check, power_check
+
+
+@partial(jax.jit, static_argnums=(2,))
 def check_action_rmsa_gn_model(
     state: GNModelEnvState, action_info: ActionInfo, params: GNModelEnvParams
 ) -> bool:
@@ -4383,15 +4412,9 @@ def check_action_rmsa_gn_model(
     Returns:
         bool: True if action is invalid, False if action is valid
     """
-    # Check if action is valid
-    # TODO - log failure reasons in info
-    snr_sufficient_check = check_snr_sufficient(state, params)
-    rsa_check = check_action_rsa(state, action_info, params)
-    # Check total power per link doesn't exceed max_power_per_fibre
-    total_power = compute_total_power_per_link(
-        state.channel_power_array, state.path_index_array, state.channel_centre_freq_array
+    rsa_check, snr_sufficient_check, power_check = check_action_rmsa_gn_model_components(
+        state, action_info, params
     )
-    power_check = jnp.any(total_power > params.max_power_per_fibre)
     return jnp.any(
         jnp.stack(
             (

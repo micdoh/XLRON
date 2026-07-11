@@ -13,6 +13,7 @@ from jax import Array, tree_util
 
 from xlron import dtype_config
 from xlron.environments.dataclasses import (
+    GNModelEnvParams,
     LogEnvState,
     RSAEnvParams,
     RSAEnvState,
@@ -52,6 +53,9 @@ class LogWrapper(GymnaxWrapper):
             total_bitrate=jnp.array(0, dtype=dtype_config.LARGE_FLOAT_DTYPE),
             utilisation=jnp.array(0, dtype=dtype_config.LARGE_FLOAT_DTYPE),
             fragmentation=jnp.array(0, dtype=dtype_config.LARGE_FLOAT_DTYPE),
+            blocked_spectrum=jnp.array(0, dtype=dtype_config.LARGE_INT_DTYPE),
+            blocked_snr=jnp.array(0, dtype=dtype_config.LARGE_INT_DTYPE),
+            blocked_power=jnp.array(0, dtype=dtype_config.LARGE_INT_DTYPE),
             terminal=jnp.array(False),
             truncated=jnp.array(False),
         )
@@ -82,6 +86,11 @@ class LogWrapper(GymnaxWrapper):
         fragmentation = info.pop(
             "_fragmentation", jnp.array(0, dtype=dtype_config.LARGE_FLOAT_DTYPE)
         )
+        # Blocking-cause counters are only stashed by GN-model envs; default to 0 elsewhere
+        zero_count = jnp.array(0, dtype=dtype_config.LARGE_INT_DTYPE)
+        blocked_spectrum = info.pop("_blocked_spectrum", zero_count)
+        blocked_snr = info.pop("_blocked_snr", zero_count)
+        blocked_power = info.pop("_blocked_power", zero_count)
         # Compute final episode length (for reporting) before resetting
         episode_length = log_state.lengths + 1
         cum_returns = log_state.cum_returns + reward
@@ -96,6 +105,9 @@ class LogWrapper(GymnaxWrapper):
             total_bitrate=total_bitrate,
             utilisation=utilisation,
             fragmentation=fragmentation,
+            blocked_spectrum=blocked_spectrum,
+            blocked_snr=blocked_snr,
+            blocked_power=blocked_power,
             terminal=terminal,
             truncated=truncated,
         )
@@ -109,6 +121,12 @@ class LogWrapper(GymnaxWrapper):
         info["total_bitrate"] = log_state.total_bitrate
         info["utilisation"] = log_state.utilisation
         info["fragmentation"] = log_state.fragmentation
+        # Report the blocking-cause breakdown for GN-model envs only (params is static,
+        # so info keys are consistent for a given env type)
+        if isinstance(params, GNModelEnvParams):
+            info["blocked_spectrum"] = log_state.blocked_spectrum
+            info["blocked_snr"] = log_state.blocked_snr
+            info["blocked_power"] = log_state.blocked_power
         info["terminal"] = terminal
         info["truncated"] = truncated
         # First check if we're dealing with RSAGNModelEnvParams

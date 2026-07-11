@@ -22,7 +22,7 @@ from xlron.environments.diff_utils import *
 from xlron.environments.env_funcs import (
     calculate_fragmentation,
     calculate_path_stats,
-    check_action_rmsa_gn_model,
+    check_action_rmsa_gn_model_components,
     check_action_rsa,
     check_action_rwalr,
     complete_step_rmsa_gn_model,
@@ -267,14 +267,35 @@ class RSAEnv(environment.Environment):
             complete_step = complete_step_rsa_gn_model
         elif params.__class__.__name__ == "RMSAGNModelEnvParams":
             implement_action = implement_action_rmsa_gn_model
-            check_action = check_action_rmsa_gn_model
+            # check_action is deliberately not reassigned here: the RMSA GN-model check is
+            # computed below from check_action_rmsa_gn_model_components so the blocking
+            # cause (spectrum vs SNR vs power) can be counted without recomputation
             complete_step = complete_step_rmsa_gn_model
 
         # Implement action
         state = jit_profiler.call(params.profile, implement_action, state, action_info, params)
 
-        # Check action
-        check = jit_profiler.call(params.profile, check_action, state, action_info, params)
+        # Check action. For GN-model envs, keep the individual check components so the
+        # blocking cause (spectrum vs SNR vs power) can be counted without recomputation.
+        blocking_cause_checks = None
+        if params.__class__.__name__ == "RMSAGNModelEnvParams":
+            spectrum_check, snr_check, power_check = jit_profiler.call(
+                params.profile,
+                check_action_rmsa_gn_model_components,
+                state,
+                action_info,
+                params,
+            )
+            # Same aggregation (order included) as check_action_rmsa_gn_model
+            check = jnp.any(jnp.stack((spectrum_check, snr_check, power_check)))
+            blocking_cause_checks = (spectrum_check, snr_check, power_check)
+        else:
+            check = jit_profiler.call(params.profile, check_action, state, action_info, params)
+            if params.__class__.__name__ == "RSAGNModelEnvParams":
+                # rsa_gn_model has no SNR/power acceptance check at step time (SNR
+                # feasibility is enforced in the action mask), so every block observed
+                # here is attributed to spectrum contention
+                blocking_cause_checks = (check, jnp.array(False), jnp.array(False))
 
         # Calculate reward
         reward = jit_profiler.call(
@@ -283,6 +304,26 @@ class RSAEnv(environment.Environment):
 
         # Complete step
         state = jit_profiler.call(params.profile, complete_step, state, action_info, check, params)
+
+        # Update blocking-cause counters (GN-model envs only). Attribute each block with
+        # spectrum > SNR > power priority: a spectrum collision corrupts the tentative GN
+        # state, so downstream SNR/power failures would be spurious. The counters are
+        # therefore mutually exclusive and sum to the number of blocked requests.
+        if blocking_cause_checks is not None:
+            spectrum_check, snr_check, power_check = blocking_cause_checks
+            blocked_spectrum = jnp.asarray(spectrum_check).astype(jnp.bool_)
+            blocked_snr = jnp.asarray(snr_check).astype(jnp.bool_) & ~blocked_spectrum
+            blocked_power = jnp.asarray(power_check).astype(jnp.bool_) & ~(
+                blocked_spectrum | blocked_snr
+            )
+            gn_state = cast(GNModelEnvState, state)
+            state = gn_state.replace(
+                blocked_spectrum=gn_state.blocked_spectrum
+                + blocked_spectrum.astype(gn_state.blocked_spectrum.dtype),
+                blocked_snr=gn_state.blocked_snr + blocked_snr.astype(gn_state.blocked_snr.dtype),
+                blocked_power=gn_state.blocked_power
+                + blocked_power.astype(gn_state.blocked_power.dtype),
+            )
 
         # TODO (DYNAMIC-RWALR) - calculate allocated bandwidth
         # TODO (DYNAMIC-RWALR) - generate new request if allocated DR equals requested DR, else update requested DR do not advance time do not replace source-dest
@@ -315,6 +356,11 @@ class RSAEnv(environment.Environment):
         info["_accepted_services"] = state.accepted_services
         info["_accepted_bitrate"] = state.accepted_bitrate
         info["_total_bitrate"] = state.total_bitrate
+        if blocking_cause_checks is not None:
+            gn_state = cast(GNModelEnvState, state)
+            info["_blocked_spectrum"] = gn_state.blocked_spectrum
+            info["_blocked_snr"] = gn_state.blocked_snr
+            info["_blocked_power"] = gn_state.blocked_power
         # Band-gap sentinels (-1) are neither occupied nor usable spectrum, so count
         # positively-occupied slots over the usable (non-gap) slots only
         occupied_slots = jnp.count_nonzero(state.link_slot_array > 0)
