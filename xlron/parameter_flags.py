@@ -460,6 +460,13 @@ flags.DEFINE_integer("min_bw", 25, "Minimum requested bandwidth")
 flags.DEFINE_integer("max_bw", 100, "Maximum requested bandwidth")
 flags.DEFINE_integer("step_bw", 1, "Step size for requested bandwidth values between min and max")
 flags.DEFINE_string("values_bw", None, "List of requested bandwidth values")
+flags.DEFINE_string(
+    "values_bw_probs",
+    None,
+    "Comma-separated sampling probabilities for each value in values_bw "
+    "(must match values_bw length; normalised to sum to 1). "
+    "If unset, bandwidth values are sampled uniformly.",
+)
 flags.DEFINE_float("slot_size", 12.5, "Spectral width of frequency slot in GHz")
 flags.DEFINE_boolean(
     "incremental_loading",

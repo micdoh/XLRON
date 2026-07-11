@@ -221,11 +221,6 @@ xlron.parameter_flags:
     ratio (rho ~ mu) applies implicitly but IAM_RECENTER_CLIP removes; combine
     with IAM_RECENTER_CLIP + POSITIVE_ADV_ONLY (a ~3x lever there)
     (default: 'false')
-  --[no]NEGLECT_SPECTRUM_CONTINUITY: When True, the cut-set capacity bound
-    tracks only total free capacity per link rather than slot-level occupancy.
-    This removes the spectrum continuity constraint across cut-set links, giving
-    a tighter (more optimistic) upper bound.
-    (default: 'false')
   --[no]NO_TRUNCATE: Do not truncate printed arrays
     (default: 'false')
   --NUM_DEVICES: Number of devices
@@ -497,9 +492,6 @@ xlron.parameter_flags:
     entry (i, j) gives the relative traffic demand from node i to node j. Leave
     blank to use uniform traffic (equal probability for all source-destination
     pairs). Ignored when --random_traffic is enabled.
-  --cutset_link_selection_mode: Link selection heuristic for cut-set capacity
-    bound simulation: least_congested, most_congested, best_fit, random
-    (default: 'least_congested')
   --[no]deterministic: Deterministic evaluation (use mode of action
     distribution)
     (default: 'false')
@@ -656,7 +648,7 @@ xlron.parameter_flags:
     (a number)
   --max_traffic: Maximum traffic
     (default: '1.0')
-  --[no]maximise_throughout: Maximise throughput instead of minimising blocking
+  --[no]maximise_throughput: Maximise throughput instead of minimising blocking
     probability
     (default: 'false')
   --maximum_path_length_km: Maximum allowed path length in km. Paths exceeding
@@ -930,6 +922,9 @@ xlron.parameter_flags:
     calculation
     (default: 'false')
   --values_bw: List of requested bandwidth values
+  --values_bw_probs: Comma-separated sampling probabilities for each value in
+    values_bw (must match values_bw length; normalised to sum to 1). If unset,
+    bandwidth values are sampled uniformly.
   --virtual_topologies: Virtual topologies
     (default: '3_ring')
   --warmup_action_type: Action selection method during warmup. None uses the
