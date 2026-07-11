@@ -503,9 +503,12 @@ def make(
     # expensive KSP computation here for env types that don't need it,
     # UNLESS it's a GN model type that reads path_link_array.shape before
     # the second call.
-    _needs_modulation_resort = (
-        env_type not in ("rsa", "rwa", "rwa_lightpath_reuse") and path_sort_criteria != "distance"
+    # Mirror the consider_modulation_format derivation below: vone with slot_size==1
+    # never makes the modulation-aware call, so it must take the first call here.
+    _uses_modulation = env_type not in ("rsa", "rwa", "rwa_lightpath_reuse") and not (
+        env_type == "vone" and slot_size == 1
     )
+    _needs_modulation_resort = _uses_modulation and path_sort_criteria != "distance"
     _needs_first_call = not _needs_modulation_resort or env_type in (
         "rmsa_gn_model",
         "rsa_gn_model",
