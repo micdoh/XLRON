@@ -465,16 +465,23 @@ def _loss_fn(
     # HANDLE DIFFERENT ACTION TYPES FOR OPTICAL NETWORKS
     recenter_clip = False  # only the standard off-policy IAM branch below recenters the clip
     if config.env_type.lower() == "vone":
-        # VONE: source, path, destination actions
+        # VONE: source, path, destination actions. Slice the logits into per-head blocks
+        # ([source nodes | dest nodes | path-slot actions]) exactly as in select_action,
+        # so the PPO ratio compares like-for-like per-head log probs.
         vone_batch = cast(VONETransition, traj_batch)
+        num_nodes = vone_batch.action_mask_s.shape[-1]
+        path_dim = vone_batch.action_mask_p.shape[-1]
+        source_logits = pi._logits[..., :num_nodes]
+        dest_logits = pi._logits[..., num_nodes : 2 * num_nodes]
+        path_logits = pi._logits[..., 2 * num_nodes : 2 * num_nodes + path_dim]
         pi_source = distrax.Categorical(
-            logits=pi._logits + (-1e8 * (1 - vone_batch.action_mask_s.astype(jnp.float32)))
+            logits=source_logits + (-1e8 * (1 - vone_batch.action_mask_s.astype(jnp.float32)))
         )
         pi_path = distrax.Categorical(
-            logits=pi._logits + (-1e8 * (1 - vone_batch.action_mask_p.astype(jnp.float32)))
+            logits=path_logits + (-1e8 * (1 - vone_batch.action_mask_p.astype(jnp.float32)))
         )
         pi_dest = distrax.Categorical(
-            logits=pi._logits + (-1e8 * (1 - vone_batch.action_mask_d.astype(jnp.float32)))
+            logits=dest_logits + (-1e8 * (1 - vone_batch.action_mask_d.astype(jnp.float32)))
         )
         action_s = traj_batch.action[:, 0]
         action_p = traj_batch.action[:, 1]
@@ -635,9 +642,13 @@ def _loss_fn(
     if config.VALID_MASS_LOSS_COEF > 0:
         # Recompute valid mass from *current* logits so gradients flow back
         if config.env_type.lower() == "vone":
-            current_probs = jax.nn.softmax(pi._logits, axis=-1)
+            vone_batch = cast(VONETransition, traj_batch)
+            num_nodes = vone_batch.action_mask_s.shape[-1]
+            path_dim = vone_batch.action_mask_p.shape[-1]
+            path_logits = pi._logits[..., 2 * num_nodes : 2 * num_nodes + path_dim]
+            current_probs = jax.nn.softmax(path_logits, axis=-1)
             current_valid_mass = jnp.sum(
-                current_probs * cast(VONETransition, traj_batch).action_mask_p, axis=-1
+                current_probs * vone_batch.action_mask_p.astype(jnp.float32), axis=-1
             )
         elif config.env_type.lower() == "rsa_gn_model" and config.launch_power_type == "rl":
             current_probs = jax.nn.softmax(pi[0]._logits, axis=-1)
