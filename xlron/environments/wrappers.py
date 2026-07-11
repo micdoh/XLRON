@@ -138,10 +138,14 @@ class LogWrapper(GymnaxWrapper):
             if params.log_actions:
                 # RSA-specific logging
                 if is_gn_params:
-                    path = params.path_link_array.val[path_index.astype(jnp.int32)]
-                    info["path_snr"] = get_snr_for_path(path, env_state.link_snr_array, params)[
-                        slot_index.astype(jnp.int32)
-                    ]
+                    # Index with the global path index (i + path_index); the local
+                    # k-path index alone selects a path of the first source-dest pair.
+                    path = params.path_link_array.val[(i + path_index).astype(jnp.int32)]
+                    # Pass the state so the logged SNR includes path-level ROADM ASE,
+                    # matching the SNR used by the masking/acceptance checks
+                    info["path_snr"] = get_snr_for_path(
+                        path, env_state.link_snr_array, params, env_state
+                    )[slot_index.astype(jnp.int32)]
                 # Common logging fields
                 info["arrival_time"] = env_state.current_time[0]
                 info["departure_time"] = env_state.current_time[0] + env_state.holding_time[0]

@@ -1366,9 +1366,11 @@ class RSAEnv(environment.Environment):
                 assert params.__class__.__name__ == "RSAGNModelEnvParams"
                 gn_state = cast(GNModelEnvState, state)
                 gn_params = cast(RSAGNModelEnvParams, params)
-                path_snr = get_snr_for_path(action_info.path, gn_state.link_snr_array, gn_params)[
-                    action_info.initial_slot_index.astype(dtype_config.LARGE_INT_DTYPE)
-                ]
+                # Pass the state so the reward SNR includes path-level ROADM ASE,
+                # matching the SNR used by the masking/acceptance checks
+                path_snr = get_snr_for_path(
+                    action_info.path, gn_state.link_snr_array, gn_params, gn_state
+                )[action_info.initial_slot_index.astype(dtype_config.LARGE_INT_DTYPE)]
                 # set to 0 if negative and divide by large SNR (e.g. 50. dB) to scale below 1
                 # N.B. negative SNR in dB would be a fail anyway since min. required is 10dB
                 path_snr_norm = jnp.where(path_snr < zero, zero, path_snr) / gn_params.max_snr
