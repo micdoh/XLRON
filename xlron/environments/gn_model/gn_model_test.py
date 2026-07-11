@@ -476,6 +476,65 @@ class RMSAGNModelMaskTest(chex.TestCase):
         self.assertTrue(isinstance(truncated, jax.Array))
 
 
+class RMSAGNModelLogWrapperTest(chex.TestCase):
+    """LogWrapper must unpack [path_slot_action, launch_power] actions for the RMSA GN env.
+
+    Regression: is_gn_params previously tested isinstance(params, RSAGNModelEnvParams),
+    which RMSAGNModelEnvParams is not (both are siblings deriving from GNModelEnvParams),
+    so for rmsa_gn_model + launch_power_type=rl the 2-element action leaked into
+    process_path_action (vector path/slot indices under log_actions) and
+    info["launch_power"] was never logged.
+    """
+
+    def setUp(self):
+        super().setUp()
+        settings = dict(
+            k=4,
+            topology_name="nsfnet_deeprmsa_directed",
+            link_resources=10,
+            max_requests=100,
+            values_bw=[100],
+            incremental_loading=True,
+            env_type="rmsa_gn_model",
+            slot_size=12.5,
+            guardband=0,
+            mod_format_correction=False,
+            max_power_per_fibre=10.0,
+            coherent=False,
+            include_no_op=False,
+            launch_power_type="rl",
+        )
+        self.key = jax.random.PRNGKey(3)
+        if "rmsa_gn_model_log_wrapper" not in _gn_cache:
+            # log_wrapper defaults to True: the wrapped env is the object under test
+            _gn_cache["rmsa_gn_model_log_wrapper"] = make(settings)
+        self.env, self.params = _gn_cache["rmsa_gn_model_log_wrapper"]
+        self.obs, self.state = self.env.reset(self.key, self.params)
+
+    def test_step_unpacks_path_power_action(self):
+        rng_sample, rng_step = jax.random.split(self.key)
+        mask, _, mod_format_mask = self.env.action_mask(self.state.env_state, self.params)
+        inner = self.state.env_state.replace(link_slot_mask=mask, mod_format_mask=mod_format_mask)
+        state = self.state.replace(env_state=inner)
+        action_dist = distrax.Categorical(logits=jnp.where(mask > 0, 0.0, -1e8))
+        path_action = action_dist.sample(seed=rng_sample)
+        power_action = jnp.array([0.001])  # 1 mW, linear units as stored by select_action
+        action = jnp.concatenate([path_action.reshape((1,)).astype(jnp.float32), power_action])
+        obs, new_state, reward, terminal, truncated, info = self.env.step(
+            rng_step, state, action, self.params
+        )
+        # The power element must be logged, not fed to process_path_action
+        self.assertIn("launch_power", info)
+        np.testing.assert_allclose(np.asarray(info["launch_power"]), 0.001, rtol=1e-6)
+        # Common GN-model fields decode from the scalar path element
+        chex.assert_shape(info["path_index"], ())
+        chex.assert_shape(info["slot_index"], ())
+        # Only the RSA-GN state tracks throughput; the RMSA variant must not
+        # attempt to pop the missing "_throughput" key
+        self.assertNotIn("throughput", info)
+        self.assertNotIn("_throughput", info)
+
+
 def rmsa_gn_model_enforce_band_gaps_test_setup():
     key = jax.random.PRNGKey(3)
     if "rmsa_gn_model_band_gaps" in _gn_cache:

@@ -529,8 +529,9 @@ def _loss_fn(
         log_prob = log_prob_source + log_prob_path + log_prob_dest
         entropy = pi_source.entropy() + pi_path.entropy() + pi_dest.entropy()
 
-    elif config.env_type.lower() == "rsa_gn_model" and config.launch_power_type == "rl":
-        # RSA with power control
+    elif "gn_model" in config.env_type.lower() and config.launch_power_type == "rl":
+        # RSA/RMSA with power control (RMSA shares the flat path-slot action decode:
+        # the modulation format is derived from the env's mod_format_mask, not the action)
         path_actions = traj_batch.action[..., 0]
         power_actions = traj_batch.action[..., 1]
         path_dist, power_dist = pi
@@ -702,7 +703,7 @@ def _loss_fn(
             current_valid_mass = jnp.sum(
                 current_probs * vone_batch.action_mask_p.astype(jnp.float32), axis=-1
             )
-        elif config.env_type.lower() == "rsa_gn_model" and config.launch_power_type == "rl":
+        elif "gn_model" in config.env_type.lower() and config.launch_power_type == "rl":
             current_probs = jax.nn.softmax(pi[0]._logits, axis=-1)
             current_valid_mass = jnp.sum(current_probs * traj_batch.action_mask, axis=-1)
         elif config.OFF_POLICY_IAM:
