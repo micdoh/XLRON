@@ -536,7 +536,7 @@ flags.DEFINE_string(
 )
 flags.DEFINE_float("traffic_intensity", 0, "Traffic intensity (arrival rate * mean holding time)")
 flags.DEFINE_boolean(
-    "maximise_throughout",
+    "maximise_throughput",
     False,
     "Maximise throughput instead of minimising blocking probability",
 )
