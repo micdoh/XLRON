@@ -1254,6 +1254,129 @@ class FindBlockSizesTest(chex.TestCase):
         )
         chex.assert_trees_all_close(actual, expected)
 
+    def test_find_block_sizes_matches_bruteforce_randomised(self):
+        """The O(n) run-length fast path (differentiable=False) and the O(n^2) soft path
+        must both match a brute-force reference over randomised inputs and edge cases."""
+
+        def reference(slots, starts_only, reverse):
+            slots = np.asarray(slots)
+            n = slots.shape[0]
+            sizes = np.zeros(n)
+            for i in range(n):
+                if slots[i] != 0:
+                    continue
+                if reverse:
+                    j = i
+                    while j >= 0 and slots[j] == 0:
+                        j -= 1
+                    sizes[i] = i - j
+                else:
+                    j = i
+                    while j < n and slots[j] == 0:
+                        j += 1
+                    sizes[i] = j - i
+            if starts_only:
+                starts = np.abs(np.clip(np.diff(slots, prepend=1), -1, 0))
+                sizes = sizes * starts
+            return sizes
+
+        rng = np.random.default_rng(0)
+        cases = [
+            np.zeros(7),  # all free
+            np.ones(7),  # all occupied
+            np.zeros(1),  # single free slot
+            np.ones(1),  # single occupied slot
+            np.array([0.0, -1.0, 0.0, 1.0, 0.0]),  # negative occupancy values (kmf_ff)
+        ]
+        for n in (1, 2, 3, 7, 50, 100):
+            for density in (0.2, 0.5, 0.8):
+                cases.append((rng.random(n) < density).astype(np.float32))
+        for slots in cases:
+            slots = jnp.array(slots)
+            for starts_only in (True, False):
+                for reverse in (True, False):
+                    expected = reference(slots, starts_only, reverse)
+                    fast = find_block_sizes(
+                        slots, starts_only=starts_only, reverse=reverse, differentiable=False
+                    )
+                    soft = find_block_sizes(
+                        slots, starts_only=starts_only, reverse=reverse, differentiable=True
+                    )
+                    chex.assert_trees_all_close(np.asarray(fast), expected)
+                    chex.assert_trees_all_close(np.asarray(soft), expected)
+
+
+class MaskSlotsMatchesBruteForceTest(chex.TestCase):
+    """mask_slots (int cumsum + per-path required-slots gather) must match a brute-force
+    per-slot window check over randomised occupancies and requests."""
+
+    def _reference_mask(self, state, params):
+        request = np.asarray(state.request_array).ravel()
+        source, datarate, dest = request[0], request[1], request[2]
+        path_indices = np.asarray(get_path_index_array(params, jnp.array([source, dest]))).astype(
+            int
+        )
+        paths = np.asarray(params.path_link_array.val)[path_indices]
+        se_array = np.asarray(params.path_se_array.val)
+        paths_se = se_array[np.clip(path_indices, 0, se_array.shape[0] - 1)]
+        occupied = np.asarray(state.link_slot_array) != 0
+        num_slots = params.link_resources
+        mask = np.zeros((params.k_paths, num_slots), dtype=np.float32)
+        for k in range(params.k_paths):
+            path = paths[k]
+            if path.max() == 0:
+                continue  # dummy path row -> unselectable
+            se = paths_se[k] if params.consider_modulation_format else 1
+            req = (
+                0
+                if datarate == 0
+                else int(np.ceil(datarate / (se * params.slot_size))) + params.guardband
+            )
+            path_occupied = occupied[path == 1].any(axis=0)
+            for s in range(num_slots):
+                if s + req <= num_slots and not path_occupied[s : s + req].any():
+                    mask[k, s] = 1.0
+        return mask.reshape(-1)
+
+    @parameterized.named_parameters(
+        ("case_mod_format", True),
+        ("case_no_mod_format", False),
+    )
+    def test_mask_slots_matches_bruteforce_randomised(self, consider_modulation_format):
+        if consider_modulation_format:
+            key, env, obs, state, params = rsa_nsfnet_16_mod_test_setup(env_type="rmsa")
+            datarates = [25.0, 50.0, 100.0, 200.0, 400.0]
+        else:
+            key, env, obs, state, params = rsa_nsfnet_16_test_setup()
+            datarates = [1.0, 2.0, 3.0]
+        # Outer jit so the inner mask_slots donation is not applied to the shared state buffers
+        mask_fn = jax.jit(lambda s: mask_slots(s, params))
+        rng = np.random.default_rng(42)
+        num_links = params.num_links
+        num_slots = params.link_resources
+        occupancies = [
+            np.zeros((num_links, num_slots)),  # empty spectrum
+            np.ones((num_links, num_slots)),  # full spectrum
+        ]
+        for density in (0.1, 0.3, 0.6):
+            for _ in range(3):
+                occupancies.append(
+                    (rng.random((num_links, num_slots)) < density).astype(np.float32)
+                )
+        for occ in occupancies:
+            source = int(rng.integers(0, params.num_nodes))
+            dest = int(rng.integers(0, params.num_nodes))
+            while dest == source:
+                dest = int(rng.integers(0, params.num_nodes))
+            datarate = float(rng.choice(datarates))
+            test_state = state.replace(
+                link_slot_array=jnp.array(occ, dtype=state.link_slot_array.dtype),
+                request_array=jnp.array([source, datarate, dest], dtype=state.request_array.dtype),
+            )
+            _, full_mask = mask_fn(test_state)
+            expected = self._reference_mask(test_state, params)
+            np.testing.assert_array_equal(np.asarray(full_mask), expected)
+
 
 class TopologyNodeIdNormalisationTest(chex.TestCase):
     """make_graph must relabel mixed-base topology JSONs to 0..N-1 in sorted-id order.

@@ -2408,26 +2408,34 @@ def mask_slots(state: RSAEnvState, params: RSAEnvParams) -> Array:
     if params.pack_path_bits:
         paths = jnp.unpackbits(paths, axis=1)[:, : params.num_links]
 
-    paths_se = jnp.take(params.path_se_array.val, path_indices, axis=0)  # (k,)
+    if params.consider_modulation_format:
+        paths_se = jnp.take(params.path_se_array.val, path_indices, axis=0)  # (k,)
+    else:
+        # path_se_array is a placeholder [1] here, so use SE=1 for every path directly
+        # (jnp.take's out-of-bounds fill would return garbage for indices > 0)
+        paths_se = jnp.ones((params.k_paths,), dtype=params.path_se_array.val.dtype)
 
     # 2. Compute occupied - this should be fast
     slots_occupied = state.link_slot_array != 0
     occupied = (paths @ slots_occupied) > 0
 
     # 3. Cumsum approach - fully vectorized
+    # Integer cumsum: exact and cheaper than the float32 the bool/float concat promoted to
     padded = jnp.concatenate(
         [
-            jnp.zeros((params.k_paths, 1)),
-            occupied,
-            jnp.ones((params.k_paths, params.max_slots - 1)),
+            jnp.zeros((params.k_paths, 1), dtype=dtype_config.INDEX_DTYPE),
+            occupied.astype(dtype_config.INDEX_DTYPE),
+            jnp.ones((params.k_paths, params.max_slots - 1), dtype=dtype_config.INDEX_DTYPE),
         ],
         axis=1,
     )
     cumsum = jnp.cumsum(padded, axis=1)
 
-    # 4. All unique SE values -> req_slots
-    all_se_values = params.unique_se_values.val
-    all_req_slots = jax.vmap(
+    # 4. Per-path required slots from each path's SE
+    # Each path has a single SE (paths_se), so compute (k,) required slots directly
+    # rather than sweeping all unique SE values and selecting one per path afterwards.
+    # When consider_modulation_format=False, path_se_array is [1] so paths_se is all-ones.
+    req_slots = jax.vmap(
         lambda se: required_slots(
             requested_datarate,
             se,
@@ -2435,30 +2443,17 @@ def mask_slots(state: RSAEnvState, params: RSAEnvParams) -> Array:
             guardband=params.guardband,
             temperature=params.temperature,
         )
-    )(all_se_values)
+    )(paths_se)  # (k,)
 
-    # 5. Broadcast window sums - NO LOOPS
+    # 5. Window sums via per-path cumsum gather - NO LOOPS
     slot_indices = jnp.arange(params.link_resources)
-    end_indices = (slot_indices[None, :] + all_req_slots[:, None]).astype(
+    end_indices = (slot_indices[None, :] + req_slots[:, None]).astype(
         dtype_config.INDEX_DTYPE
-    )  # (num_mods, link_resources)
+    )  # (k, link_resources)
 
-    cumsum_at_end = cumsum[:, end_indices]  # (k, num_mods, link_resources)
-    cumsum_at_start = cumsum[:, slot_indices]  # (k, link_resources)
-
-    window_sums = cumsum_at_end - cumsum_at_start[:, None, :]
-    all_masks = (window_sums == 0).astype(
-        dtype_config.LARGE_FLOAT_DTYPE
-    )  # (k, num_mods, link_resources)
-
-    # 6. Select mask per path
-    if params.consider_modulation_format:
-        num_mods = all_se_values.shape[0]
-        mod_indices = jnp.argmax(paths_se[:, None] == all_se_values[None, :], axis=1)
-        one_hot = jnp.arange(num_mods)[None, :] == mod_indices[:, None]
-        final_masks = jnp.einsum("kmr,km->kr", all_masks, one_hot)
-    else:
-        final_masks = all_masks[:, 0, :]
+    cumsum_at_end = jnp.take_along_axis(cumsum, end_indices, axis=1, mode="clip")
+    window_sums = cumsum_at_end - cumsum[:, : params.link_resources]
+    final_masks = (window_sums == 0).astype(dtype_config.LARGE_FLOAT_DTYPE)  # (k, link_resources)
 
     # Identify valid (non-dummy) paths - dummy paths are all-zeros
     # Zero out mask rows for dummy paths so they are unselectable
@@ -2634,6 +2629,26 @@ def find_block_sizes(
     path_slots, starts_only=True, reverse=False, temperature=1.0, differentiable=True
 ):
     n = path_slots.shape[0]
+
+    if not differentiable:
+        # Hard O(n) run-length computation (avoids the O(n^2) all-pairs matrix below)
+        free = path_slots == 0
+        occupied = ~free
+        idx = jnp.arange(n)
+        if reverse:
+            # Block size at position j = number of consecutive free slots ending at j
+            last_occ = jax.lax.cummax(jnp.where(occupied, idx, -1))
+            block_sizes = jnp.where(free, idx - last_occ, 0)
+        else:
+            # Block size at position i = number of consecutive free slots starting at i
+            next_occ = jnp.flip(jax.lax.cummin(jnp.flip(jnp.where(occupied, idx, n))))
+            block_sizes = jnp.where(free, next_occ - idx, 0)
+        # Match the float dtype of the soft path below
+        block_sizes = block_sizes.astype(jnp.float32)
+        if starts_only:
+            block_sizes = block_sizes * find_block_starts(path_slots)
+        return block_sizes
+
     free = differentiable_compare(
         path_slots, 0, "==", temperature=temperature, differentiable=differentiable
     )

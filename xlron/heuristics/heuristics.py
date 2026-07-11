@@ -242,7 +242,9 @@ def kmc_ff(state: EnvState, params: RSAEnvParams) -> Array:
     first_slots = first_fit(state, params)
     link_slot_array = jnp.where(state.link_slot_array < 0, 1.0, state.link_slot_array)
     nodes_sd, requested_bw = read_rsa_request(state.request_array)
-    block_sizes = jax.vmap(find_block_sizes, in_axes=(0,))(link_slot_array)
+    block_sizes = jax.vmap(partial(find_block_sizes, differentiable=False), in_axes=(0,))(
+        link_slot_array
+    )
     block_sizes_mask = jnp.where(
         block_sizes > 0, 1, 0.0
     )  # Binary array showing initial block starts
@@ -256,7 +258,9 @@ def kmc_ff(state: EnvState, params: RSAEnvParams) -> Array:
         affected_slots_mask = get_affected_slots_mask(initial_slot_index, num_slots, path, params)
         # Make link-slot_array positive
         updated_slots = set_path_links(link_slot_array, affected_slots_mask, 1.0)
-        updated_block_sizes = jax.vmap(find_block_sizes, in_axes=(0,))(updated_slots)
+        updated_block_sizes = jax.vmap(
+            partial(find_block_sizes, differentiable=False), in_axes=(0,)
+        )(updated_slots)
         updated_block_sizes_mask = jnp.where(
             updated_block_sizes > 0, 1, 0
         )  # Binary array showing updated block starts
@@ -297,7 +301,9 @@ def kmf_ff(state: RSAEnvState, params: RSAEnvParams) -> Array:
     first_slots = first_fit(state, params)
     link_slot_array = jnp.where(state.link_slot_array < 0, 1.0, state.link_slot_array)
     nodes_sd, requested_bw = read_rsa_request(state.request_array)
-    blocks = jax.vmap(find_block_sizes, in_axes=(0,))(link_slot_array)
+    blocks = jax.vmap(partial(find_block_sizes, differentiable=False), in_axes=(0,))(
+        link_slot_array
+    )
 
     def get_frags_on_path(i, result):
         initial_slot_index = first_slots[i] % params.link_resources
@@ -308,7 +314,9 @@ def kmf_ff(state: RSAEnvState, params: RSAEnvParams) -> Array:
         # Mask on path links
         block_sizes = jax.vmap(lambda x, y: jnp.where(x > 0, y, 0.0), in_axes=(0, 0))(path, blocks)
         updated_slots = set_path_links(state.link_slot_array, affected_slots_mask, -1)
-        updated_block_sizes = jax.vmap(find_block_sizes, in_axes=(0,))(updated_slots)
+        updated_block_sizes = jax.vmap(
+            partial(find_block_sizes, differentiable=False), in_axes=(0,)
+        )(updated_slots)
         # Mask on path links
         updated_block_sizes = jax.vmap(lambda x, y: jnp.where(x > 0, y, 0.0), in_axes=(0, 0))(
             path, updated_block_sizes
@@ -372,7 +380,9 @@ def kme_ff(state: EnvState, params: RSAEnvParams) -> Array:
         affected_slots_mask = get_affected_slots_mask(initial_slot_index, num_slots, path, params)
         # Make link-slot_array positive
         updated_slots = set_path_links(link_slot_array, affected_slots_mask, 1.0)
-        updated_block_sizes = jax.vmap(find_block_sizes, in_axes=(0,))(updated_slots)
+        updated_block_sizes = jax.vmap(
+            partial(find_block_sizes, differentiable=False), in_axes=(0,)
+        )(updated_slots)
         updated_entropy = jax.vmap(get_link_entropy, in_axes=(0,))(updated_block_sizes)
         new_path_entropy = jnp.sum(jnp.dot(path, updated_entropy)).reshape((1,))
         new_path_entropy = jax.lax.cond(
@@ -486,7 +496,9 @@ def best_fit(state: EnvState, params: RSAEnvParams) -> Tuple[Array, Array]:
 
     # We need to define a wrapper function in order to vmap with named arguments
     def _find_block_sizes(arr, starts_only=False, reverse=True):
-        return jax.vmap(find_block_sizes, in_axes=(0, None, None))(arr, starts_only, reverse)
+        return jax.vmap(partial(find_block_sizes, differentiable=False), in_axes=(0, None, None))(
+            arr, starts_only, reverse
+        )
 
     block_sizes_right = _find_block_sizes(link_slot_array, starts_only=False, reverse=False)
     block_sizes_left = _find_block_sizes(link_slot_array, starts_only=False, reverse=True)
