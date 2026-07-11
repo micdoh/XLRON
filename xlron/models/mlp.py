@@ -252,6 +252,12 @@ class LaunchPowerActorCriticMLP(eqx.Module):
     Makes K forward passes, one for each path, and outputs a distribution over power levels for each path.
     """
 
+    # Actor (per-path) and critic (full observation) networks
+    actor_layers: tuple
+    actor_output: Optional[eqx.nn.Linear]
+    critic_layers: tuple
+    critic_output: eqx.nn.Linear
+
     # For continuous action space (Beta distribution)
     alpha_out: Optional[eqx.nn.Linear]
     beta_out: Optional[eqx.nn.Linear]
@@ -325,6 +331,23 @@ class LaunchPowerActorCriticMLP(eqx.Module):
             current_in = num_units
         self.actor_layers = tuple(actor_layers_list)
 
+        # Build critic layers (full observation input)
+        critic_keys = jax.random.split(critic_key, num_layers + 1)
+        critic_layers_list = []
+        current_in = input_dim
+        for i in range(num_layers):
+            linear = make_linear_with_orthogonal_init(
+                current_in, num_units, critic_keys[i], scale=np.sqrt(2)
+            )
+            critic_layers_list.append(linear)
+            if layer_norm:
+                critic_layers_list.append(eqx.nn.LayerNorm(num_units))
+            current_in = num_units
+        self.critic_layers = tuple(critic_layers_list)
+        self.critic_output = make_linear_with_orthogonal_init(
+            num_units, 1, critic_keys[num_layers], scale=1.0
+        )
+
         # Actor output
         out_key1, out_key2, out_key3 = jax.random.split(output_key, 3)
         if discrete:
@@ -369,6 +392,10 @@ class LaunchPowerActorCriticMLP(eqx.Module):
         return x
 
     def __call__(self, x: Array) -> Tuple[Tuple[None, distrax.Distribution], Array]:
+        # Cast the (possibly low-precision under mixed precision) observation up to the NN
+        # compute dtype (see ActorCriticMLP.__call__)
+        x = x.astype(dtype_config.COMPUTE_DTYPE)
+
         # Process each path
         def process_path(i):
             base = x[: self.num_base_features]
@@ -395,8 +422,8 @@ class LaunchPowerActorCriticMLP(eqx.Module):
         )
 
         # Critic forward pass
-        critic_hidden = self._forward_layers(x, self.critic_layers)  # ty: ignore[unresolved-attribute]
-        value = jnp.squeeze(self.critic_output(critic_hidden), axis=-1)  # ty: ignore[unresolved-attribute]
+        critic_hidden = self._forward_layers(x, self.critic_layers)
+        value = jnp.squeeze(self.critic_output(critic_hidden), axis=-1)
 
         # Create distribution
         if self.discrete:

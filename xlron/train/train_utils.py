@@ -680,10 +680,10 @@ def init_network(config: Box, key: chex.PRNGKey) -> eqx.Module:
                 vmap=False,
                 key=key,
             )
-        elif "gn_model" in config.env_type.lower() and config.launch_power_type == 3:
+        elif "gn_model" in config.env_type.lower() and config.launch_power_type == "rl":
             network = LaunchPowerActorCriticMLP(
-                config.INPUT_DIM,
                 config.ACTION_DIM + (1 * config.include_no_op),  # +1 for "no op"
+                config.INPUT_DIM,
                 activation=config.ACTIVATION,
                 num_layers=config.NUM_LAYERS,
                 num_units=config.NUM_UNITS,
@@ -692,7 +692,7 @@ def init_network(config: Box, key: chex.PRNGKey) -> eqx.Module:
                 min_power_dbm=config.min_power,
                 max_power_dbm=config.max_power,
                 step_power_dbm=config.step_power,
-                k_paths=config.k_paths,
+                k_paths=config.k,
                 key=key,
             )
         else:
