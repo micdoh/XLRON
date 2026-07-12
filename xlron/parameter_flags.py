@@ -315,8 +315,8 @@ flags.DEFINE_boolean(
     "zero the policy-gradient contribution of negative-advantage steps. Explicit equivalent of "
     "the filter the non-recentered off-policy IAM clip applies emergently; pairs with "
     "IAM_RECENTER_CLIP. Unlike the emergent filter (which binds only in congested states with "
-    "valid mass < 1-eps), this filters every state including the uncongested mu~1 majority, "
-    "and it degraded late in training under float32 in matched comparisons",
+    "valid mass < 1-eps), this filters every state including the uncongested mu~1 majority "
+    "(no measured performance cost; see PO_MU_GATE for the exact per-state rule)",
 )
 flags.DEFINE_boolean(
     "PO_MU_GATE",
