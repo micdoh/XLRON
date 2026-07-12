@@ -96,7 +96,11 @@ class DtypeResolutionTest(absltest.TestCase):
             Box({"mixed_precision": True, "relative_arrival_times": True})
         )
         self.assertEqual(jnp.dtype(dtype_config.SMALL_FLOAT_DTYPE), jnp.dtype(jnp.float16))
-        self.assertEqual(jnp.dtype(dtype_config.TIME_DTYPE), jnp.dtype(jnp.float16))
+        # Time stays float32 even with bounded (relative) times: float16 departure
+        # decrements systematically under-round against exponentially distributed
+        # inter-arrival times, inflating occupancy and blocking (2x measured on
+        # usa100). float16 time is explicit opt-in via --time_dtype.
+        self.assertEqual(jnp.dtype(dtype_config.TIME_DTYPE), jnp.dtype(jnp.float32))
         self.assertEqual(jnp.dtype(dtype_config.SMALL_INT_DTYPE), jnp.dtype(jnp.int16))
         self.assertEqual(jnp.dtype(dtype_config.BINARY_DTYPE), jnp.dtype(jnp.int8))
         # Precision tiers stay 32-bit.
@@ -104,6 +108,18 @@ class DtypeResolutionTest(absltest.TestCase):
         self.assertEqual(jnp.dtype(dtype_config.LARGE_INT_DTYPE), jnp.dtype(jnp.int32))
         self.assertEqual(jnp.dtype(dtype_config.COMPUTE_DTYPE), jnp.dtype(jnp.float32))
         self.assertEqual(jnp.dtype(dtype_config.PARAMS_DTYPE), jnp.dtype(jnp.float32))
+
+    def test_mixed_time_f16_requires_explicit_opt_in(self):
+        dtype_config.initialize_dtypes(
+            Box(
+                {
+                    "mixed_precision": True,
+                    "relative_arrival_times": True,
+                    "time_dtype": "float16",
+                }
+            )
+        )
+        self.assertEqual(jnp.dtype(dtype_config.TIME_DTYPE), jnp.dtype(jnp.float16))
 
     def test_mixed_absolute_time_stays_f32(self):
         dtype_config.initialize_dtypes(
@@ -156,8 +172,9 @@ class EnvStateDtypeTest(absltest.TestCase):
         env, params = make(_cfg("rmsa", mixed=True))
         es = _rollout(env, params, n_steps=40)
         self.assertEqual(jnp.dtype(es.link_slot_array.dtype), jnp.dtype(jnp.float16))
-        self.assertEqual(jnp.dtype(es.link_slot_departure_array.dtype), jnp.dtype(jnp.float16))
-        self.assertEqual(jnp.dtype(es.current_time.dtype), jnp.dtype(jnp.float16))
+        # Time/departure arrays stay float32 (see test_mixed_relative_shrinks_tiers)
+        self.assertEqual(jnp.dtype(es.link_slot_departure_array.dtype), jnp.dtype(jnp.float32))
+        self.assertEqual(jnp.dtype(es.current_time.dtype), jnp.dtype(jnp.float32))
         # Graph features (largest E*S array) and action masks shrink too (recompute is cast at
         # every state-write site so the carried dtype stays stable across the scan).
         self.assertEqual(jnp.dtype(es.graph.edges.dtype), jnp.dtype(jnp.float16))
@@ -228,9 +245,24 @@ class BlockingParityTest(absltest.TestCase):
         bp_default = _ensemble_blocking_prob(env_d, params_d)
         env_m, params_m = make(_cfg("rmsa", mixed=True))
         bp_mixed = _ensemble_blocking_prob(env_m, params_m)
-        # Aggregate blocking probability must agree within statistical noise; float16 occupancy/
-        # time arrays do not change the steady-state rate (validated at larger scale in the PR).
-        self.assertLessEqual(abs(bp_default - bp_mixed), 0.01)
+        # With time at float32, mixed precision is exact for the simulation dynamics:
+        # the remaining float16 arrays (occupancy, masks) hold small integers that
+        # float16 represents exactly, so blocking must match fp32 to the last ulp.
+        # (Regression for the float16-time bias that doubled measured blocking on
+        # large topologies before time was pinned to float32.)
+        self.assertLessEqual(abs(bp_default - bp_mixed), 1e-9)
+
+    def test_time_arrays_stay_f32_in_mixed_by_default(self):
+        # float16 time biases service lifetimes (departure decrements round to f16
+        # ulp bins against exponentially distributed inter-arrivals — 2x measured
+        # blocking on usa100), so it must never be on by default. The explicit
+        # --time_dtype=float16 opt-in is covered at the tier level in
+        # DtypeResolutionTest (flipping tier dtypes within one process would hit
+        # stale jit caches of the init functions here).
+        env_m, params_m = make(_cfg("rmsa", mixed=True))
+        _, state = env_m.reset(jax.random.PRNGKey(0), params_m)
+        es = _unwrap(state)
+        self.assertEqual(jnp.dtype(es.link_slot_departure_array.dtype), jnp.dtype(jnp.float32))
 
 
 class TimePrecisionGuardTest(absltest.TestCase):
