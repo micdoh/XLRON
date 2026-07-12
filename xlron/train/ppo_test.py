@@ -29,6 +29,7 @@ from xlron.train.ppo import (
     _recompute_vtrace_advantages,
     _sample_prioritized_batch,
     compute_sample_priority_weights,
+    compute_trajectory_priority_weights,
 )
 from xlron.train.train_utils import TrainState
 
@@ -404,6 +405,134 @@ class VTracePrioritizedReplayTest(chex.TestCase):
         perturbed_info = (flat[0], flat[1] + flat[1] ** 2, flat[2], jnp.ones((n,)))
         (loss_p, _), _ = _loss_fn(drifted, train_state, perturbed_info, config_vtrace)
         self.assertGreater(abs(float(loss_p - loss_v)), 1e-6)
+
+
+class SingleEnvPrioritizedReplayTest(chex.TestCase):
+    """Regression tests for ``_sample_prioritized_batch`` with the unvmapped NUM_ENVS=1 rollout.
+
+    With NUM_ENVS=1 the rollout is not vmapped, so transition leaves are
+    (ROLLOUT_LENGTH, ...) with no env axis. The per-sample resampling assumed a
+    (T, E, ...) layout: ``x.reshape((-1, *x.shape[2:]))`` flattened a real feature
+    dimension (e.g. an obs leaf (32, 4403) -> (140896,)) and the reshape back to
+    x.shape crashed with "cannot reshape array of shape (32,) (size 32) into shape
+    (32, 4403)". The trajectory (RNN) branch likewise took along a nonexistent env
+    axis 1 and tiled importance weights to (T, 1) instead of (T,).
+    """
+
+    T, OBS_DIM, N_ACTIONS = 8, 6, 5
+
+    def _config(self, **overrides):
+        base = dict(
+            env_type="rwa",
+            USE_GNN=False,
+            USE_TRANSFORMER=False,
+            USE_RNN=False,
+            OFF_POLICY_IAM=False,
+            LOGR_CLIP=10.0,
+            ROLLOUT_LENGTH=self.T,
+            NUM_ENVS=1,
+            NUM_MINIBATCHES=2,
+            MINIBATCH_SIZE=self.T // 2,
+            NUM_LEARNERS=1,
+            GAMMA=0.99,
+            GAE_LAMBDA=0.9,
+            REWARD_CENTERING=False,
+            RHO_CLIP=1.0,
+            C_CLIP=1.0,
+            PRIO_ALPHA=0.6,
+            PRIO_BETA0=0.4,
+            PROFILE=False,
+            DEBUG=False,
+            DEBUG_LOSS=False,
+            ENHANCED_LOGGING=False,
+            IAM_GATING=False,
+            IAM_DAMPING=False,
+            ADV_CLIP=10.0,
+            CLIP_EPS=0.2,
+            VF_COEF=0.5,
+            VALID_MASS_LOSS_COEF=0.0,
+        )
+        base.update(overrides)
+        return Box(base)
+
+    def _rollout(self, seed=0):
+        """Synthetic ordered NUM_ENVS=1 rollout: leaves are (T, ...) with no env axis."""
+        t, obs_dim, n_actions = self.T, self.OBS_DIM, self.N_ACTIONS
+        kmodel, kobs, kact, krew, klast = jax.random.split(jax.random.PRNGKey(seed), 5)
+        model = ActorCriticMLP(n_actions, obs_dim, num_layers=1, num_units=16, key=kmodel)
+        train_state = TrainState.create(model, optax.adam(1e-3))
+        obs = jax.random.normal(kobs, (t, obs_dim))
+        pi, value = jax.vmap(model)(obs)
+        action = pi.sample(seed=kact)
+        # All-ones mask: the masked behaviour policy equals the unmasked policy
+        log_prob = pi.log_prob(action)
+        traj = RSATransition(
+            terminal=jnp.zeros((t,), dtype=bool),
+            truncated=jnp.zeros((t,), dtype=bool),
+            action=action.reshape(t),
+            value=value.reshape(t),
+            reward=jax.random.normal(krew, (t,)),
+            log_prob=log_prob.reshape(t),
+            obs=(obs,),
+            # Unique per-sample id rides through resampling to identify each transition
+            info={"idx": jnp.arange(t, dtype=jnp.float32)},
+            action_mask=jnp.ones((t, n_actions)),
+            valid_mass=jnp.ones((t,)),
+        )
+        last_val = jax.random.normal(klast, ())
+        return model, train_state, traj, last_val
+
+    def test_per_sample_resampling_carries_matching_rows(self):
+        """NUM_ENVS=1 + PRIO_ALPHA>0 (+ PRIO_BETA0 != 1) must not crash, and every
+        resampled sample must carry its own obs row / advantage / target."""
+        _, train_state, traj, last_val = self._rollout()
+        config = self._config()
+        adv, targets = _recompute_vtrace_advantages(train_state, traj, last_val, config)
+        self.assertEqual(adv.shape, (self.T,))
+        priorities = compute_sample_priority_weights(adv, jnp.array(config.PRIO_ALPHA))
+        for seed in (0, 1):
+            minibatches, weights = _sample_prioritized_batch(
+                (traj, adv, targets),
+                priorities,
+                jnp.array(config.PRIO_BETA0),
+                jax.random.PRNGKey(seed),
+                config,
+            )
+            mb_traj, mb_adv, mb_targets = minibatches
+            idx = mb_traj.info["idx"].reshape(-1).astype(jnp.int32)
+            # Resampling with replacement must permute (traj, adv, targets) consistently
+            chex.assert_trees_all_close(mb_adv.reshape(-1), adv[idx], atol=1e-6)
+            chex.assert_trees_all_close(mb_targets.reshape(-1), targets[idx], atol=1e-6)
+            # Feature-bearing leaves (the crash case) keep whole per-sample rows intact
+            mb_obs = mb_traj.obs[0].reshape(-1, self.OBS_DIM)
+            chex.assert_trees_all_close(mb_obs, traj.obs[0][idx], atol=1e-6)
+            # PER importance weights are per-sample and max-normalized
+            self.assertEqual(weights.shape, (config.NUM_MINIBATCHES, config.MINIBATCH_SIZE))
+            self.assertLessEqual(float(weights.max()), 1.0 + 1e-6)
+
+    def test_trajectory_branch_single_env_identity(self):
+        """USE_RNN trajectory-level sampling with a single env: sampling one trajectory
+        out of one is the identity, with unit importance weights of shape (T,)."""
+        _, train_state, traj, last_val = self._rollout()
+        config = self._config(USE_RNN=True)
+        adv, targets = _recompute_vtrace_advantages(train_state, traj, last_val, config)
+        priorities = compute_trajectory_priority_weights(adv, jnp.array(config.PRIO_ALPHA))
+        minibatches, weights = _sample_prioritized_batch(
+            (traj, adv, targets),
+            priorities,
+            jnp.array(config.PRIO_BETA0),
+            jax.random.PRNGKey(0),
+            config,
+        )
+        mb_traj, mb_adv, _ = minibatches
+        # No shuffle with RNN and identity sampling: original temporal order is preserved
+        chex.assert_trees_all_close(mb_adv.reshape(-1), adv, atol=1e-6)
+        chex.assert_trees_all_close(
+            mb_traj.obs[0].reshape(-1, self.OBS_DIM), traj.obs[0], atol=1e-6
+        )
+        # The single trajectory has probability 1, so its PER weight is exactly 1
+        self.assertEqual(weights.shape, (config.NUM_MINIBATCHES, config.MINIBATCH_SIZE))
+        chex.assert_trees_all_close(weights, jnp.ones_like(weights), atol=1e-6)
 
 
 class _Traj(NamedTuple):
