@@ -90,12 +90,19 @@ def _sample_prioritized_batch(
             importance_weights = importance_weights / jnp.maximum(jnp.max(importance_weights), 1e-8)
             importance_weights = importance_weights.astype(dtype_config.LARGE_FLOAT_DTYPE)
 
-            batch = jax.tree.map(
-                lambda x: jnp.take(x.reshape((-1, *x.shape[2:])), sampled_indices, axis=0).reshape(
-                    x.shape
-                ),
-                batch,
-            )
+            if config.NUM_ENVS > 1:
+                # Leaves are (ROLLOUT_LENGTH, NUM_ENVS, ...): flatten the env axis for the
+                # per-sample take, then restore the original layout.
+                batch = jax.tree.map(
+                    lambda x: jnp.take(
+                        x.reshape((-1, *x.shape[2:])), sampled_indices, axis=0
+                    ).reshape(x.shape),
+                    batch,
+                )
+            else:
+                # Unvmapped NUM_ENVS=1 rollout: leaves are (ROLLOUT_LENGTH, ...) with no env
+                # axis, so axis 0 is already the flat sample axis.
+                batch = jax.tree.map(lambda x: jnp.take(x, sampled_indices, axis=0), batch)
 
         else:
             # If using RNN we can only prioritize entire trajectories
@@ -109,13 +116,23 @@ def _sample_prioritized_batch(
                 config.NUM_ENVS * jnp.take(priority_probs, sampled_indices), -beta
             )
             trajectory_weights = trajectory_weights / jnp.maximum(jnp.max(trajectory_weights), 1e-8)
-            importance_weights = jnp.tile(
-                trajectory_weights.astype(dtype_config.LARGE_FLOAT_DTYPE),
-                (config.ROLLOUT_LENGTH, 1),
-            )
+            if config.NUM_ENVS > 1:
+                importance_weights = jnp.tile(
+                    trajectory_weights.astype(dtype_config.LARGE_FLOAT_DTYPE),
+                    (config.ROLLOUT_LENGTH, 1),
+                )
 
-            # Create a prioritized batch
-            batch = jax.tree.map(lambda x: jnp.take(x, sampled_indices, axis=1), batch)
+                # Create a prioritized batch
+                batch = jax.tree.map(lambda x: jnp.take(x, sampled_indices, axis=1), batch)
+            else:
+                # Unvmapped NUM_ENVS=1 rollout: leaves are (ROLLOUT_LENGTH, ...) with no env
+                # axis to take along, and sampling one trajectory out of one is the identity
+                # (sampled_indices == [0]), so the batch is unchanged. Broadcast the single
+                # trajectory's weight per-sample as (ROLLOUT_LENGTH,) to match the batch axis.
+                importance_weights = jnp.tile(
+                    trajectory_weights.astype(dtype_config.LARGE_FLOAT_DTYPE),
+                    config.ROLLOUT_LENGTH,
+                )
 
     batch_with_weights = (batch, importance_weights)
 
