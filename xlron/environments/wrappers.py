@@ -13,10 +13,10 @@ from jax import Array, tree_util
 
 from xlron import dtype_config
 from xlron.environments.dataclasses import (
+    GNModelEnvParams,
     LogEnvState,
     RSAEnvParams,
     RSAEnvState,
-    RSAGNModelEnvParams,
 )
 from xlron.environments.env_funcs import (
     get_path_indices,
@@ -52,6 +52,9 @@ class LogWrapper(GymnaxWrapper):
             total_bitrate=jnp.array(0, dtype=dtype_config.LARGE_FLOAT_DTYPE),
             utilisation=jnp.array(0, dtype=dtype_config.LARGE_FLOAT_DTYPE),
             fragmentation=jnp.array(0, dtype=dtype_config.LARGE_FLOAT_DTYPE),
+            blocked_spectrum=jnp.array(0, dtype=dtype_config.LARGE_INT_DTYPE),
+            blocked_snr=jnp.array(0, dtype=dtype_config.LARGE_INT_DTYPE),
+            blocked_power=jnp.array(0, dtype=dtype_config.LARGE_INT_DTYPE),
             terminal=jnp.array(False),
             truncated=jnp.array(False),
         )
@@ -82,6 +85,11 @@ class LogWrapper(GymnaxWrapper):
         fragmentation = info.pop(
             "_fragmentation", jnp.array(0, dtype=dtype_config.LARGE_FLOAT_DTYPE)
         )
+        # Blocking-cause counters are only stashed by GN-model envs; default to 0 elsewhere
+        zero_count = jnp.array(0, dtype=dtype_config.LARGE_INT_DTYPE)
+        blocked_spectrum = info.pop("_blocked_spectrum", zero_count)
+        blocked_snr = info.pop("_blocked_snr", zero_count)
+        blocked_power = info.pop("_blocked_power", zero_count)
         # Compute final episode length (for reporting) before resetting
         episode_length = log_state.lengths + 1
         cum_returns = log_state.cum_returns + reward
@@ -96,6 +104,9 @@ class LogWrapper(GymnaxWrapper):
             total_bitrate=total_bitrate,
             utilisation=utilisation,
             fragmentation=fragmentation,
+            blocked_spectrum=blocked_spectrum,
+            blocked_snr=blocked_snr,
+            blocked_power=blocked_power,
             terminal=terminal,
             truncated=truncated,
         )
@@ -109,21 +120,29 @@ class LogWrapper(GymnaxWrapper):
         info["total_bitrate"] = log_state.total_bitrate
         info["utilisation"] = log_state.utilisation
         info["fragmentation"] = log_state.fragmentation
+        # Report the blocking-cause breakdown for GN-model envs only (params is static,
+        # so info keys are consistent for a given env type)
+        if isinstance(params, GNModelEnvParams):
+            info["blocked_spectrum"] = log_state.blocked_spectrum
+            info["blocked_snr"] = log_state.blocked_snr
+            info["blocked_power"] = log_state.blocked_power
         info["terminal"] = terminal
         info["truncated"] = truncated
-        # First check if we're dealing with RSAGNModelEnvParams
-        is_gn_params = isinstance(params, RSAGNModelEnvParams)
+        # First check if we're dealing with a GN-model env (RSA or RMSA variant; both
+        # params classes derive from GNModelEnvParams)
+        is_gn_params = isinstance(params, GNModelEnvParams)
 
-        # For RSA params, unpack the action. The action is [path_slot_action, launch_power]
-        # when the RL agent controls launch power, or a bare path_slot_action otherwise
-        # (e.g. GNN path policy with fixed launch power) - mirror process_action's handling.
+        # For GN-model params, unpack the action. The action is [path_slot_action,
+        # launch_power] when the RL agent controls launch power, or a bare
+        # path_slot_action otherwise (e.g. GNN path policy with fixed launch power)
+        # - mirror process_action's handling.
         if is_gn_params:
             action = jnp.atleast_1d(action)
             power_action = (
                 action[1]
                 if action.shape[0] > 1
                 else jnp.asarray(
-                    cast(RSAGNModelEnvParams, params).default_launch_power,
+                    cast(GNModelEnvParams, params).default_launch_power,
                     dtype=dtype_config.LARGE_FLOAT_DTYPE,
                 )
             )
@@ -152,8 +171,9 @@ class LogWrapper(GymnaxWrapper):
             info["dest"] = dest
             info["data_rate"] = dr_request
 
-            # RSA-specific throughput info (use pre-reset value from step_env)
-            if is_gn_params:
+            # RSA-GN-specific throughput info (use pre-reset value from step_env; only
+            # the RSA-GN state tracks throughput, so the RMSA variant has no "_throughput")
+            if is_gn_params and "_throughput" in info:
                 info["throughput"] = info.pop("_throughput")
 
             # Logging-specific info

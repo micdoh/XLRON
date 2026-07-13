@@ -108,7 +108,7 @@ class VONEEnv(environment.Environment):
             key, state, action, params
         )
         done = terminal | truncated
-        obs_re, state_re = self.reset_env(key_reset, params)
+        obs_re, state_re = self.reset_env(key_reset, params, state)
         # Auto-reset environment based on termination
         state = jax.tree.map(lambda x, y: jnp.where(done, x, y), state_re, state_st)
         obs = jax.lax.select(done, obs_re, obs_st)
@@ -229,8 +229,20 @@ class VONEEnv(environment.Environment):
         params: VONEEnvParams,
         state: Optional[VONEEnvState] = None,
     ) -> Tuple[Array, VONEEnvState]:
-        """Environment-specific reset."""
+        """Environment-specific reset.
+
+        When a pre-reset state is provided (the auto-reset path in step threads it
+        through), runtime-modifiable traffic parameters (arrival_rate,
+        mean_service_holding_time — e.g. patched by the load sweep in train.py)
+        are carried over instead of reverting to the construction-time values.
+        """
+        prev_state = state
         state = self.initial_state
+        if prev_state is not None:
+            state = state.replace(
+                arrival_rate=prev_state.arrival_rate,
+                mean_service_holding_time=prev_state.mean_service_holding_time,
+            )
         state = generate_vone_request(key, state, params)
         return self.get_obs(state), state
 

@@ -104,14 +104,12 @@ def initialize_dtypes(flags: flags.FlagValues | Box | Dict) -> None:
 
     differentiable = bool(get_flag_value_or_none("differentiable", False))
     mixed_precision = bool(get_flag_value_or_none("mixed_precision", False))
-    # Relative arrival times keep the simulation clock bounded by the holding time, which makes
-    # 16-bit time arrays safe. Absolute time accumulates without bound -> keep float32.
-    # Default False to match make_env's internal default, so any config that omits the key
-    # conservatively keeps time at float32 (the --relative_arrival_times flag defaults True, so
-    # real runs through FLAGS still get the float16 memory win).
+    # Time arrays are kept at float32 by default in every mode (see the mixed-precision
+    # branch below for why float16 time corrupts service lifetimes). These regime checks
+    # remain to warn if a user explicitly opts into float16 time where it cannot work:
+    # absolute time accumulates without bound, and incremental_loading sets
+    # mean_service_holding_time ~1e6, both of which overflow float16.
     relative_arrival_times = bool(get_flag_value_or_none("relative_arrival_times", False))
-    # incremental_loading sets mean_service_holding_time ~1e6 (non-expiring requests), so even
-    # relative departure values reach ~1e6 and overflow float16 -> force float32 times.
     incremental_loading = bool(get_flag_value_or_none("incremental_loading", False))
     times_can_be_half = relative_arrival_times and not incremental_loading
 
@@ -135,7 +133,15 @@ def initialize_dtypes(flags: flags.FlagValues | Box | Dict) -> None:
         params_default = "float32"
         large_float_default = "float32"  # accumulators, physical SNR/power, importance weights
         small_float_default = "float16"  # occupancy, masks, normalised observation features
-        time_default = "float16" if times_can_be_half else "float32"
+        # Time stays float32 even though relative arrival times bound its magnitude:
+        # the per-step departure decrement (dep - t) rounds to float16 ulp bins, and
+        # because inter-arrival times are exponentially distributed (density decreasing
+        # across each rounding bin) round-to-nearest systematically under-decrements.
+        # Services then overstay, inflating occupancy and blocking probability — up to
+        # 2x measured blocking on large topologies where ulp(remaining_time) is
+        # comparable to the mean inter-arrival time. float16 time remains available
+        # as an explicit opt-in via --time_dtype=float16 (bounded regimes only).
+        time_default = "float32"
         large_int_default = "int32"  # global counters / large indices
         small_int_default = "int16"  # bounded indices (required_slots, node/datarate fields)
         binary_default = "int8"  # binary arrays (path-link incidence)
@@ -168,6 +174,14 @@ def initialize_dtypes(flags: flags.FlagValues | Box | Dict) -> None:
     large_float_dtype_flag = get_flag_value_or_none("large_float_dtype", large_float_default)
     small_float_dtype_flag = get_flag_value_or_none("small_float_dtype", small_float_default)
     time_dtype_flag = get_flag_value_or_none("time_dtype", time_default)
+    # Unbounded regimes (absolute time / incremental_loading) are rejected later by
+    # make_env's validation; here we only warn about the bounded-but-biased opt-in.
+    if time_dtype_flag == "float16" and times_can_be_half:
+        print(
+            "WARNING: --time_dtype=float16 biases service lifetimes (departure-time "
+            "decrements round to float16 ulp bins), inflating occupancy and blocking. "
+            "Use only where memory outweighs simulation fidelity."
+        )
     large_int_dtype_flag = get_flag_value_or_none("large_int_dtype", large_int_default)
     small_int_dtype_flag = get_flag_value_or_none("small_int_dtype", small_int_default)
     binary_dtype_flag = get_flag_value_or_none("binary_dtype", binary_default)

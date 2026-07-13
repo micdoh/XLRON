@@ -158,3 +158,140 @@ def test_matching_eval_config_is_quiet(capsys):
     # SPI exactly fits one episode and divides TOTAL_TIMESTEPS: no warnings expected.
     process_config(_eval_cfg(STEPS_PER_INCREMENT=10000, TOTAL_TIMESTEPS=10000))
     assert "WARNING" not in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------------------
+# Flag defaults as single source of truth for dict-config callers
+# ---------------------------------------------------------------------------
+
+
+def test_process_config_empty_dict_uses_flag_defaults():
+    """Dict-config callers omitting a key must get the CLI (parameter_flags) default.
+
+    Regression test: make_env used to hardcode config.get() fallbacks that diverged
+    from the flag defaults (e.g. include_no_op True vs flag False), so tests and
+    library users silently got different behaviour from an identical CLI run.
+    """
+    from xlron.parameter_flags import get_flag_defaults
+
+    defaults = get_flag_defaults()
+    config = process_config({})
+    # The historically divergent keys (fallback != flag default before the fix):
+    for key in [
+        "include_no_op",
+        "calc_minimum_osnr",
+        "relative_arrival_times",
+        "path_sort_criteria",
+        "mean_service_holding_time",
+        "num_spectral_features",
+        "max_power_per_fibre",
+        "max_snr",
+        "snr_margin",
+        "max_power",
+        "step_power",
+        "enforce_band_gaps",
+        "coherent",
+        "mod_format_correction",
+        "temperature",
+        "topology_name",
+        "load",
+        "link_resources",
+        "env_type",
+        "node_resources",
+        "max_node_resources",
+        "modulations_csv_filepath",
+        "transformer_obs_type",
+        "dispersion_slope",
+    ]:
+        assert config[key] == defaults[key], (
+            f"process_config default for {key!r} ({config[key]!r}) does not match "
+            f"the parameter_flags default ({defaults[key]!r})"
+        )
+    # Every flag key must be present after layering (no more silent fallbacks).
+    missing = set(defaults) - set(config)
+    assert not missing, f"flag keys missing from processed config: {sorted(missing)}"
+
+
+def test_process_config_user_config_overrides_flag_defaults():
+    config = process_config(
+        dict(mean_service_holding_time=10, include_no_op=True, relative_arrival_times=False)
+    )
+    assert config.mean_service_holding_time == 10
+    assert config.include_no_op is True
+    assert config.relative_arrival_times is False
+
+
+def test_dict_config_flag_defaults_reach_params():
+    """make() with a minimal dict resolves omitted keys to the CLI flag defaults."""
+    settings = dict(
+        env_type="rwa",
+        topology_name="4node",
+        link_resources=4,
+        k=2,
+        load=100,
+        max_requests=10,
+        values_bw=[1],
+        slot_size=1,
+    )
+    _, params = make(settings, log_wrapper=False)
+    assert params.include_no_op is False  # flag default; old dict fallback was True
+    assert params.relative_arrival_times is True  # flag default; old dict fallback was False
+    assert params.mean_service_holding_time == 25.0  # flag default; old dict fallback was 10
+    assert params.num_spectral_features == 8  # flag default; old dict fallback was 3
+
+
+def test_make_env_config_get_fallbacks_match_flag_defaults():
+    """Any literal config.get() fallback in make_env.py for a flag-backed key must
+    equal the parameter_flags default.
+
+    The fallbacks are dead code for configs that pass through process_config (which
+    layers in every flag default), but keeping them aligned prevents silent divergence
+    for any future code path that bypasses the layering. Fallbacks of None are treated
+    as presence checks and skipped, as are non-literal (computed) fallbacks.
+    """
+    import ast
+    import inspect
+
+    from xlron.environments import make_env
+    from xlron.parameter_flags import get_flag_defaults
+
+    defaults = get_flag_defaults()
+    tree = ast.parse(inspect.getsource(make_env))
+
+    def matches(fallback, default):
+        if fallback is None:
+            return True  # presence-check idiom
+        if isinstance(fallback, bool) != isinstance(default, bool):
+            return False
+        try:
+            return float(fallback) == float(default)
+        except (TypeError, ValueError):
+            return fallback == default
+
+    violations = []
+    for node in ast.walk(tree):
+        if not (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "get"
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == "config"
+            and len(node.args) == 2
+            and isinstance(node.args[0], ast.Constant)
+        ):
+            continue
+        key = node.args[0].value
+        if key not in defaults:
+            continue  # not a CLI flag (e.g. lowercase aliases, script-only keys)
+        try:
+            fallback = ast.literal_eval(node.args[1])
+        except (ValueError, SyntaxError, TypeError):
+            continue  # computed fallback, cannot compare statically
+        if defaults[key] is None and fallback is not None:
+            violations.append((node.lineno, key, fallback, defaults[key]))
+        elif defaults[key] is not None and not matches(fallback, defaults[key]):
+            violations.append((node.lineno, key, fallback, defaults[key]))
+    assert not violations, (
+        "config.get() fallbacks in make_env.py diverge from parameter_flags defaults "
+        f"(line, key, fallback, flag default): {violations}"
+    )

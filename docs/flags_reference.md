@@ -669,7 +669,9 @@ xlron.parameter_flags:
     (a number)
   --min_load: Minimum load for load sweep. When set (along with max_load and
     step_load), runs the experiment across a range of loads using a single
-    compilation.
+    compilation. Each swept load re-runs the ENV_WARMUP_STEPS warmup at its own
+    arrival rate and zeroes the metric counters, so per-load metrics reflect
+    that load's steady state.
     (a number)
   --min_node_resources: Minimum number of node resources
     (default: '1')

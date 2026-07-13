@@ -28,35 +28,43 @@ def _rwa_lr_cached_setup(cache_key, settings):
     return key, env, obs, state, params
 
 
-def rwa_lightpath_reuse_4_nsfnet_test_setup():
-    return _rwa_lr_cached_setup(
-        "rwa_lr_nsfnet_4",
-        dict(
-            k=5,
-            topology_name="nsfnet_deeprmsa_undirected",
-            link_resources=4,
-            max_requests=1000,
-            values_bw=[100],
-            incremental_loading=True,
-            env_type="rwa_lightpath_reuse",
-            scale_factor=1.0,
-        ),
+def rwa_lightpath_reuse_4_nsfnet_test_setup(**kwargs):
+    settings = dict(
+        k=5,
+        topology_name="nsfnet_deeprmsa_undirected",
+        link_resources=4,
+        max_requests=1000,
+        values_bw=[100],
+        incremental_loading=True,
+        env_type="rwa_lightpath_reuse",
+        scale_factor=1.0,
     )
+    if not kwargs:
+        return _rwa_lr_cached_setup("rwa_lr_nsfnet_4", settings)
+    settings.update(kwargs)
+    key = jax.random.PRNGKey(0)
+    env, params = make(settings, log_wrapper=False)
+    obs, state = env.reset(key, params)
+    return key, env, obs, state, params
 
 
-def rwa_lightpath_reuse_4node_test_setup():
-    return _rwa_lr_cached_setup(
-        "rwa_lr_4node",
-        dict(
-            k=2,
-            topology_name="4node",
-            link_resources=4,
-            max_requests=1000,
-            values_bw=[100],
-            incremental_loading=True,
-            env_type="rwa_lightpath_reuse",
-        ),
+def rwa_lightpath_reuse_4node_test_setup(**kwargs):
+    settings = dict(
+        k=2,
+        topology_name="4node",
+        link_resources=4,
+        max_requests=1000,
+        values_bw=[100],
+        incremental_loading=True,
+        env_type="rwa_lightpath_reuse",
     )
+    if not kwargs:
+        return _rwa_lr_cached_setup("rwa_lr_4node", settings)
+    settings.update(kwargs)
+    key = jax.random.PRNGKey(0)
+    env, params = make(settings, log_wrapper=False)
+    obs, state = env.reset(key, params)
+    return key, env, obs, state, params
 
 
 class CheckLightpathAvailableAndExistingTest(chex.TestCase):
@@ -232,8 +240,10 @@ class CheckLightpathAvailableAndExistingTest(chex.TestCase):
 class MaskSlotsRWALightpathReuseTest(chex.TestCase):
     def setUp(self):
         super().setUp()
+        # Expected masks below include the trailing no-op action, so pin
+        # include_no_op=True (the flag default, now applied to dict configs too, is False).
         self.key, self.env, self.obs, self.state, self.params = (
-            rwa_lightpath_reuse_4node_test_setup()
+            rwa_lightpath_reuse_4node_test_setup(include_no_op=True)
         )
 
     @chex.all_variants()
@@ -621,8 +631,12 @@ class MaskSlotsRWALightpathReuseTest(chex.TestCase):
 class RWALightpathReuseTest(chex.TestCase):
     def setUp(self):
         super().setUp()
+        # test_end_episode samples actions from the mask, so the expected capacities
+        # depend on the action-space size and path ordering: pin include_no_op=True
+        # and path_sort_criteria="hops" (the flag defaults, now applied to dict
+        # configs too, are False and "spectral_resources").
         self.key, self.env, self.obs, self.state, self.params = (
-            rwa_lightpath_reuse_4_nsfnet_test_setup()
+            rwa_lightpath_reuse_4_nsfnet_test_setup(include_no_op=True, path_sort_criteria="hops")
         )
 
     @chex.all_variants()
@@ -822,6 +836,10 @@ class DynamicExpiryCapacityRestoreTest(chex.TestCase):
             scale_factor=1.0,
             load=100,
             mean_service_holding_time=25,
+            # This test drives expiry with an absolute far-future current_time, so pin
+            # the absolute-time mode (the flag default, now applied to dict configs
+            # too, is relative).
+            relative_arrival_times=False,
         )
         env, params = make(settings, log_wrapper=False)
         key = jax.random.PRNGKey(0)

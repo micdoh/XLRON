@@ -118,7 +118,9 @@ The offered traffic load in Erlangs. This is the primary traffic parameter — i
 
 ### `--min_load` / `--max_load` / `--step_load`
 
-When all three are set, the script sweeps loads from `min_load` to `max_load` (inclusive) in steps of `step_load`. The environment is compiled once and reused across all loads without JIT recompilation, which is significantly faster than running separate processes per load. Each load produces its own JSONL summary line. `--load` should be set to the maximum load in the sweep range for initial compilation. Example:
+When all three are set, the script sweeps loads from `min_load` to `max_load` (inclusive) in steps of `step_load`. The environment is compiled once and reused across all loads without JIT recompilation, which is significantly faster than running separate processes per load. Each load produces its own JSONL summary line. `--load` should be set to the maximum load in the sweep range for initial compilation.
+
+Each swept load re-equilibrates before measurement: the warmup is re-run for `ENV_WARMUP_STEPS` at that load's arrival rate (a single extra compilation, reused across all loads) and the metric counters are zeroed afterwards, so each load's reported metrics reflect its own steady state rather than the network occupancy inherited from the initial `--load` warmup. This adds `ENV_WARMUP_STEPS` un-measured steps per swept load. The sweep is also correct in episodic (non-continuous) mode: episode auto-resets preserve the swept arrival rate rather than reverting to the compile-time `--load` value. Example:
 
 ```bash
 python -m xlron.train.train \

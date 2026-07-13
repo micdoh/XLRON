@@ -1661,6 +1661,40 @@ class VoneRLSmokeTest(chex.TestCase):
             self.assertTrue(bool(jnp.all(jnp.isfinite(leaf))))
 
 
+class VoneResetPreservesTrafficParamsTest(chex.TestCase):
+    """Regression test: reset_env must carry over runtime-patched
+    arrival_rate/mean_service_holding_time from a provided pre-reset state
+    (episodic load-sweep support) instead of reverting to initial_state values."""
+
+    def setUp(self):
+        super().setUp()
+        self.key, self.env, self.obs, self.state, self.params = vone_4node_test_setup()
+
+    def test_reset_env_with_state_preserves_traffic_params(self):
+        patched = self.state.replace(
+            arrival_rate=jnp.full_like(jnp.asarray(self.state.arrival_rate), 99.0),
+            mean_service_holding_time=jnp.full_like(
+                jnp.asarray(self.state.mean_service_holding_time), 7.0
+            ),
+        )
+        _, state = self.env.reset_env(self.key, self.params, patched)
+        chex.assert_trees_all_close(
+            jnp.asarray(state.arrival_rate),
+            jnp.full_like(jnp.asarray(state.arrival_rate), 99.0),
+        )
+        chex.assert_trees_all_close(
+            jnp.asarray(state.mean_service_holding_time),
+            jnp.full_like(jnp.asarray(state.mean_service_holding_time), 7.0),
+        )
+
+    def test_reset_env_without_state_uses_params_values(self):
+        _, state = self.env.reset_env(self.key, self.params)
+        chex.assert_trees_all_close(
+            jnp.asarray(state.arrival_rate),
+            jnp.full_like(jnp.asarray(state.arrival_rate), self.params.arrival_rate),
+        )
+
+
 if __name__ == "__main__":
     jax.config.update("jax_numpy_rank_promotion", "raise")
     absltest.main()

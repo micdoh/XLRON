@@ -476,6 +476,65 @@ class RMSAGNModelMaskTest(chex.TestCase):
         self.assertTrue(isinstance(truncated, jax.Array))
 
 
+class RMSAGNModelLogWrapperTest(chex.TestCase):
+    """LogWrapper must unpack [path_slot_action, launch_power] actions for the RMSA GN env.
+
+    Regression: is_gn_params previously tested isinstance(params, RSAGNModelEnvParams),
+    which RMSAGNModelEnvParams is not (both are siblings deriving from GNModelEnvParams),
+    so for rmsa_gn_model + launch_power_type=rl the 2-element action leaked into
+    process_path_action (vector path/slot indices under log_actions) and
+    info["launch_power"] was never logged.
+    """
+
+    def setUp(self):
+        super().setUp()
+        settings = dict(
+            k=4,
+            topology_name="nsfnet_deeprmsa_directed",
+            link_resources=10,
+            max_requests=100,
+            values_bw=[100],
+            incremental_loading=True,
+            env_type="rmsa_gn_model",
+            slot_size=12.5,
+            guardband=0,
+            mod_format_correction=False,
+            max_power_per_fibre=10.0,
+            coherent=False,
+            include_no_op=False,
+            launch_power_type="rl",
+        )
+        self.key = jax.random.PRNGKey(3)
+        if "rmsa_gn_model_log_wrapper" not in _gn_cache:
+            # log_wrapper defaults to True: the wrapped env is the object under test
+            _gn_cache["rmsa_gn_model_log_wrapper"] = make(settings)
+        self.env, self.params = _gn_cache["rmsa_gn_model_log_wrapper"]
+        self.obs, self.state = self.env.reset(self.key, self.params)
+
+    def test_step_unpacks_path_power_action(self):
+        rng_sample, rng_step = jax.random.split(self.key)
+        mask, _, mod_format_mask = self.env.action_mask(self.state.env_state, self.params)
+        inner = self.state.env_state.replace(link_slot_mask=mask, mod_format_mask=mod_format_mask)
+        state = self.state.replace(env_state=inner)
+        action_dist = distrax.Categorical(logits=jnp.where(mask > 0, 0.0, -1e8))
+        path_action = action_dist.sample(seed=rng_sample)
+        power_action = jnp.array([0.001])  # 1 mW, linear units as stored by select_action
+        action = jnp.concatenate([path_action.reshape((1,)).astype(jnp.float32), power_action])
+        obs, new_state, reward, terminal, truncated, info = self.env.step(
+            rng_step, state, action, self.params
+        )
+        # The power element must be logged, not fed to process_path_action
+        self.assertIn("launch_power", info)
+        np.testing.assert_allclose(np.asarray(info["launch_power"]), 0.001, rtol=1e-6)
+        # Common GN-model fields decode from the scalar path element
+        chex.assert_shape(info["path_index"], ())
+        chex.assert_shape(info["slot_index"], ())
+        # Only the RSA-GN state tracks throughput; the RMSA variant must not
+        # attempt to pop the missing "_throughput" key
+        self.assertNotIn("throughput", info)
+        self.assertNotIn("_throughput", info)
+
+
 def rmsa_gn_model_enforce_band_gaps_test_setup():
     key = jax.random.PRNGKey(3)
     if "rmsa_gn_model_band_gaps" in _gn_cache:
@@ -1244,6 +1303,11 @@ class ActiveLightpathRegistryTest(chex.TestCase):
             include_no_op=False,
             load=100,
             mean_service_holding_time=25,
+            # The blocked-request check below asserts the departure registry is
+            # bit-identical across a step, which only holds for absolute times
+            # (under the relative-time flag default, every step rescales the
+            # stored departures).
+            relative_arrival_times=False,
         )
         return make(settings, log_wrapper=False)
 
@@ -2209,6 +2273,200 @@ class GetPathsObsGNModelVmapTest(chex.TestCase):
             gn_stats = np.asarray(obs)[4:].reshape(params.k_paths, ps_w + 5)[:, ps_w:]
             expected = self._reference_gn_path_stats(state, params)
             np.testing.assert_allclose(gn_stats, expected, rtol=1e-4, atol=1e-6)
+
+
+class BlockingCauseCountersTest(chex.TestCase):
+    """Blocking-cause breakdown (spectrum vs SNR vs power) counters in GN-model envs.
+
+    Each test forces exactly one acceptance check to fail and asserts that only the
+    corresponding counter increments. Causes are attributed with spectrum > SNR > power
+    priority, so the counters are mutually exclusive.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.key, self.env, self.obs, self.state, self.params = rmsa_gn_model_test_setup()
+
+    def _masked_state_and_action(self, state, params, env=None):
+        """Compute the action mask and return (masked state, first valid action)."""
+        env = env or self.env
+        mask, _, mod_format_mask = env.action_mask(state, params)
+        state = state.replace(link_slot_mask=mask, mod_format_mask=mod_format_mask)
+        path_action = jnp.argmax(mask > 0)
+        action = jnp.concatenate([path_action.reshape((1,)), jnp.array([0]).reshape((1,))], axis=0)
+        return state, action
+
+    def _assert_counters(self, state, spectrum, snr, power):
+        self.assertEqual(int(state.blocked_spectrum), spectrum)
+        self.assertEqual(int(state.blocked_snr), snr)
+        self.assertEqual(int(state.blocked_power), power)
+
+    def test_counters_zero_at_reset(self):
+        self._assert_counters(self.state, 0, 0, 0)
+
+    def test_accepted_request_increments_no_counters(self):
+        state, action = self._masked_state_and_action(self.state, self.params)
+        _, new_state, reward, _, _, info = self.env.step(self.key, state, action, self.params)
+        self.assertEqual(int(new_state.accepted_services), 1)
+        self._assert_counters(new_state, 0, 0, 0)
+        self.assertEqual(int(info["_blocked_spectrum"]), 0)
+        self.assertEqual(int(info["_blocked_snr"]), 0)
+        self.assertEqual(int(info["_blocked_power"]), 0)
+
+    def test_spectrum_blocked_increments_spectrum_counter_only(self):
+        # Occupy every slot on every link so any placement collides
+        state = self.state.replace(link_slot_array=jnp.ones_like(self.state.link_slot_array))
+        action = jnp.array([0, 0])
+        _, new_state, reward, _, _, info = self.env.step(self.key, state, action, self.params)
+        self.assertEqual(int(new_state.accepted_services), 0)
+        self.assertLess(float(reward), 0)
+        # SNR/power must not be (mis)attributed even if the collision corrupts the
+        # tentative GN state - spectrum takes priority
+        self._assert_counters(new_state, 1, 0, 0)
+        self.assertEqual(int(info["_blocked_spectrum"]), 1)
+
+    def test_snr_blocked_increments_snr_counter_only(self):
+        # Compute a valid action on the clean network first, then fabricate a degraded
+        # existing connection at (link 0, last slot): occupied bandwidth, highest-order
+        # modulation format (high required SNR), negligible launch power. The SNR
+        # sufficiency check re-evaluates all active connections after the tentative
+        # placement, so this connection fails it while spectrum and power checks pass.
+        state, action = self._masked_state_and_action(self.state, self.params)
+        params = self.params
+        paths = params.path_link_array.val
+        if params.pack_path_bits:
+            paths = jnp.unpackbits(paths, axis=1)[:, : params.num_links]
+        path_through_link0 = int(np.argmax(np.asarray(paths)[:, 0] > 0))
+        num_mods = params.modulations_array.val.shape[0]
+        slot = params.link_resources - 1
+        state = state.replace(
+            channel_centre_bw_array=state.channel_centre_bw_array.at[0, slot].set(params.slot_size),
+            channel_power_array=state.channel_power_array.at[0, slot].set(1e-12),
+            channel_centre_freq_array=state.channel_centre_freq_array.at[0, slot].set(
+                params.slot_centre_freq_array.val[slot]
+            ),
+            path_index_array=state.path_index_array.at[0, slot].set(path_through_link0),
+            modulation_format_index_array=state.modulation_format_index_array.at[0, slot].set(
+                num_mods - 1
+            ),
+        )
+        _, new_state, reward, _, _, info = self.env.step(self.key, state, action, self.params)
+        self.assertEqual(int(new_state.accepted_services), 0)
+        self.assertLess(float(reward), 0)
+        self._assert_counters(new_state, 0, 1, 0)
+        self.assertEqual(int(info["_blocked_snr"]), 1)
+
+    def test_power_blocked_increments_power_counter_only(self):
+        # Same env as rmsa_gn_model_test_setup but with a per-fibre power budget far
+        # below the (explicitly pinned) per-channel launch power, so any placement
+        # trips the power check. SNR passes (launch power and request are unchanged
+        # from the accepted-request test) and spectrum passes (empty network).
+        key, env, obs, state, params = _gn_cached_setup(
+            "rmsa_gn_model_tiny_power",
+            dict(
+                k=4,
+                topology_name="nsfnet_deeprmsa_directed",
+                link_resources=10,
+                max_requests=100,
+                values_bw=[100],
+                incremental_loading=True,
+                env_type="rmsa_gn_model",
+                slot_size=12.5,
+                guardband=0,
+                mod_format_correction=False,
+                max_power_per_fibre=-90.0,  # dBm -> 1e-12 W
+                power_per_channel=0.0,  # dBm -> 1 mW, same as the default setup
+                coherent=False,
+                include_no_op=False,
+            ),
+            seed=3,
+        )
+        # The power budget is also enforced in the action mask, so compute the mask
+        # with the permissive default params (identical env/state otherwise)
+        state, action = self._masked_state_and_action(state, self.params, env=env)
+        _, new_state, reward, _, _, info = env.step(key, state, action, params)
+        self.assertEqual(int(new_state.accepted_services), 0)
+        self.assertLess(float(reward), 0)
+        self._assert_counters(new_state, 0, 0, 1)
+        self.assertEqual(int(info["_blocked_power"]), 1)
+
+    def test_check_action_rmsa_gn_model_matches_components(self):
+        # The aggregate check must remain jnp.any over the same component stack
+        state, action = self._masked_state_and_action(self.state, self.params)
+        action_info = self.env.process_action(state, action, self.params)
+        components = check_action_rmsa_gn_model_components(state, action_info, self.params)
+        aggregate = check_action_rmsa_gn_model(state, action_info, self.params)
+        self.assertEqual(
+            bool(aggregate), bool(jnp.any(jnp.stack([jnp.asarray(c) for c in components])))
+        )
+
+    def test_log_wrapper_reports_blocking_cause_counters(self):
+        key = jax.random.PRNGKey(3)
+        if "rmsa_gn_model_logwrapper" not in _gn_cache:
+            env, params = make(
+                dict(
+                    k=4,
+                    topology_name="nsfnet_deeprmsa_directed",
+                    link_resources=10,
+                    max_requests=100,
+                    values_bw=[100],
+                    incremental_loading=True,
+                    env_type="rmsa_gn_model",
+                    slot_size=12.5,
+                    guardband=0,
+                    mod_format_correction=False,
+                    max_power_per_fibre=10.0,
+                    coherent=False,
+                    include_no_op=False,
+                )
+            )
+            _gn_cache["rmsa_gn_model_logwrapper"] = (env, params)
+        env, params = _gn_cache["rmsa_gn_model_logwrapper"]
+        obs, log_state = env.reset(key, params)
+        # Force a spectrum block by filling the spectrum
+        log_state = log_state.replace(
+            env_state=log_state.env_state.replace(
+                link_slot_array=jnp.ones_like(log_state.env_state.link_slot_array)
+            )
+        )
+        action = jnp.array([0, 0])
+        obs, log_state, reward, terminal, truncated, info = env.step(key, log_state, action, params)
+        # Raw stashes are popped; public keys and LogEnvState fields are reported
+        self.assertNotIn("_blocked_spectrum", info)
+        self.assertEqual(int(info["blocked_spectrum"]), 1)
+        self.assertEqual(int(info["blocked_snr"]), 0)
+        self.assertEqual(int(info["blocked_power"]), 0)
+        self.assertEqual(int(log_state.blocked_spectrum), 1)
+
+    def test_non_gn_env_does_not_report_blocking_causes(self):
+        key = jax.random.PRNGKey(0)
+        if "rwa_4node_logwrapper" not in _gn_cache:
+            env, params = make(
+                dict(
+                    load=100,
+                    k=2,
+                    topology_name="4node",
+                    link_resources=4,
+                    max_requests=10,
+                    mean_service_holding_time=10,
+                    env_type="rwa",
+                    values_bw=[1],
+                    slot_size=1,
+                    guardband=0,
+                )
+            )
+            _gn_cache["rwa_4node_logwrapper"] = (env, params)
+        env, params = _gn_cache["rwa_4node_logwrapper"]
+        obs, log_state = env.reset(key, params)
+        obs, log_state, reward, terminal, truncated, info = env.step(
+            key, log_state, jnp.array(0), params
+        )
+        self.assertNotIn("blocked_spectrum", info)
+        self.assertNotIn("blocked_snr", info)
+        self.assertNotIn("blocked_power", info)
+        # Non-GN env states carry no counters; the LogEnvState defaults stay zero
+        self.assertFalse(hasattr(log_state.env_state, "blocked_spectrum"))
+        self.assertEqual(int(log_state.blocked_spectrum), 0)
 
 
 if __name__ == "__main__":
