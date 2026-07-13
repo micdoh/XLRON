@@ -182,11 +182,17 @@ The heuristic algorithm to use. Available options:
 | `ksp_ff` | **K-Shortest Path, First-Fit.** Try paths in order (shortest first); on each path, allocate the first available contiguous slot block. The most common baseline. |
 | `ksp_lf` | **K-Shortest Path, Last-Fit.** Try paths in order; allocate the last available slot block on each path. |
 | `ksp_bf` | **K-Shortest Path, Best-Fit.** Try paths in order; allocate the slot block that leaves the smallest remaining gap. |
+| `ksp_ef` | **K-Shortest Path, Exact-Fit.** On the shortest available path, allocate the first free block whose size exactly matches the request; fall back to first-fit. (Chatterjee, Sarma & Oki, IEEE COMST 2015) |
 | `ksp_mu` | **K-Shortest Path, Most-Used.** Try paths in order; prefer slots in the most congested region of the spectrum. |
+| `ksp_flf` | **K-Shortest Path, First-Last-Fit.** On the shortest available path, small requests are allocated first-fit, large requests last-fit, segregating size classes at opposite spectrum ends. (Fadini & Oki, IEEE ICC 2014) |
+| `ksp_flef` | **K-Shortest Path, First-Last-Exact-Fit.** Small requests take the lowest exact-fit block (fallback first-fit); large requests the highest exact-fit block (fallback last-fit). (Chatterjee, Fadini & Oki, JNCA 2016) |
+| `ksp_mscl` | **K-Shortest Path, Minimum Slot-continuity Capacity Loss.** On the shortest available path, allocate the slot minimising capacity loss over the path and interfering routes. (Almeida Jr. et al., Electron. Lett. 2013) |
 | `ff_ksp` | **First-Fit across K-Shortest Paths.** Search all k paths simultaneously for the globally first available slot. |
 | `lf_ksp` | **Last-Fit across K-Shortest Paths.** Search all k paths for the globally last available slot. |
 | `bf_ksp` | **Best-Fit across K-Shortest Paths.** Search all k paths for the globally best-fit slot. |
 | `mu_ksp` | **Most-Used across K-Shortest Paths.** Search all k paths; prefer globally most-used slots. |
+| `flf_ksp` | **First-Last-Fit across K-Shortest Paths.** Small requests take the globally first slot across paths; large requests the globally last. |
+| `mscl_ksp` | **Minimum Slot-continuity Capacity Loss across K-Shortest Paths.** Jointly select the (path, slot) with minimum capacity loss across all k paths. |
 | `kmc_ff` | **K-Minimum Cut, First-Fit.** Select path that minimises cut metric, then first-fit. |
 | `kmf_ff` | **K-Minimum Fragmentation, First-Fit.** Select path that minimises fragmentation, then first-fit. |
 | `kme_ff` | **K-Minimum Entropy, First-Fit.** Select path whose allocation causes the smallest increase in spectrum fragmentation entropy (Wright, Parker & Lord, JOCN 2015), then first-fit. |

@@ -35,15 +35,21 @@ from xlron.environments.wrappers import TimeIt
 from xlron.heuristics.heuristics import (
     bf_ksp,
     ff_ksp,
+    flf_ksp,
     kca_ff,
     kmc_ff,
     kme_ff,
     kmf_ff,
     ksp_bf,
+    ksp_ef,
     ksp_ff,
+    ksp_flef,
+    ksp_flf,
     ksp_lf,
+    ksp_mscl,
     ksp_mu,
     lf_ksp,
+    mscl_ksp,
     mu_ksp,
 )
 from xlron.models.gnn import ActorCriticGNN
@@ -1252,6 +1258,18 @@ def select_action_eval(select_action_state, env, env_params, eval_state, config)
                 action = ksp_lf(env_state.env_state, env_params)
             elif config.path_heuristic.lower() == "lf_ksp":
                 action = lf_ksp(env_state.env_state, env_params)
+            elif config.path_heuristic.lower() == "ksp_ef":
+                action = ksp_ef(env_state.env_state, env_params)
+            elif config.path_heuristic.lower() == "ksp_flf":
+                action = ksp_flf(env_state.env_state, env_params)
+            elif config.path_heuristic.lower() == "flf_ksp":
+                action = flf_ksp(env_state.env_state, env_params)
+            elif config.path_heuristic.lower() == "ksp_flef":
+                action = ksp_flef(env_state.env_state, env_params)
+            elif config.path_heuristic.lower() == "ksp_mscl":
+                action = ksp_mscl(env_state.env_state, env_params)
+            elif config.path_heuristic.lower() == "mscl_ksp":
+                action = mscl_ksp(env_state.env_state, env_params)
             else:
                 raise ValueError(f"Invalid path heuristic {config.path_heuristic}")
             if env_params.__class__.__name__ in ["RSAGNModelEnvParams", "RMSAGNModelEnvParams"]:
