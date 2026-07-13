@@ -1106,9 +1106,16 @@ class RSAEnv(environment.Environment):
         Generates new random traffic matrix if random_traffic is True, otherwise uses the provided traffic matrix.
         Generates new request.
 
+        When a pre-reset state is provided (the auto-reset path in step threads it
+        through), traffic parameters that can be modified at runtime — arrival_rate
+        and mean_service_holding_time, e.g. patched by the load sweep in train.py —
+        are carried over instead of reverting to the construction-time values baked
+        into initial_state.
+
         Args:
             key: PRNG key
             params: Environment parameters
+            state: Optional pre-reset environment state
 
         Returns:
             obs: Observation
@@ -1121,6 +1128,7 @@ class RSAEnv(environment.Environment):
         # and then cycle select from them randomly and replace the top-level params with the selected one.
         # Then need to init() the env again in order to update the state using the params
         #    raise NotImplementedError
+        prev_state = state
         if params.random_traffic:
             key, key_traffic = jax.random.split(key)
             state = self.initial_state.replace(
@@ -1128,6 +1136,11 @@ class RSAEnv(environment.Environment):
             )
         else:
             state = self.initial_state
+        if prev_state is not None:
+            state = state.replace(
+                arrival_rate=prev_state.arrival_rate,
+                mean_service_holding_time=prev_state.mean_service_holding_time,
+            )
         state = generate_request_rsa(key, state, params)
         return self.get_obs(state, params), state
 

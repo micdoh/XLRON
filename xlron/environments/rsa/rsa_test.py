@@ -892,6 +892,65 @@ class RsaMultibandBandGapTest(chex.TestCase):
         )
 
 
+class RsaResetPreservesTrafficParamsTest(chex.TestCase):
+    """Regression tests for the episodic load-sweep bug: runtime-patched
+    arrival_rate/mean_service_holding_time (as set by the load sweep in
+    train.py) must survive episode auto-resets instead of reverting to the
+    construction-time values baked into initial_state."""
+
+    def setUp(self):
+        super().setUp()
+        # rwa_4node settings are episodic (max_requests=10, no continuous_operation)
+        self.key, self.env, self.obs, self.state, self.params = rwa_4node_test_setup()
+
+    def test_auto_reset_preserves_swept_traffic_params(self):
+        # Patch the live state the way _update_experiment_input_load does
+        patched = self.state.replace(
+            arrival_rate=jnp.full_like(self.state.arrival_rate, 99.0),
+            mean_service_holding_time=jnp.full_like(self.state.mean_service_holding_time, 7.0),
+            # Next step's request generation reaches max_requests -> truncation
+            total_requests=jnp.array(
+                self.params.max_requests - 1, dtype=self.state.total_requests.dtype
+            ),
+        )
+        _, new_state, _, terminal, truncated, _ = self.env.step(
+            self.key, patched, jnp.array(0), self.params
+        )
+        self.assertTrue(bool(truncated | terminal))
+        chex.assert_trees_all_close(
+            new_state.arrival_rate, jnp.full_like(new_state.arrival_rate, 99.0)
+        )
+        chex.assert_trees_all_close(
+            new_state.mean_service_holding_time,
+            jnp.full_like(new_state.mean_service_holding_time, 7.0),
+        )
+
+    def test_fresh_reset_uses_params_values(self):
+        _, state = self.env.reset(self.key, self.params)
+        chex.assert_trees_all_close(
+            state.arrival_rate,
+            jnp.full_like(state.arrival_rate, self.params.arrival_rate),
+        )
+        chex.assert_trees_all_close(
+            state.mean_service_holding_time,
+            jnp.full_like(state.mean_service_holding_time, self.params.mean_service_holding_time),
+        )
+
+    def test_reset_env_with_state_preserves_traffic_params(self):
+        patched = self.state.replace(
+            arrival_rate=jnp.full_like(self.state.arrival_rate, 42.5),
+            mean_service_holding_time=jnp.full_like(self.state.mean_service_holding_time, 3.0),
+        )
+        _, state = self.env.reset_env(self.key, self.params, patched)
+        chex.assert_trees_all_close(state.arrival_rate, jnp.full_like(state.arrival_rate, 42.5))
+        chex.assert_trees_all_close(
+            state.mean_service_holding_time,
+            jnp.full_like(state.mean_service_holding_time, 3.0),
+        )
+        # Everything else resets: spectrum empty, counters back to start
+        chex.assert_trees_all_close(state.link_slot_array, jnp.zeros_like(state.link_slot_array))
+
+
 if __name__ == "__main__":
     jax.config.update("jax_numpy_rank_promotion", "raise")
     absltest.main()
