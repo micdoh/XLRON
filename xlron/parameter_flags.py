@@ -489,6 +489,20 @@ flags.DEFINE_boolean(
     "If True, do not reset the environment at the end of an episode",
 )
 flags.DEFINE_integer("aggregate_slots", 1, "Number of slots to aggregate into a single action")
+flags.DEFINE_string(
+    "hybrid_action_rules",
+    "",
+    "Hybrid rule-action space: comma-separated placement rules (action = path x rule), "
+    "any of ff,lf,ef,mscl (e.g. 'ff,lf,ef,mscl'). Empty string disables it. When set, the "
+    "agent picks a path and a spectrum-assignment rule instead of an (aggregated) slot; "
+    "aggregate_slots is forced to 1. RSA/RMSA/RWA only.",
+)
+flags.DEFINE_boolean(
+    "transformer_continuity_features",
+    False,
+    "Append per-link spectrum-continuity features (largest free block, free-block count, "
+    "free fraction) to the transformer observation tokens.",
+)
 flags.DEFINE_boolean("disjoint_paths", False, "Use disjoint paths (k paths still considered)")
 flags.DEFINE_integer("guardband", 1, "Guard band in slots")
 flags.DEFINE_integer(

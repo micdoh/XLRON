@@ -371,6 +371,28 @@ def make(
     traffic_requests_csv_filepath = config.get("traffic_requests_csv_filepath", None)
     multiple_topologies_directory = config.get("multiple_topologies_directory", None)
     aggregate_slots = config.get("aggregate_slots", 1)
+    # --- Hybrid rule-action space (action = (path, placement-rule)) ---
+    _raw_rules = config.get("hybrid_action_rules", "") or ""
+    if isinstance(_raw_rules, (list, tuple)):
+        _rule_list = [str(r).strip().lower() for r in _raw_rules if str(r).strip()]
+    else:
+        _rule_list = [r.strip().lower() for r in str(_raw_rules).split(",") if r.strip()]
+    _valid_rules = ("ff", "lf", "ef", "mscl")
+    for _r in _rule_list:
+        if _r not in _valid_rules:
+            raise ValueError(f"Unknown hybrid_action_rule {_r!r}; valid options: {_valid_rules}")
+    hybrid_action_rules = tuple(_rule_list)
+    if hybrid_action_rules and config.get("EVAL_HEURISTIC", False):
+        # Heuristics emit raw slot actions; the hybrid action space would mis-decode them.
+        hybrid_action_rules = ()
+    if hybrid_action_rules:
+        if str(config.get("env_type", "")).lower() not in ("rsa", "rmsa", "rwa"):
+            raise ValueError(
+                "hybrid_action_rules is only supported for env_type in {rsa, rmsa, rwa}"
+            )
+        # Hybrid rules and slot aggregation are mutually exclusive coarsenings.
+        aggregate_slots = 1
+    transformer_continuity_features = config.get("transformer_continuity_features", False)
     # The lowercase disable_node_features alias is resolved in process_config
     disable_node_features = config.get("DISABLE_NODE_FEATURES", False)
     disjoint_paths = config.get("disjoint_paths", False)
@@ -851,6 +873,8 @@ def make(
         slot_size=slot_size,
         continuous_operation=continuous_operation,
         aggregate_slots=aggregate_slots,
+        hybrid_action_rules=hybrid_action_rules,
+        transformer_continuity_features=transformer_continuity_features,
         guardband=guardband,
         deterministic_requests=deterministic_requests,
         multiple_topologies=False,

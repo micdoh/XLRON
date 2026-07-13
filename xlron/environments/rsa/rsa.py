@@ -1,4 +1,3 @@
-import math
 import pathlib
 from typing import Any, Optional, Tuple, cast
 
@@ -45,6 +44,7 @@ from xlron.environments.env_funcs import (
     init_rsa_request_array,
     init_traffic_matrix,
     mask_slots,
+    num_slot_actions,
     make_graph,
     read_rsa_request,
     required_slots,
@@ -1460,7 +1460,7 @@ class RSAEnv(environment.Environment):
     @staticmethod
     def num_actions(params: EnvParams) -> int:
         """Number of actions possible in environment."""
-        return math.ceil(params.link_resources / params.aggregate_slots) * params.k_paths
+        return num_slot_actions(params) * params.k_paths
 
     def action_space(self, params: EnvParams):
         """Action space of the environment."""

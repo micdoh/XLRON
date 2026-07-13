@@ -137,6 +137,11 @@ class EnvParams(_StructBase):
     consider_modulation_format: bool = struct.field(pytree_node=False)
     link_length_array: HashableArrayWrapper = struct.field(pytree_node=False)
     aggregate_slots: int = struct.field(pytree_node=False)
+    # Hybrid rule-action space: tuple of placement rules (e.g. ("ff","lf","ef","mscl"));
+    # empty = disabled (use per-slot / aggregated-slot actions). See env_funcs.num_slot_actions.
+    hybrid_action_rules: tuple = struct.field(pytree_node=False)
+    # Append per-link spectrum-continuity features to the transformer observation.
+    transformer_continuity_features: bool = struct.field(pytree_node=False)
     guardband: int = struct.field(pytree_node=False)
     directed_graph: bool = struct.field(pytree_node=False)
     maximise_throughput: bool = struct.field(pytree_node=False)

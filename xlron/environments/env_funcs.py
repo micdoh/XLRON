@@ -864,6 +864,30 @@ def get_link_relevance_array(paths: Array, paths_quality: Array, params: RSAEnvP
     return jnp.stack([weighted_relevance, path_count, best_rank, best_quality], axis=-1)  # (E, 4)
 
 
+# Number of per-link continuity feature columns appended when
+# transformer_continuity_features is enabled (keep in sync with train_utils input_size).
+NUM_TRANSFORMER_CONTINUITY_FEATURES = 3
+
+
+def get_link_continuity_features(link_slot_array: Array, params: RSAEnvParams) -> Array:
+    """Per-link spectrum-continuity features for the transformer observation.
+
+    Returns (num_links, NUM_TRANSFORMER_CONTINUITY_FEATURES):
+        [largest free block, free-block count, free fraction], each normalised to ~[0, 1].
+    Exposes the contiguous free-run structure the MSCL metric reasons over, which raw
+    per-slot occupancy only encodes implicitly.
+    """
+    free = link_slot_array == 0  # (E, S) bool; -1 (tentative) and >0 count as occupied
+    run_len, run_start, _ = get_run_lengths_and_bounds(free)
+    idx = jnp.arange(params.link_resources, dtype=jnp.int32)
+    is_start = free & (run_start == idx[None, :])
+    s = params.link_resources
+    largest_free_block = jnp.max(run_len, axis=1) / s
+    num_free_blocks = jnp.sum(is_start, axis=1) / s
+    free_fraction = jnp.mean(free.astype(jnp.float32), axis=1)
+    return jnp.stack([largest_free_block, num_free_blocks, free_fraction], axis=-1)
+
+
 @partial(jax.jit, static_argnums=(1,))
 def get_obs_transformer(state: RSAEnvState, params: RSAEnvParams) -> Array:
     """Retrieves observation for transformer model.
@@ -955,9 +979,13 @@ def get_obs_transformer(state: RSAEnvState, params: RSAEnvParams) -> Array:
     link_relevance_features = get_link_relevance_array(paths, paths_quality, params)  # (E, 4)
 
     # Concatenation: shared features first, request-specific features last
-    # Shared: wire_features, edge_features, traffic_marginals
+    # Shared: wire_features, edge_features, traffic_marginals, [continuity]
     # Request-specific: [holding_time (departure only),] request_size, link_relevance
     shared = [wire_features, edge_features, traffic_marginal_features]
+    if params.transformer_continuity_features:
+        # Per-link continuity features are shared (not request-specific) so the critic sees them.
+        continuity_features = get_link_continuity_features(state.link_slot_array, params)
+        shared.append(continuity_features.astype(edge_features.dtype))
     request_specific = [request_size_feature, link_relevance_features]
     if params.transformer_obs_type == "departure":
         holding_time_col = jnp.full(
@@ -1143,15 +1171,42 @@ def init_rsa_request_array():
     return jnp.zeros(3, dtype=dtype_config.LARGE_INT_DTYPE)
 
 
+def num_slot_actions(params: EnvParams) -> int:
+    """Number of slot-level actions per path in the acted (coarsened) action space.
+
+    Single source of truth for num_actions, the acted action mask, and the action
+    decode. When hybrid_action_rules is set the agent chooses among placement rules
+    (one action per rule); otherwise it chooses an aggregated slot block (one action
+    per block, == link_resources when aggregate_slots == 1). Pure Python int helper
+    (used as a static value at trace time), so it is not jitted.
+    """
+    rules = getattr(params, "hybrid_action_rules", ())
+    if rules:
+        return len(rules)
+    return math.ceil(params.link_resources / params.aggregate_slots)
+
+
 @partial(jax.jit, static_argnums=(0, 1, 2))
-def init_link_slot_mask(params: EnvParams, include_no_op: bool = False, agg: float = 1.0):
-    """Initialize link mask"""
+def init_link_slot_mask(params: EnvParams, include_no_op: bool = False, agg=None):
+    """Initialize link mask.
+
+    agg is None for the FULL per-slot mask (k_paths * link_resources). When agg is
+    provided this is the acted mask, whose size follows num_slot_actions(params):
+    one entry per aggregated slot block, or per hybrid rule when hybrid_action_rules
+    is set (aggregate_slots is forced to 1 in that case).
+    """
     # Binary {0, 1} action-validity mask. Bulk float tier (exact in float16). The mask is
     # recomputed from scratch each step, so every site that writes it back into the carried state
     # (select_action in train_utils, mask_slots_bit_rate_mod_format, VONE) casts to SMALL_FLOAT to
     # keep the scan carry dtype stable; the transient mask used for logit-masking stays full width.
+    if agg is None:
+        n = params.link_resources
+    elif getattr(params, "hybrid_action_rules", ()):
+        n = len(params.hybrid_action_rules)
+    else:
+        n = math.ceil(params.link_resources / agg)
     return jnp.ones(
-        params.k_paths * math.ceil(params.link_resources / agg) + (1 * include_no_op),
+        params.k_paths * n + (1 * include_no_op),
         dtype=dtype_config.SMALL_FLOAT_DTYPE,
     )
 
@@ -2107,26 +2162,37 @@ def process_path_action(
         int: path index
         int: initial slot index
     """
-    # ceil, matching init_link_slot_mask / aggregate_slots / the model action-space size
-    # (floor would mis-decode path/slot whenever link_resources % aggregate_slots != 0)
-    num_slot_actions = math.ceil(params.link_resources / params.aggregate_slots)
+    # Per-path action count: hybrid rules or aggregated slot blocks (single source of
+    # truth; ceil so path/slot decode matches init_link_slot_mask / the model output).
+    n_slot_actions = num_slot_actions(params)
+
+    # Hybrid rule-action space: action = path_index * num_rules + rule_index; the
+    # concrete slot is whatever the chosen rule (ff / lf / ef / mscl) places on that path.
+    if params.hybrid_action_rules:
+        action_i = jnp.round(path_action).astype(dtype_config.LARGE_INT_DTYPE)
+        path_index = (action_i // n_slot_actions).astype(dtype_config.LARGE_INT_DTYPE)
+        rule_index = jnp.mod(action_i, n_slot_actions)
+        rule_slots = get_hybrid_rule_slots(state, params)  # (k_paths, num_rules)
+        initial_slot_index = rule_slots[path_index, rule_index].astype(dtype_config.LARGE_INT_DTYPE)
+        return path_index, initial_slot_index
+
     path_action = differentiable_round_simple(
         path_action, params.temperature, params.differentiable
     )
     path_index = differentiable_floor(
-        path_action // num_slot_actions, params.temperature, params.differentiable
+        path_action // n_slot_actions, params.temperature, params.differentiable
     ).astype(dtype_config.LARGE_INT_DTYPE)
-    initial_aggregated_slot_index = jnp.mod(path_action, num_slot_actions)
+    initial_aggregated_slot_index = jnp.mod(path_action, n_slot_actions)
     initial_slot_index = initial_aggregated_slot_index * params.aggregate_slots
 
     if params.aggregate_slots > 1:
         # Compute flat index into 1D array of shape (k_paths * link_resources,)
         full_mask = state.full_link_slot_mask.reshape((params.k_paths, params.link_resources))
         # Mirror aggregate_slots: pad the trailing partial window with invalid (0) slots
-        pad_size = num_slot_actions * params.aggregate_slots - params.link_resources
+        pad_size = n_slot_actions * params.aggregate_slots - params.link_resources
         if pad_size > 0:
             full_mask = jnp.pad(full_mask, ((0, 0), (0, pad_size)), constant_values=0)
-        full_mask = full_mask.reshape((params.k_paths, num_slot_actions, params.aggregate_slots))
+        full_mask = full_mask.reshape((params.k_paths, n_slot_actions, params.aggregate_slots))
         window = jax.lax.dynamic_slice(
             full_mask,
             (path_index, initial_aggregated_slot_index, 0),
@@ -2486,11 +2552,20 @@ def mask_slots(state: RSAEnvState, params: RSAEnvParams) -> Array:
 
     full_link_slot_mask = final_masks.reshape(-1)
 
-    link_slot_mask = (
-        aggregate_slots(full_link_slot_mask, params)
-        if params.aggregate_slots > 1
-        else full_link_slot_mask
-    )
+    if params.hybrid_action_rules:
+        # Acted mask is (k_paths * num_rules): a (path, rule) action is valid iff the
+        # path has any valid slot (every rule resolves to a valid slot when available).
+        num_rules = len(params.hybrid_action_rules)
+        path_avail = jnp.max(final_masks, axis=1, keepdims=True)  # (k, 1)
+        link_slot_mask = (
+            jnp.broadcast_to(path_avail, (params.k_paths, num_rules))
+            .reshape(-1)
+            .astype(dtype_config.SMALL_FLOAT_DTYPE)
+        )
+    elif params.aggregate_slots > 1:
+        link_slot_mask = aggregate_slots(full_link_slot_mask, params)
+    else:
+        link_slot_mask = full_link_slot_mask
 
     if params.include_no_op:
         link_slot_mask = jnp.concatenate(
@@ -2745,6 +2820,207 @@ def calculate_fragmentation(link_slot_array: Array) -> Array:
         0.0,
     )
     return jnp.mean(fragmentation_per_link).astype(dtype_config.LARGE_FLOAT_DTYPE)
+
+
+# ---------------------------------------------------------------------------
+# Spectrum-continuity primitives. Shared by the hybrid rule-action decode
+# (process_path_action) and the transformer continuity observation features
+# (get_obs_transformer). Kept here — rather than in heuristics.py — so the env
+# can use them without importing the heuristics module. See
+# heuristics.py::capacity_loss (add-rmsa-heuristics) for the MSCL derivation.
+# ---------------------------------------------------------------------------
+
+
+def get_path_free_arrays(link_slot_array: Array, path_links: Array) -> Array:
+    """Aggregate slot occupancy over the links of each path.
+
+    Args:
+        link_slot_array: (num_links, num_slots); nonzero = occupied
+        path_links: (num_paths, num_links) binary path-link incidence
+
+    Returns:
+        bool (num_paths, num_slots): True where the slot is free on every link.
+    """
+    occupied = jnp.where(link_slot_array != 0, 1.0, 0.0)
+    path_occ = jnp.dot(path_links.astype(jnp.float32), occupied)
+    return path_occ == 0
+
+
+def get_run_lengths_and_bounds(free: Array) -> Tuple[Array, Array, Array]:
+    """For each slot position, the length of the free run starting there and the
+    [start, end) bounds of the free run containing it.
+
+    For occupied positions run_len = 0 and run_start = run_end = position.
+
+    Args:
+        free: bool (..., num_slots)
+
+    Returns:
+        (run_len, run_start, run_end), each (..., num_slots) int32.
+    """
+    num_slots = free.shape[-1]
+    axis = free.ndim - 1  # associative_scan(reverse=True) requires a non-negative axis
+    idx = jnp.arange(num_slots, dtype=jnp.int32)
+    prev_occ = jax.lax.associative_scan(jnp.maximum, jnp.where(free, -1, idx), axis=axis)
+    next_occ = jax.lax.associative_scan(
+        jnp.minimum, jnp.where(free, num_slots, idx), axis=axis, reverse=True
+    )
+    run_start = jnp.where(free, prev_occ + 1, idx)
+    run_end = jnp.where(free, next_occ, idx)
+    run_len = jnp.where(free, next_occ - idx, 0)
+    return run_len, run_start, run_end
+
+
+def get_request_num_slots(state: EnvState, params: EnvParams) -> Array:
+    """Required slots (incl. guardband) for the current request on each of the k paths."""
+    nodes_sd, requested_bw = read_rsa_request(state.request_array)
+    se = (
+        get_paths_se(params, nodes_sd)
+        if params.consider_modulation_format
+        else jnp.ones((params.k_paths,))
+    )
+    num_slots = jax.vmap(required_slots, in_axes=(None, 0, None, None))(
+        requested_bw, se, params.slot_size, params.guardband
+    )
+    return num_slots.astype(jnp.int32)
+
+
+def path_slot_capacity_loss(state: EnvState, params: EnvParams, mask: Array) -> Array:
+    """Slot-continuity capacity loss (the MSCL metric) for every candidate
+    (path, slot) assignment of the current request, in closed form.
+
+    A future request needing w contiguous slots fits on path p at start i iff
+    run_p[i] >= w; the slot-continuity capacity is C_p = sum_i min(run_p[i], W).
+    Placing the current request on route r from slot s reduces C_q for r and for
+    every route q sharing a link with r; loss(r, s) = sum_q (C_q before - after).
+    See heuristics.py::capacity_loss for the full derivation and references.
+
+    Args:
+        state: environment state
+        params: environment parameters
+        mask: (k_paths, link_resources) float action mask (0 = invalid)
+
+    Returns:
+        (k_paths, link_resources) float32 loss, jnp.inf at invalid actions.
+    """
+    nodes_sd, _ = read_rsa_request(state.request_array)
+    num_slots = get_request_num_slots(state, params)
+    num_resources = params.link_resources
+
+    # Maximum future demand size (in slots incl. guardband), computed at trace time.
+    values_bw = np.asarray(params.values_bw.val)
+    min_se = (
+        float(np.min(np.asarray(params.path_se_array.val)))
+        if params.consider_modulation_format
+        else 1.0
+    )
+    w_cap = int(np.ceil(float(np.max(values_bw)) / (min_se * float(params.slot_size))))
+    w_cap = max(w_cap + int(params.guardband), 1)
+
+    # Interfering route set: the shortest path of every node pair (rows are
+    # pair-major with k consecutive rows per pair).
+    shortest_paths = params.path_link_array.val[:: params.k_paths]
+    if params.pack_path_bits:
+        shortest_paths = jnp.unpackbits(shortest_paths, axis=1)[:, : params.num_links]
+    shortest_paths = jnp.asarray(shortest_paths, dtype=jnp.float32)
+    cand_paths = jnp.asarray(get_paths(params, nodes_sd), dtype=jnp.float32)
+
+    def prep(paths):
+        free = get_path_free_arrays(state.link_slot_array, paths)
+        run_len, run_start, run_end = get_run_lengths_and_bounds(free)
+        capped = jnp.minimum(run_len, w_cap)
+        cum_cap = jnp.concatenate(
+            (jnp.zeros((capped.shape[0], 1), dtype=jnp.int32), jnp.cumsum(capped, axis=-1)),
+            axis=-1,
+        )
+        return run_start, run_end, cum_cap
+
+    slot_indices = jnp.arange(num_resources, dtype=jnp.int32)
+    ends = jnp.minimum(slot_indices[None, :] + num_slots[:, None], num_resources)
+
+    def sum_min(d, offset):
+        # sum_{i=1..d} min(i + offset, w_cap), the left-of-block truncation term
+        t = jnp.clip(w_cap - offset, 0, d)
+        return t * offset + t * (t + 1) // 2 + (d - t) * w_cap
+
+    def truncation_loss(run_start, run_end):
+        d = slot_indices[None, :] - run_start
+        gap = run_end - slot_indices[None, :]
+        return sum_min(d, gap) - sum_min(d, 0)
+
+    short_start, short_end, short_cum = prep(shortest_paths)
+    cand_start, cand_end, cand_cum = prep(cand_paths)
+
+    # Loss on interfering (shortest-per-pair) routes, reduced to matmuls over pairs.
+    short_trunc = truncation_loss(short_start, short_end)  # (num_pairs, S)
+    shares = (jnp.dot(cand_paths, shortest_paths.T) > 0).astype(jnp.float32)  # (k, P)
+    base = jnp.dot(shares, (short_trunc - short_cum[:, :num_resources]).astype(jnp.float32))
+    cum_agg = jnp.dot(shares, short_cum.astype(jnp.float32))  # (k, S + 1)
+    loss = base + jnp.take_along_axis(cum_agg, ends, axis=1)
+
+    # Add the candidate route's own loss unless it is already its pair's shortest (k index 0).
+    cand_trunc = truncation_loss(cand_start, cand_end)  # (k, S)
+    cand_inside = jnp.take_along_axis(cand_cum, ends, axis=1) - cand_cum[:, :num_resources]
+    cand_delta = cand_trunc + cand_inside
+    not_shortest = (jnp.arange(params.k_paths) != 0).astype(jnp.float32)[:, None]
+    loss = loss + cand_delta.astype(jnp.float32) * not_shortest
+    loss = jnp.where(mask == 0, jnp.inf, loss)
+    return loss
+
+
+def get_hybrid_rule_slots(state: EnvState, params: EnvParams) -> Array:
+    """Concrete slot index each configured placement rule would choose, per path.
+
+    Returns (k_paths, num_rules) int32. Rules (params.hybrid_action_rules):
+      "ff"   first-fit   -> lowest valid slot on the path
+      "lf"   last-fit    -> highest valid slot on the path
+      "ef"   exact-fit   -> lowest exactly-fitting free block (first-fit fallback)
+      "mscl" min slot-continuity capacity loss -> argmin of the MSCL metric
+    Entries for unavailable paths are arbitrary; those (path, rule) actions are masked.
+    """
+    rules = params.hybrid_action_rules
+    k = params.k_paths
+    S = params.link_resources
+    mask_ks = state.full_link_slot_mask[: k * S].reshape(k, S)
+    idx = jnp.arange(S, dtype=jnp.int32)
+    ones_col = jnp.ones((k, 1), dtype=mask_ks.dtype)
+
+    ff_cache = {}
+
+    def ff():
+        # First valid slot per path; sentinel S if the path has no valid slot.
+        if "v" not in ff_cache:
+            ff_cache["v"] = jnp.argmax(jnp.concatenate([mask_ks, ones_col], axis=1), axis=1).astype(
+                jnp.int32
+            )
+        return ff_cache["v"]
+
+    columns = []
+    for rule in rules:
+        if rule == "ff":
+            columns.append(ff())
+        elif rule == "lf":
+            rev = mask_ks[:, ::-1]
+            j = jnp.argmax(jnp.concatenate([rev, ones_col], axis=1), axis=1)
+            columns.append(jnp.where(j < S, S - 1 - j, S).astype(jnp.int32))
+        elif rule == "ef":
+            nodes_sd, _ = read_rsa_request(state.request_array)
+            paths = jnp.asarray(get_paths(params, nodes_sd), dtype=jnp.float32)
+            num_slots = get_request_num_slots(state, params)
+            free = get_path_free_arrays(state.link_slot_array, paths)
+            run_len, run_start, _ = get_run_lengths_and_bounds(free)
+            is_start = free & (run_start == idx[None, :])
+            exact = is_start & (run_len == num_slots[:, None]) & (mask_ks == 1)
+            first_exact = jnp.argmax(
+                jnp.concatenate([exact, jnp.ones((k, 1), dtype=bool)], axis=1), axis=1
+            ).astype(jnp.int32)
+            columns.append(jnp.where(first_exact < S, first_exact, ff()))
+        elif rule == "mscl":
+            loss = path_slot_capacity_loss(state, params, mask_ks.astype(jnp.float32))
+            columns.append(jnp.argmin(loss, axis=1).astype(jnp.int32))
+        else:
+            raise ValueError(f"Unknown hybrid action rule: {rule!r}")
+    return jnp.stack(columns, axis=1)
 
 
 @partial(jax.jit, static_argnums=(1,))

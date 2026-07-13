@@ -24,6 +24,7 @@ import wandb
 from xlron import dtype_config
 from xlron.environments.dataclasses import EnvState, RMSAGNModelEnvParams
 from xlron.environments.env_funcs import (
+    NUM_TRANSFORMER_CONTINUITY_FEATURES,
     get_launch_power,
     init_link_length_array,
     make_graph,
@@ -630,6 +631,11 @@ def init_network(config: Box, key: chex.PRNGKey) -> eqx.Module:
                 config.num_wire_features
                 + config.link_resources
                 + 2  # traffic marginals
+                + (
+                    NUM_TRANSFORMER_CONTINUITY_FEATURES
+                    if config.get("transformer_continuity_features", False)
+                    else 0
+                )
                 + num_request_specific_cols
             )
             network = ActorCriticTransformer(

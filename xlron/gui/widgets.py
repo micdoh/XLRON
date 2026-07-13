@@ -298,6 +298,9 @@ DEFAULTS = {
     "INITIALIZE_ACTIONS_MAX": False,
     # Aggregate
     "aggregate_slots": 1,
+    # Hybrid rule-action space (action = path x placement-rule) and continuity obs features
+    "hybrid_action_rules": "",
+    "transformer_continuity_features": False,
     # Capacity bounds
     "num_trials": 10,
     "CUTSET_EXHAUSTIVE": False,
