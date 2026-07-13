@@ -123,6 +123,7 @@ Uses `get_eval_fn` with a loaded model (`--MODEL_PATH`). Runs the trained policy
 - `--guardband` - Guard band slots (default: 1)
 - `--modulations_csv_filepath` - Modulation format definitions CSV
 - `--values_bw` - Comma-separated bandwidth request values
+- `--values_bw_probs` - Comma-separated sampling probabilities for values_bw (same length; normalised to sum to 1; default uniform)
 - `--incremental_loading` - Non-expiring requests (for capacity measurement)
 - `--end_first_blocking` - End episode on first block (used with incremental_loading)
 - `--truncate_holding_time` - Truncate to < 2*mean (for DeepRMSA paper compatibility)
@@ -162,8 +163,8 @@ Uses `get_eval_fn` with a loaded model (`--MODEL_PATH`). Runs the trained policy
 - `--path_heuristic` - Algorithm: `ksp_ff`, `ksp_lf`, `ksp_bf`, `ksp_ef`, `ksp_mu`, `ksp_flf`, `ksp_flef`, `ksp_mscl`, `ff_ksp`, `lf_ksp`, `bf_ksp`, `mu_ksp`, `flf_ksp`, `mscl_ksp`, `kmc_ff`, `kmf_ff`, `kme_ff`, `kca_ff`
 
 ### Capacity Bounds (standalone scripts, not through train.py)
-- Cut-sets (`python -m xlron.bounds.cutsets_bounds`): `--max_requests` (requests per trial), `--num_trials`, `--CUTSET_EXHAUSTIVE`, `--CUTSET_TOP_K`, `--cutset_link_selection_mode`
-- Reconfigurable routing (`python xlron/bounds/reconfigurable_routing_bounds.py`): `--COMPILE_RR_BOUNDS`, `--path_heuristic`. Forces `relative_arrival_times=False` and `max_requests=TOTAL_TIMESTEPS` internally.
+- Cut-sets (`python -m xlron.bounds.cutsets_bounds`): `--max_requests` (requests per trial), `--num_trials`, `--CUTSET_EXHAUSTIVE`, `--CUTSET_TOP_K`
+- Reconfigurable routing (`python xlron/bounds/reconfigurable_routing_bounds.py`): `--COMPILE_RR_BOUNDS`, `--path_heuristic` (only `ksp_ff` and `ff_ksp` supported; other values raise an error). Forces `relative_arrival_times=False` and `max_requests=TOTAL_TIMESTEPS` internally.
 
 ### Differentiable Mode
 - `--differentiable` - Enable differentiable approximations (default: False)
@@ -286,10 +287,10 @@ pytest . --cov=xlron
 - `COMPUTE_DTYPE`, `PARAMS_DTYPE` - Neural network compute/params/optimizer (always float32 for stability; observations are cast up to `COMPUTE_DTYPE` at each model's `__call__` boundary)
 - `LARGE_FLOAT_DTYPE` - Precision floats: accumulators (bitrate sums), physical SNR/power, importance weights (stays float32 under mixed precision)
 - `SMALL_FLOAT_DTYPE` - Bulk floats: spectrum occupancy (`link_slot_array`), normalised features (float16 under mixed precision)
-- `TIME_DTYPE` - Time/departure arrays (`current_time`, departures). float16 when `relative_arrival_times` (the bounded default), else float32. Auto-falls back to float32 under absolute time or `incremental_loading`.
+- `TIME_DTYPE` - Time/departure arrays (`current_time`, departures). Always float32 by default: float16 departure decrements round to ulp bins and systematically under-decrement against exponentially distributed inter-arrival times, inflating occupancy and blocking (2× measured blocking on large topologies). `--time_dtype=float16` is an explicit opt-in (bounded relative times only).
 - `LARGE_INT_DTYPE` - Counters & large indices: `total_requests`/`total_timesteps`/`accepted_services` (stays int32)
 - `SMALL_INT_DTYPE` - Bounded indices, e.g. `required_slots` (int16 under mixed precision)
 - `BINARY_DTYPE` - Binary arrays, e.g. path–link incidence (int8 under mixed precision)
 - `INDEX_DTYPE` - Always int32 for JAX array indexing
 
-`--mixed_precision` shrinks the bulk/bounded tiers to cut env-state memory (~49%) while keeping NN compute/params and precision-sensitive arrays at float32; per-tier `--*_dtype` flags override the defaults. **Reclassification rule:** arrays that are *carried and incrementally mutated* (e.g. `link_slot_array`, departure) can be reclassified at their init site and stay consistent across the scan; arrays *recomputed from scratch each step* (action masks via `mask_slots`/select_action, graph node/edge features via `init_graph_tuple`/`update_graph_tuple`) take their dtype from the recompute, so **every** site that writes them back into the carried state must cast to the narrow dtype to match the init — otherwise the `lax.scan` carry dtype mismatches. The largest single array is `graph.edges` (E×S). `--differentiable` forces everything to float32 and takes precedence over `--mixed_precision`. See `xlron/dtype_config_test.py`.
+`--mixed_precision` shrinks the bulk/bounded tiers to cut env-state memory (~35%) while keeping NN compute/params, time/departure arrays and precision-sensitive arrays at float32; per-tier `--*_dtype` flags override the defaults. **Reclassification rule:** arrays that are *carried and incrementally mutated* (e.g. `link_slot_array`, departure) can be reclassified at their init site and stay consistent across the scan; arrays *recomputed from scratch each step* (action masks via `mask_slots`/select_action, graph node/edge features via `init_graph_tuple`/`update_graph_tuple`) take their dtype from the recompute, so **every** site that writes them back into the carried state must cast to the narrow dtype to match the init — otherwise the `lax.scan` carry dtype mismatches. The largest single array is `graph.edges` (E×S). `--differentiable` forces everything to float32 and takes precedence over `--mixed_precision`. See `xlron/dtype_config_test.py`.

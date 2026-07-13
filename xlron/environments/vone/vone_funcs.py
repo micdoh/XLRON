@@ -3,7 +3,7 @@ from functools import partial
 import chex
 import jax
 import jax.numpy as jnp
-from jax._src.typing import Array
+from jax import Array
 
 from xlron import dtype_config
 from xlron.environments.dataclasses import (
@@ -83,7 +83,9 @@ def check_topology(action_history, topology_pattern):
         topology_pattern,
     )
     check = jnp.concatenate((check_virtual, check_physical))
-    return jnp.any(check)
+    # Padding positions of shorter (zero-padded) topology patterns keep the -1 sentinel in
+    # check_virtual (they are never visited by loop_func_virtual), so only count failures (1s)
+    return jnp.any(check > 0)
 
 
 def implement_node_action(
@@ -276,11 +278,22 @@ def init_vone_request_array(params: VONEEnvParams):
 @partial(jax.jit, static_argnums=(0,))
 def init_node_capacity_array(params: VONEEnvParams):
     """Initialize node array with uniform resources.
+
+    Carried and incrementally mutated: every write-back (implement_node_action,
+    undo_node_action, remove_expired_node_requests) adds float32 node_resource_array
+    sums, so the carry must start at LARGE_FLOAT too. An integer init only survives
+    until the first expiry sweep in continuous mode, and under incremental_loading
+    (no sweep) it reaches implement_vone_action's lax.cond as int32 against the
+    float32 implement_node_action branch — trace-time dtype mismatch. Capacities are
+    small integers, exact in float32.
+
     Args:
         params (EnvParams): Environment parameters
     Returns:
         jnp.array: Node capacity array (N x 1) where N is number of nodes"""
-    return jnp.array([params.node_resources] * params.num_nodes, dtype=dtype_config.LARGE_INT_DTYPE)
+    return jnp.array(
+        [params.node_resources] * params.num_nodes, dtype=dtype_config.LARGE_FLOAT_DTYPE
+    )
 
 
 @partial(jax.jit, static_argnums=(0,))
@@ -365,7 +378,10 @@ def generate_vone_request(key: chex.PRNGKey, state: VONEEnvState, params: VONEEn
 def undo_link_action_vone(state: VONEEnvState) -> VONEEnvState:
     """Undo tentative link slot assignments for VONE.
     Tentative assignments are indicated by negative values in link_slot_array and
-    link_slot_departure_array. Reset these to zero.
+    link_slot_departure_array. Add back the departure delta that the tentative placement
+    subtracted (mirrors complete_step_rsa), so that slots occupied by previously finalised
+    services recover their original positive departure times instead of being zeroed
+    (which would free the still-active service on the next expiry sweep).
 
     Args:
         state: Environment state
@@ -373,11 +389,18 @@ def undo_link_action_vone(state: VONEEnvState) -> VONEEnvState:
     Returns:
         Updated environment state
     """
+    # current_time/holding_time still hold the failing request's values here
+    # (they are only advanced afterwards, in generate_vone_request)
+    departure_delta = state.current_time + state.holding_time
     mask = jnp.where(state.link_slot_departure_array < zero, one, zero)
     mask = jnp.where(state.link_slot_array < -one, one, mask)
     state = state.replace(
         link_slot_array=jnp.where(mask == one, state.link_slot_array + one, state.link_slot_array),
-        link_slot_departure_array=jnp.where(mask == one, zero, state.link_slot_departure_array),
+        link_slot_departure_array=jnp.where(
+            mask == one,
+            state.link_slot_departure_array + departure_delta,
+            state.link_slot_departure_array,
+        ),
     )
     return state
 
@@ -711,11 +734,14 @@ def mask_nodes(state: VONEEnvState, num_nodes: chex.Scalar) -> VONEEnvState:
         def update_slice(j, x):
             return jax.lax.dynamic_update_slice_in_dim(x, jnp.array([0.0]), j, axis=0)
 
+        # action_history is float (LARGE_FLOAT_DTYPE); cast to int for use as a slice index
         val = jax.lax.cond(
             i % 2 == 0,
-            lambda x: update_slice(x[0][i], x[1]),  # i is node request index
             lambda x: update_slice(
-                x[0][i + 1], x[1]
+                x[0][i].astype(dtype_config.INDEX_DTYPE), x[1]
+            ),  # i is node request index
+            lambda x: update_slice(
+                x[0][i + 1].astype(dtype_config.INDEX_DTYPE), x[1]
             ),  # i is slot request index (so add 1 to get next node)
             (state.action_history, val),
         )

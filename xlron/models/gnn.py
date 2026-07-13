@@ -832,6 +832,7 @@ class ActorGNN(eqx.Module):
 
     graph_net: GraphNet
     power_mlp: Optional[eqx.nn.MLP]
+    vone_path_mlp: Optional[eqx.nn.MLP]
 
     # Static configuration
     activation: str = eqx.field(static=True)
@@ -886,6 +887,8 @@ class ActorGNN(eqx.Module):
         min_concentration: float = 0.1,
         max_concentration: float = 20.0,
         epsilon: float = 1e-6,
+        vone_heads: bool = False,
+        k_paths: int = 0,
         *,
         key: Array,
     ):
@@ -902,7 +905,7 @@ class ActorGNN(eqx.Module):
         self.max_concentration = max_concentration
         self.epsilon = epsilon
 
-        gnn_key, mlp_key = jax.random.split(key)
+        gnn_key, mlp_key, vone_key = jax.random.split(key, 3)
 
         self.graph_net = GraphNet(
             input_edge_features=input_edge_features,
@@ -947,6 +950,28 @@ class ActorGNN(eqx.Module):
             key=mlp_key,
         )
 
+        # VONE per-head readout. The path-slot head cannot be indexed by (source, dest)
+        # like the RSA readout: VONE samples the physical source/dest nodes downstream
+        # from the node heads, so at model-call time no (s, d) pair exists yet (the MLP
+        # baseline has the same property). Instead, an MLP over mean-pooled edge features
+        # emits the k_paths * edge_output_size path-slot logits; source/dest logits come
+        # from the node decoder (node_output_size must be 2: [source col | dest col]).
+        if vone_heads:
+            assert k_paths > 0, "k_paths must be set for the VONE path-slot head"
+            assert node_output_size == 2, (
+                "VONE heads need node_output_size == 2 (source/dest logit columns)"
+            )
+            self.vone_path_mlp = eqx.nn.MLP(
+                in_size=edge_feat_size,
+                out_size=k_paths * edge_output_size,
+                width_size=num_units,
+                depth=num_layers,
+                activation=select_activation(activation),
+                key=vone_key,
+            )
+        else:
+            self.vone_path_mlp = None
+
     @property
     def num_power_levels(self):
         return int((self.max_power_dbm - self.min_power_dbm) / self.step_power_dbm) + 1
@@ -977,6 +1002,26 @@ class ActorGNN(eqx.Module):
                 / jnp.sum(params.link_length_array.val, promote_integers=False)
             )
 
+        if params.__class__.__name__ == "VONEEnvParams":
+            # VONE per-head readout, laid out to match the slicing in select_action /
+            # _loss_fn: [source(num_nodes) | dest(num_nodes) | path-slot(k * ceil(S/agg))
+            # | trailing no-op]. VONE's request row 0 holds node-capacity request values,
+            # not physical node indices, so the RSA (source, dest)-indexed path readout
+            # below is meaningless here; the physical source/dest are sampled downstream
+            # from the node heads.
+            assert self.vone_path_mlp is not None, (
+                "VONE requires ActorGNN built with vone_heads=True (see init_network)"
+            )
+            node_logits = processed_graph.nodes  # (num_nodes, 2) via node decoder
+            source_logits = node_logits[:, 0]
+            dest_logits = node_logits[:, 1]
+            # Mean-pool edges for scale-stable MLP input (no (s, d) to select a path by)
+            path_slot_logits = self.vone_path_mlp(jnp.mean(edge_features, axis=0))
+            logits = jnp.concatenate([source_logits, dest_logits, path_slot_logits])
+            if params.include_no_op:
+                logits = jnp.hstack([logits, jnp.array([-1e4])])
+            return distrax.Categorical(logits=logits / self.temperature)
+
         # Get current request
         nodes_sd, requested_bw = read_rsa_request(state.request_array)
 
@@ -990,7 +1035,14 @@ class ActorGNN(eqx.Module):
         path_action_dist = distrax.Categorical(logits=path_action_logits)
 
         power_action_dist = None
-        if params.__class__.__name__ == "RSAGNModelEnvParams":
+        # Only output a launch-power distribution when the RL agent controls launch power.
+        # launch_power_type is a static (pytree_node=False) str field on GNModelEnvParams,
+        # so this branch is resolved at trace time. With fixed/tabular/scaled launch power,
+        # downstream select_action/_loss_fn expect a bare path distribution.
+        if (
+            params.__class__.__name__ in ("RSAGNModelEnvParams", "RMSAGNModelEnvParams")
+            and getattr(params, "launch_power_type", None) == "rl"
+        ):
             if self.global_output_size > 0:
                 power_logits = processed_graph.globals.reshape((-1,)) / self.temperature  # ty: ignore[unresolved-attribute]
             else:
@@ -1004,10 +1056,13 @@ class ActorGNN(eqx.Module):
             if self.discrete:
                 power_action_dist = distrax.Categorical(logits=power_logits)
             else:
-                alpha = self.min_concentration + jax.nn.softplus(power_logits) * (
+                # The power head outputs 2 components per path: one parameterises alpha, the
+                # other beta (mirrors LaunchPowerActorCriticMLP). Splitting them gives a Beta
+                # with batch shape (k_paths,) whose mean the agent can actually learn.
+                alpha = self.min_concentration + jax.nn.softplus(power_logits[..., 0]) * (
                     self.max_concentration - self.min_concentration
                 )
-                beta = self.min_concentration + jax.nn.softplus(power_logits) * (
+                beta = self.min_concentration + jax.nn.softplus(power_logits[..., 1]) * (
                     self.max_concentration - self.min_concentration
                 )
                 power_action_dist = distrax.Beta(alpha, beta)
@@ -1077,6 +1132,8 @@ class ActorCriticGNN(eqx.Module):
         epsilon: float = 1e-6,
         output_path: bool = True,
         output_power: bool = True,
+        vone_heads: bool = False,
+        k_paths: int = 0,
         *,
         key: Array,
     ):
@@ -1129,6 +1186,8 @@ class ActorCriticGNN(eqx.Module):
             min_concentration=min_concentration,
             max_concentration=max_concentration,
             epsilon=epsilon,
+            vone_heads=vone_heads,
+            k_paths=k_paths,
             key=actor_key,
         )
 
@@ -1191,7 +1250,7 @@ class ActorCriticGNN(eqx.Module):
     def sample_action_path(self, seed, dist, log_prob=False, deterministic=False):
         """Sample an action from the distribution."""
         action = (
-            jnp.argmax(dist.probs()).astype(dtype_config.INDEX_DTYPE)
+            dist.mode().astype(dtype_config.INDEX_DTYPE)
             if deterministic
             else dist.sample(seed=seed)
         )
@@ -1223,11 +1282,14 @@ class ActorCriticGNN(eqx.Module):
 
     def sample_action_path_power(self, seed, dist, log_prob=False, deterministic=False):
         """Sample an action from the distributions."""
+        # Independent keys per draw: reusing the same key couples the path and power samples,
+        # so the joint would not be the product of marginals that the summed log_prob assumes.
+        path_seed, power_seed = jax.random.split(seed)
         path_action = self.sample_action_path(
-            seed, dist[0], log_prob=log_prob, deterministic=deterministic
+            path_seed, dist[0], log_prob=log_prob, deterministic=deterministic
         )
         power_action = self.sample_action_power(
-            seed, dist[1], log_prob=log_prob, deterministic=deterministic
+            power_seed, dist[1], log_prob=log_prob, deterministic=deterministic
         )
         if log_prob:
             return path_action[0], power_action[0], path_action[1] + power_action[1]

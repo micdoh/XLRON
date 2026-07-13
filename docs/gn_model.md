@@ -432,6 +432,32 @@ The `rmsa_gn_model` environment tracks:
 
 It does not compute Shannon throughput (unlike `rsa_gn_model`).
 
+### Blocking-Cause Breakdown
+
+GN-model environments expose per-episode counters that record *why* requests were blocked,
+which distinguishes spectrum-limited from physics-limited operation (the key diagnostic for
+launch-power/margin tuning and for interpreting RL-vs-heuristic gaps):
+
+- `blocked_spectrum`: blocked because no free contiguous spectrum was available (the RSA validity check failed)
+- `blocked_snr`: blocked because the SNR feasibility check failed (the new lightpath or an existing lightpath would fall below its modulation format's required SNR)
+- `blocked_power`: blocked because the total power on a fibre would exceed `max_power_per_fibre`
+
+A blocked request is attributed to exactly one cause, with priority spectrum > SNR > power
+(a spectrum collision corrupts the tentatively-placed GN state, so SNR/power failures on such a
+step would be spurious). The counters are therefore mutually exclusive and sum to the total
+number of blocked requests. Like `accepted_services`, they accumulate within an episode and
+reset with it.
+
+For `rmsa_gn_model`, all three causes are counted from the step-time acceptance checks. For
+`rsa_gn_model`, SNR feasibility is enforced in the action mask rather than the step-time
+acceptance check, so all blocks are attributed to `blocked_spectrum` and the other two
+counters stay zero.
+
+The counters are reported in the step `info` dict (and thus to W&B and the episode CSV),
+along with derived per-request rates `spectrum_blocking_probability`,
+`snr_blocking_probability` and `power_blocking_probability`, which sum to
+`service_blocking_probability`. Non-GN environments do not report these metrics.
+
 
 ---
 

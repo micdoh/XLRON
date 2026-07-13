@@ -280,7 +280,11 @@ class RsaResetTest(chex.TestCase):
 class RsaActionMaskTest(chex.TestCase):
     def setUp(self):
         super().setUp()
-        self.key, self.env, self.obs, self.state, self.params = rwa_4node_test_setup()
+        # Expected masks below include the trailing no-op action, so pin
+        # include_no_op=True (the flag default, now applied to dict configs too, is False).
+        self.key, self.env, self.obs, self.state, self.params = rwa_4node_test_setup(
+            include_no_op=True
+        )
 
     @chex.all_variants()
     @parameterized.named_parameters(
@@ -442,8 +446,8 @@ class RsaActionMaskTest(chex.TestCase):
         ),
     )
     def test_rsa_action_mask_3_slot_request(self, request_array, link_slot_array, expected):
-        self.key, self.env, self.obs, self.state, self.params = (
-            rsa_4node_3_slot_request_test_setup()
+        self.key, self.env, self.obs, self.state, self.params = rsa_4node_3_slot_request_test_setup(
+            include_no_op=True
         )
         self.state = self.state.replace(
             request_array=request_array, link_slot_array=link_slot_array
@@ -694,7 +698,13 @@ class RsaActionMaskTest(chex.TestCase):
         self, request_array, consider_mod, link_slot_array, expected
     ):
         self.key, self.env, self.obs, self.state, self.params = rsa_nsfnet_16_test_setup(
-            guardband=0, env_type="rmsa"
+            guardband=0,
+            env_type="rmsa",
+            include_no_op=True,
+            # Expectations were computed with this modulations table (the
+            # pre-unification implicit default); the flag default is now
+            # modulations_deeprmsa.csv, so pin it explicitly.
+            modulations_csv_filepath="./xlron/data/modulations/modulations.csv",
         )
         self.state = self.state.replace(
             request_array=request_array, link_slot_array=link_slot_array
@@ -705,6 +715,240 @@ class RsaActionMaskTest(chex.TestCase):
             self.env.action_mask, static_argnums=(1,)
         )(self.state, self.params)
         chex.assert_trees_all_close(link_slot_mask, expected)
+
+
+class RewardTypeBitrateTest(chex.TestCase):
+    """Regression tests for reward_type='bitrate'.
+
+    The success reward was previously zeroed by multiplying the bitrate by the
+    zero-initialised reward, so a successful step returned 0 while a failure
+    returned -bitrate/max(values_bw) (asymmetric, no positive reinforcement).
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.key, self.env, self.obs, self.state, self.params = rsa_4node_3_slot_request_test_setup(
+            reward_type="bitrate"
+        )
+
+    @chex.all_variants()
+    def test_success_reward_is_normalised_bitrate(self):
+        # values_bw=[3], so a successful placement gives 3 / max([3]) = 1.0
+        obs, state, reward, done, truncated, info = self.variant(
+            self.env.step, static_argnums=(3,)
+        )(self.key, self.state, jnp.array(0), self.params)
+        chex.assert_trees_all_close(reward, jnp.array(1.0, dtype=reward.dtype))
+
+    @chex.all_variants()
+    def test_failure_reward_is_negative_normalised_bitrate(self):
+        # Force a blocked action by filling the network
+        state = self.state.replace(link_slot_array=jnp.ones_like(self.state.link_slot_array))
+        obs, state, reward, done, truncated, info = self.variant(
+            self.env.step, static_argnums=(3,)
+        )(self.key, state, jnp.array(0), self.params)
+        chex.assert_trees_all_close(reward, jnp.array(-1.0, dtype=reward.dtype))
+
+
+class EndFirstBlockingBitrateTest(chex.TestCase):
+    """Regression test: with end_first_blocking + reward_type='bitrate', is_terminal
+    used to compare the reward against the failure reward of the NEXT request (the
+    request array is regenerated before is_terminal runs), so blocked steps were not
+    terminal whenever consecutive request bitrates differed.
+    """
+
+    def setUp(self):
+        super().setUp()
+        settings = settings_rwa_4node()
+        settings.update(
+            env_type="rsa",
+            values_bw=[1, 3],
+            link_resources=5,
+            incremental_loading=True,
+            end_first_blocking=True,
+            reward_type="bitrate",
+        )
+        self.key = jax.random.PRNGKey(0)
+        self.env, self.params = make(settings, log_wrapper=False)
+        self.obs, self.state = self.env.reset(self.key, self.params)
+
+    def test_blocked_step_is_terminal(self):
+        step = jax.jit(self.env.step, static_argnums=(3,))
+        state = self.state
+        rng = self.key
+        bitrates = []
+        for _ in range(10):
+            rng, key_step = jax.random.split(rng)
+            # Force every action to be blocked by filling the network
+            state = state.replace(link_slot_array=jnp.ones_like(state.link_slot_array))
+            # Read the current bitrate before stepping (step donates state buffers)
+            bitrates.append(float(state.request_array[1]))
+            obs, state, reward, done, truncated, info = step(
+                key_step, state, jnp.array(0), self.params
+            )
+            self.assertLess(float(reward), 0.0)
+            self.assertTrue(bool(done), "Blocked step must terminate with end_first_blocking")
+        # Sanity: the traffic contains different bitrates, so the pre-fix behavior
+        # (terminal only when consecutive bitrates match) would have failed above
+        self.assertGreater(len(set(bitrates)), 1)
+
+
+def rsa_multiband_4node_test_setup(**kwargs):
+    settings = dict(
+        load=100,
+        k=2,
+        topology_name="4node",
+        link_resources=20,
+        max_requests=10,
+        mean_service_holding_time=10,
+        env_type="rsa_multiband",
+        values_bw=[25],
+        slot_size=12.5,
+        guardband=0,
+        # 25 GHz gap starting at 100 GHz -> 2-slot gap at slots 8-9
+        interband_gap_width=[25],
+        interband_gap_start=[100],
+        # These tests exercise the custom interband_gap_* branch, which is only
+        # reached when enforce_band_gaps is off (the flag default, now applied to
+        # dict configs too, is True = CSV-derived band gaps).
+        enforce_band_gaps=False,
+    )
+    settings.update(kwargs)
+    key = jax.random.PRNGKey(0)
+    env, params = make(settings, log_wrapper=False)
+    obs, state = env.reset(key, params)
+    return key, env, obs, state, params
+
+
+class RsaMultibandBandGapTest(chex.TestCase):
+    def setUp(self):
+        super().setUp()
+        (
+            self.key,
+            self.env,
+            self.obs,
+            self.state,
+            self.params,
+        ) = rsa_multiband_4node_test_setup()
+
+    def test_custom_gap_flags_respected(self):
+        """--interband_gap_width/--interband_gap_start must produce the requested gaps.
+
+        Regression: an inverted conditional in make() discarded user-supplied values
+        (yielding no gaps at all) and only ever applied the hardcoded defaults."""
+        chex.assert_trees_all_equal(self.params.gap_starts.val, jnp.array([8]))
+        chex.assert_trees_all_equal(self.params.gap_widths.val, jnp.array([2]))
+        self.assertTrue(jnp.all(self.state.link_slot_array[:, 8:10] == -1))
+        self.assertTrue(jnp.all(self.state.link_slot_array[:, :8] == 0))
+        self.assertTrue(jnp.all(self.state.link_slot_array[:, 10:] == 0))
+
+    def test_default_gaps_when_flags_unset(self):
+        """Without gap flags, the [200, 200] GHz @ [4425, 8425] GHz defaults apply."""
+        _, _, _, _, params = rsa_multiband_4node_test_setup(
+            interband_gap_width=None, interband_gap_start=None
+        )
+        chex.assert_trees_all_equal(params.gap_starts.val, jnp.array([354, 674]))
+        chex.assert_trees_all_equal(params.gap_widths.val, jnp.array([16, 16]))
+
+    def test_expiry_preserves_gap_sentinels(self):
+        """remove_expired_services_rsa must clear expired services but keep -1 gaps.
+
+        Regression: link_slot_array was multiplied by keep=(dep > t), and gap slots
+        carry dep == 0, so the first expiry pass erased the sentinels and opened the
+        inter-band gaps to placement."""
+        lsa = self.state.link_slot_array
+        dep = self.state.link_slot_departure_array
+        # Occupy slot 0 on link 0 with a service departing at t=5, then expire at t=10
+        lsa = lsa.at[0, 0].set(jnp.asarray(1, dtype=lsa.dtype))
+        dep = dep.at[0, 0].set(jnp.asarray(5, dtype=dep.dtype))
+        t = jnp.asarray(10)
+        state = self.state.replace(
+            link_slot_array=lsa,
+            link_slot_departure_array=dep,
+            current_time=t.astype(self.state.current_time.dtype),
+            arrival_time=t.astype(self.state.arrival_time.dtype),
+        )
+        new_state = remove_expired_services_rsa(state, self.params)
+        self.assertEqual(float(new_state.link_slot_array[0, 0]), 0.0)  # ty: ignore[unresolved-attribute]
+        self.assertTrue(jnp.all(new_state.link_slot_departure_array == 0))  # ty: ignore[unresolved-attribute]
+        self.assertTrue(
+            jnp.all(new_state.link_slot_array[:, 8:10] == -1),  # ty: ignore[unresolved-attribute]
+            f"Gap sentinels erased by expiry: {new_state.link_slot_array}",  # ty: ignore[unresolved-attribute]
+        )
+
+    def test_utilisation_excludes_gap_slots(self):
+        """Utilisation must count only positively-occupied slots over usable slots."""
+        mask, _ = self.env.action_mask(self.state, self.params)
+        self.assertTrue(bool(jnp.any(mask > 0)))
+        action = jnp.argmax(mask)
+        _, new_state, _, _, _, info = self.env.step(self.key, self.state, action, self.params)
+        lsa = np.asarray(new_state.link_slot_array)
+        occupied = np.count_nonzero(lsa > 0)
+        usable = np.count_nonzero(lsa >= 0)
+        # Gap slots (2 per link) are excluded from the usable spectrum
+        self.assertEqual(usable, lsa.size - 2 * lsa.shape[0])
+        self.assertGreater(occupied, 0)
+        chex.assert_trees_all_close(
+            info["_utilisation"], jnp.asarray(occupied / usable, dtype=info["_utilisation"].dtype)
+        )
+
+
+class RsaResetPreservesTrafficParamsTest(chex.TestCase):
+    """Regression tests for the episodic load-sweep bug: runtime-patched
+    arrival_rate/mean_service_holding_time (as set by the load sweep in
+    train.py) must survive episode auto-resets instead of reverting to the
+    construction-time values baked into initial_state."""
+
+    def setUp(self):
+        super().setUp()
+        # rwa_4node settings are episodic (max_requests=10, no continuous_operation)
+        self.key, self.env, self.obs, self.state, self.params = rwa_4node_test_setup()
+
+    def test_auto_reset_preserves_swept_traffic_params(self):
+        # Patch the live state the way _update_experiment_input_load does
+        patched = self.state.replace(
+            arrival_rate=jnp.full_like(self.state.arrival_rate, 99.0),
+            mean_service_holding_time=jnp.full_like(self.state.mean_service_holding_time, 7.0),
+            # Next step's request generation reaches max_requests -> truncation
+            total_requests=jnp.array(
+                self.params.max_requests - 1, dtype=self.state.total_requests.dtype
+            ),
+        )
+        _, new_state, _, terminal, truncated, _ = self.env.step(
+            self.key, patched, jnp.array(0), self.params
+        )
+        self.assertTrue(bool(truncated | terminal))
+        chex.assert_trees_all_close(
+            new_state.arrival_rate, jnp.full_like(new_state.arrival_rate, 99.0)
+        )
+        chex.assert_trees_all_close(
+            new_state.mean_service_holding_time,
+            jnp.full_like(new_state.mean_service_holding_time, 7.0),
+        )
+
+    def test_fresh_reset_uses_params_values(self):
+        _, state = self.env.reset(self.key, self.params)
+        chex.assert_trees_all_close(
+            state.arrival_rate,
+            jnp.full_like(state.arrival_rate, self.params.arrival_rate),
+        )
+        chex.assert_trees_all_close(
+            state.mean_service_holding_time,
+            jnp.full_like(state.mean_service_holding_time, self.params.mean_service_holding_time),
+        )
+
+    def test_reset_env_with_state_preserves_traffic_params(self):
+        patched = self.state.replace(
+            arrival_rate=jnp.full_like(self.state.arrival_rate, 42.5),
+            mean_service_holding_time=jnp.full_like(self.state.mean_service_holding_time, 3.0),
+        )
+        _, state = self.env.reset_env(self.key, self.params, patched)
+        chex.assert_trees_all_close(state.arrival_rate, jnp.full_like(state.arrival_rate, 42.5))
+        chex.assert_trees_all_close(
+            state.mean_service_holding_time,
+            jnp.full_like(state.mean_service_holding_time, 3.0),
+        )
+        # Everything else resets: spectrum empty, counters back to start
+        chex.assert_trees_all_close(state.link_slot_array, jnp.zeros_like(state.link_slot_array))
 
 
 if __name__ == "__main__":

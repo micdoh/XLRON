@@ -65,8 +65,16 @@ metrics = [
     "accepted_bitrate",
     "total_bitrate",
     "utilisation",
+    "fragmentation",
     "service_blocking_probability",
     "bitrate_blocking_probability",
+    # Blocking-cause breakdown (GN-model envs only; keys absent for other env types)
+    "blocked_spectrum",
+    "blocked_snr",
+    "blocked_power",
+    "spectrum_blocking_probability",
+    "snr_blocking_probability",
+    "power_blocking_probability",
     "throughput",  # Only for RSA GN Model
     "launch_power",
     "path_snr",
@@ -102,6 +110,13 @@ loss_metrics = [
 reward_centering_metrics = [
     "reward_centering/avg_reward",
     "reward_centering/value_mean",
+]
+
+# Prioritized experience replay diagnostics (always populated in loss_info by ppo.py)
+prioritization_metrics = [
+    "prioritization/beta",
+    "prioritization/priority_mean",
+    "prioritization/priority_std",
 ]
 
 
@@ -574,7 +589,14 @@ def save_model(model: eqx.Module, config: Box, first_save: bool = True) -> pathl
 
 
 def init_network(config: Box, key: chex.PRNGKey) -> eqx.Module:
-    if config.env_type.lower() == "vone":
+    if config.env_type.lower() == "vone" and config.USE_TRANSFORMER:
+        # Fail fast: the transformer emits per-path-slot logits only, but VONE's
+        # select_action/_loss_fn slice [source | dest | path-slot] heads.
+        raise NotImplementedError(
+            "env_type=vone supports MLP (default) and --USE_GNN policies; "
+            "--USE_TRANSFORMER is not implemented for VONE"
+        )
+    if config.env_type.lower() == "vone" and not config.USE_GNN:
         network = ActorCriticMLP(
             config.ACTION_DIM + (1 * config.include_no_op),  # +1 for "no op"
             config.INPUT_DIM,
@@ -593,6 +615,7 @@ def init_network(config: Box, key: chex.PRNGKey) -> eqx.Module:
         "rsa_gn_model",
         "rmsa_gn_model",
         "rsa_multiband",
+        "vone",  # vone only reaches here with USE_GNN (MLP handled above)
     ]:
         if config.USE_TRANSFORMER:
             # For transformer: input_size is the per-token feature dimension
@@ -631,21 +654,44 @@ def init_network(config: Box, key: chex.PRNGKey) -> eqx.Module:
                 actor_pooling=config.transformer_actor_pooling,
             )
         elif config.USE_GNN:
-            if "gn_model" in config.env_type.lower() and config.output_globals_size_actor > 0:
+            if "gn_model" in config.env_type.lower() and config.global_output_size_actor > 0:
+                # Discrete: one logit per power level. Continuous: 2 outputs (alpha, beta) for
+                # the Beta distribution.
                 global_output_size_actor = (
                     int((config.max_power - config.min_power) / config.step_power) + 1
                     if config.discrete_launch_power
-                    else 1
+                    else 2
                 )
             else:
                 global_output_size_actor = config.global_output_size_actor
-            input_node_feature_size = (
-                1
-                if config.DISABLE_NODE_FEATURES
-                else config.num_spectral_features + 2  # 2 for source/dest indicators
+            # Node feature width must match graph.nodes built by init_graph_tuple/
+            # update_graph_tuple: [spectral | source-dest(2)] for most envs; VONE
+            # prepends a node_capacity column ([capacity(1) | spectral | source-dest(2)]).
+            # DISABLE_NODE_FEATURES collapses to the width-1 zero placeholder.
+            if config.DISABLE_NODE_FEATURES:
+                input_node_feature_size = 1
+            else:
+                input_node_feature_size = (
+                    config.num_spectral_features + 2  # 2 for source/dest indicators
+                )
+                if config.env_type.lower() == "vone":
+                    input_node_feature_size += 1  # node_capacity column
+            # VONE per-head readout: source/dest logits come from a width-2 node decoder
+            # and the path-slot logits from a dedicated MLP head (see ActorGNN.__call__),
+            # matching the [source | dest | path-slot] slicing in select_action/_loss_fn.
+            vone_heads = config.env_type.lower() == "vone"
+            node_output_size_actor = 2 if vone_heads else config.node_output_size_actor
+            # Edge feature width must match graph.edges built by init_graph_tuple/
+            # update_graph_tuple: GN-model envs stack [normalized_snr, normalized_power]
+            # per slot (flattened to 2*link_resources at the GraphNet boundary); all other
+            # envs use link_slot_array/holding-time features (link_resources).
+            input_edge_feature_size = (
+                2 * config.link_resources
+                if "gn_model" in config.env_type.lower()
+                else config.link_resources
             )
             network = ActorCriticGNN(
-                config.link_resources,
+                input_edge_feature_size,
                 input_node_feature_size,
                 1,  # Global input feature is just normalized requested datarate
                 activation=config.ACTIVATION,
@@ -668,7 +714,7 @@ def init_network(config: Box, key: chex.PRNGKey) -> eqx.Module:
                 node_embedding_size=config.node_embedding_size,
                 node_mlp_layers=config.node_mlp_layers,
                 node_mlp_latent=config.node_mlp_latent,
-                node_output_size_actor=config.node_output_size_actor,
+                node_output_size_actor=node_output_size_actor,
                 node_output_size_critic=config.node_output_size_critic,
                 attn_mlp_layers=config.attn_mlp_layers,
                 attn_mlp_latent=config.attn_mlp_latent,
@@ -685,12 +731,14 @@ def init_network(config: Box, key: chex.PRNGKey) -> eqx.Module:
                 max_concentration=config.max_concentration,
                 epsilon=config.EPSILON,
                 vmap=False,
+                vone_heads=vone_heads,
+                k_paths=config.k,
                 key=key,
             )
-        elif "gn_model" in config.env_type.lower() and config.launch_power_type == 3:
+        elif "gn_model" in config.env_type.lower() and config.launch_power_type == "rl":
             network = LaunchPowerActorCriticMLP(
-                config.INPUT_DIM,
                 config.ACTION_DIM + (1 * config.include_no_op),  # +1 for "no op"
+                config.INPUT_DIM,
                 activation=config.ACTIVATION,
                 num_layers=config.NUM_LAYERS,
                 num_units=config.NUM_UNITS,
@@ -699,7 +747,7 @@ def init_network(config: Box, key: chex.PRNGKey) -> eqx.Module:
                 min_power_dbm=config.min_power,
                 max_power_dbm=config.max_power,
                 step_power_dbm=config.step_power,
-                k_paths=config.k_paths,
+                k_paths=config.k,
                 key=key,
             )
         else:
@@ -830,6 +878,47 @@ def _make_multi_transform_optimizer(config: Box, actor_lr_schedule, vf_lr_schedu
     return actor_optimizer, critic_optimizer
 
 
+def reset_warmup_metric_counters(env_state):
+    """Zero the metric counters accumulated during warmup.
+
+    With continuous_operation the env is never reset, so the cumulative counters
+    (accepted_services, accepted_bitrate, total_bitrate, and the GN-model
+    blocked_spectrum/blocked_snr/blocked_power counters) and the LogWrapper's
+    lengths/cum_returns would otherwise include the near-zero-blocking network-fill
+    transient, biasing every logged blocking probability (ENV_WARMUP_STEPS is
+    documented as 'steps before collecting stats'). These fields are metrics-only;
+    total_requests, which drives episode truncation, is deliberately kept.
+    jnp.zeros_like preserves per-env shapes and dtypes for the jitted learner.
+    """
+    inner_state = env_state.env_state
+    inner_updates = dict(
+        accepted_services=jnp.zeros_like(inner_state.accepted_services),
+        accepted_bitrate=jnp.zeros_like(inner_state.accepted_bitrate),
+        total_bitrate=jnp.zeros_like(inner_state.total_bitrate),
+    )
+    # GN-model env states also carry cumulative blocking-cause counters; zero them so
+    # spectrum/snr/power_blocking_probability exclude the warmup transient and keep
+    # summing to service_blocking_probability. hasattr inspects the static pytree
+    # structure (not traced values), so this branch is jit-safe.
+    if hasattr(inner_state, "blocked_spectrum"):
+        inner_updates.update(
+            blocked_spectrum=jnp.zeros_like(inner_state.blocked_spectrum),
+            blocked_snr=jnp.zeros_like(inner_state.blocked_snr),
+            blocked_power=jnp.zeros_like(inner_state.blocked_power),
+        )
+    return env_state.replace(
+        lengths=jnp.zeros_like(env_state.lengths),
+        cum_returns=jnp.zeros_like(env_state.cum_returns),
+        accepted_services=jnp.zeros_like(env_state.accepted_services),
+        accepted_bitrate=jnp.zeros_like(env_state.accepted_bitrate),
+        total_bitrate=jnp.zeros_like(env_state.total_bitrate),
+        blocked_spectrum=jnp.zeros_like(env_state.blocked_spectrum),
+        blocked_snr=jnp.zeros_like(env_state.blocked_snr),
+        blocked_power=jnp.zeros_like(env_state.blocked_power),
+        env_state=inner_state.replace(**inner_updates),
+    )
+
+
 def experiment_data_setup(config: Box, rng: chex.PRNGKey) -> Tuple:
     # INIT ENV
     env, env_params = make(config)
@@ -915,6 +1004,9 @@ def experiment_data_setup(config: Box, rng: chex.PRNGKey) -> Tuple:
     warmup_fn = jax.vmap(warmup_fn) if config.NUM_ENVS > 1 else warmup_fn
     env_state, obsv = warmup_fn(warmup_state)
 
+    if config.ENV_WARMUP_STEPS:
+        env_state = reset_warmup_metric_counters(env_state)
+
     # Initialise eval state
     init_runner_state = (runner_state, env_state, obsv, rng_step, rng_epoch)
 
@@ -936,6 +1028,18 @@ def cast_model_for_compute(model: eqx.Module) -> eqx.Module:
     return jax.tree_util.tree_map(
         lambda x: x.astype(dtype_config.COMPUTE_DTYPE) if eqx.is_inexact_array(x) else x,
         model,
+    )
+
+
+def _as_launch_power_array(power_action: Array, env_params) -> Array:
+    """Normalise a sampled power action to the carried launch_power_array format.
+
+    The carried array is shape (k_paths,) at LARGE_FLOAT_DTYPE (see make_env.py); sampled
+    powers may be scalar (global head), (1,) (fixed default) or (k_paths,) (per-path head),
+    so broadcast and cast to keep the lax.scan carry shape/dtype stable.
+    """
+    return jnp.broadcast_to(power_action.reshape(-1), (env_params.k_paths,)).astype(
+        dtype_config.LARGE_FLOAT_DTYPE
     )
 
 
@@ -971,84 +1075,105 @@ def select_action(select_action_state, env, env_params, train_state, config):
 
     # Always do action masking with VONE
     if config.env_type.lower() == "vone":
-        # TODO - change this to work with single set of logits (probably just slice them)
-        vmap_mask_nodes = jax.vmap(env.action_mask_nodes, in_axes=(0, None))
-        vmap_mask_slots = jax.vmap(env.action_mask_slots, in_axes=(0, None, 0))
-        vmap_mask_dest_node = jax.vmap(env.action_mask_dest_node, in_axes=(0, None, 0))
+        # The single set of logits is sliced into three heads. Layout matches
+        # VONEEnv.num_actions: [source nodes | dest nodes | path-slot actions]
+        # (a trailing no-op logit, if include_no_op, belongs to no head).
+        # select_action operates on a single (unbatched) env state; batching over
+        # NUM_ENVS is applied by the outer vmap of _env_step in ppo.py.
+        num_nodes = env_params.num_nodes
+        source_logits = pi._logits[..., :num_nodes]
+        dest_logits = pi._logits[..., num_nodes : 2 * num_nodes]
+        key_s, key_p, key_d = jax.random.split(action_key, 3)
 
-        env_state = env_state.replace(env_state=vmap_mask_nodes(env_state.env_state, env_params))
+        inner_state = env.action_mask_nodes(env_state.env_state, env_params)
         pi_source = distrax.Categorical(
-            logits=pi._logits + (-1e8 * (1 - env_state.env_state.node_mask_s.astype(jnp.float32)))
+            logits=source_logits + (-1e8 * (1 - inner_state.node_mask_s.astype(jnp.float32)))
         )
-
-        action_s = (
-            pi_source.sample(seed=action_key) if not config.deterministic else pi_source.mode()
-        )
+        action_s = pi_source.sample(seed=key_s) if not config.deterministic else pi_source.mode()
 
         # Update destination mask now source has been selected
-        env_state = env_state.replace(
-            env_state=vmap_mask_dest_node(env_state.env_state, env_params, action_s)
-        )
+        inner_state = env.action_mask_dest_node(inner_state, env_params, action_s)
         pi_dest = distrax.Categorical(
-            logits=pi._logits + (-1e8 * (1 - env_state.env_state.node_mask_d.astype(jnp.float32)))
+            logits=dest_logits + (-1e8 * (1 - inner_state.node_mask_d.astype(jnp.float32)))
         )
+        action_d = pi_dest.sample(seed=key_d) if not config.deterministic else pi_dest.mode()
 
-        action_p = jnp.full(action_s.shape, 0)
-        action_d = pi_dest.sample(seed=action_key) if not config.deterministic else pi_dest.mode()
-        action = jnp.stack((action_s, action_p, action_d), axis=1)
-
-        env_state = env_state.replace(
-            env_state=vmap_mask_slots(env_state.env_state, env_params, action)
-        )
+        action = jnp.stack((action_s, jnp.zeros_like(action_s), action_d))
+        inner_state = env.action_mask_slots(inner_state, env_params, action)
+        path_dim = inner_state.link_slot_mask.shape[-1]
+        path_logits = pi._logits[..., 2 * num_nodes : 2 * num_nodes + path_dim]
         pi_path = distrax.Categorical(
-            logits=pi._logits
-            + (-1e8 * (1 - env_state.env_state.link_slot_mask.astype(jnp.float32)))
+            logits=path_logits + (-1e8 * (1 - inner_state.link_slot_mask.astype(jnp.float32)))
         )
-        action_p = pi_path.sample(seed=action_key) if not config.deterministic else pi_path.mode()
-        action = jnp.stack((action_s, action_p, action_d), axis=1)
+        action_p = pi_path.sample(seed=key_p) if not config.deterministic else pi_path.mode()
+        action = jnp.stack((action_s, action_p, action_d))
 
         log_prob_source = pi_source.log_prob(action_s)
         log_prob_path = pi_path.log_prob(action_p)
         log_prob_dest = pi_dest.log_prob(action_d)
         log_prob = log_prob_dest + log_prob_path + log_prob_source
-        probs = jax.nn.softmax(pi._logits, axis=-1)
-        valid_mass = jnp.sum(probs * action_mask, axis=-1)
+        env_state = env_state.replace(env_state=inner_state)
+        # Overwrite the (stale) pre-branch masks with the freshly computed path masks so the
+        # final state update below stores them; valid_mass mirrors the RSA path-head semantics.
+        action_mask = inner_state.link_slot_mask
+        full_action_mask = inner_state.full_link_slot_mask
+        probs = jax.nn.softmax(path_logits, axis=-1)
+        valid_mass = jnp.sum(probs * action_mask.astype(jnp.float32), axis=-1)
 
     elif "gn_model" in config.env_type.lower() and config.launch_power_type == "rl":
-        pi_masked = distrax.Categorical(
-            logits=pi[0]._logits + (-1e8 * (1 - action_mask.astype(jnp.float32)))
-        )
+        # Sampling dispatches to the model's own sample_action* methods (the models know how
+        # to convert raw samples to power levels); LaunchPowerActorCriticMLP returns
+        # (None, power_dist) so the path logits/mask only exist when the GNN outputs RSA.
         if config.GNN_OUTPUT_RSA and not config.GNN_OUTPUT_LP:
-            path_action, log_prob = train_state.sample_fn(
+            pi_masked = distrax.Categorical(
+                logits=pi[0]._logits + (-1e8 * (1 - action_mask.astype(jnp.float32)))
+            )
+            path_action, log_prob = model.sample_action_path(  # ty: ignore[unresolved-attribute]
                 action_key, pi_masked, log_prob=True, deterministic=config.deterministic
             )
             power_action = jnp.array([env_params.default_launch_power])
         elif config.GNN_OUTPUT_RSA and config.GNN_OUTPUT_LP:
-            path_action, power_action, log_prob = train_state.sample_fn(
+            pi_masked = distrax.Categorical(
+                logits=pi[0]._logits + (-1e8 * (1 - action_mask.astype(jnp.float32)))
+            )
+            path_action, power_action, log_prob = model.sample_action_path_power(  # ty: ignore[unresolved-attribute]
                 action_key,
                 (pi_masked, pi[1]),
                 log_prob=True,
                 deterministic=config.deterministic,
             )
         else:
-            power_action, log_prob = train_state.sample_fn(
+            # Power-only policy: path selected by heuristic (needs launch power set first)
+            power_sample_fn = getattr(model, "sample_action_power", model.sample_action)  # ty: ignore[unresolved-attribute]
+            power_action, log_prob = power_sample_fn(
                 action_key, pi[1], log_prob=True, deterministic=config.deterministic
             )
-            inner_state = env_state.env_state.replace(launch_power_array=power_action)
+            inner_state = env_state.env_state.replace(
+                launch_power_array=_as_launch_power_array(power_action, env_params)
+            )
             env_state = env_state.replace(env_state=inner_state)
             path_action = (
                 ksp_lf(env_state.env_state, env_params)
                 if env_params.last_fit is True
                 else ksp_ff(env_state.env_state, env_params)
             )
-        inner_state = env_state.env_state.replace(launch_power_array=power_action)
+        inner_state = env_state.env_state.replace(
+            launch_power_array=_as_launch_power_array(power_action, env_params)
+        )
         env_state = env_state.replace(env_state=inner_state)
-        if config.output_globals_size_actor == 0:
+        if config.global_output_size_actor == 0 and (
+            config.GNN_OUTPUT_LP or not config.GNN_OUTPUT_RSA
+        ):
+            # Per-path power head: keep only the sampled path's power/log_prob
             path_index, _ = process_path_action(env_state.env_state, env_params, path_action)
             power_action, log_prob = power_action[path_index], log_prob[path_index]
         action = jnp.concatenate([path_action.reshape((1,)), power_action.reshape((1,))], axis=0)  # ty: ignore[unresolved-attribute]
-        probs = jax.nn.softmax(pi[0]._logits, axis=-1)
-        valid_mass = jnp.sum(probs * action_mask, axis=-1)
+        if config.GNN_OUTPUT_RSA:
+            probs = jax.nn.softmax(pi[0]._logits, axis=-1)
+            valid_mass = jnp.sum(probs * action_mask, axis=-1)
+        else:
+            # No learned path policy: the heuristic path choice is always valid
+            valid_mass = jnp.array(1.0, dtype=dtype_config.LARGE_FLOAT_DTYPE)
 
     else:
         pi_masked = distrax.Categorical(
@@ -1184,6 +1309,24 @@ def get_warmup_fn(warmup_state, env, params, train_state, config) -> Callable[[T
         )
     use_heuristic_warmup = config.EVAL_HEURISTIC or warmup_action_type == "heuristic"
     use_random_warmup = warmup_action_type == "random"
+    # select_action_eval dispatches to the heuristics on config.EVAL_HEURISTIC, so when
+    # heuristic warmup is requested during RL training we pass it a copy of the config
+    # with EVAL_HEURISTIC set. GN-model runs with RL launch power are exempt: their
+    # warmup path action is overwritten by the ksp_ff/ksp_lf override below, and
+    # select_action_eval rejects EVAL_HEURISTIC combined with launch_power_type='rl'.
+    warmup_config = config
+    if (
+        use_heuristic_warmup
+        and not config.EVAL_HEURISTIC
+        and not ("gn_model" in config.env_type.lower() and config.launch_power_type == "rl")
+    ):
+        if config.get("aggregate_slots", 1) > 1:
+            raise ValueError(
+                "warmup_action_type='heuristic' is not supported with aggregate_slots > 1: "
+                "heuristics emit full-resolution actions but the env decodes aggregated ones"
+            )
+        warmup_config = Box(config)
+        warmup_config.EVAL_HEURISTIC = True
 
     def warmup_fn(warmup_state) -> Tuple[EnvState, Array]:
         rng, state, last_obs = warmup_state
@@ -1199,11 +1342,17 @@ def get_warmup_fn(warmup_state, env, params, train_state, config) -> Callable[[T
                 action_mask = mask_result[0]
                 action = jax.random.categorical(action_key, jnp.log(jnp.maximum(action_mask, 1e-8)))
             else:
-                select_action_state = (_rng, _state, _last_obs)
-                action_fn = select_action if not use_heuristic_warmup else select_action_eval
-                _state, action, log_prob, value = action_fn(
-                    select_action_state, env, _params, _train_state, config
-                )
+                # Pass the dedicated action_key, not the loop-carry _rng (which is re-split
+                # next iteration and must never also be consumed for sampling).
+                select_action_state = (action_key, _state, _last_obs)
+                if use_heuristic_warmup:
+                    _state, action, log_prob, value = select_action_eval(
+                        select_action_state, env, _params, _train_state, warmup_config
+                    )
+                else:
+                    _state, action, log_prob, value = select_action(
+                        select_action_state, env, _params, _train_state, config
+                    )
             if "gn_model" in config.env_type.lower() and config.launch_power_type == "rl":
                 # If the action is launch power, the action is this shape:
                 # jnp.concatenate([path_action.reshape((1,)), power_action.reshape((1,))], axis=0)
@@ -1227,9 +1376,12 @@ def get_warmup_fn(warmup_state, env, params, train_state, config) -> Callable[[T
             elif (
                 "gn_model" in config.env_type.lower()
                 and config.launch_power_type != "rl"
+                and not config.USE_GNN
                 and not use_heuristic_warmup
                 and not use_random_warmup
             ):
+                # GNN policies emit plain path actions, which GN-model envs accept with
+                # non-RL launch power (process_action defaults the power element).
                 raise ValueError("Check that EVAL_HEURISTIC is set to True if using a heuristic")
             # STEP ENV
             obsv, _state, reward, terminal, truncated, info = env.step(
@@ -1249,6 +1401,62 @@ def get_warmup_fn(warmup_state, env, params, train_state, config) -> Callable[[T
         return vals[1], vals[4]
 
     return warmup_fn
+
+
+def get_sweep_rewarm_fn(env, env_params, config) -> Callable[[Tuple, chex.PRNGKey], Tuple]:
+    """Build a jitted re-equilibration function for load sweeps.
+
+    A load sweep reuses the compiled experiment across loads, but the network state
+    (link occupancy, departure times) in the base experiment_input was warmed up at
+    the original ``--load``. Starting every swept load from that state biases per-load
+    steady-state metrics: low loads inherit an over-full network (blocking
+    overestimated), high loads an under-full one (underestimated). The returned
+    function re-runs the ``ENV_WARMUP_STEPS`` warmup at the state's (already updated)
+    arrival rate, then zeroes the warmup metric counters so each swept load's metrics
+    exclude the re-equilibration transient. Build it once outside the load loop:
+    ``arrival_rate`` is a dynamic state leaf, so the single compilation is reused
+    across all loads (preserving the sweep's compile-once behaviour).
+
+    Args:
+        env: Environment (same one the experiment was compiled with)
+        env_params: Environment parameters
+        config: Config Box (reads ENV_WARMUP_STEPS, NUM_ENVS, NUM_LEARNERS, ...)
+
+    Returns:
+        Jitted function (experiment_input, warmup_key) -> experiment_input, where
+        experiment_input is (runner_state, env_state, obsv, rng_step, rng_epoch).
+        With NUM_LEARNERS > 1 the function is vmapped over the leading learner axis
+        and warmup_key must be a batch of NUM_LEARNERS keys.
+    """
+
+    def rewarm_fn(experiment_input: Tuple, warmup_key: chex.PRNGKey) -> Tuple:
+        runner_state, env_state, obsv, rng_step, rng_epoch = experiment_input
+        warmup_key = (
+            jax.random.split(warmup_key, config.NUM_ENVS) if config.NUM_ENVS > 1 else warmup_key
+        )
+        warmup_state = (warmup_key, env_state, obsv)
+        warmup_fn = get_warmup_fn(warmup_state, env, env_params, runner_state, config)
+        warmup_fn = jax.vmap(warmup_fn) if config.NUM_ENVS > 1 else warmup_fn
+        env_state, obsv = warmup_fn(warmup_state)
+        env_state = reset_warmup_metric_counters(env_state)
+        return (runner_state, env_state, obsv, rng_step, rng_epoch)
+
+    if config.NUM_LEARNERS > 1:
+        rewarm_fn = jax.vmap(rewarm_fn)
+    return jax.jit(rewarm_fn)
+
+
+def steps_per_train_state_unit(config: Box) -> int:
+    """Number of train_state.step increments per update loop.
+
+    train_state.step increments once per gradient (minibatch) step when STEP_ON_GRADIENT
+    is set, otherwise once per update loop. Any schedule or anneal evaluated at
+    train_state.step (entropy/VML schedules, GAE-lambda and prio-beta anneals) must scale
+    its horizon by this factor so it completes exactly at the end of training. The LR
+    schedules are exempt: they are driven by optax's internal count, which always ticks
+    once per tx.update (i.e. per minibatch).
+    """
+    return config.UPDATE_EPOCHS * config.NUM_MINIBATCHES if config.STEP_ON_GRADIENT else 1
 
 
 def _make_schedule(
@@ -1379,14 +1587,15 @@ def make_ent_schedule(config: Box) -> optax.Schedule:
 
     ENT_COEF = config.ENT_COEF
     ENT_END_FRACTION = config.ENT_END_FRACTION
-    NUM_MINIBATCHES = config.NUM_MINIBATCHES
     NUM_UPDATES = config.NUM_UPDATES * config.NUM_INCREMENTS
-    UPDATE_EPOCHS = config.UPDATE_EPOCHS
+    # Evaluated at train_state.step (not optax's per-minibatch count), so the horizon
+    # must use the train_state.step unit.
+    STEPS_PER_UNIT = steps_per_train_state_unit(config)
     SCHEDULE_MULTIPLIER = config.ENT_SCHEDULE_MULTIPLIER
     end_value = ENT_COEF * ENT_END_FRACTION
 
     def ent_schedule(count: chex.Numeric) -> chex.Numeric:
-        total_steps = NUM_UPDATES * UPDATE_EPOCHS * NUM_MINIBATCHES * SCHEDULE_MULTIPLIER
+        total_steps = NUM_UPDATES * STEPS_PER_UNIT * SCHEDULE_MULTIPLIER
         if config.ENT_SCHEDULE == "cosine":
             schedule = optax.cosine_decay_schedule(
                 init_value=ENT_COEF,
@@ -1413,14 +1622,15 @@ def make_vml_schedule(config: Box) -> optax.Schedule:
 
     VML_COEF = config.VALID_MASS_LOSS_COEF
     VML_END_FRACTION = config.VML_END_FRACTION
-    NUM_MINIBATCHES = config.NUM_MINIBATCHES
     NUM_UPDATES = config.NUM_UPDATES * config.NUM_INCREMENTS
-    UPDATE_EPOCHS = config.UPDATE_EPOCHS
+    # Evaluated at train_state.step (not optax's per-minibatch count), so the horizon
+    # must use the train_state.step unit.
+    STEPS_PER_UNIT = steps_per_train_state_unit(config)
     SCHEDULE_MULTIPLIER = config.VML_SCHEDULE_MULTIPLIER
     end_value = VML_COEF * VML_END_FRACTION
 
     def vml_schedule(count: chex.Numeric) -> chex.Numeric:
-        total_steps = NUM_UPDATES * UPDATE_EPOCHS * NUM_MINIBATCHES * SCHEDULE_MULTIPLIER
+        total_steps = NUM_UPDATES * STEPS_PER_UNIT * SCHEDULE_MULTIPLIER
         if config.VML_SCHEDULE == "cosine":
             schedule = optax.cosine_decay_schedule(
                 init_value=VML_COEF,
@@ -1478,6 +1688,8 @@ def setup_wandb(config, project_name, experiment_name):
                 f"{metric}_episode_end_{agg}", step_metric="episode_count", summary="max"
             )
     for metric in loss_metrics:
+        wandb.define_metric(f"{metric}", step_metric="update_epoch")
+    for metric in prioritization_metrics:
         wandb.define_metric(f"{metric}", step_metric="update_epoch")
     # Register reward centering metrics if REWARD_CENTERING is enabled
     if config.get("REWARD_CENTERING", False):
@@ -1604,7 +1816,13 @@ def run_eval_during_training(
         best_eval_metric = eval_metric_mean
         print(f"New best eval {eval_metric_name}: {best_eval_metric:.6f}")
         if config.SAVE_MODEL:
-            model = eqx.combine(current_train_state.model_params, current_train_state.model_static)
+            model_params = current_train_state.model_params
+            if config.NUM_LEARNERS > 1:
+                # vmap over the learner axis stacks every param leaf to [NUM_LEARNERS, ...];
+                # save learner 0's weights so the checkpoint matches the unbatched template
+                # used by load_model.
+                model_params = jax.tree.map(lambda x: x[0], model_params)
+            model = eqx.combine(model_params, current_train_state.model_static)
             saved_path = save_model(model, config, first_save=first_save)
             if first_save:
                 config.MODEL_PATH = str(saved_path)
@@ -1660,9 +1878,11 @@ def process_metrics(config, out, merge_func):
         num_learners_or_1 = config.NUM_LEARNERS if config.NUM_LEARNERS > 1 else 1
         merged_out_loss = {
             k: jax.tree.map(
-                lambda x: x.reshape((num_learners_or_1, config.NUM_UPDATES, -1))
-                .mean(axis=-1)
-                .reshape((-1,)),
+                lambda x: (
+                    x.reshape((num_learners_or_1, config.NUM_UPDATES, -1))
+                    .mean(axis=-1)
+                    .reshape((-1,))
+                ),
                 v,
             )
             for k, v in out.get("loss_info", {}).items()
@@ -1677,6 +1897,15 @@ def process_metrics(config, out, merge_func):
         merged_out["accepted_bitrate"]
         / jnp.where(merged_out["total_bitrate"] == 0, 1, merged_out["total_bitrate"])
     )
+
+    # Blocking-cause breakdown (GN-model envs only; keys absent for other env types).
+    # Causes are mutually exclusive, so these probabilities sum to
+    # service_blocking_probability.
+    if "blocked_spectrum" in merged_out:
+        lengths_safe = jnp.where(merged_out["lengths"] == 0, 1, merged_out["lengths"])
+        merged_out["spectrum_blocking_probability"] = merged_out["blocked_spectrum"] / lengths_safe
+        merged_out["snr_blocking_probability"] = merged_out["blocked_snr"] / lengths_safe
+        merged_out["power_blocking_probability"] = merged_out["blocked_power"] / lengths_safe
 
     # Calculate episode ends
     merged_out["done"] = jnp.logical_or(merged_out["terminal"], merged_out["truncated"])
@@ -2240,6 +2469,12 @@ def log_metrics(
                 print("Logging loss info")
                 for i in range(len(merged_out_loss["loss/total_loss"])):
                     log_dict = {f"{metric}": merged_out_loss[metric][i] for metric in loss_metrics}
+                    log_dict.update(
+                        {
+                            f"{metric}": merged_out_loss[metric][i]
+                            for metric in prioritization_metrics
+                        }
+                    )
                     if config.REWARD_CENTERING:
                         log_dict_rc = {
                             f"{metric}": merged_out_loss[metric][i]

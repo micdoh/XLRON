@@ -97,7 +97,11 @@ Use link-disjoint paths instead of standard k-shortest paths.
 
 ### `--values_bw`
 
-Comma-separated list of possible bandwidth (more precisely, data-rate) request values (in Gbps). For example, `--values_bw=1` for unit bandwidth or `--values_bw=1,1,1,1,1,1,1,1,1,1,1,1,1,1,2,2,2,3,3,4` for a distribution of bandwidth classes. When set, bandwidth requests are sampled uniformly from this list.
+Comma-separated list of possible bandwidth (more precisely, data-rate) request values (in Gbps). For example, `--values_bw=1` for unit bandwidth or `--values_bw=1,1,1,1,1,1,1,1,1,1,1,1,1,1,2,2,2,3,3,4` for a distribution of bandwidth classes. When set, bandwidth requests are sampled uniformly from this list, unless `--values_bw_probs` is also set.
+
+### `--values_bw_probs`
+
+Comma-separated list of sampling probabilities for each bandwidth value, e.g. `--values_bw=40,100,400 --values_bw_probs=0.5,0.3,0.2`. Must have the same length as the final bandwidth value list (from `--values_bw` or the `--min_bw`/`--max_bw`/`--step_bw` range). Values are normalised to sum to 1, so relative weights such as `5,3,2` are also accepted. If unset, bandwidth values are sampled uniformly.
 
 ### `--min_bw` / `--max_bw` / `--step_bw`
 
@@ -114,7 +118,9 @@ The offered traffic load in Erlangs. This is the primary traffic parameter — i
 
 ### `--min_load` / `--max_load` / `--step_load`
 
-When all three are set, the script sweeps loads from `min_load` to `max_load` (inclusive) in steps of `step_load`. The environment is compiled once and reused across all loads without JIT recompilation, which is significantly faster than running separate processes per load. Each load produces its own JSONL summary line. `--load` should be set to the maximum load in the sweep range for initial compilation. Example:
+When all three are set, the script sweeps loads from `min_load` to `max_load` (inclusive) in steps of `step_load`. The environment is compiled once and reused across all loads without JIT recompilation, which is significantly faster than running separate processes per load. Each load produces its own JSONL summary line. `--load` should be set to the maximum load in the sweep range for initial compilation.
+
+Each swept load re-equilibrates before measurement: the warmup is re-run for `ENV_WARMUP_STEPS` at that load's arrival rate (a single extra compilation, reused across all loads) and the metric counters are zeroed afterwards, so each load's reported metrics reflect its own steady state rather than the network occupancy inherited from the initial `--load` warmup. This adds `ENV_WARMUP_STEPS` un-measured steps per swept load. The sweep is also correct in episodic (non-continuous) mode: episode auto-resets preserve the swept arrival rate rather than reverting to the compile-time `--load` value. Example:
 
 ```bash
 python -m xlron.train.train \
@@ -189,8 +195,8 @@ The heuristic algorithm to use. Available options:
 | `mscl_ksp` | **Minimum Slot-continuity Capacity Loss across K-Shortest Paths.** Jointly select the (path, slot) with minimum capacity loss across all k paths. |
 | `kmc_ff` | **K-Minimum Cut, First-Fit.** Select path that minimises cut metric, then first-fit. |
 | `kmf_ff` | **K-Minimum Fragmentation, First-Fit.** Select path that minimises fragmentation, then first-fit. |
-| `kme_ff` | **K-Minimum Entropy, First-Fit.** Select path that minimises spectrum entropy, then first-fit. |
-| `kca_ff` | **Congestion-Aware, First-Fit.** Select path considering link congestion, then first-fit. |
+| `kme_ff` | **K-Minimum Entropy, First-Fit.** Select path whose allocation causes the smallest increase in spectrum fragmentation entropy (Wright, Parker & Lord, JOCN 2015), then first-fit. |
+| `kca_ff` | **Congestion-Aware, First-Fit.** Select the least-congested feasible path (occupancy-weighted link length), then first-fit. |
 
 Default: `ksp_ff`.
 

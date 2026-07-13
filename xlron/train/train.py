@@ -37,6 +37,7 @@ from xlron.parameter_flags import *  # noqa: F403,F401  # Ignore linter warnings
 from xlron.train.ppo import get_learner_fn
 from xlron.train.train_utils import (
     experiment_data_setup,
+    get_sweep_rewarm_fn,
     get_user_flags,
     load_model,
     log_actions,
@@ -638,6 +639,15 @@ def train(argv: list[str], config: Dict[str, Any] = {}) -> None:
     base_experiment_input = experiment_input
     mean_service_holding_time = float(env_params.mean_service_holding_time)
 
+    # For load sweeps, each load must re-equilibrate: the base state was warmed up at
+    # the original --load, so re-run the ENV_WARMUP_STEPS warmup at each swept load's
+    # arrival rate (compiled once, reused across loads) and zero the metric counters
+    # so per-load metrics exclude the re-equilibration transient.
+    sweep_rewarm = None
+    if len(loads) > 1 and config.ENV_WARMUP_STEPS:
+        sweep_rewarm = get_sweep_rewarm_fn(env, env_params, config)
+        sweep_rng = jax.random.PRNGKey(config.SEED + 2)
+
     for load_idx, load_val in enumerate(loads):
         load_val = float(load_val)
         if len(loads) > 1:
@@ -655,6 +665,14 @@ def train(argv: list[str], config: Dict[str, Any] = {}) -> None:
                 mean_service_holding_time,
                 config.NUM_LEARNERS,
             )
+            if sweep_rewarm is not None:
+                # Re-equilibrate the network at this load's arrival rate before
+                # measuring (fresh warmup key per load; counters zeroed after)
+                sweep_rng, load_warmup_key = jax.random.split(sweep_rng)
+                if config.NUM_LEARNERS > 1:
+                    load_warmup_key = jax.random.split(load_warmup_key, config.NUM_LEARNERS)
+                print(f"Re-running warmup ({config.ENV_WARMUP_STEPS} steps) at load {load_val:.1f}")
+                experiment_input = sweep_rewarm(experiment_input, load_warmup_key)
             # Update run/experiment names for this load
             run_name = create_run_name(config)
             experiment_name = config.EXPERIMENT_NAME if config.EXPERIMENT_NAME else run_name
@@ -712,7 +730,7 @@ def train(argv: list[str], config: Dict[str, Any] = {}) -> None:
             )
             # Save model params (skip if EVAL_DURING_TRAINING, which saves only the best model)
             if config.SAVE_MODEL and not config.EVAL_DURING_TRAINING:
-                train_state = out["runner_state"][0]  # Get TrainState from the first learner
+                train_state = out["runner_state"][0]  # TrainState element of the runner-state tuple
                 # Determine current metric value to decide whether to save
                 if config.continuous_operation:
                     if config.reward_type == "bitrate":
@@ -734,7 +752,13 @@ def train(argv: list[str], config: Dict[str, Any] = {}) -> None:
                         )
                 if current_metric <= best_eval_metric:
                     best_eval_metric = current_metric
-                    model = eqx.combine(train_state.model_params, train_state.model_static)
+                    model_params = train_state.model_params
+                    if config.NUM_LEARNERS > 1:
+                        # vmap over the learner axis stacks every param leaf to
+                        # [NUM_LEARNERS, ...]; save learner 0's weights so the checkpoint
+                        # matches the unbatched template used by load_model.
+                        model_params = jax.tree.map(lambda x: x[0], model_params)
+                    model = eqx.combine(model_params, train_state.model_static)
                     saved_path = save_model(model, config, first_save=first_save)
                     if first_save:
                         config.MODEL_PATH = str(saved_path)

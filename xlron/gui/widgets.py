@@ -143,6 +143,7 @@ DEFAULTS = {
     # Traffic
     "load": 250,
     "mean_service_holding_time": 25,
+    "values_bw_probs": None,
     "continuous_operation": False,
     "ENV_WARMUP_STEPS": 0,
     "warmup_action_type": "default",
@@ -299,7 +300,6 @@ DEFAULTS = {
     "aggregate_slots": 1,
     # Capacity bounds
     "num_trials": 10,
-    "cutset_link_selection_mode": "least_congested",
     "CUTSET_EXHAUSTIVE": False,
     "CUTSET_TOP_K": 256,
     "CUTSET_BATCH_SIZE": 512,
@@ -356,14 +356,6 @@ def _get_preset_val(key):
 # ---------------------------------------------------------------------------
 # Section builders
 # ---------------------------------------------------------------------------
-
-
-CUTSET_LINK_SELECTION_MODES = [
-    "least_congested",
-    "most_congested",
-    "best_fit",
-    "random",
-]
 
 
 def execution_mode_section() -> dict:
@@ -504,18 +496,6 @@ def execution_mode_section() -> dict:
                         help=_h("CUTSET_PARALLEL_PROCESSES"),
                     )
                     _emit(flags, "CUTSET_PARALLEL_PROCESSES", int(parallel))
-
-            st.markdown("**Simulation**")
-            link_modes = CUTSET_LINK_SELECTION_MODES
-            default_lsm = _get_preset_val("cutset_link_selection_mode")
-            lsm_idx = link_modes.index(default_lsm) if default_lsm in link_modes else 0
-            link_sel = st.selectbox(
-                "Link Selection Mode",
-                link_modes,
-                index=lsm_idx,
-                help=_h("cutset_link_selection_mode"),
-            )
-            _emit(flags, "cutset_link_selection_mode", link_sel)
 
         else:  # reconfigurable
             heuristic = st.selectbox(
@@ -747,6 +727,14 @@ def traffic_section() -> dict:
         )
         if values_bw.strip():
             flags["values_bw"] = values_bw.strip()
+
+        values_bw_probs = st.text_input(
+            "Bandwidth Probabilities (comma-separated, leave blank for uniform)",
+            value=str(_get_preset_val("values_bw_probs") or ""),
+            help=_h("values_bw_probs"),
+        )
+        if values_bw_probs.strip():
+            flags["values_bw_probs"] = values_bw_probs.strip()
 
         max_req = st.number_input(
             "Max Requests",

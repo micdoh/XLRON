@@ -141,6 +141,10 @@ def rsa_nsfnet_16_mod_test_setup(**kwargs):
         slot_size=12.5,
         mean_service_holding_time=10,
         env_type="rsa",
+        # Expectations in the tests below were computed with this modulations table
+        # (the pre-unification implicit default); the flag default is now
+        # modulations_deeprmsa.csv, so pin it explicitly.
+        modulations_csv_filepath="./xlron/data/modulations/modulations.csv",
     )
     if not kwargs:
         return _cached_setup("rsa_nsfnet_16_mod", base_settings)
@@ -296,6 +300,22 @@ class GenerateArrivalHoldingTimesTest(chex.TestCase):
         print(min_arr, min_hold)
         chex.assert_trees_all_close(arrival_time, expected[0])
         chex.assert_trees_all_close(holding_time, expected[1])
+
+    def test_truncated_holding_time_independent_of_arrival_time(self):
+        """Regression test: with truncate_holding_time, the candidate holding-time keys
+        were re-split from the parent key, so (split being prefix-stable) candidate 0
+        reused key_arrival. When candidates 1-4 were all truncated, the holding time was
+        the same exponential draw as the arrival time (perfectly correlated).
+        """
+        _, _, _, _, params = rwa_4node_test_setup(truncate_holding_time=True)
+        keys = jax.random.split(jax.random.PRNGKey(42), 50000)
+        # With rate == mean == 1, an aliased draw makes holding_time == arrival_time exactly
+        arrival, holding = jax.vmap(generate_arrival_holding_times, in_axes=(0, None, None, None))(
+            keys, params, jnp.array(1.0), jnp.array(1.0)
+        )
+        arrival, holding = arrival.reshape(-1), holding.reshape(-1)
+        aliased = jnp.sum((holding == arrival) & (holding > 0))
+        self.assertEqual(int(aliased), 0)
 
 
 class SetPathLinksTest(chex.TestCase):
@@ -454,7 +474,11 @@ class UpdatePathLinksTest(chex.TestCase):
 class RemoveExpiredSlotRequestsTest(chex.TestCase):
     def setUp(self):
         super().setUp()
-        self.key, self.env, self.obs, self.state, self.params = rwa_4node_test_setup()
+        # This test sets absolute departure/current times, so pin the absolute-time
+        # mode (the flag default, now applied to dict configs too, is relative).
+        self.key, self.env, self.obs, self.state, self.params = rwa_4node_test_setup(
+            relative_arrival_times=False
+        )
         # Set link 0, slots 0-1 as occupied (path=[1,0,0,0], initial_slot=0, num_slots=2)
         link_slot = self.state.link_slot_array.at[0, 0].set(1).at[0, 1].set(1)
         # Departure is now positive (time when service expires)
@@ -1254,6 +1278,170 @@ class FindBlockSizesTest(chex.TestCase):
         )
         chex.assert_trees_all_close(actual, expected)
 
+    def test_find_block_sizes_matches_bruteforce_randomised(self):
+        """The O(n) run-length fast path (differentiable=False) and the O(n^2) soft path
+        must both match a brute-force reference over randomised inputs and edge cases."""
+
+        def reference(slots, starts_only, reverse):
+            slots = np.asarray(slots)
+            n = slots.shape[0]
+            sizes = np.zeros(n)
+            for i in range(n):
+                if slots[i] != 0:
+                    continue
+                if reverse:
+                    j = i
+                    while j >= 0 and slots[j] == 0:
+                        j -= 1
+                    sizes[i] = i - j
+                else:
+                    j = i
+                    while j < n and slots[j] == 0:
+                        j += 1
+                    sizes[i] = j - i
+            if starts_only:
+                starts = np.abs(np.clip(np.diff(slots, prepend=1), -1, 0))
+                sizes = sizes * starts
+            return sizes
+
+        rng = np.random.default_rng(0)
+        cases = [
+            np.zeros(7),  # all free
+            np.ones(7),  # all occupied
+            np.zeros(1),  # single free slot
+            np.ones(1),  # single occupied slot
+            np.array([0.0, -1.0, 0.0, 1.0, 0.0]),  # negative occupancy values (kmf_ff)
+        ]
+        for n in (1, 2, 3, 7, 50, 100):
+            for density in (0.2, 0.5, 0.8):
+                cases.append((rng.random(n) < density).astype(np.float32))
+        for slots in cases:
+            slots = jnp.array(slots)
+            for starts_only in (True, False):
+                for reverse in (True, False):
+                    expected = reference(slots, starts_only, reverse)
+                    fast = find_block_sizes(
+                        slots, starts_only=starts_only, reverse=reverse, differentiable=False
+                    )
+                    soft = find_block_sizes(
+                        slots, starts_only=starts_only, reverse=reverse, differentiable=True
+                    )
+                    chex.assert_trees_all_close(np.asarray(fast), expected)
+                    chex.assert_trees_all_close(np.asarray(soft), expected)
+
+
+class MaskSlotsMatchesBruteForceTest(chex.TestCase):
+    """mask_slots (int cumsum + per-path required-slots gather) must match a brute-force
+    per-slot window check over randomised occupancies and requests."""
+
+    def _reference_mask(self, state, params):
+        request = np.asarray(state.request_array).ravel()
+        source, datarate, dest = request[0], request[1], request[2]
+        path_indices = np.asarray(get_path_index_array(params, jnp.array([source, dest]))).astype(
+            int
+        )
+        paths = np.asarray(params.path_link_array.val)[path_indices]
+        se_array = np.asarray(params.path_se_array.val)
+        paths_se = se_array[np.clip(path_indices, 0, se_array.shape[0] - 1)]
+        occupied = np.asarray(state.link_slot_array) != 0
+        num_slots = params.link_resources
+        mask = np.zeros((params.k_paths, num_slots), dtype=np.float32)
+        for k in range(params.k_paths):
+            path = paths[k]
+            if path.max() == 0:
+                continue  # dummy path row -> unselectable
+            se = paths_se[k] if params.consider_modulation_format else 1
+            req = (
+                0
+                if datarate == 0
+                else int(np.ceil(datarate / (se * params.slot_size))) + params.guardband
+            )
+            path_occupied = occupied[path == 1].any(axis=0)
+            for s in range(num_slots):
+                if s + req <= num_slots and not path_occupied[s : s + req].any():
+                    mask[k, s] = 1.0
+        return mask.reshape(-1)
+
+    @parameterized.named_parameters(
+        ("case_mod_format", True),
+        ("case_no_mod_format", False),
+    )
+    def test_mask_slots_matches_bruteforce_randomised(self, consider_modulation_format):
+        if consider_modulation_format:
+            key, env, obs, state, params = rsa_nsfnet_16_mod_test_setup(env_type="rmsa")
+            datarates = [25.0, 50.0, 100.0, 200.0, 400.0]
+        else:
+            key, env, obs, state, params = rsa_nsfnet_16_test_setup()
+            datarates = [1.0, 2.0, 3.0]
+        # Outer jit so the inner mask_slots donation is not applied to the shared state buffers
+        mask_fn = jax.jit(lambda s: mask_slots(s, params))
+        rng = np.random.default_rng(42)
+        num_links = params.num_links
+        num_slots = params.link_resources
+        occupancies = [
+            np.zeros((num_links, num_slots)),  # empty spectrum
+            np.ones((num_links, num_slots)),  # full spectrum
+        ]
+        for density in (0.1, 0.3, 0.6):
+            for _ in range(3):
+                occupancies.append(
+                    (rng.random((num_links, num_slots)) < density).astype(np.float32)
+                )
+        for occ in occupancies:
+            source = int(rng.integers(0, params.num_nodes))
+            dest = int(rng.integers(0, params.num_nodes))
+            while dest == source:
+                dest = int(rng.integers(0, params.num_nodes))
+            datarate = float(rng.choice(datarates))
+            test_state = state.replace(
+                link_slot_array=jnp.array(occ, dtype=state.link_slot_array.dtype),
+                request_array=jnp.array([source, datarate, dest], dtype=state.request_array.dtype),
+            )
+            _, full_mask = mask_fn(test_state)
+            expected = self._reference_mask(test_state, params)
+            np.testing.assert_array_equal(np.asarray(full_mask), expected)
+
+
+class CalculateFragmentationTest(chex.TestCase):
+    def setUp(self):
+        super().setUp()
+
+    @chex.all_variants()
+    @parameterized.named_parameters(
+        ("case_empty", jnp.zeros((2, 8)), 0.0),
+        ("case_full", jnp.ones((2, 8)), 0.0),
+        ("case_contiguous_free", jnp.array([[1, 1, 1, 0, 0, 0, 0, 0]]), 0.0),
+        ("case_checkerboard", jnp.array([[0, 1, 0, 1, 0, 1, 0, 1]]), 0.75),
+        # Negative values (in-service slots) count as occupied: free runs of 2 and 4
+        ("case_negative_occupied", jnp.array([[-1, 0, 0, -1, 0, 0, 0, 0]]), 1 - 4 / 6),
+        # Mean across links: contiguous link (0) and checkerboard link (0.75)
+        (
+            "case_mean_over_links",
+            jnp.array([[0, 0, 0, 0, 0, 0, 0, 0], [0, 1, 0, 1, 0, 1, 0, 1]]),
+            0.375,
+        ),
+    )
+    def test_calculate_fragmentation(self, link_slot_array, expected):
+        actual = self.variant(calculate_fragmentation)(link_slot_array)
+        chex.assert_trees_all_close(actual, jnp.array(expected, dtype=actual.dtype))
+
+
+class FragmentationLoggingTest(chex.TestCase):
+    """LogWrapper must surface the fragmentation metric stashed by step_env."""
+
+    def test_fragmentation_in_info_and_log_state(self):
+        env, params = make(settings_rwa_4node())
+        key = jax.random.PRNGKey(0)
+        obs, log_state = env.reset(key, params)
+        chex.assert_trees_all_close(
+            log_state.fragmentation, jnp.array(0, dtype=log_state.fragmentation.dtype)
+        )
+        step = jax.jit(env.step, static_argnums=(3,))
+        _, log_state, _, _, _, info = step(key, log_state, jnp.array(0), params)
+        expected = calculate_fragmentation(log_state.env_state.link_slot_array)
+        chex.assert_trees_all_close(info["fragmentation"], expected)
+        chex.assert_trees_all_close(log_state.fragmentation, expected)
+
 
 class TopologyNodeIdNormalisationTest(chex.TestCase):
     """make_graph must relabel mixed-base topology JSONs to 0..N-1 in sorted-id order.
@@ -1377,6 +1565,70 @@ class DeterministicReplayOrderTest(chex.TestCase):
             served.append(np.asarray(state.request_array, dtype=np.float32))
         for got, row in zip(served, rows):
             np.testing.assert_allclose(got, np.array([row[0], row[1], row[2]], dtype=np.float32))
+
+
+class GenerateRequestBwProbsTest(chex.TestCase):
+    """Tests for weighted bandwidth request sampling via values_bw_probs."""
+
+    def _empirical_bw_freqs(self, state, params, values, n=10000):
+        keys = jax.random.split(jax.random.PRNGKey(1), n)
+
+        def _gen_bw(k):
+            new_state = generate_request_rsa(k, state, params)
+            return new_state.request_array[1]  # ty: ignore[unresolved-attribute]
+
+        bws = jax.vmap(_gen_bw)(keys)
+        return jnp.array([jnp.mean(bws == v) for v in values])
+
+    def test_default_is_uniform(self):
+        key, env, obs, state, params = rsa_nsfnet_16_test_setup()
+        self.assertIsNone(params.values_bw_probs)
+        freqs = self._empirical_bw_freqs(state, params, [1, 2, 3])
+        chex.assert_trees_all_close(freqs, jnp.array([1 / 3, 1 / 3, 1 / 3]), atol=0.02)
+
+    def test_weighted_sampling_matches_probs(self):
+        key, env, obs, state, params = rsa_nsfnet_16_test_setup(values_bw_probs="0.7,0.2,0.1")
+        chex.assert_trees_all_close(jnp.sum(params.values_bw_probs.val), 1.0)
+        freqs = self._empirical_bw_freqs(state, params, [1, 2, 3])
+        chex.assert_trees_all_close(freqs, jnp.array([0.7, 0.2, 0.1]), atol=0.02)
+
+    def test_relative_weights_are_normalised(self):
+        key, env, obs, state, params = rsa_nsfnet_16_test_setup(values_bw_probs="7,2,1")
+        chex.assert_trees_all_close(
+            params.values_bw_probs.val, jnp.array([0.7, 0.2, 0.1], dtype=jnp.float32)
+        )
+
+    def test_length_mismatch_raises(self):
+        with self.assertRaises(ValueError):
+            rsa_nsfnet_16_test_setup(values_bw_probs="0.5,0.5")
+
+    def test_negative_prob_raises(self):
+        with self.assertRaises(ValueError):
+            rsa_nsfnet_16_test_setup(values_bw_probs="0.5,0.6,-0.1")
+
+
+class MakeGraphUnknownTopologyTest(chex.TestCase):
+    """make_graph must fail with a helpful ValueError (not a raw FileNotFoundError)
+    listing close-match suggestions when --topology_name doesn't match a bundled JSON."""
+
+    def test_typo_raises_value_error_with_suggestion(self):
+        with self.assertRaisesRegex(ValueError, "Unknown topology 'nfsnet_deeprmsa_directed'"):
+            make_graph("nfsnet_deeprmsa_directed")
+        try:
+            make_graph("nfsnet_deeprmsa_directed")
+        except ValueError as e:
+            self.assertIn("nsfnet_deeprmsa_directed", str(e))
+
+    def test_no_close_match_still_helpful(self):
+        with self.assertRaisesRegex(ValueError, "topologies are available in"):
+            make_graph("zzzzzz_not_a_topology")
+
+    def test_custom_topology_directory_used_for_suggestions(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with open(pathlib.Path(tmpdir) / "mynet.json", "w") as f:
+                json.dump({"nodes": [], "links": []}, f)
+            with self.assertRaisesRegex(ValueError, "mynet"):
+                make_graph("mynett", topology_directory=tmpdir)
 
 
 if __name__ == "__main__":
