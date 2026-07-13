@@ -627,6 +627,14 @@ flags.DEFINE_string("node_probs", None, "List of node probabilities for selectio
 flags.DEFINE_boolean("EVAL_HEURISTIC", False, "Evaluate heuristic")
 flags.DEFINE_string("path_heuristic", "ksp_ff", "Path heuristic to be evaluated")
 flags.DEFINE_string("node_heuristic", "random", "Node heuristic to be evaluated")
+flags.DEFINE_integer(
+    "mscl_interfering_k",
+    1,
+    "Stored routes per node pair in the interfering route set of the MSCL heuristics "
+    "(ksp_mscl, mscl_ksp). 1 (default) = the single-route-per-pair set of the original 2013 "
+    "formulation; 0 = all k paths, giving the multi-route MSCL Sequencial/Combinado of "
+    "dos Santos (2021). Compute and memory scale linearly with this value.",
+)
 # GNN-specific parameters
 flags.DEFINE_boolean("USE_GNN", False, "Use GNN")
 flags.DEFINE_integer("num_spectral_features", 8, "No. of spectral features")

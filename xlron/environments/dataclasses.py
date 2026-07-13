@@ -238,6 +238,8 @@ class RSAEnvParams(EnvParams):
         path_se_array (Array): Path spectral efficiency array
         deterministic_requests (bool): If True, use deterministic requests
         multiple_topologies (bool): If True, use multiple topologies
+        mscl_interfering_k (int): Stored routes per node pair in the interfering
+            route set of the multi-route MSCL heuristics (0 = all k paths)
     """
 
     max_slots: chex.Scalar = struct.field(pytree_node=False)
@@ -245,6 +247,7 @@ class RSAEnvParams(EnvParams):
     multiple_topologies: bool = struct.field(pytree_node=False)
     log_actions: bool = struct.field(pytree_node=False)
     disable_node_features: bool = struct.field(pytree_node=False)
+    mscl_interfering_k: int = struct.field(pytree_node=False)
 
 
 @struct.dataclass

@@ -872,6 +872,11 @@ def make(
         num_spectral_features=config.get("num_spectral_features", 8),
         line_graph_spectral_features=line_graph_spectral_features,
         include_no_op=config.get("include_no_op", False),
+        # 0 is a meaningful value (all k paths), so only fall back to the
+        # single-route default of 1 when the key is absent entirely
+        mscl_interfering_k=int(
+            1 if config.get("mscl_interfering_k") is None else config.get("mscl_interfering_k")
+        ),
         transformer_obs_type=transformer_obs_type,
         use_gnn=config.get("USE_GNN"),
         profile=profile,
