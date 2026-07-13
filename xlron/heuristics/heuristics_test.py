@@ -14737,7 +14737,6 @@ class ExactFitBruteforceTest(chex.TestCase):
                 self.assertEqual(int(last_exact[r]), expected_last, f"seed={seed} r={r}")
 
 
-
 if __name__ == "__main__":
     jax.config.update("jax_numpy_rank_promotion", "raise")
     absltest.main()
