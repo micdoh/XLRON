@@ -14584,10 +14584,12 @@ class MsclTest(chex.TestCase):
         chex.assert_trees_all_close(action, expected)
 
 
-def _bruteforce_capacity_loss(state, params):
+def _bruteforce_capacity_loss(state, params, num_interfering_routes=1):
     """Reference implementation of the MSCL capacity loss: recompute the number of
     feasible contiguous placements before/after each candidate assignment by direct
-    counting over updated spectrum states."""
+    counting over updated spectrum states. num_interfering_routes selects the first
+    n stored routes of every node pair as the interfering set (1 = the 2013
+    single-route formulation; k_paths = the dos Santos 2021 multi-route set)."""
     import numpy as np
 
     from xlron.environments.env_funcs import get_paths, read_rsa_request
@@ -14595,12 +14597,15 @@ def _bruteforce_capacity_loss(state, params):
     from xlron.heuristics.heuristics import get_request_num_slots
 
     k = params.k_paths
+    n_int = num_interfering_routes
     num_slots_arr = np.asarray(get_request_num_slots(state, params))
     mask = np.asarray(get_action_mask(state, params))
     S = params.link_resources
     lsa_occ = np.asarray(state.link_slot_array) != 0
     path_link_array = np.asarray(params.path_link_array.val)
-    shortest = path_link_array[::k]
+    interfering = path_link_array.reshape(-1, k, path_link_array.shape[1])[:, :n_int].reshape(
+        -1, path_link_array.shape[1]
+    )
     nodes_sd, _ = read_rsa_request(state.request_array)
     cand_paths = np.asarray(get_paths(params, nodes_sd))
 
@@ -14630,9 +14635,11 @@ def _bruteforce_capacity_loss(state, params):
     loss = np.full((k, S), np.inf)
     for r in range(k):
         routes = [
-            shortest[p] for p in range(shortest.shape[0]) if (shortest[p] * cand_paths[r]).sum() > 0
+            interfering[p]
+            for p in range(interfering.shape[0])
+            if (interfering[p] * cand_paths[r]).sum() > 0
         ]
-        if r != 0:
+        if r >= n_int:
             routes.append(cand_paths[r])
         for s in range(S):
             if mask[r, s] == 0:
@@ -14653,7 +14660,15 @@ class CapacityLossBruteforceTest(chex.TestCase):
     """Property test: the closed-form capacity_loss must match a direct
     before/after recount of feasible placements on random spectrum states."""
 
-    def _run_comparison(self, setup_fn, request_array, seed, occupancy=0.4, **setup_kwargs):
+    def _run_comparison(
+        self,
+        setup_fn,
+        request_array,
+        seed,
+        occupancy=0.4,
+        num_interfering_routes=1,
+        **setup_kwargs,
+    ):
         import numpy as np
 
         key, env, obs, state, params = setup_fn(**setup_kwargs)
@@ -14666,8 +14681,10 @@ class CapacityLossBruteforceTest(chex.TestCase):
             request_array=jnp.array(request_array),
             link_slot_array=jnp.array(lsa * signs),
         )
-        expected = _bruteforce_capacity_loss(state, params)
-        actual, _ = capacity_loss(state, params)
+        expected = _bruteforce_capacity_loss(
+            state, params, num_interfering_routes=num_interfering_routes
+        )
+        actual, _ = capacity_loss(state, params, num_interfering_routes=num_interfering_routes)
         chex.assert_trees_all_close(jnp.array(expected), actual)
 
     def test_4node(self):
@@ -14682,13 +14699,153 @@ class CapacityLossBruteforceTest(chex.TestCase):
                 rsa_4node_3_slot_request_test_setup, [1, 3, 3], seed, link_resources=10
             )
 
+    def test_4node_multiroute(self):
+        # k_paths = 2 in this setup, so n = 2 is the full multi-route set
+        for seed in range(5):
+            self._run_comparison(
+                rsa_4node_3_slot_request_test_setup,
+                [0, 3, 1],
+                seed,
+                num_interfering_routes=2,
+                link_resources=10,
+            )
+
     def test_nsfnet(self):
         for seed in range(3):
             self._run_comparison(rsa_nsfnet_16_test_setup, [0, 3, 7], seed)
 
+    def test_nsfnet_multiroute(self):
+        for seed in range(3):
+            for n_int in (2, 5):
+                self._run_comparison(
+                    rsa_nsfnet_16_test_setup, [0, 3, 7], seed, num_interfering_routes=n_int
+                )
+
     def test_nsfnet_modulation(self):
         for seed in range(3):
             self._run_comparison(rsa_nsfnet_16_mod_test_setup, [0, 100, 7], seed)
+
+    def test_nsfnet_modulation_multiroute(self):
+        for seed in range(3):
+            self._run_comparison(
+                rsa_nsfnet_16_mod_test_setup, [0, 100, 7], seed, num_interfering_routes=5
+            )
+
+
+class MsclMultirouteTest(chex.TestCase):
+    """Tests for the MSCL heuristics with the multi-route interfering set
+    (mscl_interfering_k = 0 -> all k paths per pair: MSCL Sequencial / Combinado
+    of dos Santos, UFPE 2021) on the 4-node RSA setup (5 slots, 3-slot requests,
+    k_paths = 2; path 0 for 0->1 uses link 0, path 1 uses links 1,2,3)."""
+
+    def setUp(self):
+        super().setUp()
+        self.key, self.env, self.obs, self.state, self.params = (
+            rsa_4node_3_slot_request_test_setup()
+        )
+        # All k stored routes per pair in the interfering set
+        self.params_multi = self.params.replace(mscl_interfering_k=0)
+
+    @chex.all_variants()
+    @parameterized.named_parameters(
+        # Empty spectrum: edge placements tie at minimum loss on the first path;
+        # ties break to the lowest slot (as with the single-route set)
+        ("case_empty", jnp.array([0, 3, 1]), jnp.zeros((4, 5)), jnp.array(0)),
+        (
+            # Only slot 1 fits on path 0 (run of exactly 3 at slots 1-3)
+            "case_single_option",
+            jnp.array([0, 3, 1]),
+            jnp.array(
+                [
+                    [1, 0, 0, 0, 1],
+                    [0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0],
+                ]
+            ),
+            jnp.array(1),
+        ),
+        (
+            # Path 0 full: fall through to path 1
+            "case_second_path",
+            jnp.array([0, 3, 1]),
+            jnp.array(
+                [
+                    [1, 1, 1, 1, 1],
+                    [0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0],
+                ]
+            ),
+            jnp.array(5),
+        ),
+    )
+    def test_ksp_mscl_multiroute(self, request_array, link_slot_array, expected):
+        self.state = self.state.replace(
+            request_array=request_array, link_slot_array=link_slot_array
+        )
+        action = self.variant(ksp_mscl, static_argnums=(1,))(self.state, self.params_multi)
+        chex.assert_trees_all_close(action, expected)
+
+    @chex.all_variants()
+    @parameterized.named_parameters(
+        (
+            "case_second_path",
+            jnp.array([0, 3, 1]),
+            jnp.array(
+                [
+                    [1, 1, 1, 1, 1],
+                    [0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0],
+                ]
+            ),
+            jnp.array(5),
+        ),
+    )
+    def test_mscl_ksp_multiroute(self, request_array, link_slot_array, expected):
+        self.state = self.state.replace(
+            request_array=request_array, link_slot_array=link_slot_array
+        )
+        action = self.variant(mscl_ksp, static_argnums=(1,))(self.state, self.params_multi)
+        chex.assert_trees_all_close(action, expected)
+
+    def _random_state(self, seed, occupancy=0.4):
+        import numpy as np
+
+        rng = np.random.default_rng(seed)
+        lsa = (rng.random((self.params.num_links, self.params.link_resources)) < occupancy).astype(
+            np.float32
+        )
+        return self.state.replace(
+            request_array=jnp.array([0, 3, 1]), link_slot_array=jnp.array(lsa)
+        )
+
+    def test_mscl_ksp_multiroute_actions_match_bruteforce(self):
+        # The joint (path, slot) argmin over the multi-route loss must match the
+        # brute-force reference metric (ties break to lowest flattened index)
+        import numpy as np
+
+        for seed in range(5):
+            state = self._random_state(seed)
+            expected_loss = _bruteforce_capacity_loss(
+                state, self.params, num_interfering_routes=self.params.k_paths
+            )
+            action = mscl_ksp(state, self.params_multi)
+            chex.assert_trees_all_close(action, jnp.array(np.argmin(expected_loss.reshape(-1))))
+
+    def test_explicit_single_route_set_matches_default(self):
+        # mscl_interfering_k = 1 (explicit) must select identically to the default
+        # params (the flag defaults to 1, i.e. the single-route 2013 formulation)
+        params_single = self.params.replace(mscl_interfering_k=1)
+        for seed in range(5):
+            state = self._random_state(seed)
+            chex.assert_trees_all_close(
+                ksp_mscl(state, params_single), ksp_mscl(state, self.params)
+            )
+            chex.assert_trees_all_close(
+                mscl_ksp(state, params_single), mscl_ksp(state, self.params)
+            )
 
 
 class ExactFitBruteforceTest(chex.TestCase):

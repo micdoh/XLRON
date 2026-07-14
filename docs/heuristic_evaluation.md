@@ -186,19 +186,33 @@ The heuristic algorithm to use. Available options:
 | `ksp_mu` | **K-Shortest Path, Most-Used.** Try paths in order; prefer slots in the most congested region of the spectrum. |
 | `ksp_flf` | **K-Shortest Path, First-Last-Fit.** On the shortest available path, small requests are allocated first-fit, large requests last-fit, segregating size classes at opposite spectrum ends. (Fadini & Oki, IEEE ICC 2014) |
 | `ksp_flef` | **K-Shortest Path, First-Last-Exact-Fit.** Small requests take the lowest exact-fit block (fallback first-fit); large requests the highest exact-fit block (fallback last-fit). (Chatterjee, Fadini & Oki, JNCA 2016) |
-| `ksp_mscl` | **K-Shortest Path, Minimum Slot-continuity Capacity Loss.** On the shortest available path, allocate the slot minimising capacity loss over the path and interfering routes. (Almeida Jr. et al., Electron. Lett. 2013) |
+| `ksp_mscl` | **K-Shortest Path, Minimum Slot-continuity Capacity Loss.** On the shortest available path, allocate the slot minimising capacity loss over the path and interfering routes (`--mscl_interfering_k` routes per pair; with `0` = all k this is MSCL Sequencial of dos Santos, UFPE 2021). (Almeida Jr. et al., Electron. Lett. 2013) |
 | `ff_ksp` | **First-Fit across K-Shortest Paths.** Search all k paths simultaneously for the globally first available slot. |
 | `lf_ksp` | **Last-Fit across K-Shortest Paths.** Search all k paths for the globally last available slot. |
 | `bf_ksp` | **Best-Fit across K-Shortest Paths.** Search all k paths for the globally best-fit slot. |
 | `mu_ksp` | **Most-Used across K-Shortest Paths.** Search all k paths; prefer globally most-used slots. |
 | `flf_ksp` | **First-Last-Fit across K-Shortest Paths.** Small requests take the globally first slot across paths; large requests the globally last. |
-| `mscl_ksp` | **Minimum Slot-continuity Capacity Loss across K-Shortest Paths.** Jointly select the (path, slot) with minimum capacity loss across all k paths. |
+| `mscl_ksp` | **Minimum Slot-continuity Capacity Loss across K-Shortest Paths.** Jointly select the (path, slot) with minimum capacity loss across all k paths (`--mscl_interfering_k` routes per pair; with `0` = all k this is MSCL Combinado of dos Santos, UFPE 2021). |
 | `kmc_ff` | **K-Minimum Cut, First-Fit.** Select path that minimises cut metric, then first-fit. |
 | `kmf_ff` | **K-Minimum Fragmentation, First-Fit.** Select path that minimises fragmentation, then first-fit. |
 | `kme_ff` | **K-Minimum Entropy, First-Fit.** Select path whose allocation causes the smallest increase in spectrum fragmentation entropy (Wright, Parker & Lord, JOCN 2015), then first-fit. |
 | `kca_ff` | **Congestion-Aware, First-Fit.** Select the least-congested feasible path (occupancy-weighted link length), then first-fit. |
 
 Default: `ksp_ff`.
+
+### `--mscl_interfering_k`
+
+Number of stored routes per node pair in the interfering route set of the MSCL heuristics (`ksp_mscl`, `mscl_ksp`). The capacity loss of a candidate placement is accounted on every route in this set that shares a link with the candidate path, so larger values price in damage to a pair's alternative routes at proportionally higher compute and memory cost.
+
+| Value | Description |
+|-------|-------------|
+| `1` | Only each pair's first stored path — the single-route set of the original 2013 formulation (Almeida Jr. et al.). Default. |
+| `0` | All `k` stored paths per pair — the full multi-route formulation of dos Santos (UFPE 2021): `ksp_mscl` becomes MSCL Sequencial and `mscl_ksp` becomes MSCL Combinado. |
+| `n` | The first `n` stored paths per pair (intermediate cost/fidelity trade-off). |
+
+On large topologies with high `k` (e.g. 100+ nodes, k=90), the full multi-route set can require gigabytes of intermediate arrays — use an intermediate value if memory-constrained.
+
+Reference: M. L. dos Santos, "Abordagens para atribuição de espectro em redes ópticas elásticas baseadas em perda de capacidade sob múltiplas rotas", M.Sc. dissertation, Universidade Federal de Pernambuco, 2021. [repositorio.ufpe.br/handle/123456789/45594](https://repositorio.ufpe.br/handle/123456789/45594)
 
 ### `--path_sort_criteria`
 
