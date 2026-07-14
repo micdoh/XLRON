@@ -206,6 +206,16 @@ def ksp_flef(state: RSAEnvState, params: RSAEnvParams) -> Array:
     return action
 
 
+def _mscl_num_interfering_routes(params: RSAEnvParams) -> int:
+    """Resolve the mscl_interfering_k param to a per-pair route count for the
+    MSCL heuristics (0 = all k_paths stored routes; unset = 1, the single-route
+    set of the original 2013 formulation). params is static under jit, so this
+    runs in Python at trace time."""
+    n = getattr(params, "mscl_interfering_k", 1)
+    n = params.k_paths if n == 0 else n
+    return int(min(n, params.k_paths))
+
+
 @partial(jax.jit, static_argnums=(1,))
 def ksp_mscl(state: RSAEnvState, params: RSAEnvParams) -> Array:
     """K-Shortest Path, Minimum Slot-continuity Capacity Loss (MSCL).
@@ -220,9 +230,22 @@ def ksp_mscl(state: RSAEnvState, params: RSAEnvParams) -> Array:
     placement that destroys least. See capacity_loss for the metric definition,
     the closed-form computation, and full references.
 
-    Reference: R. C. Almeida Jr. et al., "Slot assignment strategy to reduce loss
-    of capacity of contiguous-slot path requests in flexible grid optical
-    networks", Electronics Letters 49(5), 2013, doi:10.1049/el.2012.4247.
+    The loss is accounted over the first --mscl_interfering_k stored routes of
+    every node pair sharing a link with the candidate path (0 = all k_paths).
+    With the default of 1 this is the single-route interfering set of the
+    original 2013 formulation; with 0 it is the multi-route set of dos Santos
+    (2021), whose MSCL Sequencial is exactly this heuristic (sequential route
+    choice, min-loss slot). Cost scales linearly with the interfering-set size.
+
+    References:
+        R. C. Almeida Jr. et al., "Slot assignment strategy to reduce loss of
+        capacity of contiguous-slot path requests in flexible grid optical
+        networks", Electronics Letters 49(5), 2013, doi:10.1049/el.2012.4247.
+        M. L. dos Santos, "Abordagens para atribuicao de espectro em redes
+        opticas elasticas baseadas em perda de capacidade sob multiplas rotas",
+        M.Sc. dissertation, Universidade Federal de Pernambuco, Recife, 2021,
+        sec. 3.1 (MSCL Sequencial).
+        https://repositorio.ufpe.br/handle/123456789/45594
 
     Args:
         state (EnvState): Environment state
@@ -231,7 +254,8 @@ def ksp_mscl(state: RSAEnvState, params: RSAEnvParams) -> Array:
     Returns:
         Array: Action
     """
-    loss, mask = capacity_loss(state, params)
+    n_int = _mscl_num_interfering_routes(params)
+    loss, mask = capacity_loss(state, params, num_interfering_routes=n_int)
     # Chosen path is the first one with an available slot
     available_paths = jnp.max(mask, axis=1)
     path_index = jnp.argmax(available_paths)
@@ -252,6 +276,22 @@ def mscl_ksp(state: RSAEnvState, params: RSAEnvParams) -> Array:
     then the lowest slot index. See capacity_loss for the metric definition, the
     closed-form computation, and full references.
 
+    The loss is accounted over the first --mscl_interfering_k stored routes of
+    every node pair sharing a link with the candidate path (0 = all k_paths).
+    With the default of 1 this is the single-route interfering set of the
+    original 2013 formulation; with 0 it is the multi-route set of dos Santos
+    (2021), whose MSCL Combinado is exactly this heuristic (joint route-slot
+    choice; the flowchart's strict-improvement scan over routes and slots in
+    order yields the same tie-breaks as the flattened argmin here). Cost scales
+    linearly with the interfering-set size.
+
+    References:
+        R. C. Almeida Jr. et al., Electronics Letters 49(5), 2013,
+        doi:10.1049/el.2012.4247 (see ksp_mscl).
+        M. L. dos Santos, M.Sc. dissertation, Universidade Federal de
+        Pernambuco, Recife, 2021, sec. 3.2 (MSCL Combinado).
+        https://repositorio.ufpe.br/handle/123456789/45594
+
     Args:
         state (EnvState): Environment state
         params (EnvParams): Environment parameters
@@ -259,7 +299,8 @@ def mscl_ksp(state: RSAEnvState, params: RSAEnvParams) -> Array:
     Returns:
         Array: Action
     """
-    loss, _ = capacity_loss(state, params)
+    n_int = _mscl_num_interfering_routes(params)
+    loss, _ = capacity_loss(state, params, num_interfering_routes=n_int)
     # argmin over path-major flattened array ties-breaks to shortest path, lowest slot
     action = jnp.argmin(loss.reshape(-1))
     return action
@@ -901,7 +942,9 @@ def exact_fit(state: EnvState, params: RSAEnvParams) -> Tuple[Array, Array, Arra
     return first_exact, last_exact, mask
 
 
-def capacity_loss(state: EnvState, params: RSAEnvParams) -> Tuple[Array, Array]:
+def capacity_loss(
+    state: EnvState, params: RSAEnvParams, num_interfering_routes: int = 1
+) -> Tuple[Array, Array]:
     """Slot-continuity capacity loss (the MSCL metric) of every candidate
     (path, slot) assignment for the current request.
 
@@ -954,13 +997,24 @@ def capacity_loss(state: EnvState, params: RSAEnvParams) -> Tuple[Array, Array]:
         heuristics_test.py::CapacityLossBruteforceTest.
 
     Interfering route set
-        The affected routes are the shortest path of every node pair that shares
-        a link with the candidate route (the single-route-per-pair route set of
-        the original 2013 formulation), plus the candidate route itself - counted
-        once, since when the candidate is its pair's k=0 path it already is that
-        pair's shortest. Multi-route interfering sets (every stored path of every
-        pair) are a published extension (Santos et al., SBrT 2021) and would cost
-        k times more here.
+        Two routes interfere when they share at least one link. The routes whose
+        capacity loss is accounted are controlled by num_interfering_routes = n:
+        the first n stored paths of every node pair that share a link with the
+        candidate route, plus the candidate route itself - counted once, since a
+        candidate with k-index below n already is one of its own pair's first n
+        stored routes. n = 1 (the default) is the single-route-per-pair set of
+        the original 2013 formulation. n = k_paths is the all-stored-routes set
+        of the multi-route extension of dos Santos (2021): it also prices in the
+        damage a placement does to a pair's alternative routes (which future
+        traffic will actually be offered to under KSP routing), at n times the
+        cost and memory of the single-route set. The ksp_mscl and mscl_ksp
+        heuristics choose n via the --mscl_interfering_k flag (0 = all k_paths).
+
+    Args:
+        state (EnvState): Environment state
+        params (EnvParams): Environment parameters
+        num_interfering_routes (int): Stored routes per node pair in the
+            interfering set (static at trace time; 1 <= n <= k_paths)
 
     References
         R. C. Almeida Jr., A. F. dos Santos, K. D. R. Assis, H. Waldman &
@@ -970,9 +1024,13 @@ def capacity_loss(state: EnvState, params: RSAEnvParams) -> Tuple[Array, Array]:
         X. Zhang & C. Qiao, "Wavelength assignment for dynamic traffic in
         multi-fiber WDM networks", ICCCN 1998 - the relative-capacity-loss RWA
         metric that MSCL generalises to contiguous-spectrum RSA/RMSA.
-        M. L. Santos, R. C. Almeida Jr. & D. R. B. Araujo, "Multi-route spectrum
-        assignment by slot-continuity capacity loss in elastic optical networks",
-        SBrT 2021 - multi-route interfering sets.
+        M. L. dos Santos, "Abordagens para atribuicao de espectro em redes
+        opticas elasticas baseadas em perda de capacidade sob multiplas rotas"
+        (Approaches for spectrum assignment in elastic optical networks based on
+        capacity loss under multiple routes), M.Sc. dissertation, Universidade
+        Federal de Pernambuco, Recife, 2021.
+        https://repositorio.ufpe.br/handle/123456789/45594 - multi-route
+        interfering sets; the MSCL Sequencial and MSCL Combinado heuristics.
 
     Returns:
         Tuple: (loss, mask). loss is (k_paths, link_resources) float32 with jnp.inf
@@ -994,12 +1052,23 @@ def capacity_loss(state: EnvState, params: RSAEnvParams) -> Tuple[Array, Array]:
     w_cap = int(np.ceil(float(np.max(values_bw)) / (min_se * float(params.slot_size))))
     w_cap = max(w_cap + int(params.guardband), 1)
 
-    # Interfering route set: the shortest path of every node pair (rows of the
-    # path-link array are pair-major with k consecutive rows per pair)
-    shortest_paths = params.path_link_array.val[:: params.k_paths]
+    # Interfering route set: the first n stored paths of every node pair (rows of
+    # the path-link array are pair-major with k consecutive rows per pair);
+    # n = 1 selects every pair's shortest path only (the 2013 formulation)
+    n_int = int(num_interfering_routes)
+    if not 1 <= n_int <= params.k_paths:
+        raise ValueError(
+            f"num_interfering_routes must be in [1, k_paths={params.k_paths}], got {n_int}"
+        )
+    pair_major_rows = (
+        np.arange(params.path_link_array.val.shape[0])
+        .reshape(-1, params.k_paths)[:, :n_int]
+        .reshape(-1)
+    )
+    interfering_paths = params.path_link_array.val[pair_major_rows]
     if params.pack_path_bits:
-        shortest_paths = jnp.unpackbits(shortest_paths, axis=1)[:, : params.num_links]
-    shortest_paths = jnp.asarray(shortest_paths, dtype=jnp.float32)
+        interfering_paths = jnp.unpackbits(interfering_paths, axis=1)[:, : params.num_links]
+    interfering_paths = jnp.asarray(interfering_paths, dtype=jnp.float32)
     cand_paths = jnp.asarray(get_paths(params, nodes_sd), dtype=jnp.float32)
 
     def prep(paths):
@@ -1029,34 +1098,32 @@ def capacity_loss(state: EnvState, params: RSAEnvParams) -> Tuple[Array, Array]:
         gap = run_end - slot_indices[None, :]
         return sum_min(d, gap) - sum_min(d, 0)
 
-    short_start, short_end, short_cum = prep(shortest_paths)
+    intf_start, intf_end, intf_cum = prep(interfering_paths)
     cand_start, cand_end, cand_cum = prep(cand_paths)
 
-    # Loss on interfering (shortest-per-pair) routes: truncation left of s plus the
-    # capacity of positions inside [s, e) that become occupied. Since the block end
+    # Loss on the interfering routes: truncation left of s plus the capacity of
+    # positions inside [s, e) that become occupied. Since the block end
     # e = s + w_r depends on the candidate path only through its width w_r, the sum
     # over interfering routes commutes with the gather at e: everything reduces to
-    # matmuls over the pair dimension plus one shifted gather of the aggregate,
-    # avoiding a (num_pairs, k, S) intermediate. Aggregates can reach ~1e7 on
+    # matmuls over the route dimension plus one shifted gather of the aggregate,
+    # avoiding a (num_pairs * n, k, S) intermediate. Aggregates can reach ~1e7 on
     # 100+-node topologies, so float32 rounding of ~1 capacity unit is possible in
     # near-tied candidates; the ranking is unaffected for practical purposes (the
     # brute-force equality test runs on small topologies where sums stay exact).
-    short_trunc = truncation_loss(short_start, short_end)  # (num_pairs, S)
-    shares = (jnp.dot(cand_paths, shortest_paths.T) > 0).astype(jnp.float32)  # (k, P)
-    base = jnp.dot(
-        shares, (short_trunc - short_cum[:, :num_resources]).astype(jnp.float32)
-    )  # (k, S)
-    cum_agg = jnp.dot(shares, short_cum.astype(jnp.float32))  # (k, S + 1)
+    intf_trunc = truncation_loss(intf_start, intf_end)  # (num_pairs * n, S)
+    shares = (jnp.dot(cand_paths, interfering_paths.T) > 0).astype(jnp.float32)  # (k, P * n)
+    base = jnp.dot(shares, (intf_trunc - intf_cum[:, :num_resources]).astype(jnp.float32))  # (k, S)
+    cum_agg = jnp.dot(shares, intf_cum.astype(jnp.float32))  # (k, S + 1)
     loss = base + jnp.take_along_axis(cum_agg, ends, axis=1)
 
-    # Same loss terms on the candidate route itself. The candidate is already in
-    # the interfering set iff it is its pair's shortest path (k index 0);
-    # otherwise add its own loss explicitly
+    # Same loss terms on the candidate route itself. A candidate with k-index
+    # below n is already in the interfering set (it is one of its own pair's
+    # first n stored routes); otherwise add its own loss explicitly
     cand_trunc = truncation_loss(cand_start, cand_end)  # (k, S)
     cand_inside = jnp.take_along_axis(cand_cum, ends, axis=1) - cand_cum[:, :num_resources]
     cand_delta = cand_trunc + cand_inside
-    not_shortest = (jnp.arange(params.k_paths) != 0).astype(jnp.float32)[:, None]
-    loss = loss + cand_delta.astype(jnp.float32) * not_shortest
+    not_in_set = (jnp.arange(params.k_paths) >= n_int).astype(jnp.float32)[:, None]
+    loss = loss + cand_delta.astype(jnp.float32) * not_in_set
     loss = jnp.where(mask == 0, jnp.inf, loss)
     return loss, mask
 

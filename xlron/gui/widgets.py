@@ -224,6 +224,7 @@ DEFAULTS = {
     "maximum_path_length_km": None,
     # Heuristics
     "path_heuristic": "ksp_ff",
+    "mscl_interfering_k": 1,
     "EVAL_HEURISTIC": False,
     "EVAL_MODEL": False,
     "RETRAIN_MODEL": False,
@@ -427,6 +428,14 @@ def execution_mode_section() -> dict:
             help=_h("path_heuristic"),
         )
         _emit(flags, "path_heuristic", heuristic)
+        if heuristic in ("ksp_mscl", "mscl_ksp"):
+            mscl_k = st.number_input(
+                "MSCL Interfering Routes per Pair (0 = all k, 1 = shortest only)",
+                min_value=0,
+                value=int(_get_preset_val("mscl_interfering_k")),
+                help=_h("mscl_interfering_k"),
+            )
+            _emit(flags, "mscl_interfering_k", int(mscl_k))
 
     elif mode == "Model Evaluation":
         flags["EVAL_MODEL"] = True

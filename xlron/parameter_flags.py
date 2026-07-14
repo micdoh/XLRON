@@ -315,8 +315,18 @@ flags.DEFINE_boolean(
     "zero the policy-gradient contribution of negative-advantage steps. Explicit equivalent of "
     "the filter the non-recentered off-policy IAM clip applies emergently; pairs with "
     "IAM_RECENTER_CLIP. Unlike the emergent filter (which binds only in congested states with "
-    "valid mass < 1-eps), this filters every state including the uncongested mu~1 majority, "
-    "and it degraded late in training under float32 in matched comparisons",
+    "valid mass < 1-eps), this filters every state including the uncongested mu~1 majority "
+    "(no measured performance cost; see PO_MU_GATE for the exact per-state rule)",
+)
+flags.DEFINE_boolean(
+    "PO_MU_GATE",
+    False,
+    "ABLATION FLAG - apply POSITIVE_ADV_ONLY only in states with valid mass < 1 - CLIP_EPS "
+    "(requires POSITIVE_ADV_ONLY). This is exactly the per-state rule the non-recentered "
+    "off-policy IAM clip applies emergently: negative advantages train two-sided in the "
+    "uncongested mu ~ 1 lobe and are filtered only in congested states. Combined with "
+    "IAM_RECENTER_CLIP + MU_WEIGHT_ACTOR this makes the explicit stack's actor gradient "
+    "identical to the emergent configuration at no-update (see ppo_test.py)",
 )
 flags.DEFINE_boolean(
     "MU_WEIGHT_ACTOR",
@@ -641,6 +651,14 @@ flags.DEFINE_string("node_probs", None, "List of node probabilities for selectio
 flags.DEFINE_boolean("EVAL_HEURISTIC", False, "Evaluate heuristic")
 flags.DEFINE_string("path_heuristic", "ksp_ff", "Path heuristic to be evaluated")
 flags.DEFINE_string("node_heuristic", "random", "Node heuristic to be evaluated")
+flags.DEFINE_integer(
+    "mscl_interfering_k",
+    1,
+    "Stored routes per node pair in the interfering route set of the MSCL heuristics "
+    "(ksp_mscl, mscl_ksp). 1 (default) = the single-route-per-pair set of the original 2013 "
+    "formulation; 0 = all k paths, giving the multi-route MSCL Sequencial/Combinado of "
+    "dos Santos (2021). Compute and memory scale linearly with this value.",
+)
 # GNN-specific parameters
 flags.DEFINE_boolean("USE_GNN", False, "Use GNN")
 flags.DEFINE_integer("num_spectral_features", 8, "No. of spectral features")
