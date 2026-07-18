@@ -166,6 +166,127 @@ class CheckRsaActionTest(chex.TestCase):
         chex.assert_trees_all_close(actual, expected)
 
 
+class PrestateCheckEquivalenceTest(chex.TestCase):
+    """The non-differentiable plain-RSA fast path (check_action_rsa_prestate +
+    implement_and_complete_rsa) must reproduce the old implement/check/undo flow
+    (implement_action_rsa + check_action_rsa + complete_step_rsa) exactly -- post-state
+    and fail flag -- for valid AND invalid (mask says no) actions.
+
+    Times are chosen dyadic (exactly representable in float32) so the old flow's
+    add-then-subtract departure round trip on failure is exact and the states can be
+    compared bitwise.
+    """
+
+    def _old_flow(self, state, action_info, params):
+        state = implement_action_rsa(state, action_info, params)
+        check = check_action_rsa(state, action_info, params)
+        state = complete_step_rsa(state, action_info, check, params)
+        return state, check
+
+    def _new_flow(self, state, action_info, params):
+        check = check_action_rsa_prestate(state, action_info, params)
+        state = implement_and_complete_rsa(state, action_info, check, params)
+        return state, check
+
+    def _assert_flows_equivalent(self, env, state, action, params, expected_fail):
+        action_info = env.process_action(state, action, params)
+        # implement_action_rsa donates its input buffers when called eagerly, so give
+        # the old flow its own copy of the state.
+        state_for_old = jax.tree_util.tree_map(jnp.array, state)
+        new_state, new_check = self._new_flow(state, action_info, params)
+        old_state, old_check = self._old_flow(state_for_old, action_info, params)
+        self.assertEqual(bool(new_check), expected_fail)
+        self.assertEqual(bool(old_check), bool(new_check))
+        chex.assert_trees_all_equal(new_state.link_slot_array, old_state.link_slot_array)
+        chex.assert_trees_all_equal(
+            new_state.link_slot_departure_array, old_state.link_slot_departure_array
+        )
+        chex.assert_trees_all_equal(new_state.accepted_services, old_state.accepted_services)
+        chex.assert_trees_all_equal(new_state.accepted_bitrate, old_state.accepted_bitrate)
+        chex.assert_trees_all_equal(new_state.total_bitrate, old_state.total_bitrate)
+        chex.assert_trees_all_equal(new_state.total_timesteps, old_state.total_timesteps)
+        return new_state
+
+    def test_valid_action_equivalence(self):
+        # rwa_4node: 1-slot requests on 4 slots, k=2 paths
+        key, env, obs, state, params = rwa_4node_test_setup()
+        state = state.replace(current_time=jnp.array(2.0), holding_time=jnp.array(4.0))
+        new_state = self._assert_flows_equivalent(env, state, jnp.array(0), params, False)
+        # The gated allocation must actually land
+        self.assertEqual(int(new_state.accepted_services), 1)
+        self.assertEqual(float(jnp.max(new_state.link_slot_array)), 1.0)
+        self.assertEqual(float(jnp.max(new_state.link_slot_departure_array)), 6.0)
+
+    def test_invalid_action_occupied_slot_equivalence(self):
+        # Occupy slot 0 on all links (any path collides), then take action 0 again.
+        key, env, obs, state, params = rwa_4node_test_setup()
+        occupied = state.link_slot_array.at[:, 0].set(1.0)
+        departures = state.link_slot_departure_array.at[:, 0].set(3.0)
+        state = state.replace(
+            link_slot_array=occupied,
+            link_slot_departure_array=departures,
+            current_time=jnp.array(2.0),
+            holding_time=jnp.array(4.0),
+        )
+        pre_lsa = jnp.array(state.link_slot_array)
+        pre_dep = jnp.array(state.link_slot_departure_array)
+        new_state = self._assert_flows_equivalent(env, state, jnp.array(0), params, True)
+        # Failed action leaves spectrum and departures untouched; nothing accepted
+        chex.assert_trees_all_equal(new_state.link_slot_array, pre_lsa)
+        chex.assert_trees_all_equal(new_state.link_slot_departure_array, pre_dep)
+        self.assertEqual(int(new_state.accepted_services), 0)
+        self.assertEqual(int(new_state.total_timesteps), 1)
+
+    def test_invalid_action_window_overlap_equivalence(self):
+        # rsa_4node_3_slot: 3-slot requests on 5 slots. Occupy only slot 2, then take
+        # slot 0: the window [0, 3) overlaps the occupied slot mid-window.
+        key, env, obs, state, params = rsa_4node_3_slot_request_test_setup()
+        occupied = state.link_slot_array.at[:, 2].set(1.0)
+        state = state.replace(
+            link_slot_array=occupied,
+            current_time=jnp.array(2.0),
+            holding_time=jnp.array(4.0),
+        )
+        self._assert_flows_equivalent(env, state, jnp.array(0), params, True)
+
+    def test_invalid_action_overflow_equivalence(self):
+        # 3-slot request starting at slot 3 of 5 overflows the spectrum end.
+        key, env, obs, state, params = rsa_4node_3_slot_request_test_setup()
+        state = state.replace(current_time=jnp.array(2.0), holding_time=jnp.array(4.0))
+        self._assert_flows_equivalent(env, state, jnp.array(3), params, True)
+
+    def test_invalid_action_no_op_equivalence(self):
+        # Action index k_paths * link_resources decodes to path_index == k_paths (no-op)
+        key, env, obs, state, params = rsa_4node_3_slot_request_test_setup()
+        state = state.replace(current_time=jnp.array(2.0), holding_time=jnp.array(4.0))
+        no_op_action = jnp.array(params.k_paths * params.link_resources)
+        self._assert_flows_equivalent(env, state, no_op_action, params, True)
+
+    def test_step_env_invalid_action_blocked(self):
+        # Full step_env wiring: an invalid action must be blocked (failure reward),
+        # leave the spectrum unchanged, and accept nothing.
+        key, env, obs, state, params = rwa_4node_test_setup()
+        occupied = state.link_slot_array.at[:, 0].set(1.0)
+        departures = state.link_slot_departure_array.at[:, 0].set(3.0)
+        state = state.replace(
+            link_slot_array=occupied,
+            link_slot_departure_array=departures,
+            current_time=jnp.array(2.0),
+            holding_time=jnp.array(4.0),
+        )
+        pre_lsa = jnp.array(state.link_slot_array)
+        obs, new_state, reward, terminal, truncated, info = env.step_env(
+            key, state, jnp.array(0), params
+        )
+        self.assertEqual(float(reward), -1.0)
+        self.assertEqual(int(info["_accepted_services"]), 0)
+        # remove_expired_services in generate_request may clear expired slots, so
+        # compare against the pre-state before expiry: departure 3.0 > new current
+        # time only if the sampled inter-arrival is < 1; just assert no NEW slots
+        # were occupied (allocation was fully gated off)
+        self.assertTrue(bool(jnp.all(new_state.link_slot_array <= pre_lsa)))
+
+
 class RsaStepTest(chex.TestCase):
     def setUp(self):
         super().setUp()

@@ -2103,6 +2103,33 @@ def complete_step_rwalr(
     return state
 
 
+def implement_and_complete_rsa(
+    state: EnvState, action_info: ActionInfo, check: Array, params: EnvParams
+) -> EnvState:
+    """Fused implement + finalise for the non-differentiable plain-RSA/RMSA/RWA step.
+
+    Equivalent to implement_path_action followed by complete_step_rsa, given `check`
+    already computed on the PRE-implementation state (check_action_rsa_prestate):
+    the allocation is applied exactly once, gated on success, so the speculative
+    write + undo passes of the implement/check/undo flow are not needed.
+    On success the arithmetic is bit-identical to the old flow
+    (mask * 1 == mask, and 0-valued deltas add exactly); on failure the state is
+    left untouched (the old flow's add-then-subtract round trip could perturb
+    occupied departure entries by float rounding; here they are never written).
+    """
+    success = 1 - check
+    delta = action_info.affected_slots_mask * success
+    departure_delta = state.current_time + state.holding_time
+    return state.replace(
+        link_slot_array=state.link_slot_array + delta,
+        link_slot_departure_array=state.link_slot_departure_array + delta * departure_delta,
+        accepted_services=state.accepted_services + success,
+        accepted_bitrate=state.accepted_bitrate + (success * action_info.requested_datarate),
+        total_bitrate=state.total_bitrate + action_info.requested_datarate,
+        total_timesteps=state.total_timesteps + 1,
+    )
+
+
 def check_no_spectrum_reuse(state: EnvState, action_info: ActionInfo, params: EnvParams) -> bool:
     """slot-=1 when used, should be zero when unoccupied, so check if any < -1 in slot array.
 
@@ -2359,6 +2386,49 @@ def check_action_rsa(state, action_info, params):
         )
     )
     return combined_check
+
+
+def check_action_rsa_prestate(state: EnvState, action_info: ActionInfo, params: RSAEnvParams):
+    """Validity check for plain RSA/RMSA/RWA actions, evaluated on the PRE-implementation
+    state (non-differentiable mode only; the differentiable mode needs the soft
+    implement/check/undo flow for gradients).
+
+    Semantically identical to check_action_rsa run after implement_path_action: a plain-RSA
+    action fails iff (a) any slot in the requested window [initial_slot, initial_slot +
+    num_slots) is occupied (nonzero) on any path link -- exactly when the speculative
+    allocation would produce a value > 1 -- or (b) the window overflows the spectrum end,
+    or (c) the action is the no-op (path_index >= k_paths), or (d) the path is a dummy.
+    Reads only a (num_links, max_slots) window of link_slot_array instead of speculatively
+    writing and rescanning the full (num_links, link_resources) array. Relies on the same
+    invariant as mask_slots: required slots for any request never exceed params.max_slots
+    (max_slots is computed in make_env from max_bw at the worst spectral efficiency).
+    """
+    # Windowed spectrum-reuse check on the pre-implementation state
+    window_cols = action_info.initial_slot_index.astype(dtype_config.INDEX_DTYPE) + jnp.arange(
+        params.max_slots, dtype=dtype_config.INDEX_DTYPE
+    )
+    # Out-of-range columns read as 0 (free); the overflow check below rejects windows
+    # that extend past the spectrum end.
+    window = jnp.take(
+        state.link_slot_array, window_cols, axis=1, mode="fill", fill_value=0
+    )  # (num_links, max_slots)
+    in_window = jnp.arange(params.max_slots) < action_info.num_slots  # (max_slots,)
+    on_path = action_info.path != 0  # (num_links,)
+    spectrum_reuse_check = jnp.any((window != 0) & in_window[None, :] & on_path[:, None])
+
+    overflow_check = check_slot_overflow(state, action_info, params)
+    no_action_check = check_no_op(state, action_info, params)
+    unique_path_check = check_real_path(state, action_info, params)
+    return jnp.max(
+        jnp.stack(
+            [
+                spectrum_reuse_check,
+                overflow_check,
+                no_action_check,
+                unique_path_check,
+            ]
+        )
+    )
 
 
 def convert_node_probs_to_traffic_matrix(node_probs: list) -> Array:

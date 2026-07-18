@@ -87,19 +87,42 @@ Baseline (main): 16.6K SPS single-env CPU (RMSA NSFNET 100 FSU k=5 KSP-FF, load 
    memory that scales badly with NUM_ENVS on GPU; (a) already hit the item's
    estimated 10-15% band.
 
+5. [done 2026-07-18] Prestate-check step refactor (the "mask-as-check" item): plain
+   RSA/RMSA/RWA step no longer implements speculatively + rescans + undoes.
+   New check_action_rsa_prestate decides validity on the PRE-step state: windowed
+   spectrum check (jnp.take of the (L, max_slots) window at initial_slot with
+   fill=0, occupied = nonzero on path links — exactly when the speculative
+   allocation would produce a value > 1) + the same overflow/no-op/dummy-path
+   scalar checks as check_action_rsa. Then implement_and_complete_rsa applies the
+   allocation ONCE, gated on success (delta = affected_slots_mask * success), with
+   the complete_step_rsa counter updates fused in. DEVIATION from the audit
+   proposal: validity is computed from the spectral window, NOT gathered from
+   state.full_link_slot_mask — the state's mask is STALE in heuristic eval
+   (heuristics call mask_slots internally via get_action_mask but never write the
+   result back to the carried state; only the RL select_action path refreshes it),
+   so the gather would have accepted every ksp_ff fallback action (~24% of steps
+   emit invalid p0s0 when blocked) and collapsed blocking to ~0. The windowed
+   check is mathematically identical to a fresh mask gather (mask bit = window
+   free && fits && real path), costs (L x max_slots) instead of O(1) — negligible
+   vs the removed (L,S) passes — and needs no mask-freshness contract, so direct
+   step() callers and tests keep exact old semantics for arbitrary invalid
+   actions. Gate: params.__class__.__name__ == "RSAEnvParams" && !differentiable
+   (exact name: DeepRMSA/multiband/RWA-LR/GN keep the old flow; GN keeps SNR
+   checks; diff mode keeps the soft implement/check/undo path VERBATIM in the
+   else branch). Success arithmetic bit-identical (mask*1 == mask); on fail the
+   state is untouched (old flow's add-then-subtract could perturb occupied
+   departure entries by float rounding — empirically no effect on the benchmark).
+   Measured same-session: 3.09-3.33s/30.0-32.3K -> 2.07-2.08s/48.0-48.4K FPS
+   (~+55%). Blocking bit-identical: 0.24021 all 3 reps (matches HEAD), NUM_ENVS=4
+   0.23863 (matches HEAD), warmup ENV_WARMUP_STEPS=3000/50k 0.23776 (matches
+   HEAD). GN heuristic-eval smoke runs. New PrestateCheckEquivalenceTest (6
+   tests) asserts post-state + fail-flag equality old-vs-new flow for valid,
+   occupied-slot, mid-window-overlap, overflow and no-op actions (dyadic times
+   so the old undo round-trip is exact) plus full-step blocking of an invalid
+   action. env_funcs+rsa 622 passed; ppo+heuristics and deeprmsa+rwalr+gn suites
+   pass; gradient check passes (grad std ~9.5e-11).
+
 ## Remaining (verified proposals from the 4-lens audit; anchors = main @997478c)
-5. **Mask-as-check step refactor** (est. 10-15%): implement_path_action writes both
-   (L,S) arrays speculatively, check_no_spectrum_reuse rescans the full spectrum,
-   then TWO dense undo passes run even on success (env_funcs.py:2000-2173 region).
-   Proposal: validity = full_link_slot_mask[action] gather (mask_slots already ran
-   on the same pre-step state); apply allocation once, multiplied by validity.
-   Scope: plain RSA/RMSA/RWA check path ONLY — GN envs keep their SNR check
-   (physics, not derivable from the mask); differentiable mode keeps the soft
-   implement/check/undo path (gradients flow through allocation).
-   This is the deepest change: step-API touch in rsa.py step_env + check_action_rsa
-   callers; RL invalid actions (masking off) must still be detected -> the gather
-   handles it (mask says invalid), but action_history/undo semantics for the
-   diff path must be preserved.
 6. **Bool action mask end-to-end** (est. 2-4%): mask born bool at
    (window_sums == 0) (env_funcs.py mask_slots) then cast f32, f32-multiplied by
    path_valid, ones-concat, and f32->f16->f32 through the RL carry. Proposal: bool
