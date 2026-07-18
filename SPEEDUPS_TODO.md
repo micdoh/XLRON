@@ -1,0 +1,76 @@
+# speedups branch — status and remaining items
+
+Baseline (main): 16.6K SPS single-env CPU (RMSA NSFNET 100 FSU k=5 KSP-FF, load 250,
+100k steps, M1 Pro, f32). After batches 1+2: **27K SPS (+62%)**, blocking bit-identical
+(0.24147), 1210+632 tests pass, differentiable path verified (gradients flow).
+
+## Done
+1. [42bf19a] Boolean fast path in remove_expired_services_rsa; integer path-index
+   short-circuit in get_path_index_array; integer decode in process_path_action;
+   removed unusable donate_argnums on mask_slots. All non-diff-mode only; diff paths
+   untouched. Bit-identical.
+2. [4d7711d] Utilisation/fragmentation off the hot path -> computed per logging
+   increment in log_metrics from final state. THE big win (+62%).
+
+## Remaining (verified proposals from the 4-lens audit; anchors = main @997478c)
+3. **Lean info stacking** (est. 10-20%): wrappers.py:78-130 stacks ~12 scalars per
+   step through scan ys; eval returns traj.info so nothing DCEs. Proposal: for
+   EVAL_HEURISTIC, return only the keys the metric pipeline consumes (blocking
+   comes from carry counters; check process_metrics needs: returns, lengths,
+   cum_returns, accepted_*, total_bitrate, done flags) and drop the rest from the
+   stacked dict. Watch: process_metrics key expectations; DOWNSAMPLE; wandb.
+4. **Pre-sample the request stream** (est. 10-15%): env_funcs generate_request_rsa
+   (~4 key splits + 2 jax.random.choice that re-cumsum the constant traffic matrix
+   + 2 exponentials per step). Existing deterministic_requests/list_of_requests
+   gather path (env_funcs.py:1239-1266) is the vehicle: pre-sample (T,) streams
+   (bandwidth, src-dst, arrival, holding) before the scan, index by
+   state.total_requests. Not bit-identical (key-consumption order changes) — fine
+   per user. Minimal variant: precompute CDF once in params, sample via
+   uniform+searchsorted.
+5. **Mask-as-check step refactor** (est. 10-15%): implement_path_action writes both
+   (L,S) arrays speculatively, check_no_spectrum_reuse rescans the full spectrum,
+   then TWO dense undo passes run even on success (env_funcs.py:2000-2173 region).
+   Proposal: validity = full_link_slot_mask[action] gather (mask_slots already ran
+   on the same pre-step state); apply allocation once, multiplied by validity.
+   Scope: plain RSA/RMSA/RWA check path ONLY — GN envs keep their SNR check
+   (physics, not derivable from the mask); differentiable mode keeps the soft
+   implement/check/undo path (gradients flow through allocation).
+   This is the deepest change: step-API touch in rsa.py step_env + check_action_rsa
+   callers; RL invalid actions (masking off) must still be detected -> the gather
+   handles it (mask says invalid), but action_history/undo semantics for the
+   diff path must be preserved.
+6. **Bool action mask end-to-end** (est. 2-4%): mask born bool at
+   (window_sums == 0) (env_funcs.py mask_slots) then cast f32, f32-multiplied by
+   path_valid, ones-concat, and f32->f16->f32 through the RL carry. Proposal: bool
+   in non-diff mode end-to-end; cast to float only at logit-masking
+   (train_utils.py:1194) and model-input sites. Requires: init_link_slot_mask dtype,
+   aggregate_slots bool handling, every mask write site consistent (scan carry!),
+   heuristics first_fit argmax on bool (works), mod_format_mask STAYS float (-1
+   sentinels). Add a bool entry to dtype_config.DTYPE_MAP.
+7. **int8 occupancy tier for link_slot_array** (GPU memory win, small CPU): values
+   {-1,0,1,2}; ~15 write sites need cast-per-write (mixed-precision carry rule);
+   force preferred_element_type=int32 on paths @ occupied. Diff mode stays float.
+8. **Skip dead obs concat in heuristic eval** (1-2%): rsa.py get_obs builds a
+   4403-elem concat each step; heuristic ignores it. Gate at eval_heuristic.py
+   carry construction (shape-() placeholder), NOT via new user flag — key on
+   config.EVAL_HEURISTIC && !use_gnn.
+9. **diff_utils.differentiable_compare early-out hoist** (compile-time only):
+   diff_utils.py:84-108 builds soft sigmoid ops before the `if not differentiable`
+   return; hoist the return above the soft-op construction. (where/round/ceil/floor
+   already early-out — do NOT touch.)
+10. **Tier hygiene**: init_traffic_matrix builds SMALL_FLOAT then astype(f32)
+    (env_funcs.py:1071) — construct directly in LARGE_FLOAT; unify duplicate
+    one/zero module constants (env_funcs.py:56-57 SMALL_INT vs rsa.py:58-59
+    LARGE_FLOAT — causes a second compiled specialisation of required_slots).
+
+## Verification recipe (used for batches 1-2)
+- Speed: 3 reps of the RMSA eval command above; compare FPS.
+- Correctness: service_blocking_probability must stay 0.24147 for bit-identical
+  items (items 4+ change RNG or semantics — compare distributions instead).
+- Tests: uv run pytest xlron/environments/... + ppo_test (full suite before merge).
+- Gradients: optimize_actions 30 iters, Mean grad nonzero, actions move.
+
+## Full audit trail
+Verified findings + file:line: session scratchpad (rerun audit if stale) and the
+workflow journal wf_ab0ce66e-eb5. Do NOT merge to main until the GN/RWA-LR/VONE
+paths are re-tested (metrics injection touches all envs via log_metrics).
