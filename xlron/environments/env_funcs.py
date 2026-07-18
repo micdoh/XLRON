@@ -1149,13 +1149,14 @@ def init_rsa_request_array():
 @partial(jax.jit, static_argnums=(0, 1, 2))
 def init_link_slot_mask(params: EnvParams, include_no_op: bool = False, agg: float = 1.0):
     """Initialize link mask"""
-    # Binary {0, 1} action-validity mask. Bulk float tier (exact in float16). The mask is
-    # recomputed from scratch each step, so every site that writes it back into the carried state
-    # (select_action in train_utils, mask_slots_bit_rate_mod_format, VONE) casts to SMALL_FLOAT to
-    # keep the scan carry dtype stable; the transient mask used for logit-masking stays full width.
+    # Action-validity mask on the MASK tier: bool in non-differentiable modes (born as a
+    # comparison; consumers cast to float at the point of use, e.g. logit masking), float32 in
+    # differentiable mode. The mask is recomputed from scratch each step, so every site that
+    # writes it back into the carried state (select_action in train_utils,
+    # mask_slots_rmsa_gn_model, VONE) casts to MASK_DTYPE to keep the scan carry dtype stable.
     return jnp.ones(
         params.k_paths * math.ceil(params.link_resources / agg) + (1 * include_no_op),
-        dtype=dtype_config.SMALL_FLOAT_DTYPE,
+        dtype=dtype_config.MASK_DTYPE,
     )
 
 
@@ -2628,12 +2629,16 @@ def mask_slots(state: RSAEnvState, params: RSAEnvParams) -> Array:
 
     cumsum_at_end = jnp.take_along_axis(cumsum, end_indices, axis=1, mode="clip")
     window_sums = cumsum_at_end - cumsum[:, : params.link_resources]
-    final_masks = (window_sums == 0).astype(dtype_config.LARGE_FLOAT_DTYPE)  # (k, link_resources)
 
     # Identify valid (non-dummy) paths - dummy paths are all-zeros
-    # Zero out mask rows for dummy paths so they are unselectable
-    path_valid = (jnp.max(paths, axis=1) > 0).astype(dtype_config.LARGE_FLOAT_DTYPE)  # (k,)
-    final_masks = final_masks * path_valid[:, None]
+    # Zero out mask rows for dummy paths so they are unselectable.
+    # Both terms are comparisons, so build the mask in bool and cast once to the MASK tier
+    # (a no-op bool in non-differentiable modes; float32 in differentiable mode, identical to
+    # the old float multiply for {0, 1} values and equally gradient-free).
+    path_valid = jnp.max(paths, axis=1) > 0  # (k,)
+    final_masks = ((window_sums == 0) & path_valid[:, None]).astype(
+        dtype_config.MASK_DTYPE
+    )  # (k, link_resources)
 
     full_link_slot_mask = final_masks.reshape(-1)
 
@@ -2645,7 +2650,7 @@ def mask_slots(state: RSAEnvState, params: RSAEnvParams) -> Array:
 
     if params.include_no_op:
         link_slot_mask = jnp.concatenate(
-            [link_slot_mask, jnp.ones(1, dtype=dtype_config.LARGE_FLOAT_DTYPE)]
+            [link_slot_mask, jnp.ones(1, dtype=dtype_config.MASK_DTYPE)]
         )
 
     return link_slot_mask, full_link_slot_mask
@@ -3267,7 +3272,13 @@ def mask_slots_rwalr(
         combined = jnp.maximum(capacity_slots, lightpath_slots)
         return 1.0 - jnp.minimum(combined, 1.0)
 
-    link_slot_mask = jax.vmap(single_path)(jnp.arange(params.k_paths)).reshape(-1)
+    # Values are exactly {0, 1}, so the MASK-tier cast (bool in non-differentiable modes)
+    # is lossless; consumers cast back to float at the point of use.
+    link_slot_mask = (
+        jax.vmap(single_path)(jnp.arange(params.k_paths))
+        .reshape(-1)
+        .astype(dtype_config.MASK_DTYPE)
+    )
 
     full_link_slot_mask = link_slot_mask
 
@@ -3275,7 +3286,9 @@ def mask_slots_rwalr(
         link_slot_mask = aggregate_slots(link_slot_mask, params)
 
     if params.include_no_op:
-        link_slot_mask = jnp.concatenate([link_slot_mask, jnp.ones((1,))])
+        link_slot_mask = jnp.concatenate(
+            [link_slot_mask, jnp.ones((1,), dtype=dtype_config.MASK_DTYPE)]
+        )
 
     return link_slot_mask, full_link_slot_mask
 
@@ -5221,17 +5234,21 @@ def mask_slots_rmsa_gn_model(
         -1
     )  # (k * link_resources,)
 
-    link_slot_mask = jnp.where(mod_format_mask >= 0, 1.0, 0.0)
+    # Validity mask on the MASK tier (bool in non-differentiable modes). NOTE: validity here
+    # comes from the SNR-based mod_format_mask (>= 0 means some modulation format works), NOT
+    # from the spectrum mask — only the dtype changes.
+    link_slot_mask = (mod_format_mask >= 0).astype(dtype_config.MASK_DTYPE)
     full_link_slot_mask = link_slot_mask
     if params.aggregate_slots > 1:
         link_slot_mask = aggregate_slots(link_slot_mask, params)
     if params.include_no_op:
-        link_slot_mask = jnp.hstack([link_slot_mask, jnp.ones((1,))])
-    # Store masks at SMALL_FLOAT to keep the carried field dtype stable under mixed precision
-    # (matches init_link_slot_mask / init_mod_format_mask); values are {0,1} / small indices.
+        link_slot_mask = jnp.hstack([link_slot_mask, jnp.ones((1,), dtype=dtype_config.MASK_DTYPE)])
+    # Store the validity masks at MASK_DTYPE and mod_format_mask at SMALL_FLOAT to keep the
+    # carried field dtypes stable (matches init_link_slot_mask / init_mod_format_mask);
+    # mod_format_mask stays float: it holds -1 sentinels / small modulation indices.
     state = state.replace(
-        link_slot_mask=link_slot_mask.astype(dtype_config.SMALL_FLOAT_DTYPE),  # ty: ignore[unresolved-attribute]
-        full_link_slot_mask=full_link_slot_mask.astype(dtype_config.SMALL_FLOAT_DTYPE),
+        link_slot_mask=link_slot_mask.astype(dtype_config.MASK_DTYPE),  # ty: ignore[unresolved-attribute]
+        full_link_slot_mask=full_link_slot_mask.astype(dtype_config.MASK_DTYPE),
         mod_format_mask=mod_format_mask.astype(dtype_config.SMALL_FLOAT_DTYPE),
     )
     return state

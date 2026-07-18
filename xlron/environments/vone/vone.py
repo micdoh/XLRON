@@ -281,12 +281,12 @@ class VONEEnv(environment.Environment):
         formatted_request = format_vone_slot_request(state, action)
         state = state.replace(request_array=formatted_request)
         link_slot_mask, full_link_slot_mask = mask_slots(state, params)
-        # Store at SMALL_FLOAT to keep the carried field dtype stable under mixed precision
-        # (matches init_link_slot_mask); mask values are {0, 1}, exact in float16.
+        # Store at MASK_DTYPE to keep the carried field dtype stable
+        # (matches init_link_slot_mask); mask values are {0, 1}, exact in bool/float.
         state = state.replace(
             request_array=orig_request_array,
-            link_slot_mask=link_slot_mask.astype(dtype_config.SMALL_FLOAT_DTYPE),
-            full_link_slot_mask=full_link_slot_mask.astype(dtype_config.SMALL_FLOAT_DTYPE),
+            link_slot_mask=link_slot_mask.astype(dtype_config.MASK_DTYPE),
+            full_link_slot_mask=full_link_slot_mask.astype(dtype_config.MASK_DTYPE),
         )
         return state
 

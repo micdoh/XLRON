@@ -804,10 +804,10 @@ class MixedPrecisionCarryTest(chex.TestCase):
             init_dtype = state.link_slot_array.dtype
             self.assertEqual(init_dtype, dtype_config.SMALL_FLOAT_DTYPE)
             mask, full_mask = env.action_mask(state, params)
-            # Store masks at SMALL_FLOAT exactly as select_action does
+            # Store masks at MASK_DTYPE exactly as select_action does
             state = state.replace(
-                link_slot_mask=mask.astype(dtype_config.SMALL_FLOAT_DTYPE),
-                full_link_slot_mask=full_mask.astype(dtype_config.SMALL_FLOAT_DTYPE),
+                link_slot_mask=mask.astype(dtype_config.MASK_DTYPE),
+                full_link_slot_mask=full_mask.astype(dtype_config.MASK_DTYPE),
             )
             _, state, *_ = jax.jit(env.step, static_argnums=(3,))(
                 key, state, jnp.argmax(mask), params

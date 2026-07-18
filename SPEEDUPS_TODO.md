@@ -122,15 +122,35 @@ Baseline (main): 16.6K SPS single-env CPU (RMSA NSFNET 100 FSU k=5 KSP-FF, load 
    action. env_funcs+rsa 622 passed; ppo+heuristics and deeprmsa+rwalr+gn suites
    pass; gradient check passes (grad std ~9.5e-11).
 
+6. [done 2026-07-18] Bool action mask end-to-end: new MASK tier in dtype_config
+   (DTYPE_MAP gains "bool"; MASK_DTYPE = bool in default AND mixed_precision
+   modes, float32 in differentiable mode so soft/straight-through arithmetic is
+   untouched; resolves like the other tiers via an optional mask_dtype config
+   key — no new CLI flag). mask_slots now builds the mask as
+   (window_sums == 0) & path_valid (bool &, no float casts/multiplies) and
+   casts once to MASK_DTYPE; mask_slots_rwalr casts its float {0,1} result at
+   the boundary; mask_slots_rmsa_gn_model derives link_slot_mask as
+   (mod_format_mask >= 0) — still purely SNR-based validity, only the dtype
+   changed — while mod_format_mask STAYS SMALL_FLOAT (-1 sentinels). All 7
+   carry write sites made consistent: init_link_slot_mask, DeepRMSA init ones,
+   select_action write-back (train_utils), VONE action_mask_slots, GN state
+   replace, plus the two per-env reset paths via init_link_slot_mask; no-op
+   concat ones get explicit MASK_DTYPE. Consumers verified bool-safe: heuristics
+   promote (concat-with-int -> int32 argmax, float*bool, mask==0/1, take_along_axis),
+   RL logit masking already casts astype(f32) at use, ppo loss sums/gates promote,
+   warmup random-action jnp.maximum(mask, 1e-8) promotes to f32, multidevice
+   jnp.where(mask, ...) fine, aggregate_slots max-pool = OR on bool,
+   process_path_action pad/dynamic_slice/argmax fine. dtype_config_test mask
+   assertions updated to bool (+ MASK_DTYPE resolution asserts); rwalr
+   MixedPrecisionCarryTest mirrors the new select_action cast. Measured
+   same-session: 2.20-2.51s/39.9-45.4K -> 2.11-2.16s/46.3-47.4K FPS (~+3-4%).
+   Bit-identical: benchmark 0.24021 all 3 reps, NUM_ENVS=4 0.23863, warmup
+   3000/50k 0.23776 (all match HEAD); rsa_gn_model 200-step smoke compiles and
+   runs; short live RL train (rmsa, 2 envs) runs. Suites: env_funcs+rsa 622,
+   heuristics+ppo 618, rwalr+vone+dtype_config 504, gn_model+deeprmsa 334
+   passed. Gradient check passes (grad std ~9.5e-11, float mask path verbatim).
+
 ## Remaining (verified proposals from the 4-lens audit; anchors = main @997478c)
-6. **Bool action mask end-to-end** (est. 2-4%): mask born bool at
-   (window_sums == 0) (env_funcs.py mask_slots) then cast f32, f32-multiplied by
-   path_valid, ones-concat, and f32->f16->f32 through the RL carry. Proposal: bool
-   in non-diff mode end-to-end; cast to float only at logit-masking
-   (train_utils.py:1194) and model-input sites. Requires: init_link_slot_mask dtype,
-   aggregate_slots bool handling, every mask write site consistent (scan carry!),
-   heuristics first_fit argmax on bool (works), mod_format_mask STAYS float (-1
-   sentinels). Add a bool entry to dtype_config.DTYPE_MAP.
 7. **int8 occupancy tier for link_slot_array** (GPU memory win, small CPU): values
    {-1,0,1,2}; ~15 write sites need cast-per-write (mixed-precision carry rule);
    force preferred_element_type=int32 on paths @ occupied. Diff mode stays float.
