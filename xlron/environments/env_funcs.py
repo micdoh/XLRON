@@ -1391,6 +1391,13 @@ def get_path_index_array(params: EnvParams, nodes: Array) -> Array:
     i = get_path_indices(
         params, source, dest, params.k_paths, params.num_nodes, directed=params.directed_graph
     )
+    if not params.differentiable:
+        # The gather through an identity arange is the identity: the k path
+        # indices are just i, i+1, ..., i+k-1. Keep everything integer.
+        return (
+            i.astype(dtype_config.INDEX_DTYPE)
+            + jnp.arange(params.k_paths, dtype=dtype_config.INDEX_DTYPE)
+        )
     index_array = differentiable_indexing(
         jnp.arange(0, params.path_link_array.shape[0], dtype=dtype_config.LARGE_INT_DTYPE),
         i + jnp.arange(params.k_paths, dtype=dtype_config.LARGE_FLOAT_DTYPE),
@@ -1631,6 +1638,23 @@ def remove_expired_services_rsa(state: RSAEnvState, params: EnvParams) -> RSAEnv
     t = state.current_time if not params.relative_arrival_times else state.arrival_time
 
     dep = state.link_slot_departure_array
+
+    if not params.differentiable:
+        # Boolean fast path: no float casts or multiply-blends. Clear only slots
+        # occupied by an expired service (0 < dep <= t). Band-gap sentinels (-1
+        # in link_slot_array) carry dep == 0 and must survive expiry.
+        keep = dep > t
+        expired = (dep > 0) & ~keep
+        new_slots = jnp.where(expired, 0, state.link_slot_array)
+        if params.relative_arrival_times:
+            # Keep only those still active and shift them by -t
+            new_dep = jnp.where(keep, dep - t, 0).astype(dep.dtype)
+        else:
+            new_dep = jnp.where(keep, dep, 0)
+        return state.replace(
+            link_slot_array=new_slots,
+            link_slot_departure_array=new_dep,
+        )
 
     keep = differentiable_compare(
         dep, t, ">", temperature=params.temperature, differentiable=params.differentiable
@@ -2110,13 +2134,20 @@ def process_path_action(
     # ceil, matching init_link_slot_mask / aggregate_slots / the model action-space size
     # (floor would mis-decode path/slot whenever link_resources % aggregate_slots != 0)
     num_slot_actions = math.ceil(params.link_resources / params.aggregate_slots)
-    path_action = differentiable_round_simple(
-        path_action, params.temperature, params.differentiable
-    )
-    path_index = differentiable_floor(
-        path_action // num_slot_actions, params.temperature, params.differentiable
-    ).astype(dtype_config.LARGE_INT_DTYPE)
-    initial_aggregated_slot_index = jnp.mod(path_action, num_slot_actions)
+    if not params.differentiable:
+        # Actions are integers here; // is exact integer floor division, so the
+        # round/floor helpers (which promote through float) are redundant.
+        path_action = path_action.astype(dtype_config.LARGE_INT_DTYPE)
+        path_index = path_action // num_slot_actions
+        initial_aggregated_slot_index = jnp.mod(path_action, num_slot_actions)
+    else:
+        path_action = differentiable_round_simple(
+            path_action, params.temperature, params.differentiable
+        )
+        path_index = differentiable_floor(
+            path_action // num_slot_actions, params.temperature, params.differentiable
+        ).astype(dtype_config.LARGE_INT_DTYPE)
+        initial_aggregated_slot_index = jnp.mod(path_action, num_slot_actions)
     initial_slot_index = initial_aggregated_slot_index * params.aggregate_slots
 
     if params.aggregate_slots > 1:
@@ -2418,7 +2449,10 @@ def get_request_mask(requested_slots, params):
     return request_mask
 
 
-@partial(jax.jit, static_argnums=(1,), donate_argnums=(0,))
+# NOTE: no donate_argnums here — this function donates nothing usable (it takes
+# the env state but returns freshly-shaped masks, so no buffer can alias), and
+# an eager call with donation on a still-referenced state would error.
+@partial(jax.jit, static_argnums=(1,))
 def mask_slots(state: RSAEnvState, params: RSAEnvParams) -> Array:
     nodes_sd, requested_datarate = read_rsa_request(state.request_array)
 
