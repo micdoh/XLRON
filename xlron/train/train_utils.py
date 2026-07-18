@@ -2412,12 +2412,24 @@ def log_metrics(
         else:
             util = float(calculate_utilisation(lsa))
             frag = float(calculate_fragmentation(lsa))
+        # Template stats entry: eval drops the (constant-zero) per-step
+        # utilisation/fragmentation keys from the stacked info entirely
+        # (eval_heuristic._pack_info), so the entries may be absent from
+        # processed_data and need creating from an always-present metric's shape.
+        template = processed_data.get("accepted_services") or next(iter(processed_data.values()))
         for metric_name, value in (("utilisation", util), ("fragmentation", frag)):
-            stats = processed_data.get(metric_name)
+            stats = processed_data.get(metric_name, template)
             if isinstance(stats, dict):
-                for stat_key, arr in stats.items():
-                    stats[stat_key] = np.full_like(np.asarray(arr, dtype=np.float64), value)
-    except (KeyError, IndexError, AttributeError, TypeError):
+                processed_data[metric_name] = {
+                    stat_key: np.full_like(np.asarray(arr, dtype=np.float64), value)
+                    for stat_key, arr in stats.items()
+                }
+        # Keep metric ordering stable (summary-table rows, CSV columns) whether
+        # the entries above were overwritten in place or newly created
+        reordered = {k: processed_data[k] for k in metrics if k in processed_data}
+        reordered.update({k: v for k, v in processed_data.items() if k not in metrics})
+        processed_data = reordered
+    except (KeyError, IndexError, AttributeError, TypeError, StopIteration):
         # Envs without link_slot_array (or unexpected runner-state layouts) keep
         # whatever process_metrics produced (e.g. VONE's per-step values).
         pass

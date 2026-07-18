@@ -42,13 +42,27 @@ Baseline (main): 16.6K SPS single-env CPU (RMSA NSFNET 100 FSU k=5 KSP-FF, load 
    obs carry but is already stale against current APIs (5-field Transition, old
    select_action_eval signature) — pre-existing rot, untouched.
 
+3. [done 2026-07-18] Lean info stacking in eval: eval_heuristic._pack_info packs
+   the core per-step info scalars into two vectors (int-valued counters+done
+   flags in LARGE_INT, float metrics in LARGE_FLOAT) so the scan stacks 2
+   buffers instead of ~10 tiny per-scalar dynamic-update-slices; _unpack_info
+   restores the exact keys/dtypes after the scan, so process_metrics/
+   print_metrics/CSV/wandb see an unchanged dict. Constant-zero per-step
+   utilisation/fragmentation are dropped entirely for non-VONE envs;
+   log_metrics' per-increment injection now *creates* those processed_data
+   entries from a template metric (and reorders to the canonical metrics-list
+   order) so summary rows and CSV columns are preserved — verified CSV
+   byte-identical vs HEAD. GN blocked_* keys ride the int pack; throughput/
+   launch_power/log_actions keys stay unpacked. LogWrapper and the RL path
+   (ppo.py) untouched. Measured same-session: 3.55s/28.1K -> 3.23-3.29s/
+   30.4-30.9K FPS (~+9%). Bit-identical (0.24147; NUM_ENVS=4 0.24223 matches
+   HEAD); GN smoke run correct (spectrum/snr/power blocking, throughput);
+   1237+25 tests pass; gradient check passes (grad std ~9.5e-11). NOTE: the
+   pickled merged_out (.pkl next to EPISODE_DATA_OUTPUT_FILE) no longer
+   contains per-step utilisation/fragmentation for non-VONE eval runs (they
+   were constant 0 since batch 2 anyway).
+
 ## Remaining (verified proposals from the 4-lens audit; anchors = main @997478c)
-3. **Lean info stacking** (est. 10-20%): wrappers.py:78-130 stacks ~12 scalars per
-   step through scan ys; eval returns traj.info so nothing DCEs. Proposal: for
-   EVAL_HEURISTIC, return only the keys the metric pipeline consumes (blocking
-   comes from carry counters; check process_metrics needs: returns, lengths,
-   cum_returns, accepted_*, total_bitrate, done flags) and drop the rest from the
-   stacked dict. Watch: process_metrics key expectations; DOWNSAMPLE; wandb.
 4. **Pre-sample the request stream** (est. 10-15%): env_funcs generate_request_rsa
    (~4 key splits + 2 jax.random.choice that re-cumsum the constant traffic matrix
    + 2 exponentials per step). Existing deterministic_requests/list_of_requests
