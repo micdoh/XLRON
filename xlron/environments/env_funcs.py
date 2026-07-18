@@ -1237,8 +1237,6 @@ def generate_source_dest_pairs(num_nodes, directed_graph):
 def generate_request_rsa(
     key: chex.PRNGKey, state: RSAEnvState, params: RSAEnvParams
 ) -> RSAEnvState:
-    key_sd, key_slot, key_times = jax.random.split(key, 3)
-
     if params.deterministic_requests:
         # total_requests starts at -1 and is incremented in the replace below, so the
         # request being generated is number total_requests + 1. Reading at the raw counter
@@ -1268,8 +1266,19 @@ def generate_request_rsa(
             request, 5, params.temperature, params.differentiable
         )
     else:
+        # One fused uniform draw supplies all per-step randomness (a single threefry
+        # invocation instead of ~4 key splits + per-draw hashes). Source-dest and
+        # bandwidth indices come from inverse-CDF sampling (searchsorted) against
+        # pre-computed CDFs, replacing jax.random.choice which re-cumsums the
+        # constant probabilities every step. Exponential times use -log1p(-u),
+        # exactly jax.random.exponential's construction.
+        num_holding = 5 if params.truncate_holding_time else 1
+        u = jax.random.uniform(key, shape=(3 + num_holding,), dtype=dtype_config.TIME_DTYPE)
         if params.traffic_array:
-            source_dest_index = jax.random.choice(key_sd, state.traffic_matrix.shape[0])
+            num_pairs = state.traffic_matrix.shape[0]
+            source_dest_index = jnp.minimum(
+                (u[0] * num_pairs).astype(dtype_config.INDEX_DTYPE), num_pairs - 1
+            )
             nodes = differentiable_indexing(
                 state.traffic_matrix,
                 source_dest_index,
@@ -1278,24 +1287,39 @@ def generate_request_rsa(
             )
         else:
             shape = state.traffic_matrix.shape
-            probabilities = state.traffic_matrix.ravel()
-            source_dest_index = jax.random.choice(key_sd, probabilities.size, p=probabilities)
+            # traffic_cdf is a static field: None means the matrix varies per reset
+            # (random_traffic), so fall back to a per-step cumsum
+            cdf = (
+                params.traffic_cdf.val
+                if params.traffic_cdf is not None
+                else jnp.cumsum(state.traffic_matrix.ravel())
+            )
+            # (1 - u) keeps the target in (0, total] so zero-probability entries
+            # (e.g. the diagonal) are never selected (mirrors jax.random.choice)
+            source_dest_index = jnp.searchsorted(cdf, cdf[-1] * (1.0 - u[0]))
             # Faster than unravel_index for 2D
             source = source_dest_index // shape[1]
             dest = source_dest_index % shape[1]
             nodes = jnp.stack((source, dest), dtype=dtype_config.LARGE_INT_DTYPE)
 
+        values_bw = jnp.asarray(params.values_bw.val)
         # values_bw_probs is a static field: None means uniform sampling
-        bw_probs = params.values_bw_probs.val if params.values_bw_probs is not None else None
-        bw = jax.random.choice(key_slot, params.values_bw.val, p=bw_probs)
+        if params.values_bw_probs is None:
+            num_bw = values_bw.shape[0]
+            bw_index = jnp.minimum((u[1] * num_bw).astype(dtype_config.INDEX_DTYPE), num_bw - 1)
+        else:
+            # cumsum of a compile-time constant: folded by XLA, not a per-step op
+            bw_cdf = jnp.cumsum(params.values_bw_probs.val)
+            bw_index = jnp.searchsorted(bw_cdf, bw_cdf[-1] * (1.0 - u[1]))
+        bw = values_bw[bw_index]
         source, dest = (
             nodes
             if params.directed_graph
             else (jnp.minimum(nodes[0], nodes[1]), jnp.maximum(nodes[0], nodes[1]))
         )
 
-        arrival_time, holding_time = generate_arrival_holding_times(
-            key_times, params, state.arrival_rate, state.mean_service_holding_time
+        arrival_time, holding_time = _arrival_holding_from_uniforms(
+            u[2:3], u[3:], params, state.arrival_rate, state.mean_service_holding_time
         )
         current_time = (
             state.current_time + arrival_time
@@ -1330,8 +1354,6 @@ def generate_request_rsa(
 def generate_request_rwalr(
     key: chex.PRNGKey, state: RWALightpathReuseEnvState, params: RSAEnvParams
 ) -> RWALightpathReuseEnvState:
-    # Flatten the probabilities to a 1D array
-    key_sd, key_slot, key_times = jax.random.split(key, 3)
     if params.deterministic_requests:
         # See generate_request_rsa: the request being generated is total_requests + 1
         request = differentiable_indexing(
@@ -1347,22 +1369,32 @@ def generate_request_rwalr(
         holding_time = jax.lax.dynamic_slice(request, (4,), (1,))[0]
         current_time = jax.lax.dynamic_slice(request, (5,), (1,))[0]
     else:
+        # See generate_request_rsa: one fused uniform draw + inverse-CDF sampling
+        num_holding = 5 if params.truncate_holding_time else 1
+        u = jax.random.uniform(key, shape=(3 + num_holding,), dtype=dtype_config.TIME_DTYPE)
         shape = state.traffic_matrix.shape
-        probabilities = state.traffic_matrix.ravel()
-        # Use jax.random.choice to select index based on the probabilities
-        source_dest_index = jax.random.choice(
-            key_sd, jnp.arange(state.traffic_matrix.size), p=probabilities
+        # traffic_cdf is a static field: None means the matrix varies per reset
+        cdf = (
+            params.traffic_cdf.val
+            if params.traffic_cdf is not None
+            else jnp.cumsum(state.traffic_matrix.ravel())
         )
+        source_dest_index = jnp.searchsorted(cdf, cdf[-1] * (1.0 - u[0]))
         # Convert 1D index back to 2D
         nodes = jnp.unravel_index(source_dest_index, shape)
-        # Vectorized conditional replacement using mask
+        values_bw = jnp.asarray(params.values_bw.val)
         # values_bw_probs is a static field: None means uniform sampling
-        bw_probs = params.values_bw_probs.val if params.values_bw_probs is not None else None
-        bw = jax.random.choice(key_slot, params.values_bw.val, p=bw_probs)
+        if params.values_bw_probs is None:
+            num_bw = values_bw.shape[0]
+            bw_index = jnp.minimum((u[1] * num_bw).astype(dtype_config.INDEX_DTYPE), num_bw - 1)
+        else:
+            bw_cdf = jnp.cumsum(params.values_bw_probs.val)
+            bw_index = jnp.searchsorted(bw_cdf, bw_cdf[-1] * (1.0 - u[1]))
+        bw = values_bw[bw_index]
         nodes = jnp.stack(nodes, dtype=dtype_config.LARGE_INT_DTYPE)
         source, dest = nodes if params.directed_graph else jnp.sort(nodes)
-        arrival_time, holding_time = generate_arrival_holding_times(
-            key_times, params, state.arrival_rate, state.mean_service_holding_time
+        arrival_time, holding_time = _arrival_holding_from_uniforms(
+            u[2:3], u[3:], params, state.arrival_rate, state.mean_service_holding_time
         )
         current_time = (
             state.current_time + arrival_time
@@ -1491,24 +1523,26 @@ def get_path_and_se(params: EnvParams, nodes: Array, k_path_index: int) -> Tuple
     return path, se
 
 
-# TODO - consider just making a differentiable version of this whole function
-@partial(jax.jit, static_argnums=(1,))
-def generate_arrival_holding_times(key, params, arrival_rate, mean_service_holding_time):
+def _arrival_holding_from_uniforms(
+    u_arrival, u_holding, params, arrival_rate, mean_service_holding_time
+):
     """
-    Generate arrival and holding times based on Poisson distributed events.
+    Generate arrival and holding times based on Poisson distributed events, from
+    pre-drawn uniform samples in [0, 1).
     To understand how sampling from e^-x can be transformed to sample from lambda*e^-(x/lambda) see:
     https://en.wikipedia.org/wiki/Inverse_transform_sampling#Examples
     Basically, inverse transform sampling is used to sample from a distribution with CDF F(x).
     The CDF of the exponential distribution (lambda*e^-{lambda*x}) is F(x) = 1 - e^-{lambda*x}.
     Therefore, the inverse CDF is x = -ln(1-u)/lambda, where u is sample from uniform distribution.
-    Therefore, we need to divide jax.random.exponential() by lambda in order to scale the standard exponential CDF.
-    Experimental histograms of this method compared to random.expovariate() in Python's random library show that
-    the two methods are equivalent.
+    -log1p(-u) is exactly jax.random.exponential's construction, so this matches drawing
+    exponentials directly; taking uniforms lets callers batch all per-step randomness
+    into a single draw.
     Also see: https://numpy.org/doc/stable/reference/random/generated/numpy.random.exponential.html
     https://jax.readthedocs.io/en/latest/_autosummary/jax.random.exponential.html
 
     Args:
-        key: PRNG key
+        u_arrival: Uniform sample, shape (1,)
+        u_holding: Uniform samples, shape (1,) or (5,) if truncate_holding_time
         params: Environment parameters
         arrival_rate: Traced arrival rate (load / mean_service_holding_time)
         mean_service_holding_time: Traced mean service holding time
@@ -1517,22 +1551,10 @@ def generate_arrival_holding_times(key, params, arrival_rate, mean_service_holdi
         arrival_time: Arrival time
         holding_time: Holding time
     """
-    key_arrival, key_holding = jax.random.split(key, 2)
-    arrival_time = (
-        jax.random.exponential(key_arrival, shape=(1,), dtype=dtype_config.TIME_DTYPE)
-        / arrival_rate
-    )  # Divide because it is rate (lambda)
+    arrival_time = -jnp.log1p(-u_arrival) / arrival_rate  # Divide because it is rate (lambda)
     if params.truncate_holding_time:
         # For DeepRMSA, need to generate holding times that are less than 2*mean_service_holding_time
-        # Split the child key (not the parent): split(key, 5)[:2] == split(key, 2), so
-        # re-splitting the parent would alias candidate keys with key_arrival
-        key_holding = jax.random.split(key_holding, 5)
-        holding_times = jax.vmap(
-            lambda x: (
-                jax.random.exponential(x, shape=(1,), dtype=dtype_config.TIME_DTYPE)
-                * mean_service_holding_time
-            )
-        )(key_holding).reshape(-1)
+        holding_times = (-jnp.log1p(-u_holding) * mean_service_holding_time).reshape(-1)
         holding_times = jnp.where(
             holding_times < 2 * mean_service_holding_time, holding_times, zero
         )
@@ -1558,8 +1580,7 @@ def generate_arrival_holding_times(key, params, arrival_rate, mean_service_holdi
         )
     else:
         holding_time = (
-            jax.random.exponential(key_holding, shape=(1,), dtype=dtype_config.TIME_DTYPE)
-            * mean_service_holding_time
+            -jnp.log1p(-u_holding) * mean_service_holding_time
         )  # Multiply because it is mean (1/lambda)
     # Pin to the TIME tier: the rate/mean scalars may be a wider (precision) dtype, so the
     # products above can promote. Casting here keeps the departure array's dtype stable across
@@ -1567,6 +1588,30 @@ def generate_arrival_holding_times(key, params, arrival_rate, mean_service_holdi
     arrival_time = arrival_time.astype(dtype_config.TIME_DTYPE)
     holding_time = holding_time.astype(dtype_config.TIME_DTYPE)
     return arrival_time, holding_time
+
+
+@partial(jax.jit, static_argnums=(1,))
+def generate_arrival_holding_times(key, params, arrival_rate, mean_service_holding_time):
+    """Generate exponential arrival and holding times from a PRNG key.
+
+    Draws all required uniforms in a single fused call and applies inverse-transform
+    sampling (see _arrival_holding_from_uniforms for the construction).
+
+    Args:
+        key: PRNG key
+        params: Environment parameters
+        arrival_rate: Traced arrival rate (load / mean_service_holding_time)
+        mean_service_holding_time: Traced mean service holding time
+
+    Returns:
+        arrival_time: Arrival time
+        holding_time: Holding time
+    """
+    num_holding = 5 if params.truncate_holding_time else 1
+    u = jax.random.uniform(key, shape=(1 + num_holding,), dtype=dtype_config.TIME_DTYPE)
+    return _arrival_holding_from_uniforms(
+        u[0:1], u[1:], params, arrival_rate, mean_service_holding_time
+    )
 
 
 @partial(jax.jit, donate_argnums=(0,))

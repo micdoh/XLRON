@@ -28,7 +28,7 @@ class GenerateRSARequestTest(chex.TestCase):
 
     @chex.all_variants()
     @parameterized.named_parameters(
-        ("case_base", jnp.array([1.0, 1.0, 3.0])),
+        ("case_base", jnp.array([0.0, 1.0, 1.0])),
     )
     def test_generate_rsa_request(self, expected):
         key = np.array([1, 2], dtype=np.uint32)
@@ -69,12 +69,12 @@ class ImplementRsaActionTest(chex.TestCase):
         (
             "case_base",
             jnp.array(0),
-            jnp.array([[1, 0, 0, 0], [0, 0, 0, 0], [1, 0, 0, 0], [0, 0, 0, 0]]),
+            jnp.array([[1, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]]),
         ),
         (
             "case_base_long_path",
             jnp.array(5),
-            jnp.array([[0, 0, 0, 0], [0, 1, 0, 0], [0, 0, 0, 0], [0, 1, 0, 0]]),
+            jnp.array([[0, 0, 0, 0], [0, 1, 0, 0], [0, 1, 0, 0], [0, 1, 0, 0]]),
         ),
     )
     def test_implement_action_rsa_slots(self, action, expected):
@@ -93,17 +93,17 @@ class ImplementRsaActionTest(chex.TestCase):
                 [
                     [0.0, 0.0, 0.0, 0.0],
                     [0.0, 0.0, 0.0, 1.0],
-                    [0.0, 0.0, 0.0, 1.0],
                     [0.0, 0.0, 0.0, 0.0],
                     [0.0, 0.0, 0.0, 0.0],
                     [0.0, 0.0, 0.0, 0.0],
                     [0.0, 0.0, 0.0, 1.0],
-                    [0.0, 0.0, 0.0, 0.0],
-                    [0.0, 0.0, 0.0, 0.0],
+                    [0.0, 0.0, 0.0, 1.0],
+                    [0.0, 0.0, 0.0, 1.0],
                     [0.0, 0.0, 0.0, 1.0],
                     [0.0, 0.0, 0.0, 0.0],
                     [0.0, 0.0, 0.0, 0.0],
-                    [0.0, 0.0, 0.0, 1.0],
+                    [0.0, 0.0, 0.0, 0.0],
+                    [0.0, 0.0, 0.0, 0.0],
                     [0.0, 0.0, 0.0, 0.0],
                     [0.0, 0.0, 0.0, 0.0],
                     [0.0, 0.0, 0.0, 0.0],
@@ -130,12 +130,12 @@ class ImplementRsaActionTest(chex.TestCase):
         (
             "case_base",
             jnp.array(0),
-            jnp.array([[2, 0, 0, 0], [0, 0, 0, 0], [2, 0, 0, 0], [0, 0, 0, 0]]),
+            jnp.array([[2, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]]),
         ),
         (
             "case_base_long_path",
             jnp.array(5),
-            jnp.array([[0, 0, 0, 0], [0, 2, 0, 0], [0, 0, 0, 0], [0, 2, 0, 0]]),
+            jnp.array([[0, 0, 0, 0], [0, 2, 0, 0], [0, 2, 0, 0], [0, 2, 0, 0]]),
         ),
     )
     def test_implement_action_rsa_slots_departure(self, action, expected):
@@ -178,10 +178,10 @@ class RsaStepTest(chex.TestCase):
             (jnp.array(0),),
             jnp.array(
                 [
+                    0.0,
+                    1.0,
                     2.0,
                     1.0,
-                    3.0,
-                    1.0,
                     0.0,
                     0.0,
                     0.0,
@@ -189,7 +189,7 @@ class RsaStepTest(chex.TestCase):
                     0.0,
                     0.0,
                     0.0,
-                    1.0,
+                    0.0,
                     0.0,
                     0.0,
                     0.0,
@@ -201,14 +201,17 @@ class RsaStepTest(chex.TestCase):
             ),
         ),
         (
+            # Second request (0->2) reuses path links occupied by the first
+            # allocation at slot 0, so action 0 fails and is undone: the obs is
+            # identical to the single-step success case
             "case_failure",
             (jnp.array(0), jnp.array(0)),
             jnp.array(
                 [
+                    0.0,
+                    1.0,
                     2.0,
                     1.0,
-                    3.0,
-                    1.0,
                     0.0,
                     0.0,
                     0.0,
@@ -216,11 +219,11 @@ class RsaStepTest(chex.TestCase):
                     0.0,
                     0.0,
                     0.0,
-                    1.0,
                     0.0,
                     0.0,
                     0.0,
-                    1.0,
+                    0.0,
+                    0.0,
                     0.0,
                     0.0,
                     0.0,
@@ -251,7 +254,7 @@ class RsaResetTest(chex.TestCase):
                 [
                     0.0,
                     1.0,
-                    2.0,
+                    1.0,
                     0.0,
                     0.0,
                     0.0,

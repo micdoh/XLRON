@@ -693,6 +693,24 @@ def make(
         values_bw_probs = jnp.array(values_bw_probs, dtype=jnp.float32)
         values_bw_probs = values_bw_probs / jnp.sum(values_bw_probs)
 
+    # Pre-compute the CDF of the flattened traffic matrix so generate_request_rsa/_rwalr
+    # can sample source-dest pairs by inverse-CDF (uniform + searchsorted) instead of
+    # jax.random.choice, which re-cumsums the constant probabilities every step.
+    # Only valid when the matrix is fixed across resets: random_traffic regenerates it
+    # each reset (fall back to a per-step cumsum), and traffic_array samples uniform
+    # rows instead of probabilities.
+    if random_traffic or traffic_array:
+        traffic_cdf = None
+    else:
+        if traffic_matrix is not None:
+            _tm_for_cdf = traffic_matrix
+        else:
+            # Mirror init_traffic_matrix's deterministic branch (uniform off-diagonal)
+            _tm_for_cdf = jnp.ones((num_nodes, num_nodes), dtype=jnp.float32)
+            _tm_for_cdf = _tm_for_cdf.at[jnp.diag_indices_from(_tm_for_cdf)].set(0)
+            _tm_for_cdf = normalise_traffic_matrix(_tm_for_cdf)
+        traffic_cdf = jnp.cumsum(_tm_for_cdf.ravel().astype(jnp.float32))
+
     link_length_array = init_link_length_array(graph).reshape((num_links, 1))
 
     # Automated calculation of max slots requested
@@ -860,6 +878,9 @@ def make(
         values_bw_probs=HashableArrayWrapper(values_bw_probs)
         if (values_bw_probs is not None and not remove_array_wrappers)
         else values_bw_probs,
+        traffic_cdf=HashableArrayWrapper(traffic_cdf)
+        if (traffic_cdf is not None and not remove_array_wrappers)
+        else traffic_cdf,
         reward_type=reward_type,
         truncate_holding_time=truncate_holding_time,
         log_actions=log_actions,

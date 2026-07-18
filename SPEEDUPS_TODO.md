@@ -62,15 +62,32 @@ Baseline (main): 16.6K SPS single-env CPU (RMSA NSFNET 100 FSU k=5 KSP-FF, load 
    contains per-step utilisation/fragmentation for non-VONE eval runs (they
    were constant 0 since batch 2 anyway).
 
+4. [done 2026-07-18, variant (a) only] Fused per-step request randomness:
+   generate_request_rsa/_rwalr now make ONE jax.random.uniform draw of shape
+   (3+num_holding,) per step (was ~2 splits + 4-8 threefry draws) and sample by
+   inverse-CDF: source-dest via searchsorted against a traffic-matrix CDF
+   pre-computed in make_env (new static params field traffic_cdf, None +
+   per-step-cumsum fallback when random_traffic regenerates the matrix per
+   reset; traffic_array samples floor(u*n) rows); bandwidth via floor(u*n)
+   (uniform) or searchsorted on the constant-folded values_bw_probs cumsum;
+   arrival/holding via -log1p(-u), exactly jax.random.exponential's
+   construction (helper _arrival_holding_from_uniforms; the keyed
+   generate_arrival_holding_times wrapper survives for VONE and draws its
+   uniforms in one fused call too, truncate_holding_time candidates included).
+   NOT bit-identical (RNG consumption changed): benchmark blocking 0.24021
+   (was 0.24147), NUM_ENVS=4 0.23863. Same-session FPS 29.0-30.5K -> 32.9-33.0K
+   (~+10%). New GenerateRequestDistributionTest validates 100k-draw source-dest
+   frequencies vs the traffic matrix (CDF and random_traffic fallback paths),
+   bw uniformity, and exponential arrival/holding means; seeded-snapshot
+   expectations updated in rsa_test/env_funcs_test/rwa_lightpath_reuse_test
+   (new draws verified self-consistent with unchanged env logic). All env +
+   ppo + heuristics tests pass (1574+618); gradient check passes (grad std
+   ~9.5e-11). Variant (b) (pre-sample (T,) streams before the scan) NOT
+   attempted: it needs eval_fn/learner_fn plumbing and per-env (T,)-stream
+   memory that scales badly with NUM_ENVS on GPU; (a) already hit the item's
+   estimated 10-15% band.
+
 ## Remaining (verified proposals from the 4-lens audit; anchors = main @997478c)
-4. **Pre-sample the request stream** (est. 10-15%): env_funcs generate_request_rsa
-   (~4 key splits + 2 jax.random.choice that re-cumsum the constant traffic matrix
-   + 2 exponentials per step). Existing deterministic_requests/list_of_requests
-   gather path (env_funcs.py:1239-1266) is the vehicle: pre-sample (T,) streams
-   (bandwidth, src-dst, arrival, holding) before the scan, index by
-   state.total_requests. Not bit-identical (key-consumption order changes) — fine
-   per user. Minimal variant: precompute CDF once in params, sample via
-   uniform+searchsorted.
 5. **Mask-as-check step refactor** (est. 10-15%): implement_path_action writes both
    (L,S) arrays speculatively, check_no_spectrum_reuse rescans the full spectrum,
    then TWO dense undo passes run even on success (env_funcs.py:2000-2173 region).
