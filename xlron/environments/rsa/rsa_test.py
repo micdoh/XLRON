@@ -876,7 +876,14 @@ class RsaMultibandBandGapTest(chex.TestCase):
         )
 
     def test_utilisation_excludes_gap_slots(self):
-        """Utilisation must count only positively-occupied slots over usable slots."""
+        """Utilisation must count only positively-occupied slots over usable slots.
+
+        Utilisation is no longer stashed in per-step info (computed per logging
+        increment via env_funcs.calculate_utilisation), so assert the helper's
+        gap-slot semantics on the post-step state directly.
+        """
+        from xlron.environments.env_funcs import calculate_utilisation
+
         mask, _ = self.env.action_mask(self.state, self.params)
         self.assertTrue(bool(jnp.any(mask > 0)))
         action = jnp.argmax(mask)
@@ -887,8 +894,9 @@ class RsaMultibandBandGapTest(chex.TestCase):
         # Gap slots (2 per link) are excluded from the usable spectrum
         self.assertEqual(usable, lsa.size - 2 * lsa.shape[0])
         self.assertGreater(occupied, 0)
+        utilisation = calculate_utilisation(new_state.link_slot_array)
         chex.assert_trees_all_close(
-            info["_utilisation"], jnp.asarray(occupied / usable, dtype=info["_utilisation"].dtype)
+            utilisation, jnp.asarray(occupied / usable, dtype=utilisation.dtype)
         )
 
 

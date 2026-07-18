@@ -361,14 +361,10 @@ class RSAEnv(environment.Environment):
             info["_blocked_spectrum"] = gn_state.blocked_spectrum
             info["_blocked_snr"] = gn_state.blocked_snr
             info["_blocked_power"] = gn_state.blocked_power
-        # Band-gap sentinels (-1) are neither occupied nor usable spectrum, so count
-        # positively-occupied slots over the usable (non-gap) slots only
-        occupied_slots = jnp.count_nonzero(state.link_slot_array > 0)
-        usable_slots = jnp.count_nonzero(state.link_slot_array >= 0)
-        info["_utilisation"] = (occupied_slots / jnp.maximum(usable_slots, 1)).astype(
-            dtype_config.LARGE_FLOAT_DTYPE
-        )
-        info["_fragmentation"] = calculate_fragmentation(state.link_slot_array)
+        # Utilisation/fragmentation are NOT stashed per step: their full-array
+        # reductions cost ~10-15% of hot-path step time and both are state
+        # properties, so log_metrics computes them once per logging increment
+        # from the final state (env_funcs.calculate_utilisation/_fragmentation).
         if params.render:
             # Expose exact action_info/check used internally by step_env for render/debug paths.
             info["_render_action"] = action_info.action

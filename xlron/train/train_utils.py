@@ -24,6 +24,8 @@ import wandb
 from xlron import dtype_config
 from xlron.environments.dataclasses import EnvState, RMSAGNModelEnvParams
 from xlron.environments.env_funcs import (
+    calculate_fragmentation,
+    calculate_utilisation,
     get_launch_power,
     init_link_length_array,
     make_graph,
@@ -2365,6 +2367,31 @@ def log_metrics(
         merged_out, merged_out_loss, processed_data, episode_ends = process_metrics(
             config, out, merge_func
         )
+
+    # Utilisation/fragmentation are state properties computed once per increment
+    # from the final link_slot_array (their per-step computation cost ~10-15% of
+    # hot-path step time). Inject the end-of-increment values into every stat
+    # slot so downstream consumers (summary print, wandb, CSV) see real values.
+    try:
+        env_state = out["runner_state"][1]
+        inner = getattr(env_state, "env_state", env_state)
+        lsa = inner.link_slot_array
+        if lsa.ndim > 2:  # batched over envs (and possibly learners)
+            flat = lsa.reshape((-1,) + lsa.shape[-2:])
+            util = float(jnp.mean(jax.vmap(calculate_utilisation)(flat)))
+            frag = float(jnp.mean(jax.vmap(calculate_fragmentation)(flat)))
+        else:
+            util = float(calculate_utilisation(lsa))
+            frag = float(calculate_fragmentation(lsa))
+        for metric_name, value in (("utilisation", util), ("fragmentation", frag)):
+            stats = processed_data.get(metric_name)
+            if isinstance(stats, dict):
+                for stat_key, arr in stats.items():
+                    stats[stat_key] = np.full_like(np.asarray(arr, dtype=np.float64), value)
+    except (KeyError, IndexError, AttributeError, TypeError):
+        # Envs without link_slot_array (or unexpected runner-state layouts) keep
+        # whatever process_metrics produced (e.g. VONE's per-step values).
+        pass
 
     all_metrics = list(processed_data.keys())
     if not config.LOG_ALL_INFO:

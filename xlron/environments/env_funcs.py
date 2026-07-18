@@ -2745,6 +2745,22 @@ def find_block_sizes(
 
 
 @jax.jit
+def calculate_utilisation(link_slot_array: Array) -> Array:
+    """Spectrum utilisation over usable slots.
+
+    Band-gap sentinels (-1) are neither occupied nor usable spectrum, so
+    positively-occupied slots are counted over the usable (non-gap) slots only.
+    Computed per logging increment from the final state (not per step: the two
+    full-array reductions cost measurable time on the hot path and the value is
+    a slowly-varying state property).
+    """
+    occupied_slots = jnp.count_nonzero(link_slot_array > 0)
+    usable_slots = jnp.count_nonzero(link_slot_array >= 0)
+    return (occupied_slots / jnp.maximum(usable_slots, 1)).astype(
+        dtype_config.LARGE_FLOAT_DTYPE
+    )
+
+
 def calculate_fragmentation(link_slot_array: Array) -> Array:
     """Calculate mean external spectrum fragmentation across links.
 
