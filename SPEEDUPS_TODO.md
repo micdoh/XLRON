@@ -185,6 +185,42 @@ Baseline (main): 16.6K SPS single-env CPU (RMSA NSFNET 100 FSU k=5 KSP-FF, load 
 ## Remaining (verified proposals from the 4-lens audit; anchors = main @997478c)
 (none — items 1-7 complete)
 
+## Final verification (2026-07-18, at 9547d5b, M1 Pro CPU)
+- Full test suite: `uv run pytest . -q` -> **2282 passed, 487 skipped, 0 failed**
+  (7:15). No breakages.
+- Gradient check (optimize_actions, 30 iters, rwa nsfnet): passes — Mean grad
+  -8.0e-12 +/- **9.5e-11** (nonzero std), best reward -1986.0, no crash.
+- Benchmark matrix (3 reps each, same session):
+
+  | Config | Elapsed (s) | FPS (mean) | Blocking |
+  |---|---|---|---|
+  | RMSA f32 (canonical) | 2.20 / 2.24 / 2.21 | **45.1K** (44.6-45.5K) | 0.24021 all reps |
+  | RMSA --mixed_precision | 2.53 / 2.49 / 2.54 | 39.6K (39.3-40.1K) | 0.24021 all reps |
+  | RWA (no values_bw/slot_size) | 2.27 / 2.27 / 2.28 | 44.0K (43.9-44.1K) | 0.00000 |
+  | RSA-GN 2000 steps (slot 100) | 8.43 / 8.36 / 8.36 | 238 (237-239) | 0.00000 (spectrum) |
+
+  Blocking 0.24021 is the expected value since item 4's RNG change (pre-item-4
+  bit-identical value was 0.24147). Session note: item 7's same-session final
+  reps read 47.8-49.8K; this fresh session (immediately after a 7-min test run,
+  machine warm) reads 44.6-45.5K — treat 45-48K as the honest band.
+
+## Summary: canonical RMSA single-env CPU benchmark (M1 Pro, f32)
+
+  | Stage | FPS | vs baseline |
+  |---|---|---|
+  | main @997478c (baseline) | 16.6K | 1.0x |
+  | batches 1-2 (items 1-2) | 27K | 1.63x |
+  | items 3-10 complete (9547d5b) | **45.1K** (band 45-48K) | **2.72x** (+172%) |
+
+  Per-item deltas (same-session measurements, see item logs): item 3 +9%,
+  item 4a +10%, item 5 +55%, item 6 +3-4%, item 7 parity (memory win scoped to
+  mixed precision), items 8 +5-7%, 9-10 neutral (compile/hygiene). Diff path:
+  gradients flow throughout (grad std ~9.5e-11 at every checkpoint).
+
+Per-item status: 1 done, 2 done, 3 done, 4 done (variant a; NOT bit-identical,
+RNG change, blocking 0.24147 -> 0.24021), 5 done, 6 done, 7 done, 8 done,
+9 done, 10 done. Failed: none.
+
 ## Verification recipe (used for batches 1-2)
 - Speed: 3 reps of the RMSA eval command above; compare FPS.
 - Correctness: service_blocking_probability must stay 0.24147 for bit-identical
