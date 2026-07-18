@@ -23,6 +23,24 @@ Baseline (main): 16.6K SPS single-env CPU (RMSA NSFNET 100 FSU k=5 KSP-FF, load 
     (single required_slots specialisation). Reward base values got explicit
     LARGE_FLOAT constants to keep reward dtype float32. Bit-identical (0.24147),
     FPS unchanged (~26K, within noise), 2066 tests pass.
+8. [done 2026-07-18] Dead obs build skipped in heuristic eval: shape-(1,) placeholder
+   obs (train_utils.heuristic_eval_obs_placeholder) substituted into the carry at
+   all three thread sites — experiment_data_setup init, get_warmup_fn loop body,
+   eval_heuristic step body — gated on config.EVAL_HEURISTIC && !USE_GNN &&
+   !USE_TRANSFORMER, so env.step's returned obs is unused and the ~4403-elem
+   get_obs concat is DCE'd from the compiled step. EVAL_MODEL/RL/GNN paths and
+   warmup_action_type='heuristic' during RL training keep real obs (gate keys on
+   the outer config). SweepRewarmTest updated to mirror the placeholder carry.
+   Measured same-session: 26.3-27.3K -> 28.2-28.6K FPS (~+5-7%). Bit-identical on
+   benchmark (0.24147), warmup path (0.24920), NUM_ENVS=4 (0.22885), and load
+   sweep + rewarm (0.17680/0.25340); rsa_gn_model heuristic eval runs (SNR checks
+   untouched); gradient check passes (grad std ~9.5e-11). NOTE: DeepRMSA's
+   calculate_path_stats in step_env writes into state (a live carry element), so
+   the obs placeholder cannot DCE it and no existing static param can gate it —
+   left as is (benchmark env is rmsa, unaffected). experimental/
+   launch_power_optimization/optimize_launch_power.py builds its own full-shape
+   obs carry but is already stale against current APIs (5-field Transition, old
+   select_action_eval signature) — pre-existing rot, untouched.
 
 ## Remaining (verified proposals from the 4-lens audit; anchors = main @997478c)
 3. **Lean info stacking** (est. 10-20%): wrappers.py:78-130 stacks ~12 scalars per
@@ -62,10 +80,6 @@ Baseline (main): 16.6K SPS single-env CPU (RMSA NSFNET 100 FSU k=5 KSP-FF, load 
 7. **int8 occupancy tier for link_slot_array** (GPU memory win, small CPU): values
    {-1,0,1,2}; ~15 write sites need cast-per-write (mixed-precision carry rule);
    force preferred_element_type=int32 on paths @ occupied. Diff mode stays float.
-8. **Skip dead obs concat in heuristic eval** (1-2%): rsa.py get_obs builds a
-   4403-elem concat each step; heuristic ignores it. Gate at eval_heuristic.py
-   carry construction (shape-() placeholder), NOT via new user flag — key on
-   config.EVAL_HEURISTIC && !use_gnn.
 
 ## Verification recipe (used for batches 1-2)
 - Speed: 3 reps of the RMSA eval command above; compare FPS.

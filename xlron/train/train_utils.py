@@ -924,6 +924,26 @@ def reset_warmup_metric_counters(env_state):
     )
 
 
+def heuristic_eval_obs_placeholder(num_envs: int = 1) -> Tuple[Array, ...]:
+    """Shape-(1,) placeholder observation for pure-heuristic eval.
+
+    Heuristic action selection (select_action_eval with config.EVAL_HEURISTIC) reads only
+    env_state, never the observation, yet the obs rides every scan/fori_loop carry. Building
+    the real flattened observation (request_array + link_slot_array concat, ~4.4k elements on
+    NSFNET 100-FSU) each step is dead work that cannot be eliminated while the obs is threaded
+    through the carry. Substituting this placeholder makes env.step's returned obs unused, so
+    the whole get_obs build is dead-code-eliminated from the compiled step. Not applied for
+    GNN/Transformer policies (their obs is (env_state, params)) nor for EVAL_MODEL or RL
+    training, where the model consumes the observation.
+
+    Every site that threads the heuristic-eval obs carry must use this same placeholder
+    (experiment_data_setup, get_warmup_fn's loop body, eval_heuristic's step body) so the
+    carry structure stays consistent across init, warmup, re-warm (load sweeps) and eval.
+    """
+    shape = (num_envs, 1) if num_envs > 1 else (1,)
+    return (jnp.zeros(shape, dtype=jnp.float32),)
+
+
 def experiment_data_setup(config: Box, rng: chex.PRNGKey) -> Tuple:
     # INIT ENV
     env, env_params = make(config)
@@ -940,11 +960,14 @@ def experiment_data_setup(config: Box, rng: chex.PRNGKey) -> Tuple:
         if config.NUM_ENVS > 1
         else env.reset(reset_key, env_params)
     )
-    obsv = (
-        (env_state.env_state, env_params)
-        if config.USE_GNN or config.USE_TRANSFORMER
-        else tuple([obsv])
-    )
+    if config.USE_GNN or config.USE_TRANSFORMER:
+        obsv = (env_state.env_state, env_params)
+    elif config.EVAL_HEURISTIC:
+        # Heuristics never read the observation: carry a placeholder so get_obs is
+        # DCE'd from the compiled eval/warmup step (see heuristic_eval_obs_placeholder)
+        obsv = heuristic_eval_obs_placeholder(config.NUM_ENVS)
+    else:
+        obsv = tuple([obsv])
 
     # TRAINING MODE
     if config.RETRAIN_MODEL or config.EVAL_MODEL:
@@ -1392,11 +1415,17 @@ def get_warmup_fn(warmup_state, env, params, train_state, config) -> Callable[[T
             obsv, _state, reward, terminal, truncated, info = env.step(
                 step_key, _state, action, params
             )
-            obsv = (
-                (_state.env_state, params)
-                if config.USE_GNN or config.USE_TRANSFORMER
-                else tuple([obsv])
-            )
+            # Keyed on the OUTER config's EVAL_HEURISTIC (not warmup_config's): during RL
+            # training with warmup_action_type='heuristic' the returned obs seeds the RL
+            # rollout carry, so it must stay a real observation there.
+            if config.USE_GNN or config.USE_TRANSFORMER:
+                obsv = (_state.env_state, params)
+            elif config.EVAL_HEURISTIC:
+                # Match the placeholder carry from experiment_data_setup: heuristic
+                # eval never reads the obs (see heuristic_eval_obs_placeholder)
+                obsv = heuristic_eval_obs_placeholder()
+            else:
+                obsv = tuple([obsv])
             return _rng, _state, _params, _train_state, obsv
 
         vals = jax.lax.fori_loop(
@@ -2375,7 +2404,7 @@ def log_metrics(
     try:
         env_state = out["runner_state"][1]
         inner = getattr(env_state, "env_state", env_state)
-        lsa = inner.link_slot_array
+        lsa = inner.link_slot_array  # ty: ignore[unresolved-attribute]
         if lsa.ndim > 2:  # batched over envs (and possibly learners)
             flat = lsa.reshape((-1,) + lsa.shape[-2:])
             util = float(jnp.mean(jax.vmap(calculate_utilisation)(flat)))

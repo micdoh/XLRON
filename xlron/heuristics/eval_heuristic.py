@@ -7,7 +7,7 @@ from flax.training.train_state import TrainState
 from gymnax.environments import environment
 
 from xlron.environments.dataclasses import EnvParams, Transition
-from xlron.train.train_utils import select_action_eval
+from xlron.train.train_utils import heuristic_eval_obs_placeholder, select_action_eval
 
 
 def get_eval_fn(
@@ -36,11 +36,15 @@ def get_eval_fn(
                 env_key, env_state, action, env_params
             )
 
-            obsv = (
-                (env_state.env_state, env_params)
-                if config.USE_GNN or config.USE_TRANSFORMER
-                else tuple([obsv])
-            )
+            if config.USE_GNN or config.USE_TRANSFORMER:
+                obsv = (env_state.env_state, env_params)
+            elif config.EVAL_HEURISTIC:
+                # Heuristic eval never reads the obs: carry the placeholder so the
+                # ~4.4k-element get_obs concat inside env.step becomes dead code
+                # (see heuristic_eval_obs_placeholder). EVAL_MODEL keeps real obs.
+                obsv = heuristic_eval_obs_placeholder()
+            else:
+                obsv = tuple([obsv])
             transition = Transition(terminal, truncated, action, reward, last_obs, info)
             runner_state = (eval_state, env_state, obsv, next_step_key, rng_epoch)
 
