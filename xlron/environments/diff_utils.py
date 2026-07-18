@@ -80,6 +80,26 @@ def differentiable_compare(x, y, op_type="==", temperature=1.0, differentiable=T
         Result that behaves like the specified comparison in forward pass
         but is differentiable in backward pass
     """
+    # Non-differentiable mode: return the hard comparison directly, without
+    # tracing the float casts and soft sigmoid/exp approximations below (XLA
+    # would DCE them anyway, but skipping them shrinks the traced graph and
+    # saves compile time on the hot path).
+    if not differentiable:
+        if op_type == "==":
+            return x == y
+        elif op_type == ">=":
+            return x >= y
+        elif op_type == "<=":
+            return x <= y
+        elif op_type == ">":
+            return x > y
+        elif op_type == "<":
+            return x < y
+        elif op_type == "!=":
+            return x != y
+        else:
+            raise ValueError(f"Unknown operation type: {op_type}")
+
     # Define hard results (for forward pass) and soft approximations (for backward pass)
     x_f = jnp.asarray(x, dtype=jnp.float32)
     y_f = jnp.asarray(y, dtype=jnp.float32)
@@ -103,10 +123,6 @@ def differentiable_compare(x, y, op_type="==", temperature=1.0, differentiable=T
         soft_result = 1.0 - jnp.exp(-temperature * (x_f - y_f) ** 2)
     else:
         raise ValueError(f"Unknown operation type: {op_type}")
-
-    # If not differentiable mode, return hard result directly
-    if not differentiable:
-        return hard_result
 
     # Apply straight-through gradient trick
     return straight_through(hard_result, soft_result)

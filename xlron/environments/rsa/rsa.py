@@ -20,7 +20,6 @@ from xlron.environments.dataclasses import (
 )
 from xlron.environments.diff_utils import *
 from xlron.environments.env_funcs import (
-    calculate_fragmentation,
     calculate_path_stats,
     check_action_rmsa_gn_model_components,
     check_action_rsa,
@@ -46,17 +45,16 @@ from xlron.environments.env_funcs import (
     init_traffic_matrix,
     mask_slots,
     make_graph,
+    one,
     read_rsa_request,
     required_slots,
     set_band_gaps,
     update_graph_tuple,
+    zero,
     calculate_throughput_from_active_lightpaths,
     get_lightpath_snr,
 )
 from xlron.environments.wrappers import *
-
-one = jnp.array(1, dtype=dtype_config.LARGE_FLOAT_DTYPE)
-zero = jnp.array(0, dtype=dtype_config.LARGE_FLOAT_DTYPE)
 
 
 class RSAEnv(environment.Environment):
@@ -1375,7 +1373,9 @@ class RSAEnv(environment.Environment):
         Returns:
             reward: Reward for failure
         """
-        reward = -one
+        # Rewards are float-typed (they feed returns/advantage accumulators), so use an
+        # explicit LARGE_FLOAT constant rather than the shared integer `one`.
+        reward = jnp.array(-1.0, dtype=dtype_config.LARGE_FLOAT_DTYPE)
         # Use action_info.requested_datarate (captured in process_action before the
         # request is regenerated) rather than state.request_array, so the value is
         # identical at both call sites: calculate_reward (pre-mutation state) and
@@ -1406,10 +1406,13 @@ class RSAEnv(environment.Environment):
         Returns:
             reward: Reward for success
         """
-        reward = zero
+        # Float-typed base reward (see get_reward_failure).
+        reward = jnp.array(0.0, dtype=dtype_config.LARGE_FLOAT_DTYPE)
 
         if params.reward_type != "service":
-            reward = action_info.requested_datarate * one / jnp.max(params.values_bw.val)
+            reward = action_info.requested_datarate.astype(
+                dtype_config.LARGE_FLOAT_DTYPE
+            ) / jnp.max(params.values_bw.val)
             if params.reward_type == "bitrate":
                 pass  # No additional calculation needed
             elif params.reward_type == "snr":

@@ -11,6 +11,18 @@ Baseline (main): 16.6K SPS single-env CPU (RMSA NSFNET 100 FSU k=5 KSP-FF, load 
    untouched. Bit-identical.
 2. [4d7711d] Utilisation/fragmentation off the hot path -> computed per logging
    increment in log_metrics from final state. THE big win (+62%).
+9. [done 2026-07-18] differentiable_compare early-out hoisted above soft-op
+   construction (trace-size only; benchmark COMPILATION flat within noise:
+   1.29-1.30s before, 1.14-1.30s after — the DCE'd soft ops were a small
+   fraction of the compile). Bit-identical (0.24147); gradient check passes
+   (grad std ~9.5e-11).
+10. [done 2026-07-18] Tier hygiene: init_traffic_matrix constructed in LARGE_FLOAT
+    (was SMALL_FLOAT then astype(f32) — lossy under mixed precision); rsa.py's
+    duplicate LARGE_FLOAT one/zero removed, now imports env_funcs' (int32) pair so
+    the RWA `path_se = one` site matches mask_slots' int path_se_array dtype
+    (single required_slots specialisation). Reward base values got explicit
+    LARGE_FLOAT constants to keep reward dtype float32. Bit-identical (0.24147),
+    FPS unchanged (~26K, within noise), 2066 tests pass.
 
 ## Remaining (verified proposals from the 4-lens audit; anchors = main @997478c)
 3. **Lean info stacking** (est. 10-20%): wrappers.py:78-130 stacks ~12 scalars per
@@ -54,14 +66,6 @@ Baseline (main): 16.6K SPS single-env CPU (RMSA NSFNET 100 FSU k=5 KSP-FF, load 
    4403-elem concat each step; heuristic ignores it. Gate at eval_heuristic.py
    carry construction (shape-() placeholder), NOT via new user flag — key on
    config.EVAL_HEURISTIC && !use_gnn.
-9. **diff_utils.differentiable_compare early-out hoist** (compile-time only):
-   diff_utils.py:84-108 builds soft sigmoid ops before the `if not differentiable`
-   return; hoist the return above the soft-op construction. (where/round/ceil/floor
-   already early-out — do NOT touch.)
-10. **Tier hygiene**: init_traffic_matrix builds SMALL_FLOAT then astype(f32)
-    (env_funcs.py:1071) — construct directly in LARGE_FLOAT; unify duplicate
-    one/zero module constants (env_funcs.py:56-57 SMALL_INT vs rsa.py:58-59
-    LARGE_FLOAT — causes a second compiled specialisation of required_slots).
 
 ## Verification recipe (used for batches 1-2)
 - Speed: 3 reps of the RMSA eval command above; compare FPS.

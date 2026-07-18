@@ -1056,13 +1056,16 @@ def init_traffic_matrix(key: chex.PRNGKey, params: EnvParams) -> Array:
     Returns:
         jnp.array: Traffic matrix
     """
+    # Construct directly in the precision tier (LARGE_FLOAT): the matrix is consumed
+    # at float32 (see final cast), so sampling/normalising in SMALL_FLOAT (float16
+    # under mixed precision) would just lose precision before the upcast.
     if params.random_traffic:
         traffic_matrix = jax.random.uniform(
-            key, shape=(params.num_nodes, params.num_nodes), dtype=dtype_config.SMALL_FLOAT_DTYPE
+            key, shape=(params.num_nodes, params.num_nodes), dtype=dtype_config.LARGE_FLOAT_DTYPE
         )
     else:
         traffic_matrix = jnp.ones(
-            (params.num_nodes, params.num_nodes), dtype=dtype_config.SMALL_FLOAT_DTYPE
+            (params.num_nodes, params.num_nodes), dtype=dtype_config.LARGE_FLOAT_DTYPE
         )
     diag_elements = jnp.diag_indices_from(traffic_matrix)
     # Set main diagonal to zero so no requests from node to itself
@@ -1394,9 +1397,8 @@ def get_path_index_array(params: EnvParams, nodes: Array) -> Array:
     if not params.differentiable:
         # The gather through an identity arange is the identity: the k path
         # indices are just i, i+1, ..., i+k-1. Keep everything integer.
-        return (
-            i.astype(dtype_config.INDEX_DTYPE)
-            + jnp.arange(params.k_paths, dtype=dtype_config.INDEX_DTYPE)
+        return i.astype(dtype_config.INDEX_DTYPE) + jnp.arange(
+            params.k_paths, dtype=dtype_config.INDEX_DTYPE
         )
     index_array = differentiable_indexing(
         jnp.arange(0, params.path_link_array.shape[0], dtype=dtype_config.LARGE_INT_DTYPE),
@@ -2756,9 +2758,7 @@ def calculate_utilisation(link_slot_array: Array) -> Array:
     """
     occupied_slots = jnp.count_nonzero(link_slot_array > 0)
     usable_slots = jnp.count_nonzero(link_slot_array >= 0)
-    return (occupied_slots / jnp.maximum(usable_slots, 1)).astype(
-        dtype_config.LARGE_FLOAT_DTYPE
-    )
+    return (occupied_slots / jnp.maximum(usable_slots, 1)).astype(dtype_config.LARGE_FLOAT_DTYPE)
 
 
 def calculate_fragmentation(link_slot_array: Array) -> Array:
