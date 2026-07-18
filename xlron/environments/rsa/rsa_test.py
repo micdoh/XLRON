@@ -220,7 +220,7 @@ class PrestateCheckEquivalenceTest(chex.TestCase):
     def test_invalid_action_occupied_slot_equivalence(self):
         # Occupy slot 0 on all links (any path collides), then take action 0 again.
         key, env, obs, state, params = rwa_4node_test_setup()
-        occupied = state.link_slot_array.at[:, 0].set(1.0)
+        occupied = state.link_slot_array.at[:, 0].set(1)
         departures = state.link_slot_departure_array.at[:, 0].set(3.0)
         state = state.replace(
             link_slot_array=occupied,
@@ -241,7 +241,7 @@ class PrestateCheckEquivalenceTest(chex.TestCase):
         # rsa_4node_3_slot: 3-slot requests on 5 slots. Occupy only slot 2, then take
         # slot 0: the window [0, 3) overlaps the occupied slot mid-window.
         key, env, obs, state, params = rsa_4node_3_slot_request_test_setup()
-        occupied = state.link_slot_array.at[:, 2].set(1.0)
+        occupied = state.link_slot_array.at[:, 2].set(1)
         state = state.replace(
             link_slot_array=occupied,
             current_time=jnp.array(2.0),
@@ -266,7 +266,7 @@ class PrestateCheckEquivalenceTest(chex.TestCase):
         # Full step_env wiring: an invalid action must be blocked (failure reward),
         # leave the spectrum unchanged, and accept nothing.
         key, env, obs, state, params = rwa_4node_test_setup()
-        occupied = state.link_slot_array.at[:, 0].set(1.0)
+        occupied = state.link_slot_array.at[:, 0].set(1)
         departures = state.link_slot_departure_array.at[:, 0].set(3.0)
         state = state.replace(
             link_slot_array=occupied,

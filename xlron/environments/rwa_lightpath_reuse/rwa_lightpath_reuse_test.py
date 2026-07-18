@@ -779,11 +779,11 @@ class OverCapacityRejectionTest(chex.TestCase):
 
 
 class MixedPrecisionCarryTest(chex.TestCase):
-    """RWA-LR under --mixed_precision must keep link_slot_array at the SMALL_FLOAT tier
+    """RWA-LR under --mixed_precision must keep link_slot_array at the OCCUPANCY tier
     (regression: implement_action_rwalr wrote it back as LARGE_FLOAT, a lax.scan carry
     dtype mismatch)."""
 
-    def test_step_preserves_small_float_link_slot_array(self):
+    def test_step_preserves_occupancy_link_slot_array(self):
         from xlron import dtype_config
 
         settings = dict(
@@ -802,7 +802,7 @@ class MixedPrecisionCarryTest(chex.TestCase):
             key = jax.random.PRNGKey(0)
             obs, state = env.reset(key, params)
             init_dtype = state.link_slot_array.dtype
-            self.assertEqual(init_dtype, dtype_config.SMALL_FLOAT_DTYPE)
+            self.assertEqual(init_dtype, dtype_config.OCCUPANCY_DTYPE)
             mask, full_mask = env.action_mask(state, params)
             # Store masks at MASK_DTYPE exactly as select_action does
             state = state.replace(

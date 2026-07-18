@@ -210,7 +210,11 @@ def init_graph_tuple(
         node_features = jnp.concatenate([spectral_features, source_dest_features], axis=-1)
     elif params.__class__.__name__ == "VONEEnvParams":
         edge_features = (
-            state.link_slot_array if params.incremental_loading else holding_time_edge_features
+            # Cast occupancy (int8 tier) to float: graph features feed the NN embedders and
+            # must match the holding-time branch / init-vs-update carry dtype
+            state.link_slot_array.astype(dtype_config.SMALL_FLOAT_DTYPE)
+            if params.incremental_loading
+            else holding_time_edge_features
         )
         node_features = getattr(
             state,
@@ -223,7 +227,11 @@ def init_graph_tuple(
         )
     else:
         edge_features = (
-            state.link_slot_array if params.incremental_loading else holding_time_edge_features
+            # Cast occupancy (int8 tier) to float: graph features feed the NN embedders and
+            # must match the holding-time branch / init-vs-update carry dtype
+            state.link_slot_array.astype(dtype_config.SMALL_FLOAT_DTYPE)
+            if params.incremental_loading
+            else holding_time_edge_features
         )
         # [n_edges] or [n_edges, ...]
         node_features = jnp.concatenate([spectral_features, source_dest_features], axis=-1)
@@ -329,7 +337,11 @@ def update_graph_tuple(state: RSAEnvState, params: RSAEnvParams) -> RSAEnvState:
         node_features = jnp.concatenate([spectral_features, source_dest_features], axis=-1)
     elif params.__class__.__name__ == "VONEEnvParams":
         edge_features = (
-            state.link_slot_array if params.incremental_loading else holding_time_edge_features
+            # Cast occupancy (int8 tier) to float: graph features feed the NN embedders and
+            # must match the holding-time branch / init-vs-update carry dtype
+            state.link_slot_array.astype(dtype_config.SMALL_FLOAT_DTYPE)
+            if params.incremental_loading
+            else holding_time_edge_features
         )
         node_features = getattr(state, "node_capacity_array", jnp.zeros(params.num_nodes))
         node_features = node_features.reshape(-1, 1)
@@ -349,7 +361,11 @@ def update_graph_tuple(state: RSAEnvState, params: RSAEnvParams) -> RSAEnvState:
         )
     else:
         edge_features = (
-            state.link_slot_array if params.incremental_loading else holding_time_edge_features
+            # Cast occupancy (int8 tier) to float: graph features feed the NN embedders and
+            # must match the holding-time branch / init-vs-update carry dtype
+            state.link_slot_array.astype(dtype_config.SMALL_FLOAT_DTYPE)
+            if params.incremental_loading
+            else holding_time_edge_features
         )
         node_features = jnp.concatenate([spectral_features, source_dest_features], axis=-1)
 
@@ -1131,11 +1147,13 @@ def init_link_slot_array(params: EnvParams):
     Returns:
         jnp.array: Link slot array (E x S) where E is number of edges and S is number of slots"""
     # Spectrum occupancy counter, values {0, 1} (steady) with a transient +2 marking a
-    # collision (see check_no_spectrum_reuse). Bulk float tier: exact in float16 under mixed
-    # precision, and the largest per-env array so the dominant memory saving.
-    return jnp.zeros(
-        (params.num_links, params.link_resources), dtype=dtype_config.SMALL_FLOAT_DTYPE
-    )
+    # collision (see check_no_spectrum_reuse) and -1/-2 sentinels (band gaps, VONE tentative
+    # marks). Occupancy tier: integer in non-differentiable modes (int32 default; int8 under
+    # mixed precision, where this largest per-env array is the dominant memory saving),
+    # float32 in differentiable mode.
+    # Scan-carry rule: every state.replace(link_slot_array=...) site must cast back to this
+    # dtype, because masks/blends promote through wider dtypes.
+    return jnp.zeros((params.num_links, params.link_resources), dtype=dtype_config.OCCUPANCY_DTYPE)
 
 
 def init_rsa_request_array():
@@ -1946,7 +1964,9 @@ def complete_step_rsa_gn_model(
 
     # --- Undo partial RSA allocation on failure (same pattern as complete_step_rsa) ---
     state = state.replace(
-        link_slot_array=state.link_slot_array - (fail_f_slots * action_info.affected_slots_mask),
+        link_slot_array=(
+            state.link_slot_array - (fail_f_slots * action_info.affected_slots_mask)
+        ).astype(state.link_slot_array.dtype),
         link_slot_departure_array=state.link_slot_departure_array
         - (
             fail_f_dep * action_info.affected_slots_mask * (state.current_time + state.holding_time)
@@ -2015,7 +2035,9 @@ def complete_step_rmsa_gn_model(
 
     # --- Undo partial RSA allocation on failure ---
     state = state.replace(
-        link_slot_array=state.link_slot_array - (fail_f_slots * action_info.affected_slots_mask),
+        link_slot_array=(
+            state.link_slot_array - (fail_f_slots * action_info.affected_slots_mask)
+        ).astype(state.link_slot_array.dtype),
         link_slot_departure_array=state.link_slot_departure_array
         - (
             fail_f_dep * action_info.affected_slots_mask * (state.current_time + state.holding_time)
@@ -2072,7 +2094,10 @@ def complete_step_rsa(
     fail = check
     success = 1 - check
     state = state.replace(
-        link_slot_array=state.link_slot_array - (fail * action_info.affected_slots_mask),
+        # Cast per-write: the fail*mask blend promotes; cast back to the occupancy dtype
+        link_slot_array=(state.link_slot_array - (fail * action_info.affected_slots_mask)).astype(
+            state.link_slot_array.dtype
+        ),
         link_slot_departure_array=state.link_slot_departure_array
         - (fail * action_info.affected_slots_mask * (state.current_time + state.holding_time)),
         accepted_services=state.accepted_services + success,
@@ -2122,7 +2147,9 @@ def implement_and_complete_rsa(
     delta = action_info.affected_slots_mask * success
     departure_delta = state.current_time + state.holding_time
     return state.replace(
-        link_slot_array=state.link_slot_array + delta,
+        # Cast the delta (not the occupancy array) to the occupancy dtype: the add stays
+        # narrow and the carried array avoids an upcast+downcast round trip
+        link_slot_array=state.link_slot_array + delta.astype(state.link_slot_array.dtype),
         link_slot_departure_array=state.link_slot_departure_array + delta * departure_delta,
         accepted_services=state.accepted_services + success,
         accepted_bitrate=state.accepted_bitrate + (success * action_info.requested_datarate),
@@ -2271,7 +2298,9 @@ def implement_path_action(
 ) -> EnvState:
     mask = action_info.affected_slots_mask
     departure_delta = state.current_time + state.holding_time
-    new_link_slot = state.link_slot_array + mask
+    # Cast per-write: the mask promotes to a wider dtype (binary/int tier), so cast back to
+    # the occupancy dtype to keep the scan carry stable (identity in differentiable mode).
+    new_link_slot = (state.link_slot_array + mask).astype(state.link_slot_array.dtype)
     new_departure = state.link_slot_departure_array + mask * departure_delta
     return state.replace(
         link_slot_array=new_link_slot,
@@ -2593,7 +2622,13 @@ def mask_slots(state: RSAEnvState, params: RSAEnvParams) -> Array:
 
     # 2. Compute occupied - this should be fast
     slots_occupied = state.link_slot_array != 0
-    occupied = (paths @ slots_occupied) > 0
+    # Force a wide accumulator: with narrow int path/occupancy dtypes (int8 under mixed
+    # precision) the matmul would otherwise accumulate in the narrow input dtype and could
+    # wrap on long paths. Float paths (differentiable mode) keep their own dtype.
+    acc_dtype = (
+        paths.dtype if jnp.issubdtype(paths.dtype, jnp.floating) else dtype_config.INDEX_DTYPE
+    )
+    occupied = jnp.matmul(paths, slots_occupied, preferred_element_type=acc_dtype) > 0
 
     # 3. Cumsum approach - fully vectorized
     # Integer cumsum: exact and cheaper than the float32 the bool/float concat promoted to
@@ -3208,9 +3243,9 @@ def implement_action_rwalr(
     state = state.replace(
         link_capacity_array=link_capacity_array,
         path_index_array=path_index_array,
-        # SMALL_FLOAT: link_slot_array is a carried bulk array (see dtype reclassification
-        # rule); values are {0, 1, 2} so the narrow cast is exact
-        link_slot_array=total_mask.astype(dtype_config.SMALL_FLOAT_DTYPE),
+        # Occupancy tier: values are {0, 1, 2} so the narrow cast is exact; cast to the
+        # carried dtype to keep the scan carry stable
+        link_slot_array=total_mask.astype(state.link_slot_array.dtype),
         link_slot_departure_array=update_path_links(
             state.link_slot_departure_array,
             action_info,
@@ -4561,7 +4596,11 @@ def set_band_gaps(link_slot_array: Array, params: RSAGNModelEnvParams, val: int)
             return arr
 
         mask = jax.lax.fori_loop(0, num_gaps, set_band_gap, mask)
-        link_slot_array = jnp.where(mask == -one, val, link_slot_array)
+        # Cast the sentinel to the occupancy dtype: a Python float `val` would promote the
+        # int8 occupancy array to float32 (weak-type promotion), breaking the carried dtype
+        link_slot_array = jnp.where(
+            mask == -one, jnp.asarray(val, dtype=link_slot_array.dtype), link_slot_array
+        )
     return link_slot_array
 
 

@@ -304,7 +304,9 @@ class VONEEnv(environment.Environment):
             (
                 jnp.reshape(state.request_array, (-1,)),
                 jnp.reshape(state.node_capacity_array, (-1,)),
-                jnp.reshape(state.link_slot_array, (-1,)),
+                # Explicit cast: occupancy is integer (int32 default, int8 mixed precision); keep the
+                # observation on the float tier the NN expects
+                jnp.reshape(state.link_slot_array, (-1,)).astype(dtype_config.SMALL_FLOAT_DTYPE),
             ),
             axis=0,
         )

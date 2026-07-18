@@ -150,10 +150,40 @@ Baseline (main): 16.6K SPS single-env CPU (RMSA NSFNET 100 FSU k=5 KSP-FF, load 
    heuristics+ppo 618, rwalr+vone+dtype_config 504, gn_model+deeprmsa 334
    passed. Gradient check passes (grad std ~9.5e-11, float mask path verbatim).
 
+7. [done 2026-07-18] Integer occupancy tier for link_slot_array: new OCCUPANCY
+   tier in dtype_config (resolves like the other tiers via an optional
+   occupancy_dtype config key — no new CLI flag). int8 under mixed_precision
+   (halves the largest per-env array vs the old f16 — the GPU memory win);
+   **int32 in default mode, NOT int8**: int8 default measured ~10% slower
+   end-to-end on CPU (M1) and int16 ~20% slower — sub-32-bit int ops make XLA
+   insert widening/narrowing conversions in the hot step ops (isolated via
+   occupancy_dtype={int8,int16,int32,float32} A/B: 4.05-4.12e4 / 3.58e4 /
+   4.54e4 / 4.49-4.57e4 FPS same-session) — so the memory win is scoped to
+   mixed_precision per the fallback in the item spec. int32 default is
+   bit-identical AND at speed parity (final 3 reps 4.78-4.98e4 vs HEAD
+   4.94-4.96e4 same-session; earlier recorded numbers were under background
+   load). Differentiable mode stays float32 (gradients flow, grad std
+   ~9.5e-11). Write sites made carry-consistent (cast-per-write, identity in
+   diff mode): implement_path_action, implement_and_complete_rsa (delta cast
+   narrow to avoid an upcast/downcast round trip of the carried array),
+   complete_step_rsa, complete_step_{rsa,rmsa}_gn_model, implement_action_rwalr
+   (total_mask -> carried dtype), set_band_gaps (sentinel cast — a Python float
+   val would weak-promote int8 to f32), VONE undo_link_action_vone (+one is
+   SMALL_INT). Reads: mask_slots paths@occupied gets
+   preferred_element_type=INDEX for int paths (float paths keep their dtype);
+   obs concats in RSA/VONE get_obs and the 4 graph edge-feature sites cast
+   explicitly to the float tier the NN expects. Departure array untouched
+   (TIME tier). GN validity still SNR-based. Bit-identical: benchmark 0.24021
+   all reps in default AND mixed modes (spec's 0.24147 is stale — HEAD itself
+   measures 0.24021, see item 6 log); rsa_gn_model 200-step smoke compiles/runs.
+   Suites: full set 2245 passed / 487 skipped (env_funcs, rsa, deeprmsa, vone,
+   rwalr, make_env, diff_utils, gn_model, heuristics, ppo, train_utils,
+   train_smoke, dtype_config). Test updates: rsa_test .set(1.0)->.set(1) (f32
+   scatter into int8 FutureWarning), rwalr MixedPrecisionCarryTest and
+   dtype_config_test assert the OCCUPANCY tier per mode.
+
 ## Remaining (verified proposals from the 4-lens audit; anchors = main @997478c)
-7. **int8 occupancy tier for link_slot_array** (GPU memory win, small CPU): values
-   {-1,0,1,2}; ~15 write sites need cast-per-write (mixed-precision carry rule);
-   force preferred_element_type=int32 on paths @ occupied. Diff mode stays float.
+(none — items 1-7 complete)
 
 ## Verification recipe (used for batches 1-2)
 - Speed: 3 reps of the RMSA eval command above; compare FPS.

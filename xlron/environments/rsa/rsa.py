@@ -1287,7 +1287,10 @@ class RSAEnv(environment.Environment):
         return jnp.concatenate(
             (
                 jnp.reshape(state.request_array, (-1,)),
-                jnp.reshape(state.link_slot_array, (-1,)),
+                # Explicit cast: occupancy is integer (int32 default, int8 mixed precision); keep the
+                # concatenated observation on the float tier the NN expects (matches the
+                # pre-int8 behaviour where link_slot_array was SMALL_FLOAT)
+                jnp.reshape(state.link_slot_array, (-1,)).astype(dtype_config.SMALL_FLOAT_DTYPE),
             ),
             axis=0,
         )
