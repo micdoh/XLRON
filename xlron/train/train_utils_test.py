@@ -17,6 +17,7 @@ from xlron.train.train_utils import (
     diagnostics_metrics,
     get_sweep_rewarm_fn,
     get_warmup_fn,
+    heuristic_eval_obs_placeholder,
     loss_metrics,
     make_ent_schedule,
     make_vml_schedule,
@@ -361,10 +362,13 @@ class SweepRewarmTest(absltest.TestCase):
         reset_key = jax.random.PRNGKey(0)
         if num_envs > 1:
             reset_key = jax.random.split(reset_key, num_envs)
-            obs, state = jax.vmap(env.reset, in_axes=(0, None))(reset_key, params)
+            _, state = jax.vmap(env.reset, in_axes=(0, None))(reset_key, params)
         else:
-            obs, state = env.reset(reset_key, params)
-        return env, params, config, state, tuple([obs])
+            _, state = env.reset(reset_key, params)
+        # Mirror experiment_data_setup: under EVAL_HEURISTIC the pipeline carries the
+        # placeholder obs (get_warmup_fn's loop body returns the same placeholder, so a
+        # full-shape obs here would mismatch the fori_loop carry)
+        return env, params, config, state, heuristic_eval_obs_placeholder(num_envs)
 
     @staticmethod
     def _experiment_input(state, obsv):

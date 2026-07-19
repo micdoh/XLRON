@@ -280,7 +280,7 @@ class GenerateArrivalHoldingTimesTest(chex.TestCase):
 
     @chex.all_variants()
     @parameterized.named_parameters(
-        ("case_base", (jnp.array([0.1089808]), jnp.array([0.06516063]))),
+        ("case_base", (jnp.array([0.02910362]), jnp.array([7.173531]))),
     )
     def test_generate_arrival_times(self, expected):
         min_arr, min_hold = 0, 0
@@ -1605,6 +1605,74 @@ class GenerateRequestBwProbsTest(chex.TestCase):
     def test_negative_prob_raises(self):
         with self.assertRaises(ValueError):
             rsa_nsfnet_16_test_setup(values_bw_probs="0.5,0.6,-0.1")
+
+
+class GenerateRequestDistributionTest(chex.TestCase):
+    """The inverse-CDF request sampler (pre-computed traffic CDF + fused uniform draw)
+    must reproduce the traffic-matrix source-dest distribution, the bandwidth
+    distribution, and the exponential arrival/holding time means."""
+
+    def _sample_requests(self, state, params, n, seed=2):
+        keys = jax.random.split(jax.random.PRNGKey(seed), n)
+
+        def _gen(k):
+            s = generate_request_rsa(k, state, params)
+            return s.request_array, s.arrival_time, s.holding_time  # ty: ignore[unresolved-attribute]
+
+        return jax.vmap(_gen)(keys)
+
+    def _empirical_pair_freqs(self, requests, num_nodes):
+        source = np.asarray(requests[:, 0], dtype=np.int64)
+        dest = np.asarray(requests[:, 2], dtype=np.int64)
+        counts = np.zeros((num_nodes, num_nodes))
+        np.add.at(counts, (source, dest), 1)
+        return counts / counts.sum()
+
+    def test_source_dest_bw_and_time_distributions(self):
+        key, env, obs, state, params = rsa_nsfnet_16_test_setup()
+        # The fixed uniform traffic matrix must have a pre-computed CDF
+        self.assertIsNotNone(params.traffic_cdf)
+        n = 100_000
+        requests, arrival_times, holding_times = self._sample_requests(state, params, n)
+
+        # Source-dest frequencies vs traffic matrix probabilities (folded to
+        # upper-triangular for the undirected graph, mirroring generate_request_rsa)
+        tm = np.asarray(state.traffic_matrix, dtype=np.float64)
+        probs = tm / tm.sum()
+        if not params.directed_graph:
+            probs = np.triu(probs + probs.T, k=1)
+        freqs = self._empirical_pair_freqs(np.asarray(requests), params.num_nodes)
+        # Per-pair binomial std at p ~ 1/91 is ~3e-4 for n=1e5; 1.5e-3 is > 4 sigma
+        np.testing.assert_allclose(freqs, probs, atol=1.5e-3)
+        # No self-loops or lower-triangular (unfolded) pairs
+        self.assertEqual(freqs[np.isclose(probs, 0)].sum(), 0)
+
+        # Bandwidth values sampled uniformly from values_bw
+        bws = np.asarray(requests[:, 1])
+        for v in [1, 2, 3]:
+            np.testing.assert_allclose((bws == v).mean(), 1 / 3, atol=0.01)
+
+        # Exponential means: arrival ~ 1/arrival_rate, holding ~ mean_service_holding_time
+        np.testing.assert_allclose(
+            np.asarray(arrival_times).mean(), 1 / np.asarray(state.arrival_rate), rtol=0.02
+        )
+        np.testing.assert_allclose(
+            np.asarray(holding_times).mean(), params.mean_service_holding_time, rtol=0.02
+        )
+
+    def test_random_traffic_fallback_matches_state_matrix(self):
+        # random_traffic has no pre-computed CDF: the per-step cumsum fallback must
+        # sample from the (randomly initialised) state.traffic_matrix
+        key, env, obs, state, params = rsa_nsfnet_16_test_setup(random_traffic=True)
+        self.assertIsNone(params.traffic_cdf)
+        n = 100_000
+        requests, _, _ = self._sample_requests(state, params, n, seed=3)
+        tm = np.asarray(state.traffic_matrix, dtype=np.float64)
+        probs = tm / tm.sum()
+        if not params.directed_graph:
+            probs = np.triu(probs + probs.T, k=1)
+        freqs = self._empirical_pair_freqs(np.asarray(requests), params.num_nodes)
+        np.testing.assert_allclose(freqs, probs, atol=2e-3)
 
 
 class MakeGraphUnknownTopologyTest(chex.TestCase):

@@ -20,10 +20,10 @@ from xlron.environments.dataclasses import (
 )
 from xlron.environments.diff_utils import *
 from xlron.environments.env_funcs import (
-    calculate_fragmentation,
     calculate_path_stats,
     check_action_rmsa_gn_model_components,
     check_action_rsa,
+    check_action_rsa_prestate,
     check_action_rwalr,
     complete_step_rmsa_gn_model,
     complete_step_rsa,
@@ -38,6 +38,7 @@ from xlron.environments.env_funcs import (
     implement_action_rsa,
     implement_action_rsa_gn_model,
     implement_action_rwalr,
+    implement_and_complete_rsa,
     init_graph_tuple,
     init_link_slot_array,
     init_link_slot_departure_array,
@@ -46,17 +47,16 @@ from xlron.environments.env_funcs import (
     init_traffic_matrix,
     mask_slots,
     make_graph,
+    one,
     read_rsa_request,
     required_slots,
     set_band_gaps,
     update_graph_tuple,
+    zero,
     calculate_throughput_from_active_lightpaths,
     get_lightpath_snr,
 )
 from xlron.environments.wrappers import *
-
-one = jnp.array(1, dtype=dtype_config.LARGE_FLOAT_DTYPE)
-zero = jnp.array(0, dtype=dtype_config.LARGE_FLOAT_DTYPE)
 
 
 class RSAEnv(environment.Environment):
@@ -272,38 +272,62 @@ class RSAEnv(environment.Environment):
             # cause (spectrum vs SNR vs power) can be counted without recomputation
             complete_step = complete_step_rmsa_gn_model
 
-        # Implement action
-        state = jit_profiler.call(params.profile, implement_action, state, action_info, params)
-
-        # Check action. For GN-model envs, keep the individual check components so the
-        # blocking cause (spectrum vs SNR vs power) can be counted without recomputation.
         blocking_cause_checks = None
-        if params.__class__.__name__ == "RMSAGNModelEnvParams":
-            spectrum_check, snr_check, power_check = jit_profiler.call(
-                params.profile,
-                check_action_rmsa_gn_model_components,
-                state,
-                action_info,
-                params,
+        if params.__class__.__name__ == "RSAEnvParams" and not params.differentiable:
+            # Non-differentiable plain-RSA/RMSA/RWA fast path: decide validity from the
+            # requested spectral window of the PRE-step state (check_action_rsa_prestate is
+            # semantically identical to implement + check_action_rsa + undo), then apply the
+            # allocation exactly once, gated on success. This removes the speculative dense
+            # write, the full-spectrum rescan and the unconditional undo passes. GN-model
+            # envs keep their SNR/power acceptance checks (physics, not derivable from the
+            # spectrum) and the differentiable mode keeps the soft implement/check/undo flow
+            # below (gradients flow through the allocation).
+            check = jit_profiler.call(
+                params.profile, check_action_rsa_prestate, state, action_info, params
             )
-            # Same aggregation (order included) as check_action_rmsa_gn_model
-            check = jnp.any(jnp.stack((spectrum_check, snr_check, power_check)))
-            blocking_cause_checks = (spectrum_check, snr_check, power_check)
+            # calculate_reward for plain-RSA reward types reads only action_info/params
+            # (state is used only by the GN-model snr/mod_format reward branches), so
+            # evaluating it on the pre-implementation state is equivalent.
+            reward = jit_profiler.call(
+                params.profile, self.calculate_reward, state, action_info, check, params
+            )
+            state = jit_profiler.call(
+                params.profile, implement_and_complete_rsa, state, action_info, check, params
+            )
         else:
-            check = jit_profiler.call(params.profile, check_action, state, action_info, params)
-            if params.__class__.__name__ == "RSAGNModelEnvParams":
-                # rsa_gn_model has no SNR/power acceptance check at step time (SNR
-                # feasibility is enforced in the action mask), so every block observed
-                # here is attributed to spectrum contention
-                blocking_cause_checks = (check, jnp.array(False), jnp.array(False))
+            # Implement action
+            state = jit_profiler.call(params.profile, implement_action, state, action_info, params)
 
-        # Calculate reward
-        reward = jit_profiler.call(
-            params.profile, self.calculate_reward, state, action_info, check, params
-        )
+            # Check action. For GN-model envs, keep the individual check components so the
+            # blocking cause (spectrum vs SNR vs power) can be counted without recomputation.
+            if params.__class__.__name__ == "RMSAGNModelEnvParams":
+                spectrum_check, snr_check, power_check = jit_profiler.call(
+                    params.profile,
+                    check_action_rmsa_gn_model_components,
+                    state,
+                    action_info,
+                    params,
+                )
+                # Same aggregation (order included) as check_action_rmsa_gn_model
+                check = jnp.any(jnp.stack((spectrum_check, snr_check, power_check)))
+                blocking_cause_checks = (spectrum_check, snr_check, power_check)
+            else:
+                check = jit_profiler.call(params.profile, check_action, state, action_info, params)
+                if params.__class__.__name__ == "RSAGNModelEnvParams":
+                    # rsa_gn_model has no SNR/power acceptance check at step time (SNR
+                    # feasibility is enforced in the action mask), so every block observed
+                    # here is attributed to spectrum contention
+                    blocking_cause_checks = (check, jnp.array(False), jnp.array(False))
 
-        # Complete step
-        state = jit_profiler.call(params.profile, complete_step, state, action_info, check, params)
+            # Calculate reward
+            reward = jit_profiler.call(
+                params.profile, self.calculate_reward, state, action_info, check, params
+            )
+
+            # Complete step
+            state = jit_profiler.call(
+                params.profile, complete_step, state, action_info, check, params
+            )
 
         # Update blocking-cause counters (GN-model envs only). Attribute each block with
         # spectrum > SNR > power priority: a spectrum collision corrupts the tentative GN
@@ -361,14 +385,10 @@ class RSAEnv(environment.Environment):
             info["_blocked_spectrum"] = gn_state.blocked_spectrum
             info["_blocked_snr"] = gn_state.blocked_snr
             info["_blocked_power"] = gn_state.blocked_power
-        # Band-gap sentinels (-1) are neither occupied nor usable spectrum, so count
-        # positively-occupied slots over the usable (non-gap) slots only
-        occupied_slots = jnp.count_nonzero(state.link_slot_array > 0)
-        usable_slots = jnp.count_nonzero(state.link_slot_array >= 0)
-        info["_utilisation"] = (occupied_slots / jnp.maximum(usable_slots, 1)).astype(
-            dtype_config.LARGE_FLOAT_DTYPE
-        )
-        info["_fragmentation"] = calculate_fragmentation(state.link_slot_array)
+        # Utilisation/fragmentation are NOT stashed per step: their full-array
+        # reductions cost ~10-15% of hot-path step time and both are state
+        # properties, so log_metrics computes them once per logging increment
+        # from the final state (env_funcs.calculate_utilisation/_fragmentation).
         if params.render:
             # Expose exact action_info/check used internally by step_env for render/debug paths.
             info["_render_action"] = action_info.action
@@ -1267,7 +1287,10 @@ class RSAEnv(environment.Environment):
         return jnp.concatenate(
             (
                 jnp.reshape(state.request_array, (-1,)),
-                jnp.reshape(state.link_slot_array, (-1,)),
+                # Explicit cast: occupancy is integer (int32 default, int8 mixed precision); keep the
+                # concatenated observation on the float tier the NN expects (matches the
+                # pre-int8 behaviour where link_slot_array was SMALL_FLOAT)
+                jnp.reshape(state.link_slot_array, (-1,)).astype(dtype_config.SMALL_FLOAT_DTYPE),
             ),
             axis=0,
         )
@@ -1379,7 +1402,9 @@ class RSAEnv(environment.Environment):
         Returns:
             reward: Reward for failure
         """
-        reward = -one
+        # Rewards are float-typed (they feed returns/advantage accumulators), so use an
+        # explicit LARGE_FLOAT constant rather than the shared integer `one`.
+        reward = jnp.array(-1.0, dtype=dtype_config.LARGE_FLOAT_DTYPE)
         # Use action_info.requested_datarate (captured in process_action before the
         # request is regenerated) rather than state.request_array, so the value is
         # identical at both call sites: calculate_reward (pre-mutation state) and
@@ -1410,10 +1435,13 @@ class RSAEnv(environment.Environment):
         Returns:
             reward: Reward for success
         """
-        reward = zero
+        # Float-typed base reward (see get_reward_failure).
+        reward = jnp.array(0.0, dtype=dtype_config.LARGE_FLOAT_DTYPE)
 
         if params.reward_type != "service":
-            reward = action_info.requested_datarate * one / jnp.max(params.values_bw.val)
+            reward = action_info.requested_datarate.astype(
+                dtype_config.LARGE_FLOAT_DTYPE
+            ) / jnp.max(params.values_bw.val)
             if params.reward_type == "bitrate":
                 pass  # No additional calculation needed
             elif params.reward_type == "snr":

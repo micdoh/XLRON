@@ -395,7 +395,10 @@ def undo_link_action_vone(state: VONEEnvState) -> VONEEnvState:
     mask = jnp.where(state.link_slot_departure_array < zero, one, zero)
     mask = jnp.where(state.link_slot_array < -one, one, mask)
     state = state.replace(
-        link_slot_array=jnp.where(mask == one, state.link_slot_array + one, state.link_slot_array),
+        # Cast per-write: `+ one` (SMALL_INT tier) promotes the int8 occupancy array
+        link_slot_array=jnp.where(
+            mask == one, state.link_slot_array + one, state.link_slot_array
+        ).astype(state.link_slot_array.dtype),
         link_slot_departure_array=jnp.where(
             mask == one,
             state.link_slot_departure_array + departure_delta,

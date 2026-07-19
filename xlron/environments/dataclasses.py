@@ -166,6 +166,10 @@ class EnvParams(_StructBase):
     use_gnn: bool = struct.field(pytree_node=False)
     profile: bool = struct.field(pytree_node=False)
     render: bool = struct.field(pytree_node=False)
+    # Pre-computed CDF of the flattened traffic matrix for inverse-CDF source-dest
+    # sampling in generate_request_rsa/_rwalr (avoids a per-step cumsum). None when
+    # the matrix is not fixed across resets (random_traffic) or unused (traffic_array).
+    traffic_cdf: HashableArrayWrapper | None = struct.field(pytree_node=False)
 
 
 @struct.dataclass

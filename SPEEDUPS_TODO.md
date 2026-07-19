@@ -1,0 +1,234 @@
+# speedups branch — status and remaining items
+
+Baseline (main): 16.6K SPS single-env CPU (RMSA NSFNET 100 FSU k=5 KSP-FF, load 250,
+100k steps, M1 Pro, f32). After batches 1+2: **27K SPS (+62%)**, blocking bit-identical
+(0.24147), 1210+632 tests pass, differentiable path verified (gradients flow).
+
+## Done
+1. [42bf19a] Boolean fast path in remove_expired_services_rsa; integer path-index
+   short-circuit in get_path_index_array; integer decode in process_path_action;
+   removed unusable donate_argnums on mask_slots. All non-diff-mode only; diff paths
+   untouched. Bit-identical.
+2. [4d7711d] Utilisation/fragmentation off the hot path -> computed per logging
+   increment in log_metrics from final state. THE big win (+62%).
+9. [done 2026-07-18] differentiable_compare early-out hoisted above soft-op
+   construction (trace-size only; benchmark COMPILATION flat within noise:
+   1.29-1.30s before, 1.14-1.30s after — the DCE'd soft ops were a small
+   fraction of the compile). Bit-identical (0.24147); gradient check passes
+   (grad std ~9.5e-11).
+10. [done 2026-07-18] Tier hygiene: init_traffic_matrix constructed in LARGE_FLOAT
+    (was SMALL_FLOAT then astype(f32) — lossy under mixed precision); rsa.py's
+    duplicate LARGE_FLOAT one/zero removed, now imports env_funcs' (int32) pair so
+    the RWA `path_se = one` site matches mask_slots' int path_se_array dtype
+    (single required_slots specialisation). Reward base values got explicit
+    LARGE_FLOAT constants to keep reward dtype float32. Bit-identical (0.24147),
+    FPS unchanged (~26K, within noise), 2066 tests pass.
+8. [done 2026-07-18] Dead obs build skipped in heuristic eval: shape-(1,) placeholder
+   obs (train_utils.heuristic_eval_obs_placeholder) substituted into the carry at
+   all three thread sites — experiment_data_setup init, get_warmup_fn loop body,
+   eval_heuristic step body — gated on config.EVAL_HEURISTIC && !USE_GNN &&
+   !USE_TRANSFORMER, so env.step's returned obs is unused and the ~4403-elem
+   get_obs concat is DCE'd from the compiled step. EVAL_MODEL/RL/GNN paths and
+   warmup_action_type='heuristic' during RL training keep real obs (gate keys on
+   the outer config). SweepRewarmTest updated to mirror the placeholder carry.
+   Measured same-session: 26.3-27.3K -> 28.2-28.6K FPS (~+5-7%). Bit-identical on
+   benchmark (0.24147), warmup path (0.24920), NUM_ENVS=4 (0.22885), and load
+   sweep + rewarm (0.17680/0.25340); rsa_gn_model heuristic eval runs (SNR checks
+   untouched); gradient check passes (grad std ~9.5e-11). NOTE: DeepRMSA's
+   calculate_path_stats in step_env writes into state (a live carry element), so
+   the obs placeholder cannot DCE it and no existing static param can gate it —
+   left as is (benchmark env is rmsa, unaffected). experimental/
+   launch_power_optimization/optimize_launch_power.py builds its own full-shape
+   obs carry but is already stale against current APIs (5-field Transition, old
+   select_action_eval signature) — pre-existing rot, untouched.
+
+3. [done 2026-07-18] Lean info stacking in eval: eval_heuristic._pack_info packs
+   the core per-step info scalars into two vectors (int-valued counters+done
+   flags in LARGE_INT, float metrics in LARGE_FLOAT) so the scan stacks 2
+   buffers instead of ~10 tiny per-scalar dynamic-update-slices; _unpack_info
+   restores the exact keys/dtypes after the scan, so process_metrics/
+   print_metrics/CSV/wandb see an unchanged dict. Constant-zero per-step
+   utilisation/fragmentation are dropped entirely for non-VONE envs;
+   log_metrics' per-increment injection now *creates* those processed_data
+   entries from a template metric (and reorders to the canonical metrics-list
+   order) so summary rows and CSV columns are preserved — verified CSV
+   byte-identical vs HEAD. GN blocked_* keys ride the int pack; throughput/
+   launch_power/log_actions keys stay unpacked. LogWrapper and the RL path
+   (ppo.py) untouched. Measured same-session: 3.55s/28.1K -> 3.23-3.29s/
+   30.4-30.9K FPS (~+9%). Bit-identical (0.24147; NUM_ENVS=4 0.24223 matches
+   HEAD); GN smoke run correct (spectrum/snr/power blocking, throughput);
+   1237+25 tests pass; gradient check passes (grad std ~9.5e-11). NOTE: the
+   pickled merged_out (.pkl next to EPISODE_DATA_OUTPUT_FILE) no longer
+   contains per-step utilisation/fragmentation for non-VONE eval runs (they
+   were constant 0 since batch 2 anyway).
+
+4. [done 2026-07-18, variant (a) only] Fused per-step request randomness:
+   generate_request_rsa/_rwalr now make ONE jax.random.uniform draw of shape
+   (3+num_holding,) per step (was ~2 splits + 4-8 threefry draws) and sample by
+   inverse-CDF: source-dest via searchsorted against a traffic-matrix CDF
+   pre-computed in make_env (new static params field traffic_cdf, None +
+   per-step-cumsum fallback when random_traffic regenerates the matrix per
+   reset; traffic_array samples floor(u*n) rows); bandwidth via floor(u*n)
+   (uniform) or searchsorted on the constant-folded values_bw_probs cumsum;
+   arrival/holding via -log1p(-u), exactly jax.random.exponential's
+   construction (helper _arrival_holding_from_uniforms; the keyed
+   generate_arrival_holding_times wrapper survives for VONE and draws its
+   uniforms in one fused call too, truncate_holding_time candidates included).
+   NOT bit-identical (RNG consumption changed): benchmark blocking 0.24021
+   (was 0.24147), NUM_ENVS=4 0.23863. Same-session FPS 29.0-30.5K -> 32.9-33.0K
+   (~+10%). New GenerateRequestDistributionTest validates 100k-draw source-dest
+   frequencies vs the traffic matrix (CDF and random_traffic fallback paths),
+   bw uniformity, and exponential arrival/holding means; seeded-snapshot
+   expectations updated in rsa_test/env_funcs_test/rwa_lightpath_reuse_test
+   (new draws verified self-consistent with unchanged env logic). All env +
+   ppo + heuristics tests pass (1574+618); gradient check passes (grad std
+   ~9.5e-11). Variant (b) (pre-sample (T,) streams before the scan) NOT
+   attempted: it needs eval_fn/learner_fn plumbing and per-env (T,)-stream
+   memory that scales badly with NUM_ENVS on GPU; (a) already hit the item's
+   estimated 10-15% band.
+
+5. [done 2026-07-18] Prestate-check step refactor (the "mask-as-check" item): plain
+   RSA/RMSA/RWA step no longer implements speculatively + rescans + undoes.
+   New check_action_rsa_prestate decides validity on the PRE-step state: windowed
+   spectrum check (jnp.take of the (L, max_slots) window at initial_slot with
+   fill=0, occupied = nonzero on path links — exactly when the speculative
+   allocation would produce a value > 1) + the same overflow/no-op/dummy-path
+   scalar checks as check_action_rsa. Then implement_and_complete_rsa applies the
+   allocation ONCE, gated on success (delta = affected_slots_mask * success), with
+   the complete_step_rsa counter updates fused in. DEVIATION from the audit
+   proposal: validity is computed from the spectral window, NOT gathered from
+   state.full_link_slot_mask — the state's mask is STALE in heuristic eval
+   (heuristics call mask_slots internally via get_action_mask but never write the
+   result back to the carried state; only the RL select_action path refreshes it),
+   so the gather would have accepted every ksp_ff fallback action (~24% of steps
+   emit invalid p0s0 when blocked) and collapsed blocking to ~0. The windowed
+   check is mathematically identical to a fresh mask gather (mask bit = window
+   free && fits && real path), costs (L x max_slots) instead of O(1) — negligible
+   vs the removed (L,S) passes — and needs no mask-freshness contract, so direct
+   step() callers and tests keep exact old semantics for arbitrary invalid
+   actions. Gate: params.__class__.__name__ == "RSAEnvParams" && !differentiable
+   (exact name: DeepRMSA/multiband/RWA-LR/GN keep the old flow; GN keeps SNR
+   checks; diff mode keeps the soft implement/check/undo path VERBATIM in the
+   else branch). Success arithmetic bit-identical (mask*1 == mask); on fail the
+   state is untouched (old flow's add-then-subtract could perturb occupied
+   departure entries by float rounding — empirically no effect on the benchmark).
+   Measured same-session: 3.09-3.33s/30.0-32.3K -> 2.07-2.08s/48.0-48.4K FPS
+   (~+55%). Blocking bit-identical: 0.24021 all 3 reps (matches HEAD), NUM_ENVS=4
+   0.23863 (matches HEAD), warmup ENV_WARMUP_STEPS=3000/50k 0.23776 (matches
+   HEAD). GN heuristic-eval smoke runs. New PrestateCheckEquivalenceTest (6
+   tests) asserts post-state + fail-flag equality old-vs-new flow for valid,
+   occupied-slot, mid-window-overlap, overflow and no-op actions (dyadic times
+   so the old undo round-trip is exact) plus full-step blocking of an invalid
+   action. env_funcs+rsa 622 passed; ppo+heuristics and deeprmsa+rwalr+gn suites
+   pass; gradient check passes (grad std ~9.5e-11).
+
+6. [done 2026-07-18] Bool action mask end-to-end: new MASK tier in dtype_config
+   (DTYPE_MAP gains "bool"; MASK_DTYPE = bool in default AND mixed_precision
+   modes, float32 in differentiable mode so soft/straight-through arithmetic is
+   untouched; resolves like the other tiers via an optional mask_dtype config
+   key — no new CLI flag). mask_slots now builds the mask as
+   (window_sums == 0) & path_valid (bool &, no float casts/multiplies) and
+   casts once to MASK_DTYPE; mask_slots_rwalr casts its float {0,1} result at
+   the boundary; mask_slots_rmsa_gn_model derives link_slot_mask as
+   (mod_format_mask >= 0) — still purely SNR-based validity, only the dtype
+   changed — while mod_format_mask STAYS SMALL_FLOAT (-1 sentinels). All 7
+   carry write sites made consistent: init_link_slot_mask, DeepRMSA init ones,
+   select_action write-back (train_utils), VONE action_mask_slots, GN state
+   replace, plus the two per-env reset paths via init_link_slot_mask; no-op
+   concat ones get explicit MASK_DTYPE. Consumers verified bool-safe: heuristics
+   promote (concat-with-int -> int32 argmax, float*bool, mask==0/1, take_along_axis),
+   RL logit masking already casts astype(f32) at use, ppo loss sums/gates promote,
+   warmup random-action jnp.maximum(mask, 1e-8) promotes to f32, multidevice
+   jnp.where(mask, ...) fine, aggregate_slots max-pool = OR on bool,
+   process_path_action pad/dynamic_slice/argmax fine. dtype_config_test mask
+   assertions updated to bool (+ MASK_DTYPE resolution asserts); rwalr
+   MixedPrecisionCarryTest mirrors the new select_action cast. Measured
+   same-session: 2.20-2.51s/39.9-45.4K -> 2.11-2.16s/46.3-47.4K FPS (~+3-4%).
+   Bit-identical: benchmark 0.24021 all 3 reps, NUM_ENVS=4 0.23863, warmup
+   3000/50k 0.23776 (all match HEAD); rsa_gn_model 200-step smoke compiles and
+   runs; short live RL train (rmsa, 2 envs) runs. Suites: env_funcs+rsa 622,
+   heuristics+ppo 618, rwalr+vone+dtype_config 504, gn_model+deeprmsa 334
+   passed. Gradient check passes (grad std ~9.5e-11, float mask path verbatim).
+
+7. [done 2026-07-18] Integer occupancy tier for link_slot_array: new OCCUPANCY
+   tier in dtype_config (resolves like the other tiers via an optional
+   occupancy_dtype config key — no new CLI flag). int8 under mixed_precision
+   (halves the largest per-env array vs the old f16 — the GPU memory win);
+   **int32 in default mode, NOT int8**: int8 default measured ~10% slower
+   end-to-end on CPU (M1) and int16 ~20% slower — sub-32-bit int ops make XLA
+   insert widening/narrowing conversions in the hot step ops (isolated via
+   occupancy_dtype={int8,int16,int32,float32} A/B: 4.05-4.12e4 / 3.58e4 /
+   4.54e4 / 4.49-4.57e4 FPS same-session) — so the memory win is scoped to
+   mixed_precision per the fallback in the item spec. int32 default is
+   bit-identical AND at speed parity (final 3 reps 4.78-4.98e4 vs HEAD
+   4.94-4.96e4 same-session; earlier recorded numbers were under background
+   load). Differentiable mode stays float32 (gradients flow, grad std
+   ~9.5e-11). Write sites made carry-consistent (cast-per-write, identity in
+   diff mode): implement_path_action, implement_and_complete_rsa (delta cast
+   narrow to avoid an upcast/downcast round trip of the carried array),
+   complete_step_rsa, complete_step_{rsa,rmsa}_gn_model, implement_action_rwalr
+   (total_mask -> carried dtype), set_band_gaps (sentinel cast — a Python float
+   val would weak-promote int8 to f32), VONE undo_link_action_vone (+one is
+   SMALL_INT). Reads: mask_slots paths@occupied gets
+   preferred_element_type=INDEX for int paths (float paths keep their dtype);
+   obs concats in RSA/VONE get_obs and the 4 graph edge-feature sites cast
+   explicitly to the float tier the NN expects. Departure array untouched
+   (TIME tier). GN validity still SNR-based. Bit-identical: benchmark 0.24021
+   all reps in default AND mixed modes (spec's 0.24147 is stale — HEAD itself
+   measures 0.24021, see item 6 log); rsa_gn_model 200-step smoke compiles/runs.
+   Suites: full set 2245 passed / 487 skipped (env_funcs, rsa, deeprmsa, vone,
+   rwalr, make_env, diff_utils, gn_model, heuristics, ppo, train_utils,
+   train_smoke, dtype_config). Test updates: rsa_test .set(1.0)->.set(1) (f32
+   scatter into int8 FutureWarning), rwalr MixedPrecisionCarryTest and
+   dtype_config_test assert the OCCUPANCY tier per mode.
+
+## Remaining (verified proposals from the 4-lens audit; anchors = main @997478c)
+(none — items 1-7 complete)
+
+## Final verification (2026-07-18, at 9547d5b, M1 Pro CPU)
+- Full test suite: `uv run pytest . -q` -> **2282 passed, 487 skipped, 0 failed**
+  (7:15). No breakages.
+- Gradient check (optimize_actions, 30 iters, rwa nsfnet): passes — Mean grad
+  -8.0e-12 +/- **9.5e-11** (nonzero std), best reward -1986.0, no crash.
+- Benchmark matrix (3 reps each, same session):
+
+  | Config | Elapsed (s) | FPS (mean) | Blocking |
+  |---|---|---|---|
+  | RMSA f32 (canonical) | 2.20 / 2.24 / 2.21 | **45.1K** (44.6-45.5K) | 0.24021 all reps |
+  | RMSA --mixed_precision | 2.53 / 2.49 / 2.54 | 39.6K (39.3-40.1K) | 0.24021 all reps |
+  | RWA (no values_bw/slot_size) | 2.27 / 2.27 / 2.28 | 44.0K (43.9-44.1K) | 0.00000 |
+  | RSA-GN 2000 steps (slot 100) | 8.43 / 8.36 / 8.36 | 238 (237-239) | 0.00000 (spectrum) |
+
+  Blocking 0.24021 is the expected value since item 4's RNG change (pre-item-4
+  bit-identical value was 0.24147). Session note: item 7's same-session final
+  reps read 47.8-49.8K; this fresh session (immediately after a 7-min test run,
+  machine warm) reads 44.6-45.5K — treat 45-48K as the honest band.
+
+## Summary: canonical RMSA single-env CPU benchmark (M1 Pro, f32)
+
+  | Stage | FPS | vs baseline |
+  |---|---|---|
+  | main @997478c (baseline) | 16.6K | 1.0x |
+  | batches 1-2 (items 1-2) | 27K | 1.63x |
+  | items 3-10 complete (9547d5b) | **45.1K** (band 45-48K) | **2.72x** (+172%) |
+
+  Per-item deltas (same-session measurements, see item logs): item 3 +9%,
+  item 4a +10%, item 5 +55%, item 6 +3-4%, item 7 parity (memory win scoped to
+  mixed precision), items 8 +5-7%, 9-10 neutral (compile/hygiene). Diff path:
+  gradients flow throughout (grad std ~9.5e-11 at every checkpoint).
+
+Per-item status: 1 done, 2 done, 3 done, 4 done (variant a; NOT bit-identical,
+RNG change, blocking 0.24147 -> 0.24021), 5 done, 6 done, 7 done, 8 done,
+9 done, 10 done. Failed: none.
+
+## Verification recipe (used for batches 1-2)
+- Speed: 3 reps of the RMSA eval command above; compare FPS.
+- Correctness: service_blocking_probability must stay 0.24147 for bit-identical
+  items (items 4+ change RNG or semantics — compare distributions instead).
+- Tests: uv run pytest xlron/environments/... + ppo_test (full suite before merge).
+- Gradients: optimize_actions 30 iters, Mean grad nonzero, actions move.
+
+## Full audit trail
+Verified findings + file:line: session scratchpad (rerun audit if stale) and the
+workflow journal wf_ab0ce66e-eb5. Do NOT merge to main until the GN/RWA-LR/VONE
+paths are re-tested (metrics injection touches all envs via log_metrics).

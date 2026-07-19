@@ -24,6 +24,8 @@ import wandb
 from xlron import dtype_config
 from xlron.environments.dataclasses import EnvState, RMSAGNModelEnvParams
 from xlron.environments.env_funcs import (
+    calculate_fragmentation,
+    calculate_utilisation,
     get_launch_power,
     init_link_length_array,
     make_graph,
@@ -922,6 +924,26 @@ def reset_warmup_metric_counters(env_state):
     )
 
 
+def heuristic_eval_obs_placeholder(num_envs: int = 1) -> Tuple[Array, ...]:
+    """Shape-(1,) placeholder observation for pure-heuristic eval.
+
+    Heuristic action selection (select_action_eval with config.EVAL_HEURISTIC) reads only
+    env_state, never the observation, yet the obs rides every scan/fori_loop carry. Building
+    the real flattened observation (request_array + link_slot_array concat, ~4.4k elements on
+    NSFNET 100-FSU) each step is dead work that cannot be eliminated while the obs is threaded
+    through the carry. Substituting this placeholder makes env.step's returned obs unused, so
+    the whole get_obs build is dead-code-eliminated from the compiled step. Not applied for
+    GNN/Transformer policies (their obs is (env_state, params)) nor for EVAL_MODEL or RL
+    training, where the model consumes the observation.
+
+    Every site that threads the heuristic-eval obs carry must use this same placeholder
+    (experiment_data_setup, get_warmup_fn's loop body, eval_heuristic's step body) so the
+    carry structure stays consistent across init, warmup, re-warm (load sweeps) and eval.
+    """
+    shape = (num_envs, 1) if num_envs > 1 else (1,)
+    return (jnp.zeros(shape, dtype=jnp.float32),)
+
+
 def experiment_data_setup(config: Box, rng: chex.PRNGKey) -> Tuple:
     # INIT ENV
     env, env_params = make(config)
@@ -938,11 +960,14 @@ def experiment_data_setup(config: Box, rng: chex.PRNGKey) -> Tuple:
         if config.NUM_ENVS > 1
         else env.reset(reset_key, env_params)
     )
-    obsv = (
-        (env_state.env_state, env_params)
-        if config.USE_GNN or config.USE_TRANSFORMER
-        else tuple([obsv])
-    )
+    if config.USE_GNN or config.USE_TRANSFORMER:
+        obsv = (env_state.env_state, env_params)
+    elif config.EVAL_HEURISTIC:
+        # Heuristics never read the observation: carry a placeholder so get_obs is
+        # DCE'd from the compiled eval/warmup step (see heuristic_eval_obs_placeholder)
+        obsv = heuristic_eval_obs_placeholder(config.NUM_ENVS)
+    else:
+        obsv = tuple([obsv])
 
     # TRAINING MODE
     if config.RETRAIN_MODEL or config.EVAL_MODEL:
@@ -1187,12 +1212,13 @@ def select_action(select_action_state, env, env_params, train_state, config):
         probs = jax.nn.softmax(pi._logits, axis=-1)
         valid_mass = jnp.sum(probs * action_mask, axis=-1)
 
-    # Single state update at the end. Store masks at SMALL_FLOAT so the carried field dtype is
-    # stable under mixed precision (matches init_link_slot_mask); the transient action_mask used
-    # above for logit-masking / valid_mass keeps its full-width dtype.
+    # Single state update at the end. Store the validity masks at MASK_DTYPE so the carried
+    # field dtype is stable across the scan (matches init_link_slot_mask); the transient
+    # action_mask used above for logit-masking / valid_mass keeps its full-width dtype.
+    # mod_format_mask stays on the SMALL_FLOAT tier (-1 sentinels / modulation indices).
     replace_kwargs = dict(
-        link_slot_mask=action_mask.astype(dtype_config.SMALL_FLOAT_DTYPE),
-        full_link_slot_mask=full_action_mask.astype(dtype_config.SMALL_FLOAT_DTYPE),
+        link_slot_mask=action_mask.astype(dtype_config.MASK_DTYPE),
+        full_link_slot_mask=full_action_mask.astype(dtype_config.MASK_DTYPE),
         valid_mass=valid_mass,
     )
     if mod_format_mask is not None:
@@ -1390,11 +1416,17 @@ def get_warmup_fn(warmup_state, env, params, train_state, config) -> Callable[[T
             obsv, _state, reward, terminal, truncated, info = env.step(
                 step_key, _state, action, params
             )
-            obsv = (
-                (_state.env_state, params)
-                if config.USE_GNN or config.USE_TRANSFORMER
-                else tuple([obsv])
-            )
+            # Keyed on the OUTER config's EVAL_HEURISTIC (not warmup_config's): during RL
+            # training with warmup_action_type='heuristic' the returned obs seeds the RL
+            # rollout carry, so it must stay a real observation there.
+            if config.USE_GNN or config.USE_TRANSFORMER:
+                obsv = (_state.env_state, params)
+            elif config.EVAL_HEURISTIC:
+                # Match the placeholder carry from experiment_data_setup: heuristic
+                # eval never reads the obs (see heuristic_eval_obs_placeholder)
+                obsv = heuristic_eval_obs_placeholder()
+            else:
+                obsv = tuple([obsv])
             return _rng, _state, _params, _train_state, obsv
 
         vals = jax.lax.fori_loop(
@@ -2365,6 +2397,43 @@ def log_metrics(
         merged_out, merged_out_loss, processed_data, episode_ends = process_metrics(
             config, out, merge_func
         )
+
+    # Utilisation/fragmentation are state properties computed once per increment
+    # from the final link_slot_array (their per-step computation cost ~10-15% of
+    # hot-path step time). Inject the end-of-increment values into every stat
+    # slot so downstream consumers (summary print, wandb, CSV) see real values.
+    try:
+        env_state = out["runner_state"][1]
+        inner = getattr(env_state, "env_state", env_state)
+        lsa = inner.link_slot_array  # ty: ignore[unresolved-attribute]
+        if lsa.ndim > 2:  # batched over envs (and possibly learners)
+            flat = lsa.reshape((-1,) + lsa.shape[-2:])
+            util = float(jnp.mean(jax.vmap(calculate_utilisation)(flat)))
+            frag = float(jnp.mean(jax.vmap(calculate_fragmentation)(flat)))
+        else:
+            util = float(calculate_utilisation(lsa))
+            frag = float(calculate_fragmentation(lsa))
+        # Template stats entry: eval drops the (constant-zero) per-step
+        # utilisation/fragmentation keys from the stacked info entirely
+        # (eval_heuristic._pack_info), so the entries may be absent from
+        # processed_data and need creating from an always-present metric's shape.
+        template = processed_data.get("accepted_services") or next(iter(processed_data.values()))
+        for metric_name, value in (("utilisation", util), ("fragmentation", frag)):
+            stats = processed_data.get(metric_name, template)
+            if isinstance(stats, dict):
+                processed_data[metric_name] = {
+                    stat_key: np.full_like(np.asarray(arr, dtype=np.float64), value)
+                    for stat_key, arr in stats.items()
+                }
+        # Keep metric ordering stable (summary-table rows, CSV columns) whether
+        # the entries above were overwritten in place or newly created
+        reordered = {k: processed_data[k] for k in metrics if k in processed_data}
+        reordered.update({k: v for k, v in processed_data.items() if k not in metrics})
+        processed_data = reordered
+    except (KeyError, IndexError, AttributeError, TypeError, StopIteration):
+        # Envs without link_slot_array (or unexpected runner-state layouts) keep
+        # whatever process_metrics produced (e.g. VONE's per-step values).
+        pass
 
     all_metrics = list(processed_data.keys())
     if not config.LOG_ALL_INFO:

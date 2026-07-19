@@ -25,6 +25,7 @@ DTYPE_MAP = {
     "uint8": jnp.uint8,
     "int8": jnp.int8,
     "int4": jnp.int4,
+    "bool": jnp.bool_,
 }
 
 # 16-bit (and smaller) float dtypes, used to decide when extra precision guards are needed.
@@ -40,7 +41,9 @@ global \
     SMALL_INT_DTYPE, \
     BINARY_DTYPE, \
     REWARD_DTYPE, \
-    ACTION_DTYPE
+    ACTION_DTYPE, \
+    MASK_DTYPE, \
+    OCCUPANCY_DTYPE
 
 # Neural-network compute/params: always keep at full precision for training stability.
 COMPUTE_DTYPE = jnp.float32
@@ -61,6 +64,23 @@ BINARY_DTYPE = jnp.int32  # Default for binary arrays.
 REWARD_DTYPE = jnp.float32  # Default for rewards, can be float or int.
 ACTION_DTYPE = jnp.int32  # Default for actions, must be int for indexing.
 INDEX_DTYPE = jnp.int32  # Default for indexing arrays. Always int32.
+# Action-validity masks (link_slot_mask / full_link_slot_mask). Boolean in non-differentiable
+# modes: the mask is born as a comparison, consumers either branch on it, argmax it, or cast it
+# to float at the point of use (logit masking), so bool is exact and cheapest. Differentiable
+# mode keeps float32 so the mask composes with the soft/straight-through arithmetic unchanged.
+# NOTE: mod_format_mask is NOT on this tier (it stores -1 sentinels / modulation indices).
+MASK_DTYPE = jnp.bool_
+# Spectrum occupancy (link_slot_array): values {-1, 0, 1, 2} (-1 band-gap/tentative sentinel,
+# 0 free, 1 occupied, transient 2 collision; VONE tentative marks reach -2). Integer in the
+# non-differentiable modes — occupancy arithmetic is exact in integers. int8 under mixed
+# precision (largest per-env array, so the dominant memory saving / GPU headroom); int32 in
+# the default mode (sub-32-bit int ops measured ~10% slower end-to-end on CPU (M1, XLA
+# widening/narrowing conversions), so the default keeps full width — same speed and bitwise
+# results as the old float32 occupancy). Every write site casts back per-write
+# (`.astype(state.link_slot_array.dtype)`) because masks/blends promote through wider dtypes.
+# Differentiable mode keeps float32 so straight-through gradients flow.
+# NOTE: link_slot_departure_array is NOT on this tier (TIME_DTYPE).
+OCCUPANCY_DTYPE = jnp.int32
 
 
 def initialize_dtypes(flags: flags.FlagValues | Box | Dict) -> None:
@@ -127,6 +147,10 @@ def initialize_dtypes(flags: flags.FlagValues | Box | Dict) -> None:
         reward_default = "float32"
         action_default = "float32"
         index_dtype = "int32"
+        # Masks stay float so they compose with the soft straight-through arithmetic.
+        mask_default = "float32"
+        # Occupancy stays float so the soft implement/check/undo arithmetic differentiates.
+        occupancy_default = "float32"
     elif mixed_precision:
         # Mixed precision: keep NN/precision-sensitive arrays at 32-bit, shrink bulk env state.
         compute_default = "float32"
@@ -148,6 +172,11 @@ def initialize_dtypes(flags: flags.FlagValues | Box | Dict) -> None:
         reward_default = "float32"
         action_default = "int32"
         index_dtype = "int32"
+        # Action-validity masks are pure booleans; consumers cast to float at the point of use.
+        mask_default = "bool"
+        # Occupancy values {-1, 0, 1, 2} are exact in int8; write sites cast per-write.
+        # This is the largest per-env array, so int8 is the dominant memory saving.
+        occupancy_default = "int8"
     else:
         compute_default = "float32"
         params_default = "float32"
@@ -160,6 +189,13 @@ def initialize_dtypes(flags: flags.FlagValues | Box | Dict) -> None:
         reward_default = "float32"
         action_default = "int32"
         index_dtype = "int32"
+        # Action-validity masks are pure booleans; consumers cast to float at the point of use.
+        mask_default = "bool"
+        # Integer occupancy arithmetic is exact (bit-identical blocking to the old float32
+        # occupancy), but sub-32-bit int ops cost ~10% end-to-end on CPU (M1: XLA inserts
+        # widening/narrowing conversions in the hot step ops), so the default mode keeps
+        # full-width int32; the memory win is scoped to mixed_precision (int8 above).
+        occupancy_default = "int32"
 
     # A global ``float_dtype``/``int_dtype`` flag, if set, overrides BOTH tiers uniformly.
     float_dtype_flag = get_flag_value_or_none("float_dtype", None)
@@ -187,6 +223,8 @@ def initialize_dtypes(flags: flags.FlagValues | Box | Dict) -> None:
     binary_dtype_flag = get_flag_value_or_none("binary_dtype", binary_default)
     reward_dtype_flag = get_flag_value_or_none("reward_dtype", reward_default)
     action_dtype_flag = get_flag_value_or_none("action_dtype", action_default)
+    mask_dtype_flag = get_flag_value_or_none("mask_dtype", mask_default)
+    occupancy_dtype_flag = get_flag_value_or_none("occupancy_dtype", occupancy_default)
 
     globals()["COMPUTE_DTYPE"] = DTYPE_MAP[compute_dtype_flag]
     globals()["PARAMS_DTYPE"] = DTYPE_MAP[params_dtype_flag]
@@ -199,6 +237,8 @@ def initialize_dtypes(flags: flags.FlagValues | Box | Dict) -> None:
     globals()["REWARD_DTYPE"] = DTYPE_MAP[reward_dtype_flag]
     globals()["ACTION_DTYPE"] = DTYPE_MAP[action_dtype_flag]
     globals()["INDEX_DTYPE"] = DTYPE_MAP[index_dtype]
+    globals()["MASK_DTYPE"] = DTYPE_MAP[mask_dtype_flag]
+    globals()["OCCUPANCY_DTYPE"] = DTYPE_MAP[occupancy_dtype_flag]
 
 
 initialize_dtypes(FLAGS)

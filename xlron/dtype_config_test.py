@@ -90,6 +90,11 @@ class DtypeResolutionTest(absltest.TestCase):
             dtype_config.BINARY_DTYPE,
         ]:
             self.assertEqual(jnp.dtype(c), jnp.dtype(jnp.int32))
+        # Action masks are boolean in every non-differentiable mode.
+        self.assertEqual(jnp.dtype(dtype_config.MASK_DTYPE), jnp.dtype(jnp.bool_))
+        # Occupancy is integer in non-differentiable modes; full-width in default mode
+        # (sub-32-bit int ops cost ~10% on CPU; int8 is scoped to mixed_precision).
+        self.assertEqual(jnp.dtype(dtype_config.OCCUPANCY_DTYPE), jnp.dtype(jnp.int32))
 
     def test_mixed_relative_shrinks_tiers(self):
         dtype_config.initialize_dtypes(
@@ -103,6 +108,9 @@ class DtypeResolutionTest(absltest.TestCase):
         self.assertEqual(jnp.dtype(dtype_config.TIME_DTYPE), jnp.dtype(jnp.float32))
         self.assertEqual(jnp.dtype(dtype_config.SMALL_INT_DTYPE), jnp.dtype(jnp.int16))
         self.assertEqual(jnp.dtype(dtype_config.BINARY_DTYPE), jnp.dtype(jnp.int8))
+        self.assertEqual(jnp.dtype(dtype_config.MASK_DTYPE), jnp.dtype(jnp.bool_))
+        # Occupancy (link_slot_array, the largest per-env array) shrinks to int8.
+        self.assertEqual(jnp.dtype(dtype_config.OCCUPANCY_DTYPE), jnp.dtype(jnp.int8))
         # Precision tiers stay 32-bit.
         self.assertEqual(jnp.dtype(dtype_config.LARGE_FLOAT_DTYPE), jnp.dtype(jnp.float32))
         self.assertEqual(jnp.dtype(dtype_config.LARGE_INT_DTYPE), jnp.dtype(jnp.int32))
@@ -147,6 +155,11 @@ class DtypeResolutionTest(absltest.TestCase):
             dtype_config.SMALL_FLOAT_DTYPE,
             dtype_config.TIME_DTYPE,
             dtype_config.BINARY_DTYPE,
+            # Masks stay float in differentiable mode so they compose with the soft
+            # straight-through arithmetic (bool everywhere else).
+            dtype_config.MASK_DTYPE,
+            # Occupancy stays float so soft implement/check/undo gradients flow.
+            dtype_config.OCCUPANCY_DTYPE,
         ]:
             self.assertEqual(jnp.dtype(c), jnp.dtype(jnp.float32))
 
@@ -171,16 +184,18 @@ class EnvStateDtypeTest(absltest.TestCase):
     def test_rmsa_carried_arrays_are_f16_in_mixed(self):
         env, params = make(_cfg("rmsa", mixed=True))
         es = _rollout(env, params, n_steps=40)
-        self.assertEqual(jnp.dtype(es.link_slot_array.dtype), jnp.dtype(jnp.float16))
+        # Occupancy is int8 under mixed precision (OCCUPANCY tier).
+        self.assertEqual(jnp.dtype(es.link_slot_array.dtype), jnp.dtype(jnp.int8))
         # Time/departure arrays stay float32 (see test_mixed_relative_shrinks_tiers)
         self.assertEqual(jnp.dtype(es.link_slot_departure_array.dtype), jnp.dtype(jnp.float32))
         self.assertEqual(jnp.dtype(es.current_time.dtype), jnp.dtype(jnp.float32))
-        # Graph features (largest E*S array) and action masks shrink too (recompute is cast at
-        # every state-write site so the carried dtype stays stable across the scan).
+        # Graph features (largest E*S array) shrink too (recompute is cast at every
+        # state-write site so the carried dtype stays stable across the scan). Action
+        # masks are boolean in every non-differentiable mode (MASK tier).
         self.assertEqual(jnp.dtype(es.graph.edges.dtype), jnp.dtype(jnp.float16))
         self.assertEqual(jnp.dtype(es.graph.nodes.dtype), jnp.dtype(jnp.float16))
-        self.assertEqual(jnp.dtype(es.link_slot_mask.dtype), jnp.dtype(jnp.float16))
-        self.assertEqual(jnp.dtype(es.full_link_slot_mask.dtype), jnp.dtype(jnp.float16))
+        self.assertEqual(jnp.dtype(es.link_slot_mask.dtype), jnp.dtype(jnp.bool_))
+        self.assertEqual(jnp.dtype(es.full_link_slot_mask.dtype), jnp.dtype(jnp.bool_))
         # Counters / accumulators stay 32-bit; graph indices stay int32.
         self.assertEqual(jnp.dtype(es.total_requests.dtype), jnp.dtype(jnp.int32))
         self.assertEqual(jnp.dtype(es.accepted_bitrate.dtype), jnp.dtype(jnp.float32))
@@ -189,10 +204,12 @@ class EnvStateDtypeTest(absltest.TestCase):
     def test_rmsa_default_arrays_are_f32(self):
         env, params = make(_cfg("rmsa", mixed=False))
         es = _rollout(env, params, n_steps=40)
-        self.assertEqual(jnp.dtype(es.link_slot_array.dtype), jnp.dtype(jnp.float32))
+        # Occupancy is int32 in the default mode (integer-exact, full width on CPU).
+        self.assertEqual(jnp.dtype(es.link_slot_array.dtype), jnp.dtype(jnp.int32))
         self.assertEqual(jnp.dtype(es.link_slot_departure_array.dtype), jnp.dtype(jnp.float32))
         self.assertEqual(jnp.dtype(es.graph.edges.dtype), jnp.dtype(jnp.float32))
-        self.assertEqual(jnp.dtype(es.link_slot_mask.dtype), jnp.dtype(jnp.float32))
+        # Action masks are boolean in every non-differentiable mode (MASK tier).
+        self.assertEqual(jnp.dtype(es.link_slot_mask.dtype), jnp.dtype(jnp.bool_))
 
     def test_mixed_reduces_env_state_memory(self):
         env_d, params_d = make(_cfg("rmsa", mixed=False))

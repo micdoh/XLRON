@@ -210,7 +210,11 @@ def init_graph_tuple(
         node_features = jnp.concatenate([spectral_features, source_dest_features], axis=-1)
     elif params.__class__.__name__ == "VONEEnvParams":
         edge_features = (
-            state.link_slot_array if params.incremental_loading else holding_time_edge_features
+            # Cast occupancy (int8 tier) to float: graph features feed the NN embedders and
+            # must match the holding-time branch / init-vs-update carry dtype
+            state.link_slot_array.astype(dtype_config.SMALL_FLOAT_DTYPE)
+            if params.incremental_loading
+            else holding_time_edge_features
         )
         node_features = getattr(
             state,
@@ -223,7 +227,11 @@ def init_graph_tuple(
         )
     else:
         edge_features = (
-            state.link_slot_array if params.incremental_loading else holding_time_edge_features
+            # Cast occupancy (int8 tier) to float: graph features feed the NN embedders and
+            # must match the holding-time branch / init-vs-update carry dtype
+            state.link_slot_array.astype(dtype_config.SMALL_FLOAT_DTYPE)
+            if params.incremental_loading
+            else holding_time_edge_features
         )
         # [n_edges] or [n_edges, ...]
         node_features = jnp.concatenate([spectral_features, source_dest_features], axis=-1)
@@ -329,7 +337,11 @@ def update_graph_tuple(state: RSAEnvState, params: RSAEnvParams) -> RSAEnvState:
         node_features = jnp.concatenate([spectral_features, source_dest_features], axis=-1)
     elif params.__class__.__name__ == "VONEEnvParams":
         edge_features = (
-            state.link_slot_array if params.incremental_loading else holding_time_edge_features
+            # Cast occupancy (int8 tier) to float: graph features feed the NN embedders and
+            # must match the holding-time branch / init-vs-update carry dtype
+            state.link_slot_array.astype(dtype_config.SMALL_FLOAT_DTYPE)
+            if params.incremental_loading
+            else holding_time_edge_features
         )
         node_features = getattr(state, "node_capacity_array", jnp.zeros(params.num_nodes))
         node_features = node_features.reshape(-1, 1)
@@ -349,7 +361,11 @@ def update_graph_tuple(state: RSAEnvState, params: RSAEnvParams) -> RSAEnvState:
         )
     else:
         edge_features = (
-            state.link_slot_array if params.incremental_loading else holding_time_edge_features
+            # Cast occupancy (int8 tier) to float: graph features feed the NN embedders and
+            # must match the holding-time branch / init-vs-update carry dtype
+            state.link_slot_array.astype(dtype_config.SMALL_FLOAT_DTYPE)
+            if params.incremental_loading
+            else holding_time_edge_features
         )
         node_features = jnp.concatenate([spectral_features, source_dest_features], axis=-1)
 
@@ -1056,13 +1072,16 @@ def init_traffic_matrix(key: chex.PRNGKey, params: EnvParams) -> Array:
     Returns:
         jnp.array: Traffic matrix
     """
+    # Construct directly in the precision tier (LARGE_FLOAT): the matrix is consumed
+    # at float32 (see final cast), so sampling/normalising in SMALL_FLOAT (float16
+    # under mixed precision) would just lose precision before the upcast.
     if params.random_traffic:
         traffic_matrix = jax.random.uniform(
-            key, shape=(params.num_nodes, params.num_nodes), dtype=dtype_config.SMALL_FLOAT_DTYPE
+            key, shape=(params.num_nodes, params.num_nodes), dtype=dtype_config.LARGE_FLOAT_DTYPE
         )
     else:
         traffic_matrix = jnp.ones(
-            (params.num_nodes, params.num_nodes), dtype=dtype_config.SMALL_FLOAT_DTYPE
+            (params.num_nodes, params.num_nodes), dtype=dtype_config.LARGE_FLOAT_DTYPE
         )
     diag_elements = jnp.diag_indices_from(traffic_matrix)
     # Set main diagonal to zero so no requests from node to itself
@@ -1128,11 +1147,13 @@ def init_link_slot_array(params: EnvParams):
     Returns:
         jnp.array: Link slot array (E x S) where E is number of edges and S is number of slots"""
     # Spectrum occupancy counter, values {0, 1} (steady) with a transient +2 marking a
-    # collision (see check_no_spectrum_reuse). Bulk float tier: exact in float16 under mixed
-    # precision, and the largest per-env array so the dominant memory saving.
-    return jnp.zeros(
-        (params.num_links, params.link_resources), dtype=dtype_config.SMALL_FLOAT_DTYPE
-    )
+    # collision (see check_no_spectrum_reuse) and -1/-2 sentinels (band gaps, VONE tentative
+    # marks). Occupancy tier: integer in non-differentiable modes (int32 default; int8 under
+    # mixed precision, where this largest per-env array is the dominant memory saving),
+    # float32 in differentiable mode.
+    # Scan-carry rule: every state.replace(link_slot_array=...) site must cast back to this
+    # dtype, because masks/blends promote through wider dtypes.
+    return jnp.zeros((params.num_links, params.link_resources), dtype=dtype_config.OCCUPANCY_DTYPE)
 
 
 def init_rsa_request_array():
@@ -1146,13 +1167,14 @@ def init_rsa_request_array():
 @partial(jax.jit, static_argnums=(0, 1, 2))
 def init_link_slot_mask(params: EnvParams, include_no_op: bool = False, agg: float = 1.0):
     """Initialize link mask"""
-    # Binary {0, 1} action-validity mask. Bulk float tier (exact in float16). The mask is
-    # recomputed from scratch each step, so every site that writes it back into the carried state
-    # (select_action in train_utils, mask_slots_bit_rate_mod_format, VONE) casts to SMALL_FLOAT to
-    # keep the scan carry dtype stable; the transient mask used for logit-masking stays full width.
+    # Action-validity mask on the MASK tier: bool in non-differentiable modes (born as a
+    # comparison; consumers cast to float at the point of use, e.g. logit masking), float32 in
+    # differentiable mode. The mask is recomputed from scratch each step, so every site that
+    # writes it back into the carried state (select_action in train_utils,
+    # mask_slots_rmsa_gn_model, VONE) casts to MASK_DTYPE to keep the scan carry dtype stable.
     return jnp.ones(
         params.k_paths * math.ceil(params.link_resources / agg) + (1 * include_no_op),
-        dtype=dtype_config.SMALL_FLOAT_DTYPE,
+        dtype=dtype_config.MASK_DTYPE,
     )
 
 
@@ -1234,8 +1256,6 @@ def generate_source_dest_pairs(num_nodes, directed_graph):
 def generate_request_rsa(
     key: chex.PRNGKey, state: RSAEnvState, params: RSAEnvParams
 ) -> RSAEnvState:
-    key_sd, key_slot, key_times = jax.random.split(key, 3)
-
     if params.deterministic_requests:
         # total_requests starts at -1 and is incremented in the replace below, so the
         # request being generated is number total_requests + 1. Reading at the raw counter
@@ -1265,8 +1285,19 @@ def generate_request_rsa(
             request, 5, params.temperature, params.differentiable
         )
     else:
+        # One fused uniform draw supplies all per-step randomness (a single threefry
+        # invocation instead of ~4 key splits + per-draw hashes). Source-dest and
+        # bandwidth indices come from inverse-CDF sampling (searchsorted) against
+        # pre-computed CDFs, replacing jax.random.choice which re-cumsums the
+        # constant probabilities every step. Exponential times use -log1p(-u),
+        # exactly jax.random.exponential's construction.
+        num_holding = 5 if params.truncate_holding_time else 1
+        u = jax.random.uniform(key, shape=(3 + num_holding,), dtype=dtype_config.TIME_DTYPE)
         if params.traffic_array:
-            source_dest_index = jax.random.choice(key_sd, state.traffic_matrix.shape[0])
+            num_pairs = state.traffic_matrix.shape[0]
+            source_dest_index = jnp.minimum(
+                (u[0] * num_pairs).astype(dtype_config.INDEX_DTYPE), num_pairs - 1
+            )
             nodes = differentiable_indexing(
                 state.traffic_matrix,
                 source_dest_index,
@@ -1275,24 +1306,39 @@ def generate_request_rsa(
             )
         else:
             shape = state.traffic_matrix.shape
-            probabilities = state.traffic_matrix.ravel()
-            source_dest_index = jax.random.choice(key_sd, probabilities.size, p=probabilities)
+            # traffic_cdf is a static field: None means the matrix varies per reset
+            # (random_traffic), so fall back to a per-step cumsum
+            cdf = (
+                params.traffic_cdf.val
+                if params.traffic_cdf is not None
+                else jnp.cumsum(state.traffic_matrix.ravel())
+            )
+            # (1 - u) keeps the target in (0, total] so zero-probability entries
+            # (e.g. the diagonal) are never selected (mirrors jax.random.choice)
+            source_dest_index = jnp.searchsorted(cdf, cdf[-1] * (1.0 - u[0]))
             # Faster than unravel_index for 2D
             source = source_dest_index // shape[1]
             dest = source_dest_index % shape[1]
             nodes = jnp.stack((source, dest), dtype=dtype_config.LARGE_INT_DTYPE)
 
+        values_bw = jnp.asarray(params.values_bw.val)
         # values_bw_probs is a static field: None means uniform sampling
-        bw_probs = params.values_bw_probs.val if params.values_bw_probs is not None else None
-        bw = jax.random.choice(key_slot, params.values_bw.val, p=bw_probs)
+        if params.values_bw_probs is None:
+            num_bw = values_bw.shape[0]
+            bw_index = jnp.minimum((u[1] * num_bw).astype(dtype_config.INDEX_DTYPE), num_bw - 1)
+        else:
+            # cumsum of a compile-time constant: folded by XLA, not a per-step op
+            bw_cdf = jnp.cumsum(params.values_bw_probs.val)
+            bw_index = jnp.searchsorted(bw_cdf, bw_cdf[-1] * (1.0 - u[1]))
+        bw = values_bw[bw_index]
         source, dest = (
             nodes
             if params.directed_graph
             else (jnp.minimum(nodes[0], nodes[1]), jnp.maximum(nodes[0], nodes[1]))
         )
 
-        arrival_time, holding_time = generate_arrival_holding_times(
-            key_times, params, state.arrival_rate, state.mean_service_holding_time
+        arrival_time, holding_time = _arrival_holding_from_uniforms(
+            u[2:3], u[3:], params, state.arrival_rate, state.mean_service_holding_time
         )
         current_time = (
             state.current_time + arrival_time
@@ -1327,8 +1373,6 @@ def generate_request_rsa(
 def generate_request_rwalr(
     key: chex.PRNGKey, state: RWALightpathReuseEnvState, params: RSAEnvParams
 ) -> RWALightpathReuseEnvState:
-    # Flatten the probabilities to a 1D array
-    key_sd, key_slot, key_times = jax.random.split(key, 3)
     if params.deterministic_requests:
         # See generate_request_rsa: the request being generated is total_requests + 1
         request = differentiable_indexing(
@@ -1344,22 +1388,32 @@ def generate_request_rwalr(
         holding_time = jax.lax.dynamic_slice(request, (4,), (1,))[0]
         current_time = jax.lax.dynamic_slice(request, (5,), (1,))[0]
     else:
+        # See generate_request_rsa: one fused uniform draw + inverse-CDF sampling
+        num_holding = 5 if params.truncate_holding_time else 1
+        u = jax.random.uniform(key, shape=(3 + num_holding,), dtype=dtype_config.TIME_DTYPE)
         shape = state.traffic_matrix.shape
-        probabilities = state.traffic_matrix.ravel()
-        # Use jax.random.choice to select index based on the probabilities
-        source_dest_index = jax.random.choice(
-            key_sd, jnp.arange(state.traffic_matrix.size), p=probabilities
+        # traffic_cdf is a static field: None means the matrix varies per reset
+        cdf = (
+            params.traffic_cdf.val
+            if params.traffic_cdf is not None
+            else jnp.cumsum(state.traffic_matrix.ravel())
         )
+        source_dest_index = jnp.searchsorted(cdf, cdf[-1] * (1.0 - u[0]))
         # Convert 1D index back to 2D
         nodes = jnp.unravel_index(source_dest_index, shape)
-        # Vectorized conditional replacement using mask
+        values_bw = jnp.asarray(params.values_bw.val)
         # values_bw_probs is a static field: None means uniform sampling
-        bw_probs = params.values_bw_probs.val if params.values_bw_probs is not None else None
-        bw = jax.random.choice(key_slot, params.values_bw.val, p=bw_probs)
+        if params.values_bw_probs is None:
+            num_bw = values_bw.shape[0]
+            bw_index = jnp.minimum((u[1] * num_bw).astype(dtype_config.INDEX_DTYPE), num_bw - 1)
+        else:
+            bw_cdf = jnp.cumsum(params.values_bw_probs.val)
+            bw_index = jnp.searchsorted(bw_cdf, bw_cdf[-1] * (1.0 - u[1]))
+        bw = values_bw[bw_index]
         nodes = jnp.stack(nodes, dtype=dtype_config.LARGE_INT_DTYPE)
         source, dest = nodes if params.directed_graph else jnp.sort(nodes)
-        arrival_time, holding_time = generate_arrival_holding_times(
-            key_times, params, state.arrival_rate, state.mean_service_holding_time
+        arrival_time, holding_time = _arrival_holding_from_uniforms(
+            u[2:3], u[3:], params, state.arrival_rate, state.mean_service_holding_time
         )
         current_time = (
             state.current_time + arrival_time
@@ -1391,6 +1445,12 @@ def get_path_index_array(params: EnvParams, nodes: Array) -> Array:
     i = get_path_indices(
         params, source, dest, params.k_paths, params.num_nodes, directed=params.directed_graph
     )
+    if not params.differentiable:
+        # The gather through an identity arange is the identity: the k path
+        # indices are just i, i+1, ..., i+k-1. Keep everything integer.
+        return i.astype(dtype_config.INDEX_DTYPE) + jnp.arange(
+            params.k_paths, dtype=dtype_config.INDEX_DTYPE
+        )
     index_array = differentiable_indexing(
         jnp.arange(0, params.path_link_array.shape[0], dtype=dtype_config.LARGE_INT_DTYPE),
         i + jnp.arange(params.k_paths, dtype=dtype_config.LARGE_FLOAT_DTYPE),
@@ -1482,24 +1542,26 @@ def get_path_and_se(params: EnvParams, nodes: Array, k_path_index: int) -> Tuple
     return path, se
 
 
-# TODO - consider just making a differentiable version of this whole function
-@partial(jax.jit, static_argnums=(1,))
-def generate_arrival_holding_times(key, params, arrival_rate, mean_service_holding_time):
+def _arrival_holding_from_uniforms(
+    u_arrival, u_holding, params, arrival_rate, mean_service_holding_time
+):
     """
-    Generate arrival and holding times based on Poisson distributed events.
+    Generate arrival and holding times based on Poisson distributed events, from
+    pre-drawn uniform samples in [0, 1).
     To understand how sampling from e^-x can be transformed to sample from lambda*e^-(x/lambda) see:
     https://en.wikipedia.org/wiki/Inverse_transform_sampling#Examples
     Basically, inverse transform sampling is used to sample from a distribution with CDF F(x).
     The CDF of the exponential distribution (lambda*e^-{lambda*x}) is F(x) = 1 - e^-{lambda*x}.
     Therefore, the inverse CDF is x = -ln(1-u)/lambda, where u is sample from uniform distribution.
-    Therefore, we need to divide jax.random.exponential() by lambda in order to scale the standard exponential CDF.
-    Experimental histograms of this method compared to random.expovariate() in Python's random library show that
-    the two methods are equivalent.
+    -log1p(-u) is exactly jax.random.exponential's construction, so this matches drawing
+    exponentials directly; taking uniforms lets callers batch all per-step randomness
+    into a single draw.
     Also see: https://numpy.org/doc/stable/reference/random/generated/numpy.random.exponential.html
     https://jax.readthedocs.io/en/latest/_autosummary/jax.random.exponential.html
 
     Args:
-        key: PRNG key
+        u_arrival: Uniform sample, shape (1,)
+        u_holding: Uniform samples, shape (1,) or (5,) if truncate_holding_time
         params: Environment parameters
         arrival_rate: Traced arrival rate (load / mean_service_holding_time)
         mean_service_holding_time: Traced mean service holding time
@@ -1508,22 +1570,10 @@ def generate_arrival_holding_times(key, params, arrival_rate, mean_service_holdi
         arrival_time: Arrival time
         holding_time: Holding time
     """
-    key_arrival, key_holding = jax.random.split(key, 2)
-    arrival_time = (
-        jax.random.exponential(key_arrival, shape=(1,), dtype=dtype_config.TIME_DTYPE)
-        / arrival_rate
-    )  # Divide because it is rate (lambda)
+    arrival_time = -jnp.log1p(-u_arrival) / arrival_rate  # Divide because it is rate (lambda)
     if params.truncate_holding_time:
         # For DeepRMSA, need to generate holding times that are less than 2*mean_service_holding_time
-        # Split the child key (not the parent): split(key, 5)[:2] == split(key, 2), so
-        # re-splitting the parent would alias candidate keys with key_arrival
-        key_holding = jax.random.split(key_holding, 5)
-        holding_times = jax.vmap(
-            lambda x: (
-                jax.random.exponential(x, shape=(1,), dtype=dtype_config.TIME_DTYPE)
-                * mean_service_holding_time
-            )
-        )(key_holding).reshape(-1)
+        holding_times = (-jnp.log1p(-u_holding) * mean_service_holding_time).reshape(-1)
         holding_times = jnp.where(
             holding_times < 2 * mean_service_holding_time, holding_times, zero
         )
@@ -1549,8 +1599,7 @@ def generate_arrival_holding_times(key, params, arrival_rate, mean_service_holdi
         )
     else:
         holding_time = (
-            jax.random.exponential(key_holding, shape=(1,), dtype=dtype_config.TIME_DTYPE)
-            * mean_service_holding_time
+            -jnp.log1p(-u_holding) * mean_service_holding_time
         )  # Multiply because it is mean (1/lambda)
     # Pin to the TIME tier: the rate/mean scalars may be a wider (precision) dtype, so the
     # products above can promote. Casting here keeps the departure array's dtype stable across
@@ -1558,6 +1607,30 @@ def generate_arrival_holding_times(key, params, arrival_rate, mean_service_holdi
     arrival_time = arrival_time.astype(dtype_config.TIME_DTYPE)
     holding_time = holding_time.astype(dtype_config.TIME_DTYPE)
     return arrival_time, holding_time
+
+
+@partial(jax.jit, static_argnums=(1,))
+def generate_arrival_holding_times(key, params, arrival_rate, mean_service_holding_time):
+    """Generate exponential arrival and holding times from a PRNG key.
+
+    Draws all required uniforms in a single fused call and applies inverse-transform
+    sampling (see _arrival_holding_from_uniforms for the construction).
+
+    Args:
+        key: PRNG key
+        params: Environment parameters
+        arrival_rate: Traced arrival rate (load / mean_service_holding_time)
+        mean_service_holding_time: Traced mean service holding time
+
+    Returns:
+        arrival_time: Arrival time
+        holding_time: Holding time
+    """
+    num_holding = 5 if params.truncate_holding_time else 1
+    u = jax.random.uniform(key, shape=(1 + num_holding,), dtype=dtype_config.TIME_DTYPE)
+    return _arrival_holding_from_uniforms(
+        u[0:1], u[1:], params, arrival_rate, mean_service_holding_time
+    )
 
 
 @partial(jax.jit, donate_argnums=(0,))
@@ -1631,6 +1704,23 @@ def remove_expired_services_rsa(state: RSAEnvState, params: EnvParams) -> RSAEnv
     t = state.current_time if not params.relative_arrival_times else state.arrival_time
 
     dep = state.link_slot_departure_array
+
+    if not params.differentiable:
+        # Boolean fast path: no float casts or multiply-blends. Clear only slots
+        # occupied by an expired service (0 < dep <= t). Band-gap sentinels (-1
+        # in link_slot_array) carry dep == 0 and must survive expiry.
+        keep = dep > t
+        expired = (dep > 0) & ~keep
+        new_slots = jnp.where(expired, 0, state.link_slot_array)
+        if params.relative_arrival_times:
+            # Keep only those still active and shift them by -t
+            new_dep = jnp.where(keep, dep - t, 0).astype(dep.dtype)
+        else:
+            new_dep = jnp.where(keep, dep, 0)
+        return state.replace(
+            link_slot_array=new_slots,
+            link_slot_departure_array=new_dep,
+        )
 
     keep = differentiable_compare(
         dep, t, ">", temperature=params.temperature, differentiable=params.differentiable
@@ -1874,7 +1964,9 @@ def complete_step_rsa_gn_model(
 
     # --- Undo partial RSA allocation on failure (same pattern as complete_step_rsa) ---
     state = state.replace(
-        link_slot_array=state.link_slot_array - (fail_f_slots * action_info.affected_slots_mask),
+        link_slot_array=(
+            state.link_slot_array - (fail_f_slots * action_info.affected_slots_mask)
+        ).astype(state.link_slot_array.dtype),
         link_slot_departure_array=state.link_slot_departure_array
         - (
             fail_f_dep * action_info.affected_slots_mask * (state.current_time + state.holding_time)
@@ -1943,7 +2035,9 @@ def complete_step_rmsa_gn_model(
 
     # --- Undo partial RSA allocation on failure ---
     state = state.replace(
-        link_slot_array=state.link_slot_array - (fail_f_slots * action_info.affected_slots_mask),
+        link_slot_array=(
+            state.link_slot_array - (fail_f_slots * action_info.affected_slots_mask)
+        ).astype(state.link_slot_array.dtype),
         link_slot_departure_array=state.link_slot_departure_array
         - (
             fail_f_dep * action_info.affected_slots_mask * (state.current_time + state.holding_time)
@@ -2000,7 +2094,10 @@ def complete_step_rsa(
     fail = check
     success = 1 - check
     state = state.replace(
-        link_slot_array=state.link_slot_array - (fail * action_info.affected_slots_mask),
+        # Cast per-write: the fail*mask blend promotes; cast back to the occupancy dtype
+        link_slot_array=(state.link_slot_array - (fail * action_info.affected_slots_mask)).astype(
+            state.link_slot_array.dtype
+        ),
         link_slot_departure_array=state.link_slot_departure_array
         - (fail * action_info.affected_slots_mask * (state.current_time + state.holding_time)),
         accepted_services=state.accepted_services + success,
@@ -2030,6 +2127,35 @@ def complete_step_rwalr(
         total_timesteps=state.total_timesteps + 1,
     )
     return state
+
+
+def implement_and_complete_rsa(
+    state: EnvState, action_info: ActionInfo, check: Array, params: EnvParams
+) -> EnvState:
+    """Fused implement + finalise for the non-differentiable plain-RSA/RMSA/RWA step.
+
+    Equivalent to implement_path_action followed by complete_step_rsa, given `check`
+    already computed on the PRE-implementation state (check_action_rsa_prestate):
+    the allocation is applied exactly once, gated on success, so the speculative
+    write + undo passes of the implement/check/undo flow are not needed.
+    On success the arithmetic is bit-identical to the old flow
+    (mask * 1 == mask, and 0-valued deltas add exactly); on failure the state is
+    left untouched (the old flow's add-then-subtract round trip could perturb
+    occupied departure entries by float rounding; here they are never written).
+    """
+    success = 1 - check
+    delta = action_info.affected_slots_mask * success
+    departure_delta = state.current_time + state.holding_time
+    return state.replace(
+        # Cast the delta (not the occupancy array) to the occupancy dtype: the add stays
+        # narrow and the carried array avoids an upcast+downcast round trip
+        link_slot_array=state.link_slot_array + delta.astype(state.link_slot_array.dtype),
+        link_slot_departure_array=state.link_slot_departure_array + delta * departure_delta,
+        accepted_services=state.accepted_services + success,
+        accepted_bitrate=state.accepted_bitrate + (success * action_info.requested_datarate),
+        total_bitrate=state.total_bitrate + action_info.requested_datarate,
+        total_timesteps=state.total_timesteps + 1,
+    )
 
 
 def check_no_spectrum_reuse(state: EnvState, action_info: ActionInfo, params: EnvParams) -> bool:
@@ -2110,13 +2236,20 @@ def process_path_action(
     # ceil, matching init_link_slot_mask / aggregate_slots / the model action-space size
     # (floor would mis-decode path/slot whenever link_resources % aggregate_slots != 0)
     num_slot_actions = math.ceil(params.link_resources / params.aggregate_slots)
-    path_action = differentiable_round_simple(
-        path_action, params.temperature, params.differentiable
-    )
-    path_index = differentiable_floor(
-        path_action // num_slot_actions, params.temperature, params.differentiable
-    ).astype(dtype_config.LARGE_INT_DTYPE)
-    initial_aggregated_slot_index = jnp.mod(path_action, num_slot_actions)
+    if not params.differentiable:
+        # Actions are integers here; // is exact integer floor division, so the
+        # round/floor helpers (which promote through float) are redundant.
+        path_action = path_action.astype(dtype_config.LARGE_INT_DTYPE)
+        path_index = path_action // num_slot_actions
+        initial_aggregated_slot_index = jnp.mod(path_action, num_slot_actions)
+    else:
+        path_action = differentiable_round_simple(
+            path_action, params.temperature, params.differentiable
+        )
+        path_index = differentiable_floor(
+            path_action // num_slot_actions, params.temperature, params.differentiable
+        ).astype(dtype_config.LARGE_INT_DTYPE)
+        initial_aggregated_slot_index = jnp.mod(path_action, num_slot_actions)
     initial_slot_index = initial_aggregated_slot_index * params.aggregate_slots
 
     if params.aggregate_slots > 1:
@@ -2165,7 +2298,9 @@ def implement_path_action(
 ) -> EnvState:
     mask = action_info.affected_slots_mask
     departure_delta = state.current_time + state.holding_time
-    new_link_slot = state.link_slot_array + mask
+    # Cast per-write: the mask promotes to a wider dtype (binary/int tier), so cast back to
+    # the occupancy dtype to keep the scan carry stable (identity in differentiable mode).
+    new_link_slot = (state.link_slot_array + mask).astype(state.link_slot_array.dtype)
     new_departure = state.link_slot_departure_array + mask * departure_delta
     return state.replace(
         link_slot_array=new_link_slot,
@@ -2281,6 +2416,49 @@ def check_action_rsa(state, action_info, params):
         )
     )
     return combined_check
+
+
+def check_action_rsa_prestate(state: EnvState, action_info: ActionInfo, params: RSAEnvParams):
+    """Validity check for plain RSA/RMSA/RWA actions, evaluated on the PRE-implementation
+    state (non-differentiable mode only; the differentiable mode needs the soft
+    implement/check/undo flow for gradients).
+
+    Semantically identical to check_action_rsa run after implement_path_action: a plain-RSA
+    action fails iff (a) any slot in the requested window [initial_slot, initial_slot +
+    num_slots) is occupied (nonzero) on any path link -- exactly when the speculative
+    allocation would produce a value > 1 -- or (b) the window overflows the spectrum end,
+    or (c) the action is the no-op (path_index >= k_paths), or (d) the path is a dummy.
+    Reads only a (num_links, max_slots) window of link_slot_array instead of speculatively
+    writing and rescanning the full (num_links, link_resources) array. Relies on the same
+    invariant as mask_slots: required slots for any request never exceed params.max_slots
+    (max_slots is computed in make_env from max_bw at the worst spectral efficiency).
+    """
+    # Windowed spectrum-reuse check on the pre-implementation state
+    window_cols = action_info.initial_slot_index.astype(dtype_config.INDEX_DTYPE) + jnp.arange(
+        params.max_slots, dtype=dtype_config.INDEX_DTYPE
+    )
+    # Out-of-range columns read as 0 (free); the overflow check below rejects windows
+    # that extend past the spectrum end.
+    window = jnp.take(
+        state.link_slot_array, window_cols, axis=1, mode="fill", fill_value=0
+    )  # (num_links, max_slots)
+    in_window = jnp.arange(params.max_slots) < action_info.num_slots  # (max_slots,)
+    on_path = action_info.path != 0  # (num_links,)
+    spectrum_reuse_check = jnp.any((window != 0) & in_window[None, :] & on_path[:, None])
+
+    overflow_check = check_slot_overflow(state, action_info, params)
+    no_action_check = check_no_op(state, action_info, params)
+    unique_path_check = check_real_path(state, action_info, params)
+    return jnp.max(
+        jnp.stack(
+            [
+                spectrum_reuse_check,
+                overflow_check,
+                no_action_check,
+                unique_path_check,
+            ]
+        )
+    )
 
 
 def convert_node_probs_to_traffic_matrix(node_probs: list) -> Array:
@@ -2418,7 +2596,10 @@ def get_request_mask(requested_slots, params):
     return request_mask
 
 
-@partial(jax.jit, static_argnums=(1,), donate_argnums=(0,))
+# NOTE: no donate_argnums here — this function donates nothing usable (it takes
+# the env state but returns freshly-shaped masks, so no buffer can alias), and
+# an eager call with donation on a still-referenced state would error.
+@partial(jax.jit, static_argnums=(1,))
 def mask_slots(state: RSAEnvState, params: RSAEnvParams) -> Array:
     nodes_sd, requested_datarate = read_rsa_request(state.request_array)
 
@@ -2441,7 +2622,13 @@ def mask_slots(state: RSAEnvState, params: RSAEnvParams) -> Array:
 
     # 2. Compute occupied - this should be fast
     slots_occupied = state.link_slot_array != 0
-    occupied = (paths @ slots_occupied) > 0
+    # Force a wide accumulator: with narrow int path/occupancy dtypes (int8 under mixed
+    # precision) the matmul would otherwise accumulate in the narrow input dtype and could
+    # wrap on long paths. Float paths (differentiable mode) keep their own dtype.
+    acc_dtype = (
+        paths.dtype if jnp.issubdtype(paths.dtype, jnp.floating) else dtype_config.INDEX_DTYPE
+    )
+    occupied = jnp.matmul(paths, slots_occupied, preferred_element_type=acc_dtype) > 0
 
     # 3. Cumsum approach - fully vectorized
     # Integer cumsum: exact and cheaper than the float32 the bool/float concat promoted to
@@ -2477,12 +2664,16 @@ def mask_slots(state: RSAEnvState, params: RSAEnvParams) -> Array:
 
     cumsum_at_end = jnp.take_along_axis(cumsum, end_indices, axis=1, mode="clip")
     window_sums = cumsum_at_end - cumsum[:, : params.link_resources]
-    final_masks = (window_sums == 0).astype(dtype_config.LARGE_FLOAT_DTYPE)  # (k, link_resources)
 
     # Identify valid (non-dummy) paths - dummy paths are all-zeros
-    # Zero out mask rows for dummy paths so they are unselectable
-    path_valid = (jnp.max(paths, axis=1) > 0).astype(dtype_config.LARGE_FLOAT_DTYPE)  # (k,)
-    final_masks = final_masks * path_valid[:, None]
+    # Zero out mask rows for dummy paths so they are unselectable.
+    # Both terms are comparisons, so build the mask in bool and cast once to the MASK tier
+    # (a no-op bool in non-differentiable modes; float32 in differentiable mode, identical to
+    # the old float multiply for {0, 1} values and equally gradient-free).
+    path_valid = jnp.max(paths, axis=1) > 0  # (k,)
+    final_masks = ((window_sums == 0) & path_valid[:, None]).astype(
+        dtype_config.MASK_DTYPE
+    )  # (k, link_resources)
 
     full_link_slot_mask = final_masks.reshape(-1)
 
@@ -2494,7 +2685,7 @@ def mask_slots(state: RSAEnvState, params: RSAEnvParams) -> Array:
 
     if params.include_no_op:
         link_slot_mask = jnp.concatenate(
-            [link_slot_mask, jnp.ones(1, dtype=dtype_config.LARGE_FLOAT_DTYPE)]
+            [link_slot_mask, jnp.ones(1, dtype=dtype_config.MASK_DTYPE)]
         )
 
     return link_slot_mask, full_link_slot_mask
@@ -2711,6 +2902,20 @@ def find_block_sizes(
 
 
 @jax.jit
+def calculate_utilisation(link_slot_array: Array) -> Array:
+    """Spectrum utilisation over usable slots.
+
+    Band-gap sentinels (-1) are neither occupied nor usable spectrum, so
+    positively-occupied slots are counted over the usable (non-gap) slots only.
+    Computed per logging increment from the final state (not per step: the two
+    full-array reductions cost measurable time on the hot path and the value is
+    a slowly-varying state property).
+    """
+    occupied_slots = jnp.count_nonzero(link_slot_array > 0)
+    usable_slots = jnp.count_nonzero(link_slot_array >= 0)
+    return (occupied_slots / jnp.maximum(usable_slots, 1)).astype(dtype_config.LARGE_FLOAT_DTYPE)
+
+
 def calculate_fragmentation(link_slot_array: Array) -> Array:
     """Calculate mean external spectrum fragmentation across links.
 
@@ -3038,9 +3243,9 @@ def implement_action_rwalr(
     state = state.replace(
         link_capacity_array=link_capacity_array,
         path_index_array=path_index_array,
-        # SMALL_FLOAT: link_slot_array is a carried bulk array (see dtype reclassification
-        # rule); values are {0, 1, 2} so the narrow cast is exact
-        link_slot_array=total_mask.astype(dtype_config.SMALL_FLOAT_DTYPE),
+        # Occupancy tier: values are {0, 1, 2} so the narrow cast is exact; cast to the
+        # carried dtype to keep the scan carry stable
+        link_slot_array=total_mask.astype(state.link_slot_array.dtype),
         link_slot_departure_array=update_path_links(
             state.link_slot_departure_array,
             action_info,
@@ -3102,7 +3307,13 @@ def mask_slots_rwalr(
         combined = jnp.maximum(capacity_slots, lightpath_slots)
         return 1.0 - jnp.minimum(combined, 1.0)
 
-    link_slot_mask = jax.vmap(single_path)(jnp.arange(params.k_paths)).reshape(-1)
+    # Values are exactly {0, 1}, so the MASK-tier cast (bool in non-differentiable modes)
+    # is lossless; consumers cast back to float at the point of use.
+    link_slot_mask = (
+        jax.vmap(single_path)(jnp.arange(params.k_paths))
+        .reshape(-1)
+        .astype(dtype_config.MASK_DTYPE)
+    )
 
     full_link_slot_mask = link_slot_mask
 
@@ -3110,7 +3321,9 @@ def mask_slots_rwalr(
         link_slot_mask = aggregate_slots(link_slot_mask, params)
 
     if params.include_no_op:
-        link_slot_mask = jnp.concatenate([link_slot_mask, jnp.ones((1,))])
+        link_slot_mask = jnp.concatenate(
+            [link_slot_mask, jnp.ones((1,), dtype=dtype_config.MASK_DTYPE)]
+        )
 
     return link_slot_mask, full_link_slot_mask
 
@@ -4383,7 +4596,11 @@ def set_band_gaps(link_slot_array: Array, params: RSAGNModelEnvParams, val: int)
             return arr
 
         mask = jax.lax.fori_loop(0, num_gaps, set_band_gap, mask)
-        link_slot_array = jnp.where(mask == -one, val, link_slot_array)
+        # Cast the sentinel to the occupancy dtype: a Python float `val` would promote the
+        # int8 occupancy array to float32 (weak-type promotion), breaking the carried dtype
+        link_slot_array = jnp.where(
+            mask == -one, jnp.asarray(val, dtype=link_slot_array.dtype), link_slot_array
+        )
     return link_slot_array
 
 
@@ -5056,17 +5273,21 @@ def mask_slots_rmsa_gn_model(
         -1
     )  # (k * link_resources,)
 
-    link_slot_mask = jnp.where(mod_format_mask >= 0, 1.0, 0.0)
+    # Validity mask on the MASK tier (bool in non-differentiable modes). NOTE: validity here
+    # comes from the SNR-based mod_format_mask (>= 0 means some modulation format works), NOT
+    # from the spectrum mask — only the dtype changes.
+    link_slot_mask = (mod_format_mask >= 0).astype(dtype_config.MASK_DTYPE)
     full_link_slot_mask = link_slot_mask
     if params.aggregate_slots > 1:
         link_slot_mask = aggregate_slots(link_slot_mask, params)
     if params.include_no_op:
-        link_slot_mask = jnp.hstack([link_slot_mask, jnp.ones((1,))])
-    # Store masks at SMALL_FLOAT to keep the carried field dtype stable under mixed precision
-    # (matches init_link_slot_mask / init_mod_format_mask); values are {0,1} / small indices.
+        link_slot_mask = jnp.hstack([link_slot_mask, jnp.ones((1,), dtype=dtype_config.MASK_DTYPE)])
+    # Store the validity masks at MASK_DTYPE and mod_format_mask at SMALL_FLOAT to keep the
+    # carried field dtypes stable (matches init_link_slot_mask / init_mod_format_mask);
+    # mod_format_mask stays float: it holds -1 sentinels / small modulation indices.
     state = state.replace(
-        link_slot_mask=link_slot_mask.astype(dtype_config.SMALL_FLOAT_DTYPE),  # ty: ignore[unresolved-attribute]
-        full_link_slot_mask=full_link_slot_mask.astype(dtype_config.SMALL_FLOAT_DTYPE),
+        link_slot_mask=link_slot_mask.astype(dtype_config.MASK_DTYPE),  # ty: ignore[unresolved-attribute]
+        full_link_slot_mask=full_link_slot_mask.astype(dtype_config.MASK_DTYPE),
         mod_format_mask=mod_format_mask.astype(dtype_config.SMALL_FLOAT_DTYPE),
     )
     return state
