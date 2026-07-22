@@ -28,11 +28,11 @@ wandb project: **DIFF_SIM_RL** (entity micdoh). All runs on malmo H100s unless n
 | shac_pg_b (v1.2, 3b) | (none) | 1 | 1e-4 | 64 | 256 | ~7M (killed) | 9.6% and rising | conclusion: don't hand-roll REINFORCE |
 | shac_ppo_il (v1.3, H=150) | slot_cond | 1 | 3e-4 | 150 | 64 | killed pre-run | - | compile pathological (>55 min for H=150 BPTT graph) |
 | shac_ppo_il_h64 (v1.3) | slot_cond | 1 | 3e-4 | 64 | 128 | killed pre-run | - | compile also >40 min: the PPO+analytic fused scan body explodes XLA compile |
-| shac_il_h32 (v1.3) | slot_cond | 1 | 3e-4 | 32 | 256 | 10M | TBD | interleave at the fast-compiling H=32 family |
+| shac_il_h32 (v1.3) | slot_cond | 1 | 3e-4 | 32 | 256 | 10M nominal (20M real) | 6.61% ± 0.20% | interleave HURTS: same analytic-update count as pure SHAC (1220) + 1220 PPO updates -> far worse than analytic alone (4.3%). PPO interference. |
 | shac_flat_t1 (v1.3) | flat | 1 | 3e-4 | 32 | 256 | 15M | 4.42% ± 0.20% | temp barely matters for flat surrogate |
 | shac_flat_t5_nostate | flat | 5 | 3e-4 | 32 | 256 | 10M | **4.31% ± 0.20%** | ABLATION: matches full-BPTT flat_t5 (4.30%) exactly |
 | shac_flat_t5_seed2 | flat | 5 | 3e-4 | 32 | 256 | 10M | 4.24% ± 0.20% | replicates flat_t5 (4.30%) -- result robust |
-| ppo_ref | - | - | 3e-4 | 150 | 64 | 10M | TBD | reference |
+| ppo_ref | - | - | 3e-4 | 150 | 64 | 10M | 7.31% ± 0.20% | flat entire run: PPO does not learn raw-rmsa at these HPs |
 
 ### Emerging picture (round 4, interim)
 
@@ -103,15 +103,28 @@ that sharper soft-ops degrade the gradient (sigmoid support ~1/t slots).
 4. Hand-rolled REINFORCE (with TD-lambda baseline) is unstable at every setting
    tried; use stock PPO for any score-function component.
 
+5. **PPO+analytic interleave hurts** (6.61% vs 4.3% analytic-only at the same
+   analytic-update count): when the score-function signal is uninformative, its
+   updates just add destructive noise to the shared network. Also the fused
+   interleave scan body explodes XLA compile time (>40 min at H>=64; ~15 min
+   even at H=32).
+
 Implications for Phase B (USA100 vs MSCL 0.05%): pure SHAC as-is will not close
 a 100x blocking gap. Candidate directions, in order of promise:
-- PPO+analytic interleave (verdict pending, wandb shac_ppo_il_h64)
-- richer surrogate than expected-index (e.g. distribution-level gradients on the
-  soft slot mask rather than a scalar action; requires env interface change)
+- richer surrogate than expected-index (distribution-level gradients on the
+  soft slot mask rather than a scalar action; requires env interface change --
+  the scalar-action bottleneck compresses a 500-dim decision into 1 gradient dof)
 - temperature scheduling / much lower T with bias correction
-- accepting the reframe: analytic gradient as a fast *pretrainer* (FF-prior
-  learner) composed with stronger downstream RL.
+- accepting the reframe: analytic gradient as a fast *pretrainer* (soft-FF prior
+  learner) composed with stronger downstream RL on a curated action space
+- transformer policy (JOCN recipe) + analytic term, but on the evidence so far
+  the score-function/analytic combination needs rethinking, not scaling.
 
 ## Phase B — USA100 (load 620, 320 slots) — pending Phase A
 
 Targets: MSCL-KSP ~0.05%, FF-KSP ~0.34%, best pure RL (aggregated transformer) ~0.40%.
+
+- 2026-07-22: **FF-KSP baseline re-established on this branch: 0.44% ± 0.11%**
+  (k=70, 320 slots, load 620, no holding-time truncation — the JOCN recipe;
+  wandb usa100_ffksp_L620_v2). NOTE: --truncate_holding_time drives USA100
+  blocking to ~0 at this load; do not carry it over from the nsfnet setting.

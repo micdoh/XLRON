@@ -24,7 +24,7 @@ RUNS = {
     "shac_sc_t5_lr3e4": ("SHAC slot-cond T=5", "#B58A2A", 256),
     "shac_pg_only_t1": ("REINFORCE-only (diverged)", "#D96D4F", 256),
     "ppo_ref_nsfnet": ("PPO reference", "#C065A8", 64),
-    "shac_ppo_il_h64": ("PPO + analytic interleave", "#4C4C55", 128),
+    "shac_il_h32": ("PPO + analytic interleave", "#4C4C55", 256),
 }
 BASELINE_BP = 0.026  # KSP-FF at load 250 (run t0hxabuu)
 METRIC = "service_blocking_probability_mean"
