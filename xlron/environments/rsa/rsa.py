@@ -1174,11 +1174,25 @@ class RSAEnv(environment.Environment):
         nodes_sd, requested_datarate = jit_profiler.call(
             params.profile, read_rsa_request, state.request_array
         )
-        # For GN model envs, action is [path_slot_action, launch_power].
-        # Decompose into scalar path_action and power_action.
+        # Action layouts, distinguished by static shape:
+        #   (1,) or scalar        -> plain path-slot action
+        #   (2,)                  -> GN-model [path_slot_action, launch_power]
+        #   (1 + link_resources,) -> differentiable distribution action:
+        #       [hard path-slot action, policy slot distribution on the chosen path]
+        #       (see get_affected_slots_mask: the distribution only shapes the
+        #       backward-pass occupancy footprint; forward dynamics stay exact)
         action_1d = jnp.atleast_1d(action)
         path_action = action_1d[0]
-        power_action = action_1d[1] if action_1d.shape[0] > 1 else jnp.float32(0.0)
+        slot_dist = None
+        if action_1d.shape[0] > 2:
+            if not params.differentiable:
+                raise ValueError(
+                    "Distribution actions (len 1 + link_resources) require --differentiable"
+                )
+            slot_dist = action_1d[1:]
+            power_action = jnp.float32(0.0)
+        else:
+            power_action = action_1d[1] if action_1d.shape[0] > 1 else jnp.float32(0.0)
         # Keep a single discretized path action for all downstream indexing.
         # This must match process_path_action's rounding behavior.
         path_action_discrete = differentiable_round_simple(
@@ -1225,6 +1239,7 @@ class RSAEnv(environment.Environment):
             num_slots,
             path,
             params,
+            slot_dist,
         )
         action_info = ActionInfo(
             action=path_action_discrete,

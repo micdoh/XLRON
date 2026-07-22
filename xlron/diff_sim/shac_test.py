@@ -19,6 +19,40 @@ from xlron.environments.make_env import process_config
 from xlron.train.train_utils import experiment_data_setup
 
 
+def test_dist_soft_window_matches_bruteforce():
+    """The cumsum soft window in get_affected_slots_mask must equal
+    sum_s dist[s] * [s <= j < s + w] for every j, and backprop a full
+    per-candidate-slot gradient vector."""
+    from types import SimpleNamespace
+
+    from xlron.environments.env_funcs import get_affected_slots_mask
+
+    S, w = 12, 3
+    params = SimpleNamespace(link_resources=S, temperature=5.0, differentiable=True, profile=False)
+    key = jax.random.PRNGKey(0)
+    dist = jax.nn.softmax(jax.random.normal(key, (S,)))
+    path = jnp.ones((4,), dtype=jnp.float32)  # 4 links on the path
+    s_hard = jnp.array(5)
+    num_slots = jnp.array(w)
+
+    mask = get_affected_slots_mask(s_hard, num_slots, path, params, dist)
+    # Forward pass: exact hard window
+    expected_hard = jnp.zeros((S,)).at[5:8].set(1.0)
+    chex.assert_trees_all_close(mask[0], expected_hard)
+
+    # Backward: gradient of sum(weights * mask) wrt dist[s] must equal the
+    # weighted footprint sum over [s, s+w) -- one gradient per candidate slot.
+    weights = jax.random.normal(jax.random.PRNGKey(1), (4, S))
+
+    def f(d):
+        return jnp.sum(weights * get_affected_slots_mask(s_hard, num_slots, path, params, d))
+
+    grad = jax.grad(f)(dist)
+    col_sums = jnp.sum(weights, axis=0)
+    expected_grad = jnp.array([jnp.sum(col_sums[s : s + w]) for s in range(S)])
+    chex.assert_trees_all_close(grad, expected_grad, rtol=1e-5)
+
+
 def _make_config(**overrides):
     base = dict(
         env_type="rsa",
@@ -108,6 +142,19 @@ def test_shac_mode_forward_runs():
     runner_state, env, env_params, learner_fn = _setup(config)
     out = jax.jit(learner_fn)(runner_state)
     assert bool(jnp.all(jnp.isfinite(out["loss_info"]["loss/total_loss"])))
+
+
+@pytest.mark.slow
+def test_shac_dist_surrogate_gradient_nonzero():
+    """Distribution-action mode: per-slot footprint gradients reach the policy."""
+    config = _make_config(SHAC_ACTION_SURROGATE="dist", load=300.0, ENV_WARMUP_STEPS=200)
+    runner_state, env, env_params, learner_fn = _setup(config)
+    out = jax.jit(learner_fn)(runner_state)
+    for key, val in out["loss_info"].items():
+        assert bool(jnp.all(jnp.isfinite(val))), f"{key} not finite"
+    assert float(jnp.sum(out["metrics"]["returns"] < 0)) > 0, "no blocking; raise load"
+    grad_norm = np.asarray(out["loss_info"]["loss/grad_norm"])
+    assert np.any(grad_norm > 1e-8), f"gradient identically zero: {grad_norm}"
 
 
 @pytest.mark.slow

@@ -80,7 +80,13 @@ def _soft_action_from_logits(
     argmax when SHAC_FORWARD='mode').
 
     Backward pass (SHAC_ACTION_SURROGATE):
-    - 'slot_conditional' (default): S * p_hard + E[s | p = p_hard], the expected
+    - 'dist': pass the renormalized slot distribution on the sampled path to the
+      env alongside the (gradient-stopped) hard action. The env substitutes the
+      policy-expected occupancy footprint in the backward pass
+      (get_affected_slots_mask), so every candidate slot receives its own
+      gradient -- a full vector of per-action signals per step instead of the
+      single expected-index scalar.
+    - 'slot_conditional': S * p_hard + E[s | p = p_hard], the expected
       slot index on the SAMPLED path. The env provides no analytic gradient for
       the path component (process_path_action int-casts it), and with the flat
       surrogate a slot-direction gradient dL/da would hit the path marginal with
@@ -90,7 +96,8 @@ def _soft_action_from_logits(
     - 'flat': E[a] under the full masked softmax (the original v1.0 surrogate;
       kept for ablation).
 
-    Returns (action, log_prob, entropy, hard_action, soft_action).
+    Returns (action, log_prob, entropy, hard_action, soft_action, slot_dist)
+    where slot_dist is None except in 'dist' mode.
     """
     mask = jax.lax.stop_gradient(action_mask.astype(jnp.float32))
     masked_logits = logits + NEG_INF * (1.0 - mask)
@@ -103,10 +110,11 @@ def _soft_action_from_logits(
         hard_action = jax.random.categorical(key, masked_logits, axis=-1)
 
     surrogate = config.get("SHAC_ACTION_SURROGATE", "slot_conditional")
+    slot_dist = None
     if surrogate == "flat":
         indices = jnp.arange(logits.shape[-1], dtype=jnp.float32)
         soft_action = jnp.sum(probs * indices, axis=-1)
-    elif surrogate == "slot_conditional":
+    elif surrogate in ("slot_conditional", "dist"):
         S = num_slot_actions
         K = logits.shape[-1] // S
         probs_ks = probs.reshape(probs.shape[:-1] + (K, S))
@@ -116,9 +124,15 @@ def _soft_action_from_logits(
             probs_ks, p_hard[..., None, None].astype(jnp.int32), axis=-2
         ).squeeze(-2)
         slot_probs = slot_probs / (jnp.sum(slot_probs, axis=-1, keepdims=True) + 1e-8)
-        slot_indices = jnp.arange(S, dtype=jnp.float32)
-        e_slot = jnp.sum(slot_probs * slot_indices, axis=-1)
-        soft_action = p_hard.astype(jnp.float32) * S + e_slot
+        if surrogate == "dist":
+            # The scalar action carries no gradient; the distribution rides to
+            # the env as extra action elements and shapes the backward footprint.
+            soft_action = hard_action.astype(jnp.float32)
+            slot_dist = slot_probs
+        else:
+            slot_indices = jnp.arange(S, dtype=jnp.float32)
+            e_slot = jnp.sum(slot_probs * slot_indices, axis=-1)
+            soft_action = p_hard.astype(jnp.float32) * S + e_slot
     else:
         raise ValueError(f"Unknown SHAC_ACTION_SURROGATE: {surrogate}")
 
@@ -127,7 +141,7 @@ def _soft_action_from_logits(
         log_probs, hard_action[..., None].astype(jnp.int32), axis=-1
     ).squeeze(-1)
     entropy = -jnp.sum(probs * jnp.where(probs > 0, log_probs, 0.0), axis=-1)
-    return action, log_prob, entropy, hard_action, soft_action
+    return action, log_prob, entropy, hard_action, soft_action, slot_dist
 
 
 def _get_obs_tuple(obsv, env_state, env_params, config):
@@ -187,6 +201,14 @@ def get_shac_learner_fn(
         )
     if config.env_type.lower() == "vone":
         raise ValueError("SHAC does not support the VONE action space (path actions only).")
+    if (
+        config.get("SHAC_ACTION_SURROGATE", "slot_conditional") == "dist"
+        and int(env_params.aggregate_slots) != 1
+    ):
+        raise ValueError(
+            "SHAC_ACTION_SURROGATE='dist' requires aggregate_slots=1 (the slot "
+            "distribution must be full-resolution to match the env footprint)."
+        )
 
     gamma = float(config.GAMMA)
     # GAE_LAMBDA may be None (PPO anneals it); default to 0.95 for TD(lambda) targets.
@@ -234,13 +256,25 @@ def get_shac_learner_fn(
         # Threshold: differentiable-mode masks can be float; hard-select validity.
         mask = jax.lax.stop_gradient(mask > 0.5)
 
-        action, log_prob, entropy, hard_action, soft_action = _soft_action_from_logits(
+        action, log_prob, entropy, hard_action, soft_action, slot_dist = _soft_action_from_logits(
             logits, mask, action_key, config, num_slot_actions
         )
 
+        if slot_dist is not None:
+            # Distribution action: [sg(hard scalar), slot distribution]. The env
+            # decodes element 0 exactly and uses the tail only for the backward
+            # footprint (see rsa.process_action / get_affected_slots_mask).
+            env_action = jnp.concatenate(
+                [jax.lax.stop_gradient(action)[..., None], slot_dist], axis=-1
+            )
+        else:
+            env_action = action
+
         step_keys = jax.random.split(step_key, num_envs) if num_envs > 1 else step_key
         step_fn = jax.vmap(_env_step_fn, in_axes=(0, 0, 0)) if num_envs > 1 else _env_step_fn
-        obsv, env_state, reward, terminal, truncated, info = step_fn(step_keys, env_state, action)
+        obsv, env_state, reward, terminal, truncated, info = step_fn(
+            step_keys, env_state, env_action
+        )
         reward = reward * config.REWARD_SCALE
 
         # Ablation: sever cross-step gradients (r_t backprops to a_t only, not to

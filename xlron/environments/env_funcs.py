@@ -2277,14 +2277,39 @@ def get_affected_slots_mask(
     num_slots: Array,
     path: Array,
     params: EnvParams,
+    slot_dist: Array | None = None,
 ) -> Array:
-    # Slot mask: shape (num_slots,)
     slot_indices = jnp.arange(params.link_resources)
-    slot_mask = differentiable_compare(
-        initial_slot_index, slot_indices, "<=", params.temperature, params.differentiable
-    ) * differentiable_compare(
-        slot_indices, initial_slot_index + num_slots, "<", params.temperature, params.differentiable
-    )
+    if slot_dist is not None:
+        # Distribution-level straight-through window (differentiable mode only):
+        # forward pass uses the exact sampled window; backward pass substitutes the
+        # policy-expected occupancy footprint soft[j] = sum_s dist[s] * [s <= j < s+w],
+        # so EVERY candidate start-slot s receives its own gradient (the summed
+        # occupancy-gradient over the footprint it would have covered) instead of
+        # the single up/down-index scalar the sigmoid-edged window provides.
+        hard_mask = jnp.logical_and(
+            initial_slot_index <= slot_indices, slot_indices < initial_slot_index + num_slots
+        ).astype(slot_dist.dtype)
+        # soft[j] = sum_{s in [j-w+1, j]} dist[s], via padded cumsum with a
+        # dynamic window width w = num_slots (traced scalar).
+        cs = jnp.concatenate([jnp.zeros((1,), dtype=slot_dist.dtype), jnp.cumsum(slot_dist)])
+        upper = cs[slot_indices + 1]
+        lower_idx = jnp.clip(
+            slot_indices + 1 - num_slots.astype(slot_indices.dtype), 0, params.link_resources
+        )
+        soft_mask = upper - cs[lower_idx]
+        slot_mask = straight_through(hard_mask, soft_mask)
+    else:
+        # Slot mask: shape (num_slots,)
+        slot_mask = differentiable_compare(
+            initial_slot_index, slot_indices, "<=", params.temperature, params.differentiable
+        ) * differentiable_compare(
+            slot_indices,
+            initial_slot_index + num_slots,
+            "<",
+            params.temperature,
+            params.differentiable,
+        )
     # Combined mask: (num_links, 1) * (1, num_slots) -> (num_links, num_slots)
     combined_mask = path[:, None] * slot_mask[None, :]
     return combined_mask

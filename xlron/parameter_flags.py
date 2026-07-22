@@ -1043,9 +1043,11 @@ flags.DEFINE_string(
     "SHAC_ACTION_SURROGATE",
     "slot_conditional",
     "Backward-pass action surrogate for the straight-through estimator: "
-    "'slot_conditional' (expected slot index on the sampled path; the analytic "
-    "gradient shapes only the slot distribution) or 'flat' (expected flat action "
-    "index; slot-direction gradients hit the path marginal with k_paths-fold "
+    "'dist' (policy-expected occupancy footprint -- a per-candidate-slot gradient "
+    "vector each step, the richest signal; requires aggregate_slots=1), "
+    "'slot_conditional' (expected slot index on the sampled path; a single "
+    "slot-direction scalar per step) or 'flat' (expected flat action index; "
+    "slot-direction gradients hit the path marginal with k_paths-fold "
     "amplification -- kept for ablation).",
 )
 flags.DEFINE_float(
