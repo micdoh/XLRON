@@ -100,6 +100,17 @@ case "$1" in
       --SHAC_ACTION_SURROGATE=flat --temperature=5.0 --LR=3e-4 \
       --SHAC_TRUNCATE_STATE_GRAD --EXPERIMENT_NAME=shac_flat_t5_nostate
     ;;
+  # Round 5: distribution-level action gradients + TV fragmentation shaping
+  dist_tv)
+    "$DIR/launch_shac.sh" shac_dist_tv "$GPU2" $SHAC_COMMON \
+      --SHAC_ACTION_SURROGATE=dist --SHAC_TV_COEF=0.05 --temperature=5.0 \
+      --LR=3e-4 --TOTAL_TIMESTEPS=15000000 --EXPERIMENT_NAME=shac_dist_tv05
+    ;;
+  flat_tv)
+    "$DIR/launch_shac.sh" shac_flat_tv "$GPU3" $SHAC_COMMON \
+      --SHAC_ACTION_SURROGATE=flat --SHAC_TV_COEF=0.05 --temperature=5.0 \
+      --LR=3e-4 --TOTAL_TIMESTEPS=15000000 --EXPERIMENT_NAME=shac_flat_tv05
+    ;;
   pg_only_b)
     "$DIR/launch_shac.sh" shac_pg_b "$GPU3" \
       --env_type=rmsa --topology_name=nsfnet_deeprmsa_directed --link_resources=100 \
