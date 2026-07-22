@@ -136,6 +136,24 @@ against brute force in shac_test.py.
 | shac_dist_t5 | dist, T=5 | malmo | 15M | pending network | main comparison vs flat 4.30% |
 | dist + TV shaping | dist | malmo | 15M | planned | dense packing signal |
 
+### Local TV-shaping results (1M CPU, N=32, seed-matched)
+
+| run | trajectory |
+|---|---|
+| flat (control) | 6.6 -> 4.7% falling |
+| flat + TV(0.05) | 6.7 -> 4.8% (same as flat) |
+| dist | 7.3 -> 6.6% plateau |
+| dist + TV(0.05) | 7.3 -> 6.7% plateau (same) |
+| dist + TV(0.5) | 7.4 -> 6.9% (different curve -> wiring works; heavy shaping slightly hurts) |
+
+Interpretation: the TV gradient reaches the policy (beta=0.5 changes the
+trajectory) but snug-placement behaviour is hard for a flat-obs MLP to EXPRESS:
+the flat index prior is a bias-only solution (constant descending logits),
+while geometry-aware placement requires reading the 4400-dim occupancy obs.
+Next: 15M GPU runs + transformer policy (per-slot logits, WIRE positional
+encodings) which has the right inductive bias. Scripts ready (round 5);
+launches blocked on the UCL VPN outage as of ~22:30.
+
 ### Local dist diagnosis -> TV shaping
 
 The per-slot counterfactual gradient only fires near collisions (the soft check
