@@ -243,6 +243,13 @@ def get_shac_learner_fn(
         obsv, env_state, reward, terminal, truncated, info = step_fn(step_keys, env_state, action)
         reward = reward * config.REWARD_SCALE
 
+        # Ablation: sever cross-step gradients (r_t backprops to a_t only, not to
+        # a_{t-k} through the occupancy state). The full-BPTT-minus-this delta
+        # isolates the value of differentiating through the dynamics.
+        if config.get("SHAC_TRUNCATE_STATE_GRAD", False):
+            env_state = _detach(env_state)
+            obsv = _detach(obsv)
+
         next_obs = _get_obs_tuple(obsv, env_state, env_params, config)
 
         step_out = {

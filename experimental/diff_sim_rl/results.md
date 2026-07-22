@@ -24,8 +24,10 @@ wandb project: **DIFF_SIM_RL** (entity micdoh). All runs on malmo H100s unless n
 | shac_sc_t5_lr3e4 (v1.1) | slot_cond | 5 | 3e-4 | 32 | 256 | 10M | 7.15% ± 0.23% | flat/worse (gradient too local) |
 | shac_hyb_t1 (v1.2) | slot_cond | 1 | 3e-4 | 32 | 256 | ~5M (killed) | 9.2% and rising | PG term unstable (see below) |
 | shac_pg_only_t1 (v1.2) | (none) | 1 | 3e-4 | 32 | 256 | ~5M (killed) | 11.7% and rising | PG-only, same instability |
-| shac_hyb_b (v1.2, 3b) | slot_cond | 1 | 1e-4 | 64 | 256 | 15M | TBD | gamma=0.97, ent=0.01 |
-| shac_pg_b (v1.2, 3b) | (none) | 1 | 1e-4 | 64 | 256 | 15M | TBD | PG-only, same fix |
+| shac_hyb_b (v1.2, 3b) | slot_cond | 1 | 1e-4 | 64 | 256 | ~7M (killed) | 8.0% and rising | gamma/H/LR/ent fix did NOT cure PG |
+| shac_pg_b (v1.2, 3b) | (none) | 1 | 1e-4 | 64 | 256 | ~7M (killed) | 9.6% and rising | conclusion: don't hand-roll REINFORCE |
+| shac_ppo_il (v1.3) | slot_cond | 1 | 3e-4 | 150 | 64 | 10M PPO-side | TBD | stock PPO update + analytic update interleaved |
+| shac_flat_t1 (v1.3) | flat | 1 | 3e-4 | 32 | 256 | 15M | TBD | best pure-analytic recipe pushed (flat bias, wide sigmoids) |
 | ppo_ref | - | - | 3e-4 | 150 | 64 | 10M | TBD | reference |
 
 ### Round-3 diagnosis (PG instability)

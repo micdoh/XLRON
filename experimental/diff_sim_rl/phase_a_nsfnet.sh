@@ -92,6 +92,14 @@ case "$1" in
       --SHAC_ACTION_SURROGATE=flat --temperature=1.0 --LR=3e-4 \
       --TOTAL_TIMESTEPS=15000000 --EXPERIMENT_NAME=shac_flat_t1_lr3e4
     ;;
+  # Round 4c: state-gradient truncation ablation. Reference = shac_t5_lr3e4
+  # (flat, T=5, full BPTT, 4.30%). If this matches it, BPTT-through-dynamics
+  # contributes nothing and the analytic gradient is just immediate unblocking.
+  nostate)
+    "$DIR/launch_shac.sh" shac_nostate "$GPU3" $SHAC_COMMON \
+      --SHAC_ACTION_SURROGATE=flat --temperature=5.0 --LR=3e-4 \
+      --SHAC_TRUNCATE_STATE_GRAD --EXPERIMENT_NAME=shac_flat_t5_nostate
+    ;;
   pg_only_b)
     "$DIR/launch_shac.sh" shac_pg_b "$GPU3" \
       --env_type=rmsa --topology_name=nsfnet_deeprmsa_directed --link_resources=100 \

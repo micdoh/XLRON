@@ -1061,6 +1061,13 @@ flags.DEFINE_float(
     "Coefficient for the analytic (BPTT) actor term in the SHAC loss.",
 )
 flags.DEFINE_boolean(
+    "SHAC_TRUNCATE_STATE_GRAD",
+    False,
+    "Ablation: stop gradients through the carried env state between SHAC rollout "
+    "steps, so each reward only backpropagates to its own action. The difference "
+    "vs full BPTT isolates the contribution of differentiating through the dynamics.",
+)
+flags.DEFINE_boolean(
     "SHAC_INTERLEAVE_PPO",
     False,
     "Interleave each SHAC analytic update with one stock PPO update on the same "
