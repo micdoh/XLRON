@@ -27,7 +27,8 @@ wandb project: **DIFF_SIM_RL** (entity micdoh). All runs on malmo H100s unless n
 | shac_hyb_b (v1.2, 3b) | slot_cond | 1 | 1e-4 | 64 | 256 | ~7M (killed) | 8.0% and rising | gamma/H/LR/ent fix did NOT cure PG |
 | shac_pg_b (v1.2, 3b) | (none) | 1 | 1e-4 | 64 | 256 | ~7M (killed) | 9.6% and rising | conclusion: don't hand-roll REINFORCE |
 | shac_ppo_il (v1.3, H=150) | slot_cond | 1 | 3e-4 | 150 | 64 | killed pre-run | - | compile pathological (>55 min for H=150 BPTT graph) |
-| shac_ppo_il_h64 (v1.3) | slot_cond | 1 | 3e-4 | 64 | 128 | 10M | TBD | interleave relaunched at H=64 |
+| shac_ppo_il_h64 (v1.3) | slot_cond | 1 | 3e-4 | 64 | 128 | killed pre-run | - | compile also >40 min: the PPO+analytic fused scan body explodes XLA compile |
+| shac_il_h32 (v1.3) | slot_cond | 1 | 3e-4 | 32 | 256 | 10M | TBD | interleave at the fast-compiling H=32 family |
 | shac_flat_t1 (v1.3) | flat | 1 | 3e-4 | 32 | 256 | 15M | 4.42% ± 0.20% | temp barely matters for flat surrogate |
 | shac_flat_t5_nostate | flat | 5 | 3e-4 | 32 | 256 | 10M | **4.31% ± 0.20%** | ABLATION: matches full-BPTT flat_t5 (4.30%) exactly |
 | shac_flat_t5_seed2 | flat | 5 | 3e-4 | 32 | 256 | 10M | 4.24% ± 0.20% | replicates flat_t5 (4.30%) -- result robust |
