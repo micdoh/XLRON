@@ -111,6 +111,15 @@ def test_shac_mode_forward_runs():
 
 
 @pytest.mark.slow
+def test_shac_flat_surrogate_runs():
+    config = _make_config(SHAC_ACTION_SURROGATE="flat", TOTAL_TIMESTEPS=32)
+    runner_state, env, env_params, learner_fn = _setup(config)
+    out = jax.jit(learner_fn)(runner_state)
+    assert bool(jnp.all(jnp.isfinite(out["loss_info"]["loss/total_loss"])))
+    assert bool(jnp.all(jnp.isfinite(out["loss_info"]["loss/grad_norm"])))
+
+
+@pytest.mark.slow
 def test_shac_no_bootstrap_runs():
     config = _make_config(SHAC_VALUE_BOOTSTRAP=False, TOTAL_TIMESTEPS=32)
     runner_state, env, env_params, learner_fn = _setup(config)

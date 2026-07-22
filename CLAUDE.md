@@ -92,6 +92,8 @@ All three modes share the same environment/traffic flags. The mode is selected b
 ### 1. RL Training (default)
 No special flag needed. Uses `get_learner_fn` from `ppo.py`. The training loop: rollout → advantage estimation → PPO updates (scan over epochs/minibatches). Key flags: `--LR`, `--GAMMA`, `--GAE_LAMBDA`, `--CLIP_EPS`, `--VF_COEF`, `--ENT_COEF`, `--ROLLOUT_LENGTH`, `--UPDATE_EPOCHS`, `--NUM_MINIBATCHES`. See `docs/training.md`.
 
+Variant: `--SHAC` (requires `--differentiable`) replaces the PPO learner with SHAC-style analytic policy gradients backpropagated through the differentiable env (`xlron/diff_sim/shac.py`). `--ROLLOUT_LENGTH` is the BPTT horizon; `--SHAC_VALUE_BOOTSTRAP`, `--SHAC_FORWARD`, `--SHAC_REMAT` are the mode-specific flags. See the SHAC section in `docs/training.md`.
+
 ### 2. Heuristic Evaluation (`--EVAL_HEURISTIC`)
 Uses `get_eval_fn` from `eval_heuristic.py`. No neural network is created. Action selection dispatches to heuristic functions based on `--path_heuristic`. See `docs/heuristic_evaluation.md`.
 

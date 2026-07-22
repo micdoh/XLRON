@@ -26,6 +26,7 @@ model (MLP/GNN/Transformer). Reuses the standard optimizer/schedule stack from
 train_utils (LR, MAX_GRAD_NORM, VF_COEF, ENT_COEF, GAMMA, GAE_LAMBDA).
 """
 
+import math
 from typing import Any, Callable, Dict, Tuple
 
 import equinox as eqx
@@ -71,15 +72,25 @@ def _soft_action_from_logits(
     action_mask: jnp.ndarray,
     key: jnp.ndarray,
     config: Box,
+    num_slot_actions: int,
 ) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
     """Form a straight-through soft action from masked policy logits.
 
     Forward pass: integer action (sampled from the masked categorical, or its
-    argmax when SHAC_FORWARD='mode'). Backward pass: expected action index under
-    the masked softmax, so the gradient of the (soft) return w.r.t. the action
-    scalar reaches every logit.
+    argmax when SHAC_FORWARD='mode').
 
-    Returns (action, log_prob, entropy, hard_action).
+    Backward pass (SHAC_ACTION_SURROGATE):
+    - 'slot_conditional' (default): S * p_hard + E[s | p = p_hard], the expected
+      slot index on the SAMPLED path. The env provides no analytic gradient for
+      the path component (process_path_action int-casts it), and with the flat
+      surrogate a slot-direction gradient dL/da would hit the path marginal with
+      an S-times amplification (a = p*S + s), so the policy would respond to slot
+      signals by reshuffling paths. Conditioning on the sampled path routes the
+      analytic gradient exclusively into the slot distribution of that path.
+    - 'flat': E[a] under the full masked softmax (the original v1.0 surrogate;
+      kept for ablation).
+
+    Returns (action, log_prob, entropy, hard_action, soft_action).
     """
     mask = jax.lax.stop_gradient(action_mask.astype(jnp.float32))
     masked_logits = logits + NEG_INF * (1.0 - mask)
@@ -91,15 +102,32 @@ def _soft_action_from_logits(
     else:
         hard_action = jax.random.categorical(key, masked_logits, axis=-1)
 
-    indices = jnp.arange(logits.shape[-1], dtype=jnp.float32)
-    soft_action = jnp.sum(probs * indices, axis=-1)
+    surrogate = config.get("SHAC_ACTION_SURROGATE", "slot_conditional")
+    if surrogate == "flat":
+        indices = jnp.arange(logits.shape[-1], dtype=jnp.float32)
+        soft_action = jnp.sum(probs * indices, axis=-1)
+    elif surrogate == "slot_conditional":
+        S = num_slot_actions
+        K = logits.shape[-1] // S
+        probs_ks = probs.reshape(probs.shape[:-1] + (K, S))
+        p_hard = hard_action // S
+        # Slot distribution on the sampled path: (..., S)
+        slot_probs = jnp.take_along_axis(
+            probs_ks, p_hard[..., None, None].astype(jnp.int32), axis=-2
+        ).squeeze(-2)
+        slot_probs = slot_probs / (jnp.sum(slot_probs, axis=-1, keepdims=True) + 1e-8)
+        slot_indices = jnp.arange(S, dtype=jnp.float32)
+        e_slot = jnp.sum(slot_probs * slot_indices, axis=-1)
+        soft_action = p_hard.astype(jnp.float32) * S + e_slot
+    else:
+        raise ValueError(f"Unknown SHAC_ACTION_SURROGATE: {surrogate}")
 
     action = straight_through(hard_action.astype(jnp.float32), soft_action)
     log_prob = jnp.take_along_axis(
         log_probs, hard_action[..., None].astype(jnp.int32), axis=-1
     ).squeeze(-1)
     entropy = -jnp.sum(probs * jnp.where(probs > 0, log_probs, 0.0), axis=-1)
-    return action, log_prob, entropy, hard_action
+    return action, log_prob, entropy, hard_action, soft_action
 
 
 def _get_obs_tuple(obsv, env_state, env_params, config):
@@ -167,6 +195,9 @@ def get_shac_learner_fn(
     num_envs = int(config.NUM_ENVS)
     use_bootstrap = bool(config.get("SHAC_VALUE_BOOTSTRAP", True))
     vf_coef = float(config.VF_COEF)
+    # Action-space geometry for the slot-conditional surrogate (matches
+    # process_path_action / RSAEnv.num_actions: A = k_paths * num_slot_actions)
+    num_slot_actions = math.ceil(env_params.link_resources / env_params.aggregate_slots)
 
     def _mask_fn(inner_state):
         mask_result = env.action_mask(inner_state, env_params)  # ty: ignore[unresolved-attribute]
@@ -191,8 +222,8 @@ def get_shac_learner_fn(
         # Threshold: differentiable-mode masks can be float; hard-select validity.
         mask = jax.lax.stop_gradient(mask > 0.5)
 
-        action, log_prob, entropy, hard_action = _soft_action_from_logits(
-            logits, mask, action_key, config
+        action, log_prob, entropy, hard_action, soft_action = _soft_action_from_logits(
+            logits, mask, action_key, config, num_slot_actions
         )
 
         step_keys = jax.random.split(step_key, num_envs) if num_envs > 1 else step_key
@@ -211,13 +242,9 @@ def get_shac_learner_fn(
             "terminal": terminal,
             "truncated": truncated,
             "action": hard_action,
+            # |backward surrogate - forward action|: the straight-through bias
             "soft_gap": jnp.abs(
-                jnp.sum(
-                    jnp.exp(jax.nn.log_softmax(logits + NEG_INF * (1.0 - mask)))
-                    * jnp.arange(logits.shape[-1], dtype=jnp.float32),
-                    axis=-1,
-                )
-                - hard_action.astype(jnp.float32)
+                jax.lax.stop_gradient(soft_action) - hard_action.astype(jnp.float32)
             ),
             # Detached obs snapshot for the critic regression. Store only the
             # state/array element -- for GNN/Transformer obs the second element is

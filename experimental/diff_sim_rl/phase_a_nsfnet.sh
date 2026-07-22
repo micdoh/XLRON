@@ -33,6 +33,18 @@ case "$1" in
     "$DIR/launch_shac.sh" shac_t20_lr1e4 "$GPU3" $SHAC_COMMON \
       --temperature=20.0 --LR=1e-4 --EXPERIMENT_NAME=shac_t20_lr1e4
     ;;
+  # Round 2: slot-conditional surrogate (v1.1). Lower temperature widens the
+  # soft-op sigmoids so the collision gradient sees free space further away.
+  shac_sc_t1)
+    "$DIR/launch_shac.sh" shac_sc_t1_lr3e4 "$GPU3" $SHAC_COMMON \
+      --SHAC_ACTION_SURROGATE=slot_conditional --temperature=1.0 --LR=3e-4 \
+      --EXPERIMENT_NAME=shac_sc_t1_lr3e4
+    ;;
+  shac_sc_t5)
+    "$DIR/launch_shac.sh" shac_sc_t5_lr3e4 "$GPU2" $SHAC_COMMON \
+      --SHAC_ACTION_SURROGATE=slot_conditional --temperature=5.0 --LR=3e-4 \
+      --EXPERIMENT_NAME=shac_sc_t5_lr3e4
+    ;;
   ppo)
     # PPO reference with identical env + action space (full slot granularity)
     "$DIR/launch_shac.sh" ppo_ref "$GPU3" $COMMON \

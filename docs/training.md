@@ -667,3 +667,49 @@ python -m xlron.train.train \
     --EVAL_MODEL \
     --MODEL_PATH=models/my_agent.eqx
 ```
+
+## Training with differentiable-simulation gradients (SHAC)
+
+Instead of PPO's score-function estimator, the `--SHAC` flag trains the policy with
+*analytic* first-order gradients backpropagated through the differentiable
+environment (Short-Horizon Actor-Critic, Xu et al. 2022). Requires
+`--differentiable` (and a `--temperature` for the soft ops). The learner lives in
+`xlron/diff_sim/shac.py` and is a drop-in replacement for the PPO learner: metrics,
+wandb logging and model saving work identically.
+
+How it works: each update rolls the policy out for `--ROLLOUT_LENGTH` steps through
+the soft-op environment. The forward pass uses the sampled integer action (exact
+dynamics); the backward pass substitutes the masked-softmax expected action index
+(straight-through), so the gradient of the discounted (soft) reward sum flows into
+the policy logits through the slot masks, collision checks and occupancy state. The
+actor objective is bootstrapped with the critic terminal value `gamma^H V(s_H)`
+(critic weights detached); the critic is fit by TD(lambda) regression on detached
+observations.
+
+```bash
+python -m xlron.train.train \
+    --env_type=rmsa \
+    --topology_name=nsfnet_deeprmsa_directed \
+    --link_resources=100 --k=5 --load=250 \
+    --continuous_operation --truncate_holding_time \
+    --ENV_WARMUP_STEPS=3000 --warmup_action_type=heuristic --path_heuristic=ksp_ff \
+    --SHAC --differentiable --temperature=5.0 \
+    --ROLLOUT_LENGTH=32 --NUM_ENVS=256 --TOTAL_TIMESTEPS=10000000 \
+    --LR=3e-4 --GAMMA=0.99 --GAE_LAMBDA=0.95 --VF_COEF=0.5 --ENT_COEF=0.001
+```
+
+### SHAC-specific flags
+
+| Flag | Default | Description |
+|---|---|---|
+| `--SHAC` | False | Use the SHAC learner instead of PPO |
+| `--SHAC_VALUE_BOOTSTRAP` | True | Include `gamma^H V(s_H)` in the actor objective |
+| `--SHAC_FORWARD` | sample | Forward action selection: `sample` or `mode` (argmax) |
+| `--SHAC_REMAT` | False | Rematerialise rollout steps (memory vs compute) |
+
+Reused PPO flags: `--ROLLOUT_LENGTH` (the BPTT horizon H), `--GAMMA`,
+`--GAE_LAMBDA` (TD-lambda for the critic targets), `--VF_COEF`, `--ENT_COEF`,
+`--LR`/`--LR_SCHEDULE`, `--MAX_GRAD_NORM`. `--UPDATE_EPOCHS`/`--NUM_MINIBATCHES`
+are ignored (SHAC is single-pass on-policy). Note `--temperature` trades gradient
+smoothness against bias: higher = closer to the hard ops (sharper but sparser
+gradients). It is a static env parameter, so annealing requires recompilation.

@@ -1039,6 +1039,15 @@ flags.DEFINE_boolean(
     "Apply jax.checkpoint (rematerialisation) to each SHAC rollout step to trade "
     "compute for memory on long horizons.",
 )
+flags.DEFINE_string(
+    "SHAC_ACTION_SURROGATE",
+    "slot_conditional",
+    "Backward-pass action surrogate for the straight-through estimator: "
+    "'slot_conditional' (expected slot index on the sampled path; the analytic "
+    "gradient shapes only the slot distribution) or 'flat' (expected flat action "
+    "index; slot-direction gradients hit the path marginal with k_paths-fold "
+    "amplification -- kept for ablation).",
+)
 
 
 def get_flag_defaults() -> dict:
