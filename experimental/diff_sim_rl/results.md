@@ -133,8 +133,13 @@ against brute force in shac_test.py.
 |---|---|---|---|---|---|
 | local flat (control) | flat, T=5 | Mac CPU, N=32 | 1M | 6.6 -> 4.7% falling | index prior works immediately |
 | local dist | dist, T=5 | Mac CPU, N=32 | 1M | 7.3 -> 6.6% PLATEAU | see diagnosis below |
-| shac_dist_t5 | dist, T=5 | malmo | 15M | pending network | main comparison vs flat 4.30% |
-| dist + TV shaping | dist | malmo | 15M | planned | dense packing signal |
+| shac_dist_tv (GPU) | dist+TV(.05), T=5 | malmo | ~10.8M (host killed procs) | 6.3% and slowly falling | far behind flat; MLP can't express geometry |
+| shac_flat_tv (GPU) | flat+TV(.05), T=5 | malmo | ~10.8M (host killed procs) | 4.2% | TV neither helps nor hurts flat |
+| shac_tfm_dist_tv | dist+TV, transformer | malmo | 10M | TBD | the architecture test |
+
+Note 2026-07-23 00:15: both round-5 runs (and the earlier tmux server) were
+killed externally on malmo around midnight (no reboot, no OOM, no traceback) --
+possibly a session cleanup policy. Watch for recurrence.
 
 ### Local TV-shaping results (1M CPU, N=32, seed-matched)
 
