@@ -111,6 +111,23 @@ case "$1" in
       --SHAC_ACTION_SURROGATE=flat --SHAC_TV_COEF=0.05 --temperature=5.0 \
       --LR=3e-4 --TOTAL_TIMESTEPS=15000000 --EXPERIMENT_NAME=shac_flat_tv05
     ;;
+  # Transformer policy: per-slot logits with WIRE positional encodings -- the
+  # inductive bias needed to map occupancy -> snug placement (the MLP must
+  # learn that mapping from a 4400-dim flat obs; flat-prior solutions are
+  # bias-only and win early for the wrong reason)
+  tfm_dist_tv)
+    "$DIR/launch_shac.sh" shac_tfm_dist_tv "$GPU2" \
+      --env_type=rmsa --topology_name=nsfnet_deeprmsa_directed --link_resources=100 \
+      --k=5 --load=250 --continuous_operation --truncate_holding_time \
+      --ENV_WARMUP_STEPS=3000 --warmup_action_type=heuristic --path_heuristic=ksp_ff \
+      --WANDB --PROJECT=DIFF_SIM_RL --SHAC --differentiable \
+      --USE_TRANSFORMER --transformer_num_layers=2 --transformer_num_heads=8 \
+      --transformer_embedding_size=128 \
+      --SHAC_ACTION_SURROGATE=dist --SHAC_TV_COEF=0.05 --temperature=5.0 \
+      --GAMMA=0.99 --GAE_LAMBDA=0.95 --VF_COEF=0.5 --ENT_COEF=0.001 \
+      --ROLLOUT_LENGTH=32 --NUM_ENVS=64 --TOTAL_TIMESTEPS=10000000 \
+      --STEPS_PER_INCREMENT=204800 --LR=3e-4 --EXPERIMENT_NAME=shac_tfm_dist_tv
+    ;;
   pg_only_b)
     "$DIR/launch_shac.sh" shac_pg_b "$GPU3" \
       --env_type=rmsa --topology_name=nsfnet_deeprmsa_directed --link_resources=100 \
