@@ -30,7 +30,7 @@ wandb project: **DIFF_SIM_RL** (entity micdoh). All runs on malmo H100s unless n
 | shac_ppo_il_h64 (v1.3) | slot_cond | 1 | 3e-4 | 64 | 128 | 10M | TBD | interleave relaunched at H=64 |
 | shac_flat_t1 (v1.3) | flat | 1 | 3e-4 | 32 | 256 | 15M | 4.42% ± 0.20% | temp barely matters for flat surrogate |
 | shac_flat_t5_nostate | flat | 5 | 3e-4 | 32 | 256 | 10M | **4.31% ± 0.20%** | ABLATION: matches full-BPTT flat_t5 (4.30%) exactly |
-| shac_flat_t5_seed2 | flat | 5 | 3e-4 | 32 | 256 | 10M | TBD | seed replicate of best config |
+| shac_flat_t5_seed2 | flat | 5 | 3e-4 | 32 | 256 | 10M | 4.24% ± 0.20% | replicates flat_t5 (4.30%) -- result robust |
 | ppo_ref | - | - | 3e-4 | 150 | 64 | 10M | TBD | reference |
 
 ### Emerging picture (round 4, interim)
@@ -81,6 +81,35 @@ S=100x; the env int-casts the path decode so there is no genuine path
 gradient). soft_gap ~30-80 flat-index units confirmed a badly biased surrogate.
 Fix: v1.1 slot-conditional surrogate (E[s | sampled path]); also t=20 confirmed
 that sharper soft-ops degrade the gradient (sigmoid support ~1/t slots).
+
+## Phase A conclusions (2026-07-22)
+
+1. **The analytic gradient through the differentiable env trains a policy where
+   score-function methods fail outright** at matched raw obs/action settings:
+   SHAC 7 -> 4.2-4.3% (robust across 2 seeds), stock PPO flat at 7.3%, vanilla
+   REINFORCE diverges to 12%. This is the sample-efficiency evidence for
+   differentiable simulation on this problem class.
+2. **But the learning signal is NOT the BPTT lookahead.** Severing all
+   cross-step gradients reproduces the result exactly (4.31% vs 4.30%). What
+   remains is (a) the immediate soft-unblocking gradient and (b) the flat
+   surrogate's global index-lowering prior, which is a soft first-fit bias.
+   On nsfnet at these settings, differentiating *through the dynamics* adds
+   nothing measurable -- the future-congestion signal the MSCL-beating thesis
+   relies on is either too weak (sigmoid support ~1/T slots), drowned by ST
+   bias, or genuinely absent at H=32-64.
+3. **Analytic-only plateaus at ~4.3% vs KSP-FF 2.60%** -- it does not reach,
+   let alone beat, the heuristic on the raw action space.
+4. Hand-rolled REINFORCE (with TD-lambda baseline) is unstable at every setting
+   tried; use stock PPO for any score-function component.
+
+Implications for Phase B (USA100 vs MSCL 0.05%): pure SHAC as-is will not close
+a 100x blocking gap. Candidate directions, in order of promise:
+- PPO+analytic interleave (verdict pending, wandb shac_ppo_il_h64)
+- richer surrogate than expected-index (e.g. distribution-level gradients on the
+  soft slot mask rather than a scalar action; requires env interface change)
+- temperature scheduling / much lower T with bias correction
+- accepting the reframe: analytic gradient as a fast *pretrainer* (FF-prior
+  learner) composed with stronger downstream RL.
 
 ## Phase B — USA100 (load 620, 320 slots) — pending Phase A
 
