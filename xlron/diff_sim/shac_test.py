@@ -120,6 +120,26 @@ def test_shac_flat_surrogate_runs():
 
 
 @pytest.mark.slow
+def test_shac_interleave_ppo_runs():
+    """Interleaved PPO + analytic updates on the same carried envs."""
+    config = _make_config(SHAC_INTERLEAVE_PPO=True, TOTAL_TIMESTEPS=64)
+    runner_state, env, env_params, learner_fn = _setup(config)
+    out = jax.jit(learner_fn)(runner_state)
+    for key, val in out["loss_info"].items():
+        assert bool(jnp.all(jnp.isfinite(val))), f"{key} not finite"
+    # PPO keys and namespaced analytic keys both present
+    assert "loss/total_loss" in out["loss_info"]
+    assert "shac/total_loss" in out["loss_info"]
+    # Metric leaves cover both rollouts: (NUM_UPDATES, 2H, N)
+    lengths = out["metrics"]["lengths"]
+    assert lengths.shape == (
+        config.NUM_UPDATES,
+        2 * config.ROLLOUT_LENGTH,
+        config.NUM_ENVS,
+    )
+
+
+@pytest.mark.slow
 def test_shac_hybrid_pg_term_runs():
     """Hybrid analytic + REINFORCE-with-baseline actor loss (SHAC_PG_COEF > 0)."""
     config = _make_config(SHAC_PG_COEF=1.0, load=300.0, ENV_WARMUP_STEPS=200)

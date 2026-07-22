@@ -1060,6 +1060,14 @@ flags.DEFINE_float(
     1.0,
     "Coefficient for the analytic (BPTT) actor term in the SHAC loss.",
 )
+flags.DEFINE_boolean(
+    "SHAC_INTERLEAVE_PPO",
+    False,
+    "Interleave each SHAC analytic update with one stock PPO update on the same "
+    "carried envs: PPO provides stable clipped score-function learning (paths + "
+    "exploration), the analytic term refines slot placement. Each learner update "
+    "consumes 2 * ROLLOUT_LENGTH * NUM_ENVS env steps.",
+)
 
 
 def get_flag_defaults() -> dict:

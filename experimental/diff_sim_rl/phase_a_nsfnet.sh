@@ -74,6 +74,24 @@ case "$1" in
       --SHAC_ACTION_SURROGATE=slot_conditional --temperature=1.0 --LR=1e-4 \
       --SHAC_PG_COEF=1.0 --EXPERIMENT_NAME=shac_hyb_b_g97_h64
     ;;
+  # Round 4a: stock PPO + analytic interleave (settings matched to ppo_ref;
+  # each update consumes 2*H*N steps, so wandb env_step undercounts 2x)
+  interleave)
+    "$DIR/launch_shac.sh" shac_ppo_il "$GPU2" $COMMON \
+      --SHAC --differentiable --SHAC_INTERLEAVE_PPO \
+      --SHAC_ACTION_SURROGATE=slot_conditional --temperature=1.0 \
+      --LR=3e-4 --GAMMA=0.999 --VF_COEF=0.5 \
+      --ROLLOUT_LENGTH=150 --NUM_ENVS=64 \
+      --TOTAL_TIMESTEPS=10000000 --STEPS_PER_INCREMENT=960000 \
+      --EXPERIMENT_NAME=shac_ppo_interleave
+    ;;
+  # Round 4b: best pure-analytic recipe pushed further: the flat surrogate's
+  # index-lowering bias (fast FF-like start, reached 4.3%) + t=1 wide sigmoids
+  flat_t1)
+    "$DIR/launch_shac.sh" shac_flat_t1 "$GPU3" $SHAC_COMMON \
+      --SHAC_ACTION_SURROGATE=flat --temperature=1.0 --LR=3e-4 \
+      --TOTAL_TIMESTEPS=15000000 --EXPERIMENT_NAME=shac_flat_t1_lr3e4
+    ;;
   pg_only_b)
     "$DIR/launch_shac.sh" shac_pg_b "$GPU3" \
       --env_type=rmsa --topology_name=nsfnet_deeprmsa_directed --link_resources=100 \

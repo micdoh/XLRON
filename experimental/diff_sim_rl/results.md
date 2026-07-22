@@ -20,9 +20,36 @@ wandb project: **DIFF_SIM_RL** (entity micdoh). All runs on malmo H100s unless n
 | random valid (SHAC t=0 start) | - | - | - | - | 256 | - | ~5.0% | untrained masked policy |
 | shac_t5_lr3e4 (v1.0) | flat | 5 | 3e-4 | 32 | 256 | 10M | 4.30% ± 0.20% | wandb cnzbizzb; learned 5.0->4.3, slow |
 | shac_t20_lr1e4 (v1.0) | flat | 20 | 1e-4 | 32 | 256 | ~4M (killed) | 5.7% (worse than init) | sharp temp = useless local gradients |
-| shac_sc_t1_lr3e4 (v1.1) | slot_cond | 1 | 3e-4 | 32 | 256 | 10M | TBD | |
-| shac_sc_t5_lr3e4 (v1.1) | slot_cond | 5 | 3e-4 | 32 | 256 | 10M | TBD | |
+| shac_sc_t1_lr3e4 (v1.1) | slot_cond | 1 | 3e-4 | 32 | 256 | 10M | 5.71% ± 0.22% | learned 6.9->5.7, slow |
+| shac_sc_t5_lr3e4 (v1.1) | slot_cond | 5 | 3e-4 | 32 | 256 | 10M | 7.15% ± 0.23% | flat/worse (gradient too local) |
+| shac_hyb_t1 (v1.2) | slot_cond | 1 | 3e-4 | 32 | 256 | ~5M (killed) | 9.2% and rising | PG term unstable (see below) |
+| shac_pg_only_t1 (v1.2) | (none) | 1 | 3e-4 | 32 | 256 | ~5M (killed) | 11.7% and rising | PG-only, same instability |
+| shac_hyb_b (v1.2, 3b) | slot_cond | 1 | 1e-4 | 64 | 256 | 15M | TBD | gamma=0.97, ent=0.01 |
+| shac_pg_b (v1.2, 3b) | (none) | 1 | 1e-4 | 64 | 256 | 15M | TBD | PG-only, same fix |
 | ppo_ref | - | - | 3e-4 | 150 | 64 | 10M | TBD | reference |
+
+### Round-3 diagnosis (PG instability)
+
+Both v1.2 runs (hybrid and PG-only) degraded monotonically (5% -> 9-12%) while
+entropy collapsed 3.4 -> 1.5: confident learning of garbage. Cause: with
+gamma=0.99 and H=32, gamma^H = 0.72 and the critic terminal value (~ -9) dwarfs
+the in-window reward sum (~ -1.4), so TD-lambda targets, and hence advantages,
+were dominated by the untrained critic; per-update advantage normalization then
+amplified that noise to +/-1 and un-clipped REINFORCE sharpened onto it, with
+value_loss rising (0.58 -> 0.79) as the critic chased the nonstationary mess.
+Fix (round 3b): H=64 + gamma=0.97 (gamma^H = 0.14 -> targets grounded in real
+rewards), LR 3e-4 -> 1e-4, ENT_COEF 0.001 -> 0.01.
+
+### Round-2 interim notes
+
+Slot-conditional surrogate fixes the ST bias (soft_gap 30-80 flat-index units ->
+7-16 slot units) but the pure analytic signal is weak: t=1 grinds 6.9->5.8% by
+~5M steps; t=5 flat (sigmoid support ~1/t slots -> t=5 gradient too local).
+Curious round-1 observation: the flat surrogate dropped 6.9->5.0 within the
+first increment -- its "lower the flat index" bias is accidentally FF-like
+(low path + low slot), fast at first, saturating at 4.3%. Conclusion: the
+analytic term alone under-determines path choice; round 3 pairs it with a
+score-function term (v1.2 hybrid) and a PG-only ablation isolates its added value.
 
 Baseline throughput notes: KSP-FF eval 8.0M FPS (2000 envs); SHAC trains at
 ~195K FPS incl. BPTT backward (N=64 smoke) on one H100. A 10M-step SHAC run

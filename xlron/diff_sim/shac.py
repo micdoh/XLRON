@@ -198,6 +198,18 @@ def get_shac_learner_fn(
     # Action-space geometry for the slot-conditional surrogate (matches
     # process_path_action / RSAEnv.num_actions: A = k_paths * num_slot_actions)
     num_slot_actions = math.ceil(env_params.link_resources / env_params.aggregate_slots)
+    # Interleave mode: each update = one stock PPO update (clipped score-function
+    # learning, minibatched, PPO's own value loss) followed by one analytic-only
+    # SHAC update, both advancing the same carried envs. This delegates all
+    # score-function learning to the battle-tested PPO implementation -- the
+    # hand-rolled REINFORCE term (SHAC_PG_COEF) destabilised training even after
+    # gamma/H/LR fixes, while stock PPO is stable on identical configs.
+    interleave = bool(config.get("SHAC_INTERLEAVE_PPO", False))
+    if interleave:
+        from xlron.train import ppo as ppo_module
+
+        def _ppo_update(runner_state):
+            return ppo_module._update_step(runner_state, None, env, env_params, config)
 
     def _mask_fn(inner_state):
         mask_result = env.action_mask(inner_state, env_params)  # ty: ignore[unresolved-attribute]
@@ -347,6 +359,12 @@ def get_shac_learner_fn(
         return total_loss, aux
 
     def _update_step(runner_state: RunnerState, unused: Any):
+        # Interleave: stock PPO update first (its rollout advances the envs),
+        # then the analytic update continues from the post-PPO state.
+        ppo_metric = ppo_loss_info = None
+        if interleave:
+            runner_state, (ppo_metric, ppo_loss_info) = _ppo_update(runner_state)
+
         train_state, env_state, last_obs, rng_step, rng_epoch = runner_state
         rng_step, rollout_key = jax.random.split(rng_step)
 
@@ -391,6 +409,17 @@ def get_shac_learner_fn(
             "loss/terminal_value_mean": m["terminal_value_mean"],
             "loss/pg_loss": m["pg_loss"],
         }
+
+        if interleave:
+            # Concatenate the PPO and analytic rollouts' env-info along the step
+            # axis so every env step is counted in the metrics ((2H, N) leaves),
+            # and namespace the analytic loss keys under shac/ so PPO's keys pass
+            # through unchanged.
+            metric = jax.tree.map(lambda a, b: jnp.concatenate([a, b], axis=0), ppo_metric, metric)
+            loss_info = {
+                **ppo_loss_info,
+                **{k.replace("loss/", "shac/"): v for k, v in loss_info.items()},
+            }
         return runner_state, (metric, loss_info)
 
     def learner_fn(runner_state: RunnerState) -> Dict[str, Any]:
