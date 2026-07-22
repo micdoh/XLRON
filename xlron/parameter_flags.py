@@ -1011,6 +1011,34 @@ flags.DEFINE_float(
     0.8,
     "Sigma for Gaussian smoothing kernel (larger = smoother landscape)",
 )
+# SHAC (Short-Horizon Actor-Critic): analytic policy gradients through the
+# differentiable environment (requires --differentiable). See xlron/diff_sim/shac.py.
+flags.DEFINE_boolean(
+    "SHAC",
+    False,
+    "Train the policy with SHAC-style analytic gradients backpropagated through the "
+    "differentiable environment (requires --differentiable). ROLLOUT_LENGTH is the "
+    "BPTT horizon; GAMMA/GAE_LAMBDA/VF_COEF/ENT_COEF/LR are reused from PPO flags.",
+)
+flags.DEFINE_boolean(
+    "SHAC_VALUE_BOOTSTRAP",
+    True,
+    "Include the critic terminal value gamma^H * V(s_H) in the SHAC actor objective "
+    "(critic weights detached; gradient flows through the state).",
+)
+flags.DEFINE_string(
+    "SHAC_FORWARD",
+    "sample",
+    "Forward-pass action selection for SHAC: 'sample' (stochastic exploration) or "
+    "'mode' (deterministic argmax; matches the backward-pass expectation better as "
+    "the policy sharpens).",
+)
+flags.DEFINE_boolean(
+    "SHAC_REMAT",
+    False,
+    "Apply jax.checkpoint (rematerialisation) to each SHAC rollout step to trade "
+    "compute for memory on long horizons.",
+)
 
 
 def get_flag_defaults() -> dict:

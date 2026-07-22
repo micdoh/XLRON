@@ -34,6 +34,7 @@ from xlron.environments.make_env import make, process_config
 from xlron.environments.wrappers import Profiler, jit_profiler
 from xlron.heuristics.eval_heuristic import get_eval_fn
 from xlron.parameter_flags import *  # noqa: F403,F401  # Ignore linter warnings for * import
+from xlron.diff_sim.shac import get_shac_learner_fn
 from xlron.train.ppo import get_learner_fn
 from xlron.train.train_utils import (
     experiment_data_setup,
@@ -561,10 +562,13 @@ def train(argv: list[str], config: Dict[str, Any] = {}) -> None:
         print("\n---BEGINNING COMPILATION---\n")
 
         rng = jax.random.PRNGKey(config.SEED)
+        # SHAC replaces the PPO learner with analytic gradients through the
+        # differentiable env (eval modes still use get_eval_fn).
+        train_fn = get_shac_learner_fn if config.get("SHAC", False) else get_learner_fn
         if config.NUM_LEARNERS > 1:
             rng = jax.random.split(rng, config.NUM_LEARNERS)
             experiment_fn = (
-                get_learner_fn if not (config.EVAL_HEURISTIC or config.EVAL_MODEL) else get_eval_fn
+                train_fn if not (config.EVAL_HEURISTIC or config.EVAL_MODEL) else get_eval_fn
             )
             experiment_input, env, env_params = jax.vmap(
                 experiment_data_setup, axis_name="learner", in_axes=(None, 0)
@@ -577,7 +581,7 @@ def train(argv: list[str], config: Dict[str, Any] = {}) -> None:
             )
         else:
             experiment_fn = (
-                get_learner_fn if not (config.EVAL_HEURISTIC or config.EVAL_MODEL) else get_eval_fn
+                train_fn if not (config.EVAL_HEURISTIC or config.EVAL_MODEL) else get_eval_fn
             )
             experiment_input, env, env_params = experiment_data_setup(config, rng)
             experiment_fn = experiment_fn(env, env_params, experiment_input, config)

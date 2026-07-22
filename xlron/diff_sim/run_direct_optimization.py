@@ -3,6 +3,8 @@ import os
 import time
 import pathlib
 from absl import app, flags
+
+from xlron.parameter_flags import *  # noqa: F403,F401  # Registers all XLRON flags
 # dtype_config is imported after FLAGS are parsed (see bottom of file)
 
 FLAGS = flags.FLAGS

@@ -121,6 +121,15 @@ prioritization_metrics = [
     "prioritization/priority_std",
 ]
 
+# SHAC-specific loss diagnostics (populated by diff_sim/shac.py when SHAC=True;
+# overlapping keys like loss/total_loss are already in loss_metrics)
+shac_metrics = [
+    "loss/grad_norm",
+    "loss/reward_mean",
+    "loss/soft_gap",
+    "loss/terminal_value_mean",
+]
+
 
 class LossDiagnostics(NamedTuple):
     """Per-step diagnostics emitted from the PPO loss when ENHANCED_LOGGING is on.
@@ -1734,6 +1743,10 @@ def setup_wandb(config, project_name, experiment_name):
     if config.get("ENHANCED_LOGGING", False):
         for metric in diagnostics_metrics:
             wandb.define_metric(f"{metric}", step_metric="update_epoch")
+    # Register SHAC diagnostics if the SHAC learner is enabled
+    if config.get("SHAC", False):
+        for metric in shac_metrics:
+            wandb.define_metric(f"{metric}", step_metric="update_epoch")
     wandb.define_metric("training_time", step_metric="env_step")
     # Eval during training metrics
     for bp in ["service_blocking_probability", "bitrate_blocking_probability"]:
@@ -2539,26 +2552,14 @@ def log_metrics(
 
             if config.LOG_LOSS_INFO and merged_out_loss is not None:
                 print("Logging loss info")
-                for i in range(len(merged_out_loss["loss/total_loss"])):
-                    log_dict = {f"{metric}": merged_out_loss[metric][i] for metric in loss_metrics}
-                    log_dict.update(
-                        {
-                            f"{metric}": merged_out_loss[metric][i]
-                            for metric in prioritization_metrics
-                        }
-                    )
-                    if config.REWARD_CENTERING:
-                        log_dict_rc = {
-                            f"{metric}": merged_out_loss[metric][i]
-                            for metric in reward_centering_metrics
-                        }
-                        log_dict = {**log_dict, **log_dict_rc}
-                    if config.ENHANCED_LOGGING:
-                        log_dict_diag = {
-                            f"{metric}": merged_out_loss[metric][i]
-                            for metric in diagnostics_metrics
-                        }
-                        log_dict = {**log_dict, **log_dict_diag}
+                # Iterate over whatever keys the learner emitted: PPO and SHAC
+                # populate different loss_info dicts (conditional keys like
+                # reward_centering/* are only present when their flag is on).
+                num_rows = len(next(iter(merged_out_loss.values())))
+                for i in range(num_rows):
+                    log_dict = {
+                        f"{metric}": merged_out_loss[metric][i] for metric in merged_out_loss
+                    }
                     log_dict["update_epoch"] = i + update_count
                     wandb.log(log_dict)
 
