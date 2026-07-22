@@ -178,3 +178,7 @@ Targets: MSCL-KSP ~0.05%, FF-KSP ~0.34%, best pure RL (aggregated transformer) ~
   (k=70, 320 slots, load 620, no holding-time truncation — the JOCN recipe;
   wandb usa100_ffksp_L620_v2). NOTE: --truncate_holding_time drives USA100
   blocking to ~0 at this load; do not carry it over from the nsfnet setting.
+- 2026-07-22 overnight probe (k=5 for tractable action dim): FF-KSP k=5 =
+  5.25% ± 0.27%; SHAC flat T=5 k=5 (20M steps) = 7.80% ± 0.09%. Same picture
+  as nsfnet: analytic-only learns but lands above the FF heuristic; scaling
+  the current method does not change the story.
