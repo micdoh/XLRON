@@ -120,6 +120,18 @@ def test_shac_flat_surrogate_runs():
 
 
 @pytest.mark.slow
+def test_shac_hybrid_pg_term_runs():
+    """Hybrid analytic + REINFORCE-with-baseline actor loss (SHAC_PG_COEF > 0)."""
+    config = _make_config(SHAC_PG_COEF=1.0, load=300.0, ENV_WARMUP_STEPS=200)
+    runner_state, env, env_params, learner_fn = _setup(config)
+    out = jax.jit(learner_fn)(runner_state)
+    for key, val in out["loss_info"].items():
+        assert bool(jnp.all(jnp.isfinite(val))), f"{key} not finite"
+    # The PG term must actually contribute (nonzero for at least one update)
+    assert bool(jnp.any(out["loss_info"]["loss/pg_loss"] != 0.0))
+
+
+@pytest.mark.slow
 def test_shac_no_bootstrap_runs():
     config = _make_config(SHAC_VALUE_BOOTSTRAP=False, TOTAL_TIMESTEPS=32)
     runner_state, env, env_params, learner_fn = _setup(config)

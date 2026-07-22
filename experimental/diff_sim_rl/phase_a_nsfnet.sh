@@ -45,6 +45,19 @@ case "$1" in
       --SHAC_ACTION_SURROGATE=slot_conditional --temperature=5.0 --LR=3e-4 \
       --EXPERIMENT_NAME=shac_sc_t5_lr3e4
     ;;
+  # Round 3: hybrid analytic + score-function actor loss (v1.2)
+  hybrid_t1)
+    "$DIR/launch_shac.sh" shac_hyb_t1 "$GPU2" $SHAC_COMMON \
+      --SHAC_ACTION_SURROGATE=slot_conditional --temperature=1.0 --LR=3e-4 \
+      --SHAC_PG_COEF=1.0 --EXPERIMENT_NAME=shac_hyb_t1_lr3e4
+    ;;
+  # Pure score-function ablation (no analytic term): isolates what the
+  # analytic gradient adds over REINFORCE-with-baseline at identical settings
+  pg_only)
+    "$DIR/launch_shac.sh" shac_pg_only "$GPU3" $SHAC_COMMON \
+      --SHAC_ACTION_SURROGATE=slot_conditional --temperature=1.0 --LR=3e-4 \
+      --SHAC_PG_COEF=1.0 --SHAC_ANALYTIC_COEF=0.0 --EXPERIMENT_NAME=shac_pg_only_t1
+    ;;
   ppo)
     # PPO reference with identical env + action space (full slot granularity)
     "$DIR/launch_shac.sh" ppo_ref "$GPU3" $COMMON \

@@ -128,6 +128,7 @@ shac_metrics = [
     "loss/reward_mean",
     "loss/soft_gap",
     "loss/terminal_value_mean",
+    "loss/pg_loss",
 ]
 
 

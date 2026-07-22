@@ -1048,6 +1048,18 @@ flags.DEFINE_string(
     "index; slot-direction gradients hit the path marginal with k_paths-fold "
     "amplification -- kept for ablation).",
 )
+flags.DEFINE_float(
+    "SHAC_PG_COEF",
+    0.0,
+    "Coefficient for an additional REINFORCE-with-baseline actor term on the SHAC "
+    "rollout (advantages = TD-lambda targets - value baseline). Provides unbiased "
+    "path learning; the analytic gradient only reaches the slot distribution.",
+)
+flags.DEFINE_float(
+    "SHAC_ANALYTIC_COEF",
+    1.0,
+    "Coefficient for the analytic (BPTT) actor term in the SHAC loss.",
+)
 
 
 def get_flag_defaults() -> dict:

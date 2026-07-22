@@ -307,7 +307,26 @@ def get_shac_learner_fn(
         )
         critic_loss = jnp.mean((values_pred - jax.lax.stop_gradient(targets)) ** 2)
 
-        total_loss = actor_loss + vf_coef * critic_loss - ent_coef * entropy_mean
+        # ---- Optional score-function (policy-gradient) actor term ----
+        # The analytic gradient only reaches the slot distribution (the env has no
+        # path gradient); this REINFORCE-with-baseline term on the same on-policy
+        # rollout provides unbiased path (and slot) learning. Advantages are the
+        # TD(lambda) targets minus the value baseline, both detached.
+        pg_coef = float(config.get("SHAC_PG_COEF", 0.0))
+        if pg_coef > 0.0:
+            adv = jax.lax.stop_gradient(targets - values_pred)
+            adv = (adv - jnp.mean(adv)) / (jnp.std(adv) + 1e-8)
+            pg_loss = -jnp.mean(traj["log_prob"] * adv)
+        else:
+            pg_loss = jnp.array(0.0, dtype=jnp.float32)
+
+        analytic_coef = float(config.get("SHAC_ANALYTIC_COEF", 1.0))
+        total_loss = (
+            analytic_coef * actor_loss
+            + pg_coef * pg_loss
+            + vf_coef * critic_loss
+            - ent_coef * entropy_mean
+        )
 
         aux = {
             "final_env_state": _detach(final_env_state),
@@ -318,6 +337,7 @@ def get_shac_learner_fn(
             "metrics": {
                 "actor_loss": actor_loss,
                 "critic_loss": critic_loss,
+                "pg_loss": pg_loss,
                 "entropy": entropy_mean,
                 "reward_mean": jnp.mean(rewards),
                 "soft_gap": jnp.mean(traj["soft_gap"]),
@@ -369,6 +389,7 @@ def get_shac_learner_fn(
             "loss/reward_mean": m["reward_mean"],
             "loss/soft_gap": m["soft_gap"],
             "loss/terminal_value_mean": m["terminal_value_mean"],
+            "loss/pg_loss": m["pg_loss"],
         }
         return runner_state, (metric, loss_info)
 
