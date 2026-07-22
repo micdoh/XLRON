@@ -703,9 +703,14 @@ python -m xlron.train.train \
 | Flag | Default | Description |
 |---|---|---|
 | `--SHAC` | False | Use the SHAC learner instead of PPO |
+| `--SHAC_ACTION_SURROGATE` | slot_conditional | Backward-pass surrogate: `dist` (policy-expected occupancy footprint; a gradient per candidate slot each step — the richest signal, requires `aggregate_slots=1`), `slot_conditional` (expected slot index on the sampled path; one slot-direction scalar per step), `flat` (expected flat index; ablation only) |
 | `--SHAC_VALUE_BOOTSTRAP` | True | Include `gamma^H V(s_H)` in the actor objective |
 | `--SHAC_FORWARD` | sample | Forward action selection: `sample` or `mode` (argmax) |
 | `--SHAC_REMAT` | False | Rematerialise rollout steps (memory vs compute) |
+| `--SHAC_PG_COEF` | 0.0 | Add a REINFORCE-with-baseline term (unstable; prefer 0) |
+| `--SHAC_ANALYTIC_COEF` | 1.0 | Scale of the analytic BPTT actor term |
+| `--SHAC_INTERLEAVE_PPO` | False | Alternate stock PPO updates with analytic updates |
+| `--SHAC_TRUNCATE_STATE_GRAD` | False | Ablation: sever cross-step gradients through the state |
 
 Reused PPO flags: `--ROLLOUT_LENGTH` (the BPTT horizon H), `--GAMMA`,
 `--GAE_LAMBDA` (TD-lambda for the critic targets), `--VF_COEF`, `--ENT_COEF`,

@@ -120,6 +120,38 @@ a 100x blocking gap. Candidate directions, in order of promise:
 - transformer policy (JOCN recipe) + analytic term, but on the evidence so far
   the score-function/analytic combination needs rethinking, not scaling.
 
+## Phase A2 — distribution-level action gradients (2026-07-22 evening)
+
+Implemented `SHAC_ACTION_SURROGATE='dist'`: instead of the scalar expected-index
+surrogate (1 gradient dof/step), the env's backward pass uses the policy-expected
+occupancy footprint on the sampled path, so every candidate start-slot gets its
+own counterfactual gradient (= summed occupancy-gradient over the footprint it
+would have covered), including through future steps. Soft-window math verified
+against brute force in shac_test.py.
+
+| run | surrogate | where | steps | service BP | notes |
+|---|---|---|---|---|---|
+| local flat (control) | flat, T=5 | Mac CPU, N=32 | 1M | 6.6 -> 4.7% falling | index prior works immediately |
+| local dist | dist, T=5 | Mac CPU, N=32 | 1M | 7.3 -> 6.6% PLATEAU | see diagnosis below |
+| shac_dist_t5 | dist, T=5 | malmo | 15M | pending network | main comparison vs flat 4.30% |
+| dist + TV shaping | dist | malmo | 15M | planned | dense packing signal |
+
+### Local dist diagnosis -> TV shaping
+
+The per-slot counterfactual gradient only fires near collisions (the soft check
+x^2/(1+x^2) has zero gradient at zero violations), and masked sampling makes
+those rare. So 'dist' learns collision avoidance -- which the action mask
+already provides -- and receives NO dense packing-quality signal; it plateaus
+at ~random-valid level. The flat prior wins early because "lower index" IS a
+dense packing pressure (accidental soft-FF).
+
+Fix: SHAC_TV_COEF -- potential-based fragmentation shaping
+r += coef * (TV_before - TV_after), TV = free<->occupied boundary count per
+link (spectrum edges padded occupied, squared diffs for a smooth backward).
+Dense, differentiable, and geometry-based: every placement is rewarded for
+snugness (filling gaps, sitting flush to blocks/edges) rather than for low
+index. This is a one-step differentiable analogue of MSCL's capacity-loss.
+
 ## Phase B — USA100 (load 620, 320 slots) — pending Phase A
 
 Targets: MSCL-KSP ~0.05%, FF-KSP ~0.34%, best pure RL (aggregated transformer) ~0.40%.

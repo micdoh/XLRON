@@ -163,6 +163,25 @@ def _apply_model(model, obs, config):
     return model(*obs)
 
 
+def _tv_fragmentation(link_slot_array: jnp.ndarray) -> jnp.ndarray:
+    """Differentiable fragmentation proxy: total variation of occupancy along the
+    slot axis, i.e. the number of free<->occupied boundaries (x2) summed over
+    links. Spectrum ends are padded with 1 (occupied) so flush-to-edge
+    placements do not pay for their outer boundary. Squared differences equal
+    |diff| in the 0/1 forward pass but stay smooth for the straight-through
+    backward, where gradients concentrate at existing block edges -- pushing
+    probability mass toward snug placements.
+
+    Accepts (..., E, S); returns (...,) per-env totals.
+    """
+    occ = link_slot_array.astype(jnp.float32)
+    pad_shape = occ.shape[:-1] + (1,)
+    ones = jnp.ones(pad_shape, dtype=occ.dtype)
+    padded = jnp.concatenate([ones, occ, ones], axis=-1)
+    d = jnp.diff(padded, axis=-1)
+    return jnp.sum(d * d, axis=(-2, -1))
+
+
 def _td_lambda_targets(
     rewards: jnp.ndarray,  # (H, N)
     values: jnp.ndarray,  # (H, N) V(s_t), detached
@@ -270,12 +289,25 @@ def get_shac_learner_fn(
         else:
             env_action = action
 
+        tv_coef = float(config.get("SHAC_TV_COEF", 0.0))
+        if tv_coef > 0.0:
+            tv_before = _tv_fragmentation(env_state.env_state.link_slot_array)
+
         step_keys = jax.random.split(step_key, num_envs) if num_envs > 1 else step_key
         step_fn = jax.vmap(_env_step_fn, in_axes=(0, 0, 0)) if num_envs > 1 else _env_step_fn
         obsv, env_state, reward, terminal, truncated, info = step_fn(
             step_keys, env_state, env_action
         )
         reward = reward * config.REWARD_SCALE
+
+        if tv_coef > 0.0:
+            # Potential-based fragmentation shaping: dense differentiable packing
+            # pressure. A placement that creates new free<->occupied boundaries is
+            # penalised; one that fills a gap snugly (or sits flush to an edge /
+            # existing block) is rewarded. Gradients flow through the soft
+            # footprint into the slot distribution at existing block edges.
+            tv_after = _tv_fragmentation(env_state.env_state.link_slot_array)
+            reward = reward + tv_coef * (tv_before - tv_after)
 
         # Ablation: sever cross-step gradients (r_t backprops to a_t only, not to
         # a_{t-k} through the occupancy state). The full-BPTT-minus-this delta

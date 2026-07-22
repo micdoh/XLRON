@@ -157,6 +157,30 @@ def test_shac_dist_surrogate_gradient_nonzero():
     assert np.any(grad_norm > 1e-8), f"gradient identically zero: {grad_norm}"
 
 
+def test_tv_fragmentation_counts_boundaries():
+    from xlron.diff_sim.shac import _tv_fragmentation
+
+    # One link, 10 slots: block [2,4) and block [7,8) -> boundaries: left edge
+    # (padded occupied) to slot0 free = 1, free|occ at 2, occ|free at 4,
+    # free|occ at 7, occ|free at 8, slot9 free to right pad occupied = 1 -> 6
+    occ = jnp.zeros((1, 10)).at[0, 2:4].set(1.0).at[0, 7:8].set(1.0)
+    assert float(_tv_fragmentation(occ)) == 6.0
+    # Fully packed from the left edge: only one boundary (end of block)
+    occ2 = jnp.zeros((1, 10)).at[0, 0:4].set(1.0)
+    assert float(_tv_fragmentation(occ2)) == 2.0
+    # Empty spectrum: two pad boundaries
+    assert float(_tv_fragmentation(jnp.zeros((1, 10)))) == 2.0
+
+
+@pytest.mark.slow
+def test_shac_tv_shaping_runs():
+    config = _make_config(SHAC_TV_COEF=0.05, TOTAL_TIMESTEPS=32)
+    runner_state, env, env_params, learner_fn = _setup(config)
+    out = jax.jit(learner_fn)(runner_state)
+    assert bool(jnp.all(jnp.isfinite(out["loss_info"]["loss/total_loss"])))
+    assert bool(jnp.all(jnp.isfinite(out["loss_info"]["loss/grad_norm"])))
+
+
 @pytest.mark.slow
 def test_shac_flat_surrogate_runs():
     config = _make_config(SHAC_ACTION_SURROGATE="flat", TOTAL_TIMESTEPS=32)

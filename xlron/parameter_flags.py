@@ -1062,6 +1062,15 @@ flags.DEFINE_float(
     1.0,
     "Coefficient for the analytic (BPTT) actor term in the SHAC loss.",
 )
+flags.DEFINE_float(
+    "SHAC_TV_COEF",
+    0.0,
+    "Coefficient for potential-based fragmentation shaping in the SHAC reward: "
+    "r += coef * (TV_before - TV_after), where TV is the total variation of link "
+    "occupancy along the slot axis (number of free<->occupied boundaries, edges "
+    "padded as occupied). Dense differentiable packing pressure -- the missing "
+    "signal when blocking events are sparse.",
+)
 flags.DEFINE_boolean(
     "SHAC_TRUNCATE_STATE_GRAD",
     False,
