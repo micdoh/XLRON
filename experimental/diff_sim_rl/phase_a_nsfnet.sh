@@ -58,6 +58,34 @@ case "$1" in
       --SHAC_ACTION_SURROGATE=slot_conditional --temperature=1.0 --LR=3e-4 \
       --SHAC_PG_COEF=1.0 --SHAC_ANALYTIC_COEF=0.0 --EXPERIMENT_NAME=shac_pg_only_t1
     ;;
+  # Round 3b: fix PG instability. gamma=0.99/H=32 made TD targets bootstrap-
+  # dominated (gamma^H=0.72), so normalized advantages were mostly early-critic
+  # noise and REINFORCE sharpened onto it (blocking 5->9-12%). H=64 + gamma=0.97
+  # (gamma^H=0.14) grounds targets in real rewards; lower LR + higher entropy.
+  hybrid_b)
+    "$DIR/launch_shac.sh" shac_hyb_b "$GPU2" \
+      --env_type=rmsa --topology_name=nsfnet_deeprmsa_directed --link_resources=100 \
+      --k=5 --load=250 --continuous_operation --truncate_holding_time \
+      --ENV_WARMUP_STEPS=3000 --warmup_action_type=heuristic --path_heuristic=ksp_ff \
+      --WANDB --PROJECT=DIFF_SIM_RL --SHAC --differentiable \
+      --GAMMA=0.97 --GAE_LAMBDA=0.95 --VF_COEF=0.5 --ENT_COEF=0.01 \
+      --ROLLOUT_LENGTH=64 --NUM_ENVS=256 --TOTAL_TIMESTEPS=15000000 \
+      --STEPS_PER_INCREMENT=163840 \
+      --SHAC_ACTION_SURROGATE=slot_conditional --temperature=1.0 --LR=1e-4 \
+      --SHAC_PG_COEF=1.0 --EXPERIMENT_NAME=shac_hyb_b_g97_h64
+    ;;
+  pg_only_b)
+    "$DIR/launch_shac.sh" shac_pg_b "$GPU3" \
+      --env_type=rmsa --topology_name=nsfnet_deeprmsa_directed --link_resources=100 \
+      --k=5 --load=250 --continuous_operation --truncate_holding_time \
+      --ENV_WARMUP_STEPS=3000 --warmup_action_type=heuristic --path_heuristic=ksp_ff \
+      --WANDB --PROJECT=DIFF_SIM_RL --SHAC --differentiable \
+      --GAMMA=0.97 --GAE_LAMBDA=0.95 --VF_COEF=0.5 --ENT_COEF=0.01 \
+      --ROLLOUT_LENGTH=64 --NUM_ENVS=256 --TOTAL_TIMESTEPS=15000000 \
+      --STEPS_PER_INCREMENT=163840 \
+      --SHAC_ACTION_SURROGATE=slot_conditional --temperature=1.0 --LR=1e-4 \
+      --SHAC_PG_COEF=1.0 --SHAC_ANALYTIC_COEF=0.0 --EXPERIMENT_NAME=shac_pg_b_g97_h64
+    ;;
   ppo)
     # PPO reference with identical env + action space (full slot granularity)
     "$DIR/launch_shac.sh" ppo_ref "$GPU3" $COMMON \
