@@ -83,6 +83,7 @@ RUNS_A2 = {
     "shac_flat_tv05": ("flat + TV shaping", "#8FB3E8", 256),
     "shac_dist_tv05": ("dist + TV shaping", "#D96D4F", 256),
     "shac_tfm_dist_tv": ("transformer + dist + TV", "#2FA396", 64),
+    "shac_tfm_dist_tv_lr15": ("transformer + dist + TV, LR 1.5e-3", "#B58A2A", 64),
 }
 fig2, ax2 = plt.subplots(figsize=(8, 4.8), dpi=150)
 for key, (label, color, n_envs) in RUNS_A2.items():
