@@ -136,7 +136,7 @@ against brute force in shac_test.py.
 | shac_dist_tv (GPU) | dist+TV(.05), T=5 | malmo | ~10.8M (host killed procs) | 6.3% and slowly falling | far behind flat; MLP can't express geometry |
 | shac_flat_tv (GPU) | flat+TV(.05), T=5 | malmo | ~10.8M (host killed procs) | 4.2% | TV neither helps nor hurts flat |
 | shac_tfm_dist_tv | dist+TV, transformer | malmo | 10M | 7.6% (no learning) | architecture alone doesn't unlock the signal |
-| shac_tfm_dist_tv_lr15 | dist+TV, transformer | malmo | 10M | ~7.7% and rising @ 4M | higher LR strictly worse; verdict robust to LR |
+| shac_tfm_dist_tv_lr15 | dist+TV, transformer | malmo | 10M | 7.73% (final) | higher LR strictly worse; verdict robust to LR |
 
 Note 2026-07-23 00:15: both round-5 runs (and the earlier tmux server) were
 killed externally on malmo around midnight (no reboot, no OOM, no traceback) --
