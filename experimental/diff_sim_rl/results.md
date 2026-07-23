@@ -135,7 +135,8 @@ against brute force in shac_test.py.
 | local dist | dist, T=5 | Mac CPU, N=32 | 1M | 7.3 -> 6.6% PLATEAU | see diagnosis below |
 | shac_dist_tv (GPU) | dist+TV(.05), T=5 | malmo | ~10.8M (host killed procs) | 6.3% and slowly falling | far behind flat; MLP can't express geometry |
 | shac_flat_tv (GPU) | flat+TV(.05), T=5 | malmo | ~10.8M (host killed procs) | 4.2% | TV neither helps nor hurts flat |
-| shac_tfm_dist_tv | dist+TV, transformer | malmo | 10M | TBD | the architecture test |
+| shac_tfm_dist_tv | dist+TV, transformer | malmo | 10M | 7.6% (no learning) | architecture alone doesn't unlock the signal |
+| shac_tfm_dist_tv_lr15 | dist+TV, transformer | malmo | 10M | TBD | JOCN LR (1.5e-3 warmup_cosine) |
 
 Note 2026-07-23 00:15: both round-5 runs (and the earlier tmux server) were
 killed externally on malmo around midnight (no reboot, no OOM, no traceback) --
@@ -158,6 +159,32 @@ while geometry-aware placement requires reading the 4400-dim occupancy obs.
 Next: 15M GPU runs + transformer policy (per-slot logits, WIRE positional
 encodings) which has the right inductive bias. Scripts ready (round 5);
 launches blocked on the UCL VPN outage as of ~22:30.
+
+### Phase A2 conclusions
+
+Both ideas are mechanically verified (per-slot gradient vector matches brute
+force; beta-sweep shows the TV term steers training) but neither improves on
+the flat index prior at 1-15M steps, across MLP and transformer policies and
+LR settings. Root cause, best current understanding: **straight-through
+evaluates every nonlinearity at the HARD forward values**, so the counterfactual
+gradient for an unsampled slot vanishes unless that slot is adjacent to an
+existing boundary or a live violation. The surviving signal is sparse and
+local; "prefer low index" is dense and expressible with output biases alone,
+so the crude prior keeps winning. The differentiable-sim gradient in XLRON is
+real and uniquely effective on the raw action space (nothing else learns at
+all), but as constructed its information content approximates a soft-FF prior,
+not MSCL-style lookahead.
+
+Paths that could carry more information (future work, in rough order of cost):
+1. Soft-forward rollouts (abandon pure ST for the gradient rollout: evaluate
+   soft ops at soft values, accept forward drift, anneal temperature) -- gives
+   dense counterfactuals everywhere at the price of bias and a second rollout.
+2. Branching counterfactual rollouts (evaluate k candidate placements by short
+   simulation -- MSCL's lookahead computed exactly, differentiability optional).
+3. Distill MSCL into a policy (supervised, cheap, exactly matches ~0.05% on
+   USA100 by construction) then RL fine-tune from there -- sidesteps the
+   gradient-information bottleneck and is the most practical route to BEAT
+   MSCL rather than approach it.
 
 ### Local dist diagnosis -> TV shaping
 

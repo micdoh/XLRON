@@ -76,3 +76,36 @@ os.makedirs(os.path.dirname(out), exist_ok=True)
 fig.tight_layout()
 fig.savefig(out)
 print(f"saved {out}")
+
+# ---- Phase A2: distribution actions + TV shaping ----
+RUNS_A2 = {
+    "cnzbizzb": ("flat surrogate (control, 4.3%)", "#3E7DDB", 256),
+    "shac_flat_tv05": ("flat + TV shaping", "#8FB3E8", 256),
+    "shac_dist_tv05": ("dist + TV shaping", "#D96D4F", 256),
+    "shac_tfm_dist_tv": ("transformer + dist + TV", "#2FA396", 64),
+}
+fig2, ax2 = plt.subplots(figsize=(8, 4.8), dpi=150)
+for key, (label, color, n_envs) in RUNS_A2.items():
+    run = project_runs.get(key) or by_name.get(key)
+    if run is None:
+        continue
+    hist = run.history(keys=[METRIC, "env_step"], pandas=True, samples=2000)
+    if hist.empty or METRIC not in hist:
+        continue
+    hist = hist.dropna(subset=[METRIC]).sort_values("env_step")
+    ax2.plot(hist["env_step"] * n_envs / 1e6, hist[METRIC] * 100,
+             label=label, color=color, linewidth=1.6)
+ax2.axhline(BASELINE_BP * 100, color="#555555", linewidth=1.2, linestyle="--")
+ax2.annotate("KSP-FF 2.60%", xy=(0.99, BASELINE_BP * 100),
+             xycoords=("axes fraction", "data"), ha="right", va="bottom",
+             fontsize=8, color="#555555")
+ax2.set_xlabel("Environment steps (millions)")
+ax2.set_ylabel("Service blocking probability (%)")
+ax2.set_title("Phase A2: distribution actions + TV shaping (NSFNET, load 250)", fontsize=10)
+ax2.grid(True, alpha=0.25, linewidth=0.5)
+ax2.spines[["top", "right"]].set_visible(False)
+ax2.legend(fontsize=8, frameon=False)
+out2 = os.path.join(os.path.dirname(__file__), "figures", "phase_a2_nsfnet_curves.png")
+fig2.tight_layout()
+fig2.savefig(out2)
+print(f"saved {out2}")
