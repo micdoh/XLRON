@@ -74,6 +74,68 @@ def load_traj(topo: str, method: str) -> pd.DataFrame:
     return pd.read_csv(path)
 
 
+# ARBR (Walkowiak et al., JOCN 2018) is plotted only on the blocking-vs-load
+# figures (no trajectory data), so it is not part of METHODS.
+ARBR_STYLE = {"display": r"ARBR", "color": "#ff7f0e", "marker": "v"}
+
+
+def load_arbr_best_alpha(topo: str, thr: float = 1e-3):
+    """Best-alpha rows of the ARBR sweep for a topology.
+
+    The sweep file holds one curve per --arbr_alpha; select the alpha with the
+    highest load at the thr service-blocking threshold (log-linear
+    interpolation), falling back to lowest blocking at the lowest load when no
+    alpha reaches thr. Returns (alpha, rows) or (None, []) if absent.
+    """
+    path = RESULTS / topo / f"{topo}_arbr_ff_eval_results.jsonl"
+    if not path.exists():
+        return None, []
+    with open(path) as f:
+        rows = [json.loads(line) for line in f if line.strip()]
+    by_alpha = {}
+    for r in rows:
+        by_alpha.setdefault(r["config"].get("arbr_alpha"), []).append(r)
+    best_key, best_alpha = None, None
+    for alpha, sub in by_alpha.items():
+        sub.sort(key=lambda r: r["config"]["load"])
+        loads = np.array([r["config"]["load"] for r in sub])
+        sbps = np.maximum(
+            np.array([r["metrics"]["service_blocking_probability"]["mean"] for r in sub]),
+            1e-12,
+        )
+        below = sbps <= thr
+        if below.any():
+            i = int(np.where(below)[0][-1])
+            if i == len(loads) - 1:
+                key = (1, loads[-1])
+            else:
+                s0, s1 = np.log10(sbps[i]), np.log10(sbps[i + 1])
+                t = (np.log10(thr) - s0) / (s1 - s0) if s1 != s0 else 0.0
+                key = (1, loads[i] + t * (loads[i + 1] - loads[i]))
+        else:
+            key = (0, -sbps[0])
+        if best_key is None or key > best_key:
+            best_key, best_alpha = key, alpha
+    return best_alpha, sorted(by_alpha[best_alpha], key=lambda r: r["config"]["load"])
+
+
+def _plot_arbr_series(ax, topo: str, markersize: int):
+    arbr_alpha, arbr_rows = load_arbr_best_alpha(topo)
+    if not arbr_rows:
+        return
+    loads = [r["config"]["load"] for r in arbr_rows]
+    m = [r["metrics"]["service_blocking_probability"]["mean"] * 100 for r in arbr_rows]
+    lo = [r["metrics"]["service_blocking_probability"]["iqr_lower"] * 100 for r in arbr_rows]
+    hi = [r["metrics"]["service_blocking_probability"]["iqr_upper"] * 100 for r in arbr_rows]
+    ax.plot(
+        loads, m,
+        marker=ARBR_STYLE["marker"], color=ARBR_STYLE["color"], linestyle="--",
+        label=ARBR_STYLE["display"] + rf" ($\alpha$={arbr_alpha:g})",
+        markersize=markersize,
+    )
+    ax.fill_between(loads, lo, hi, alpha=0.2, color=ARBR_STYLE["color"])
+
+
 # ---------------------------------------------------------------------------
 # 1. Service blocking probability vs traffic load
 # ---------------------------------------------------------------------------
@@ -107,6 +169,8 @@ def plot_blocking_vs_load():
                 loads, lo, hi,
                 alpha=0.2, color=minfo["color"],
             )
+
+        _plot_arbr_series(ax, topo, markersize=5)
 
         ax.set_xlabel("Traffic Load (Erlang)", fontsize=FS_LABEL)
         ax.set_title(tinfo["display"], fontsize=FS_TITLE)
@@ -166,6 +230,8 @@ def plot_blocking_vs_load_with_cutset():
                 label=minfo["display"], markersize=10,
             )
             ax.fill_between(loads, sbp_iqr_lo, sbp_iqr_hi, alpha=0.2, color=minfo["color"])
+
+        _plot_arbr_series(ax, topo, markersize=10)
 
         # Plot cutset bound variants
         for cv in CUTSET_VARIANTS:
