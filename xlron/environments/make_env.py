@@ -898,6 +898,7 @@ def make(
         mscl_interfering_k=int(
             1 if config.get("mscl_interfering_k") is None else config.get("mscl_interfering_k")
         ),
+        arbr_alpha=float(0.8 if config.get("arbr_alpha") is None else config.get("arbr_alpha")),
         transformer_obs_type=transformer_obs_type,
         use_gnn=config.get("USE_GNN"),
         profile=profile,
