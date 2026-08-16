@@ -947,7 +947,6 @@ def _plot_loss_panel(ax, topo: str):
         )
     ax.set_yscale("symlog", linthresh=1e-2)
     ax.grid(axis="y", which="both", linewidth=0.5, alpha=0.4)
-    ax.set_title(TOPOLOGIES[topo]["display"])
 
 
 def plot_loss_components():
@@ -958,12 +957,12 @@ def plot_loss_components():
     fig, axes = plt.subplots(1, 2, figsize=(5.9, 2.7), sharey=True)
     for col, topo in enumerate(["tataind", "usa100"]):
         _plot_loss_panel(axes[col], topo)
-        axes[col].set_xlabel("Update Step", fontsize=FS_LABEL)
+        axes[col].set_xlabel("Update Step", fontsize=10)
         axes[col].tick_params(labelsize=FS_TICK)
         axes[col].text(0.96, 0.96, TOPOLOGIES[topo]["display"],
-                       transform=axes[col].transAxes, fontsize=FS_TITLE,
+                       transform=axes[col].transAxes, fontsize=10,
                        fontweight="bold", ha="right", va="top")
-    axes[0].set_ylabel("Loss", fontsize=FS_LABEL)
+    axes[0].set_ylabel("Loss", fontsize=10)
     # Collect legend handles/labels from either panel
     handles, labels = axes[1].get_legend_handles_labels()
     fig.legend(handles, labels, loc="lower center", ncol=len(handles),
