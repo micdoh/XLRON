@@ -403,7 +403,7 @@ def plot_bitrate_blocking_over_steps():
             steps = np.arange(len(bbp_smooth))
             ax.plot(
                 steps[::window], bbp_smooth.values[::window] * 100,
-                color=minfo["color"], label=minfo["display"],
+                color=minfo["color"], label=minfo["display"], linewidth=1.4,
             )
         ax.set_xlabel(r"Request Index ($\times 10^3$)", fontsize=FS_LABEL)
         ax.text(0.04, 0.96, tinfo["display"], transform=ax.transAxes,
@@ -505,13 +505,13 @@ def plot_path_comparison():
             # Top row: path length in km
             axes[0, col].plot(
                 steps[::window], pl_smooth.values[::window],
-                color=minfo["color"], label=minfo["display"],
+                color=minfo["color"], label=minfo["display"], linewidth=1.4,
             )
 
             # Bottom row: path length in hops
             axes[1, col].plot(
                 steps[::window], hops_smooth.values[::window],
-                color=minfo["color"], label=minfo["display"],
+                color=minfo["color"], label=minfo["display"], linewidth=1.4,
             )
 
         axes[0, col].set_title(tinfo["display"], fontsize=FS_TITLE)
@@ -565,8 +565,8 @@ def plot_path_delta():
         delta_hops_smooth = pd.Series(delta_hops).rolling(window=window, min_periods=1).mean()
 
         # Top row: delta km
-        axes[0, col].plot(steps, delta_km_smooth, color="black", linewidth=0.5)
-        axes[0, col].axhline(0, color="black", linewidth=1, linestyle="--", alpha=0.5)
+        axes[0, col].plot(steps, delta_km_smooth, color="black", linewidth=0.4)
+        axes[0, col].axhline(0, color="black", linewidth=0.8, linestyle="--", alpha=0.5)
         axes[0, col].fill_between(
             steps, 0, delta_km_smooth, where=delta_km_smooth > 0,
             alpha=0.3, color=PRIMARY_COLORS[3], label="FF-KSP shorter",
@@ -577,8 +577,8 @@ def plot_path_delta():
         )
 
         # Bottom row: delta hops
-        axes[1, col].plot(steps, delta_hops_smooth, color="black", linewidth=0.5)
-        axes[1, col].axhline(0, color="black", linewidth=1, linestyle="--", alpha=0.5)
+        axes[1, col].plot(steps, delta_hops_smooth, color="black", linewidth=0.4)
+        axes[1, col].axhline(0, color="black", linewidth=0.8, linestyle="--", alpha=0.5)
         axes[1, col].fill_between(
             steps, 0, delta_hops_smooth, where=delta_hops_smooth > 0,
             alpha=0.3, color=PRIMARY_COLORS[3], label="FF-KSP shorter",
