@@ -18,6 +18,7 @@ from xlron.environments.rwa_lightpath_reuse.rwa_lightpath_reuse_test import (
 # from xlron.environments.vone import *
 # from xlron.environments.rsa import *
 from xlron.heuristics.heuristics import (
+    arbr_ff,
     bf_ksp,
     capacity_loss,
     exact_fit,
@@ -14892,6 +14893,210 @@ class ExactFitBruteforceTest(chex.TestCase):
                 expected_last = exact_starts[-1] if exact_starts else S
                 self.assertEqual(int(first_exact[r]), expected_first, f"seed={seed} r={r}")
                 self.assertEqual(int(last_exact[r]), expected_last, f"seed={seed} r={r}")
+
+
+class ArbrFfTest(chex.TestCase):
+    """ARBR on the 4-node fixture. Request (0->1) has two candidate paths:
+    path 0 = link 0 (1 hop), path 1 = links 1,2,3 (3 hops); 4 slots per link,
+    every request needs 1 slot. c_static = hops (x 1 slot); MLU deciles with
+    4 slots: 0 slots occupied -> 10, 1 -> 30, 2 -> 50, 3 -> 80, 4 -> 100."""
+
+    def setUp(self):
+        super().setUp()
+        self.key, self.env, self.obs, self.state, self.params = rwa_4node_test_setup()
+
+    @chex.all_variants()
+    @parameterized.named_parameters(
+        (
+            # Empty network: MLU ties at 10, static decides (1 hop < 3 hops)
+            # c_adaptive: path0 = 0.2*1 + 0.8*10 = 8.2, path1 = 0.2*3 + 0.8*10 = 8.6
+            "case_empty",
+            jnp.array([0, 1, 1]),
+            jnp.array(
+                [
+                    [0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                ]
+            ),
+            jnp.array(0),
+        ),
+        (
+            # Fully occupied network: no feasible path, fall through to action 0
+            "case_full",
+            jnp.array([0, 1, 1]),
+            jnp.array(
+                [
+                    [1, 1, 1, 1],
+                    [1, 1, 1, 1],
+                    [1, 1, 1, 1],
+                    [1, 1, 1, 1],
+                ]
+            ),
+            jnp.array(0),
+        ),
+        (
+            # Link 0 at 75% (decile 80), links 1-3 at 25% (decile 30):
+            # path0 = 0.2*1 + 0.8*80 = 64.2, path1 = 0.2*3 + 0.8*30 = 24.6
+            # Dynamic term diverts to the longer path; first free slot there is 1
+            "case_dynamic_avoids_congestion",
+            jnp.array([0, 1, 1]),
+            jnp.array(
+                [
+                    [1, 1, 1, 0],
+                    [1, 0, 0, 0],
+                    [1, 0, 0, 0],
+                    [1, 0, 0, 0],
+                ]
+            ),
+            jnp.array(5),
+        ),
+        (
+            # All links at 25% -> MLU ties at 30, static decides:
+            # path0 = 0.2*1 + 0.8*30 = 24.2, path1 = 0.2*3 + 0.8*30 = 24.6
+            "case_mlu_tie_static_decides",
+            jnp.array([0, 1, 1]),
+            jnp.array(
+                [
+                    [1, 0, 0, 0],
+                    [1, 0, 0, 0],
+                    [1, 0, 0, 0],
+                    [1, 0, 0, 0],
+                ]
+            ),
+            jnp.array(1),
+        ),
+    )
+    def test_arbr_ff_default_alpha(self, request_array, link_slot_array, expected):
+        self.state = self.state.replace(
+            request_array=request_array, link_slot_array=link_slot_array
+        )
+        action = self.variant(arbr_ff, static_argnums=(1,))(self.state, self.params)
+        chex.assert_trees_all_close(action, expected)
+
+
+class ArbrFfAlphaZeroTest(chex.TestCase):
+    def setUp(self):
+        super().setUp()
+        self.key, self.env, self.obs, self.state, self.params = rwa_4node_test_setup(arbr_alpha=0.0)
+
+    @chex.all_variants()
+    @parameterized.named_parameters(
+        (
+            # alpha=0 is static-only: 1-hop path 0 wins despite 75% utilisation
+            "case_static_ignores_congestion",
+            jnp.array([0, 1, 1]),
+            jnp.array(
+                [
+                    [1, 1, 1, 0],
+                    [0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                ]
+            ),
+            jnp.array(3),
+        ),
+        (
+            # Statically-best path 0 has no free slot; fall back to feasible path 1
+            "case_best_path_infeasible",
+            jnp.array([0, 1, 1]),
+            jnp.array(
+                [
+                    [1, 1, 1, 1],
+                    [0, 1, 1, 1],
+                    [0, 1, 1, 1],
+                    [0, 1, 1, 1],
+                ]
+            ),
+            jnp.array(4),
+        ),
+    )
+    def test_arbr_ff_alpha_zero(self, request_array, link_slot_array, expected):
+        self.state = self.state.replace(
+            request_array=request_array, link_slot_array=link_slot_array
+        )
+        action = self.variant(arbr_ff, static_argnums=(1,))(self.state, self.params)
+        chex.assert_trees_all_close(action, expected)
+
+
+class ArbrFfAlphaOneTest(chex.TestCase):
+    def setUp(self):
+        super().setUp()
+        self.key, self.env, self.obs, self.state, self.params = rwa_4node_test_setup(arbr_alpha=1.0)
+
+    @chex.all_variants()
+    @parameterized.named_parameters(
+        (
+            # alpha=1 is dynamic-only: 3-hop path 1 (MLU 10) beats 1-hop path 0 (MLU 30)
+            "case_pure_dynamic_avoids_used_link",
+            jnp.array([0, 1, 1]),
+            jnp.array(
+                [
+                    [1, 0, 0, 0],
+                    [0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                ]
+            ),
+            jnp.array(4),
+        ),
+        (
+            # MLU ties (all links 25% -> 30): argmin tie-break keeps KSP order (path 0)
+            "case_mlu_tie_prefers_ksp_order",
+            jnp.array([0, 1, 1]),
+            jnp.array(
+                [
+                    [1, 0, 0, 0],
+                    [1, 0, 0, 0],
+                    [1, 0, 0, 0],
+                    [1, 0, 0, 0],
+                ]
+            ),
+            jnp.array(1),
+        ),
+    )
+    def test_arbr_ff_alpha_one(self, request_array, link_slot_array, expected):
+        self.state = self.state.replace(
+            request_array=request_array, link_slot_array=link_slot_array
+        )
+        action = self.variant(arbr_ff, static_argnums=(1,))(self.state, self.params)
+        chex.assert_trees_all_close(action, expected)
+
+
+class ArbrFfNsfnetTest(chex.TestCase):
+    """ARBR on NSFNET with 16 slots and multi-slot requests. Request (0->7, 100 Gb/s)
+    needs ceil(100 / 12.5) + 1 guardband = 9 slots on every candidate path; path 0
+    is 1 hop (link 2), paths 1-4 are 5 hops. c_static: path0 = 9, others = 45."""
+
+    def setUp(self):
+        super().setUp()
+        self.key, self.env, self.obs, self.state, self.params = rsa_nsfnet_16_mod_test_setup()
+
+    @chex.all_variants()
+    def test_static_wins_when_uncongested(self):
+        # Empty network: MLU ties at 10 -> shortest path 0, first-fit slot 0
+        # c_adaptive: path0 = 0.2*9 + 0.8*10 = 9.8, paths1-4 = 0.2*45 + 0.8*10 = 17
+        self.state = self.state.replace(
+            request_array=jnp.array([0, 100, 7]),
+            link_slot_array=jnp.zeros((22, 16)),
+        )
+        action = self.variant(arbr_ff, static_argnums=(1,))(self.state, self.params)
+        chex.assert_trees_all_close(action, jnp.array(0))
+
+    @chex.all_variants()
+    def test_congestion_shifts_to_longer_path(self):
+        # Link 2 (path 0's only link) at 7/16 = 43.75% -> decile 50; other links
+        # empty -> decile 10. Path 0 stays feasible (free block of 9 at slot 7) but
+        # c_adaptive: path0 = 0.2*9 + 0.8*50 = 41.8, paths1-4 = 0.2*45 + 0.8*10 = 17.
+        # Ties among the four 5-hop paths break to the lowest index (path 1), slot 0.
+        link_slot_array = jnp.zeros((22, 16)).at[2, :7].set(1)
+        self.state = self.state.replace(
+            request_array=jnp.array([0, 100, 7]),
+            link_slot_array=link_slot_array,
+        )
+        action = self.variant(arbr_ff, static_argnums=(1,))(self.state, self.params)
+        chex.assert_trees_all_close(action, jnp.array(16))
 
 
 if __name__ == "__main__":

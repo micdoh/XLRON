@@ -43,6 +43,7 @@ GUI_PATH_HEURISTICS = [
     "kmf_ff",
     "kme_ff",
     "kca_ff",
+    "arbr_ff",
 ]
 
 

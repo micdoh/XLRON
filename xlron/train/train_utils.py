@@ -35,6 +35,7 @@ from xlron.environments.env_funcs import (
 from xlron.environments.make_env import make
 from xlron.environments.wrappers import TimeIt
 from xlron.heuristics.heuristics import (
+    arbr_ff,
     bf_ksp,
     ff_ksp,
     flf_ksp,
@@ -1277,6 +1278,8 @@ def select_action_eval(select_action_state, env, env_params, eval_state, config)
                 action = mu_ksp(env_state.env_state, env_params, True, True)
             elif config.path_heuristic.lower() == "kca_ff":
                 action = kca_ff(env_state.env_state, env_params)
+            elif config.path_heuristic.lower() == "arbr_ff":
+                action = arbr_ff(env_state.env_state, env_params)
             elif config.path_heuristic.lower() == "kme_ff":
                 action = kme_ff(env_state.env_state, env_params)
             elif config.path_heuristic.lower() == "ksp_bf":

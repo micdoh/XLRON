@@ -673,6 +673,60 @@ def kca_ff(state: EnvState, params: RSAEnvParams) -> Array:
     return action
 
 
+@partial(jax.jit, static_argnums=(1,))
+def arbr_ff(state: EnvState, params: RSAEnvParams) -> Array:
+    """Adaptive Routing with Back-to-back Regeneration (ARBR). Only suitable for RSA/RMSA.
+    Ranks the k candidate paths by an adaptive metric combining the static resource
+    cost of serving the request with the current utilisation of the path's links,
+    then allocates first-fit on the best-ranked path with a free block.
+    Reference: Walkowiak, Klinkowski & Lechowicz, "Dynamic routing in spectrally
+    spatially flexible optical networks with back-to-back regeneration",
+    J. Opt. Commun. Netw. 10(5), 2018.
+
+    Adaptation to single-fibre RSA/RMSA without regeneration or transceiver limits:
+    each candidate routing configuration is a single transparent path, so the static
+    cost reduces to SL(p, d) = hops x required slots (incl. guardband), the
+    transceiver terms of the original metric vanish (transceivers unconstrained),
+    and the dynamic cost reduces to the maximum link utilisation (MLU) over the
+    path's links, quantised to decile bins {10, 20, ..., 100} as in the paper.
+    The combined metric is c_adaptive = (1 - alpha) * SL + alpha * MLU, where the
+    tuning parameter alpha is set by --arbr_alpha (0 = static cost only,
+    1 = dynamic utilisation only; 0.8 is the value recommended in the paper).
+
+    Args:
+        state (EnvState): Environment state
+        params (EnvParams): Environment parameters
+
+    Returns:
+        Array: Action
+    """
+    mask = get_action_mask(state, params)
+    first_slots = first_fit(state, params)
+    nodes_sd, _ = read_rsa_request(state.request_array)
+    paths = get_paths(params, nodes_sd)
+    # Static cost: slots consumed network-wide = path hops * required slots
+    num_slots = get_request_num_slots(state, params)
+    c_static = jnp.sum(paths, axis=1) * num_slots
+    # Dynamic cost: max link utilisation on the path, quantised to deciles
+    # (0-10% -> 10, 11-20% -> 20, ..., 91-100% -> 100)
+    link_util = jnp.count_nonzero(state.link_slot_array, axis=1) / params.link_resources
+    link_util_decile = jnp.clip(jnp.ceil(link_util * 10.0), 1.0, 10.0) * 10.0
+    mlu = jnp.max(jnp.where(paths > 0, link_util_decile[None, :], 0.0), axis=1)
+    alpha = params.arbr_alpha
+    c_adaptive = (1.0 - alpha) * c_static + alpha * mlu
+    # Penalise paths with no free block (mirroring kca_ff): first_fit returns
+    # params.link_resources for such paths, which maps to slot 0 below, where the
+    # mask is guaranteed 0 for such a path.
+    slot_indices = first_slots % params.link_resources
+    first_slot_valid = jnp.take_along_axis(mask, slot_indices[:, None], axis=1).squeeze(1)
+    c_adaptive = jnp.where(first_slot_valid > 0, c_adaptive, jnp.inf)
+    # argmin ties break towards the lower path index, i.e. k-shortest-path order
+    path_index = jnp.argmin(c_adaptive)
+    slot_index = first_slots[path_index] % params.link_resources
+    action = path_index * params.link_resources + slot_index
+    return action
+
+
 def get_link_weights(state: EnvState, params: RSAEnvParams):
     """Get link weights based on occupancy for use in congestion-aware routing heuristics.
 
