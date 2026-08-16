@@ -149,7 +149,7 @@ def _plot_arbr_series(ax, topo: str, markersize: int):
 # ---------------------------------------------------------------------------
 
 def plot_blocking_vs_load():
-    fig, axes = plt.subplots(1, 2, figsize=(5.9, 2.7), sharey=True)
+    fig, axes = plt.subplots(1, 2, figsize=(5.9, 3.2), sharey=True)
 
     for ax, (topo, tinfo) in zip(axes, TOPOLOGIES.items()):
         for method, minfo in METHODS.items():
@@ -171,17 +171,18 @@ def plot_blocking_vs_load():
             ax.plot(
                 loads, mean_arr,
                 marker=minfo["marker"], color=minfo["color"],
-                label=minfo["display"], markersize=5,
+                label=minfo["display"], markersize=3.5,
             )
             ax.fill_between(
                 loads, lo, hi,
                 alpha=0.2, color=minfo["color"],
             )
 
-        _plot_arbr_series(ax, topo, markersize=5)
+        _plot_arbr_series(ax, topo, markersize=3.5)
 
         ax.set_xlabel("Traffic Load (Erlang)", fontsize=FS_LABEL)
-        ax.set_title(tinfo["display"], fontsize=FS_TITLE)
+        ax.text(0.04, 0.96, tinfo["display"], transform=ax.transAxes,
+                fontsize=FS_TITLE, fontweight="bold", va="top")
         ax.set_yscale("log")
         ax.set_ylim(bottom=1e-2)
         if topo == "tataind":
@@ -405,7 +406,8 @@ def plot_bitrate_blocking_over_steps():
                 color=minfo["color"], label=minfo["display"],
             )
         ax.set_xlabel(r"Request Index ($\times 10^3$)", fontsize=FS_LABEL)
-        ax.set_title(tinfo["display"], fontsize=FS_TITLE)
+        ax.text(0.04, 0.96, tinfo["display"], transform=ax.transAxes,
+                fontsize=FS_TITLE, fontweight="bold", va="top")
         ax.xaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{x / 1e3:.0f}"))
         ax.tick_params(labelsize=FS_TICK)
         if topo == "usa100":
@@ -834,12 +836,16 @@ def _plot_ablation_panel(ax, topo: str):
     ax.yaxis.set_minor_formatter(_fmt)
     ax.yaxis.set_major_formatter(_fmt)
     ax.grid(axis="y", which="both", linewidth=0.5, alpha=0.4)
-    ax.set_title(TOPOLOGIES[topo]["display"])
+    ax.text(0.97, 0.96, TOPOLOGIES[topo]["display"], transform=ax.transAxes,
+            fontsize=FS_TITLE, fontweight="bold", ha="right", va="top")
 
 
 def plot_ablation_blocking():
     # Two panels side by side, authored for a full-text-width figure* so the
-    # figure occupies two columns on one page.
+    # figure occupies two columns on one page. Thinner lines than the compact
+    # single-column figures: the many overlapping curves stay distinguishable.
+    _lw = plt.rcParams["lines.linewidth"]
+    plt.rcParams["lines.linewidth"] = 1.4
     fig, axes = plt.subplots(1, 2, figsize=(7.2, 2.9), sharey=True)
 
     for col, topo in enumerate(["tataind", "usa100"]):
@@ -856,6 +862,7 @@ def plot_ablation_blocking():
     fig.subplots_adjust(bottom=0.30)
     fig.savefig(FIGURES / "ablation_blocking.png", bbox_inches="tight")
     plt.close(fig)
+    plt.rcParams["lines.linewidth"] = _lw
     print("  -> ablation_blocking")
 
 
@@ -946,12 +953,16 @@ def _plot_loss_panel(ax, topo: str):
 def plot_loss_components():
     # Authored at the thesis text width (like ablation_blocking) so the
     # configure()'d fonts render at their true size when embedded at \linewidth.
+    _lw = plt.rcParams["lines.linewidth"]
+    plt.rcParams["lines.linewidth"] = 1.4
     fig, axes = plt.subplots(1, 2, figsize=(5.9, 2.7), sharey=True)
     for col, topo in enumerate(["tataind", "usa100"]):
         _plot_loss_panel(axes[col], topo)
         axes[col].set_xlabel("Update Step", fontsize=FS_LABEL)
         axes[col].tick_params(labelsize=FS_TICK)
-        axes[col].set_title(TOPOLOGIES[topo]["display"], fontsize=FS_TITLE)
+        axes[col].text(0.96, 0.96, TOPOLOGIES[topo]["display"],
+                       transform=axes[col].transAxes, fontsize=FS_TITLE,
+                       fontweight="bold", ha="right", va="top")
     axes[0].set_ylabel("Loss", fontsize=FS_LABEL)
     # Collect legend handles/labels from either panel
     handles, labels = axes[1].get_legend_handles_labels()
@@ -962,6 +973,7 @@ def plot_loss_components():
     fig.subplots_adjust(bottom=0.28)
     fig.savefig(FIGURES / "loss_components.png", bbox_inches="tight")
     plt.close(fig)
+    plt.rcParams["lines.linewidth"] = _lw
     print("  -> loss_components")
 
 
