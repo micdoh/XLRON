@@ -889,7 +889,7 @@ def get_obs_transformer(state: RSAEnvState, params: RSAEnvParams) -> Array:
     where request-specific features are at the end so the critic can strip them.
 
     Request-specific columns (stripped for critic):
-        - holding_time (1 col, departure mode only)
+        - holding_time (1 col, departure modes only)
         - request_size (1 col)
         - link_relevance (4 cols)
 
@@ -909,6 +909,24 @@ def get_obs_transformer(state: RSAEnvState, params: RSAEnvParams) -> Array:
     # Get edge features based on traffic type (WITHOUT holding time - that's request-specific)
     if params.transformer_obs_type == "occupancy":
         edge_features = state.link_slot_array
+    elif params.transformer_obs_type in ("snr", "occupancy_snr", "departure_snr"):
+        gn_state = cast(GNModelEnvState, state)
+        gn_params = cast(GNModelEnvParams, params)
+        # The physical cache is linear SNR. Keep empty channels at zero and
+        # normalize finite dB features without modifying the physical values.
+        snr_db = 10 * jnp.log10(jnp.maximum(gn_state.link_snr_array, 1e-10))
+        snr_features = jnp.where(
+            gn_state.channel_power_array > 0,
+            jnp.clip(jnp.nan_to_num(snr_db, nan=0.0), 0, gn_params.max_snr) / gn_params.max_snr,
+            0.0,
+        )
+        if params.transformer_obs_type == "occupancy_snr":
+            edge_features = jnp.concatenate((state.link_slot_array, snr_features), axis=-1)
+        elif params.transformer_obs_type == "departure_snr":
+            departures = state.link_slot_departure_array / state.mean_service_holding_time
+            edge_features = jnp.concatenate((departures, snr_features), axis=-1)
+        else:
+            edge_features = snr_features
     elif params.transformer_obs_type == "capacity":
         # 0 where no active lightpath, normalized remaining capacity otherwise
         # capacity mode is only used with RWA-LR which carries link_capacity_array.
@@ -975,7 +993,7 @@ def get_obs_transformer(state: RSAEnvState, params: RSAEnvParams) -> Array:
     # Request-specific: [holding_time (departure only),] request_size, link_relevance
     shared = [wire_features, edge_features, traffic_marginal_features]
     request_specific = [request_size_feature, link_relevance_features]
-    if params.transformer_obs_type == "departure":
+    if params.transformer_obs_type in ("departure", "departure_snr"):
         holding_time_col = jnp.full(
             (params.num_links, 1),
             state.holding_time / state.mean_service_holding_time,
@@ -1366,6 +1384,14 @@ def generate_request_rsa(
     elif params.__class__.__name__ == "RSAGNModelEnvParams":
         remove_expired_services = remove_expired_services_rsa_gn_model
     state = remove_expired_services(state, params) if not params.incremental_loading else state
+    if params.transformer_obs_type in ("snr", "occupancy_snr", "departure_snr"):
+        # Departures change interference on the remaining channels. Refresh once
+        # here, outside the policy forward/backward passes, so observations do
+        # not expose the stale pre-departure cache. Preserve the generic model
+        # used by env.step rather than substituting the mask model's formula.
+        gn_state = cast(GNModelEnvState, state)
+        gn_params = cast(GNModelEnvParams, params)
+        state = gn_state.replace(link_snr_array=get_snr_link_array(gn_state, gn_params))
     return state
 
 
@@ -4257,6 +4283,44 @@ def get_lightpath_snr(
     return jnp.nan_to_num(isrs_gn_model.to_db(1 / nsr), nan=-50, neginf=-50, posinf=50)
 
 
+def get_candidate_snr_evidence(
+    state: RMSAGNModelEnvState,
+    candidate: RMSAGNModelEnvState,
+    affected: Array,
+    params: RMSAGNModelEnvParams,
+    *,
+    backend: str = "jax",
+):
+    """Retain every existing-path check and minimum SNR over the new footprint."""
+    required = get_required_snr_se_kurtosis_array(state.modulation_format_index_array, 2, params)
+    if backend == "pallas":
+        from xlron.kernels.gn_path_snr import path_snr_pallas
+
+        return path_snr_pallas(
+            candidate.link_snr_array,
+            candidate.path_index_array,
+            params.path_link_indices.val,
+            candidate.channel_power_array,
+            candidate.channel_centre_freq_array,
+            candidate.channel_centre_bw_array,
+            params.roadm_express_loss.val,
+            params.roadm_add_drop_loss.val,
+            params.roadm_noise_figure.val,
+            params.transceiver_snr.val,
+            ref_lambda=params.ref_lambda,
+            precompute=True,
+            # -inf encodes an inactive (unconditionally passing) old predicate.
+            # Real NaN/+inf thresholds retain their original rejection behavior.
+            evidence=(jnp.where(state.channel_centre_bw_array != 0, required, -jnp.inf), affected),
+        )
+    if backend != "jax":
+        raise ValueError(f"Unknown candidate SNR backend: {backend}")
+    snr = get_lightpath_snr(candidate, params)
+    existing_ok = jnp.all(jnp.where(state.channel_centre_bw_array != 0, snr >= required, True))
+    new_floor = jnp.min(jnp.where(affected, snr, jnp.inf))
+    return new_floor, existing_ok
+
+
 def compute_total_power_per_link(channel_power_array, path_index_array, channel_centre_freq_array):
     """Compute total optical power per link by summing one power value per channel.
 
@@ -5194,14 +5258,7 @@ def mask_slots_rmsa_gn_model(
 
         # Separate old connections from the new one so identical footprints can
         # share physics while each modulation retains its own admission threshold.
-        lightpath_snr = get_lightpath_snr(temp_state, params)
-        old_required = get_required_snr_se_kurtosis_array(
-            state.modulation_format_index_array, 2, params
-        )
-        existing_ok = jnp.all(
-            jnp.where(state.channel_centre_bw_array != 0, lightpath_snr >= old_required, True)
-        )
-        new_floor = jnp.min(jnp.where(affected, lightpath_snr, jnp.inf))
+        new_floor, existing_ok = get_candidate_snr_evidence(state, temp_state, affected, params)
         return jnp.stack((new_snr, new_floor, existing_ok.astype(new_snr.dtype)))
 
     def candidate_prefix(i):

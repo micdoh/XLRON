@@ -1,0 +1,137 @@
+{
+  "args": {
+    "slots": 1376,
+    "env_type": "rmsa_gn_model",
+    "k": 5,
+    "envs": 16,
+    "occupancy": 0.25,
+    "independent_streams": true,
+    "topology": "nsfnet_deeprmsa_directed",
+    "mode": "uniform",
+    "kernels": [
+      "link",
+      "mask",
+      "rollout"
+    ],
+    "iterations": 9,
+    "steps": 16,
+    "warmup_steps": 128,
+    "output": "v38-tile-32-32-4-pallas_inline.json",
+    "snapshot": "v38-tile-32-32-4-pallas_inline.npz",
+    "reference": "v37-encoded-1376-pallas_inline.npz",
+    "matmul_precision": "highest"
+  },
+  "jax": "0.12.0.1",
+  "device": "cuda:0",
+  "device_kind": "NVIDIA A100 80GB PCIe",
+  "platform": "Linux-5.14.0-611.55.1.el9_7.0.3.x86_64-x86_64-with-glibc2.34",
+  "links": 44,
+  "paths": 911,
+  "modulations": 4,
+  "lightpaths": 128,
+  "occupancy": 0.04648995026946068,
+  "initial_accepted_services": [
+    128,
+    128,
+    128,
+    128,
+    128,
+    128,
+    128,
+    128,
+    128,
+    128,
+    128,
+    128,
+    128,
+    128,
+    128,
+    128
+  ],
+  "metrics": {
+    "link": {
+      "compile_s": 0.4105714689940214,
+      "median_ms": 0.5528517067432404,
+      "min_ms": 0.432383269071579,
+      "argument_bytes": 11624448,
+      "output_bytes": 3874816,
+      "temp_bytes": 11641360,
+      "alias_bytes": 0
+    },
+    "mask": {
+      "compile_s": 2.3602249827235937,
+      "median_ms": 3.8277991116046906,
+      "min_ms": 3.8049761205911636,
+      "argument_bytes": 23249088,
+      "output_bytes": 660504,
+      "temp_bytes": 227127688,
+      "alias_bytes": 0
+    },
+    "rollout": {
+      "compile_s": 3.874060023576021,
+      "median_ms": 65.31820073723793,
+      "min_ms": 65.14117121696472,
+      "argument_bytes": 62686464,
+      "output_bytes": 62687840,
+      "temp_bytes": 217134608,
+      "alias_bytes": 0,
+      "steps_per_s": 3919.2751348102324,
+      "accepted_services": [
+        144,
+        144,
+        144,
+        144,
+        144,
+        144,
+        144,
+        144,
+        144,
+        144,
+        144,
+        144,
+        144,
+        144,
+        144,
+        144
+      ],
+      "distinct_final_requests": 16
+    }
+  },
+  "accuracy": {
+    "link_0": {
+      "exact": false,
+      "max_abs_error": 9.5367431640625e-07
+    },
+    "mask_0": {
+      "exact": true,
+      "max_abs_error": 0.0
+    },
+    "mask_1": {
+      "exact": true,
+      "max_abs_error": 0.0
+    },
+    "mask_2": {
+      "exact": true,
+      "max_abs_error": 0.0
+    },
+    "rollout_rewards": {
+      "exact": true,
+      "max_abs_error": 0.0
+    },
+    "rollout_occupancy": {
+      "exact": true,
+      "max_abs_error": 0.0
+    }
+  },
+  "xpm_backend": "pallas_inline",
+  "step_xpm_backend": "pallas",
+  "candidate_snr_backend": "pallas",
+  "xpm_tile": [
+    32,
+    32,
+    4
+  ],
+  "path_snr_backend": "pallas_precomputed",
+  "compiler_profile": "default",
+  "xla_flags": "--xla_gpu_cuda_data_dir=/apps/cuda/cuda-11.8.0"
+}

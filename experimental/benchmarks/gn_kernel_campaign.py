@@ -17,6 +17,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--mode", choices=["env", "train"], required=True)
     parser.add_argument("--backends", nargs="+", required=True)
+    parser.add_argument("--step-xpm-backend", choices=["jax", "pallas", "pallas_grouped"], default="jax")
+    parser.add_argument("--candidate-snr-backend", choices=["jax", "pallas"], default="jax")
+    parser.add_argument("--xpm-tile", type=int, nargs=3, metavar=("ROWS", "COLUMNS", "WARPS"))
     parser.add_argument("--gpu", choices=["2", "3"], required=True)
     parser.add_argument("--slots", type=int, default=1376)
     parser.add_argument("--envs", type=int, default=16)
@@ -27,7 +30,9 @@ def main():
     parser.add_argument("--transformer", action="store_true")
     parser.add_argument("--compiler-profile", choices=["default", "library"], default="default")
     parser.add_argument(
-        "--path-snr-backend", choices=["jax", "pallas", "pallas_fused", "pallas_precomputed"], default="jax"
+        "--path-snr-backend",
+        choices=["jax", "pallas", "pallas_fused", "pallas_precomputed"],
+        default="jax",
     )
     parser.add_argument("--reference", type=Path)
     parser.add_argument("--prefix", type=Path, required=True)
@@ -54,7 +59,13 @@ def main():
             backend,
             "--path-snr-backend",
             args.path_snr_backend,
+            "--step-xpm-backend",
+            args.step_xpm_backend,
+            "--candidate-snr-backend",
+            args.candidate_snr_backend,
         ]
+        if args.xpm_tile:
+            command += ["--xpm-tile", *map(str, args.xpm_tile)]
         if args.mode == "env":
             command += [
                 "--compiler-profile",
@@ -126,6 +137,9 @@ def main():
             "command": command,
             "gpu": args.gpu,
             "backend": backend,
+            "step_xpm_backend": args.step_xpm_backend,
+            "candidate_snr_backend": args.candidate_snr_backend,
+            "xpm_tile": args.xpm_tile,
             "compiler_profile": args.compiler_profile,
             "xla_flags": child_env.get("XLA_FLAGS", ""),
             "wall_s": time.perf_counter() - start,

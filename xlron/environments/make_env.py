@@ -827,9 +827,15 @@ def make(
 
     transformer_obs_type = config.get("transformer_obs_type", "departure")
     if transformer_obs_type:
-        assert transformer_obs_type in ["departure", "occupancy", "capacity"], (
-            f"transformer_obs_type must be one of 'departure', 'occupancy', or 'capacity', got {transformer_obs_type}"
+        obs_types = ("departure", "occupancy", "capacity", "snr", "occupancy_snr", "departure_snr")
+        assert transformer_obs_type in obs_types, (
+            f"transformer_obs_type must be one of {obs_types}, got {transformer_obs_type}"
         )
+        if transformer_obs_type in ("snr", "occupancy_snr", "departure_snr"):
+            assert env_type in ("rsa_gn_model", "rmsa_gn_model"), (
+                f"transformer_obs_type '{transformer_obs_type}' requires a GN environment"
+            )
+            assert max_snr > 0, "SNR observation normalization requires max_snr > 0"
         if transformer_obs_type == "capacity":
             assert env_type == "rwa_lightpath_reuse", (
                 f"transformer_obs_type 'capacity' is only supported for env_type 'rwa_lightpath_reuse', got {env_type}"

@@ -20,6 +20,12 @@ from pathlib import Path
 def main():
     parser = argparse.ArgumentParser(add_help=False, allow_abbrev=False)
     parser.add_argument(
+        "--step-xpm-backend", choices=["jax", "pallas", "pallas_grouped"], default="jax"
+    )
+    parser.add_argument("--path-tile", type=int, nargs=2, metavar=("SLOTS", "WARPS"))
+    parser.add_argument("--candidate-snr-backend", choices=["jax", "pallas"], default="jax")
+    parser.add_argument("--xpm-tile", type=int, nargs=3, metavar=("ROWS", "COLUMNS", "WARPS"))
+    parser.add_argument(
         "--path-snr-backend",
         choices=["jax", "pallas", "pallas_fused", "pallas_precomputed"],
         default="jax",
@@ -63,10 +69,28 @@ def main():
     from xlron.environments import env_funcs
     from xlron.environments.gn_model import isrs_gn_model
 
+    if args.path_tile:
+        from xlron.kernels import gn_path_snr
+
+        gn_path_snr.path_snr_pallas = partial(
+            gn_path_snr.path_snr_pallas,
+            block_slots=args.path_tile[0],
+            num_warps=args.path_tile[1],
+        )
+
+    if args.candidate_snr_backend != "jax":
+        env_funcs.get_candidate_snr_evidence = partial(
+            env_funcs.get_candidate_snr_evidence, backend=args.candidate_snr_backend
+        )
+
     if args.xpm_backend != "jax":
         isrs_gn_model.get_snr_fused = partial(
-            isrs_gn_model.get_snr_fused, xpm_backend=args.xpm_backend
+            isrs_gn_model.get_snr_fused,
+            xpm_backend=args.xpm_backend,
+            xpm_tile=tuple(args.xpm_tile) if args.xpm_tile else None,
         )
+    if args.step_xpm_backend != "jax":
+        isrs_gn_model.get_snr = partial(isrs_gn_model.get_snr, xpm_backend=args.step_xpm_backend)
     if args.path_snr_backend != "jax":
         env_funcs.get_lightpath_snr = partial(
             env_funcs.get_lightpath_snr, nsr_backend=args.path_snr_backend
@@ -80,6 +104,10 @@ def main():
         path = Path(remaining[remaining.index("--output") + 1])
         report = json.loads(path.read_text())
         report["xpm_backend"] = args.xpm_backend
+        report["step_xpm_backend"] = args.step_xpm_backend
+        report["candidate_snr_backend"] = args.candidate_snr_backend
+        report["xpm_tile"] = args.xpm_tile
+        report["path_tile"] = args.path_tile
         report["path_snr_backend"] = args.path_snr_backend
         report["compiler_profile"] = args.compiler_profile
         report["xla_flags"] = os.environ.get("XLA_FLAGS", "")

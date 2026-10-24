@@ -6,6 +6,109 @@ and the normal environment default remain ordinary JAX. All simulations below
 retain float32 physics, modulation thresholds, new-path margin, existing-path
 checks and per-fibre power checks.
 
+## Latest profiling iteration: generic step XPM and dense C+L+S
+
+The previous mask optimizations exposed a separate dense reduction in the actual
+environment step: 65.1% of GPU kernel time in a 1,376-slot rollout and 54.4% in
+real transformer PPO. The generic GN model has a different existing 1-D broadcast
+convention from the mask model. `gn_xpm_legacy.py` implements that convention
+explicitly; it does **not** substitute the mask's equations or fix the discrepancy.
+Frequency-only output-row reuse retains even zero-bandwidth output rows, whose
+generic XPM coefficients can be nonzero. Optional interferer grouping preserves
+exact multiplicity and the original total-power sum.
+
+An additional path kernel returns the two admission predicates directly: the
+minimum SNR on the new footprint and whether **every** existing channel passes
+its threshold. NaN/+infinity thresholds retain rejection behavior. Encoding
+inactive old predicates as -infinity saves one large intermediate array compared
+with the first fusion attempt. This remains an explicit experimental override.
+
+| Same light-load workload as the earlier measurements | Previous kernels | New kernels |
+|---|---:|---:|
+| 420 slots, 64 envs, 128 warmup, 16 measured steps, library profile | 6,796 env steps/s | **9,911 env steps/s** (`v30`) |
+| 1,376 slots, 16 envs, 128 warmup, 16 measured steps | 1,268 env steps/s | **3,369 env steps/s** (`v29`); **3,931** after admission fusion/tuning (`v38`) |
+| 420-slot transformer, 4 epochs / 4 minibatches | 4,801 training steps/s | **6,169 training steps/s** (`v32`) |
+| 1,376-slot transformer, 4 epochs / 4 minibatches | 1,045 training steps/s | **2,259 training steps/s** (`v39`) |
+
+The matched 420-slot original-code rollout is now 3,738.863 → 103.320 ms,
+**36.19× overall** (274 → 9,911 env steps/s), on the same physical A100 and
+compiler profile. The additional gain over ordinary optimized JAX is 3.77×.
+These remain low-occupancy throughput experiments, not full-band training results.
+
+Full **C+L+S** at 12.5 GHz resolves to **1,668 slots**, reference wavelength
+1.5381051432646564e-6 m and single-slot gaps at indices 568 and 916. The historical
+1,376-slot tests are not this complete band layout. A load-5,000, coherent,
+16-env workload after 3,000 real warmup requests has 64.4% occupied link slots.
+The warmup is used to build a dense test state, not claimed to reach steady state.
+All following variants reuse that complete state and traffic RNG archive:
+
+| Dense full-band backend | Mask median | 1,024-request rollout | Aggregate env steps/s |
+|---|---:|---:|---:|
+| Ordinary JAX (`v43`) | 102.310 ms | 7,315.448 ms | 139.98 |
+| Inline XPM + generic step kernel + fused evidence (`v42`) | 68.268 ms | 4,461.131 ms | 229.54 |
+| Grouped mask XPM (`v42`) | 7.175 ms | 520.742 ms | 1,966.42 |
+| Grouped mask and generic step XPM (`v44`) | 7.172 ms | 481.597 ms | **2,126.26** |
+
+This is **15.19×** over matched ordinary JAX on the dense full-band workload.
+Masks, formats, rewards and final occupancy agree exactly across the measured
+1,024 requests. Link SNR maximum relative error is 5.57e-7 (maximum absolute
+1.23e-4 linear units). Separate 3,000-step warmups are **not** bit-identical:
+grouping changed one admission among 48,000 requests. The same-state comparisons
+separate that float32 trajectory sensitivity from kernel-output validation;
+no thresholds or comparison tolerances in the simulator were relaxed.
+
+The dense profile after grouped mask XPM assigns 19.4% of GPU time to fused
+admission evidence, 12.0% to generic step XPM, 10.1% to candidate XPM and 8.6%
+to candidate construction. Grouping generic step XPM subsequently saves another
+8.1% end to end. Path layouts 256 slots/4 warps, 128/1 and 64/4 were slower;
+64/1 gave only ~1%, so 128/4 remains the reference. Many packing/scatter/window
+kernels now account for the remaining cost. Nsight launch records show ~100
+registers/thread for XPM, no reported local-memory allocation; these records do
+not establish achieved occupancy or compute/HBM saturation.
+
+Raw reports and Nsight CSVs are in `docs/benchmarks/gn_kernel_v4_20261024/`.
+`v44-dense-validation.json` records exact comparisons and the warmup caveat.
+The initial v44 reference invocation requested a link output absent from its
+inline reference archive and raised KeyError; the separate validation uses the
+ordinary-JAX archive with all matching keys. State-cache save/load was also
+checked for exact masks, rewards and occupancy on CPU.
+
+### Transformer training with SNR observations
+
+GN transformers now support `snr`, `occupancy_snr` and `departure_snr` observations.
+The cache is refreshed after departures outside NN forward/backward passes;
+empty channels are zero and finite dB features are normalized by `max_snr`.
+Physical SNR values and admission comparisons are unchanged. Observation shape,
+forward gradients, real batched PPO, separate critic optimization, best-checkpoint
+save and model reload are tested.
+
+A two-layer, 128-wide, four-head transformer with `occupancy_snr`, 16 environments,
+64-step rollouts, four epochs/minibatches, 3,000 heuristic warmup requests and
+32,768 training steps reaches **1,477.6 training steps/s** on full C+L+S (`v48`).
+This is a different, denser workload from the historical 1,376-slot policy tests.
+Training compile takes 15.15 s; synchronized training execution takes 22.18 s.
+Neither warmup nor compilation is included in the throughput figure.
+
+An opt-in actor experiment commutes only the final affine slot projection with
+path summation, retaining hidden nonlinearities and multiplying bias by path
+weight sum. Logits and parameter/input gradients pass parity checks, including
+dummy paths. It gives **1,466.8 steps/s**, so it is **not selected** for the campaign.
+It remains available as `--pool-before-projection` for reproducible experiments.
+
+`experimental.benchmarks.gn_cls_training_campaign` runs four matched heuristics
+(KSP-FF, FF-KSP, KSP-MSCL, MSCL-KSP) and two transformer candidates with online
+W&B logging, source fingerprints, exact command manifests and checkpointed
+evaluation. Each PPO candidate is configured for 10,485,760 training steps;
+continuous-operation warmup is 25,000 requests per environment. Final model
+evaluations use held-out traffic seeds 4242/4243, with matched heuristic seed 4242.
+These are experiments, not evidence of convergence or beating a heuristic.
+
+Latest CPU GN/kernel/observation/projection checks: **177 passed, 70 skipped,
+two expected issue-64 failures**. The two SNR PPO smoke tests and a separate
+campaign optimizer/checkpoint round trip also pass. Native suite results are
+**130 passed, two expected issue-64 failures**. Pre-commit/type checks pass and
+the documentation builds with the existing API-docstring warnings.
+
 ## Total progress from the original code
 
 Do not multiply rows in this table: runtimes, spectra, traffic and parallelism
@@ -61,7 +164,8 @@ timeout remains a recorded unsuccessful experiment, superseded by these runs.
   output rows once and restores every output. It does not aggregate interferers.
 - `pallas_grouped` also combines consecutive identical interferers using their
   exact multiplicities. The original power sum and same-centre exclusions remain.
-  It passed native parity tests but did not improve the tested end-to-end workloads.
+  It did not improve the early low-occupancy workloads; it is substantially faster
+  in the dense full-band workload above.
 - `pallas_skip` branches around empty contiguous output tiles. `pallas_inline`
   also skips empty interferer tiles inside the kernel, avoiding external packing.
 - `--path-snr-backend pallas_fused` fuses referenced-hop gathers, ROADM ASE,
@@ -175,7 +279,7 @@ with rejecting modulation thresholds, new-path margin, fibre-power limits and
 insufficient existing-path SNR. HLO assertions verify the tested mask really uses
 both custom kernels rather than cached ordinary-JAX traces.
 
-Final checks: CPU GN/kernel/cache suite 128 passed, 30 skipped and two expected
+Earlier-phase checks: CPU GN/kernel/cache suite 128 passed, 30 skipped and two expected
 issue-64 failures; native A100 coefficient/path suite 51 passed and two expected
 failures; native admission tests 3 passed; ordinary-JAX GN performance tests on
 A100 21 passed. Model, training utility and real PPO smoke checks passed 71 tests.
@@ -196,8 +300,9 @@ physical-model optimization must use the supported JAX path.
 
 ## Reproduction and evidence
 
-Raw reports are under `docs/benchmarks/gn_kernel_v2_20261024/` and
-`docs/benchmarks/gn_kernel_v3_20261024/`. Prefixes `v2`–`v27` identify experiments,
+Raw reports are under `docs/benchmarks/gn_kernel_v2_20261024/`,
+`docs/benchmarks/gn_kernel_v3_20261024/` and `docs/benchmarks/gn_kernel_v4_20261024/`.
+Prefixes identify experiments,
 not released versions. Remote traces, HLO and snapshots remain in the isolated
 `/tmp/xlron-gn-kernel-v2-20261024` tree on Turin. The existing department checkout
 and environment were not modified.
@@ -206,6 +311,7 @@ and environment were not modified.
 CUDA_VISIBLE_DEVICES=2 XLA_PYTHON_CLIENT_PREALLOCATE=false \
   uv run --no-sync python -m xlron.kernels.gn_environment_benchmark \
   --compiler-profile library --xpm-backend pallas_inline \
+  --step-xpm-backend pallas \
   --path-snr-backend pallas_precomputed --slots 420 --envs 64 \
   --warmup-steps 128 --independent-streams --kernels link mask rollout \
   --iterations 7 --output /tmp/current.json --snapshot /tmp/current.npz
@@ -213,6 +319,7 @@ CUDA_VISIBLE_DEVICES=2 XLA_PYTHON_CLIENT_PREALLOCATE=false \
 uv run --no-sync python -m experimental.benchmarks.gn_kernel_campaign \
   --mode train --gpu 2 --backends pallas_reuse --transformer \
   --path-snr-backend pallas_precomputed \
+  --step-xpm-backend pallas --candidate-snr-backend pallas --xpm-tile 16 32 4 \
   --slots 1376 --envs 16 --prefix /tmp/transformer
 
 uv run --no-sync pytest xlron/kernels -q

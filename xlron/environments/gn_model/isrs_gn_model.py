@@ -261,6 +261,7 @@ def isrs_gn_model_uniform(
     mod_format_correction: bool = False,
     max_spans: int | None = None,
     num_subchannels: int = 1,
+    xpm_backend: str = "jax",
 ):
     """
     Simplified ISRS GN model for uniform spans with identical parameters.
@@ -343,7 +344,28 @@ def isrs_gn_model_uniform(
     )
     T_k = T[None, :]
     # .T is a no-op on 1D arrays — matches original _xpm broadcasting conventions
-    xpm_single = _xpm(ch_pow, ch_pow.T, phi_ik, T_k, ch_bw, ch_bw.T, a.T, a_bar.T, gamma)
+    if xpm_backend in ("pallas", "pallas_grouped"):
+        if mod_format_correction:
+            raise ValueError("generic Pallas XPM does not support modulation corrections")
+        from xlron.kernels.gn_xpm_legacy import xpm_legacy_pallas
+
+        xpm_single = xpm_legacy_pallas(
+            ch_pow,
+            f,
+            ch_bw,
+            a=a,
+            a_bar=a_bar,
+            gamma=gamma,
+            cr=cr,
+            beta2=beta2,
+            beta3=beta3,
+            beta4=beta4,
+            group_interferers=xpm_backend == "pallas_grouped",
+        )
+    elif xpm_backend == "jax":
+        xpm_single = _xpm(ch_pow, ch_pow.T, phi_ik, T_k, ch_bw, ch_bw.T, a.T, a_bar.T, gamma)
+    else:
+        raise ValueError(f"Unknown generic XPM backend: {xpm_backend}")
     eta_xpm = xpm_single * num_spans
 
     # XPM corrections (if enabled)
@@ -702,6 +724,7 @@ def get_snr(
     uniform_spans: bool = True,
     num_subchannels: int = 1,
     span_lumped_loss_db: float | None = None,
+    xpm_backend: str = "jax",
 ):
     """
     Compute the signal-to-noise ratio (SNR) of a WDM system.
@@ -710,6 +733,8 @@ def get_snr(
         snr: signal-to-noise ratio (linear units)
     """
     gn_model = isrs_gn_model_uniform if uniform_spans else isrs_gn_model
+    if xpm_backend != "jax" and (not uniform_spans or mod_format_correction):
+        raise ValueError("generic Pallas XPM requires uniform spans without modulation corrections")
     span_length = jnp.sum(length) / num_spans
 
     # ASE noise - inline amplifiers (ISRS-aware gain)
@@ -745,6 +770,7 @@ def get_snr(
         mod_format_correction=mod_format_correction,
         excess_kurtosis_i=excess_kurtosis_i,
         num_subchannels=num_subchannels,
+        **({"xpm_backend": xpm_backend} if uniform_spans else {}),
     )
 
     # SNR (optical only — transceiver noise is added once at path level in get_snr_for_path)
@@ -839,6 +865,7 @@ def get_snr_fused(
     span_lumped_loss_db: float | None = None,
     compact_xpm: bool = False,
     xpm_backend: str = "jax",
+    xpm_tile: tuple[int, int, int] | None = None,
 ):
     """Fully fused SNR computation for a single link (uniform spans, no mod_format_correction).
 
@@ -956,6 +983,11 @@ def get_snr_fused(
     }:
         from xlron.kernels.gn_xpm import xpm_pallas
 
+        block_i, block_k, num_warps = xpm_tile or (
+            16,
+            32 if xpm_backend == "pallas_grouped" else 64,
+            4,
+        )
         eta_xpm = (
             xpm_pallas(
                 ch_pow,
@@ -968,8 +1000,9 @@ def get_snr_fused(
                 beta2=beta2,
                 beta3=beta3,
                 beta4=beta4,
-                block_i=16,
-                block_k=32 if xpm_backend == "pallas_grouped" else 64,
+                block_i=block_i,
+                block_k=block_k,
+                num_warps=num_warps,
                 compact=xpm_backend not in {"pallas", "pallas_inline"},
                 compact_rows=xpm_backend == "pallas_sparse",
                 reuse_rows=xpm_backend in {"pallas_reuse", "pallas_grouped"},

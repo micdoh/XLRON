@@ -9,10 +9,26 @@ from scipy.constants import c, h
 from xlron.environments.gn_model.isrs_gn_model import calculate_roadm_ase
 
 
-def _path_reduce(snr_ref, index_ref, paths_ref, num_links, slots, num_paths, hops, block_slots):
-    row = pl.program_id(0)
-    columns = pl.program_id(1) * block_slots + jnp.arange(block_slots)
+def _path_reduce(
+    snr_ref,
+    index_ref,
+    paths_ref,
+    num_links,
+    slots,
+    num_paths,
+    hops,
+    block_slots,
+    wanted=None,
+    row=None,
+    columns=None,
+):
+    row = pl.program_id(0) if row is None else row
+    columns = (
+        pl.program_id(1) * block_slots + jnp.arange(block_slots) if columns is None else columns
+    )
     mask = columns < slots
+    if wanted is not None:
+        mask = mask & wanted
     pid = plt.load(index_ref.at[row, columns], mask=mask, other=-1)
     pid = jnp.clip(jnp.where(pid < 0, pid + num_paths, pid), 0, num_paths - 1)
     nsr = jnp.zeros((block_slots,), jnp.float32)
@@ -74,13 +90,20 @@ def path_snr_pallas(
     *,
     ref_lambda,
     block_slots=128,
+    num_warps=4,
     precompute=False,
+    evidence=None,
     interpret=False,
 ):
     """Fuse the exact path gather, ROADM ASE, transceiver noise and dB conversion.
 
     Calls the shared ROADM formula inside the kernel. All per-slot parameter
     arrays and the original per-link channel metadata are retained.
+    With ``evidence=(encoded_old_required_snr, affected)``, reduce directly
+    to (minimum new-path SNR, all existing paths sufficient). Only slots excluded
+    by both admission predicates are skipped. Inactive old predicates are encoded
+    as -inf, which every finite nan_to_num result satisfies. NaN/+inf required
+    thresholds remain active and retain their original comparison behavior.
     """
     num_links, slots = link_snr.shape
     num_paths, hops = path_links.shape
@@ -113,41 +136,97 @@ def path_snr_pallas(
         ad_ref,
         nf_ref,
         trx_ref,
-        out_ref,
+        *tail_refs,
     ):
-        columns, mask, nsr, count, first = _path_reduce(
-            snr_ref, index_ref, paths_ref, num_links, slots, num_paths, hops, block_slots
-        )
-        power = plt.load(power_ref.at[first, columns], mask=mask, other=0.0)
-        centre = plt.load(centre_ref.at[first, columns], mask=mask, other=0.0) * 1e9
-        bandwidth = plt.load(bandwidth_ref.at[first, columns], mask=mask, other=0.0) * 1e9
-        express = plt.load(express_ref.at[columns], mask=mask, other=1.0)
-        ad = plt.load(ad_ref.at[columns], mask=mask, other=1.0)
-        nf = plt.load(nf_ref.at[columns], mask=mask, other=1.0)
-        trx = plt.load(trx_ref.at[columns], mask=mask, other=0.0)
-        if precompute:
-            frequency = c / ref_lambda + centre
-            ase = (
-                jnp.maximum(count - 1, 0) * 2 * express * ad * h * frequency * bandwidth
-                + nf * frequency * bandwidth
-            )
-            trx_nsr = trx
+        row, tile = pl.program_id(0), pl.program_id(1)
+        columns = tile * block_slots + jnp.arange(block_slots)
+        mask = columns < slots
+        if evidence is not None:
+            required_ref, affected_ref, out_ref = tail_refs
+            required = plt.load(required_ref.at[row, columns], mask=mask, other=-jnp.inf)
+            old_live = required != -jnp.inf
+            affected = plt.load(affected_ref.at[row, columns], mask=mask, other=0) != 0
+            wanted = old_live | affected
         else:
-            ase = calculate_roadm_ase(
-                express, ad, nf, jnp.maximum(count - 1, 0), ref_lambda, centre, bandwidth
-            )
-            trx_linear = 10 ** (trx / 10)
-            trx_nsr = jnp.where(trx_linear > 1.0, 1.0 / trx_linear, 0.0)
-        nsr = nsr + jnp.where(power > 0, ase / power, 0.0)
-        nsr = nsr + trx_nsr
-        result = jnp.nan_to_num(10 * jnp.log10(1 / nsr), nan=-50, neginf=-50, posinf=50)
-        plt.store(out_ref.at[pl.program_id(0), columns], result, mask=mask)
+            (out_ref,) = tail_refs
+            wanted = None
 
-    return pl.pallas_call(
+        def calculate():
+            _columns, mask, nsr, count, first = _path_reduce(
+                snr_ref,
+                index_ref,
+                paths_ref,
+                num_links,
+                slots,
+                num_paths,
+                hops,
+                block_slots,
+                wanted,
+                row,
+                columns,
+            )
+            power = plt.load(power_ref.at[first, columns], mask=mask, other=0.0)
+            centre = plt.load(centre_ref.at[first, columns], mask=mask, other=0.0) * 1e9
+            bandwidth = plt.load(bandwidth_ref.at[first, columns], mask=mask, other=0.0) * 1e9
+            express = plt.load(express_ref.at[columns], mask=mask, other=1.0)
+            ad = plt.load(ad_ref.at[columns], mask=mask, other=1.0)
+            nf = plt.load(nf_ref.at[columns], mask=mask, other=1.0)
+            trx = plt.load(trx_ref.at[columns], mask=mask, other=0.0)
+            if precompute:
+                frequency = c / ref_lambda + centre
+                ase = (
+                    jnp.maximum(count - 1, 0) * 2 * express * ad * h * frequency * bandwidth
+                    + nf * frequency * bandwidth
+                )
+                trx_nsr = trx
+            else:
+                ase = calculate_roadm_ase(
+                    express, ad, nf, jnp.maximum(count - 1, 0), ref_lambda, centre, bandwidth
+                )
+                trx_linear = 10 ** (trx / 10)
+                trx_nsr = jnp.where(trx_linear > 1.0, 1.0 / trx_linear, 0.0)
+            nsr = nsr + jnp.where(power > 0, ase / power, 0.0)
+            nsr = nsr + trx_nsr
+            result = jnp.nan_to_num(10 * jnp.log10(1 / nsr), nan=-50, neginf=-50, posinf=50)
+            if evidence is not None:
+                floor = jnp.min(jnp.where(affected, result, jnp.inf))
+                ok = jnp.sum((old_live & ~(result >= required)).astype(jnp.int32)) == 0
+                return floor, ok.astype(jnp.float32)
+            return result
+
+        if evidence is not None:
+            assert wanted is not None
+            floor, ok = jax.lax.cond(
+                jnp.sum(wanted.astype(jnp.int32)) > 0,
+                calculate,
+                lambda: (
+                    jnp.min(jnp.full((block_slots,), jnp.inf, jnp.float32)),
+                    jnp.max(jnp.ones((block_slots,), jnp.float32)),
+                ),
+            )
+            plt.store(out_ref.at[jnp.int32(0), row, tile], floor)
+            plt.store(out_ref.at[jnp.int32(1), row, tile], ok)
+        else:
+            plt.store(out_ref.at[row, columns], calculate(), mask=mask)
+
+    shape = (2, num_links, pl.cdiv(slots, block_slots)) if evidence is not None else link_snr.shape
+    result = pl.pallas_call(
         kernel,
-        out_shape=jax.ShapeDtypeStruct(link_snr.shape, jnp.float32),
+        out_shape=jax.ShapeDtypeStruct(shape, jnp.float32),
         grid=(num_links, pl.cdiv(slots, block_slots)),
-        compiler_params=plt.CompilerParams(num_warps=4),
+        compiler_params=plt.CompilerParams(num_warps=num_warps),
         interpret=interpret,
-        name="gn_path_snr_fused",
-    )(link_snr, path_index, path_links, channel_power, centre_ghz, bandwidth_ghz, *per_slot)
+        name="gn_path_snr_evidence" if evidence is not None else "gn_path_snr_fused",
+    )(
+        link_snr,
+        path_index,
+        path_links,
+        channel_power,
+        centre_ghz,
+        bandwidth_ghz,
+        *per_slot,
+        *(evidence or ()),
+    )
+    if evidence is not None:
+        return jnp.min(result[0]), jnp.all(result[1] != 0)
+    return result

@@ -384,7 +384,7 @@ A transformer encoder that processes link-level tokens with graph-aware position
 | `--transformer_num_heads` | Number of attention heads | `4` |
 | `--transformer_embedding_size` | Token embedding dimension | `128` |
 | `--transformer_intermediate_size` | Feed-forward hidden dimension | `256` |
-| `--transformer_obs_type` | Observation type: `departure` (departure times), `occupancy` (binary), or `capacity` (for RWA-LR) | `departure` |
+| `--transformer_obs_type` | `departure`, `occupancy`, `capacity` (RWA-LR), or GN modes `snr`, `occupancy_snr`, `departure_snr` | `departure` |
 | `--num_wire_features` | Number of spectral features for WIRE positional encoding | `8` |
 | `--transformer_actor_mlp_width` / `--transformer_actor_mlp_depth` | Actor head MLP width/depth | `128` / `1` |
 | `--transformer_critic_mlp_width` / `--transformer_critic_mlp_depth` | Critic head MLP width/depth | `128` / `2` |
@@ -393,6 +393,15 @@ A transformer encoder that processes link-level tokens with graph-aware position
 | `--transformer_enable_dropout` | Enable dropout during training | `False` |
 
 The transformer processes each link as a token, with per-link spectral features and request-specific information. WIRE positional encodings inject graph structure through rotary embeddings derived from the graph Laplacian.
+
+For `rsa_gn_model` and `rmsa_gn_model`, `snr` supplies one normalized link-SNR
+feature per channel. `occupancy_snr` and `departure_snr` concatenate those features
+with occupancy or normalized departures, doubling the spectral feature width.
+SNR features use dB divided by `max_snr`, clipped to [0, 1]; empty channels are
+zero. The physical SNR arrays and admission thresholds are unchanged. These modes
+refresh the SNR cache after departures, once per generated request, outside neural
+network forward/backward passes. `departure_snr` also retains the request holding
+time feature. Other environment types reject SNR observation modes.
 
 ### Slot Aggregation
 

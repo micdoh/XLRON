@@ -631,11 +631,12 @@ def init_network(config: Box, key: chex.PRNGKey) -> eqx.Module:
             num_request_specific_cols = (
                 4  # link relevance
                 + 1  # request size
-                + int(config.transformer_obs_type == "departure")  # holding time
+                + int(config.transformer_obs_type in ("departure", "departure_snr"))  # holding time
             )
             input_size = (
                 config.num_wire_features
                 + config.link_resources
+                * (2 if config.transformer_obs_type in ("occupancy_snr", "departure_snr") else 1)
                 + 2  # traffic marginals
                 + num_request_specific_cols
             )
