@@ -86,10 +86,13 @@ state warmup and logging are excluded. GPU clocks are not locked.
 | Empty output-tile skipping | — | 228.935 ms |
 | Inline empty row/column tiles | 175.117 ms | 228.239 ms |
 | Inline tiles + fused full path SNR | **160.919 ms** | **209.261 ms** |
+| Inline tiles + precomputed full path SNR | — | **201.892 ms** |
 | Mosaic port | — | 949.815 ms |
 
-The last default-compiler row reaches 6,363 and 1,223 aggregate environment steps/s:
-**2.42× and 1.95×** over PR #62. With 512 warmup requests and 64 measured steps,
+Fused path SNR reaches 6,363 aggregate environment steps/s at 420 slots (2.42×).
+Precomputed path factors reach **1,268 steps/s at 1,376 slots (2.02×)** over PR #62;
+the new snapshot matches every recorded output exactly, including link SNR.
+With 512 warmup requests and 64 measured steps,
 the 1,376-slot case falls from 2,310.030 to **940.466 ms** (2.46×, 1,089 steps/s).
 Recorded masks/formats/rewards/occupancy match exactly, including this longer run.
 
@@ -139,6 +142,14 @@ comparison. Bitrate standard deviations differ at rounding level; placement metr
 (utilisation/fragmentation) differ slightly, so PPO trajectories are not claimed
 bit-identical. These short runs do not establish learning convergence.
 
+A new 420-slot / 64-env transformer comparison uses 8,192 training steps with the
+same 128 warmup requests, 16-step rollouts, four epochs and four minibatches.
+Row reuse plus precomputed path SNR reaches **4,801.4 training steps/s**, versus
+1,795.1 for ordinary JAX on the same physical GPU 3 (2.67×; `v25` / `v27`).
+The JAX repeat on GPU 2 gave 1,809.2 steps/s. Inline XPM reaches 2,782.7 steps/s,
+confirming that row reuse is better for these policy placements. Every recorded
+summary metric agrees exactly between the JAX and row-reuse runs.
+
 ## Profiling and accuracy
 
 The wide empty-tile trace had only ~19% of kernel time in XPM; path-SNR gathers and
@@ -186,7 +197,7 @@ physical-model optimization must use the supported JAX path.
 ## Reproduction and evidence
 
 Raw reports are under `docs/benchmarks/gn_kernel_v2_20261024/` and
-`docs/benchmarks/gn_kernel_v3_20261024/`. Prefixes `v2`–`v24` identify experiments,
+`docs/benchmarks/gn_kernel_v3_20261024/`. Prefixes `v2`–`v27` identify experiments,
 not released versions. Remote traces, HLO and snapshots remain in the isolated
 `/tmp/xlron-gn-kernel-v2-20261024` tree on Turin. The existing department checkout
 and environment were not modified.

@@ -19,6 +19,11 @@ status and process wall time. Paths refer to the isolated Turin tree.
   path SNR. Normal PPO compiler settings, 1,376 slots, 16 envs, four epochs,
   four minibatches, 4,096 training steps. These short runs test execution and
   admission metrics; they do not establish convergence.
+- `v25-transformer-420-pallas_reuse.jsonl` and `v27-control-420-jax.jsonl`:
+  corrected 420-slot transformer PPO on the same physical GPU 3, 64 envs,
+  8,192 training steps. The v25 JAX run on GPU 2 is an additional repeat.
+- `v26-final-1376-pallas_inline.json`: final precomputed path-factor environment
+  result at 1,376 slots / 16 envs, matched against the prior full-path snapshot.
 - `v5-original-100.json` and `v5-current-originalworkload-100.json`: exact same
   archived single-env workload script on old and current production modules.
 - `v15-original-420.json` and `v16-current-420.json`: library profile fixes the
