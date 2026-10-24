@@ -34,6 +34,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import optax
+import pytest
 from absl import flags
 from absl.testing import absltest
 from box import Box
@@ -201,6 +202,30 @@ def _gnn_env_setup(env_type: str, **overrides):
     key = jax.random.PRNGKey(0)
     obs, state = env.reset(key, params)
     return config, env, params, state, key
+
+
+@pytest.mark.parametrize("env_type", ["rsa_gn_model", "rmsa_gn_model"])
+@pytest.mark.parametrize("transformer", [False, True])
+def test_gn_routing_policy_has_one_logit_per_action(env_type, transformer):
+    config, env, params, state, key = _gnn_env_setup(
+        env_type,
+        USE_GNN=False,
+        USE_TRANSFORMER=transformer,
+        launch_power_type="fixed",
+        aggregate_slots=3,
+        transformer_embedding_size=16,
+        transformer_intermediate_size=32,
+    )
+    config.ACTION_DIM = env.num_actions(params)
+    config.INPUT_DIM = int(env.observation_space(params).n)
+    model = init_network(config, key)
+    pi, value = model(state, params) if transformer else model(env.get_obs(state, params))
+    expected = config.k * math.ceil(config.link_resources / config.aggregate_slots)
+    assert config.ACTION_DIM == expected
+    assert pi.logits.shape == (expected,)
+    chex.assert_tree_all_finite((pi.logits, value))
+    # Power-only policies keep their separate scalar-action contract.
+    assert env.num_actions(params.replace(launch_power_type="rl")) == 1
 
 
 class MLPInitScaleTest(chex.TestCase):

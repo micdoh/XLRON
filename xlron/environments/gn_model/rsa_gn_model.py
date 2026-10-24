@@ -123,9 +123,9 @@ class RSAGNModelEnv(RSAEnv):
         return get_paths_obs_gn_model(state, params)
 
     @staticmethod
-    def num_actions(params: RSAEnvParams) -> int:
+    def num_actions(params: RSAGNModelEnvParams) -> int:
         """Number of actions possible in environment."""
-        return 1
+        return 1 if params.launch_power_type == "rl" else RSAEnv.num_actions(params)
 
     def observation_space(self, params: RSAEnvParams):
         """Observation space of the environment."""

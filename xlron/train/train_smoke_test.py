@@ -82,6 +82,24 @@ def test_fixed_power_routing_training_parallel_with_policy_warmup(env_type):
     )
 
 
+@pytest.mark.slow
+@pytest.mark.parametrize("env_type", ["rsa_gn_model", "rmsa_gn_model"])
+def test_transformer_gn_training_with_policy_warmup(env_type):
+    """GN transformer logits must match path-slot masks throughout real PPO."""
+    _run_train(
+        env_type,
+        [
+            "--launch_power_type=fixed",
+            "--USE_TRANSFORMER",
+            "--transformer_embedding_size=16",
+            "--transformer_intermediate_size=32",
+            "--NUM_ENVS=2",
+            "--ENV_WARMUP_STEPS=2",
+            "--TOTAL_TIMESTEPS=40",
+        ],
+    )
+
+
 LOAD_SWEEP_ARGS = [
     "-m",
     "xlron.train.train",
