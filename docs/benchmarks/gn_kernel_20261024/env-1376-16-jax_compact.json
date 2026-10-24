@@ -1,0 +1,126 @@
+{
+  "args": {
+    "slots": 1376,
+    "env_type": "rmsa_gn_model",
+    "k": 5,
+    "envs": 16,
+    "independent_streams": true,
+    "topology": "nsfnet_deeprmsa_directed",
+    "mode": "uniform",
+    "kernels": [
+      "link",
+      "mask",
+      "rollout"
+    ],
+    "iterations": 7,
+    "steps": 16,
+    "warmup_steps": 128,
+    "output": "/tmp/xlron-gn-kernel-20261024/env-1376-16-jax_compact.json",
+    "snapshot": "/tmp/xlron-gn-kernel-20261024/env-1376-16-jax_compact.npz",
+    "reference": "/tmp/xlron-gn-kernel-20261024/env-1376-16-jax.npz",
+    "matmul_precision": "highest"
+  },
+  "jax": "0.12.0.1",
+  "device": "cuda:0",
+  "device_kind": "NVIDIA A100 80GB PCIe",
+  "platform": "Linux-5.14.0-611.55.1.el9_7.0.3.x86_64-x86_64-with-glibc2.34",
+  "links": 44,
+  "paths": 911,
+  "modulations": 4,
+  "lightpaths": 128,
+  "occupancy": 0.04648995026946068,
+  "initial_accepted_services": [
+    128,
+    128,
+    128,
+    128,
+    128,
+    128,
+    128,
+    128,
+    128,
+    128,
+    128,
+    128,
+    128,
+    128,
+    128,
+    128
+  ],
+  "metrics": {
+    "link": {
+      "compile_s": 0.5471365619450808,
+      "median_ms": 2.27382592856884,
+      "min_ms": 2.249501645565033,
+      "argument_bytes": 11624448,
+      "output_bytes": 3874816,
+      "temp_bytes": 28941384,
+      "alias_bytes": 0
+    },
+    "mask": {
+      "compile_s": 2.5455760452896357,
+      "median_ms": 16.26097783446312,
+      "min_ms": 16.15125499665737,
+      "argument_bytes": 23249088,
+      "output_bytes": 660504,
+      "temp_bytes": 314878344,
+      "alias_bytes": 0
+    },
+    "rollout": {
+      "compile_s": 3.8054041229188442,
+      "median_ms": 394.0766118466854,
+      "min_ms": 393.2783007621765,
+      "argument_bytes": 62686464,
+      "output_bytes": 62687840,
+      "temp_bytes": 310297104,
+      "alias_bytes": 0,
+      "steps_per_s": 649.6198767045739,
+      "accepted_services": [
+        144,
+        144,
+        144,
+        144,
+        144,
+        144,
+        144,
+        144,
+        144,
+        144,
+        144,
+        144,
+        144,
+        144,
+        144,
+        144
+      ],
+      "distinct_final_requests": 16
+    }
+  },
+  "accuracy": {
+    "link_0": {
+      "exact": false,
+      "max_abs_error": 3.814697265625e-06
+    },
+    "mask_0": {
+      "exact": true,
+      "max_abs_error": 0.0
+    },
+    "mask_1": {
+      "exact": true,
+      "max_abs_error": 0.0
+    },
+    "mask_2": {
+      "exact": true,
+      "max_abs_error": 0.0
+    },
+    "rollout_rewards": {
+      "exact": true,
+      "max_abs_error": 0.0
+    },
+    "rollout_occupancy": {
+      "exact": true,
+      "max_abs_error": 0.0
+    }
+  },
+  "xpm_backend": "jax_compact"
+}

@@ -838,6 +838,7 @@ def get_snr_fused(
     num_subchannels: int = 1,
     span_lumped_loss_db: float | None = None,
     compact_xpm: bool = False,
+    xpm_backend: str = "jax",
 ):
     """Fully fused SNR computation for a single link (uniform spans, no mod_format_correction).
 
@@ -858,6 +859,9 @@ def get_snr_fused(
         compact_xpm: skip zero interfering channels in a dynamic tiled reduction.
             Keep false for reverse-mode differentiation; the environment enables
             this only for non-differentiable wide spectra.
+        xpm_backend: experimental override. "jax" retains the production policy;
+            "jax_dense" and "jax_compact" force an ordinary-JAX implementation.
+            Pallas choices are opt-in and do not provide reverse-mode derivatives.
 
     Returns:
         snr: shape (N,) — linear SNR per channel
@@ -907,7 +911,7 @@ def get_snr_fused(
     # Scale: total NLI = N_sub * (P/N_sub)^3 * eta(B_eff) = P^3 * eta(B_eff) / N_sub^2
     eta_spm = eta_spm / (num_subchannels**2)
 
-    if compact_xpm:
+    if xpm_backend == "jax_compact" or (xpm_backend == "jax" and compact_xpm):
         eta_xpm = (
             _xpm_compact(
                 ch_pow,
@@ -923,6 +927,29 @@ def get_snr_fused(
             )
             * num_spans
         )
+    elif xpm_backend in {"pallas", "pallas_compact"}:
+        from xlron.kernels.gn_xpm import xpm_pallas
+
+        eta_xpm = (
+            xpm_pallas(
+                ch_pow,
+                f,
+                ch_bw,
+                a=a,
+                a_bar=a_bar,
+                gamma=gamma,
+                cr=cr,
+                beta2=beta2,
+                beta3=beta3,
+                beta4=beta4,
+                block_i=16,
+                block_k=64,
+                compact=xpm_backend == "pallas_compact",
+            )
+            * num_spans
+        )
+    elif xpm_backend not in {"jax", "jax_dense"}:
+        raise ValueError(f"Unknown XPM backend: {xpm_backend}")
     else:
         # === XPM (inlined, fused N x N computation) ===
         f_i = f[:, None]  # (N, 1)

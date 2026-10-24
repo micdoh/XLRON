@@ -1,0 +1,126 @@
+{
+  "args": {
+    "slots": 1376,
+    "env_type": "rmsa_gn_model",
+    "k": 5,
+    "envs": 16,
+    "independent_streams": true,
+    "topology": "nsfnet_deeprmsa_directed",
+    "mode": "uniform",
+    "kernels": [
+      "link",
+      "mask",
+      "rollout"
+    ],
+    "iterations": 7,
+    "steps": 16,
+    "warmup_steps": 128,
+    "output": "/tmp/xlron-gn-kernel-20261024/env-1376-16-pallas_compact.json",
+    "snapshot": "/tmp/xlron-gn-kernel-20261024/env-1376-16-pallas_compact.npz",
+    "reference": "/tmp/xlron-gn-kernel-20261024/env-1376-16-jax.npz",
+    "matmul_precision": "highest"
+  },
+  "jax": "0.12.0.1",
+  "device": "cuda:0",
+  "device_kind": "NVIDIA A100 80GB PCIe",
+  "platform": "Linux-5.14.0-611.55.1.el9_7.0.3.x86_64-x86_64-with-glibc2.34",
+  "links": 44,
+  "paths": 911,
+  "modulations": 4,
+  "lightpaths": 128,
+  "occupancy": 0.04648995026946068,
+  "initial_accepted_services": [
+    128,
+    128,
+    128,
+    128,
+    128,
+    128,
+    128,
+    128,
+    128,
+    128,
+    128,
+    128,
+    128,
+    128,
+    128,
+    128
+  ],
+  "metrics": {
+    "link": {
+      "compile_s": 0.5086278039962053,
+      "median_ms": 1.427551731467247,
+      "min_ms": 1.412995159626007,
+      "argument_bytes": 11624448,
+      "output_bytes": 3874816,
+      "temp_bytes": 16719136,
+      "alias_bytes": 0
+    },
+    "mask": {
+      "compile_s": 2.049781545996666,
+      "median_ms": 9.610790759325027,
+      "min_ms": 9.593695402145386,
+      "argument_bytes": 23249088,
+      "output_bytes": 660504,
+      "temp_bytes": 314877064,
+      "alias_bytes": 0
+    },
+    "rollout": {
+      "compile_s": 3.6341226045042276,
+      "median_ms": 280.84756061434746,
+      "min_ms": 280.58294020593166,
+      "argument_bytes": 62686464,
+      "output_bytes": 62687840,
+      "temp_bytes": 310006800,
+      "alias_bytes": 0,
+      "steps_per_s": 911.5265215051396,
+      "accepted_services": [
+        144,
+        144,
+        144,
+        144,
+        144,
+        144,
+        144,
+        144,
+        144,
+        144,
+        144,
+        144,
+        144,
+        144,
+        144,
+        144
+      ],
+      "distinct_final_requests": 16
+    }
+  },
+  "accuracy": {
+    "link_0": {
+      "exact": false,
+      "max_abs_error": 1.52587890625e-05
+    },
+    "mask_0": {
+      "exact": true,
+      "max_abs_error": 0.0
+    },
+    "mask_1": {
+      "exact": true,
+      "max_abs_error": 0.0
+    },
+    "mask_2": {
+      "exact": true,
+      "max_abs_error": 0.0
+    },
+    "rollout_rewards": {
+      "exact": true,
+      "max_abs_error": 0.0
+    },
+    "rollout_occupancy": {
+      "exact": true,
+      "max_abs_error": 0.0
+    }
+  },
+  "xpm_backend": "pallas_compact"
+}
