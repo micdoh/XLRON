@@ -83,9 +83,7 @@ class LogWrapper(GymnaxWrapper):
         # Defaults: RSA-family envs no longer stash per-step utilisation or
         # fragmentation (log_metrics computes both per increment from the final
         # state); VONE still stashes utilisation.
-        utilisation = info.pop(
-            "_utilisation", jnp.array(0, dtype=dtype_config.LARGE_FLOAT_DTYPE)
-        )
+        utilisation = info.pop("_utilisation", jnp.array(0, dtype=dtype_config.LARGE_FLOAT_DTYPE))
         fragmentation = info.pop(
             "_fragmentation", jnp.array(0, dtype=dtype_config.LARGE_FLOAT_DTYPE)
         )
