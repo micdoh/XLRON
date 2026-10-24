@@ -92,7 +92,7 @@ A systematic comparison of three capacity bound estimation methods — cut-set (
 ## Preprints
 
 ### XLRON: A Framework for Hardware-Accelerated and Differentiable Simulation of Optical Networks
-*Doherty, M., Jarmolovičius, M., Deng, B., Killey, R., Bayvel, P., Beghelli, A., Toni, L. — Optica Open preprint (2026), version 1, published 25 August 2026 — [Optica Open](https://doi.org/10.1364/opticaopen.33317361) · [Repository PDF](https://github.com/micdoh/XLRON/blob/main/papers/xlron_journal_2026.pdf)*
+*Doherty, M., Jarmolovičius, M., Deng, B., Killey, R., Bayvel, P., Beghelli, A., Toni, L. — Optica Open preprint (2026), version 1, published 25 August 2026 — [Optica Open](https://preprints.opticaopen.org/articles/preprint/XLRON_A_Framework_for_Hardware-Accelerated_and_Differentiable_Simulation_of_Optical_Networks/33317361?file=67772697) · [Repository PDF](https://github.com/micdoh/XLRON/blob/main/papers/xlron_journal_2026.pdf)*
 
 Introduces XLRON's architecture and benchmarks it against other open-source simulation libraries. The preprint reports physical-layer agreement with the Gerard *et al.* 2025 C+L-band experiment within 0.6 dB for per-band generalized OSNR and 0.6% for throughput, and demonstrates routing and spectrum allocation optimized by gradient descent.
 

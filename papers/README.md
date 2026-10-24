@@ -5,7 +5,7 @@ This folder contains the OFC announcement and the journal preprint about the XLR
 | Paper | Publication / preprint | PDF |
 |---|---|---|
 | **XLRON: Accelerated Reinforcement Learning Environments for Optical Networks** — Michael Doherty and Alejandra Beghelli | OFC 2024, Th2A.21 · [Optica publication](https://doi.org/10.1364/OFC.2024.Th2A.21) · [Open author manuscript at UCL Discovery](https://discovery.ucl.ac.uk/id/eprint/10185312/) | [xlron_ofc_2024.pdf](xlron_ofc_2024.pdf) |
-| **XLRON: A Framework for Hardware-Accelerated and Differentiable Simulation of Optical Networks** — Michael Doherty, Mindaugas Jarmolovičius, Bohua Deng, Robert Killey, Polina Bayvel, Alejandra Beghelli and Laura Toni | [Optica Open](https://doi.org/10.1364/opticaopen.33317361) · 2026 journal preprint | [xlron_journal_2026.pdf](xlron_journal_2026.pdf) |
+| **XLRON: A Framework for Hardware-Accelerated and Differentiable Simulation of Optical Networks** — Michael Doherty, Mindaugas Jarmolovičius, Bohua Deng, Robert Killey, Polina Bayvel, Alejandra Beghelli and Laura Toni | [Optica Open](https://preprints.opticaopen.org/articles/preprint/XLRON_A_Framework_for_Hardware-Accelerated_and_Differentiable_Simulation_of_Optical_Networks/33317361?file=67772697) · 2026 journal preprint | [xlron_journal_2026.pdf](xlron_journal_2026.pdf) |
 
 ## Versions and sources
 
