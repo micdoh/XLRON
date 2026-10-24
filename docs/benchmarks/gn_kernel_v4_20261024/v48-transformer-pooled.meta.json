@@ -58,5 +58,7 @@
     "XLA_PYTHON_CLIENT_PREALLOCATE": "false"
   },
   "note": "Execution status and timing in corresponding JSONL; same dense full-band benchmark, different physical A100s.",
-  "exit_code": 0
+  "exit_code": 0,
+  "effective_load": 250,
+  "density_caveat": "Low-load full-band test; command inherited default --load=250. Not the target load=5000."
 }

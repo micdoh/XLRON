@@ -11,14 +11,14 @@ overrides, run IDs, exit status and timing. Failures never count as evaluations.
 """
 
 import argparse
-from datetime import datetime, timezone
-import json
 import hashlib
+import json
 import os
-from pathlib import Path
 import subprocess
 import time
 import uuid
+from datetime import UTC, datetime
+from pathlib import Path
 
 
 def main():
@@ -33,6 +33,7 @@ def main():
     parser.add_argument("--train-timesteps", type=int, default=10_485_760)
     parser.add_argument("--eval-timesteps", type=int, default=524_288)
     parser.add_argument("--warmup", type=int, default=25_000)
+    parser.add_argument("--load", type=float, default=5000.0)
     parser.add_argument("--pool-before-projection", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
@@ -86,6 +87,7 @@ def main():
         "--slot_size=12.5",
         "--k=5",
         "--values_bw=100,200,400",
+        f"--load={args.load}",
         "--guardband=0",
         "--coherent",
         "--power_per_channel=-10",
@@ -206,7 +208,7 @@ def main():
     source_hashes = {p: hashlib.sha256(Path(p).read_bytes()).hexdigest() for p in sources}
     fingerprint = hashlib.sha256(json.dumps(source_hashes, sort_keys=True).encode()).hexdigest()
     manifest = {
-        "created_utc": datetime.now(timezone.utc).isoformat(),
+        "created_utc": datetime.now(UTC).isoformat(),
         "source_sha256": source_hashes,
         "source_fingerprint": fingerprint,
         "jobs": [],

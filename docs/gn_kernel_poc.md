@@ -85,9 +85,16 @@ save and model reload are tested.
 A two-layer, 128-wide, four-head transformer with `occupancy_snr`, 16 environments,
 64-step rollouts, four epochs/minibatches, 3,000 heuristic warmup requests and
 32,768 training steps reaches **1,477.6 training steps/s** on full C+L+S (`v48`).
-This is a different, denser workload from the historical 1,376-slot policy tests.
+This run inherited the CLI's **load 250**, so it is a low-load full-band throughput
+test, not a measurement at the target load 5,000.
 Training compile takes 15.15 s; synchronized training execution takes 22.18 s.
 Neither warmup nor compilation is included in the throughput figure.
+
+The explicit **load-5,000** rerun (`v50`), otherwise the same 16-env/two-layer
+configuration, reaches **1,359.7 training steps/s**: 32,768 steps in 24.10 s.
+Training compile is 14.93 s and the 3,000-request warmup executes in 23.65 s.
+Longer learning runs use 25,000 warmup requests and a separate optimizer/evaluation
+configuration; this short benchmark does not establish their final throughput.
 
 An opt-in actor experiment commutes only the final affine slot projection with
 path summation, retaining hidden nonlinearities and multiplying bias by path
@@ -102,6 +109,13 @@ evaluation. Each PPO candidate is configured for 10,485,760 training steps;
 continuous-operation warmup is 25,000 requests per environment. Final model
 evaluations use held-out traffic seeds 4242/4243, with matched heuristic seed 4242.
 These are experiments, not evidence of convergence or beating a heuristic.
+
+The first W&B launch also omitted the intended load flag and inherited load 250.
+Those two runs were stopped, marked `invalid_configuration` and moved to a
+separate invalid-load group. The campaign now passes `--load=5000` explicitly;
+preflight constructs the actual heuristic, training and evaluation environments
+and checks 200 arrivals/time-unit, 1,668 slots and coherent accumulation. Invalid
+runs do not count toward the blocking comparison.
 
 Latest CPU GN/kernel/observation/projection checks: **177 passed, 70 skipped,
 two expected issue-64 failures**. The two SNR PPO smoke tests and a separate
