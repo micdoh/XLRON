@@ -53,12 +53,14 @@ For more details see [benchmarks in docs](https://micdoh.github.io/XLRON/feature
 
 ### Papers and reproduction guides
 
-- **XLRON: Accelerated Reinforcement Learning Environments for Optical Networks** — OFC 2024 ([IEEE](https://ieeexplore.ieee.org/document/10526884), [UCL Discovery](https://discovery.ucl.ac.uk/id/eprint/10185312/1/OFC2024___XLRON.pdf))
+- **XLRON: Accelerated Reinforcement Learning Environments for Optical Networks** — OFC 2024 ([Optica](https://doi.org/10.1364/OFC.2024.Th2A.21), [open manuscript](https://discovery.ucl.ac.uk/id/eprint/10185312/), [PDF](papers/xlron_ofc_2024.pdf))
 - **Reinforcement Learning with Graph Attention for Routing and Wavelength Assignment with Lightpath Reuse** — ONDM 2025, DOI [10.23919/ONDM65745.2025.11029354](https://doi.org/10.23919/ONDM65745.2025.11029354), [arXiv:2502.14741](https://arxiv.org/abs/2502.14741) — [reproduce](https://micdoh.github.io/XLRON/reproduce_rwalr/)
 - **Reinforcement Learning for Dynamic Resource Allocation in Optical Networks: Hype or Hope?** — JOCN **17**(9), D1 (2025), DOI [10.1364/JOCN.559990](https://doi.org/10.1364/JOCN.559990), [arXiv:2406.01919](https://arxiv.org/abs/2406.01919) — [reproduce](https://micdoh.github.io/XLRON/reproduce_jocn2024/)
 - **Comparison of Dynamic Elastic Optical Network Capacity Bound Estimation Methods** — *submitted to ECOC 2026* — [reproduce](https://micdoh.github.io/XLRON/reproduce_ecoc2026/)
-- **XLRON: A Framework for Hardware-Accelerated and Differentiable Simulation of Optical Networks** — *in preparation* — [reproduce](https://micdoh.github.io/XLRON/reproduce_jocn_xlron/)
+- **XLRON: A Framework for Hardware-Accelerated and Differentiable Simulation of Optical Networks** — Optica Open preprint (2026) ([Optica Open](https://doi.org/10.1364/opticaopen.33317361), [PDF](papers/xlron_journal_2026.pdf)) — [reproduce](https://micdoh.github.io/XLRON/reproduce_jocn_xlron/)
 - **Graph Transformers and Stabilized Reinforcement Learning for Large-Scale Dynamic Routing, Modulation and Spectrum Allocation in Elastic Optical Networks** — *in preparation* ([arXiv:2605.02075](https://arxiv.org/abs/2605.02075)) — [reproduce](https://micdoh.github.io/XLRON/reproduce_jocn_transformer/)
+
+Copies of the XLRON OFC paper and journal preprint, with source and version details, are in [`papers/`](papers/).
 
 Full list with BibTeX entries on the [Papers](https://micdoh.github.io/XLRON/papers/) page.
 
