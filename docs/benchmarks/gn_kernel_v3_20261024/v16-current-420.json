@@ -1,0 +1,78 @@
+{
+  "args": {
+    "slots": 420,
+    "env_type": "rmsa_gn_model",
+    "k": 5,
+    "envs": 1,
+    "topology": "nsfnet_deeprmsa_directed",
+    "mode": "uniform",
+    "kernels": [
+      "mask",
+      "rollout"
+    ],
+    "iterations": 7,
+    "steps": 16,
+    "warmup_steps": 0,
+    "output": "v16-current-420.json",
+    "snapshot": "v16-current-420.npz",
+    "reference": "v15-original-420.npz",
+    "matmul_precision": "highest"
+  },
+  "jax": "0.12.0.1",
+  "device": "cuda:0",
+  "device_kind": "NVIDIA A100 80GB PCIe",
+  "platform": "Linux-5.14.0-611.55.1.el9_7.0.3.x86_64-x86_64-with-glibc2.34",
+  "links": 44,
+  "paths": 911,
+  "modulations": 4,
+  "lightpaths": 352,
+  "occupancy": 0.2501623332500458,
+  "metrics": {
+    "mask": {
+      "compile_s": 2.569974748417735,
+      "median_ms": 1.2383926659822464,
+      "min_ms": 1.17417611181736,
+      "argument_bytes": 443532,
+      "output_bytes": 12624,
+      "temp_bytes": 4347784,
+      "alias_bytes": 0
+    },
+    "rollout": {
+      "compile_s": 4.119769321754575,
+      "median_ms": 18.25532503426075,
+      "min_ms": 17.937373369932175,
+      "argument_bytes": 1197120,
+      "output_bytes": 1197544,
+      "temp_bytes": 4202512,
+      "alias_bytes": 0,
+      "steps_per_s": 876.4565938964078,
+      "accepted_services": [
+        16
+      ]
+    }
+  },
+  "accuracy": {
+    "mask_0": {
+      "exact": true,
+      "max_abs_error": 0.0
+    },
+    "mask_1": {
+      "exact": true,
+      "max_abs_error": 0.0
+    },
+    "mask_2": {
+      "exact": true,
+      "max_abs_error": 0.0
+    },
+    "rollout_rewards": {
+      "exact": true,
+      "max_abs_error": 0.0
+    },
+    "rollout_occupancy": {
+      "exact": true,
+      "max_abs_error": 0.0
+    }
+  },
+  "xpm_backend": "pallas_reuse",
+  "path_snr_backend": "pallas_fused"
+}

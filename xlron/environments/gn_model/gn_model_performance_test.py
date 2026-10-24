@@ -13,6 +13,48 @@ from xlron.environments.gn_model import isrs_gn_model
 from xlron.environments.make_env import make
 
 
+def test_noise_lookup_preserves_boundaries_gaps_and_first_overlapping_band(tmp_path):
+    csv = tmp_path / "noise.csv"
+    csv.write_text(
+        "band,lmin,lmax,fmin,fmax,nf,trx,express,ad,rnf\n"
+        "a,0,0,10,20,1,2,3,4,5\n"
+        "b,0,0,20,30,6,7,8,9,10\n"
+    )
+    frequencies = np.array([9, 10, 19.999, 20, 20.001, 30, 31], np.float64)
+    actual = ef.init_transceiver_amplifier_noise_arrays(
+        len(frequencies), 1550e-9, 12.5, str(csv), frequencies
+    )
+    expected = np.array(
+        [
+            [0] * 5,
+            [2, 1, 3, 4, 5],
+            [2, 1, 3, 4, 5],
+            [2, 1, 3, 4, 5],
+            [7, 6, 8, 9, 10],
+            [7, 6, 8, 9, 10],
+            [0] * 5,
+        ],
+        np.float32,
+    )
+    np.testing.assert_array_equal(np.stack(actual, axis=1), expected)
+
+
+@pytest.mark.parametrize("source", ["default", "jax", "numpy"])
+def test_noise_lookup_retains_legacy_scalar_boundary_rounding(tmp_path, source):
+    csv = tmp_path / "noise.csv"
+    csv.write_text(
+        "band,lmin,lmax,fmin,fmax,nf,trx,express,ad,rnf\na,0,0,193414.501,193415,1,2,3,4,5\n"
+    )
+    frequencies = np.array([193414.5], np.float32)
+    supplied = {"default": None, "jax": jnp.asarray(frequencies), "numpy": frequencies}[source]
+    actual = ef.init_transceiver_amplifier_noise_arrays(
+        1, 299792458 / (193414.5 * 1e9), 12.5, str(csv), supplied
+    )
+    # Legacy default/JAX scalars round the CSV bound to float32 before comparing.
+    expected = [0] * 5 if source == "numpy" else [2, 1, 3, 4, 5]
+    np.testing.assert_array_equal(np.stack(actual, axis=1), [expected])
+
+
 @cache
 def setup(mode="uniform", packed=False, slots=12):
     env, params = make(

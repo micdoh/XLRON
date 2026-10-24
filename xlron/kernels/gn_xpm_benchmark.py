@@ -28,6 +28,9 @@ def main():
     parser.add_argument("--occupancy", type=float, default=0.25)
     parser.add_argument("--iterations", type=int, default=5)
     parser.add_argument("--compact", action="store_true", help="Skip zero interferers in Pallas")
+    parser.add_argument(
+        "--compact-rows", action="store_true", help="Skip zero-bandwidth output rows"
+    )
     parser.add_argument("--rows", type=int, nargs="+", default=[4, 8, 16])
     parser.add_argument("--columns", type=int, nargs="+", default=[64, 128])
     parser.add_argument("--warps", type=int, nargs="+", default=[4, 8])
@@ -71,7 +74,15 @@ def main():
         print(f"Benchmarking {config}", flush=True)
         entry = {"config": config}
         try:
-            fn = jax.vmap(partial(xpm_pallas, **physics, **config, compact=args.compact))
+            fn = jax.vmap(
+                partial(
+                    xpm_pallas,
+                    **physics,
+                    **config,
+                    compact=args.compact,
+                    compact_rows=args.compact_rows,
+                )
+            )
             metrics, actual = measure(lambda x, fn=fn: fn(*x), inputs, args.iterations)
             actual = np.asarray(actual)
             np.testing.assert_allclose(actual, expected, rtol=5e-5, atol=1e-4)

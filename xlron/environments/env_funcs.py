@@ -3519,55 +3519,30 @@ def init_transceiver_amplifier_noise_arrays(
     #   NF_ASE_dB,SNR_TRX_dB,roadm_express_loss_dB,roadm_add_drop_loss_dB,roadm_NF_dB
     frequency_min_ghz = noise_data[:, 2]
     frequency_max_ghz = noise_data[:, 3]
-    amplifier_noise_db = noise_data[:, 4]  # NF_ASE_dB
-    transceiver_snr_db = noise_data[:, 5]  # SNR_TRX_dB
-    roadm_express_loss_db = noise_data[:, 6]  # roadm_express_loss_dB
-    roadm_add_drop_loss_db = noise_data[:, 7]  # roadm_add_drop_loss_dB
-    roadm_nf_db = noise_data[:, 8]  # roadm_NF_dB
-
+    jax_comparison = slot_frequencies_ghz is None or isinstance(slot_frequencies_ghz, jax.Array)
     if slot_frequencies_ghz is None:
-        # Legacy uniform formula
-        slot_centres = (jnp.arange(link_resources) - (link_resources - 1) / 2) * slot_size
-        ref_frequency_ghz = c / ref_lambda / 1e9
-        slot_frequencies_ghz = ref_frequency_ghz + slot_centres
+        # Match the legacy JAX default-dtype rounding, including frequencies
+        # exactly on a band boundary, without thousands of device dispatches.
+        dtype = np.float64 if jax.config.jax_enable_x64 else np.float32
+        slot_centres = (
+            np.arange(link_resources, dtype=dtype) - dtype((link_resources - 1) / 2)
+        ) * dtype(slot_size)
+        slot_frequencies_ghz = dtype(c / ref_lambda / 1e9) + slot_centres
 
-    # Initialize output arrays
-    transceiver_snr_array = jnp.zeros(link_resources)
-    amplifier_noise_figure_array = jnp.zeros(link_resources)
-    roadm_express_loss_array = jnp.zeros(link_resources)
-    roadm_add_drop_loss_array = jnp.zeros(link_resources)
-    roadm_noise_figure_array = jnp.zeros(link_resources)
-
-    # For each slot, find which band it belongs to
-    for i, freq in enumerate(slot_frequencies_ghz):
-        # Find the band this frequency falls into
-        found = False
-        for j in range(len(frequency_min_ghz)):
-            if frequency_min_ghz[j] <= freq <= frequency_max_ghz[j]:
-                transceiver_snr_array = transceiver_snr_array.at[i].set(transceiver_snr_db[j])
-                amplifier_noise_figure_array = amplifier_noise_figure_array.at[i].set(
-                    amplifier_noise_db[j]
-                )
-                roadm_express_loss_array = roadm_express_loss_array.at[i].set(
-                    roadm_express_loss_db[j]
-                )
-                roadm_add_drop_loss_array = roadm_add_drop_loss_array.at[i].set(
-                    roadm_add_drop_loss_db[j]
-                )
-                roadm_noise_figure_array = roadm_noise_figure_array.at[i].set(roadm_nf_db[j])
-                found = True
-                break
-        if not found:
-            # Gap slots fall between bands — leave at zero (they are never occupied)
-            pass
-
-    return (
-        transceiver_snr_array,
-        amplifier_noise_figure_array,
-        roadm_express_loss_array,
-        roadm_add_drop_loss_array,
-        roadm_noise_figure_array,
+    frequencies = np.asarray(slot_frequencies_ghz)
+    if jax_comparison:
+        # The old scalar JAX comparison casts CSV bounds to the array dtype.
+        # NumPy-provided frequencies instead retain NumPy's promotion rules.
+        frequency_min_ghz = frequency_min_ghz.astype(frequencies.dtype)
+        frequency_max_ghz = frequency_max_ghz.astype(frequencies.dtype)
+    matches = (frequencies[:, None] >= frequency_min_ghz) & (
+        frequencies[:, None] <= frequency_max_ghz
     )
+    # argmax retains the first CSV row when bands overlap, as the old loop did.
+    bands = np.argmax(matches, axis=1)
+    values = noise_data[:, [5, 4, 6, 7, 8]][bands]
+    values = np.where(np.any(matches, axis=1)[:, None], values, 0.0)
+    return tuple(jnp.asarray(values[:, column]) for column in range(5))
 
 
 def compute_band_gaps_from_csv(
@@ -4208,7 +4183,9 @@ def get_snr_for_path(path, link_snr_array, params, state=None):
     )  # Link SNR array must be in linear units so that 1/inf = 0
 
 
-def get_lightpath_snr(state: GNModelEnvState, params: GNModelEnvParams) -> Array:
+def get_lightpath_snr(
+    state: GNModelEnvState, params: GNModelEnvParams, *, nsr_backend: str = "jax"
+) -> Array:
     """Accumulate full path SNR only for the paths referenced by link/slot state.
 
     The sparse gather uses (links, slots, max_path_hops) work/storage instead of
@@ -4216,17 +4193,47 @@ def get_lightpath_snr(state: GNModelEnvState, params: GNModelEnvParams) -> Array
     masking. Padding is selected out before summation, so zero-SNR links outside
     a path cannot contaminate it with 0 * inf NaNs.
     """
+    if nsr_backend in {"pallas_fused", "pallas_precomputed"}:
+        from xlron.kernels.gn_path_snr import path_snr_pallas
+
+        return path_snr_pallas(
+            state.link_snr_array,
+            state.path_index_array,
+            params.path_link_indices.val,
+            state.channel_power_array,
+            state.channel_centre_freq_array,
+            state.channel_centre_bw_array,
+            params.roadm_express_loss.val,
+            params.roadm_add_drop_loss.val,
+            params.roadm_noise_figure.val,
+            params.transceiver_snr.val,
+            ref_lambda=params.ref_lambda,
+            precompute=nsr_backend == "pallas_precomputed",
+        )
     slot_indices = jnp.arange(params.link_resources)[None, :, None]
-    links = params.path_link_indices.val[state.path_index_array]
-    valid = links < params.num_links
-    safe_links = jnp.minimum(links, params.num_links - 1)
-    link_snr = state.link_snr_array[safe_links, slot_indices]
-    nsr = jnp.sum(jnp.where(valid, 1.0 / link_snr, 0.0), axis=-1)
+    if nsr_backend == "pallas":
+        from xlron.kernels.gn_path_snr import path_nsr_pallas
+
+        path_table = params.path_link_indices.val
+        nsr = path_nsr_pallas(state.link_snr_array, state.path_index_array, path_table)
+        # Compute metadata once per path, then gather one scalar per output.
+        counts = jnp.sum(path_table < params.num_links, axis=-1)
+        num_express = jnp.maximum(counts[state.path_index_array] - 1, 0)
+        first = jnp.where(path_table[:, 0] < params.num_links, path_table[:, 0], 0)
+        first_link = first[state.path_index_array]
+    elif nsr_backend == "jax":
+        links = params.path_link_indices.val[state.path_index_array]
+        valid = links < params.num_links
+        safe_links = jnp.minimum(links, params.num_links - 1)
+        link_snr = state.link_snr_array[safe_links, slot_indices]
+        nsr = jnp.sum(jnp.where(valid, 1.0 / link_snr, 0.0), axis=-1)
+        num_express = jnp.maximum(jnp.sum(valid, axis=-1) - 1, 0)
+        first_link = jnp.where(valid[..., 0], links[..., 0], 0)
+    else:
+        raise ValueError(f"Unknown path NSR backend: {nsr_backend}")
 
     if hasattr(params, "roadm_express_loss"):
-        num_express = jnp.maximum(jnp.sum(valid, axis=-1) - 1, 0)
         # Match argmax(incidence) == 0 for the empty/dummy path.
-        first_link = jnp.where(valid[..., 0], links[..., 0], 0)
         slots = slot_indices[..., 0]
         ch_power = state.channel_power_array[first_link, slots]
         roadm_ase = isrs_gn_model.calculate_roadm_ase(

@@ -36,6 +36,24 @@ python -m xlron.train.train \
 
 ## 1. Parallelism and Scale
 
+### Startup and compiled-program reuse
+
+Training enables JAX's persistent compilation cache in the per-user
+`$XDG_CACHE_HOME/xlron/jax` directory (default `~/.cache/xlron/jax`), capped at
+2 GiB. `JAX_COMPILATION_CACHE_DIR`, `JAX_ENABLE_COMPILATION_CACHE`, cache thresholds
+and explicit `XLA_FLAGS` override the defaults. Programs are reused only when
+JAX's computation, runtime, device and compiler-option cache keys match.
+
+The setup log separates environment creation, reset, model/optimizer initialization,
+warmup tracing/compilation/execution and PPO tracing/compilation. JSON timing now
+reports `startup_time_s` for total setup; `compilation_time_s` measures the explicit
+warmup and training compile/load calls, with tracing and warmup execution reported
+separately. Previously the compilation field included all startup work. GPU warmup
+uses a faster library-GEMM compilation profile; PPO retains the normal tuning policy.
+
+For GN benchmark compiler troubleshooting and matched original-code measurements,
+see [the kernel report](gn_kernel_poc.md#making-the-420-slot-baseline-compile).
+
 ### `--NUM_ENVS`
 
 Number of parallel environment instances per learner. Each environment runs an independent simulation. The batch size for each update is `NUM_ENVS * ROLLOUT_LENGTH`. More environments improve sample diversity and statistical stability, but increase memory usage. Typical values: `16` to `2000`.

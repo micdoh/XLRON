@@ -10,29 +10,79 @@ No production default or environment configuration is changed by this wrapper.
 
 import argparse
 import json
+import os
+import runpy
 import sys
 from functools import partial
 from pathlib import Path
 
-from experimental.benchmarks import gn_scaling
-from xlron.environments.gn_model import isrs_gn_model
-
 
 def main():
-    parser = argparse.ArgumentParser(add_help=False)
+    parser = argparse.ArgumentParser(add_help=False, allow_abbrev=False)
+    parser.add_argument(
+        "--path-snr-backend",
+        choices=["jax", "pallas", "pallas_fused", "pallas_precomputed"],
+        default="jax",
+    )
+    parser.add_argument(
+        "--reference-script", type=Path, help="Use an archived workload script unchanged"
+    )
+    parser.add_argument(
+        "--compiler-profile",
+        choices=["default", "library"],
+        default="default",
+        help="library bypasses pathological GPU GEMM autotuning; use the same profile for controls",
+    )
     parser.add_argument(
         "--xpm-backend",
-        choices=["jax", "jax_dense", "jax_compact", "pallas", "pallas_compact"],
+        choices=[
+            "jax",
+            "jax_dense",
+            "jax_compact",
+            "pallas",
+            "pallas_compact",
+            "pallas_sparse",
+            "pallas_reuse",
+            "pallas_skip",
+            "pallas_inline",
+            "pallas_grouped",
+            "mosaic",
+        ],
         required=True,
     )
     args, remaining = parser.parse_known_args()
-    isrs_gn_model.get_snr_fused = partial(isrs_gn_model.get_snr_fused, xpm_backend=args.xpm_backend)
+    if args.compiler_profile == "library":
+        flags = os.environ.get("XLA_FLAGS", "")
+        for option in ("--xla_gpu_enable_triton_gemm=false", "--xla_gpu_autotune_level=0"):
+            if option not in flags.split():
+                flags += " " + option
+        os.environ["XLA_FLAGS"] = flags.strip()
+    # Parsing and compiler flags must precede imports whose default arguments
+    # allocate JAX arrays and initialize the CUDA backend.
+    from experimental.benchmarks import gn_scaling
+    from xlron.environments import env_funcs
+    from xlron.environments.gn_model import isrs_gn_model
+
+    if args.xpm_backend != "jax":
+        isrs_gn_model.get_snr_fused = partial(
+            isrs_gn_model.get_snr_fused, xpm_backend=args.xpm_backend
+        )
+    if args.path_snr_backend != "jax":
+        env_funcs.get_lightpath_snr = partial(
+            env_funcs.get_lightpath_snr, nsr_backend=args.path_snr_backend
+        )
     sys.argv = [sys.argv[0], *remaining]
-    gn_scaling.main()
+    if args.reference_script:
+        runpy.run_path(str(args.reference_script), run_name="__main__")
+    else:
+        gn_scaling.main()
     if "--output" in remaining:
         path = Path(remaining[remaining.index("--output") + 1])
         report = json.loads(path.read_text())
         report["xpm_backend"] = args.xpm_backend
+        report["path_snr_backend"] = args.path_snr_backend
+        report["compiler_profile"] = args.compiler_profile
+        report["xla_flags"] = os.environ.get("XLA_FLAGS", "")
         path.write_text(json.dumps(report, indent=2) + "\n")
 
 

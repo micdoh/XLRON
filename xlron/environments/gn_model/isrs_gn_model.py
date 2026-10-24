@@ -927,7 +927,33 @@ def get_snr_fused(
             )
             * num_spans
         )
-    elif xpm_backend in {"pallas", "pallas_compact"}:
+    elif xpm_backend == "mosaic":
+        from xlron.kernels.gn_xpm_mosaic import xpm_mosaic
+
+        eta_xpm = (
+            xpm_mosaic(
+                ch_pow,
+                f,
+                ch_bw,
+                a=a,
+                a_bar=a_bar,
+                gamma=gamma,
+                cr=cr,
+                beta2=beta2,
+                beta3=beta3,
+                beta4=beta4,
+            )
+            * num_spans
+        )
+    elif xpm_backend in {
+        "pallas",
+        "pallas_compact",
+        "pallas_sparse",
+        "pallas_reuse",
+        "pallas_skip",
+        "pallas_inline",
+        "pallas_grouped",
+    }:
         from xlron.kernels.gn_xpm import xpm_pallas
 
         eta_xpm = (
@@ -943,8 +969,13 @@ def get_snr_fused(
                 beta3=beta3,
                 beta4=beta4,
                 block_i=16,
-                block_k=64,
-                compact=xpm_backend == "pallas_compact",
+                block_k=32 if xpm_backend == "pallas_grouped" else 64,
+                compact=xpm_backend not in {"pallas", "pallas_inline"},
+                compact_rows=xpm_backend == "pallas_sparse",
+                reuse_rows=xpm_backend in {"pallas_reuse", "pallas_grouped"},
+                group_interferers=xpm_backend == "pallas_grouped",
+                skip_empty_tiles=xpm_backend in {"pallas_skip", "pallas_inline"},
+                skip_empty_columns=xpm_backend == "pallas_inline",
             )
             * num_spans
         )

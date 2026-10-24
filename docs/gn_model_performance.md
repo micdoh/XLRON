@@ -226,6 +226,13 @@ distinction between timing traces and utilization/roofline counters.
 Real MLP routing-policy PPO runs also completed with fixed launch power, policy
 warmup, 16-step rollouts, four minibatches and four update epochs:
 
+**Subsequent correction:** these initial fixed-power MLP runs used a single actor
+logit broadcast over the path-slot mask. The GN environment's reported action
+dimension has since been corrected, and the transformer warmup/PPO path is now
+tested too. Retain the table below as historical execution evidence; use the
+[kernel report](gn_kernel_poc.md#real-transformer-and-mlp-ppo) for current routing
+policy throughput and the matched total comparison with original v1.6.0.
+
 | Slots | Environments | Training steps | Compiled training steps/s | Compilation | Sampled process VRAM |
 |---:|---:|---:|---:|---:|---:|
 | 420 | 64 | 8,192 | 2,367 | 30.13 s | 1,250 MiB |
