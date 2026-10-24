@@ -117,6 +117,14 @@ preflight constructs the actual heuristic, training and evaluation environments
 and checks 200 arrivals/time-unit, 1,668 slots and coherent accumulation. Invalid
 runs do not count toward the blocking comparison.
 
+The corrected campaign records are in
+`/tmp/xlron-gn-kernel-v2-20261024/runs/cls-20261024-v5/{lane2,lane3}` on Turin,
+with W&B group `gn-cls-20261024-v5` in `XLRON-GN-CLS`. Each lane's `manifest.json`
+records commands, source hashes, run URLs and eventual exit status. Lane 2 runs
+the four heuristics followed by the SNR-only transformer; lane 3 runs the
+occupancy+SNR transformer. Both lanes evaluate their selected checkpoint on
+held-out traffic after training.
+
 Latest CPU GN/kernel/observation/projection checks: **177 passed, 70 skipped,
 two expected issue-64 failures**. The two SNR PPO smoke tests and a separate
 campaign optimizer/checkpoint round trip also pass. Native suite results are
