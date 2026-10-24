@@ -9,17 +9,18 @@ import pytest
 
 from xlron.environments import env_funcs as ef
 from xlron.environments.dataclasses import HashableArrayWrapper
+from xlron.environments.gn_model import isrs_gn_model
 from xlron.environments.make_env import make
 
 
 @cache
-def setup(mode="uniform", packed=False):
+def setup(mode="uniform", packed=False, slots=12):
     env, params = make(
         {
             "env_type": "rmsa_gn_model",
             "topology_name": "5node_directed",
             "k": 2,
-            "link_resources": 12,
+            "link_resources": slots,
             "slot_size": 25,
             "guardband": 0,
             "values_bw": [100],
@@ -141,8 +142,9 @@ def test_selected_link_snr_matches_full_refresh(mode):
 
 
 @pytest.mark.parametrize("mode", ["uniform", "corrected", "nonuniform"])
-def test_streamed_mask_matches_full_network_oracle_with_stale_snr(mode):
-    env, params, state = setup(mode)
+@pytest.mark.parametrize("slots", [12, 140])
+def test_streamed_mask_matches_full_network_oracle_with_stale_snr(mode, slots):
+    env, params, state = setup(mode, slots=slots)
     # Empty network cache is intentionally wrong: candidates must refresh the
     # baseline rather than trust cached SNR left by departure/removal operations.
     state = state.replace(link_snr_array=jnp.zeros_like(state.link_snr_array))
@@ -201,3 +203,93 @@ def test_single_slot_sparse_snr_keeps_shape():
     result = ef.get_lightpath_snr(state, params)
     assert result.shape == (params.num_links, 1)
     assert bool(jnp.all(jnp.isfinite(result)))
+
+
+@pytest.mark.parametrize("include_mod, expected_count", [(False, 4), (True, 5)])
+def test_candidate_groups_preserve_physics_keys(include_mod, expected_count):
+    representatives, packed, count = ef._gn_candidate_groups(
+        jnp.array([0, 0, 0, 0, 1, 1]),
+        jnp.array([0, 0, 0, 1, 0, 0]),
+        jnp.array([2, 2, 2, 2, 2, 2]),
+        jnp.array([1.0, 1.0, 2.0, 1.0, 1.0, 1.0]),
+        jnp.array([0, 1, 0, 0, 0, 0]),
+        jnp.array([True, True, True, True, True, False]),
+        include_mod,
+    )
+    assert int(count) == expected_count
+    assert int(representatives[1]) == (1 if include_mod else 0)
+    assert int(representatives[-1]) == 4
+    np.testing.assert_array_equal(packed[:count], [0, 1, 2, 3, 4] if include_mod else [0, 2, 3, 4])
+
+
+def test_reused_footprint_keeps_distinct_modulation_thresholds():
+    env, params, state = setup(slots=140)
+    mods = params.modulations_array.val.at[:, 2].set(1000).at[1, 2].set(-1000)
+    params = params.replace(modulations_array=HashableArrayWrapper(mods))
+    expected_mask, expected_mods = exhaustive_mask(state, params)
+    mask, _, selected = env.action_mask(state, params)
+    np.testing.assert_array_equal(mask, expected_mask)
+    np.testing.assert_array_equal(selected, expected_mods)
+    assert np.any(np.asarray(mask))
+    assert np.all(np.asarray(selected)[np.asarray(mask, dtype=bool)] == 1)
+
+
+def test_batched_compaction_handles_empty_and_live_candidate_sets():
+    env, params, state = setup(slots=140)
+    full = state.replace(link_slot_array=jnp.full_like(state.link_slot_array, -1))
+    batched = jax.tree.map(lambda x, y: jnp.stack([x, y]), state, full)
+    masks, _, mods = jax.jit(jax.vmap(lambda s: env.action_mask(s, params)))(batched)
+    expected_mask, _, expected_mods = env.action_mask(state, params)
+    np.testing.assert_array_equal(masks[0], expected_mask)
+    np.testing.assert_array_equal(mods[0], expected_mods)
+    assert np.any(np.asarray(masks[0]))
+    assert not np.any(np.asarray(masks[1]))
+    assert np.all(np.asarray(mods[1]) == -1)
+
+
+def test_compact_xpm_full_snr_matches_dense_with_different_live_counts():
+    _, params, _ = setup(slots=140)
+    rng = np.random.default_rng(13)
+    power = rng.uniform(1e-5, 3e-4, (3, 140)).astype(np.float32)
+    live = rng.random(power.shape) < 0.35
+    live[0] = False
+    live[2] = True
+    power *= live
+    bandwidth = rng.choice([12.5e9, 25e9, 50e9], power.shape).astype(np.float32) * live
+    frequency = np.broadcast_to(np.linspace(-8e12, 8e12, 140, dtype=np.float32), power.shape).copy()
+    frequency[:, 2] = frequency[:, 1]  # Same-centre terms remain excluded.
+    physics = {
+        name: getattr(params, name)
+        for name in (
+            "ref_lambda",
+            "attenuation",
+            "attenuation_bar",
+            "nonlinear_coeff",
+            "raman_gain_slope",
+            "dispersion_coeff",
+            "dispersion_slope",
+            "coherent",
+            "num_subchannels",
+            "span_lumped_loss_db",
+        )
+    }
+
+    def evaluate(p, f, bw, compact):
+        return isrs_gn_model.get_snr_fused(
+            p,
+            f,
+            bw,
+            num_spans=3,
+            span_length=80_000,
+            num_channels=140,
+            amplifier_noise_figure=params.amplifier_noise_figure.val,
+            transceiver_snr=params.transceiver_snr.val,
+            compact_xpm=compact,
+            **physics,
+        )
+
+    args = tuple(jnp.asarray(x) for x in (power, frequency, bandwidth))
+    expected = jax.jit(jax.vmap(lambda *x: evaluate(*x, False)))(*args)
+    actual = jax.jit(jax.vmap(lambda *x: evaluate(*x, True)))(*args)
+    np.testing.assert_allclose(actual, expected, rtol=1e-5, atol=1e-5)
+    assert np.all(np.asarray(actual)[~live] == -1e5)

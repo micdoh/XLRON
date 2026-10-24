@@ -3,8 +3,10 @@
 The implemented changes reduce repeated GN calculations and bound candidate-state
 memory while retaining the existing admission checks. On directed NSFNET with 420
 slots, code changes alone made a 16-step RMSA rollout **4.44× faster** and reduced
-action-mask temporary buffers **24.48×**. A 1,376-slot run with real admitted traffic
-also completed with full SNR checks.
+action-mask temporary buffers **24.48×**. Further ordinary-JAX work removes infeasible/duplicate candidate evaluations and
+zero-interferer arithmetic. Against the first optimized version, a 1,376-slot
+16-environment rollout improves another **2.15×**, reaching **619 requests/s**
+with real admitted warmup traffic and full SNR checks.
 
 These are performance and implementation-equivalence results. The independent
 formula audit below identifies pre-existing discrepancies that need physical-model
@@ -17,7 +19,9 @@ from `https://github.com/micdoh/XLRON.git`, and the performance branch was based
 remote `main`, commit `2256456` (`Bump version to 1.6.0`). A subsequent fetch confirmed
 the same remote head. During final validation, PR #61 landed on main as `dce10f9`;
 the performance branch was rebased onto that commit. Performance changes are on
-the local `perf/gn-multiband` branch and have not been pushed.
+`perf/gn-multiband`, published as draft [PR #62](https://github.com/micdoh/XLRON/pull/62).
+Its first commit, `804c53a`, passed all GitHub checks; the further work below
+is recorded separately from those initial results.
 
 One PR was open: [#61, Add ARBR adaptive-routing heuristic](https://github.com/micdoh/XLRON/pull/61).
 It combines static path resource cost with quantized maximum link utilization,
@@ -98,7 +102,7 @@ link indices, retaining their ordering and duplicates.
 Existing lightpaths are still checked across their complete routes. Selective GN
 refresh does not mean that disruption checks inspect only the new lightpath.
 
-### Bounded candidate batches
+### Bounded candidate batches (first optimization stage)
 
 Candidate states are constructed inside `jax.lax.map`, rather than materializing
 every hypothetical network simultaneously. The measured default is up to 40
@@ -253,6 +257,89 @@ treated as equivalent measurements of per-request physical feasibility. The shar
 path-SNR change benefits both, while the candidate rearchitecture primarily targets
 RMSA GN masking. The RSA capacity routine remains a possible subsequent optimization.
 
+## Further reductions in wasted work
+
+These follow-up changes build on `804c53a`. Comparisons in this section use that
+first optimized version as the baseline, with the same JAX 0.12.0.1 runtime and
+benchmark harness. They must not be multiplied into the earlier 4.44× comparison:
+the traffic, occupancy, parallelism and runtime differ.
+
+### Compact feasible candidates and reuse physical footprints
+
+For non-differentiable spectra wider than 128 slots, availability and fibre-power
+checks run before GN. A fixed-capacity index buffer packs the feasible candidates;
+a dynamic loop evaluates only the live batches of eight. Identical placements
+share SNR evidence when their route, start, width and launch power match. The key
+also includes modulation when modulation correction or Raman amplification is
+enabled, so format-dependent physics is not shared incorrectly.
+
+The evidence records endpoint SNR, minimum SNR on newly assigned slots, and whether
+all old connections pass. Each candidate then applies its own modulation threshold
+and margin. Equal-width formats therefore retain different admission requirements.
+Small spectra and differentiable mode keep the previous static traversal. A first
+attempt added about 6% rollout overhead at 100 slots; keeping the original validity
+calculation on that path recovered essentially unchanged performance.
+
+Under an outer environment `vmap`, the dynamic loop still runs to the largest live
+candidate count in the batch. Padding in its final batch may execute. This removes
+whole unused batches; it does not guarantee zero work for every invalid lane.
+
+Candidate compaction alone on synthetic states at approximately 46% occupancy:
+
+| Slots / environments | First optimized mask | Compacted mask | First optimized rollout | Compacted rollout |
+|---|---:|---:|---:|---:|
+| 420 / 64 | 22.198 ms | 6.922 ms | 427.737 ms | 244.093 ms |
+| 1,376 / 16 | 44.746 ms | 20.972 ms | 902.457 ms | 610.502 ms |
+
+These placements are physically unvalidated synthetic workloads, not admitted
+near-saturation traffic. All 16 requests are rejected in the wider case; the
+420-slot case accepts 12. Masks, rewards and occupancy match exactly. Raw files
+are `optimized-crowded*.json` and `reduced-crowded*.json`.
+
+### Skip zero interfering channels in uniform-span XPM
+
+The uniform-span, no-modulation-correction fused model now packs interferers with
+nonzero power and bandwidth, and traverses them in 128-column tiles using ordinary
+JAX. All output slots remain. The reduction uses the original total power for
+Raman tilt; repeated-centre occupied slots remain separate contributions. Only
+exactly zero pair contributions are removed. This is not channel aggregation or a
+physical approximation, and the existing physical formulas are unchanged.
+
+The default enables this at 420 slots and above, the measured wide-spectrum range,
+and retains dense fusion below that threshold and for differentiable environments.
+Generic/non-uniform and modulation-corrected GN calculations keep their previous
+physical kernels. Active counts may differ per link; a vmapped JAX loop stops at
+the largest live count in the mapped batch. Reduction order can change float32
+rounding, so equivalence is numerical rather than bitwise for SNR.
+
+Both ordinary-JAX follow-ups together, synchronized medians of seven samples:
+
+| Slots / environments / state | First optimized mask | Final mask | First optimized 16-step rollout | Final rollout | Final requests/s |
+|---|---:|---:|---:|---:|---:|
+| 100 / 1 / real warmup | 0.353 ms | 0.357 ms | 5.951 ms | 5.736 ms | 2,789 |
+| 420 / 64 / independent real warmup | 23.424 ms | 21.087 ms | 422.405 ms | 390.717 ms | 2,621 |
+| 1,376 / 16 / independent real warmup | 47.304 ms | 17.022 ms | 890.309 ms | 413.241 ms | 619 |
+| 1,376 / 16 / synthetic 46% occupancy | 44.784 ms | 20.837 ms | 901.299 ms | 565.166 ms | 453 |
+
+The real-warmup cases use 128 admitted warmup steps, initial occupancy 36.5%, 10.1%
+and 4.65% respectively, and the same independent streams as their baselines. The
+last row is the physically unvalidated synthetic case described above. The final
+wide-spectrum rollout gain is 2.15× in the real-admission workload and 1.59× in the
+synthetic case. The small-spectrum difference is within a few percent; no small
+workload speedup is claimed. All recorded masks, modulation choices, rewards and
+occupancy match exactly. Raw `optimized-waste-*.json` / `reduced-waste-*.json` files
+contain the settings, assertions and memory estimates.
+
+These are environment rollout results. The earlier full PPO measurements precede
+this follow-up; a proportional PPO gain has not been measured. A custom Pallas
+XPM experiment is kept on the separate `perf/gn-kernel-poc` branch/worktree and is
+not included in PR #62.
+
+The expanded GN suite passes **92 tests, six skipped**, including full-network
+candidate oracles at both 12 and 140 slots for uniform, corrected and non-uniform
+modes, unequal modulation thresholds on reused footprints, different batched live
+counts, and full dense-versus-packed SNR with empty, sparse and dense links.
+
 ## Dependencies and Gymnax
 
 `uv.lock` was refreshed: 159 package versions changed, 20 packages were added and
@@ -340,23 +427,24 @@ benchmarked speedup claims:
 1. **Validate and unify the physical kernels first.** Add independent SPM/XPM,
    heterogeneous power, multislot and broad-spectrum references before combining
    generic/fused execution or changing channel representations.
-2. **Compact active channels with explicit weights.** Work currently scales with
-   frequency slots even when many are empty or share a centre frequency. Static
-   capacity buckets and weighted aggregation could reduce pair calculations while
-   retaining JAX-compatible shapes. Weights must preserve the intended power/PSD
-   accounting; simply dropping duplicate slots changes the current result.
+2. **Aggregate repeated occupied centres with explicit weights.** This PR now
+   skips zero interferers in the wide uniform-span path, but every occupied slot
+   still contributes separately. Weighted channel aggregation could reduce pair
+   calculations further. Weights must preserve the intended power/PSD accounting;
+   simply dropping duplicate slots changes the current result.
 3. **Cache frequency-dependent pair kernels.** The Raman term
    `(a + abar - f * total_power * Cr)^2` is quadratic in total power. On a fixed
    frequency/bandwidth grid, static pair coefficients could turn repeated
    transcendental calculations into weighted reductions/matrix products. Variable
    channel centres, bandwidths and modulation corrections require separate handling.
-4. **Pack feasible candidates and reuse identical placements.** Formats can produce
-   identical spectrum footprints; current batches still evaluate invalid lanes.
-   Dynamic compaction and careful threshold handling could reduce work further.
-   Differentiable execution and outer environment vmaps must remain supported.
-5. **Tile and fuse the XPM reduction in JAX/Pallas.** Bound pairwise working storage
-   and reduce launches without changing the physical model. Profile generated
-   kernels and register use before introducing a custom kernel.
+4. **Extend reuse across related candidates and steps.** Feasible-candidate
+   compaction and identical-footprint reuse are now implemented. More reuse must
+   respect power changes, departures, modulation-dependent physics and stale caches.
+   Differentiable execution retains static traversal.
+5. **Validate a supported custom-kernel backend.** The ordinary-JAX tiled reduction
+   is implemented here; the Pallas POC is isolated in a separate worktree. Backend
+   support, register use, differentiation and generic/corrected modes need their
+   own validation before production adoption.
 6. **Rework RSA's registry-based capacity accumulation if it becomes dominant.**
    It still evaluates registry rows across all slots and performs path ownership
    reductions. The present 420-slot measurement does not justify claiming a gain.
@@ -397,7 +485,9 @@ uv run python -m experimental.benchmarks.gn_accuracy_audit --output /tmp/gn-audi
 ```
 
 Other options include `--mode corrected`, `--mode nonuniform`, `--envs 16`, and
-`--env-type rsa_gn_model --kernels link lightpath throughput rollout`. Use
+`--env-type rsa_gn_model --kernels link lightpath throughput rollout`.
+`--occupancy 0.9` raises the synthetic target; the achieved occupancy is reported
+and can be substantially lower because placement attempts are bounded. Use
 `--reference /tmp/original.npz` for numerical/outcome assertions. Baseline and
 optimized runs should use the same script, precision setting and runtime when
 isolating code changes. To reproduce the original source, export commit `2256456`,

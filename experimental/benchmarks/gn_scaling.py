@@ -30,8 +30,10 @@ from xlron.environments.env_funcs import (
 from xlron.environments.make_env import make
 
 
-def loaded_state(state, params, seed=7):
+def loaded_state(state, params, seed=7, target_occupancy=0.25):
     """Install coherent synthetic lightpaths, identically on each traversed link."""
+    if not 0 < target_occupancy <= 1:
+        raise ValueError("Synthetic occupancy target must be in (0, 1]")
     rng = np.random.default_rng(seed)
     paths = np.asarray(params.path_link_array.val)
     if params.pack_path_bits:
@@ -70,7 +72,7 @@ def loaded_state(state, params, seed=7):
             arrays["modulation_format_index_array"][ix] = 0
         registry.append((pid, start, width))
         placed += 1
-        if np.mean(arrays["channel_power_array"] > 0) >= 0.25:
+        if np.mean(arrays["channel_power_array"] > 0) >= target_occupancy:
             break
     if hasattr(state, "active_lightpaths_array"):
         records = np.full_like(np.asarray(state.active_lightpaths_array), -1)
@@ -116,6 +118,7 @@ def main():
     )
     parser.add_argument("--k", type=int, default=5)
     parser.add_argument("--envs", type=int, default=1)
+    parser.add_argument("--occupancy", type=float, default=0.25, help="Synthetic occupancy target")
     parser.add_argument(
         "--independent-streams",
         action="store_true",
@@ -196,7 +199,7 @@ def main():
             (_, state), _ = jax.jit(lambda s: rollout(s, args.warmup_steps))(empty)
             placed = int(state.accepted_services)
         else:
-            state, placed = loaded_state(empty, params)
+            state, placed = loaded_state(empty, params, target_occupancy=args.occupancy)
         batched = jax.tree.map(lambda x: jnp.stack([x] * args.envs), state)
     batched = batched.replace(link_snr_array=jax.vmap(lambda s: link_fn(s, params))(batched))
     jax.block_until_ready(batched)

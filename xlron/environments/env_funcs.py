@@ -4448,6 +4448,9 @@ def get_snr_link_array_fused(
             coherent=params.coherent,
             num_subchannels=params.num_subchannels,
             span_lumped_loss_db=params.span_lumped_loss_db,
+            # Compaction wins in the measured 420/1376-slot workloads. Preserve
+            # dense fusion for smaller spectra and reverse-mode AD callers.
+            compact_xpm=not params.differentiable and params.link_resources >= 420,
         )
 
     link_snr_array = jax.vmap(_link_snr_fused)(
@@ -4913,6 +4916,28 @@ def get_minimum_snr_of_channels_on_path(
     return min_snr_value_sub_channels
 
 
+def _gn_candidate_groups(paths, starts, widths, powers, mods, feasible, include_mod):
+    """Group physically identical placements, retaining each format's threshold.
+
+    Format can be omitted from the key only when the physics is format independent.
+    The fixed-size index buffer is consumed only up to the returned dynamic count.
+    """
+    same = (
+        (paths[:, None] == paths[None, :])
+        & (starts[:, None] == starts[None, :])
+        & (widths[:, None] == widths[None, :])
+        & (powers[:, None] == powers[None, :])
+    )
+    if include_mod:
+        same &= mods[:, None] == mods[None, :]
+    count = paths.shape[0]
+    indices = jnp.arange(count)
+    representative = jnp.min(jnp.where(same & feasible[None, :], indices[None, :], count), axis=1)
+    unique = feasible & (representative == indices)
+    packed = jnp.nonzero(unique, size=count, fill_value=0)[0]
+    return representative, packed, jnp.sum(unique)
+
+
 @partial(jax.jit, static_argnums=(1,))
 def mask_slots_rmsa_gn_model(
     state: RMSAGNModelEnvState, params: RMSAGNModelEnvParams, request: Array
@@ -5078,6 +5103,7 @@ def mask_slots_rmsa_gn_model(
         else get_snr_link_array
     )
     baseline_snr = snr_fn(state, params)
+    compact_candidates = not params.differentiable and params.link_resources > 128
 
     def evaluate_one_candidate(
         ch_bw,
@@ -5090,8 +5116,9 @@ def mask_slots_rmsa_gn_model(
         req_snr_val,
         path_vec,
         has_cand,
+        affected,
     ):
-        """Evaluate a single candidate placement. Returns 1.0 if valid, 0.0 if not."""
+        """Return validity, or reusable SNR evidence when compacting candidates."""
         temp_state = state.replace(
             channel_centre_bw_array=ch_bw,
             channel_power_array=ch_power,
@@ -5121,7 +5148,6 @@ def mask_slots_rmsa_gn_model(
                 axis=0,
             )
         )
-        new_ok = (new_snr >= req_snr_val).astype(jnp.float32)
         if DEBUG_SNR_TRACE:
             should_trace = jnp.logical_and(has_cand, state.total_requests < 3)
 
@@ -5154,15 +5180,24 @@ def mask_slots_rmsa_gn_model(
                 operand=jnp.array(0, dtype=jnp.int32),
             )
 
-        # Check 2: Existing lightpaths still meet their SNR thresholds
-        existing_fail = check_snr_sufficient(temp_state, params)
-        existing_ok = (1.0 - existing_fail).astype(jnp.float32)
+        if not compact_candidates:
+            return (new_snr >= req_snr_val).astype(jnp.float32) * (
+                1.0 - check_snr_sufficient(temp_state, params)
+            )
 
-        return new_ok * existing_ok
+        # Separate old connections from the new one so identical footprints can
+        # share physics while each modulation retains its own admission threshold.
+        lightpath_snr = get_lightpath_snr(temp_state, params)
+        old_required = get_required_snr_se_kurtosis_array(
+            state.modulation_format_index_array, 2, params
+        )
+        existing_ok = jnp.all(
+            jnp.where(state.channel_centre_bw_array != 0, lightpath_snr >= old_required, True)
+        )
+        new_floor = jnp.min(jnp.where(affected, lightpath_snr, jnp.inf))
+        return jnp.stack((new_snr, new_floor, existing_ok.astype(new_snr.dtype)))
 
-    def evaluate_candidate_index(i):
-        # Construct just one candidate state inside the loop. In particular, never
-        # materialise candidate x link x channel-pair GN tensors for the whole mask.
+    def candidate_prefix(i):
         slot_idx = all_slot_indices[i]
         req_slots_val = all_req_slots_flat[i]
         path_vec = all_paths[i]
@@ -5176,6 +5211,12 @@ def mask_slots_rmsa_gn_model(
         )
         total_power = compute_total_power_per_link(ch_power, path_idx_arr, centre_freq_arr)
         feasible = all_has_candidate[i] & jnp.all(total_power <= params.max_power_per_fibre)
+        return mask, ch_power, path_idx_arr, centre_freq_arr, feasible
+
+    def evaluate_candidate_index(i):
+        # Construct just one candidate state inside the loop. In particular, never
+        # materialise candidate x link x channel-pair GN tensors for the whole mask.
+        mask, ch_power, path_idx_arr, centre_freq_arr, feasible = candidate_prefix(i)
 
         def evaluate(_):
             return evaluate_one_candidate(
@@ -5188,25 +5229,73 @@ def mask_slots_rmsa_gn_model(
                     mod_idx_all[i].astype(state.modulation_format_index_array.dtype),
                 ),
                 centre_freq_arr,
-                slot_idx,
-                req_slots_val,
+                all_slot_indices[i],
+                all_req_slots_flat[i],
                 all_req_snr_flat[i],
-                path_vec,
+                all_paths[i],
                 all_has_candidate[i],
+                mask,
             )
 
-        # The predicate masks invalid/duplicate candidates. Batched cond may still
-        # evaluate invalid lanes, so the bounded map below controls peak storage.
-        return jax.lax.cond(feasible, evaluate, lambda _: jnp.float32(0), None)
+        invalid = (
+            jnp.full((3,), -jnp.inf, baseline_snr.dtype) if compact_candidates else jnp.float32(0)
+        )
+        return jax.lax.cond(feasible, evaluate, lambda _: invalid, None)
 
     # Small spectra benefit from exposing more parallel candidates. Wideband
     # simulations need a tighter memory bound, especially under an outer env vmap.
     candidate_batch_size = min(40 if params.link_resources <= 128 else 8, all_slot_indices.shape[0])
-    all_results = jax.lax.map(
-        evaluate_candidate_index,
-        jnp.arange(all_slot_indices.shape[0]),
-        batch_size=candidate_batch_size,
-    )
+    count = all_slot_indices.shape[0]
+    if not compact_candidates:
+        # Dynamic while loops do not support reverse-mode AD. Retain a statically
+        # bounded traversal for AD callers and small spectra, where compaction
+        # overhead costs more than the saved GN arithmetic in measured workloads.
+        all_results = jax.lax.map(
+            evaluate_candidate_index, jnp.arange(count), batch_size=candidate_batch_size
+        )
+    else:
+        # Run cheap power/availability checks before the quadratic GN calculation.
+        # Packing uses a while loop: under an outer env vmap it stops at the largest
+        # live count in the batch, rather than evaluating every padded candidate.
+        feasible = jax.lax.map(
+            lambda i: candidate_prefix(i)[-1], jnp.arange(count), batch_size=min(8, count)
+        )
+        representatives, packed, live_count = _gn_candidate_groups(
+            path_idx_all,
+            all_slot_indices,
+            all_req_slots_flat,
+            all_launch_powers,
+            mod_idx_all,
+            feasible,
+            params.mod_format_correction or params.use_raman_amp,
+        )
+        offsets = jnp.arange(candidate_batch_size)
+        empty = jnp.full((count, 3), -jnp.inf, baseline_snr.dtype)
+
+        def evaluate_batch(carry):
+            start, cache = carry
+            positions = start + offsets
+            indices = packed[jnp.minimum(positions, count - 1)]
+            values = jax.vmap(evaluate_candidate_index)(indices)
+            # Drop padding writes; duplicate padded indices must not overwrite a
+            # previously computed live candidate's evidence.
+            destinations = jnp.where(positions < live_count, indices, count)
+            cache = cache.at[destinations].set(values, mode="drop")
+            return start + candidate_batch_size, cache
+
+        _, cache = jax.lax.while_loop(
+            lambda carry: carry[0] < live_count, evaluate_batch, (jnp.int32(0), empty)
+        )
+        evidence = cache[jnp.minimum(representatives, count - 1)]
+
+        # Preserve the prior margin policy exactly: endpoint SNR includes the margin,
+        # all newly occupied slots and every old connection must meet base thresholds.
+        all_results = (
+            feasible
+            & (evidence[:, 0] >= all_req_snr_flat)
+            & (evidence[:, 1] >= mod_formats[mod_idx_all, 2])
+            & (evidence[:, 2] > 0)
+        ).astype(jnp.float32)
 
     # --- Phase 4: Assemble final mask ---
     ff_results = all_results[: params.k_paths * num_mods].reshape(params.k_paths, num_mods)
