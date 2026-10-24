@@ -19,13 +19,21 @@ from plot_style import (
     configure_style, PRIMARY_COLORS, ACCENT_COLORS, increase_legend_line_thickness,
 )
 
-configure_style()
+# These figures are authored at thesis/paper text width (5.9 in), so apply the
+# style at matching point sizes rather than configure_style()'s big-canvas
+# defaults (font_size=32), which crush the compact layouts.
+configure_style(font_size=11, axes_label_size=12, tick_size=9, legend_size=8.5)
 
-# Font sizes for single-column paper figures
-FS_TITLE = 42
-FS_LABEL = 38
-FS_TICK = 32
-FS_LEGEND = 32
+# Font sizes. The thesis build (experimental/phd) overrides matplotlib's
+# rcParams via _thesis_style.configure() and authors these figures at the
+# thesis text width, so these constants are kept at thesis point sizes. The
+# standalone paper build (running this module's __main__ directly) will also
+# pick these up; some of that module's other figures still use figsize=(20,10)
+# / (24,16) canvases and may need their own scaling if rebuilt for a paper.
+FS_TITLE = 12
+FS_LABEL = 12
+FS_TICK = 9
+FS_LEGEND = 8.5
 
 # Custom colormaps aligned with project palette
 _OCCUPANCY_CMAP = mcolors.LinearSegmentedColormap.from_list(
@@ -74,12 +82,74 @@ def load_traj(topo: str, method: str) -> pd.DataFrame:
     return pd.read_csv(path)
 
 
+# ARBR (Walkowiak et al., JOCN 2018) is plotted only on the blocking-vs-load
+# figures (no trajectory data), so it is not part of METHODS.
+ARBR_STYLE = {"display": r"ARBR", "color": "#ff7f0e", "marker": "v"}
+
+
+def load_arbr_best_alpha(topo: str, thr: float = 1e-3):
+    """Best-alpha rows of the ARBR sweep for a topology.
+
+    The sweep file holds one curve per --arbr_alpha; select the alpha with the
+    highest load at the thr service-blocking threshold (log-linear
+    interpolation), falling back to lowest blocking at the lowest load when no
+    alpha reaches thr. Returns (alpha, rows) or (None, []) if absent.
+    """
+    path = RESULTS / topo / f"{topo}_arbr_ff_eval_results.jsonl"
+    if not path.exists():
+        return None, []
+    with open(path) as f:
+        rows = [json.loads(line) for line in f if line.strip()]
+    by_alpha = {}
+    for r in rows:
+        by_alpha.setdefault(r["config"].get("arbr_alpha"), []).append(r)
+    best_key, best_alpha = None, None
+    for alpha, sub in by_alpha.items():
+        sub.sort(key=lambda r: r["config"]["load"])
+        loads = np.array([r["config"]["load"] for r in sub])
+        sbps = np.maximum(
+            np.array([r["metrics"]["service_blocking_probability"]["mean"] for r in sub]),
+            1e-12,
+        )
+        below = sbps <= thr
+        if below.any():
+            i = int(np.where(below)[0][-1])
+            if i == len(loads) - 1:
+                key = (1, loads[-1])
+            else:
+                s0, s1 = np.log10(sbps[i]), np.log10(sbps[i + 1])
+                t = (np.log10(thr) - s0) / (s1 - s0) if s1 != s0 else 0.0
+                key = (1, loads[i] + t * (loads[i + 1] - loads[i]))
+        else:
+            key = (0, -sbps[0])
+        if best_key is None or key > best_key:
+            best_key, best_alpha = key, alpha
+    return best_alpha, sorted(by_alpha[best_alpha], key=lambda r: r["config"]["load"])
+
+
+def _plot_arbr_series(ax, topo: str, markersize: int):
+    arbr_alpha, arbr_rows = load_arbr_best_alpha(topo)
+    if not arbr_rows:
+        return
+    loads = [r["config"]["load"] for r in arbr_rows]
+    m = [r["metrics"]["service_blocking_probability"]["mean"] * 100 for r in arbr_rows]
+    lo = [r["metrics"]["service_blocking_probability"]["iqr_lower"] * 100 for r in arbr_rows]
+    hi = [r["metrics"]["service_blocking_probability"]["iqr_upper"] * 100 for r in arbr_rows]
+    ax.plot(
+        loads, m,
+        marker=ARBR_STYLE["marker"], color=ARBR_STYLE["color"], linestyle="--",
+        label=ARBR_STYLE["display"] + rf" ($\alpha$={arbr_alpha:g})",
+        markersize=markersize,
+    )
+    ax.fill_between(loads, lo, hi, alpha=0.2, color=ARBR_STYLE["color"])
+
+
 # ---------------------------------------------------------------------------
 # 1. Service blocking probability vs traffic load
 # ---------------------------------------------------------------------------
 
 def plot_blocking_vs_load():
-    fig, axes = plt.subplots(1, 2, figsize=(20, 10), sharey=True)
+    fig, axes = plt.subplots(1, 2, figsize=(5.9, 3.2), sharey=True)
 
     for ax, (topo, tinfo) in zip(axes, TOPOLOGIES.items()):
         for method, minfo in METHODS.items():
@@ -101,15 +171,18 @@ def plot_blocking_vs_load():
             ax.plot(
                 loads, mean_arr,
                 marker=minfo["marker"], color=minfo["color"],
-                label=minfo["display"], markersize=10,
+                label=minfo["display"], markersize=3.5,
             )
             ax.fill_between(
                 loads, lo, hi,
                 alpha=0.2, color=minfo["color"],
             )
 
+        _plot_arbr_series(ax, topo, markersize=3.5)
+
         ax.set_xlabel("Traffic Load (Erlang)", fontsize=FS_LABEL)
-        ax.set_title(tinfo["display"], fontsize=FS_TITLE)
+        ax.text(0.04, 0.96, tinfo["display"], transform=ax.transAxes,
+                fontsize=FS_TITLE, fontweight="bold", va="top")
         ax.set_yscale("log")
         ax.set_ylim(bottom=1e-2)
         if topo == "tataind":
@@ -167,6 +240,8 @@ def plot_blocking_vs_load_with_cutset():
             )
             ax.fill_between(loads, sbp_iqr_lo, sbp_iqr_hi, alpha=0.2, color=minfo["color"])
 
+        _plot_arbr_series(ax, topo, markersize=10)
+
         # Plot cutset bound variants
         for cv in CUTSET_VARIANTS:
             cutset = load_cutset_results(topo, cv["topk"])
@@ -223,7 +298,7 @@ def plot_path_boxplots():
         print("  -> SKIPPED path_boxplots (no traj data)")
         return
 
-    fig, axes = plt.subplots(1, 2, figsize=(20, 10))
+    fig, axes = plt.subplots(1, 2, figsize=(5.9, 2.7))
 
     labels = []
     path_lengths = []
@@ -241,8 +316,8 @@ def plot_path_boxplots():
         tick_labels=labels, patch_artist=True, showfliers=False, widths=0.6,
         showmeans=True,
         meanprops=dict(marker="^", markerfacecolor="white", markeredgecolor="black",
-                       markersize=12, markeredgewidth=2),
-        medianprops=dict(color="black", linewidth=3),
+                       markersize=6, markeredgewidth=1.0),
+        medianprops=dict(color="black", linewidth=1.4),
     )
 
     # Path length box plot
@@ -313,7 +388,7 @@ def plot_utilisation_over_steps():
 # ---------------------------------------------------------------------------
 
 def plot_bitrate_blocking_over_steps():
-    fig, axes = plt.subplots(1, 2, figsize=(20, 10), sharey=True)
+    fig, axes = plt.subplots(1, 2, figsize=(5.9, 2.7), sharey=True)
 
     has_data = [False, False]
     for idx, (topo, tinfo) in enumerate(TOPOLOGIES.items()):
@@ -328,10 +403,11 @@ def plot_bitrate_blocking_over_steps():
             steps = np.arange(len(bbp_smooth))
             ax.plot(
                 steps[::window], bbp_smooth.values[::window] * 100,
-                color=minfo["color"], label=minfo["display"], linewidth=2,
+                color=minfo["color"], label=minfo["display"], linewidth=1.4,
             )
         ax.set_xlabel(r"Request Index ($\times 10^3$)", fontsize=FS_LABEL)
-        ax.set_title(tinfo["display"], fontsize=FS_TITLE)
+        ax.text(0.04, 0.96, tinfo["display"], transform=ax.transAxes,
+                fontsize=FS_TITLE, fontweight="bold", va="top")
         ax.xaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{x / 1e3:.0f}"))
         ax.tick_params(labelsize=FS_TICK)
         if topo == "usa100":
@@ -413,7 +489,7 @@ def plot_se_slots_boxplots():
 # ---------------------------------------------------------------------------
 
 def plot_path_comparison():
-    fig, axes = plt.subplots(2, 2, figsize=(24, 16), sharex="col")
+    fig, axes = plt.subplots(2, 2, figsize=(5.9, 4.0), sharex="col")
 
     window = 1000  # smoothing window for readability
 
@@ -429,13 +505,13 @@ def plot_path_comparison():
             # Top row: path length in km
             axes[0, col].plot(
                 steps[::window], pl_smooth.values[::window],
-                color=minfo["color"], label=minfo["display"], linewidth=2,
+                color=minfo["color"], label=minfo["display"], linewidth=1.4,
             )
 
             # Bottom row: path length in hops
             axes[1, col].plot(
                 steps[::window], hops_smooth.values[::window],
-                color=minfo["color"], label=minfo["display"], linewidth=2,
+                color=minfo["color"], label=minfo["display"], linewidth=1.4,
             )
 
         axes[0, col].set_title(tinfo["display"], fontsize=FS_TITLE)
@@ -468,7 +544,7 @@ def plot_path_comparison():
 # ---------------------------------------------------------------------------
 
 def plot_path_delta():
-    fig, axes = plt.subplots(2, 2, figsize=(24, 16), sharex="col")
+    fig, axes = plt.subplots(2, 2, figsize=(5.9, 4.0), sharex="col")
 
     window = 500  # smooth the delta for readability
 
@@ -489,8 +565,8 @@ def plot_path_delta():
         delta_hops_smooth = pd.Series(delta_hops).rolling(window=window, min_periods=1).mean()
 
         # Top row: delta km
-        axes[0, col].plot(steps, delta_km_smooth, color="black", linewidth=0.5)
-        axes[0, col].axhline(0, color="black", linewidth=1, linestyle="--", alpha=0.5)
+        axes[0, col].plot(steps, delta_km_smooth, color="black", linewidth=0.4)
+        axes[0, col].axhline(0, color="black", linewidth=0.8, linestyle="--", alpha=0.5)
         axes[0, col].fill_between(
             steps, 0, delta_km_smooth, where=delta_km_smooth > 0,
             alpha=0.3, color=PRIMARY_COLORS[3], label="FF-KSP shorter",
@@ -501,8 +577,8 @@ def plot_path_delta():
         )
 
         # Bottom row: delta hops
-        axes[1, col].plot(steps, delta_hops_smooth, color="black", linewidth=0.5)
-        axes[1, col].axhline(0, color="black", linewidth=1, linestyle="--", alpha=0.5)
+        axes[1, col].plot(steps, delta_hops_smooth, color="black", linewidth=0.4)
+        axes[1, col].axhline(0, color="black", linewidth=0.8, linestyle="--", alpha=0.5)
         axes[1, col].fill_between(
             steps, 0, delta_hops_smooth, where=delta_hops_smooth > 0,
             alpha=0.3, color=PRIMARY_COLORS[3], label="FF-KSP shorter",
@@ -563,7 +639,7 @@ def _set_heatmap_axes(ax, num_links, num_slots):
     ytick_step = 20
     yticks = np.arange(0, num_links, ytick_step)
     ax.set_yticks(yticks)
-    ax.set_yticklabels([str(i) for i in yticks], fontsize=14)
+    ax.set_yticklabels([str(i) for i in yticks], fontsize=FS_TICK)
 
     # X-axis: 1-indexed so range is [1, num_slots]. Grid every 10, labels every 40.
     major_xticks = np.arange(40, num_slots + 1, 40)  # 40, 80, ..., 320
@@ -629,7 +705,7 @@ def plot_slot_occupancy():
 # ---------------------------------------------------------------------------
 
 def plot_slot_occupancy_diff():
-    fig, axes = plt.subplots(1, 2, figsize=(28, 14), gridspec_kw={"wspace": 0.15})
+    fig, axes = plt.subplots(1, 2, figsize=(5.9, 3.2), gridspec_kw={"wspace": 0.15})
 
     diffs = {}
     all_labels = {}
@@ -669,11 +745,11 @@ def plot_slot_occupancy_diff():
             # Place text labels at top and bottom of colorbar
             cbar.ax.text(
                 1.8, 1.02, "FF-KSP", transform=cbar.ax.transAxes,
-                ha="center", va="bottom", fontsize=30, fontweight="bold",
+                ha="center", va="bottom", fontsize=FS_LABEL,
             )
             cbar.ax.text(
                 1.2, -0.02, "RL", transform=cbar.ax.transAxes,
-                ha="center", va="top", fontsize=30, fontweight="bold",
+                ha="center", va="top", fontsize=FS_LABEL,
             )
 
     fig.savefig(FIGURES / "slot_occupancy_diff.png", bbox_inches="tight")
@@ -760,31 +836,38 @@ def _plot_ablation_panel(ax, topo: str):
     ax.yaxis.set_minor_formatter(_fmt)
     ax.yaxis.set_major_formatter(_fmt)
     ax.grid(axis="y", which="both", linewidth=0.5, alpha=0.4)
-    ax.set_title(TOPOLOGIES[topo]["display"])
+    ax.text(0.97, 0.96, TOPOLOGIES[topo]["display"], transform=ax.transAxes,
+            fontsize=FS_TITLE, fontweight="bold", ha="right", va="top")
 
 
 def plot_ablation_blocking():
-    fig, axes = plt.subplots(1, 2, figsize=(28, 10.5), sharey=True)
+    # Two panels side by side, authored for a full-text-width figure* so the
+    # figure occupies two columns on one page. Thinner lines than the compact
+    # single-column figures: the many overlapping curves stay distinguishable.
+    _lw = plt.rcParams["lines.linewidth"]
+    plt.rcParams["lines.linewidth"] = 1.4
+    fig, axes = plt.subplots(1, 2, figsize=(7.2, 2.9), sharey=True)
 
     for col, topo in enumerate(["tataind", "usa100"]):
         _plot_ablation_panel(axes[col], topo)
         axes[col].set_xlabel("Training Episode")
+    axes[0].set_ylabel("Bitrate Blocking\nProbability (%)")
 
-    axes[0].set_ylabel("Bitrate Blocking Probability (%)")
     # Collect legend handles/labels from the second panel (has all entries)
     handles, labels = axes[1].get_legend_handles_labels()
-    fig.legend(handles, labels, loc="lower center", ncol=len(handles),
-               bbox_to_anchor=(0.5, -0.01), fontsize=FS_LEGEND,
-               columnspacing=1.0, handletextpad=0.4)
+    fig.legend(handles, labels, loc="lower center", ncol=7, fontsize=7,
+               bbox_to_anchor=(0.5, -0.01),
+               columnspacing=0.8, handletextpad=0.4)
     plt.tight_layout()
-    fig.subplots_adjust(bottom=0.23)
+    fig.subplots_adjust(bottom=0.30)
     fig.savefig(FIGURES / "ablation_blocking.png", bbox_inches="tight")
     plt.close(fig)
+    plt.rcParams["lines.linewidth"] = _lw
     print("  -> ablation_blocking")
 
 
 def plot_link_usage_delta():
-    fig, axes = plt.subplots(1, 2, figsize=(24, 10), sharey=True)
+    fig, axes = plt.subplots(1, 2, figsize=(5.9, 2.7), sharey=True)
 
     for col, (topo, tinfo) in enumerate(TOPOLOGIES.items()):
         ff_path = RESULTS / topo / f"{topo}_ff_ksp_link_usage.npy"
@@ -825,10 +908,10 @@ def plot_link_usage_delta():
 
 LOSS_COMPONENTS = {
     "total_loss": {"display": "Total Loss", "color": "black", "linestyle": "--"},
-    "actor_loss": {"display": "Actor Loss", "color": "red"},
+    "actor_loss": {"display": "Actor Loss", "color": ACCENT_COLORS[1]},
     "validmass_loss": {"display": "Valid Mass Loss", "color": ACCENT_COLORS[2]},
     "value_loss": {"display": "Value Loss", "color": ACCENT_COLORS[0]},
-    "entropy_loss": {"display": "Entropy Loss", "color": PRIMARY_COLORS[0]},
+    "entropy_loss": {"display": "Entropy Loss", "color": PRIMARY_COLORS[3]},
 }
 
 
@@ -864,24 +947,32 @@ def _plot_loss_panel(ax, topo: str):
         )
     ax.set_yscale("symlog", linthresh=1e-2)
     ax.grid(axis="y", which="both", linewidth=0.5, alpha=0.4)
-    ax.set_title(TOPOLOGIES[topo]["display"])
 
 
 def plot_loss_components():
-    fig, axes = plt.subplots(1, 2, figsize=(28, 10), sharey=True)
+    # Authored at the thesis text width (like ablation_blocking) so the
+    # configure()'d fonts render at their true size when embedded at \linewidth.
+    _lw = plt.rcParams["lines.linewidth"]
+    plt.rcParams["lines.linewidth"] = 1.4
+    fig, axes = plt.subplots(1, 2, figsize=(5.9, 2.7), sharey=True)
     for col, topo in enumerate(["tataind", "usa100"]):
         _plot_loss_panel(axes[col], topo)
-    axes[0].set_xlabel("Update Step")
-    axes[0].set_ylabel("Loss")
-    axes[1].set_xlabel("Update Step")
+        axes[col].set_xlabel("Update Step", fontsize=10)
+        axes[col].tick_params(labelsize=FS_TICK)
+        axes[col].text(0.96, 0.96, TOPOLOGIES[topo]["display"],
+                       transform=axes[col].transAxes, fontsize=10,
+                       fontweight="bold", ha="right", va="top")
+    axes[0].set_ylabel("Loss", fontsize=10)
     # Collect legend handles/labels from either panel
     handles, labels = axes[1].get_legend_handles_labels()
     fig.legend(handles, labels, loc="lower center", ncol=len(handles),
-               bbox_to_anchor=(0.5, -0.01), fontsize=FS_LEGEND)
+               bbox_to_anchor=(0.5, -0.01), fontsize=FS_LEGEND,
+               columnspacing=1.0, handletextpad=0.5)
     plt.tight_layout()
-    fig.subplots_adjust(bottom=0.20)
+    fig.subplots_adjust(bottom=0.28)
     fig.savefig(FIGURES / "loss_components.png", bbox_inches="tight")
     plt.close(fig)
+    plt.rcParams["lines.linewidth"] = _lw
     print("  -> loss_components")
 
 

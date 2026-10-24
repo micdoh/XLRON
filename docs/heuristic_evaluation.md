@@ -197,8 +197,17 @@ The heuristic algorithm to use. Available options:
 | `kmf_ff` | **K-Minimum Fragmentation, First-Fit.** Select path that minimises fragmentation, then first-fit. |
 | `kme_ff` | **K-Minimum Entropy, First-Fit.** Select path whose allocation causes the smallest increase in spectrum fragmentation entropy (Wright, Parker & Lord, JOCN 2015), then first-fit. |
 | `kca_ff` | **Congestion-Aware, First-Fit.** Select the least-congested feasible path (occupancy-weighted link length), then first-fit. |
+| `arbr_ff` | **Adaptive Routing (ARBR), First-Fit.** Rank paths by `(1 - alpha) * hops * required_slots + alpha * MLU`, where MLU is the maximum link utilisation on the path quantised to deciles {10, ..., 100}; allocate first-fit on the best-ranked feasible path. `--arbr_alpha` tunes the static/dynamic balance. (Walkowiak, Klinkowski & Lechowicz, JOCN 2018) |
 
 Default: `ksp_ff`.
+
+### `--arbr_alpha`
+
+Tuning parameter of the `arbr_ff` heuristic, weighting its dynamic component (maximum link utilisation on the path) against its static component (hops × required slots): `0.0` = static cost only, `1.0` = dynamic utilisation only. The original paper tested α ∈ {0, 0.2, 0.4, 0.6, 0.8, 1.0} and recommends `0.8`, but notes the best value depends on topology and traffic scenario. Default: `0.8`.
+
+The original ARBR algorithm targets spectrally-spatially flexible networks with back-to-back regeneration and limited transceivers. In XLRON's single-fibre RSA/RMSA setting without regeneration, each candidate routing configuration is a single transparent path, so the static cost reduces to `SL(p, d) = hops × required slots` (incl. guardband), the transceiver terms vanish, and the dynamic cost reduces to the path's maximum link utilisation.
+
+Reference: K. Walkowiak, M. Klinkowski and P. Lechowicz, "Dynamic routing in spectrally spatially flexible optical networks with back-to-back regeneration," J. Opt. Commun. Netw. 10(5), pp. 523-534, 2018. [doi:10.1364/JOCN.10.000523](https://doi.org/10.1364/JOCN.10.000523)
 
 ### `--mscl_interfering_k`
 

@@ -3,6 +3,7 @@
 
 def __getattr__(name):
     _heuristic_names = {
+        "arbr_ff",
         "best_fit",
         "bf_ksp",
         "ff_ksp",
@@ -47,6 +48,7 @@ __all__ = [
     "kmf_ff",
     "kme_ff",
     "kca_ff",
+    "arbr_ff",
     # Utility functions
     "get_link_weights",
     "get_action_mask",

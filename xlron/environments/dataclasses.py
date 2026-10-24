@@ -244,6 +244,8 @@ class RSAEnvParams(EnvParams):
         multiple_topologies (bool): If True, use multiple topologies
         mscl_interfering_k (int): Stored routes per node pair in the interfering
             route set of the multi-route MSCL heuristics (0 = all k paths)
+        arbr_alpha (float): Tuning parameter alpha of the ARBR heuristic
+            (0 = static cost only, 1 = dynamic utilisation only)
     """
 
     max_slots: chex.Scalar = struct.field(pytree_node=False)
@@ -252,6 +254,7 @@ class RSAEnvParams(EnvParams):
     log_actions: bool = struct.field(pytree_node=False)
     disable_node_features: bool = struct.field(pytree_node=False)
     mscl_interfering_k: int = struct.field(pytree_node=False)
+    arbr_alpha: float = struct.field(pytree_node=False)
 
 
 @struct.dataclass

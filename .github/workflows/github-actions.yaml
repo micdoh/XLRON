@@ -6,6 +6,23 @@ on:
 permissions:
   contents: read
 jobs:
+  public-release:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Test public release guard
+        run: python -m unittest discover -s .github/scripts -p '*_test.py'
+      - name: Check every incoming commit for withheld DRA source
+        env:
+          BASE_REVISION: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: python .github/scripts/check_public_release.py --base "$BASE_REVISION" --head "$HEAD_REVISION"
   pre-commit:
     runs-on: ubuntu-latest
     steps:
@@ -18,7 +35,7 @@ jobs:
         with:
           version: "latest"
       - name: Sync project (needed by ty hook)
-        run: uv sync --python 3.12
+        run: uv sync --locked --python 3.12
       - uses: pre-commit/action@v3.0.1
   build:
     runs-on: ubuntu-latest
@@ -34,7 +51,7 @@ jobs:
       - name: Set up Python ${{ matrix.python-version }}
         run: uv python install ${{ matrix.python-version }}
       - name: Install dependencies
-        run: uv sync
+        run: uv sync --locked
       - name: Test with chex
         run: |
           PYTHONPATH=. uv run pytest --cov xlron

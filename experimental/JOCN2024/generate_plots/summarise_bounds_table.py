@@ -48,6 +48,7 @@ def load_bounds_file(path):
             row['k'] = config.get('k', 0)
             row['heur'] = config.get('path_heuristic', '')
             row['link_resources'] = config.get('link_resources', 0)
+            row['arbr_alpha'] = config.get('arbr_alpha')
             # Flatten metrics: {metric_name: {stat: val}} -> metric_stat columns
             for metric_name, stats in obj.get('metrics', {}).items():
                 for stat_name, stat_val in stats.items():
@@ -413,6 +414,54 @@ if __name__ == '__main__':
     new_reconfig_data = compute_bands(new_reconfig_data, n=10)  # num_trials=10
     new_cutset_data = compute_bands(new_cutset_data, n=10)      # num_trials=10
     new_transformer_data = compute_bands(new_transformer_data, n=200)  # NUM_ENVS=200
+
+    # ---- ARBR adaptive-routing heuristic (Walkowiak et al., JOCN 2018) ----
+    # arbr_ff swept over alpha in {0, 0.2, ..., 1}; the plot shows, per panel,
+    # the alpha achieving the highest load at the 0.1% SBP threshold (the
+    # paper's own tuning methodology, applied per scenario).
+    try:
+        new_arbr_data = load_bounds_file(new_data_dir / 'experiment_results_arbr_bounds')
+    except FileNotFoundError:
+        new_arbr_data = None
+    if new_arbr_data is not None:
+        new_arbr_data = new_arbr_data.rename(columns=_bounds_rename)
+        new_arbr_data['N_slots'] = new_arbr_data['NAME'].apply(get_n_slots)
+        new_arbr_data['topology'] = new_arbr_data['TOPOLOGY'].apply(get_topology)
+        new_arbr_data['publication'] = new_arbr_data['NAME'].apply(get_publication_new)
+        new_arbr_data.rename(columns={'LOAD': 'load', 'K': 'k',
+                                      'service_blocking_probability_mean': 'mean',
+                                      'service_blocking_probability_std': 'stddev',
+                                      'service_blocking_probability_iqr_lower': 'iqr_lower',
+                                      'service_blocking_probability_iqr_upper': 'iqr_upper'},
+                             inplace=True)
+        new_arbr_data = new_arbr_data.sort_values('load').reset_index(drop=True)
+        new_arbr_data = compute_bands(new_arbr_data, n=200)  # NUM_ENVS=200
+
+    def select_best_arbr_alpha(case, thr=0.1):
+        """Best alpha for a panel: max load at the thr (%) SBP threshold via
+        log-linear interpolation; if no alpha reaches thr, min SBP at the
+        lowest load. Returns (alpha, sub_df) or (None, empty df)."""
+        best_key, best_alpha = None, None
+        for alpha, sub in case.groupby('arbr_alpha'):
+            sub = sub.sort_values('load')
+            loads = sub['load'].to_numpy()
+            sbps = np.maximum(sub['mean'].to_numpy(), 1e-9)
+            below = sbps <= thr
+            if below.any():
+                i = int(np.where(below)[0][-1])
+                if i == len(loads) - 1:
+                    key = (1, loads[-1])
+                else:
+                    s0, s1 = np.log10(sbps[i]), np.log10(sbps[i + 1])
+                    t = (np.log10(thr) - s0) / (s1 - s0) if s1 != s0 else 0.0
+                    key = (1, loads[i] + t * (loads[i + 1] - loads[i]))
+            else:
+                key = (0, -sbps[0])
+            if best_key is None or key > best_key:
+                best_key, best_alpha = key, alpha
+        if best_alpha is None:
+            return None, case.iloc[0:0]
+        return best_alpha, case[case['arbr_alpha'] == best_alpha].sort_values('load')
     cutset_col = '#30A08E'
     transformer_col = '#d62728'  # red
 
@@ -640,9 +689,11 @@ PtrNet-RSA,USNET,80,330,1.50,0
     }
     df_rl['group'] = df_rl['publication'].map(_rl_pub_to_group)
 
+    arbr_col = '#ff7f0e'  # orange
+
     def plot_case_new_with_rl(ax, pub, topology, n_slots, heur_df, reconfig_df,
                               cutset_df, transformer_df, rl_df,
-                              cutset_max_load=None):
+                              cutset_max_load=None, arbr_df=None):
         """Like plot_case_new but also plots the RL series."""
         pub_filter = 'PtrNet-RSA' if 'PtrNet-RSA' in pub else pub
 
@@ -668,6 +719,16 @@ PtrNet-RSA,USNET,80,330,1.50,0
         case_rl = rl_df[(rl_df['group'] == pub_filter) &
                         (rl_df['topology'] == topology) &
                         (rl_df['N_slots'] == n_slots)]
+
+        # ARBR: pick the per-panel best alpha
+        case_arbr = pd.DataFrame()
+        arbr_alpha = None
+        if arbr_df is not None:
+            panel_arbr = arbr_df[(arbr_df['publication'] == pub_filter) &
+                                 (arbr_df['topology'] == topology) &
+                                 (arbr_df['N_slots'] == n_slots)]
+            if not panel_arbr.empty:
+                arbr_alpha, case_arbr = select_best_arbr_alpha(panel_arbr)
 
         lines = []
         labels = []
@@ -695,6 +756,18 @@ PtrNet-RSA,USNET,80,330,1.50,0
                             case_heur['band_upper'], alpha=0.2, color=heur_col)
             lines.append(line[0])
             labels.append('Best heuristic')
+
+        if not case_arbr.empty:
+            line = ax.plot(case_arbr['load'], case_arbr['mean'],
+                           marker='v', markerfacecolor=arbr_col, linestyle='--',
+                           color=arbr_col)
+            ax.fill_between(case_arbr['load'], case_arbr['band_lower'],
+                            case_arbr['band_upper'], alpha=0.2, color=arbr_col)
+            lines.append(line[0])
+            labels.append('ARBR')
+            ax.text(0.97, 0.05, rf'$\alpha$={arbr_alpha:g}',
+                    transform=ax.transAxes, fontsize=20, color=arbr_col,
+                    ha='right', va='bottom')
 
         if not case_transformer.empty:
             line = ax.plot(case_transformer['load'], case_transformer['mean'],
@@ -724,7 +797,8 @@ PtrNet-RSA,USNET,80,330,1.50,0
         # Dynamically adjust axis limits
         y_min, y_max = 0.01, 1
         x_min, x_max = ax.get_xlim()
-        for case in [case_heur, case_reconfig, case_cutset, case_transformer, case_rl]:
+        for case in [case_heur, case_reconfig, case_cutset, case_transformer, case_rl,
+                     case_arbr]:
             if case.empty:
                 continue
             visible = case[case['mean'] > 0]
@@ -749,7 +823,8 @@ PtrNet-RSA,USNET,80,330,1.50,0
         ax.set_title(title, fontsize=32)
 
         has_data = not (case_heur.empty and case_reconfig.empty and
-                        case_cutset.empty and case_transformer.empty and case_rl.empty)
+                        case_cutset.empty and case_transformer.empty and
+                        case_rl.empty and case_arbr.empty)
         return has_data, lines, labels
 
     # Create figure with same grid layout
@@ -788,7 +863,7 @@ PtrNet-RSA,USNET,80,330,1.50,0
                 ax, publication, topology, n_slots,
                 new_heur_data, new_reconfig_data, new_cutset_data,
                 new_transformer_data, df_rl,
-                cutset_max_load=cutset_max_load
+                cutset_max_load=cutset_max_load, arbr_df=new_arbr_data
             )
 
             if xlim_max is not None:
@@ -809,7 +884,7 @@ PtrNet-RSA,USNET,80,330,1.50,0
 
     fig3.text(0.51, 0.09, 'Traffic Load (Erlang)', ha='center', va='center', fontsize=36)
     fig3.text(0.025, 0.48, 'Service Blocking Probability (%)', ha='center', va='center', rotation='vertical', fontsize=36)
-    legend3 = fig3.legend(unique_lines3, unique_labels3, loc='lower center', ncol=5)
+    legend3 = fig3.legend(unique_lines3, unique_labels3, loc='lower center', ncol=6)
     increase_legend_line_thickness(legend3, line_width=6, marker_size=15)
     plt.tight_layout(rect=[0.03, 0.105, 1, 1])
     plt.savefig(PLOTS_DIR / 'bounds_comparison_new_with_rl.png')

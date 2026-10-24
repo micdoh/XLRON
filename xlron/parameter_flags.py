@@ -645,6 +645,15 @@ flags.DEFINE_integer(
     "formulation; 0 = all k paths, giving the multi-route MSCL Sequencial/Combinado of "
     "dos Santos (2021). Compute and memory scale linearly with this value.",
 )
+flags.DEFINE_float(
+    "arbr_alpha",
+    0.8,
+    "Tuning parameter alpha of the ARBR heuristic (arbr_ff). Weights the dynamic "
+    "component (max link utilisation on the path) against the static component "
+    "(hops x required slots) of the adaptive path metric: 0 = static only, "
+    "1 = dynamic only. 0.8 is the value recommended in the original paper "
+    "(Walkowiak, Klinkowski & Lechowicz, JOCN 10(5), 2018).",
+)
 # GNN-specific parameters
 flags.DEFINE_boolean("USE_GNN", False, "Use GNN")
 flags.DEFINE_integer("num_spectral_features", 8, "No. of spectral features")

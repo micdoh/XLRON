@@ -225,6 +225,7 @@ DEFAULTS = {
     # Heuristics
     "path_heuristic": "ksp_ff",
     "mscl_interfering_k": 1,
+    "arbr_alpha": 0.8,
     "EVAL_HEURISTIC": False,
     "EVAL_MODEL": False,
     "RETRAIN_MODEL": False,
@@ -338,6 +339,7 @@ PATH_HEURISTICS = [
     "kmf_ff",
     "kme_ff",
     "kca_ff",
+    "arbr_ff",
 ]
 
 
@@ -433,6 +435,16 @@ def execution_mode_section() -> dict:
                 help=_h("mscl_interfering_k"),
             )
             _emit(flags, "mscl_interfering_k", int(mscl_k))
+        if heuristic == "arbr_ff":
+            arbr_alpha = st.number_input(
+                "ARBR Alpha (0 = static cost only, 1 = dynamic utilisation only)",
+                min_value=0.0,
+                max_value=1.0,
+                step=0.1,
+                value=float(_get_preset_val("arbr_alpha")),
+                help=_h("arbr_alpha"),
+            )
+            _emit(flags, "arbr_alpha", float(arbr_alpha))
 
     elif mode == "Model Evaluation":
         flags["EVAL_MODEL"] = True
