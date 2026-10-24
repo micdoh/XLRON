@@ -1,0 +1,44 @@
+{
+  "device": "NVIDIA A100 80GB PCIe",
+  "slots": 420,
+  "environments": 64,
+  "candidate_batch_size": 8,
+  "warmup_steps": 128,
+  "independent_streams": true,
+  "profile_kind": "one warmed-up RMSA GN action mask; CUDA graph node tracing",
+  "kernels": 148,
+  "kernel_sum_ms": 22.654226,
+  "kernel_window_ms": 22.689526,
+  "kernel_union_ms": 22.643922,
+  "kernel_busy_fraction_within_window": 0.9979900858219779,
+  "dominant_kernels": [
+    {
+      "name": "input_scatter_fusion",
+      "time_percent": 63.6,
+      "instances": 5
+    },
+    {
+      "name": "input_reduce_fusion_5",
+      "time_percent": 15.9,
+      "instances": 1
+    },
+    {
+      "name": "input_reduce_fusion",
+      "time_percent": 9.3,
+      "instances": 5
+    }
+  ],
+  "hlo_mapping": {
+    "input_scatter_fusion": "candidate GN SNR including atan/XPM reduction fused into selected-link scatter",
+    "input_reduce_fusion_5": "baseline GN SNR including atan/XPM reduction"
+  },
+  "counter_collection": {
+    "nsight_compute": "failed: driver resource unavailable",
+    "dcgm": "failed: profiling module error -37"
+  },
+  "interpretation": "GPU execution dominates the captured window. Compute/instruction/cache/HBM bottlenecks cannot be separated conclusively without counters.",
+  "remote_artifacts": [
+    "/tmp/xlron-gn-perf-20261024/nsys-node-mask-420-env64.nsys-rep",
+    "/tmp/xlron-gn-perf-20261024/mask-420-env64.hlo"
+  ]
+}

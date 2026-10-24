@@ -314,9 +314,9 @@ class RSAEnv(environment.Environment):
             else:
                 check = jit_profiler.call(params.profile, check_action, state, action_info, params)
                 if params.__class__.__name__ == "RSAGNModelEnvParams":
-                    # rsa_gn_model has no SNR/power acceptance check at step time (SNR
-                    # feasibility is enforced in the action mask), so every block observed
-                    # here is attributed to spectrum contention
+                    # rsa_gn_model uses spectrum-only masking and acceptance. GN SNR
+                    # is evaluated separately for throughput, so every admission block
+                    # observed here is attributed to spectrum contention.
                     blocking_cause_checks = (check, jnp.array(False), jnp.array(False))
 
             # Calculate reward
@@ -1486,7 +1486,7 @@ class RSAEnv(environment.Environment):
         return type(self).__name__
 
     @staticmethod
-    def num_actions(params: EnvParams) -> int:
+    def num_actions(params: EnvParams) -> int:  # ty: ignore[invalid-property-type-override]
         """Number of actions possible in environment."""
         return math.ceil(params.link_resources / params.aggregate_slots) * params.k_paths
 

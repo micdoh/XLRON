@@ -54,6 +54,7 @@ nav:
   - "User Guide":
       - Understanding XLRON: "understanding_xlron.md"
       - GN Model Physical Layer: "gn_model.md"
+      - GN Model Performance: "gn_model_performance.md"
       - Differentiable DRA Pipeline: "differentiable_dra.md"
       - Training with PPO: "training.md"
       - Heuristic Evaluation: "heuristic_evaluation.md"

@@ -1071,7 +1071,22 @@ def make(
             else slot_launch_power_array
         )
 
+        # Sparse path layout for occupied-slot SNR accumulation and candidate link updates.
+        # Keep the zero/dummy final row: path_index_array uses -1 for empty slots.
+        path_incidence = np.asarray(path_link_array)
+        if pack_path_bits:
+            path_incidence = np.unpackbits(path_incidence, axis=1)[:, :num_links]
+        max_hops = max(1, int(np.max(np.sum(path_incidence, axis=1))))
+        path_link_indices = np.full((len(path_incidence), max_hops), num_links, dtype=np.int32)
+        for path_idx, path in enumerate(path_incidence):
+            links = np.flatnonzero(path)
+            path_link_indices[path_idx, : len(links)] = links
+        path_link_indices = jnp.asarray(path_link_indices)
+
         params_dict.update(
+            path_link_indices=HashableArrayWrapper(path_link_indices)
+            if not remove_array_wrappers
+            else path_link_indices,
             ref_lambda=ref_lambda,
             max_spans=max_spans,
             max_span_length=max_span_length,
@@ -1335,7 +1350,11 @@ def make(
             values = [getattr(v, k) for v in params_list]
             # values = [list(v) if isinstance(v, Array) else v for v in values]
             # Pad arrays to same shape
-            padded_values = HashableArrayWrapper(jnp.array(pad_array(values, fill_value=0)))
+            # Sparse path padding must remain an invalid link for every topology.
+            fill_value = max(v.num_links for v in params_list) if k == "path_link_indices" else 0
+            padded_values = HashableArrayWrapper(
+                jnp.array(pad_array(values, fill_value=fill_value))
+            )
             field_dict[k] = padded_values
         params = cls(**field_dict)
 

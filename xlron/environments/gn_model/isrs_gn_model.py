@@ -759,6 +759,63 @@ def get_snr(
     return snr, (eta_nli, eta_spm, eta_xpm, p_ase_inline, p_ase_roadm, p_nli, transceiver_noise)
 
 
+def _xpm_pair_tile(pi, fi, bi, pk, fk, bk, total, *, a, a_bar, gamma, cr, beta2, beta3, beta4):
+    """Sum one output-row tile against one interfering-channel tile."""
+    fi, fk = fi[:, None], fk[None, :]
+    phi = (
+        2
+        * jnp.pi**2
+        * (fi - fk)
+        * (
+            beta2
+            + jnp.pi * beta3 * (fi + fk)
+            + 2 / 3 * jnp.pi**2 * beta4 * (fi**2 + fi * fk + fk**2)
+        )
+    )
+    ap = a + a_bar
+    tilt = (ap - fk * total * cr) ** 2
+    denom = bk[None, :] * phi * a_bar * (2 * a + a_bar)
+    ratio = (pk[None, :] / jnp.maximum(pi[:, None], EPS)) ** 2
+    pairs = (
+        32
+        / 27
+        * ratio
+        * gamma**2
+        / jnp.where(denom != 0, denom, 1.0)
+        * (
+            (tilt - a**2) / a * jnp.arctan(phi * bi[:, None] / a)
+            + (ap**2 - tilt) / ap * jnp.arctan(phi * bi[:, None] / ap)
+        )
+    )
+    return jnp.sum(jnp.where(denom != 0, pairs, 0.0), axis=1)
+
+
+def _xpm_compact(power, frequency, bandwidth, *, block_k=128, **physics):
+    """Visit only nonzero interfering channels in tiles.
+
+    All output rows are retained. Zero power or zero bandwidth gives an exactly
+    zero pair contribution in the original formula. Total power still uses every
+    input channel, so packing does not change the Raman tilt calculation.
+    Dynamic loops are intended for simulation inference, not reverse-mode AD.
+    """
+    n = power.shape[0]
+    live = (power != 0) & (bandwidth != 0)
+    indices = jnp.nonzero(live, size=n, fill_value=0)[0]
+    count = jnp.sum(live)
+    total = jnp.sum(power)
+
+    def accumulate(tile, acc):
+        positions = tile * block_k + jnp.arange(block_k)
+        selected = indices[jnp.minimum(positions, n - 1)]
+        pk = jnp.where(positions < count, power[selected], 0.0)
+        bk = jnp.where(positions < count, bandwidth[selected], 0.0)
+        return acc + _xpm_pair_tile(
+            power, frequency, bandwidth, pk, frequency[selected], bk, total, **physics
+        )
+
+    return jax.lax.fori_loop(0, (count + block_k - 1) // block_k, accumulate, jnp.zeros_like(power))
+
+
 def get_snr_fused(
     ch_power_w_i: Array,
     ch_centre_i: Array,
@@ -780,11 +837,12 @@ def get_snr_fused(
     coherent: bool = True,
     num_subchannels: int = 1,
     span_lumped_loss_db: float | None = None,
+    compact_xpm: bool = False,
 ):
     """Fully fused SNR computation for a single link (uniform spans, no mod_format_correction).
 
-    This function computes the full SNR in a single pass with minimal intermediate
-    allocations, optimized for GPU execution where kernel launch overhead dominates.
+    The dense XPM reduction is left to XLA fusion. Optional compaction traverses
+    nonzero interfering channels in bounded tiles, retaining every output slot.
 
     Dynamic inputs (change per call / per link):
         ch_power_w_i: channel powers [W], shape (N,)
@@ -797,6 +855,9 @@ def get_snr_fused(
         Everything else.
         num_subchannels: number of Nyquist subchannels per slot for SPM calculation.
             Divides slot bandwidth into N subchannels with B_eff = B / N, reducing SPM.
+        compact_xpm: skip zero interfering channels in a dynamic tiled reduction.
+            Keep false for reverse-mode differentiation; the environment enables
+            this only for non-differentiable wide spectra.
 
     Returns:
         snr: shape (N,) — linear SNR per channel
@@ -846,40 +907,57 @@ def get_snr_fused(
     # Scale: total NLI = N_sub * (P/N_sub)^3 * eta(B_eff) = P^3 * eta(B_eff) / N_sub^2
     eta_spm = eta_spm / (num_subchannels**2)
 
-    # === XPM (inlined, fused N x N computation) ===
-    f_i = f[:, None]  # (N, 1)
-    f_k = f[None, :]  # (1, N)
-    f_sum = f_i + f_k
-    phi_ik = (
-        2
-        * pi**2
-        * (f_i - f_k)
-        * (beta2 + pi * beta3 * f_sum + 2 / 3 * pi**2 * beta4 * (f_i**2 + f_i * f_k + f_k**2))
-    )
-    T_k = T[None, :]  # (1, N)
-    a_k = a  # scalar (uniform fiber)
-    a_bar_k = a_bar  # scalar
-    a_k_plus_abar_k = a_k + a_bar_k
-
-    p_i_safe = jnp.maximum(ch_pow[:, None], EPS)
-    power_ratio_sq = (ch_pow[None, :] / p_i_safe) ** 2
-    denom = ch_bw[None, :] * phi_ik * a_bar_k * (2 * a_k + a_bar_k)
-    denom_safe = jnp.where(denom != 0, denom, 1.0)
-
-    xpm_ik = (
-        32
-        / 27
-        * power_ratio_sq
-        * gamma**2
-        / denom_safe
-        * (
-            (T_k - a_k**2) / a_k * jnp.arctan(phi_ik * ch_bw[:, None] / a_k)
-            + (a_k_plus_abar_k**2 - T_k)
-            / a_k_plus_abar_k
-            * jnp.arctan(phi_ik * ch_bw[:, None] / a_k_plus_abar_k)
+    if compact_xpm:
+        eta_xpm = (
+            _xpm_compact(
+                ch_pow,
+                f,
+                ch_bw,
+                a=a,
+                a_bar=a_bar,
+                gamma=gamma,
+                cr=cr,
+                beta2=beta2,
+                beta3=beta3,
+                beta4=beta4,
+            )
+            * num_spans
         )
-    )
-    eta_xpm = jnp.sum(jnp.where(denom != 0, xpm_ik, 0.0), axis=1) * num_spans
+    else:
+        # === XPM (inlined, fused N x N computation) ===
+        f_i = f[:, None]  # (N, 1)
+        f_k = f[None, :]  # (1, N)
+        f_sum = f_i + f_k
+        phi_ik = (
+            2
+            * pi**2
+            * (f_i - f_k)
+            * (beta2 + pi * beta3 * f_sum + 2 / 3 * pi**2 * beta4 * (f_i**2 + f_i * f_k + f_k**2))
+        )
+        T_k = T[None, :]  # (1, N)
+        a_k = a  # scalar (uniform fiber)
+        a_bar_k = a_bar  # scalar
+        a_k_plus_abar_k = a_k + a_bar_k
+
+        p_i_safe = jnp.maximum(ch_pow[:, None], EPS)
+        power_ratio_sq = (ch_pow[None, :] / p_i_safe) ** 2
+        denom = ch_bw[None, :] * phi_ik * a_bar_k * (2 * a_k + a_bar_k)
+        denom_safe = jnp.where(denom != 0, denom, 1.0)
+
+        xpm_ik = (
+            32
+            / 27
+            * power_ratio_sq
+            * gamma**2
+            / denom_safe
+            * (
+                (T_k - a_k**2) / a_k * jnp.arctan(phi_ik * ch_bw[:, None] / a_k)
+                + (a_k_plus_abar_k**2 - T_k)
+                / a_k_plus_abar_k
+                * jnp.arctan(phi_ik * ch_bw[:, None] / a_k_plus_abar_k)
+            )
+        )
+        eta_xpm = jnp.sum(jnp.where(denom != 0, xpm_ik, 0.0), axis=1) * num_spans
 
     # === NLI power ===
     eta_n = eta_spm + eta_xpm
