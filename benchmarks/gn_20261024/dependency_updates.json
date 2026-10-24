@@ -1,0 +1,678 @@
+{
+  "updated": {
+    "absl-py": {
+      "from": "2.4.0",
+      "to": "2.5.1"
+    },
+    "altair": {
+      "from": "6.0.0",
+      "to": "6.3.0"
+    },
+    "annotated-types": {
+      "from": "0.7.0",
+      "to": "0.8.0"
+    },
+    "anyio": {
+      "from": "4.12.1",
+      "to": "4.15.1"
+    },
+    "appnope": {
+      "from": "0.1.4",
+      "to": "1.0.0"
+    },
+    "argon2-cffi-bindings": {
+      "from": "25.1.0",
+      "to": "26.1.0"
+    },
+    "asttokens": {
+      "from": "3.0.1",
+      "to": "3.0.2"
+    },
+    "async-lru": {
+      "from": "2.2.0",
+      "to": "2.4.0"
+    },
+    "attrs": {
+      "from": "25.4.0",
+      "to": "26.1.0"
+    },
+    "av": {
+      "from": "16.1.0",
+      "to": "19.0.2"
+    },
+    "backrefs": {
+      "from": "6.2",
+      "to": "8.1"
+    },
+    "beautifulsoup4": {
+      "from": "4.14.3",
+      "to": "4.15.0"
+    },
+    "black": {
+      "from": "26.1.0",
+      "to": "26.10.1"
+    },
+    "bleach": {
+      "from": "6.3.0",
+      "to": "6.4.0"
+    },
+    "certifi": {
+      "from": "2026.2.25",
+      "to": "2026.10.23"
+    },
+    "cffi": {
+      "from": "2.0.0",
+      "to": "2.1.1"
+    },
+    "charset-normalizer": {
+      "from": "3.4.4",
+      "to": "3.5.2"
+    },
+    "chex": {
+      "from": "0.1.91",
+      "to": "0.1.92"
+    },
+    "click": {
+      "from": "8.3.1",
+      "to": "8.5.0"
+    },
+    "contourpy": {
+      "from": "1.3.3",
+      "to": "1.4.0"
+    },
+    "coverage": {
+      "from": "7.13.4",
+      "to": "7.17.0"
+    },
+    "cython": {
+      "from": "3.2.4",
+      "to": "3.3.0"
+    },
+    "debugpy": {
+      "from": "1.8.20",
+      "to": "1.8.22"
+    },
+    "decorator": {
+      "from": "5.2.1",
+      "to": "5.3.1"
+    },
+    "distlib": {
+      "from": "0.4.0",
+      "to": "0.4.4"
+    },
+    "distrax": {
+      "from": "0.1.7",
+      "to": "0.1.9"
+    },
+    "dm-tree": {
+      "from": "0.1.9",
+      "to": "0.1.10"
+    },
+    "dnspython": {
+      "from": "2.8.0",
+      "to": "2.9.0"
+    },
+    "equinox": {
+      "from": "0.13.5",
+      "to": "0.13.8"
+    },
+    "executing": {
+      "from": "2.2.1",
+      "to": "2.3.0"
+    },
+    "farama-notifications": {
+      "from": "0.0.4",
+      "to": "0.0.6"
+    },
+    "fastjsonschema": {
+      "from": "2.21.2",
+      "to": "2.22.2"
+    },
+    "filelock": {
+      "from": "3.29.0",
+      "to": "4.2.4"
+    },
+    "flax": {
+      "from": "0.12.5",
+      "to": "0.12.10"
+    },
+    "fonttools": {
+      "from": "4.61.1",
+      "to": "4.67.0"
+    },
+    "fqdn": {
+      "from": "1.5.1",
+      "to": "1.6.0"
+    },
+    "fsspec": {
+      "from": "2026.2.0",
+      "to": "2026.9.0"
+    },
+    "griffe": {
+      "from": "2.0.0",
+      "to": "2.4.1"
+    },
+    "griffecli": {
+      "from": "2.0.0",
+      "to": "2.4.1"
+    },
+    "griffelib": {
+      "from": "2.0.0",
+      "to": "2.4.1"
+    },
+    "gymnasium": {
+      "from": "1.2.3",
+      "to": "1.3.0"
+    },
+    "gymnax": {
+      "from": "0.0.9",
+      "to": "1.0.1"
+    },
+    "humanize": {
+      "from": "4.15.0",
+      "to": "4.16.0"
+    },
+    "identify": {
+      "from": "2.6.19",
+      "to": "2.6.20"
+    },
+    "idna": {
+      "from": "3.11",
+      "to": "3.20"
+    },
+    "imageio": {
+      "from": "2.37.2",
+      "to": "2.38.1"
+    },
+    "iniconfig": {
+      "from": "2.3.0",
+      "to": "2.3.1"
+    },
+    "ipykernel": {
+      "from": "7.2.0",
+      "to": "7.4.0"
+    },
+    "ipython": {
+      "from": "9.10.0",
+      "to": "9.17.1"
+    },
+    "ipywidgets": {
+      "from": "8.1.8",
+      "to": "8.1.9"
+    },
+    "isort": {
+      "from": "8.0.1",
+      "to": "9.0.2"
+    },
+    "jax": {
+      "from": "0.9.1",
+      "to": "0.12.0.1"
+    },
+    "jax-cuda12-pjrt": {
+      "from": "0.9.1",
+      "to": "0.12.0.1"
+    },
+    "jax-cuda12-plugin": {
+      "from": "0.9.1",
+      "to": "0.12.0.1"
+    },
+    "jaxlib": {
+      "from": "0.9.1",
+      "to": "0.12.0.1"
+    },
+    "jaxtyping": {
+      "from": "0.3.9",
+      "to": "0.3.11"
+    },
+    "jedi": {
+      "from": "0.19.2",
+      "to": "0.20.1"
+    },
+    "joblib": {
+      "from": "1.5.3",
+      "to": "1.6.0"
+    },
+    "json5": {
+      "from": "0.13.0",
+      "to": "0.17.3"
+    },
+    "jsonpointer": {
+      "from": "3.0.0",
+      "to": "3.4"
+    },
+    "jupyter-client": {
+      "from": "8.8.0",
+      "to": "8.10.0"
+    },
+    "jupyter-events": {
+      "from": "0.12.0",
+      "to": "0.12.1"
+    },
+    "jupyter-lsp": {
+      "from": "2.3.0",
+      "to": "2.3.1"
+    },
+    "jupyter-server": {
+      "from": "2.17.0",
+      "to": "2.21.1"
+    },
+    "jupyterlab": {
+      "from": "4.5.5",
+      "to": "4.6.4"
+    },
+    "jupyterlab-server": {
+      "from": "2.28.0",
+      "to": "2.28.1"
+    },
+    "jupyterlab-widgets": {
+      "from": "3.0.16",
+      "to": "3.0.17"
+    },
+    "kiwisolver": {
+      "from": "1.4.9",
+      "to": "1.5.1"
+    },
+    "libtpu": {
+      "from": "0.0.35",
+      "to": "0.0.50"
+    },
+    "lineax": {
+      "from": "0.1.0",
+      "to": "0.1.1"
+    },
+    "markdown": {
+      "from": "3.10.2",
+      "to": "3.11.2"
+    },
+    "markdown-it-py": {
+      "from": "4.0.0",
+      "to": "4.2.0"
+    },
+    "markupsafe": {
+      "from": "3.0.3",
+      "to": "3.0.4"
+    },
+    "matplotlib": {
+      "from": "3.10.8",
+      "to": "3.11.2"
+    },
+    "matplotlib-inline": {
+      "from": "0.2.1",
+      "to": "0.2.2"
+    },
+    "mistune": {
+      "from": "3.2.0",
+      "to": "3.4.0"
+    },
+    "mkdocs-autorefs": {
+      "from": "1.4.4",
+      "to": "1.4.5"
+    },
+    "mkdocs-get-deps": {
+      "from": "0.2.0",
+      "to": "0.2.2"
+    },
+    "mkdocs-material": {
+      "from": "9.7.4",
+      "to": "9.8.0"
+    },
+    "mkdocstrings": {
+      "from": "1.0.3",
+      "to": "1.0.8"
+    },
+    "mkdocstrings-python": {
+      "from": "2.0.3",
+      "to": "2.0.10"
+    },
+    "mkinit": {
+      "from": "1.2.0",
+      "to": "1.3.0"
+    },
+    "ml-dtypes": {
+      "from": "0.5.4",
+      "to": "0.6.0"
+    },
+    "msgpack": {
+      "from": "1.1.2",
+      "to": "1.2.3"
+    },
+    "narwhals": {
+      "from": "2.17.0",
+      "to": "2.27.1"
+    },
+    "nbclient": {
+      "from": "0.10.4",
+      "to": "0.11.0"
+    },
+    "nbconvert": {
+      "from": "7.17.0",
+      "to": "7.17.2"
+    },
+    "nbformat": {
+      "from": "5.10.4",
+      "to": "5.11.1"
+    },
+    "networkx": {
+      "from": "3.6.1",
+      "to": "3.7"
+    },
+    "nodeenv": {
+      "from": "1.10.0",
+      "to": "1.11.0"
+    },
+    "notebook": {
+      "from": "7.5.4",
+      "to": "7.6.3"
+    },
+    "numpy": {
+      "from": "2.4.2",
+      "to": "2.5.4"
+    },
+    "nvidia-cublas-cu12": {
+      "from": "12.9.1.4",
+      "to": "12.9.2.10"
+    },
+    "nvidia-cudnn-cu12": {
+      "from": "9.19.0.56",
+      "to": "9.27.0.42"
+    },
+    "nvidia-nccl-cu12": {
+      "from": "2.29.7",
+      "to": "2.32.3"
+    },
+    "nvidia-nvshmem-cu12": {
+      "from": "3.5.21",
+      "to": "3.8.0"
+    },
+    "optax": {
+      "from": "0.2.6",
+      "to": "0.2.8"
+    },
+    "orbax-checkpoint": {
+      "from": "0.11.33",
+      "to": "0.12.8"
+    },
+    "packaging": {
+      "from": "26.0",
+      "to": "26.3"
+    },
+    "pandas": {
+      "from": "2.3.3",
+      "to": "3.1.0"
+    },
+    "parso": {
+      "from": "0.8.6",
+      "to": "0.8.7"
+    },
+    "pathspec": {
+      "from": "1.0.4",
+      "to": "1.1.1"
+    },
+    "pillow": {
+      "from": "12.1.1",
+      "to": "13.0.0"
+    },
+    "platformdirs": {
+      "from": "4.9.2",
+      "to": "4.13.5"
+    },
+    "pluggy": {
+      "from": "1.6.0",
+      "to": "1.7.0"
+    },
+    "pre-commit": {
+      "from": "4.6.0",
+      "to": "4.7.0"
+    },
+    "prometheus-client": {
+      "from": "0.24.1",
+      "to": "0.26.0"
+    },
+    "prompt-toolkit": {
+      "from": "3.0.52",
+      "to": "3.0.53"
+    },
+    "protobuf": {
+      "from": "6.33.5",
+      "to": "7.36.2"
+    },
+    "pure-eval": {
+      "from": "0.2.3",
+      "to": "0.2.4"
+    },
+    "pyarrow": {
+      "from": "23.0.1",
+      "to": "26.0.0"
+    },
+    "pycparser": {
+      "from": "3.0",
+      "to": "3.12"
+    },
+    "pydantic": {
+      "from": "2.12.5",
+      "to": "2.14.1"
+    },
+    "pydantic-core": {
+      "from": "2.41.5",
+      "to": "2.50.1"
+    },
+    "pydeck": {
+      "from": "0.9.1",
+      "to": "0.9.3"
+    },
+    "pygments": {
+      "from": "2.19.2",
+      "to": "2.21.0"
+    },
+    "pymdown-extensions": {
+      "from": "10.21",
+      "to": "12.3"
+    },
+    "pymongo": {
+      "from": "4.16.0",
+      "to": "4.19.0"
+    },
+    "pyparsing": {
+      "from": "3.3.2",
+      "to": "3.3.3"
+    },
+    "pytest": {
+      "from": "9.0.2",
+      "to": "9.1.1"
+    },
+    "pytest-cov": {
+      "from": "7.0.0",
+      "to": "7.1.0"
+    },
+    "python-dateutil": {
+      "from": "2.9.0.post0",
+      "to": "3.0.0"
+    },
+    "python-discovery": {
+      "from": "1.2.2",
+      "to": "1.6.4"
+    },
+    "python-json-logger": {
+      "from": "4.0.0",
+      "to": "4.2.0"
+    },
+    "pywinpty": {
+      "from": "3.0.3",
+      "to": "3.1.0"
+    },
+    "pyzmq": {
+      "from": "27.1.0",
+      "to": "27.2.0"
+    },
+    "requests": {
+      "from": "2.32.5",
+      "to": "2.34.2"
+    },
+    "rich": {
+      "from": "14.3.3",
+      "to": "15.0.0"
+    },
+    "rpds-py": {
+      "from": "0.30.0",
+      "to": "2026.9.1"
+    },
+    "ruff": {
+      "from": "0.15.4",
+      "to": "0.17.2"
+    },
+    "scikit-learn": {
+      "from": "1.8.0",
+      "to": "1.9.1"
+    },
+    "scipy": {
+      "from": "1.17.1",
+      "to": "1.18.1"
+    },
+    "simplejson": {
+      "from": "3.20.2",
+      "to": "4.2.0"
+    },
+    "soupsieve": {
+      "from": "2.8.3",
+      "to": "3.0.4"
+    },
+    "streamlit": {
+      "from": "1.55.0",
+      "to": "1.66.1"
+    },
+    "tensorstore": {
+      "from": "0.1.81",
+      "to": "0.1.85"
+    },
+    "tfp-nightly": {
+      "from": "0.26.0.dev20260304",
+      "to": "0.26.0.dev20261024"
+    },
+    "threadpoolctl": {
+      "from": "3.6.0",
+      "to": "3.7.0"
+    },
+    "tinycss2": {
+      "from": "1.4.0",
+      "to": "1.5.1"
+    },
+    "toolz": {
+      "from": "1.1.0",
+      "to": "1.2.0"
+    },
+    "tornado": {
+      "from": "6.5.4",
+      "to": "6.6"
+    },
+    "tqdm": {
+      "from": "4.67.3",
+      "to": "4.70.1"
+    },
+    "traitlets": {
+      "from": "5.14.3",
+      "to": "5.16.1"
+    },
+    "ty": {
+      "from": "0.0.20",
+      "to": "0.0.91"
+    },
+    "typing-extensions": {
+      "from": "4.15.0",
+      "to": "4.16.0"
+    },
+    "typing-inspection": {
+      "from": "0.4.2",
+      "to": "0.4.4"
+    },
+    "tzdata": {
+      "from": "2025.3",
+      "to": "2026.5"
+    },
+    "ubelt": {
+      "from": "1.4.1",
+      "to": "1.4.3"
+    },
+    "urllib3": {
+      "from": "2.6.3",
+      "to": "2.8.0"
+    },
+    "uvloop": {
+      "from": "0.22.1",
+      "to": "0.23.0"
+    },
+    "virtualenv": {
+      "from": "21.3.0",
+      "to": "21.14.13"
+    },
+    "wandb": {
+      "from": "0.25.0",
+      "to": "0.31.0"
+    },
+    "wcwidth": {
+      "from": "0.6.0",
+      "to": "0.9.3"
+    },
+    "webencodings": {
+      "from": "0.5.1",
+      "to": "0.6.1"
+    },
+    "websocket-client": {
+      "from": "1.9.0",
+      "to": "1.9.2"
+    },
+    "widgetsnbextension": {
+      "from": "4.0.15",
+      "to": "4.0.16"
+    },
+    "wrapt": {
+      "from": "2.1.1",
+      "to": "2.5.1"
+    },
+    "xlron": {
+      "from": "1.5.1",
+      "to": "1.6.0"
+    },
+    "zipp": {
+      "from": "3.23.0",
+      "to": "4.1.2"
+    }
+  },
+  "added": {
+    "cwevals": "0.0.1b1",
+    "distro": "1.9.0",
+    "googleapis-common-protos": "1.76.0",
+    "itsdangerous": "2.2.0",
+    "jupyter-builder": "1.2.3",
+    "nest-asyncio2": "1.7.4",
+    "opentelemetry-api": "1.45.1",
+    "opentelemetry-exporter-http-transport": "0.66b1",
+    "opentelemetry-exporter-otlp-common": "0.66b1",
+    "opentelemetry-exporter-otlp-proto-common": "1.45.1",
+    "opentelemetry-exporter-otlp-proto-http": "1.45.1",
+    "opentelemetry-proto": "1.45.1",
+    "opentelemetry-sdk": "1.45.1",
+    "opentelemetry-semantic-conventions": "0.66b1",
+    "python-multipart": "0.0.32",
+    "sniffio": "1.3.1",
+    "starlette": "1.9.0",
+    "uvicorn": "0.54.0",
+    "websockets": "17.3",
+    "xxhash": "4.0.2"
+  },
+  "removed": {
+    "blinker": "1.9.0",
+    "cachetools": "7.0.2",
+    "dataclasses-json": "0.6.7",
+    "gitdb": "4.0.12",
+    "gitpython": "3.1.46",
+    "marshmallow": "3.26.2",
+    "orbax-export": "0.0.8",
+    "pytz": "2026.1.post1",
+    "sentry-sdk": "2.54.0",
+    "setuptools": "82.0.0",
+    "smmap": "5.0.2",
+    "tenacity": "9.1.4",
+    "toml": "0.10.2",
+    "typing-inspect": "0.9.0"
+  }
+}

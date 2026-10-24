@@ -1,0 +1,102 @@
+{
+  "args": {
+    "slots": 100,
+    "k": 5,
+    "envs": 1,
+    "topology": "nsfnet_deeprmsa_directed",
+    "mode": "uniform",
+    "kernels": [
+      "link",
+      "lightpath",
+      "mask",
+      "rollout"
+    ],
+    "iterations": 20,
+    "steps": 16,
+    "output": "/tmp/xlron-gn-perf-20261024/optimized-latest-100.json",
+    "snapshot": "/tmp/xlron-gn-perf-20261024/optimized-latest-100.npz",
+    "reference": "/tmp/xlron-gn-perf-20261024/baseline-latest-100.npz",
+    "matmul_precision": "highest"
+  },
+  "jax": "0.12.0.1",
+  "device": "cuda:0",
+  "device_kind": "NVIDIA A100 80GB PCIe",
+  "platform": "Linux-5.14.0-611.55.1.el9_7.0.3.x86_64-x86_64-with-glibc2.34",
+  "links": 44,
+  "paths": 911,
+  "modulations": 4,
+  "lightpaths": 88,
+  "occupancy": 0.2506818175315857,
+  "metrics": {
+    "link": {
+      "compile_s": 0.32053194008767605,
+      "median_ms": 0.24527683854103088,
+      "min_ms": 0.2379976212978363,
+      "argument_bytes": 52800,
+      "output_bytes": 17600,
+      "temp_bytes": 18192,
+      "alias_bytes": 0
+    },
+    "lightpath": {
+      "compile_s": 0.2216323036700487,
+      "median_ms": 0.2408018335700035,
+      "min_ms": 0.1444052904844284,
+      "argument_bytes": 88000,
+      "output_bytes": 17600,
+      "temp_bytes": 158528,
+      "alias_bytes": 0
+    },
+    "mask": {
+      "compile_s": 2.4635451827198267,
+      "median_ms": 0.5309833213686943,
+      "min_ms": 0.5273018032312393,
+      "argument_bytes": 105612,
+      "output_bytes": 3024,
+      "temp_bytes": 1234568,
+      "alias_bytes": 0
+    },
+    "rollout": {
+      "compile_s": 3.584146250039339,
+      "median_ms": 8.959832601249218,
+      "min_ms": 8.724907413125038,
+      "argument_bytes": 286400,
+      "output_bytes": 286824,
+      "temp_bytes": 1171216,
+      "alias_bytes": 0,
+      "steps_per_s": 1785.7476486524104,
+      "accepted_services": [
+        14
+      ]
+    }
+  },
+  "accuracy": {
+    "link_0": {
+      "exact": false,
+      "max_abs_error": 6.103515625e-05
+    },
+    "lightpath_0": {
+      "exact": false,
+      "max_abs_error": 1.9073486328125e-06
+    },
+    "mask_0": {
+      "exact": true,
+      "max_abs_error": 0.0
+    },
+    "mask_1": {
+      "exact": true,
+      "max_abs_error": 0.0
+    },
+    "mask_2": {
+      "exact": true,
+      "max_abs_error": 0.0
+    },
+    "rollout_rewards": {
+      "exact": true,
+      "max_abs_error": 0.0
+    },
+    "rollout_occupancy": {
+      "exact": true,
+      "max_abs_error": 0.0
+    }
+  }
+}

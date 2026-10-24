@@ -1,0 +1,54 @@
+{
+  "args": {
+    "slots": 100,
+    "k": 5,
+    "envs": 1,
+    "topology": "nsfnet_deeprmsa_directed",
+    "mode": "uniform",
+    "kernels": [
+      "mask",
+      "rollout"
+    ],
+    "iterations": 20,
+    "steps": 16,
+    "warmup_steps": 0,
+    "output": "/tmp/xlron-gn-perf-20261024/batch40-uniform-100.json",
+    "snapshot": "/tmp/xlron-gn-perf-20261024/batch40-uniform-100.npz",
+    "reference": "/tmp/xlron-gn-perf-20261024/baseline-uniform-100.npz",
+    "matmul_precision": "highest"
+  },
+  "jax": "0.12.0.1",
+  "device": "cuda:0",
+  "device_kind": "NVIDIA A100 80GB PCIe",
+  "platform": "Linux-5.14.0-611.55.1.el9_7.0.3.x86_64-x86_64-with-glibc2.34",
+  "links": 44,
+  "paths": 911,
+  "modulations": 4,
+  "lightpaths": 88,
+  "occupancy": 0.2506818175315857,
+  "metrics": {
+    "mask": {
+      "compile_s": 2.284817051142454,
+      "median_ms": 0.35220570862293243,
+      "min_ms": 0.3458429127931595,
+      "argument_bytes": 105612,
+      "output_bytes": 3024,
+      "temp_bytes": 8653896,
+      "alias_bytes": 0
+    },
+    "rollout": {
+      "compile_s": 3.4037659652531147,
+      "median_ms": 5.783362314105034,
+      "min_ms": 5.446763709187508,
+      "argument_bytes": 286400,
+      "output_bytes": 286824,
+      "temp_bytes": 8630288,
+      "alias_bytes": 0,
+      "steps_per_s": 2766.5567417378684,
+      "accepted_services": [
+        14
+      ]
+    }
+  },
+  "implementation": "40-candidate small-spectrum batch, used by the final adaptive policy for <=128 slots"
+}

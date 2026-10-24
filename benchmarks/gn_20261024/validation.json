@@ -1,0 +1,140 @@
+{
+  "uniform_100": {
+    "baseline": "baseline-latest-100",
+    "optimized": "batch40-uniform-100",
+    "arrays": {
+      "mask_0": {
+        "exact": true,
+        "max_abs_error": 0.0
+      },
+      "mask_1": {
+        "exact": true,
+        "max_abs_error": 0.0
+      },
+      "mask_2": {
+        "exact": true,
+        "max_abs_error": 0.0
+      },
+      "rollout_rewards": {
+        "exact": true,
+        "max_abs_error": 0.0
+      },
+      "rollout_occupancy": {
+        "exact": true,
+        "max_abs_error": 0.0
+      }
+    }
+  },
+  "corrected_100": {
+    "baseline": "baseline-corrected-100",
+    "optimized": "batch40-corrected-100",
+    "arrays": {
+      "mask_0": {
+        "exact": true,
+        "max_abs_error": 0.0
+      },
+      "mask_1": {
+        "exact": true,
+        "max_abs_error": 0.0
+      },
+      "mask_2": {
+        "exact": true,
+        "max_abs_error": 0.0
+      },
+      "rollout_rewards": {
+        "exact": true,
+        "max_abs_error": 0.0
+      },
+      "rollout_occupancy": {
+        "exact": true,
+        "max_abs_error": 0.0
+      }
+    }
+  },
+  "nonuniform_100": {
+    "baseline": "baseline-nonuniform-100",
+    "optimized": "batch40-nonuniform-100",
+    "arrays": {
+      "mask_0": {
+        "exact": true,
+        "max_abs_error": 0.0
+      },
+      "mask_1": {
+        "exact": true,
+        "max_abs_error": 0.0
+      },
+      "mask_2": {
+        "exact": true,
+        "max_abs_error": 0.0
+      },
+      "rollout_rewards": {
+        "exact": true,
+        "max_abs_error": 0.0
+      },
+      "rollout_occupancy": {
+        "exact": true,
+        "max_abs_error": 0.0
+      }
+    }
+  },
+  "wide_420": {
+    "baseline": "baseline-420",
+    "optimized": "optimized-latest-420",
+    "arrays": {
+      "link_0": {
+        "exact": false,
+        "max_abs_error": 3.814697265625e-06
+      },
+      "lightpath_0": {
+        "exact": false,
+        "max_abs_error": 0.00152587890625
+      },
+      "mask_0": {
+        "exact": true,
+        "max_abs_error": 0.0
+      },
+      "mask_1": {
+        "exact": true,
+        "max_abs_error": 0.0
+      },
+      "mask_2": {
+        "exact": true,
+        "max_abs_error": 0.0
+      },
+      "rollout_rewards": {
+        "exact": true,
+        "max_abs_error": 0.0
+      },
+      "rollout_occupancy": {
+        "exact": true,
+        "max_abs_error": 0.0
+      }
+    }
+  },
+  "rsa_420": {
+    "baseline": "baseline-rsa-420",
+    "optimized": "optimized-rsa-420",
+    "arrays": {
+      "link_0": {
+        "exact": false,
+        "max_abs_error": 6.103515625e-05
+      },
+      "lightpath_0": {
+        "exact": false,
+        "max_abs_error": 1.430511474609375e-06
+      },
+      "throughput_0": {
+        "exact": true,
+        "max_abs_error": 0.0
+      },
+      "rollout_rewards": {
+        "exact": true,
+        "max_abs_error": 0.0
+      },
+      "rollout_occupancy": {
+        "exact": true,
+        "max_abs_error": 0.0
+      }
+    }
+  }
+}

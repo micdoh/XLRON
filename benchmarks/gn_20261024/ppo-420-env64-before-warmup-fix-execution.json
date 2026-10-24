@@ -1,0 +1,33 @@
+{
+  "command": [
+    "/tmp/xlron-gn-perf-20261024/optimized/.venv/bin/python",
+    "-m",
+    "xlron.train.train",
+    "--env_type=rmsa_gn_model",
+    "--topology_name=nsfnet_deeprmsa_directed",
+    "--link_resources=420",
+    "--k=5",
+    "--values_bw=100,200,400",
+    "--slot_size=12.5",
+    "--guardband=0",
+    "--power_per_channel=-10",
+    "--max_power_per_fibre=21",
+    "--launch_power_type=fixed",
+    "--continuous_operation",
+    "--NUM_ENVS=64",
+    "--ROLLOUT_LENGTH=16",
+    "--TOTAL_TIMESTEPS=8192",
+    "--STEPS_PER_INCREMENT=4096",
+    "--ENV_WARMUP_STEPS=128",
+    "--NUM_MINIBATCHES=4",
+    "--UPDATE_EPOCHS=4",
+    "--PREALLOCATE_MEM=false",
+    "--VISIBLE_DEVICES=0",
+    "--DATA_OUTPUT_FILE=/tmp/xlron-gn-perf-20261024/ppo-420-env64.jsonl"
+  ],
+  "exit_code": 1,
+  "wall_s": 20.035992432385683,
+  "sampled_peak_process_mib": 596,
+  "memory_sample_interval_s": 1,
+  "gpu": "NVIDIA A100 80GB PCIe"
+}

@@ -1,0 +1,10 @@
+Time (%),Total Time (ns),Num Calls,Avg (ns),Med (ns),Min (ns),Max (ns),StdDev (ns),Name
+78.4,687214,7,98173.4,69113.0,55695,210834,57609.7,cuGraphLaunch
+12.1,106430,9,11825.6,8213.0,7634,36923,9502.5,cuLaunchKernel
+3.7,32753,1,32753.0,32753.0,32753,32753,0.0,cuMemcpyDtoDAsync_v2
+2.3,19849,2,9924.5,9924.5,4052,15797,8305.0,cuEventRecord
+2.0,17892,1,17892.0,17892.0,17892,17892,0.0,cuLaunchHostFunc
+0.5,4360,1,4360.0,4360.0,4360,4360,0.0,cuProfilerStart
+0.5,4340,1,4340.0,4340.0,4340,4340,0.0,cuStreamWaitEvent
+0.3,2936,4,734.0,543.0,344,1506,530.3,cuCtxSetCurrent
+0.1,633,1,633.0,633.0,633,633,0.0,cuStreamIsCapturing
