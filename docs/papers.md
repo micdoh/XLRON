@@ -7,7 +7,7 @@ XLRON is a research project. The features documented on this site come from the 
 ## Published
 
 ### XLRON: Accelerated Reinforcement Learning Environments for Optical Networks
-*Doherty, M., Beghelli, A. — OFC 2024 — [IEEE](https://ieeexplore.ieee.org/document/10526884) · [UCL Discovery](https://discovery.ucl.ac.uk/id/eprint/10185312/1/OFC2024___XLRON.pdf)*
+*Doherty, M., Beghelli, A. — OFC 2024 — [Optica](https://doi.org/10.1364/OFC.2024.Th2A.21) · [UCL Discovery](https://discovery.ucl.ac.uk/id/eprint/10185312/) · [Repository PDF](https://github.com/micdoh/XLRON/blob/main/papers/xlron_ofc_2024.pdf)*
 
 The original announcement of XLRON, focused on the JAX implementation, GPU parallelism, and the DeepRMSA reproduction.
 
@@ -18,7 +18,8 @@ The original announcement of XLRON, focused on the JAX implementation, GPU paral
   title     = {{XLRON}: Accelerated Reinforcement Learning Environments for Optical Networks},
   year      = {2024},
   pages     = {1-3},
-  url       = {https://ieeexplore.ieee.org/document/10526884}
+  doi       = {10.1364/OFC.2024.Th2A.21},
+  url       = {https://doi.org/10.1364/OFC.2024.Th2A.21}
 }
 ```
 
@@ -88,21 +89,24 @@ A systematic comparison of three capacity bound estimation methods — cut-set (
 
 ---
 
-## In preparation (not yet published)
+## Preprints
 
 ### XLRON: A Framework for Hardware-Accelerated and Differentiable Simulation of Optical Networks
-*Doherty, M., Beghelli, A., Jarmolovičius, M., Deng, B., Killey, R., Bayvel, P., Toni, L. — In preparation, targeted at JOCN.*
+*Doherty, M., Jarmolovičius, M., Deng, B., Killey, R., Bayvel, P., Beghelli, A., Toni, L. — Optica Open preprint (2026), version 1, published 25 August 2026 — [Optica Open](https://preprints.opticaopen.org/articles/preprint/XLRON_A_Framework_for_Hardware-Accelerated_and_Differentiable_Simulation_of_Optical_Networks/33317361?file=67772697) · [Repository PDF](https://github.com/micdoh/XLRON/blob/main/papers/xlron_journal_2026.pdf)*
 
-Introduces XLRON's architecture, benchmarks it against seven other open-source simulation libraries, validates the ISRS GN + DRA physical layer against the Gerard *et al.* 2025 C+L-band experiment to within 0.5 dB, demonstrates the differentiable-simulation capabilities (gradient-based pump optimisation, direct RSA optimisation), and describes the GUI / CLI.
+Introduces XLRON's architecture and benchmarks it against other open-source simulation libraries. The preprint reports physical-layer agreement with the Gerard *et al.* 2025 C+L-band experiment within 0.6 dB for per-band generalized OSNR and 0.6% for throughput, and demonstrates routing and spectrum allocation optimized by gradient descent.
 
 → **[Reproduce all figures](reproduce_jocn_xlron.md)**
 
 ```bibtex
-@unpublished{doherty_xlron_framework,
-  author  = {Doherty, Michael and Beghelli, Alejandra and Jarmolovi\v{c}ius, Mindaugas and Deng, Bohua and Killey, Robert and Bayvel, Polina and Toni, Laura},
-  title   = {{XLRON}: A Framework for Hardware-Accelerated and Differentiable Simulation of Optical Networks},
-  note    = {In preparation},
-  year    = {2026}
+@misc{doherty_xlron_framework,
+  author    = {Doherty, Michael and Jarmolovi\v{c}ius, Mindaugas and Deng, Bohua and Killey, Robert and Bayvel, Polina and Beghelli, Alejandra and Toni, Laura},
+  title     = {{XLRON}: A Framework for Hardware-Accelerated and Differentiable Simulation of Optical Networks},
+  publisher = {Optica Open},
+  note      = {Preprint, version 1},
+  year      = {2026},
+  doi       = {10.1364/opticaopen.33317361.v1},
+  url       = {https://doi.org/10.1364/opticaopen.33317361.v1}
 }
 ```
 
