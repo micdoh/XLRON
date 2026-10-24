@@ -366,7 +366,7 @@ class VONEEnv(environment.Environment):
         return type(self).__name__
 
     @staticmethod
-    def num_actions(params: EnvParams) -> int:
+    def num_actions(params: EnvParams) -> int:  # ty: ignore[invalid-property-type-override]
         """Number of actions possible in environment."""
         return (
             params.num_nodes

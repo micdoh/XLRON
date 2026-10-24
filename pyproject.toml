@@ -18,9 +18,9 @@ dependencies = [
     "diffrax>=0.7.1",
     "distrax>=0.1.7",
     "equinox>=0.13.2",
-    "gymnax>=0.0.9",
+    "gymnax>=1.0.1",
     "imageio[ffmpeg,pyav]>=2.37.2",
-    "jax>=0.8.0",
+    "jax>=0.12.0.1",
     "jaxopt>=0.8.5",
     "jaxtyping>=0.3.3",
     "joblib>=1.5.2",
@@ -82,6 +82,14 @@ docs = [
   "mkdocstrings[python]",
 ]
 
+[tool.uv]
+required-version = ">=0.13.5"
+# Gymnax 1.0.1 declares jax<0.12. XLRON supplies its own transitions;
+# validate our use of its spaces/base classes against the runtime in uv.lock.
+override-dependencies = [
+    { package = { name = "gymnax", version = "1.0.1" }, dependencies = ["jax>=0.12.0.1"] },
+]
+
 [tool.ruff]
 exclude = [
   "__init__.py",
@@ -129,6 +137,10 @@ exclude = [
   "xlron/train/multidevice/",
   "xlron/data/topologies/topology_bench/",
 ]
+
+[tool.ty.terminal]
+# Preserve warning-only diagnostics as non-blocking across ty upgrades.
+error-on-warning = false
 
 [tool.ty.rules]
 possibly-unresolved-reference = "warn"

@@ -67,6 +67,21 @@ def test_launch_power_rl_training_smoke_discrete(env_type):
     _run_train(env_type, ["--discrete_launch_power"])
 
 
+@pytest.mark.slow
+@pytest.mark.parametrize("env_type", ["rsa_gn_model", "rmsa_gn_model"])
+def test_fixed_power_routing_training_parallel_with_policy_warmup(env_type):
+    """Routing MLPs must support policy warmup and a batched PPO update in GN envs."""
+    _run_train(
+        env_type,
+        [
+            "--launch_power_type=fixed",
+            "--NUM_ENVS=2",
+            "--ENV_WARMUP_STEPS=4",
+            "--TOTAL_TIMESTEPS=40",
+        ],
+    )
+
+
 LOAD_SWEEP_ARGS = [
     "-m",
     "xlron.train.train",

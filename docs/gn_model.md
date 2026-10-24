@@ -1,5 +1,8 @@
 # GN Model Physical Layer
 
+For measured runtime/memory improvements, benchmark commands and outstanding
+physical-model validation issues, see [GN performance investigation](gn_model_performance.md).
+
 This page describes the physical layer model used by XLRON's GN model environments (`rsa_gn_model` and `rmsa_gn_model`). It covers the modelling assumptions, noise sources, how ROADM nodes are treated, and what each configuration parameter controls.
 
 The implementation is based on the closed-form ISRS GN model from:

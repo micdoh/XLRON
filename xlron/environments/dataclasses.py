@@ -317,6 +317,8 @@ class MultiBandRSAEnvParams(RSAEnvParams):
 class GNModelEnvParams(RSAEnvParams):
     """Dataclass to hold environment state for GN model environments."""
 
+    # Padded constituent link indices, (num_paths, max_path_hops); num_links is padding.
+    path_link_indices: HashableArrayWrapper = struct.field(pytree_node=False)
     ref_lambda: chex.Scalar = struct.field(pytree_node=False)
     max_spans: chex.Scalar = struct.field(pytree_node=False)
     max_span_length: chex.Scalar = struct.field(pytree_node=False)

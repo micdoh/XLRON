@@ -1,0 +1,74 @@
+{
+  "args": {
+    "slots": 420,
+    "env_type": "rsa_gn_model",
+    "k": 5,
+    "envs": 1,
+    "topology": "nsfnet_deeprmsa_directed",
+    "mode": "uniform",
+    "kernels": [
+      "link",
+      "lightpath",
+      "throughput",
+      "rollout"
+    ],
+    "iterations": 10,
+    "steps": 16,
+    "warmup_steps": 0,
+    "output": "/tmp/xlron-gn-perf-20261024/baseline-rsa-420.json",
+    "snapshot": "/tmp/xlron-gn-perf-20261024/baseline-rsa-420.npz",
+    "reference": null,
+    "matmul_precision": "highest"
+  },
+  "jax": "0.12.0.1",
+  "device": "cuda:0",
+  "device_kind": "NVIDIA A100 80GB PCIe",
+  "platform": "Linux-5.14.0-611.55.1.el9_7.0.3.x86_64-x86_64-with-glibc2.34",
+  "links": 44,
+  "paths": 911,
+  "modulations": null,
+  "lightpaths": 352,
+  "occupancy": 0.2501623332500458,
+  "metrics": {
+    "link": {
+      "compile_s": 0.9038581419736147,
+      "median_ms": 0.26499107480049133,
+      "min_ms": 0.21285191178321838,
+      "argument_bytes": 221760,
+      "output_bytes": 73920,
+      "temp_bytes": 444464,
+      "alias_bytes": 0
+    },
+    "lightpath": {
+      "compile_s": 1.811137706041336,
+      "median_ms": 0.28677191585302353,
+      "min_ms": 0.2718660980463028,
+      "argument_bytes": 369600,
+      "output_bytes": 73920,
+      "temp_bytes": 3208832,
+      "alias_bytes": 0
+    },
+    "throughput": {
+      "compile_s": 2.2766800597310066,
+      "median_ms": 0.4075122997164726,
+      "min_ms": 0.3181248903274536,
+      "argument_bytes": 323400,
+      "output_bytes": 4,
+      "temp_bytes": 7957296,
+      "alias_bytes": 0
+    },
+    "rollout": {
+      "compile_s": 2.2825954388827085,
+      "median_ms": 6.56284112483263,
+      "min_ms": 6.4143650233745575,
+      "argument_bytes": 1096324,
+      "output_bytes": 1096748,
+      "temp_bytes": 8117248,
+      "alias_bytes": 0,
+      "steps_per_s": 2437.9685102323792,
+      "accepted_services": [
+        16
+      ]
+    }
+  }
+}

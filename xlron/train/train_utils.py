@@ -1405,16 +1405,8 @@ def get_warmup_fn(warmup_state, env, params, train_state, config) -> Callable[[T
                     ],
                     axis=0,
                 )
-            elif (
-                "gn_model" in config.env_type.lower()
-                and config.launch_power_type != "rl"
-                and not config.USE_GNN
-                and not use_heuristic_warmup
-                and not use_random_warmup
-            ):
-                # GNN policies emit plain path actions, which GN-model envs accept with
-                # non-RL launch power (process_action defaults the power element).
-                raise ValueError("Check that EVAL_HEURISTIC is set to True if using a heuristic")
+            # With fixed/tabular launch power, both MLP and graph policies emit
+            # path actions. GN envs supply the configured power in process_action.
             # STEP ENV
             obsv, _state, reward, terminal, truncated, info = env.step(
                 step_key, _state, action, params
