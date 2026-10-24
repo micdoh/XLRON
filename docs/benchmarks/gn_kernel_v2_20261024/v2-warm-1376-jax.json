@@ -1,0 +1,101 @@
+{
+  "args": {
+    "slots": 1376,
+    "env_type": "rmsa_gn_model",
+    "k": 5,
+    "envs": 16,
+    "occupancy": 0.25,
+    "independent_streams": true,
+    "topology": "nsfnet_deeprmsa_directed",
+    "mode": "uniform",
+    "kernels": [
+      "link",
+      "mask",
+      "rollout"
+    ],
+    "iterations": 9,
+    "steps": 16,
+    "warmup_steps": 128,
+    "output": "/tmp/xlron-gn-kernel-v2-20261024/v2-warm-1376-jax.json",
+    "snapshot": "/tmp/xlron-gn-kernel-v2-20261024/v2-warm-1376-jax.npz",
+    "reference": null,
+    "matmul_precision": "highest"
+  },
+  "jax": "0.12.0.1",
+  "device": "cuda:0",
+  "device_kind": "NVIDIA A100 80GB PCIe",
+  "platform": "Linux-5.14.0-611.55.1.el9_7.0.3.x86_64-x86_64-with-glibc2.34",
+  "links": 44,
+  "paths": 911,
+  "modulations": 4,
+  "lightpaths": 128,
+  "occupancy": 0.04648995026946068,
+  "initial_accepted_services": [
+    128,
+    128,
+    128,
+    128,
+    128,
+    128,
+    128,
+    128,
+    128,
+    128,
+    128,
+    128,
+    128,
+    128,
+    128,
+    128
+  ],
+  "metrics": {
+    "link": {
+      "compile_s": 0.6228031814098358,
+      "median_ms": 2.284575253725052,
+      "min_ms": 2.2750403732061386,
+      "argument_bytes": 11624448,
+      "output_bytes": 3874816,
+      "temp_bytes": 28941384,
+      "alias_bytes": 0
+    },
+    "mask": {
+      "compile_s": 3.6921482123434544,
+      "median_ms": 17.07102358341217,
+      "min_ms": 16.99098013341427,
+      "argument_bytes": 23249088,
+      "output_bytes": 660504,
+      "temp_bytes": 283215496,
+      "alias_bytes": 0
+    },
+    "rollout": {
+      "compile_s": 5.29900230653584,
+      "median_ms": 407.4216093868017,
+      "min_ms": 406.80075995624065,
+      "argument_bytes": 62686464,
+      "output_bytes": 62687840,
+      "temp_bytes": 279330832,
+      "alias_bytes": 0,
+      "steps_per_s": 628.3417327453448,
+      "accepted_services": [
+        144,
+        144,
+        144,
+        144,
+        144,
+        144,
+        144,
+        144,
+        144,
+        144,
+        144,
+        144,
+        144,
+        144,
+        144,
+        144
+      ],
+      "distinct_final_requests": 16
+    }
+  },
+  "xpm_backend": "jax"
+}

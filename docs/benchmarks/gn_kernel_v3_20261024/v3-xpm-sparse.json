@@ -1,0 +1,256 @@
+{
+  "args": {
+    "channels": 1376,
+    "links": 64,
+    "occupancy": 0.1,
+    "iterations": 7,
+    "compact": true,
+    "compact_rows": true,
+    "rows": [
+      4,
+      8,
+      16,
+      32
+    ],
+    "columns": [
+      32,
+      64,
+      128
+    ],
+    "warps": [
+      4
+    ],
+    "output": "/tmp/xlron-gn-kernel-v2-20261024/v3-xpm-sparse.json"
+  },
+  "jax": "0.12.0.1",
+  "device": "NVIDIA A100 80GB PCIe",
+  "reference": {
+    "compile_s": 17.616194127127528,
+    "median_ms": 1.1708848178386688,
+    "min_ms": 1.1562053114175797,
+    "argument_bytes": 1056768,
+    "output_bytes": 352256,
+    "temp_bytes": 1409304,
+    "alias_bytes": 0
+  },
+  "variants": [
+    {
+      "config": {
+        "block_i": 4,
+        "block_k": 32,
+        "num_warps": 4
+      },
+      "compile_s": 1.0331940725445747,
+      "median_ms": 0.3207232803106308,
+      "min_ms": 0.30753202736377716,
+      "argument_bytes": 1056768,
+      "output_bytes": 352256,
+      "temp_bytes": 1522992,
+      "alias_bytes": 0,
+      "speedup": 3.650763414195032,
+      "max_relative_error": 2.812519994677132e-07
+    },
+    {
+      "config": {
+        "block_i": 4,
+        "block_k": 64,
+        "num_warps": 4
+      },
+      "compile_s": 0.9829626083374023,
+      "median_ms": 0.2808030694723129,
+      "min_ms": 0.2674609422683716,
+      "argument_bytes": 1056768,
+      "output_bytes": 352256,
+      "temp_bytes": 1522992,
+      "alias_bytes": 0,
+      "speedup": 4.169772146860801,
+      "max_relative_error": 2.712423565753852e-07
+    },
+    {
+      "config": {
+        "block_i": 4,
+        "block_k": 128,
+        "num_warps": 4
+      },
+      "compile_s": 1.0237182192504406,
+      "median_ms": 0.28912536799907684,
+      "min_ms": 0.2739857882261276,
+      "argument_bytes": 1056768,
+      "output_bytes": 352256,
+      "temp_bytes": 1522992,
+      "alias_bytes": 0,
+      "speedup": 4.049747782222996,
+      "max_relative_error": 2.812519994677132e-07
+    },
+    {
+      "config": {
+        "block_i": 8,
+        "block_k": 32,
+        "num_warps": 4
+      },
+      "compile_s": 1.037043560296297,
+      "median_ms": 0.24606846272945404,
+      "min_ms": 0.23886002600193024,
+      "argument_bytes": 1056768,
+      "output_bytes": 352256,
+      "temp_bytes": 1522992,
+      "alias_bytes": 0,
+      "speedup": 4.758370109078247,
+      "max_relative_error": 2.812519994677132e-07
+    },
+    {
+      "config": {
+        "block_i": 8,
+        "block_k": 64,
+        "num_warps": 4
+      },
+      "compile_s": 0.9694161936640739,
+      "median_ms": 0.33251941204071045,
+      "min_ms": 0.3170333802700043,
+      "argument_bytes": 1056768,
+      "output_bytes": 352256,
+      "temp_bytes": 1522992,
+      "alias_bytes": 0,
+      "speedup": 3.521252520725969,
+      "max_relative_error": 2.712423565753852e-07
+    },
+    {
+      "config": {
+        "block_i": 8,
+        "block_k": 128,
+        "num_warps": 4
+      },
+      "compile_s": 0.9675349369645119,
+      "median_ms": 0.34474022686481476,
+      "min_ms": 0.3280509263277054,
+      "argument_bytes": 1056768,
+      "output_bytes": 352256,
+      "temp_bytes": 1522992,
+      "alias_bytes": 0,
+      "speedup": 3.396426429509242,
+      "max_relative_error": 2.812519994677132e-07
+    },
+    {
+      "config": {
+        "block_i": 16,
+        "block_k": 32,
+        "num_warps": 4
+      },
+      "compile_s": 0.9497959967702627,
+      "median_ms": 0.2531055361032486,
+      "min_ms": 0.242551788687706,
+      "argument_bytes": 1056768,
+      "output_bytes": 352256,
+      "temp_bytes": 1522992,
+      "alias_bytes": 0,
+      "speedup": 4.62607351804835,
+      "max_relative_error": 2.812519994677132e-07
+    },
+    {
+      "config": {
+        "block_i": 16,
+        "block_k": 64,
+        "num_warps": 4
+      },
+      "compile_s": 1.0260304044932127,
+      "median_ms": 0.2531241625547409,
+      "min_ms": 0.2402961254119873,
+      "argument_bytes": 1056768,
+      "output_bytes": 352256,
+      "temp_bytes": 1522992,
+      "alias_bytes": 0,
+      "speedup": 4.625733102763163,
+      "max_relative_error": 2.712423565753852e-07
+    },
+    {
+      "config": {
+        "block_i": 16,
+        "block_k": 128,
+        "num_warps": 4
+      },
+      "compile_s": 0.9466830901801586,
+      "median_ms": 0.26730820536613464,
+      "min_ms": 0.25846995413303375,
+      "argument_bytes": 1056768,
+      "output_bytes": 352256,
+      "temp_bytes": 1522992,
+      "alias_bytes": 0,
+      "speedup": 4.380280119852275,
+      "max_relative_error": 2.812519994677132e-07
+    },
+    {
+      "config": {
+        "block_i": 32,
+        "block_k": 32,
+        "num_warps": 4
+      },
+      "compile_s": 1.0154105816036463,
+      "median_ms": 0.23928098380565643,
+      "min_ms": 0.2278294414281845,
+      "argument_bytes": 1056768,
+      "output_bytes": 352256,
+      "temp_bytes": 1522992,
+      "alias_bytes": 0,
+      "speedup": 4.893346722402559,
+      "max_relative_error": 2.812519994677132e-07
+    },
+    {
+      "config": {
+        "block_i": 32,
+        "block_k": 64,
+        "num_warps": 4
+      },
+      "compile_s": 1.011302463710308,
+      "median_ms": 0.24763494729995728,
+      "min_ms": 0.24003535509109497,
+      "argument_bytes": 1056768,
+      "output_bytes": 352256,
+      "temp_bytes": 1522992,
+      "alias_bytes": 0,
+      "speedup": 4.728269699431356,
+      "max_relative_error": 2.712423565753852e-07
+    },
+    {
+      "config": {
+        "block_i": 32,
+        "block_k": 128,
+        "num_warps": 4
+      },
+      "compile_s": 1.0760862566530704,
+      "median_ms": 0.2919510006904602,
+      "min_ms": 0.2788528800010681,
+      "argument_bytes": 1056768,
+      "output_bytes": 352256,
+      "temp_bytes": 1522992,
+      "alias_bytes": 0,
+      "speedup": 4.010552507336991,
+      "max_relative_error": 2.812519994677132e-07
+    }
+  ],
+  "compact_jax": {
+    "compile_s": 1.601695228368044,
+    "median_ms": 0.39301253855228424,
+    "min_ms": 0.3788508474826813,
+    "argument_bytes": 1056768,
+    "output_bytes": 352256,
+    "temp_bytes": 1058376,
+    "alias_bytes": 0,
+    "speedup": 2.9792556292269556
+  },
+  "best": {
+    "config": {
+      "block_i": 32,
+      "block_k": 32,
+      "num_warps": 4
+    },
+    "compile_s": 1.0154105816036463,
+    "median_ms": 0.23928098380565643,
+    "min_ms": 0.2278294414281845,
+    "argument_bytes": 1056768,
+    "output_bytes": 352256,
+    "temp_bytes": 1522992,
+    "alias_bytes": 0,
+    "speedup": 4.893346722402559,
+    "max_relative_error": 2.812519994677132e-07
+  }
+}

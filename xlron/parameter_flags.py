@@ -694,7 +694,9 @@ flags.DEFINE_string(
     "Type of observation to feed to transformer. \
     1. 'departure': use departure times. \
     2. 'occupancy': use link occupancy (binary). \
-    3. 'capacity': use remaining capacity array (for use with RWA-LR environment).",
+    3. 'capacity': use remaining capacity array (for use with RWA-LR environment). \
+    4. 'snr': normalized per-channel link SNR in GN environments. \
+    5. 'occupancy_snr' / 'departure_snr': concatenate occupancy / departures with SNR.",
 )
 flags.DEFINE_integer("transformer_embedding_size", 128, "Size of transformer token embeddings")
 flags.DEFINE_integer(

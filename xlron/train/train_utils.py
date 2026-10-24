@@ -4,6 +4,7 @@ import math
 import os
 import pathlib
 import pickle
+import time
 from typing import Any, Callable, Dict, NamedTuple, Tuple, Union
 
 import chex
@@ -630,11 +631,12 @@ def init_network(config: Box, key: chex.PRNGKey) -> eqx.Module:
             num_request_specific_cols = (
                 4  # link relevance
                 + 1  # request size
-                + int(config.transformer_obs_type == "departure")  # holding time
+                + int(config.transformer_obs_type in ("departure", "departure_snr"))  # holding time
             )
             input_size = (
                 config.num_wire_features
                 + config.link_resources
+                * (2 if config.transformer_obs_type in ("occupancy_snr", "departure_snr") else 1)
                 + 2  # traffic marginals
                 + num_request_specific_cols
             )
@@ -945,7 +947,20 @@ def heuristic_eval_obs_placeholder(num_envs: int = 1) -> Tuple[Array, ...]:
     return (jnp.zeros(shape, dtype=jnp.float32),)
 
 
-def experiment_data_setup(config: Box, rng: chex.PRNGKey) -> Tuple:
+def experiment_data_setup(
+    config: Box, rng: chex.PRNGKey, setup_timings: dict[str, float] | None = None
+) -> Tuple:
+    phase_start = time.perf_counter()
+
+    def finish_phase(name, result):
+        nonlocal phase_start
+        if setup_timings is not None:
+            jax.block_until_ready(result)
+            elapsed = time.perf_counter() - phase_start
+            setup_timings[name] = elapsed
+            print(f"SETUP {name}: {elapsed:.3f}s", flush=True)
+        phase_start = time.perf_counter()
+
     # INIT ENV
     env, env_params = make(config)
     # Sync config.k with env_params.k_paths (may differ when maximum_path_length_km trims paths)
@@ -954,6 +969,7 @@ def experiment_data_setup(config: Box, rng: chex.PRNGKey) -> Tuple:
     config.INPUT_DIM = int(env.observation_space(env_params).n)
     config.NUM_NODES = env_params.num_nodes
     config.NUM_LINKS = env_params.num_links
+    finish_phase("environment", env_params)
     rng, rng_step, rng_epoch, warmup_key, reset_key, network_key = jax.random.split(rng, 6)
     reset_key = jax.random.split(reset_key, config.NUM_ENVS) if config.NUM_ENVS > 1 else reset_key
     obsv, env_state = (
@@ -969,6 +985,7 @@ def experiment_data_setup(config: Box, rng: chex.PRNGKey) -> Tuple:
         obsv = heuristic_eval_obs_placeholder(config.NUM_ENVS)
     else:
         obsv = tuple([obsv])
+    finish_phase("reset", (obsv, env_state))
 
     # TRAINING MODE
     if config.RETRAIN_MODEL or config.EVAL_MODEL:
@@ -978,6 +995,7 @@ def experiment_data_setup(config: Box, rng: chex.PRNGKey) -> Tuple:
         model = None
     else:
         model = init_network(config, network_key)
+    finish_phase("model_init", model)
 
     # INIT LEARNING RATE SCHEDULE AND OPTIMIZER
     lr_schedule = make_lr_schedule(config)
@@ -1023,6 +1041,7 @@ def experiment_data_setup(config: Box, rng: chex.PRNGKey) -> Tuple:
         reward_stepsize_init=config.REWARD_STEPSIZE,
         initial_avg_reward=config.INITIAL_AVERAGE_REWARD,
     )
+    finish_phase("optimizer_init", runner_state)
 
     # Recreate DeepRMSA warmup period
     warmup_key = (
@@ -1030,8 +1049,27 @@ def experiment_data_setup(config: Box, rng: chex.PRNGKey) -> Tuple:
     )
     warmup_state = (warmup_key, env_state, obsv)
     warmup_fn = get_warmup_fn(warmup_state, env, env_params, runner_state, config)
-    warmup_fn = jax.vmap(warmup_fn) if config.NUM_ENVS > 1 else warmup_fn
-    env_state, obsv = warmup_fn(warmup_state)
+    if setup_timings is None:
+        warmup_fn = jax.vmap(warmup_fn) if config.NUM_ENVS > 1 else warmup_fn
+        env_state, obsv = warmup_fn(warmup_state)
+    else:
+        # Pass weights dynamically, so the compiler/cache does not specialize
+        # this program to a particular initialization or checkpoint's values.
+        warmup_fn = jax.vmap(warmup_fn, in_axes=(0, None)) if config.NUM_ENVS > 1 else warmup_fn
+        warmup_lowered = jax.jit(warmup_fn).lower(warmup_state, runner_state)
+        finish_phase("warmup_trace_lower", None)
+        # Warmup is executed once. Exhaustive GPU GEMM autotuning added ~15 s
+        # to compilation with no measured warmup speed benefit on the A100.
+        # Keep the normal, fully tuned compilation policy for PPO updates.
+        warmup_options = (
+            {"xla_gpu_enable_triton_gemm": False, "xla_gpu_autotune_level": 0}
+            if jax.default_backend() == "gpu"
+            else None
+        )
+        warmup_executable = warmup_lowered.compile(compiler_options=warmup_options)
+        finish_phase("warmup_compile", None)
+        env_state, obsv = warmup_executable(warmup_state, runner_state)
+        finish_phase("warmup_execute", (env_state, obsv))
 
     if config.ENV_WARMUP_STEPS:
         env_state = reset_warmup_metric_counters(env_state)
@@ -1360,7 +1398,7 @@ def get_warmup_fn(warmup_state, env, params, train_state, config) -> Callable[[T
         warmup_config = Box(config)
         warmup_config.EVAL_HEURISTIC = True
 
-    def warmup_fn(warmup_state) -> Tuple[EnvState, Array]:
+    def warmup_fn(warmup_state, runtime_train_state=None) -> Tuple[EnvState, Array]:
         rng, state, last_obs = warmup_state
 
         def warmup_step(i, val) -> Tuple:
@@ -1425,7 +1463,16 @@ def get_warmup_fn(warmup_state, env, params, train_state, config) -> Callable[[T
             return _rng, _state, _params, _train_state, obsv
 
         vals = jax.lax.fori_loop(
-            0, config.ENV_WARMUP_STEPS, warmup_step, (rng, state, params, train_state, last_obs)
+            0,
+            config.ENV_WARMUP_STEPS,
+            warmup_step,
+            (
+                rng,
+                state,
+                params,
+                train_state if runtime_train_state is None else runtime_train_state,
+                last_obs,
+            ),
         )
 
         return vals[1], vals[4]
@@ -2245,7 +2292,7 @@ def build_run_summary(
     run_type: str,
     config: dict,
     metrics_dict: Dict[str, Dict[str, float]],
-    timing: Dict[str, float] | None = None,
+    timing: Dict[str, Any] | None = None,
 ) -> dict:
     """Build a standardized run summary dictionary.
 
@@ -2308,8 +2355,12 @@ def write_run_summary(
         print(f"{'Timestamp:':<22s} {summary['timestamp']}")
         if summary.get("timing"):
             t = summary["timing"]
+            if t.get("startup_time_s") is not None:
+                print(f"{'Total startup:':<22s} {t['startup_time_s']:.2f}s")
             if t.get("compilation_time_s") is not None:
-                print(f"{'Compilation time:':<22s} {t['compilation_time_s']:.2f}s")
+                print(f"{'XLA compile/load:':<22s} {t['compilation_time_s']:.2f}s")
+            if t.get("warmup_execution_time_s") is not None:
+                print(f"{'Warmup execution:':<22s} {t['warmup_execution_time_s']:.2f}s")
             if t.get("execution_time_s") is not None:
                 print(f"{'Execution time:':<22s} {t['execution_time_s']:.2f}s")
             if t.get("fps") is not None:
@@ -2342,7 +2393,7 @@ def print_metrics(
     processed_data: Dict[str, Dict[str, Array]],
     config: Union[Box, Dict[str, Any]],
     user_flags: dict | None = None,
-    timing: Dict[str, float] | None = None,
+    timing: Dict[str, Any] | None = None,
 ) -> None:
     """Print final metrics as a standardized run summary and optionally write JSONL."""
     # Determine run type

@@ -1039,12 +1039,18 @@ def architecture_section() -> dict:
             )
             _emit(flags, "transformer_intermediate_size", int(t_inter))
 
+            t_obs_options = [
+                "departure",
+                "occupancy",
+                "capacity",
+                "snr",
+                "occupancy_snr",
+                "departure_snr",
+            ]
             t_obs = st.selectbox(
                 "Observation Type",
-                ["departure", "occupancy", "capacity"],
-                index=["departure", "occupancy", "capacity"].index(
-                    _get_preset_val("transformer_obs_type")
-                ),
+                t_obs_options,
+                index=t_obs_options.index(_get_preset_val("transformer_obs_type")),
                 help=_h("transformer_obs_type"),
             )
             _emit(flags, "transformer_obs_type", t_obs)

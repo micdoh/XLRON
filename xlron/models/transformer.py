@@ -16,9 +16,31 @@ from xlron import dtype_config
 from xlron.environments.dataclasses import EnvParams, EnvState
 from xlron.environments.env_funcs import (
     get_obs_transformer,
+    get_paths,
     get_path_slots,
     read_rsa_request,
 )
+
+
+def _identity_activation(x):
+    return x
+
+
+def pooled_actor_projection(mlp, embeddings, paths):
+    """Commute only the final affine projection with a path's weighted sum.
+
+    Hidden nonlinearities remain per link. The bias is multiplied by the sum
+    of path weights, including zero for dummy paths. This keeps ordinary JAX AD.
+    The caller requires an identity final activation.
+    """
+    hidden_mlp = eqx.tree_at(lambda m: m.layers[-1], mlp, eqx.nn.Identity())
+    hidden = jax.vmap(hidden_mlp)(embeddings)
+    pooled = jnp.sum(paths[:, :, None] * hidden[None, :, :], axis=1)
+    final = mlp.layers[-1]
+    logits = jax.vmap(lambda x: final.weight @ x)(pooled)
+    if final.bias is not None:
+        logits = logits + jnp.sum(paths, axis=1)[:, None] * final.bias[None, :]
+    return logits
 
 
 class Embedder(eqx.Module):
@@ -418,6 +440,7 @@ class ActorCriticTransformer(eqx.Module):
     embedding_size: int = eqx.field(static=True)
     critic_pooling: str = eqx.field(static=True)
     actor_pooling: str = eqx.field(static=True)
+    pool_before_projection: bool = eqx.field(static=True)
     # Attention pooling for critic (only used when critic_pooling == "attention")
     value_query: Array | None
     # Projection for actor min_mean_max pooling (only used when actor_pooling == "min_mean_max")
@@ -444,6 +467,7 @@ class ActorCriticTransformer(eqx.Module):
         key: chex.PRNGKey,
         critic_pooling: str = "mean",
         actor_pooling: str = "sum",
+        pool_before_projection: bool = False,
     ):
         (
             encoder_key,
@@ -457,6 +481,7 @@ class ActorCriticTransformer(eqx.Module):
         self.embedding_size = embedding_size
         self.critic_pooling = critic_pooling
         self.actor_pooling = actor_pooling
+        self.pool_before_projection = pool_before_projection
         # Give the critic encoder an independent init key so that with share_layers=False it
         # does not start as an exact copy of the actor. The actor keeps encoder_key so its
         # init is unchanged for a fixed seed.
@@ -493,6 +518,7 @@ class ActorCriticTransformer(eqx.Module):
             width_size=actor_mlp_width,
             out_size=num_slot_actions,
             depth=actor_mlp_depth,
+            final_activation=_identity_activation,
             key=actor_key,
         )
         self.critic_mlp = eqx.nn.MLP(
@@ -559,12 +585,18 @@ class ActorCriticTransformer(eqx.Module):
             key=critic_key,
         )["output"]
 
-        # Project per-link embeddings to slot logits, then pool across path links
-        action_tokens = jax.vmap(self.actor_mlp)(action_tokens)
-
         # ACTOR POOLING
         nodes_sd, requested_bw = read_rsa_request(state.request_array)
-        if self.actor_pooling == "min_mean_max":
+        if (
+            self.pool_before_projection
+            and self.actor_pooling == "sum"
+            and self.actor_mlp.final_activation is _identity_activation
+        ):
+            path_action_logits = pooled_actor_projection(
+                self.actor_mlp, action_tokens, get_paths(params, nodes_sd)
+            )
+        elif self.actor_pooling == "min_mean_max":
+            action_tokens = jax.vmap(self.actor_mlp)(action_tokens)
 
             def path_action_min_mean_max(i):
                 # Gather per-link features for this path using min, mean, max
@@ -576,6 +608,8 @@ class ActorCriticTransformer(eqx.Module):
 
             path_action_logits = jax.vmap(path_action_min_mean_max)(jnp.arange(params.k_paths))
         else:
+            action_tokens = jax.vmap(self.actor_mlp)(action_tokens)
+
             # Default: sum pooling
             def path_action_dist(i):
                 return get_path_slots(

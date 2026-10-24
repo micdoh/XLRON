@@ -1,0 +1,127 @@
+{
+  "args": {
+    "slots": 1376,
+    "env_type": "rmsa_gn_model",
+    "k": 5,
+    "envs": 16,
+    "occupancy": 0.25,
+    "independent_streams": true,
+    "topology": "nsfnet_deeprmsa_directed",
+    "mode": "uniform",
+    "kernels": [
+      "link",
+      "mask",
+      "rollout"
+    ],
+    "iterations": 7,
+    "steps": 16,
+    "warmup_steps": 128,
+    "output": "v4-warm-1376-pallas_reuse.json",
+    "snapshot": "v4-warm-1376-pallas_reuse.npz",
+    "reference": "v2-warm-1376-jax.npz",
+    "matmul_precision": "highest"
+  },
+  "jax": "0.12.0.1",
+  "device": "cuda:0",
+  "device_kind": "NVIDIA A100 80GB PCIe",
+  "platform": "Linux-5.14.0-611.55.1.el9_7.0.3.x86_64-x86_64-with-glibc2.34",
+  "links": 44,
+  "paths": 911,
+  "modulations": 4,
+  "lightpaths": 128,
+  "occupancy": 0.04648995026946068,
+  "initial_accepted_services": [
+    128,
+    128,
+    128,
+    128,
+    128,
+    128,
+    128,
+    128,
+    128,
+    128,
+    128,
+    128,
+    128,
+    128,
+    128,
+    128
+  ],
+  "metrics": {
+    "link": {
+      "compile_s": 0.6645871121436357,
+      "median_ms": 0.7317140698432922,
+      "min_ms": 0.5731415003538132,
+      "argument_bytes": 11624448,
+      "output_bytes": 3874816,
+      "temp_bytes": 23503144,
+      "alias_bytes": 0
+    },
+    "mask": {
+      "compile_s": 3.323266491293907,
+      "median_ms": 6.49556890130043,
+      "min_ms": 6.4891669899225235,
+      "argument_bytes": 23249088,
+      "output_bytes": 660504,
+      "temp_bytes": 283214728,
+      "alias_bytes": 0
+    },
+    "rollout": {
+      "compile_s": 4.565162172541022,
+      "median_ms": 233.53834450244904,
+      "min_ms": 232.93423280119896,
+      "argument_bytes": 62686464,
+      "output_bytes": 62687840,
+      "temp_bytes": 279153680,
+      "alias_bytes": 0,
+      "steps_per_s": 1096.1797324777876,
+      "accepted_services": [
+        144,
+        144,
+        144,
+        144,
+        144,
+        144,
+        144,
+        144,
+        144,
+        144,
+        144,
+        144,
+        144,
+        144,
+        144,
+        144
+      ],
+      "distinct_final_requests": 16
+    }
+  },
+  "accuracy": {
+    "link_0": {
+      "exact": false,
+      "max_abs_error": 1.52587890625e-05
+    },
+    "mask_0": {
+      "exact": true,
+      "max_abs_error": 0.0
+    },
+    "mask_1": {
+      "exact": true,
+      "max_abs_error": 0.0
+    },
+    "mask_2": {
+      "exact": true,
+      "max_abs_error": 0.0
+    },
+    "rollout_rewards": {
+      "exact": true,
+      "max_abs_error": 0.0
+    },
+    "rollout_occupancy": {
+      "exact": true,
+      "max_abs_error": 0.0
+    }
+  },
+  "xpm_backend": "pallas_reuse"
+}

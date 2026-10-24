@@ -125,6 +125,9 @@ def main():
         help="Use independent reset/traffic keys per environment, including real warmup",
     )
     parser.add_argument("--topology", default="nsfnet_deeprmsa_directed")
+    parser.add_argument("--band-preference", help="Use the full named optical bands, e.g. C,L,S")
+    parser.add_argument("--load", type=float, help="Override the default offered load")
+    parser.add_argument("--coherent", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--mode", choices=["uniform", "corrected", "nonuniform"], default="uniform")
     parser.add_argument("--kernels", nargs="+", default=["link", "lightpath", "mask"])
     parser.add_argument("--iterations", type=int, default=10)
@@ -137,6 +140,12 @@ def main():
     )
     parser.add_argument("--output", type=Path)
     parser.add_argument("--snapshot", type=Path)
+    parser.add_argument(
+        "--state-input", type=Path, help="Reuse a complete admitted batched warmup state"
+    )
+    parser.add_argument(
+        "--state-output", type=Path, help="Save the complete batched state and traffic keys"
+    )
     parser.add_argument("--reference", type=Path, help="Compare outputs with a baseline .npz")
     parser.add_argument(
         "--matmul-precision", default="highest", choices=["default", "high", "highest"]
@@ -155,13 +164,18 @@ def main():
         "guardband": 0,
         "max_power_per_fibre": 21.0,
         "power_per_channel": -10.0,
-        "coherent": False,
+        "coherent": args.coherent,
         "mod_format_correction": args.mode == "corrected",
         "uniform_spans": args.mode != "nonuniform",
         "include_no_op": False,
         "continuous_operation": True,
         "TOTAL_TIMESTEPS": 10000,
     }
+    if args.band_preference:
+        config["band_preference"] = args.band_preference
+    if args.load is not None:
+        config["load"] = args.load
+    workload_key = json.dumps(config, sort_keys=True)
     env, params = make(config, log_wrapper=False)
     key = jax.random.PRNGKey(3)
     _, empty = env.reset(key, params)
@@ -188,11 +202,44 @@ def main():
     link_fn = get_snr_link_array_fused if args.mode == "uniform" else get_snr_link_array
     keys = jax.random.split(key, args.envs * 2).reshape(args.envs, 2, 2)
     reset_keys, env_keys = keys[:, 0], keys[:, 1]
-    if args.independent_streams and args.warmup_steps:
+    warmup_timing = {}
+    if args.state_input:
+        _, template = jax.vmap(lambda k: env.reset(k, params))(reset_keys)
+        leaves, definition = jax.tree.flatten(template)
+        with np.load(args.state_input) as archive:
+            if str(archive["workload_key"]) != workload_key:
+                raise ValueError("Saved state belongs to a different workload configuration")
+            restored = []
+            for index, leaf in enumerate(leaves):
+                value = archive[f"state_{index}"]
+                if value.shape != leaf.shape or value.dtype != leaf.dtype:
+                    raise ValueError(f"Saved state leaf {index} has a different shape or dtype")
+                restored.append(jnp.asarray(value))
+            batched = jax.tree.unflatten(definition, restored)
+            env_keys = jnp.asarray(archive["env_keys"])
+        placed = int(batched.accepted_services[0])
+        print(f"Loaded identical warmup state from {args.state_input}", flush=True)
+    elif args.independent_streams and args.warmup_steps:
         _, batched = jax.vmap(lambda k: env.reset(k, params))(reset_keys)
-        (env_keys, batched), _ = jax.jit(jax.vmap(lambda s, k: rollout(s, args.warmup_steps, k)))(
-            batched, env_keys
+        print(
+            f"Compiling {args.warmup_steps}-request warmup for {params.link_resources} slots / {args.envs} envs",
+            flush=True,
         )
+        start = time.perf_counter()
+        warmup = (
+            jax.jit(jax.vmap(lambda s, k: rollout(s, args.warmup_steps, k)))
+            .lower(batched, env_keys)
+            .compile()
+        )
+        warmup_timing["trace_compile_s"] = time.perf_counter() - start
+        print(
+            f"Warmup compile/load: {warmup_timing['trace_compile_s']:.3f}s; executing warmup",
+            flush=True,
+        )
+        start = time.perf_counter()
+        (env_keys, batched), _ = jax.block_until_ready(warmup(batched, env_keys))
+        warmup_timing["execute_s"] = time.perf_counter() - start
+        print(f"Warmup execution: {warmup_timing['execute_s']:.3f}s", flush=True)
         placed = int(batched.accepted_services[0])
     else:
         if args.warmup_steps:
@@ -203,6 +250,15 @@ def main():
         batched = jax.tree.map(lambda x: jnp.stack([x] * args.envs), state)
     batched = batched.replace(link_snr_array=jax.vmap(lambda s: link_fn(s, params))(batched))
     jax.block_until_ready(batched)
+    if args.state_output:
+        args.state_output.parent.mkdir(parents=True, exist_ok=True)
+        np.savez_compressed(
+            args.state_output,
+            workload_key=workload_key,
+            env_keys=np.asarray(env_keys),
+            **{f"state_{i}": np.asarray(x) for i, x in enumerate(jax.tree.leaves(batched))},
+        )
+        print(f"Saved complete warmup state to {args.state_output}", flush=True)
     report = {
         "args": {k: str(v) if isinstance(v, Path) else v for k, v in vars(args).items()},
         "jax": jax.__version__,
@@ -210,6 +266,7 @@ def main():
         "device_kind": jax.devices()[0].device_kind,
         "platform": platform.platform(),
         "links": params.num_links,
+        "resolved_slots": params.link_resources,
         "paths": params.path_link_array.val.shape[0],
         "modulations": params.modulations_array.val.shape[0]
         if hasattr(params, "modulations_array")
@@ -217,6 +274,7 @@ def main():
         "lightpaths": placed,
         "occupancy": float(jnp.mean(batched.channel_power_array > 0)),
         "initial_accepted_services": np.asarray(batched.accepted_services).tolist(),
+        "warmup_timing": warmup_timing,
         "metrics": {},
     }
     snapshots = {}
