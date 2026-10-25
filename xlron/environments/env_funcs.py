@@ -4460,7 +4460,7 @@ def check_snr_sufficient(state: RMSAGNModelEnvState, params: RMSAGNModelEnvParam
     return jnp.any(snr_insufficient)
 
 
-@partial(jax.jit, static_argnums=(1,))
+@partial(jax.jit, static_argnums=(1,), static_argnames=("output_xpm_backend",))
 def get_snr_link_array(
     state: GNModelEnvState,
     params: GNModelEnvParams,
@@ -4468,6 +4468,7 @@ def get_snr_link_array(
     *,
     output_indices: Array | None = None,
     channel_rows: tuple[Array, Array, Array] | None = None,
+    output_xpm_backend: str = "jax",
 ) -> Array:
     """Get SNR per link
     Args:
@@ -4475,6 +4476,7 @@ def get_snr_link_array(
         params (EnvParams): Environment parameters
         link_indices: Optional subset of link rows; preserves their order and duplicates.
         output_indices: Optional channel output rows; retains every interfering channel.
+        output_xpm_backend: Explicit experimental backend for selected output rows.
         channel_rows: Optional preselected (power, centre GHz, bandwidth GHz) rows,
             one per link_indices entry. Avoids full-network screening copies.
     Returns:
@@ -4544,7 +4546,7 @@ def get_snr_link_array(
                 roadm_loss=params.roadm_loss,
                 mod_format_correction=params.mod_format_correction,
                 **(
-                    {"output_indices": output_indices, "xpm_backend": "jax"}
+                    {"output_indices": output_indices, "xpm_backend": output_xpm_backend}
                     if output_indices is not None
                     else {}
                 ),
@@ -5135,6 +5137,8 @@ def _store_unaggregated_gn_mask(state, params, modulation):
         "reuse_unaffected_snr",
         "compact_snr_updates",
         "screen_batch_size",
+        "group_widths",
+        "fused_endpoint_snr",
     ),
 )
 def mask_slots_rmsa_gn_model(
@@ -5150,6 +5154,8 @@ def mask_slots_rmsa_gn_model(
     reuse_unaffected_snr: bool = False,
     compact_snr_updates: bool = False,
     screen_batch_size: int | None = None,
+    group_widths: bool = False,
+    fused_endpoint_snr: bool = False,
 ) -> EnvState:
     """Full masks can stream environment chunks without changing policy batching."""
 
@@ -5166,6 +5172,8 @@ def mask_slots_rmsa_gn_model(
             reuse_unaffected_snr=reuse_unaffected_snr,
             compact_snr_updates=compact_snr_updates,
             screen_batch_size=screen_batch_size,
+            group_widths=group_widths,
+            fused_endpoint_snr=fused_endpoint_snr,
         )
 
     if params.gn_mask_mode != "all_slots" or not params.gn_mask_env_batch_size:
@@ -5204,6 +5212,8 @@ def mask_slots_rmsa_gn_model(
         "reuse_unaffected_snr",
         "compact_snr_updates",
         "screen_batch_size",
+        "group_widths",
+        "fused_endpoint_snr",
     ),
 )
 def _mask_slots_rmsa_gn_model(
@@ -5219,6 +5229,8 @@ def _mask_slots_rmsa_gn_model(
     reuse_unaffected_snr: bool = False,
     compact_snr_updates: bool = False,
     screen_batch_size: int | None = None,
+    group_widths: bool = False,
+    fused_endpoint_snr: bool = False,
 ) -> EnvState:
     """Compute action mask for RMSA with GN model physical layer.
 
@@ -5235,6 +5247,27 @@ def _mask_slots_rmsa_gn_model(
     Returns:
         state: Updated environment state with link_slot_mask and mod_format_mask
     """
+    if fused_endpoint_snr and (
+        params.gn_mask_mode != "all_slots"
+        or not params.uniform_spans
+        or params.mod_format_correction
+        or params.use_raman_amp
+        or params.differentiable
+        or not prefilter_new
+    ):
+        raise ValueError("Fused endpoint screening requires hard uncorrected uniform full masking")
+    if group_widths and (
+        params.gn_mask_mode != "all_slots"
+        or not prune_formats
+        or params.differentiable
+        or not params.uniform_spans
+        or params.mod_format_correction
+        or params.use_raman_amp
+        or params.launch_power_type != "fixed"
+    ):
+        raise ValueError(
+            "Width grouping requires hard all-slot uniform-span fixed-power masking without modulation/Raman corrections"
+        )
     nodes_sd, requested_datarate = read_rsa_request(request)
     num_mods = params.modulations_array.val.shape[0]
 
@@ -5649,6 +5682,16 @@ def _mask_slots_rmsa_gn_model(
         def format_pass(rank, best):
             mod = order[rank]
             available = slot_available[:, mod, :].reshape(-1) & (best < 0)
+            screen_threshold = req_snr_values[mod]
+            if group_widths:
+                # Equal widths insert identical power/frequency/bandwidth arrays.
+                # Evaluate once, then apply every sibling's own thresholds.
+                siblings = all_req_slots == all_req_slots[mod]
+                seen = jnp.any(
+                    (all_req_slots[order] == all_req_slots[mod]) & (jnp.arange(num_mods) < rank)
+                )
+                available &= ~seen
+                screen_threshold = jnp.min(jnp.where(siblings, req_snr_values, jnp.inf))
             packed = jnp.nonzero(available, size=starts, fill_value=0)[0]
             live = jnp.sum(available)
 
@@ -5699,13 +5742,26 @@ def _mask_slots_rmsa_gn_model(
                         jnp.where(path > 0, True, baseline_power <= params.max_power_per_fibre)
                     )
                     feasible = all_has_candidate[i] & power_ok
-                    sampled = get_snr_link_array(
-                        state,
-                        params,
-                        links,
-                        output_indices=slots,
-                        channel_rows=(power, centres, bandwidth),
-                    )
+                    if fused_endpoint_snr:
+                        from xlron.kernels.gn_endpoint_snr import endpoint_snr_pallas
+
+                        sampled = endpoint_snr_pallas(
+                            state,
+                            params,
+                            links,
+                            slots[0],
+                            slots[1],
+                            all_launch_powers[i],
+                            centre,
+                        )
+                    else:
+                        sampled = get_snr_link_array(
+                            state,
+                            params,
+                            links,
+                            output_indices=slots,
+                            channel_rows=(power, centres, bandwidth),
+                        )
                     # Keep only the two requested output columns through path
                     # accumulation; avoid a candidate x links x full-spectrum scatter.
                     link_snr = (
@@ -5727,7 +5783,7 @@ def _mask_slots_rmsa_gn_model(
                     )
                     # Conservative screening only; the original full solve and
                     # exact thresholds still decide admission for every survivor.
-                    return feasible & jnp.all(snr >= req_snr_values[mod] - 0.01)
+                    return feasible & jnp.all(snr >= screen_threshold - 0.01)
 
                 def screen_batch(carry):
                     start, keep = carry
@@ -5764,15 +5820,26 @@ def _mask_slots_rmsa_gn_model(
                         power_screened=reuse_screened_power and endpoint_screened,
                     )
                 )(candidate)
-                valid = (
-                    (positions < live)
-                    & (evidence[:, 0] >= req_snr_values[mod])
-                    & (evidence[:, 1] >= mod_formats[mod, 2])
-                    & (evidence[:, 2] > 0)
-                )
+                if group_widths:
+                    valid_formats = (
+                        siblings[None, :]
+                        & (evidence[:, 0, None] >= req_snr_values[None, :])
+                        & (evidence[:, 1, None] >= mod_formats[None, :, 2])
+                        & (evidence[:, 2, None] > 0)
+                    )
+                    selected = jnp.argmax(jnp.where(valid_formats, se_values, -jnp.inf), axis=1)
+                    valid = (positions < live) & jnp.any(valid_formats, axis=1)
+                else:
+                    selected = mod
+                    valid = (
+                        (positions < live)
+                        & (evidence[:, 0] >= req_snr_values[mod])
+                        & (evidence[:, 1] >= mod_formats[mod, 2])
+                        & (evidence[:, 2] > 0)
+                    )
                 destination = jnp.where(positions < live, flat, starts)
                 chosen = chosen.at[destination].set(
-                    jnp.where(valid, mod, chosen[flat]), mode="drop"
+                    jnp.where(valid, selected, chosen[flat]), mode="drop"
                 )
                 return start + batch_size, chosen
 

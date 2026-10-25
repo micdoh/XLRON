@@ -307,8 +307,8 @@ def isrs_gn_model_uniform(
     Phi = excess_kurtosis_i if excess_kurtosis_i is not None else jnp.zeros(num_channels)
 
     total_power = jnp.sum(ch_pow)
-    if output_indices is not None and (mod_format_correction or xpm_backend != "jax"):
-        raise ValueError("Selected output rows require uncorrected ordinary-JAX uniform GN")
+    if output_indices is not None and mod_format_correction:
+        raise ValueError("Selected output rows require uncorrected uniform GN")
     if output_indices is not None and any(
         jnp.ndim(x) != 0 for x in (a, a_bar, gamma, cr, beta2, beta3, beta4)
     ):
@@ -363,9 +363,15 @@ def isrs_gn_model_uniform(
     if xpm_backend in ("pallas", "pallas_grouped"):
         if mod_format_correction:
             raise ValueError("generic Pallas XPM does not support modulation corrections")
-        from xlron.kernels.gn_xpm_legacy import xpm_legacy_pallas
+        from xlron.kernels.gn_xpm_legacy import xpm_legacy_pallas, xpm_selected_pallas
 
-        xpm_single = xpm_legacy_pallas(
+        selected_kwargs = (
+            {"output_indices": output_indices}
+            if output_indices is not None
+            else {"group_interferers": xpm_backend == "pallas_grouped"}
+        )
+        xpm_function = xpm_selected_pallas if output_indices is not None else xpm_legacy_pallas
+        xpm_single = xpm_function(
             ch_pow,
             f,
             ch_bw,
@@ -376,7 +382,7 @@ def isrs_gn_model_uniform(
             beta2=beta2,
             beta3=beta3,
             beta4=beta4,
-            group_interferers=xpm_backend == "pallas_grouped",
+            **selected_kwargs,
         )
     elif xpm_backend == "jax":
         xpm_single = _xpm(ch_pow, ch_pow.T, phi_ik, T_k, ch_bw, ch_bw.T, a.T, a_bar.T, gamma)

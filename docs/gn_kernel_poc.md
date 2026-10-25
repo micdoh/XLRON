@@ -614,6 +614,69 @@ campaign optimizer/checkpoint round trip also pass. Native suite results are
 **130 passed, two expected issue-64 failures**. Pre-commit/type checks pass and
 the documentation builds with the existing API-docstring warnings.
 
+
+### Endpoint fusion and persistent scheduling prototypes (native checks pending)
+
+Further HLO inspection maps the optimized trace's 8.2% input-reduction kernel
+share to the ordinary-JAX endpoint XPM screen. Full generic XPM and path-SNR
+admission evidence account for another 12.7% and 9.3% of CUDA kernel time.
+These are kernel-time shares, not end-to-end speedup predictions.
+
+Three new opt-in experiments target this remaining work:
+
+- `--endpoint-xpm-backend=pallas` calculates only the requested output rows,
+  without all-output row packing or scatter. Every interferer and every power
+  in the Raman sum remains present.
+- `--fused-endpoint-snr` loads the original changed-link arrays and applies the
+  candidate insertion inside one program per link. It computes the shared
+  endpoint XPM/SPM and ISRS amplifier gain once, while retaining distinct
+  amplifier noise figures at the two slots. The existing ordinary-JAX fibre
+  power checks, 0.01 dB conservative screening margin and full old/new admission
+  solve remain unchanged. This requires float32, uncorrected uniform spans and
+  hard all-slot masking.
+- `--generic-row-programs=8` or `16` uses a fixed smaller launch grid and visits
+  live output-row tiles in a device loop. It preserves each row's tile order and
+  arithmetic while avoiding worst-case-capacity idle blocks. CPU comparisons
+  with the original scheduling are bit exact.
+
+Width grouping also shares a physical solve among formats that produce the same
+path/start/width/power when format-dependent corrections are disabled. It passes
+CPU and native mask/admission checks, but its H100 comparison showed no useful
+throughput gain: 284.60 transitions/s control, 285.72 grouped, 286.54 repeated
+control. It remains disabled. No improvement is attributed to this timing noise.
+
+The latest local suite passes **95 tests**, with **59 native-GPU cases skipped**.
+It includes selected-output coefficients, 8/1,668-slot optical SNR with varying
+noise figures, coherent/subchannel/lumped-loss cases, exact full masks and real
+admission with existing connections, and persistent row scheduling. A CPU
+interpreter constant-propagation mismatch was isolated in the SPM calculation;
+an interpreter-only optimization barrier now preserves the native program's
+runtime-buffer boundary. Equations and admission thresholds were not changed.
+
+The department connection failed during staging of the next GPU copy. The new
+kernels therefore have **no native accuracy, environment throughput or PPO
+throughput result yet**, and are not selected for live campaigns. The last
+confirmed combined H100 rates remain 285.01 environment transitions/s and 252.28
+collected transitions/s through full PPO. Training and heuristic source copies
+remain frozen. The paired runner saves source hashes, strict output comparisons,
+control repeats, HLO and Nsight statistics:
+
+```bash
+uv run --no-sync python -m experimental.benchmarks.gn_full_mask_iteration \
+  --gpu 1 --gpu-memory-fraction 0.25 --state-input dense-state.npz \
+  --output runs/endpoint-kernels --endpoint-kernel --native-tests --profile
+
+uv run --no-sync python -m experimental.benchmarks.gn_log_full_mask_iteration \
+  --directory runs/endpoint-kernels --name full-mask-endpoint-kernel-iterations
+```
+
+Run matched `gn_full_mask_ppo_benchmark` control/optimized comparisons only after
+native gates and exact mask/format/reward/occupancy comparisons pass. Its
+`--endpoint-xpm-backend`, `--fused-endpoint-snr` and `--generic-row-programs`
+options mirror the environment benchmark. Final PPO environment-state parity
+is checked independently of the coefficient/SNR tolerances.
+
+
 ## Total progress from the original code
 
 Do not multiply rows in this table: runtimes, spectra, traffic and parallelism

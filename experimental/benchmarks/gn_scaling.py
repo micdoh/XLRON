@@ -14,6 +14,7 @@ whole, non-overlapping lightpaths; rollout measurements exercise real env steps.
 import argparse
 import ctypes
 import json
+import os
 import platform
 import sysconfig
 import time
@@ -92,6 +93,10 @@ def measure(fn, arg, iterations, profile=False, warm_executions=3):
     start = time.perf_counter()
     executable = jax.jit(fn).lower(arg).compile()
     compile_s = time.perf_counter() - start
+    if dump_path := os.environ.get("XLRON_DUMP_HLO"):
+        path = Path(dump_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(executable.as_text())
     print(f"Compiled in {compile_s:.3f}s; executing", flush=True)
     for _ in range(warm_executions):
         result = jax.block_until_ready(executable(arg))
@@ -344,7 +349,7 @@ def main():
             )
         else:
             batch_fn = (
-                (lambda states: jax.lax.map(fn, states, batch_size=args.env_batch_size))
+                (lambda states, fn=fn: jax.lax.map(fn, states, batch_size=args.env_batch_size))
                 if args.env_batch_size
                 else jax.vmap(fn)
             )

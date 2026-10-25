@@ -30,6 +30,10 @@ def main():
     parser.add_argument("--reuse-unaffected-snr", action="store_true")
     parser.add_argument("--compact-snr-updates", action="store_true")
     parser.add_argument("--screen-batch-size", type=int)
+    parser.add_argument("--group-widths", action="store_true")
+    parser.add_argument("--fused-endpoint-snr", action="store_true")
+    parser.add_argument("--generic-row-programs", type=int)
+    parser.add_argument("--endpoint-xpm-backend", choices=["jax", "pallas"], default="jax")
     parser.add_argument("--reference", type=Path)
     parser.add_argument("--name")
     args = parser.parse_args()
@@ -91,6 +95,16 @@ def main():
         from xlron.train import train_utils
         from xlron.train.ppo import _env_rollout_advantages, get_learner_fn
 
+        if args.generic_row_programs:
+            from xlron.kernels import gn_xpm_legacy
+
+            gn_xpm_legacy.xpm_legacy_pallas = partial(
+                gn_xpm_legacy.xpm_legacy_pallas, persistent_rows=args.generic_row_programs
+            )
+        if args.endpoint_xpm_backend != "jax":
+            env_funcs.get_snr_link_array = partial(
+                env_funcs.get_snr_link_array, output_xpm_backend=args.endpoint_xpm_backend
+            )
         gn.get_snr = partial(gn.get_snr, xpm_backend="pallas_grouped")
         env_funcs.get_candidate_baseline_snr = partial(
             env_funcs.get_candidate_baseline_snr, backend="pallas"
@@ -110,6 +124,8 @@ def main():
             reuse_unaffected_snr=args.reuse_unaffected_snr,
             compact_snr_updates=args.compact_snr_updates,
             screen_batch_size=args.screen_batch_size,
+            group_widths=args.group_widths,
+            fused_endpoint_snr=args.fused_endpoint_snr,
         )
         rmsa_gn_model.mask_slots_rmsa_gn_model = env_funcs.mask_slots_rmsa_gn_model
         c = {k: flags.FLAGS[k].default for k in flags.FLAGS}
@@ -273,6 +289,10 @@ def main():
             "reuse_unaffected_snr": args.reuse_unaffected_snr,
             "compact_snr_updates": args.compact_snr_updates,
             "screen_batch_size": args.screen_batch_size,
+            "group_widths": args.group_widths,
+            "fused_endpoint_snr": args.fused_endpoint_snr,
+            "generic_row_programs": args.generic_row_programs,
+            "endpoint_xpm_backend": args.endpoint_xpm_backend,
             "loss": {k: np.asarray(v).tolist() for k, v in result["loss_info"].items()},
             "note": "Same initial policy, physical states, random keys and rollout length for both phases. Rollout includes advantages; full PPO also retains learning buffers, computes losses/gradients and applies Adam updates. Excludes compilation, warmup and W&B. Repeats fixed initial inputs; not a learning-quality trial.",
         }

@@ -22,6 +22,8 @@ def main():
     parser.add_argument("--profile", action="store_true")
     parser.add_argument("--compact-updates", action="store_true")
     parser.add_argument("--screen-tuning", action="store_true")
+    parser.add_argument("--group-widths", action="store_true")
+    parser.add_argument("--endpoint-kernel", action="store_true")
     parser.add_argument("--screen-sizes", type=int, nargs="+", default=[32, 128, 256, 512])
     parser.add_argument("--confirm-screen-size", type=int)
     parser.add_argument(
@@ -95,7 +97,26 @@ def main():
     ]
     reference = args.output / "control.npz"
     variants = [("control", [])]
-    if args.confirm_screen_size:
+    if args.group_widths or args.endpoint_kernel:
+        common += [
+            "--reuse-screened-power",
+            "--narrow-new-snr",
+            "--reuse-unaffected-snr",
+            "--screen-batch-size",
+            "512",
+        ]
+        variants += (
+            [
+                ("selected-xpm", ["--endpoint-xpm-backend", "pallas"]),
+                ("fused-endpoint", ["--fused-endpoint-snr"]),
+                ("persistent-8", ["--generic-row-programs", "8"]),
+                ("persistent-16", ["--generic-row-programs", "16"]),
+                ("fused-persistent", ["--fused-endpoint-snr", "--generic-row-programs", "16"]),
+            ]
+            if args.endpoint_kernel
+            else [("grouped-widths", ["--group-widths"])]
+        ) + [("control-recheck", [])]
+    elif args.confirm_screen_size:
         optimized = [
             "--reuse-screened-power",
             "--narrow-new-snr",
@@ -174,6 +195,14 @@ def main():
                         "-q",
                         "xlron/environments/gn_model/all_slot_mask_test.py",
                         "xlron/kernels/gn_path_snr_test.py",
+                        *(
+                            [
+                                "xlron/kernels/gn_xpm_legacy_test.py",
+                                "xlron/kernels/gn_endpoint_snr_test.py",
+                            ]
+                            if args.endpoint_kernel
+                            else []
+                        ),
                         "-k",
                         args.test_selection,
                     ],
@@ -254,7 +283,7 @@ def main():
             with (args.output / "profile.log").open("w") as output:
                 result = subprocess.run(
                     command,
-                    env=env,
+                    env=dict(env, XLRON_DUMP_HLO=str(args.output / "profile.hlo")),
                     stdout=output,
                     stderr=subprocess.STDOUT,
                     timeout=600,

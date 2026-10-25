@@ -44,6 +44,55 @@ def reference(power, frequency, bandwidth, physics):
 
 
 @pytest.mark.parametrize("native", [False, True])
+@pytest.mark.parametrize("n", [1, 17, 140])
+def test_selected_outputs_retain_every_interferer(native, n):
+    if native and jax.default_backend() != "gpu":
+        pytest.skip("requires CUDA")
+    p, f, b = (jnp.repeat(x, 3) for x in inputs(n))
+    if n > 1:
+        p = p.at[1].set(0).at[3].set(1e-4)
+        b = b.at[3].set(0)
+    indices = jnp.array([len(p) - 1, 0, len(p) - 1, len(p) // 2])
+    expected = jax.jit(lambda p, f, b: reference(p, f, b, PARAMS)[indices])(p, f, b)
+    actual = jax.jit(
+        lambda p, f, b: gn_xpm_legacy.xpm_selected_pallas(
+            p,
+            f,
+            b,
+            indices,
+            **PARAMS,
+            interpret=not native,
+        )
+    )(p, f, b)
+    np.testing.assert_allclose(actual, expected, rtol=5e-6, atol=1e-5)
+
+
+@pytest.mark.parametrize("native", [False, True])
+@pytest.mark.parametrize("programs", [1, 4, 16])
+def test_persistent_row_scheduling_preserves_every_output(native, programs):
+    if native and jax.default_backend() != "gpu":
+        pytest.skip("requires CUDA")
+    p, f, b = (jnp.repeat(x, 3) for x in inputs(140))
+    p = p.at[4:8].set(0)
+    b = b.at[17].set(0)
+
+    def run(p, f, b, persistent):
+        return gn_xpm_legacy.xpm_legacy_pallas(
+            p,
+            f,
+            b,
+            **PARAMS,
+            group_interferers=True,
+            persistent_rows=persistent,
+            interpret=not native,
+        )
+
+    expected = jax.jit(lambda p, f, b: run(p, f, b, None))(p, f, b)
+    actual = jax.jit(lambda p, f, b: run(p, f, b, programs))(p, f, b)
+    np.testing.assert_array_equal(actual, expected)
+
+
+@pytest.mark.parametrize("native", [False, True])
 @pytest.mark.parametrize("reuse_rows", [False, True])
 @pytest.mark.parametrize("group_interferers", [False, True])
 @pytest.mark.parametrize("n", [1, 17, 140])

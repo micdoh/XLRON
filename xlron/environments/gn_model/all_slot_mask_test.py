@@ -65,7 +65,20 @@ def test_full_mask_valid_actions_pass_actual_admission():
         assert reward >= 0 and int(s.accepted_services) == before + 1
 
 
-def test_selected_gn_output_rows_retain_full_interferer_sum():
+@pytest.mark.parametrize("backend", ["jax", "pallas"])
+def test_selected_gn_output_rows_retain_full_interferer_sum(backend, monkeypatch):
+    if backend == "pallas" and jax.default_backend() != "gpu":
+        from functools import partial
+        from xlron.kernels import gn_xpm_legacy
+
+        monkeypatch.setattr(
+            gn_xpm_legacy,
+            "xpm_selected_pallas",
+            partial(
+                gn_xpm_legacy.xpm_selected_pallas,
+                interpret=True,
+            ),
+        )
     _, _, p, s = setup("rmsa_gn_model", "lifetime_snr")
     f = jnp.linspace(-1000.0, 1000.0, p.link_resources)
     power = jnp.array([1e-4, 2e-4, 0, 1e-4, 3e-4, 0, 1e-4, 2e-4])
@@ -75,7 +88,7 @@ def test_selected_gn_output_rows_retain_full_interferer_sum():
         channel_centre_freq_array=jnp.broadcast_to(f, s.channel_centre_freq_array.shape),
     )
     indices = jnp.array([6, 0, 6, 2])
-    actual = get_snr_link_array(s, p, output_indices=indices)
+    actual = get_snr_link_array(s, p, output_indices=indices, output_xpm_backend=backend)
     expected = get_snr_link_array(s, p)[:, indices]
     np.testing.assert_allclose(actual, expected, rtol=1e-5, atol=1e-5)
     links = jnp.array([3, 1, 3])
@@ -84,7 +97,9 @@ def test_selected_gn_output_rows_retain_full_interferer_sum():
         s.channel_centre_freq_array[links],
         s.channel_centre_bw_array[links],
     )
-    selected = get_snr_link_array(s, p, links, output_indices=indices, channel_rows=rows)
+    selected = get_snr_link_array(
+        s, p, links, output_indices=indices, channel_rows=rows, output_xpm_backend=backend
+    )
     np.testing.assert_allclose(selected, expected[links], rtol=1e-5, atol=1e-5)
 
 
@@ -104,6 +119,51 @@ def test_new_endpoint_screen_preserves_full_mask(narrow, screen_batch):
     )
     np.testing.assert_array_equal(actual.link_slot_mask, reference.link_slot_mask)
     np.testing.assert_array_equal(actual.mod_format_mask, reference.mod_format_mask)
+
+
+@pytest.mark.parametrize("bandwidth", [100, 200, 400])
+@pytest.mark.parametrize("thresholds", ["real", "highest_reject", "tie"])
+def test_width_grouping_preserves_every_format_and_admission(bandwidth, thresholds):
+    _, env, p, state = setup("rmsa_gn_model", "lifetime_snr")
+    mods = p.modulations_array.val
+    if thresholds == "highest_reject":
+        mods = mods.at[-1, 2].set(1000.0)
+    elif thresholds == "tie":
+        mods = mods.at[:, 2].set(-100.0).at[-1, 1].set(mods[-2, 1])
+    p = p.replace(
+        gn_mask_mode="all_slots", gn_mask_batch_size=3, modulations_array=HashableArrayWrapper(mods)
+    )
+    for seed in (71, 72):
+        state = state.replace(request_array=state.request_array.at[1].set(bandwidth))
+        reference = mask_slots_rmsa_gn_model(state, p, state.request_array, prune_formats=False)
+        actual = mask_slots_rmsa_gn_model(
+            state,
+            p,
+            state.request_array,
+            prefilter_new=True,
+            group_widths=True,
+            reuse_screened_power=True,
+            narrow_new_snr=True,
+            reuse_unaffected_snr=True,
+            screen_batch_size=8,
+        )
+        np.testing.assert_array_equal(actual.link_slot_mask, reference.link_slot_mask)
+        np.testing.assert_array_equal(actual.mod_format_mask, reference.mod_format_mask)
+        if thresholds in ("highest_reject", "tie"):
+            assert not np.any(np.asarray(actual.mod_format_mask) == len(mods) - 1)
+        if actual.link_slot_mask.any():
+            _, state, *_ = env.step(
+                jax.random.PRNGKey(seed), actual, jnp.argmax(actual.link_slot_mask), p
+            )
+
+
+@pytest.mark.parametrize("field", ["mod_format_correction", "use_raman_amp"])
+def test_width_grouping_rejects_format_dependent_physics(field):
+    _, _, p, state = fixture("all_slots")
+    with pytest.raises(ValueError, match="Width grouping requires"):
+        mask_slots_rmsa_gn_model(
+            state, p.replace(**{field: True}), state.request_array, group_widths=True
+        )
 
 
 @pytest.mark.parametrize("screening,pruning", [(True, True), (False, True), (True, False)])

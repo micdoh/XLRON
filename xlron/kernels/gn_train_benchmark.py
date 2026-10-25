@@ -38,6 +38,10 @@ def main():
     parser.add_argument("--reuse-unaffected-snr", action="store_true")
     parser.add_argument("--compact-snr-updates", action="store_true")
     parser.add_argument("--screen-batch-size", type=int)
+    parser.add_argument("--group-widths", action="store_true")
+    parser.add_argument("--fused-endpoint-snr", action="store_true")
+    parser.add_argument("--generic-row-programs", type=int)
+    parser.add_argument("--endpoint-xpm-backend", choices=["jax", "pallas"], default="jax")
     parser.add_argument("--matmul-precision", choices=("default", "high", "highest"))
     parser.add_argument(
         "--step-xpm-backend", choices=["jax", "pallas", "pallas_grouped"], default="jax"
@@ -88,6 +92,8 @@ def main():
         or args.reuse_unaffected_snr
         or args.compact_snr_updates
         or args.screen_batch_size is not None
+        or args.group_widths
+        or args.fused_endpoint_snr
     ):
         from xlron.environments.gn_model import rmsa_gn_model
 
@@ -100,6 +106,8 @@ def main():
             reuse_unaffected_snr=args.reuse_unaffected_snr,
             compact_snr_updates=args.compact_snr_updates,
             screen_batch_size=args.screen_batch_size,
+            group_widths=args.group_widths,
+            fused_endpoint_snr=args.fused_endpoint_snr,
         )
         rmsa_gn_model.mask_slots_rmsa_gn_model = env_funcs.mask_slots_rmsa_gn_model
         # Heuristic warmup imports this function directly rather than calling
@@ -200,6 +208,10 @@ def main():
                 "kernel_reuse_unaffected_snr": args.reuse_unaffected_snr,
                 "kernel_compact_snr_updates": args.compact_snr_updates,
                 "kernel_screen_batch_size": args.screen_batch_size,
+                "kernel_group_widths": args.group_widths,
+                "kernel_fused_endpoint_snr": args.fused_endpoint_snr,
+                "kernel_generic_row_programs": args.generic_row_programs,
+                "kernel_endpoint_xpm_backend": args.endpoint_xpm_backend,
                 "matmul_precision": args.matmul_precision,
                 "pool_before_projection": args.pool_before_projection,
                 "experiment_source_fingerprint": os.environ.get("XLRON_SOURCE_FINGERPRINT"),
@@ -228,6 +240,16 @@ def main():
             num_warps=args.path_tile[1],
         )
 
+    if args.generic_row_programs:
+        from xlron.kernels import gn_xpm_legacy
+
+        gn_xpm_legacy.xpm_legacy_pallas = partial(
+            gn_xpm_legacy.xpm_legacy_pallas, persistent_rows=args.generic_row_programs
+        )
+    if args.endpoint_xpm_backend != "jax":
+        env_funcs.get_snr_link_array = partial(
+            env_funcs.get_snr_link_array, output_xpm_backend=args.endpoint_xpm_backend
+        )
     if args.candidate_snr_backend != "jax":
         env_funcs.get_candidate_baseline_snr = partial(
             env_funcs.get_candidate_baseline_snr, backend=args.candidate_snr_backend

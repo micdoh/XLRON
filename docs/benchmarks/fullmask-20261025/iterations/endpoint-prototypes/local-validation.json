@@ -1,0 +1,33 @@
+{
+  "status": "experimental_native_gate_pending",
+  "date": "2026-10-25",
+  "local_checks": {
+    "command": "uv run --no-sync pytest -q xlron/environments/gn_model/all_slot_mask_test.py xlron/kernels/gn_path_snr_test.py xlron/kernels/gn_xpm_legacy_test.py xlron/kernels/gn_endpoint_snr_test.py",
+    "passed": 95,
+    "skipped_native_gpu": 59,
+    "wall_s": 90.1,
+    "mode": "CPU ordinary JAX and Pallas interpret",
+    "pre_commit": "passed",
+    "type_check": "passed",
+    "experimental_scripts_ruff": "passed"
+  },
+  "native_accuracy": "pending",
+  "environment_throughput": "not measured for new kernels",
+  "ppo_throughput": "not measured for new kernels",
+  "reason": "Department SSH connection failed during staging; both Malm\u00f6 and Turin time out. No new GPU job was launched.",
+  "selected_for_live_campaigns": false,
+  "live_sources_modified": false,
+  "source_sha256": {
+    "xlron/environments/env_funcs.py": "9ab9ec21eecc0cf4447d03f3418afae00b2f3fe0f2701185fced4b1acb896823",
+    "xlron/environments/gn_model/isrs_gn_model.py": "4a4f2c6f940618e4eccebd467900feb0fac185db01409e39357aa14fe79bb5d5",
+    "xlron/kernels/gn_xpm_legacy.py": "7a86def4c525f41ebf55de9d4685e76217143f6d662cd15950d85b5b9083f622",
+    "xlron/kernels/gn_xpm_legacy_test.py": "48115e0115785f89651808e1998bf5b2113c8a99b45ff6ede71efdbece76e467",
+    "xlron/kernels/gn_endpoint_snr.py": "d007cc25034353eedf6cf9fbb4cf7675dc85e71610d1fc157b8db799574065ce",
+    "xlron/kernels/gn_endpoint_snr_test.py": "be0a00f8b11f5878d131a23abfb6d53723e5ecef18ab5db5b802f9515b8f76ef",
+    "xlron/kernels/gn_environment_benchmark.py": "7c9f93d37a53b4ddd3991d43166c13a2c1252dc2b2f9a339f4cbec05033f5478",
+    "xlron/kernels/gn_train_benchmark.py": "5df26082545406d9bdc52a3a60e0fdf5d683ee2bc7ac4157840e6e0281b2472a",
+    "experimental/benchmarks/gn_full_mask_iteration.py": "643166994920f1cb4a01896895a649d67dbed78e0989f98a1be59262cb688d88",
+    "experimental/benchmarks/gn_full_mask_ppo_benchmark.py": "7e4d1c1eecd605c21b876f1c8d6beab670bfb1050f8703fca0fab25b180dded0",
+    "experimental/benchmarks/gn_scaling.py": "84951d4cdbd3927a1d47600de93cd5f32a59dcd45940b735ada02b1ff5a9ef6f"
+  }
+}
