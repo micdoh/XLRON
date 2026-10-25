@@ -615,7 +615,7 @@ campaign optimizer/checkpoint round trip also pass. Native suite results are
 the documentation builds with the existing API-docstring warnings.
 
 
-### Endpoint fusion and persistent scheduling prototypes (native checks pending)
+### Endpoint fusion and persistent scheduling
 
 Further HLO inspection maps the optimized trace's 8.2% input-reduction kernel
 share to the ordinary-JAX endpoint XPM screen. Full generic XPM and path-SNR
@@ -653,13 +653,59 @@ interpreter constant-propagation mismatch was isolated in the SPM calculation;
 an interpreter-only optimization barrier now preserves the native program's
 runtime-buffer boundary. Equations and admission thresholds were not changed.
 
-The department connection failed during staging of the next GPU copy. The new
-kernels therefore have **no native accuracy, environment throughput or PPO
-throughput result yet**, and are not selected for live campaigns. The last
-confirmed combined H100 rates remain 285.01 environment transitions/s and 252.28
-collected transitions/s through full PPO. Training and heuristic source copies
-remain frozen. The paired runner saves source hashes, strict output comparisons,
-control repeats, HLO and Nsight statistics:
+Native validation found a Triton scalar-stack lowering error in the fused screen.
+Constructing the two endpoint indices as a vector fixes the compilation without
+changing the arithmetic. The initial gate passed 121 cases; all eight selected
+endpoint cases pass after that repair, including every initially failing case.
+The remaining four CPU endpoint cases pass separately. Matched H100 measurements
+now establish the following results:
+
+| Variant | Mask ms | Environment transitions/s |
+| --- | ---: | ---: |
+| Previous best control | 50.308 | 286.52 |
+| Selected-output XPM only | 53.875 | 270.19 |
+| Fused candidate insertion and endpoint SNR | 46.973 | 304.57 |
+| Persistent XPM, 8 programs | 48.617 | 298.97 |
+| Persistent XPM, 16 programs | 48.110 | 301.13 |
+| Fused endpoint plus 16 persistent programs | 44.977 | 319.53 |
+| Repeated previous best control | 50.200 | 286.50 |
+
+The combination improves environment throughput **11.52%**; the control drift
+is below 0.01%. Every variant, including the slower selected-output experiment,
+preserves all three masks/formats, rewards and final occupancy exactly. Mask
+temporary storage remains about 154.9 MiB: this is a compute/launch improvement,
+not a substantial memory reduction. Compilation remains about 5 seconds for the
+mask and 6 seconds for the rollout.
+
+The same 16-env, 64-step, dense-128 lifetime/SNR transformer PPO comparison gives:
+
+| Phase | Previous best transitions/s | Fused/persistent transitions/s |
+| --- | ---: | ---: |
+| Policy rollout plus advantages | 261.57 | 290.64 |
+| Full PPO, one epoch/eight minibatches | 256.17 | 283.82 |
+
+Full PPO improves **10.79%**, from 3.9974 to 3.6079 seconds per 1,024 collected
+transitions. Optimizer minibatch updates rise from 2.001 to 2.217/s. Final
+environment states match the control exactly and losses/updated parameters stay
+finite. PPO compilation takes 14.71 versus 14.41 seconds; compiled temporary
+storage remains about 2.27 GiB. These rates describe a fixed-input throughput
+benchmark, not a learning-quality result or a replacement for the frozen run.
+
+The [kernel sweep](https://forge.coreweave.com/wandb/micdoh/XLRON-GN-CLS/runs/3f03f2xu),
+[PPO control](https://forge.coreweave.com/wandb/micdoh/XLRON-GN-CLS/runs/sjcfdlv9)
+and [optimized PPO](https://forge.coreweave.com/wandb/micdoh/XLRON-GN-CLS/runs/e4vmsw2v)
+retain the raw reports under benchmark namespaces. Reviewed evidence is in
+`iterations/endpoint-kernels`, `endpoint-ppo-control` and
+`endpoint-ppo-fused-persistent`. Future isolated full-mask campaign plans select
+the measured combination; already running source copies remain frozen.
+
+The new Nsight trace assigns 10.7% of CUDA kernel time to path-SNR evidence,
+8.3% to persistent generic XPM and 5.0% to the endpoint kernel. Window reductions
+and scatter/index preparation remain material targets. Compiled HLO also carries
+a 33,360-by-44 candidate/path incidence array, even though only five distinct
+paths exist for the request. Factoring that metadata is a remaining workspace
+experiment, not a claimed speedup. The paired runner saves source hashes, strict
+output comparisons, control repeats, HLO and Nsight statistics:
 
 ```bash
 uv run --no-sync python -m experimental.benchmarks.gn_full_mask_iteration \

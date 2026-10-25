@@ -135,7 +135,9 @@ def endpoint_snr_pallas(state, params, links, start, end, power, centre, *, inte
             if params.span_lumped_loss_db is not None:
                 gain = gain * 10 ** (params.span_lumped_loss_db / 10)
             gain_m1 = gain - 1
-            endpoints = jnp.stack((start, end)).astype(jnp.int32)
+            # Triton cannot stack scalar IR values; build the two-lane vector
+            # directly so both endpoint noise figures remain independent.
+            endpoints = jnp.where(jnp.arange(2) == 0, start, end).astype(jnp.int32)
             nf = plt.load(nf_ref.at[endpoints])
             nsp = (10 ** (nf / 10) * gain) / (2 * gain_m1)
             ase = count * (2 * nsp * gain_m1 * h * (c / wavelength + fi) * bi)

@@ -1,0 +1,8 @@
+........                                                                 [100%]
+=============================== warnings summary ===============================
+xlron/kernels/gn_endpoint_snr_test.py: 16 warnings
+  /tmp/xlron-gn-malmo-fullmask-20261025/.venv/lib/python3.13/site-packages/jax/_src/pallas/pallas_call.py:938: DeprecationWarning: The Pallas Triton backend is deprecated and will be removed in a future JAX version. To keep using Pallas on GPU, please migrate to the Mosaic GPU backend. To keep using Triton, switch to the official Triton bindings and jax_triton.
+    return rule(ctx, *in_nodes, compiler_params=compiler_params, **params)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+8 passed, 4 deselected, 16 warnings in 57.47s

@@ -1,0 +1,145 @@
+WARNING: Device-side CUDA Event completion trace is currently enabled.
+         This may increase runtime overhead and the likelihood of false
+         dependencies across CUDA Streams. If you wish to avoid this, please
+         disable the feature with --cuda-event-trace=false.
+JitProfiler warning:
+  GPU backend detected. Fine-grained host-side timings inside JIT
+  are unreliable due to asynchronous execution.
+  `call()` will record ONLY first-call (compile + first execution)
+  latency per section.
+  Use jax.profiler / TensorBoard / Nsight for steady-state GPU timing.
+WARNING: TOTAL_TIMESTEPS adjusted from 10000 to 9900 due to increment/rollout rounding.
+  Computing modulation-aware path sort...
+  Loading cached KSP array from nsfnet_deeprmsa_directed_k5_spectral_resources_70d8c4f41a65.npz
+  Computing path lengths...
+  Computing SE array...
+  Computing Laplacian matrix...
+  Done.
+
+======================================================================
+GN MODEL POWER BUDGET SUMMARY
+======================================================================
+  Environment type:         rmsa_gn_model
+  max_power_per_fibre:      21.0 dBm (125.89 mW)
+  link_resources (slots):   1668
+  slot_size:                12.5 GHz
+  Per-channel launch power: -10.00 dBm (0.1000 mW)
+  launch_power_type:        fixed
+  ROADM express loss range: 5.0 - 5.0 dB
+  ROADM add/drop loss range: 8.0 - 8.0 dB
+  ROADM NF range:           5.0 - 5.0 dB
+  Amplifier NF range:       5.5 - 9.0 dB
+  Transceiver SNR range:    15.8 - 21.2 dB
+  SNR margin:               0.5 dB
+  Modulation SNR thresholds: ['1.9', '4.9', '8.8', '11.6'] dB
+  (+ margin = ['2.4', '5.4', '9.3', '12.1'] dB)
+  --- Estimated single-channel ASE-limited SNR (no NLI) ---
+    (ROADM noise: 2x add/drop + N_intermediate x express per path)
+    Link  300 km ( 3 spans): ~13.8 dB
+    Link  600 km ( 6 spans): ~11.8 dB
+    Link 1200 km (12 spans): ~9.4 dB
+    Link 2400 km (24 spans): ~6.7 dB
+======================================================================
+
+Loaded identical warmup state from dense-state.npz
+Benchmarking mask, slots=1668, envs=16
+Compiled in 4.937s; executing
+Capture range started in the application.
+Capture range ended in the application.
+Generating '/home/uceedoh/tmp/nsys-report-fd16.qdstrm'
+[1/1] [0%                          ] profile.nsys-repProcessing events...
+[1/1] [0%                          ] profile.nsys-rep[1/1] [0%                          ] profile.nsys-rep[1/1] [8%                          ] profile.nsys-rep[1/1] [5%                          ] profile.nsys-rep[1/1] [11%                         ] profile.nsys-rep[1/1] [8%                          ] profile.nsys-rep[1/1] [6%                          ] profile.nsys-rep[1/1] [=15%                        ] profile.nsys-rep[1/1] [===23%                      ] profile.nsys-rep[1/1] [==19%                       ] profile.nsys-rep[1/1] [=16%                        ] profile.nsys-rep[1/1] [14%                         ] profile.nsys-rep[1/1] [13%                         ] profile.nsys-rep[1/1] [=16%                        ] profile.nsys-rep[1/1] [===22%                      ] profile.nsys-rep[1/1] [=====29%                    ] profile.nsys-rep[1/1] [======35%                   ] profile.nsys-rep[1/1] [========42%                 ] profile.nsys-rep[1/1] [==========49%               ] profile.nsys-rep[1/1] [============56%             ] profile.nsys-rep[1/1] [=============60%            ] profile.nsys-rep[1/1] [==============63%           ] profile.nsys-rep[1/1] [========================100%] profile.nsys-rep[1/1] [========================100%] profile.nsys-rep
+{"mask": {"compile_s": 4.937181326560676, "median_ms": 55.83159625530243, "min_ms": 55.53910881280899, "argument_bytes": 28182720, "output_bytes": 800664, "temp_bytes": 162373808, "alias_bytes": 0, "valid_actions_per_env": [8, 251, 0, 566, 492, 0, 113, 15, 308, 64, 0, 116, 264, 27, 327, 0]}}
+{
+  "args": {
+    "slots": 1668,
+    "env_type": "rmsa_gn_model",
+    "k": 5,
+    "gn_mask_mode": "all_slots",
+    "gn_mask_batch_size": 64,
+    "gn_mask_env_batch_size": 1,
+    "envs": 16,
+    "env_batch_size": 0,
+    "occupancy": 0.25,
+    "independent_streams": true,
+    "topology": "nsfnet_deeprmsa_directed",
+    "band_preference": "C,L,S",
+    "load": 5000.0,
+    "coherent": true,
+    "mode": "uniform",
+    "kernels": [
+      "mask"
+    ],
+    "iterations": 10,
+    "warm_executions": 3,
+    "profile": true,
+    "steps": 8,
+    "warmup_steps": 0,
+    "output": "runs/endpoint-kernels/profile-timing.json",
+    "snapshot": null,
+    "state_input": "dense-state.npz",
+    "state_output": null,
+    "reference": null,
+    "matmul_precision": "highest"
+  },
+  "jax": "0.12.0.1",
+  "device": "cuda:0",
+  "device_kind": "NVIDIA H100 NVL",
+  "platform": "Linux-5.14.0-687.25.1.el9_8.x86_64-x86_64-with-glibc2.34",
+  "links": 44,
+  "resolved_slots": 1668,
+  "paths": 911,
+  "modulations": 4,
+  "lightpaths": 2762,
+  "occupancy": 0.6440313458442688,
+  "initial_accepted_services": [
+    2762,
+    2582,
+    2574,
+    2570,
+    2550,
+    2624,
+    2687,
+    2760,
+    2426,
+    2637,
+    2575,
+    2259,
+    2615,
+    2684,
+    2607,
+    2400
+  ],
+  "warmup_timing": {},
+  "metrics": {
+    "mask": {
+      "compile_s": 4.937181326560676,
+      "median_ms": 55.83159625530243,
+      "min_ms": 55.53910881280899,
+      "argument_bytes": 28182720,
+      "output_bytes": 800664,
+      "temp_bytes": 162373808,
+      "alias_bytes": 0,
+      "valid_actions_per_env": [
+        8,
+        251,
+        0,
+        566,
+        492,
+        0,
+        113,
+        15,
+        308,
+        64,
+        0,
+        116,
+        264,
+        27,
+        327,
+        0
+      ]
+    }
+  }
+}
+Generated:
+	/tmp/xlron-gn-mask-v19-endpoint-20261025/runs/endpoint-kernels/profile.nsys-rep
