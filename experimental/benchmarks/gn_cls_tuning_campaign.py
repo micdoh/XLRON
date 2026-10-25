@@ -257,6 +257,9 @@ def main():
     parser.add_argument("--warmup", type=int, default=25_000)
     parser.add_argument("--load", type=float, default=5000)
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument(
+        "--job-plan", type=Path, help="Run an explicit JSON job list instead of the original sweep"
+    )
     args = parser.parse_args()
     args.pool_before_projection = False
     args.output = args.output.resolve()
@@ -272,7 +275,7 @@ def main():
     )
     hashes = {str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in paths}
     fingerprint = hashlib.sha256(json.dumps(hashes, sort_keys=True).encode()).hexdigest()
-    jobs = build_jobs(args)
+    jobs = json.loads(args.job_plan.read_text()) if args.job_plan else build_jobs(args)
     manifest = {
         "created_utc": datetime.now(UTC).isoformat(),
         "gpu": args.gpu,

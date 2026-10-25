@@ -174,6 +174,49 @@ admission behavior. All 23 GN heuristic smoke checks, packed/unpacked sentinel
 regressions, existing MSCL capacity-loss checks and an actual adjusted-HP PPO
 checkpoint continuation pass on CPU. Native v6 CUDA validation awaits a free GPU.
 
+The v6 campaign subsequently completed all 50 heuristic evaluations successfully.
+The strongest PPO continuation uses occupancy+SNR: its best periodic service
+blocking is 27.23%, and its two-seed held-out average is 31.08%. These are different
+evaluation traffic sets. Its last logged valid mass averaged 2.14% (SNR-only:
+0.13%), and the probability-space valid-mass loss could lose its gradient below
+the `1e-8` numerical guard. A two-action example with a 100-logit disadvantage
+produces zero corrective gradient with that implementation, instead of -1 on
+the valid logit.
+
+The PPO barrier now uses logsumexp differences, keeping float32 recovery
+gradients for very small valid mass. Empty masks have zero barrier/gradient;
+their previous constant penalty is removed without renormalizing the batch.
+Normal-mass values and gradients match the probability definition. New W&B
+diagnostics report current log valid mass and the fraction below the old floor
+among nonempty masks. This change affects policy optimization only; the full
+GN admission calculation is retained.
+
+After the user requested the transformer paper's stabilization stack, unstarted
+on-policy long-horizon trials were superseded. Active children were allowed to
+finish. The replacement `gn_cls_stabilized_campaign` starts all five trials from
+the same selected occupancy+SNR checkpoint, with 16,777,216 additional steps per
+trial and separate comparison seeds 4242/4243 (4244 for selection). Both GPUs
+prioritize the observation mode that has improved most.
+
+The [paper's Table 2](https://arxiv.org/html/2605.02075v2) gives clip 0.04, gamma
+0.996, lambda 0.99, critic LR 5e-5, rollout 64 and valid-mass coefficients
+0.001/0.002. All replacement trials explicitly use off-policy IAM, non-recentered
+clipping, damping, two-action gating and float32. The fine-tuning lane keeps the
+successful LR 1e-4, entropy 0.005 and update regime while testing VML 0.001/0.002.
+A third arm lowers the damping target from 0.05 to 0.005: the GN workload has
+8,340 actions but only about 4.8 valid actions per state on average in the final
+logged batch, so the paper's target cannot be assumed to transfer unchanged.
+The other lane uses one epoch/minibatch per 64-step rollout and compares actor
+LR 1e-4/5e-4 with VML 0.002. These are paper-informed continuations, not literal
+reproductions of its distance-only RMSA workloads. VML is held constant to test
+its strength; the paper's large-topology runs anneal it linearly to half.
+
+The new campaign retains directed NSFNET, five paths, 1,668 slots, full C+L+S,
+load 5,000 and 25,000-request warmup. Its records are under
+`/tmp/xlron-gn-kernel-v2-20261024/runs/cls-20261025-v7/` on Turin, with W&B group
+`gn-cls-20261025-paper-stabilized`. Numerical-loss tests, the PPO regression
+suite, actual GN checkpoint save/reload and physical-config preflight pass.
+
 Latest CPU GN/kernel/observation/projection checks: **177 passed, 70 skipped,
 two expected issue-64 failures**. The two SNR PPO smoke tests and a separate
 campaign optimizer/checkpoint round trip also pass. Native suite results are

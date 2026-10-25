@@ -142,6 +142,8 @@ class LossDiagnostics(NamedTuple):
     valid_mass_std: Array
     valid_mass_min: Array
     valid_mass_max: Array
+    current_log_valid_mass_mean: Array
+    current_valid_mass_below_floor_frac: Array
     n_valid_mean: Array
     n_valid_min: Array
     n_valid_max: Array

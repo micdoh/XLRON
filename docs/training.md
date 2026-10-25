@@ -214,7 +214,7 @@ Multiply each step's actor-loss contribution by its valid mass `mu(s)` (default:
 
 The PPO loss uses a gating mechanism to handle steps where the agent has very few or no valid actions:
 
-- Steps with 0 valid actions are completely gated out (no gradient signal)
+- Steps with 0 valid actions are gated out of the actor/entropy losses; the critic still learns
 - Steps with only 1 valid action are gated out of the actor/entropy loss (the action is forced, so no learning signal)
 - Steps with low "valid mass" (probability the unmasked policy places on valid actions) have their actor/entropy loss contribution damped
 
@@ -224,7 +224,11 @@ Threshold below which the actor/entropy loss is linearly damped based on valid m
 
 #### `--VALID_MASS_LOSS_COEF`
 
-Coefficient for an auxiliary loss that encourages the *unmasked* policy to place probability on valid actions. This helps prevent the unmasked logits from drifting away from valid actions, which would cause the valid mass to collapse and reduce learning signal. Default: `0.0` (disabled). Enable with values like `0.01` to `0.1`.
+Coefficient for an auxiliary loss that encourages the *unmasked* policy to place probability on valid actions. This helps prevent the unmasked logits from drifting away from valid actions, which would cause the valid mass to collapse and reduce learning signal. Default: `0.0` (disabled). The graph-transformer paper uses `0.001` or `0.002` in its large-topology experiments; tune the coefficient with the actor/critic scales rather than assuming a universal value.
+
+The barrier is computed in log space as `logsumexp(all_logits) - logsumexp(valid_logits)`. This retains a corrective gradient even when valid probabilities underflow in float32. In contrast, `-log(mu + 1e-8)` caps the penalty near 18.42 and suppresses its gradient as `mu` falls below `1e-8`. Empty masks contribute zero barrier and zero gradient, without changing the batch denominator; a policy cannot put mass on an empty feasible set. Forced actions (one valid action) still receive the valid-mass regularizer even when their actor/entropy terms are gated out.
+
+With `ENHANCED_LOGGING` and the barrier enabled, `diagnostics/current_log_valid_mass_mean` and `diagnostics/current_valid_mass_below_floor_frac` describe the current policy on nonempty masks. The latter counts feasible states below the old `1e-8` floor. Both are registered automatically through `LossDiagnostics`.
 
 #### `--VML_SCHEDULE` / `--VML_END_FRACTION`
 
