@@ -1,0 +1,769 @@
+{
+  "cached": {
+    "bad_link_slots": 0,
+    "bad_channels": 0,
+    "channels": [],
+    "min_margin": 0.004011273384094238
+  },
+  "generic": {
+    "bad_link_slots": 875,
+    "bad_channels": 76,
+    "channels": [
+      {
+        "path": 550,
+        "centre_ghz": -9572.25,
+        "departure": 9.076375007629395,
+        "link": 0,
+        "slot": 64,
+        "snr": 3.972776412963867,
+        "required": 4.869928359985352,
+        "format": 1
+      },
+      {
+        "path": 45,
+        "centre_ghz": -9122.25,
+        "departure": 34.43275451660156,
+        "link": 0,
+        "slot": 102,
+        "snr": 4.43271017074585,
+        "required": 4.869928359985352,
+        "format": 1
+      },
+      {
+        "path": 20,
+        "centre_ghz": -9347.25,
+        "departure": 12.971205711364746,
+        "link": 1,
+        "slot": 84,
+        "snr": 4.178963661193848,
+        "required": 4.869928359985352,
+        "format": 1
+      },
+      {
+        "path": 35,
+        "centre_ghz": -10309.75,
+        "departure": 11.896817207336426,
+        "link": 2,
+        "slot": 7,
+        "snr": 4.787113189697266,
+        "required": 4.869928359985352,
+        "format": 1
+      },
+      {
+        "path": 35,
+        "centre_ghz": -10309.75,
+        "departure": 11.896805763244629,
+        "link": 2,
+        "slot": 8,
+        "snr": 4.787113189697266,
+        "required": 4.869928359985352,
+        "format": 1
+      },
+      {
+        "path": 25,
+        "centre_ghz": -10247.25,
+        "departure": 8.885207176208496,
+        "link": 2,
+        "slot": 12,
+        "snr": 4.796005725860596,
+        "required": 4.869928359985352,
+        "format": 1
+      },
+      {
+        "path": 50,
+        "centre_ghz": -9072.25,
+        "departure": 70.83165740966797,
+        "link": 2,
+        "slot": 104,
+        "snr": 4.327488899230957,
+        "required": 4.869928359985352,
+        "format": 1
+      },
+      {
+        "path": 50,
+        "centre_ghz": -8897.25,
+        "departure": 11.797429084777832,
+        "link": 2,
+        "slot": 120,
+        "snr": 4.307618618011475,
+        "required": 4.869928359985352,
+        "format": 1
+      },
+      {
+        "path": 30,
+        "centre_ghz": -5903.5,
+        "departure": 10.450459480285645,
+        "link": 2,
+        "slot": 356,
+        "snr": 8.25842571258545,
+        "required": 8.767730712890625,
+        "format": 2
+      },
+      {
+        "path": 500,
+        "centre_ghz": -8572.25,
+        "departure": 115.52840423583984,
+        "link": 3,
+        "slot": 144,
+        "snr": 4.288833141326904,
+        "required": 4.869928359985352,
+        "format": 1
+      },
+      {
+        "path": 100,
+        "centre_ghz": -9597.25,
+        "departure": 35.11946105957031,
+        "link": 4,
+        "slot": 64,
+        "snr": 4.458487033843994,
+        "required": 4.869928359985352,
+        "format": 1
+      },
+      {
+        "path": 100,
+        "centre_ghz": -9547.25,
+        "departure": 3.7652699947357178,
+        "link": 4,
+        "slot": 68,
+        "snr": 4.453287601470947,
+        "required": 4.869928359985352,
+        "format": 1
+      },
+      {
+        "path": 80,
+        "centre_ghz": -7803.5,
+        "departure": 29.341861724853516,
+        "link": 4,
+        "slot": 204,
+        "snr": 8.563421249389648,
+        "required": 8.767730712890625,
+        "format": 2
+      },
+      {
+        "path": 599,
+        "centre_ghz": -6834.75,
+        "departure": 26.658153533935547,
+        "link": 4,
+        "slot": 284,
+        "snr": 8.626543045043945,
+        "required": 8.767730712890625,
+        "format": 2
+      },
+      {
+        "path": 122,
+        "centre_ghz": -8722.25,
+        "departure": 6.292724132537842,
+        "link": 5,
+        "slot": 134,
+        "snr": 4.428951263427734,
+        "required": 4.869928359985352,
+        "format": 1
+      },
+      {
+        "path": 115,
+        "centre_ghz": -8547.25,
+        "departure": 49.925384521484375,
+        "link": 5,
+        "slot": 148,
+        "snr": 4.7797040939331055,
+        "required": 4.869928359985352,
+        "format": 1
+      },
+      {
+        "path": 125,
+        "centre_ghz": -7147.25,
+        "departure": 12.212983131408691,
+        "link": 5,
+        "slot": 258,
+        "snr": 11.285282135009766,
+        "required": 11.620323181152344,
+        "format": 3
+      },
+      {
+        "path": 105,
+        "centre_ghz": -6178.5,
+        "departure": 15.149415016174316,
+        "link": 5,
+        "slot": 338,
+        "snr": 8.487556457519531,
+        "required": 8.767730712890625,
+        "format": 2
+      },
+      {
+        "path": 105,
+        "centre_ghz": -6141.0,
+        "departure": 7.112523078918457,
+        "link": 5,
+        "slot": 341,
+        "snr": 8.482551574707031,
+        "required": 8.767730712890625,
+        "format": 2
+      },
+      {
+        "path": 475,
+        "centre_ghz": -9172.25,
+        "departure": 7.715240955352783,
+        "link": 6,
+        "slot": 96,
+        "snr": 4.196165084838867,
+        "required": 4.869928359985352,
+        "format": 1
+      },
+      {
+        "path": 555,
+        "centre_ghz": -9997.25,
+        "departure": 99.85553741455078,
+        "link": 7,
+        "slot": 32,
+        "snr": 4.516005516052246,
+        "required": 4.869928359985352,
+        "format": 1
+      },
+      {
+        "path": 551,
+        "centre_ghz": -9397.25,
+        "departure": 0.8719831705093384,
+        "link": 7,
+        "slot": 80,
+        "snr": 3.809929132461548,
+        "required": 4.869928359985352,
+        "format": 1
+      },
+      {
+        "path": 535,
+        "centre_ghz": -7653.5,
+        "departure": 24.791236877441406,
+        "link": 7,
+        "slot": 220,
+        "snr": 8.531715393066406,
+        "required": 8.767730712890625,
+        "format": 2
+      },
+      {
+        "path": 535,
+        "centre_ghz": -7241.0,
+        "departure": 17.27916717529297,
+        "link": 7,
+        "slot": 253,
+        "snr": 8.48219108581543,
+        "required": 8.767730712890625,
+        "format": 2
+      },
+      {
+        "path": 535,
+        "centre_ghz": -7059.75,
+        "departure": 15.772672653198242,
+        "link": 7,
+        "slot": 266,
+        "snr": 8.461085319519043,
+        "required": 8.767730712890625,
+        "format": 2
+      },
+      {
+        "path": 535,
+        "centre_ghz": -6834.75,
+        "departure": 24.637447357177734,
+        "link": 7,
+        "slot": 284,
+        "snr": 8.431184768676758,
+        "required": 8.767730712890625,
+        "format": 2
+      },
+      {
+        "path": 525,
+        "centre_ghz": -9859.75,
+        "departure": 13.455327033996582,
+        "link": 9,
+        "slot": 41,
+        "snr": 10.972745895385742,
+        "required": 11.620323181152344,
+        "format": 3
+      },
+      {
+        "path": 530,
+        "centre_ghz": -8397.25,
+        "departure": 15.976131439208984,
+        "link": 9,
+        "slot": 160,
+        "snr": 11.60578727722168,
+        "required": 11.620323181152344,
+        "format": 3
+      },
+      {
+        "path": 560,
+        "centre_ghz": -8122.25,
+        "departure": 36.29518127441406,
+        "link": 9,
+        "slot": 181,
+        "snr": 8.676129341125488,
+        "required": 8.767730712890625,
+        "format": 2
+      },
+      {
+        "path": 560,
+        "centre_ghz": -6384.75,
+        "departure": 71.89055633544922,
+        "link": 9,
+        "slot": 320,
+        "snr": 8.47205924987793,
+        "required": 8.767730712890625,
+        "format": 2
+      }
+    ],
+    "min_margin": -1.1010799407958984
+  },
+  "uniform_fused": {
+    "bad_link_slots": 875,
+    "bad_channels": 76,
+    "channels": [
+      {
+        "path": 550,
+        "centre_ghz": -9572.25,
+        "departure": 9.076375007629395,
+        "link": 0,
+        "slot": 64,
+        "snr": 3.972776412963867,
+        "required": 4.869928359985352,
+        "format": 1
+      },
+      {
+        "path": 45,
+        "centre_ghz": -9122.25,
+        "departure": 34.43275451660156,
+        "link": 0,
+        "slot": 102,
+        "snr": 4.43271017074585,
+        "required": 4.869928359985352,
+        "format": 1
+      },
+      {
+        "path": 20,
+        "centre_ghz": -9347.25,
+        "departure": 12.971205711364746,
+        "link": 1,
+        "slot": 84,
+        "snr": 4.178963661193848,
+        "required": 4.869928359985352,
+        "format": 1
+      },
+      {
+        "path": 35,
+        "centre_ghz": -10309.75,
+        "departure": 11.896817207336426,
+        "link": 2,
+        "slot": 7,
+        "snr": 4.787113189697266,
+        "required": 4.869928359985352,
+        "format": 1
+      },
+      {
+        "path": 35,
+        "centre_ghz": -10309.75,
+        "departure": 11.896805763244629,
+        "link": 2,
+        "slot": 8,
+        "snr": 4.787113189697266,
+        "required": 4.869928359985352,
+        "format": 1
+      },
+      {
+        "path": 25,
+        "centre_ghz": -10247.25,
+        "departure": 8.885207176208496,
+        "link": 2,
+        "slot": 12,
+        "snr": 4.796005725860596,
+        "required": 4.869928359985352,
+        "format": 1
+      },
+      {
+        "path": 50,
+        "centre_ghz": -9072.25,
+        "departure": 70.83165740966797,
+        "link": 2,
+        "slot": 104,
+        "snr": 4.327488899230957,
+        "required": 4.869928359985352,
+        "format": 1
+      },
+      {
+        "path": 50,
+        "centre_ghz": -8897.25,
+        "departure": 11.797429084777832,
+        "link": 2,
+        "slot": 120,
+        "snr": 4.307618618011475,
+        "required": 4.869928359985352,
+        "format": 1
+      },
+      {
+        "path": 30,
+        "centre_ghz": -5903.5,
+        "departure": 10.450459480285645,
+        "link": 2,
+        "slot": 356,
+        "snr": 8.25842571258545,
+        "required": 8.767730712890625,
+        "format": 2
+      },
+      {
+        "path": 500,
+        "centre_ghz": -8572.25,
+        "departure": 115.52840423583984,
+        "link": 3,
+        "slot": 144,
+        "snr": 4.288833141326904,
+        "required": 4.869928359985352,
+        "format": 1
+      },
+      {
+        "path": 100,
+        "centre_ghz": -9597.25,
+        "departure": 35.11946105957031,
+        "link": 4,
+        "slot": 64,
+        "snr": 4.458487033843994,
+        "required": 4.869928359985352,
+        "format": 1
+      },
+      {
+        "path": 100,
+        "centre_ghz": -9547.25,
+        "departure": 3.7652699947357178,
+        "link": 4,
+        "slot": 68,
+        "snr": 4.453287601470947,
+        "required": 4.869928359985352,
+        "format": 1
+      },
+      {
+        "path": 80,
+        "centre_ghz": -7803.5,
+        "departure": 29.341861724853516,
+        "link": 4,
+        "slot": 204,
+        "snr": 8.563421249389648,
+        "required": 8.767730712890625,
+        "format": 2
+      },
+      {
+        "path": 599,
+        "centre_ghz": -6834.75,
+        "departure": 26.658153533935547,
+        "link": 4,
+        "slot": 284,
+        "snr": 8.626543045043945,
+        "required": 8.767730712890625,
+        "format": 2
+      },
+      {
+        "path": 122,
+        "centre_ghz": -8722.25,
+        "departure": 6.292724132537842,
+        "link": 5,
+        "slot": 134,
+        "snr": 4.428951263427734,
+        "required": 4.869928359985352,
+        "format": 1
+      },
+      {
+        "path": 115,
+        "centre_ghz": -8547.25,
+        "departure": 49.925384521484375,
+        "link": 5,
+        "slot": 148,
+        "snr": 4.7797040939331055,
+        "required": 4.869928359985352,
+        "format": 1
+      },
+      {
+        "path": 125,
+        "centre_ghz": -7147.25,
+        "departure": 12.212983131408691,
+        "link": 5,
+        "slot": 258,
+        "snr": 11.285282135009766,
+        "required": 11.620323181152344,
+        "format": 3
+      },
+      {
+        "path": 105,
+        "centre_ghz": -6178.5,
+        "departure": 15.149415016174316,
+        "link": 5,
+        "slot": 338,
+        "snr": 8.487556457519531,
+        "required": 8.767730712890625,
+        "format": 2
+      },
+      {
+        "path": 105,
+        "centre_ghz": -6141.0,
+        "departure": 7.112523078918457,
+        "link": 5,
+        "slot": 341,
+        "snr": 8.482551574707031,
+        "required": 8.767730712890625,
+        "format": 2
+      },
+      {
+        "path": 475,
+        "centre_ghz": -9172.25,
+        "departure": 7.715240955352783,
+        "link": 6,
+        "slot": 96,
+        "snr": 4.196165084838867,
+        "required": 4.869928359985352,
+        "format": 1
+      },
+      {
+        "path": 555,
+        "centre_ghz": -9997.25,
+        "departure": 99.85553741455078,
+        "link": 7,
+        "slot": 32,
+        "snr": 4.516005516052246,
+        "required": 4.869928359985352,
+        "format": 1
+      },
+      {
+        "path": 551,
+        "centre_ghz": -9397.25,
+        "departure": 0.8719831705093384,
+        "link": 7,
+        "slot": 80,
+        "snr": 3.809929132461548,
+        "required": 4.869928359985352,
+        "format": 1
+      },
+      {
+        "path": 535,
+        "centre_ghz": -7653.5,
+        "departure": 24.791236877441406,
+        "link": 7,
+        "slot": 220,
+        "snr": 8.531715393066406,
+        "required": 8.767730712890625,
+        "format": 2
+      },
+      {
+        "path": 535,
+        "centre_ghz": -7241.0,
+        "departure": 17.27916717529297,
+        "link": 7,
+        "slot": 253,
+        "snr": 8.48219108581543,
+        "required": 8.767730712890625,
+        "format": 2
+      },
+      {
+        "path": 535,
+        "centre_ghz": -7059.75,
+        "departure": 15.772672653198242,
+        "link": 7,
+        "slot": 266,
+        "snr": 8.461085319519043,
+        "required": 8.767730712890625,
+        "format": 2
+      },
+      {
+        "path": 535,
+        "centre_ghz": -6834.75,
+        "departure": 24.637447357177734,
+        "link": 7,
+        "slot": 284,
+        "snr": 8.431184768676758,
+        "required": 8.767730712890625,
+        "format": 2
+      },
+      {
+        "path": 525,
+        "centre_ghz": -9859.75,
+        "departure": 13.455327033996582,
+        "link": 9,
+        "slot": 41,
+        "snr": 10.972745895385742,
+        "required": 11.620323181152344,
+        "format": 3
+      },
+      {
+        "path": 530,
+        "centre_ghz": -8397.25,
+        "departure": 15.976131439208984,
+        "link": 9,
+        "slot": 160,
+        "snr": 11.60578727722168,
+        "required": 11.620323181152344,
+        "format": 3
+      },
+      {
+        "path": 560,
+        "centre_ghz": -8122.25,
+        "departure": 36.29518127441406,
+        "link": 9,
+        "slot": 181,
+        "snr": 8.676129341125488,
+        "required": 8.767730712890625,
+        "format": 2
+      },
+      {
+        "path": 560,
+        "centre_ghz": -6384.75,
+        "departure": 71.89055633544922,
+        "link": 9,
+        "slot": 320,
+        "snr": 8.47205924987793,
+        "required": 8.767730712890625,
+        "format": 2
+      }
+    ],
+    "min_margin": -1.1010799407958984
+  },
+  "initial_bootstrap": [
+    {
+      "env": 0,
+      "bad_link_slots": 0,
+      "min_margin": 0.0002148151397705078
+    },
+    {
+      "env": 1,
+      "bad_link_slots": 0,
+      "min_margin": 0.0053331851959228516
+    },
+    {
+      "env": 2,
+      "bad_link_slots": 0,
+      "min_margin": 0.00010633468627929688
+    },
+    {
+      "env": 3,
+      "bad_link_slots": 0,
+      "min_margin": 0.00010120868682861328
+    },
+    {
+      "env": 4,
+      "bad_link_slots": 0,
+      "min_margin": 0.0007472038269042969
+    },
+    {
+      "env": 5,
+      "bad_link_slots": 0,
+      "min_margin": 6.783008575439453e-05
+    },
+    {
+      "env": 6,
+      "bad_link_slots": 0,
+      "min_margin": 0.0045299530029296875
+    },
+    {
+      "env": 7,
+      "bad_link_slots": 0,
+      "min_margin": 0.029298782348632812
+    },
+    {
+      "env": 8,
+      "bad_link_slots": 0,
+      "min_margin": 0.0015192031860351562
+    },
+    {
+      "env": 9,
+      "bad_link_slots": 0,
+      "min_margin": 0.007790684700012207
+    },
+    {
+      "env": 10,
+      "bad_link_slots": 0,
+      "min_margin": 0.0008666515350341797
+    },
+    {
+      "env": 11,
+      "bad_link_slots": 0,
+      "min_margin": 0.01594829559326172
+    },
+    {
+      "env": 12,
+      "bad_link_slots": 0,
+      "min_margin": 0.00024318695068359375
+    },
+    {
+      "env": 13,
+      "bad_link_slots": 0,
+      "min_margin": 0.00013256072998046875
+    },
+    {
+      "env": 14,
+      "bad_link_slots": 0,
+      "min_margin": 0.0007810592651367188
+    },
+    {
+      "env": 15,
+      "bad_link_slots": 0,
+      "min_margin": 0.006968498229980469
+    }
+  ],
+  "actual_expiry_counterfactual": [
+    {
+      "elapsed": 0.019797447486019134,
+      "removed_link_slots": 6,
+      "bad_link_slots": 0,
+      "min_margin": 6.783008575439453e-05
+    },
+    {
+      "elapsed": 0.001,
+      "removed_link_slots": 0,
+      "bad_link_slots": 0,
+      "min_margin": 6.783008575439453e-05
+    },
+    {
+      "elapsed": 0.01,
+      "removed_link_slots": 0,
+      "bad_link_slots": 0,
+      "min_margin": 6.783008575439453e-05
+    },
+    {
+      "elapsed": 0.05,
+      "removed_link_slots": 79,
+      "bad_link_slots": 0,
+      "min_margin": 0.0016803741455078125
+    },
+    {
+      "elapsed": 0.1,
+      "removed_link_slots": 79,
+      "bad_link_slots": 0,
+      "min_margin": 0.0016803741455078125
+    },
+    {
+      "elapsed": 0.5,
+      "removed_link_slots": 938,
+      "bad_link_slots": 0,
+      "min_margin": 0.013321876525878906
+    },
+    {
+      "elapsed": 1.0,
+      "removed_link_slots": 1840,
+      "bad_link_slots": 0,
+      "min_margin": 0.01999378204345703
+    }
+  ],
+  "departure_counterfactual": [
+    {
+      "raman_gain_slope": 2.8e-17,
+      "removed_slots": 16,
+      "worst_snr_change_db": -0.07100867480039597,
+      "best_snr_change_db": 0.003964954987168312,
+      "worse_slots": 263
+    },
+    {
+      "raman_gain_slope": 0.0,
+      "removed_slots": 16,
+      "worst_snr_change_db": 4.2452778870938346e-05,
+      "best_snr_change_db": 0.002657158300280571,
+      "worse_slots": 0
+    }
+  ],
+  "generic_jax": {
+    "bad_link_slots": 875,
+    "min_margin": -1.1010799407958984
+  },
+  "note": "Run 625744af, replica 5, after first 512 measured requests. Failed link/slot predicates repeat services. Counterfactual removal on one link isolates optical response; actual expiry counterfactuals use the normal network expiry function from initially valid bootstrap replica 5."
+}

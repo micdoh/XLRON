@@ -1,3 +1,5 @@
+from typing import Any, cast
+
 import chex
 import jax
 import jax.numpy as jnp
@@ -14589,7 +14591,9 @@ class MsclTest(chex.TestCase):
         chex.assert_trees_all_close(action, expected)
 
 
-def _bruteforce_capacity_loss(state, params, num_interfering_routes=1):
+def _bruteforce_capacity_loss(
+    state, params, num_interfering_routes=1, *, candidate_mask=None, candidate_widths=None
+):
     """Reference implementation of the MSCL capacity loss: recompute the number of
     feasible contiguous placements before/after each candidate assignment by direct
     counting over updated spectrum states. num_interfering_routes selects the first
@@ -14598,15 +14602,24 @@ def _bruteforce_capacity_loss(state, params, num_interfering_routes=1):
     import numpy as np
 
     from xlron.environments.env_funcs import get_paths, read_rsa_request
+    from xlron.environments.dataclasses import GNModelEnvParams, RMSAGNModelEnvParams
     from xlron.heuristics.heuristics import get_request_num_slots
 
     k = params.k_paths
     n_int = num_interfering_routes
-    num_slots_arr = np.asarray(get_request_num_slots(state, params))
-    mask = np.asarray(get_action_mask(state, params))
+    num_slots_arr = (
+        np.asarray(get_request_num_slots(state, params))[:, None]
+        if candidate_widths is None
+        else np.asarray(candidate_widths)
+    )
+    mask = np.asarray(get_action_mask(state, params) if candidate_mask is None else candidate_mask)
     S = params.link_resources
     lsa_occ = np.asarray(state.link_slot_array) != 0
     path_link_array = np.asarray(params.path_link_array.val)
+    if isinstance(params, GNModelEnvParams):
+        path_link_array = path_link_array[:-1]
+    if params.pack_path_bits:
+        path_link_array = np.unpackbits(path_link_array, axis=1)[:, : params.num_links]
     interfering = path_link_array.reshape(-1, k, path_link_array.shape[1])[:, :n_int].reshape(
         -1, path_link_array.shape[1]
     )
@@ -14615,7 +14628,9 @@ def _bruteforce_capacity_loss(state, params, num_interfering_routes=1):
 
     values_bw = np.asarray(params.values_bw.val)
     min_se = (
-        float(np.min(np.asarray(params.path_se_array.val)))
+        float(np.min(np.asarray(params.modulations_array.val)[:, 1]))
+        if isinstance(params, RMSAGNModelEnvParams)
+        else float(np.min(np.asarray(params.path_se_array.val)))
         if params.consider_modulation_format
         else 1.0
     )
@@ -14648,7 +14663,7 @@ def _bruteforce_capacity_loss(state, params, num_interfering_routes=1):
         for s in range(S):
             if mask[r, s] == 0:
                 continue
-            e = min(s + int(num_slots_arr[r]), S)
+            e = min(s + int(num_slots_arr[r, s if num_slots_arr.shape[1] > 1 else 0]), S)
             block = np.zeros(S, bool)
             block[s:e] = True
             total = 0
@@ -15134,12 +15149,85 @@ def test_mscl_ignores_gn_sentinel_and_preserves_capacity(packed, k):
     mask = get_action_mask(state, params)
     ordinary = RSAEnvParams(**{f.name: getattr(params, f.name) for f in fields(RSAEnvParams)})
     ordinary = ordinary.replace(
-        path_link_array=HashableArrayWrapper(params.path_link_array.val[:-1])
+        path_link_array=HashableArrayWrapper(params.path_link_array.val[:-1]),
+        # Match GN's future demand cap, which includes low-SE physical formats.
+        path_se_array=HashableArrayWrapper(jnp.ones_like(params.path_se_array.val)),
     )
-    with patch("xlron.heuristics.heuristics.get_action_mask", return_value=mask):
+    # Isolate the sentinel-row regression from GN's separately resolved widths.
+    from xlron.heuristics.heuristics import get_request_num_slots
+
+    widths = jnp.broadcast_to(get_request_num_slots(state, params)[:, None], mask.shape)
+    with patch(
+        "xlron.heuristics.heuristics.get_action_mask_and_slots", return_value=(mask, widths)
+    ):
         expected, _ = capacity_loss(state, ordinary, num_interfering_routes=k)
         actual, _ = capacity_loss(state, params, num_interfering_routes=k)
     np.testing.assert_array_equal(actual, expected)
+
+
+@pytest.mark.parametrize("compiled", [False, True])
+def test_arbr_uses_physical_width_at_band_preferred_first_fit(monkeypatch, compiled):
+    from tests.helpers.gn_model import setup
+    from xlron.environments.env_funcs import get_paths
+    from xlron.heuristics import heuristics
+
+    _, _, params, state = setup("rmsa_gn_model", "occupancy_snr")
+    params = params.replace(
+        arbr_alpha=0.0,
+        path_se_array=HashableArrayWrapper(jnp.full_like(params.path_se_array.val, 4)),
+        band_slot_order_ff=HashableArrayWrapper(jnp.array([4, 5, 6, 7, 0, 1, 2, 3])),
+    )
+    state = state.replace(request_array=jnp.array([0, 100, 1]))
+    formats = jnp.full((2, 8), -1.0).at[0, 0].set(3).at[0, 4].set(0).at[1, 4].set(3)
+    paths = np.asarray(get_paths(params, jnp.array([0, 1])))
+    assert paths[0].sum() < paths[1].sum() < 4 * paths[0].sum()
+    # The carried format mask is deliberately stale. Direct calls must refresh it.
+    assert not np.array_equal(np.asarray(state.mod_format_mask), np.asarray(formats).reshape(-1))
+    monkeypatch.setattr(
+        heuristics,
+        "mask_slots_rmsa_gn_model",
+        lambda s, p, r: s.replace(mod_format_mask=formats.reshape(-1)),
+    )
+    cast(Any, heuristics.arbr_ff).clear_cache()
+    try:
+        with jax.disable_jit(not compiled):
+            action = heuristics.arbr_ff(state, params)
+        assert int(action) == 8 + 4  # longer path, one slot; path 0 would need four
+    finally:
+        cast(Any, heuristics.arbr_ff).clear_cache()
+
+
+@pytest.mark.parametrize("interfering_routes", [1, 2])
+def test_mscl_physical_widths_match_independent_spectrum_recount(monkeypatch, interfering_routes):
+    from tests.helpers.gn_model import setup
+    from xlron.heuristics import heuristics
+
+    _, _, params, state = setup("rmsa_gn_model", "occupancy_snr")
+    params = params.replace(
+        path_se_array=HashableArrayWrapper(jnp.full_like(params.path_se_array.val, 4))
+    )
+    state = state.replace(request_array=jnp.array([0, 100, 1]))
+    # Adjacent feasible starts on each path require different physical formats.
+    formats = np.array([[0, 1, 3, 2, 0, -1, 3, 3], [3, 0, 1, 2, 0, -1, 3, 3]])
+    mask = formats >= 0
+    se = np.asarray(params.modulations_array.val)[np.maximum(formats, 0), 1]
+    widths = np.ceil(100 / (se * 25)).astype(int)
+    monkeypatch.setattr(
+        heuristics,
+        "mask_slots_rmsa_gn_model",
+        lambda s, p, r: s.replace(
+            mod_format_mask=jnp.asarray(formats.reshape(-1), dtype=s.mod_format_mask.dtype)
+        ),
+    )
+    expected = _bruteforce_capacity_loss(
+        state, params, interfering_routes, candidate_mask=mask, candidate_widths=widths
+    )
+    actual, actual_mask = heuristics.capacity_loss(state, params, interfering_routes)
+    np.testing.assert_array_equal(actual_mask, mask)
+    np.testing.assert_array_equal(actual, expected)
+    # Widths differ from the nominal one-slot assumption at feasible starts.
+    nominal = _bruteforce_capacity_loss(state, params, interfering_routes, candidate_mask=mask)
+    assert np.any(np.asarray(actual)[mask] != nominal[mask])
 
 
 if __name__ == "__main__":
