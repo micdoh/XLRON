@@ -32,6 +32,12 @@ def main():
     )
     parser.add_argument("--pool-before-projection", action="store_true")
     parser.add_argument("--new-lightpath-prefilter", action="store_true")
+    parser.add_argument("--pack-old-predicates", action="store_true")
+    parser.add_argument("--reuse-screened-power", action="store_true")
+    parser.add_argument("--narrow-new-snr", action="store_true")
+    parser.add_argument("--reuse-unaffected-snr", action="store_true")
+    parser.add_argument("--compact-snr-updates", action="store_true")
+    parser.add_argument("--screen-batch-size", type=int)
     parser.add_argument("--matmul-precision", choices=("default", "high", "highest"))
     parser.add_argument(
         "--step-xpm-backend", choices=["jax", "pallas", "pallas_grouped"], default="jax"
@@ -74,11 +80,26 @@ def main():
     from xlron.environments.gn_model import isrs_gn_model
     from xlron.train import train_utils
 
-    if args.new_lightpath_prefilter:
+    if (
+        args.new_lightpath_prefilter
+        or args.pack_old_predicates
+        or args.reuse_screened_power
+        or args.narrow_new_snr
+        or args.reuse_unaffected_snr
+        or args.compact_snr_updates
+        or args.screen_batch_size is not None
+    ):
         from xlron.environments.gn_model import rmsa_gn_model
 
         env_funcs.mask_slots_rmsa_gn_model = partial(
-            env_funcs.mask_slots_rmsa_gn_model, prefilter_new=True
+            env_funcs.mask_slots_rmsa_gn_model,
+            prefilter_new=args.new_lightpath_prefilter,
+            pack_old=args.pack_old_predicates,
+            reuse_screened_power=args.reuse_screened_power,
+            narrow_new_snr=args.narrow_new_snr,
+            reuse_unaffected_snr=args.reuse_unaffected_snr,
+            compact_snr_updates=args.compact_snr_updates,
+            screen_batch_size=args.screen_batch_size,
         )
         rmsa_gn_model.mask_slots_rmsa_gn_model = env_funcs.mask_slots_rmsa_gn_model
         # Heuristic warmup imports this function directly rather than calling
@@ -173,6 +194,12 @@ def main():
                 "kernel_xpm_tile": args.xpm_tile,
                 "kernel_path_tile": args.path_tile,
                 "kernel_new_lightpath_prefilter": args.new_lightpath_prefilter,
+                "kernel_pack_old_predicates": args.pack_old_predicates,
+                "kernel_reuse_screened_power": args.reuse_screened_power,
+                "kernel_narrow_new_snr": args.narrow_new_snr,
+                "kernel_reuse_unaffected_snr": args.reuse_unaffected_snr,
+                "kernel_compact_snr_updates": args.compact_snr_updates,
+                "kernel_screen_batch_size": args.screen_batch_size,
                 "matmul_precision": args.matmul_precision,
                 "pool_before_projection": args.pool_before_projection,
                 "experiment_source_fingerprint": os.environ.get("XLRON_SOURCE_FINGERPRINT"),
@@ -202,6 +229,9 @@ def main():
         )
 
     if args.candidate_snr_backend != "jax":
+        env_funcs.get_candidate_baseline_snr = partial(
+            env_funcs.get_candidate_baseline_snr, backend=args.candidate_snr_backend
+        )
         env_funcs.get_candidate_snr_evidence = partial(
             env_funcs.get_candidate_snr_evidence, backend=args.candidate_snr_backend
         )

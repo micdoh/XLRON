@@ -88,16 +88,66 @@ def test_selected_gn_output_rows_retain_full_interferer_sum():
     np.testing.assert_allclose(selected, expected[links], rtol=1e-5, atol=1e-5)
 
 
-def test_new_endpoint_screen_preserves_full_mask():
+@pytest.mark.parametrize("narrow", [False, True])
+@pytest.mark.parametrize("screen_batch", [None, 1, 8])
+def test_new_endpoint_screen_preserves_full_mask(narrow, screen_batch):
     _, _, p, s = setup("rmsa_gn_model", "lifetime_snr")
     p = p.replace(gn_mask_mode="all_slots", gn_mask_batch_size=3)
     reference = mask_slots_rmsa_gn_model(s, p, s.request_array, prune_formats=False)
-    actual = mask_slots_rmsa_gn_model(s, p, s.request_array, prefilter_new=True)
+    actual = mask_slots_rmsa_gn_model(
+        s,
+        p,
+        s.request_array,
+        prefilter_new=True,
+        narrow_new_snr=narrow,
+        screen_batch_size=screen_batch,
+    )
     np.testing.assert_array_equal(actual.link_slot_mask, reference.link_slot_mask)
     np.testing.assert_array_equal(actual.mod_format_mask, reference.mod_format_mask)
 
 
-def test_compacted_old_path_predicates_preserve_full_mask(monkeypatch):
+@pytest.mark.parametrize("screening,pruning", [(True, True), (False, True), (True, False)])
+def test_reusing_screened_power_preserves_thresholds_and_fallback(screening, pruning):
+    _, _, p, state = fixture("all_slots")
+    p = p.replace(gn_mask_batch_size=3)
+    power = p.slot_launch_power_array.val[0]
+    # Include both sides of the exact one-channel limit and the boundary itself.
+    for limit in (jnp.nextafter(power, jnp.float32(0)), power, jnp.nextafter(power, jnp.inf)):
+        q = p.replace(max_power_per_fibre=float(limit))
+        reference = mask_slots_rmsa_gn_model(state, q, state.request_array, prune_formats=False)
+        actual = mask_slots_rmsa_gn_model(
+            state,
+            q,
+            state.request_array,
+            prune_formats=pruning,
+            prefilter_new=screening,
+            reuse_screened_power=True,
+        )
+        np.testing.assert_array_equal(actual.link_slot_mask, reference.link_slot_mask)
+        np.testing.assert_array_equal(actual.mod_format_mask, reference.mod_format_mask)
+
+
+def test_reusing_screened_power_checks_unaffected_overloaded_links():
+    _, _, p, state = fixture("all_slots")
+    p = p.replace(gn_mask_batch_size=3)
+    state = state.replace(
+        channel_power_array=state.channel_power_array.at[0, 0].set(1.0),
+        channel_centre_bw_array=state.channel_centre_bw_array.at[0, 0].set(p.slot_size),
+        path_index_array=state.path_index_array.at[0, 0].set(0),
+        link_slot_array=state.link_slot_array.at[0, 0].set(1),
+    )
+    p = p.replace(max_power_per_fibre=0.1)
+    reference = mask_slots_rmsa_gn_model(state, p, state.request_array, prune_formats=False)
+    actual = mask_slots_rmsa_gn_model(
+        state, p, state.request_array, prefilter_new=True, reuse_screened_power=True
+    )
+    assert not actual.link_slot_mask.any()
+    np.testing.assert_array_equal(actual.link_slot_mask, reference.link_slot_mask)
+    np.testing.assert_array_equal(actual.mod_format_mask, reference.mod_format_mask)
+
+
+@pytest.mark.parametrize("narrow", [False, True, "compact"])
+def test_compacted_old_path_predicates_preserve_full_mask(monkeypatch, narrow):
     from functools import partial
     from xlron.kernels import gn_predicate_pack
 
@@ -112,7 +162,15 @@ def test_compacted_old_path_predicates_preserve_full_mask(monkeypatch):
     for seed in (28, 29):
         reference = mask_slots_rmsa_gn_model(state, p, state.request_array, prefilter_new=True)
         actual = mask_slots_rmsa_gn_model(
-            state, p, state.request_array, prefilter_new=True, pack_old=True
+            state,
+            p,
+            state.request_array,
+            prefilter_new=True,
+            pack_old=True,
+            reuse_screened_power=bool(narrow),
+            narrow_new_snr=bool(narrow),
+            reuse_unaffected_snr=bool(narrow),
+            compact_snr_updates=narrow == "compact",
         )
         np.testing.assert_array_equal(actual.link_slot_mask, reference.link_slot_mask)
         np.testing.assert_array_equal(actual.mod_format_mask, reference.mod_format_mask)

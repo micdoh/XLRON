@@ -15,7 +15,8 @@ from experimental.benchmarks.gn_cls_tuning_campaign import wait_for_gpu
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--gpu", type=int, choices=(2, 3), required=True)
+    parser.add_argument("--gpu", type=int, required=True)
+    parser.add_argument("--gpu-memory-fraction", type=float)
     parser.add_argument("--state-input", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--encoder", choices=("dense", "conv"), default="dense")
@@ -23,6 +24,14 @@ def main():
     parser.add_argument("--rollout", type=int, default=64)
     parser.add_argument("--envs", type=int, default=16)
     parser.add_argument("--iterations", type=int, default=5)
+    parser.add_argument("--pack-old-predicates", action="store_true")
+    parser.add_argument("--reuse-screened-power", action="store_true")
+    parser.add_argument("--narrow-new-snr", action="store_true")
+    parser.add_argument("--reuse-unaffected-snr", action="store_true")
+    parser.add_argument("--compact-snr-updates", action="store_true")
+    parser.add_argument("--screen-batch-size", type=int)
+    parser.add_argument("--reference", type=Path)
+    parser.add_argument("--name")
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
     (args.output / "source_sha256.json").write_text(
@@ -36,7 +45,9 @@ def main():
         + "\n"
     )
     lease = wait_for_gpu(
-        args.gpu, lambda state, **kw: print(json.dumps(dict(state=state, **kw)), flush=True)
+        args.gpu,
+        lambda state, **kw: print(json.dumps(dict(state=state, **kw)), flush=True),
+        args.gpu_memory_fraction,
     )
     os.environ.update(
         CUDA_VISIBLE_DEVICES=str(args.gpu),
@@ -45,6 +56,8 @@ def main():
         PYTHONPATH=str(Path.cwd()),
         XLA_FLAGS="--xla_gpu_enable_triton_gemm=false --xla_gpu_autotune_level=0",
     )
+    if args.gpu_memory_fraction is not None:
+        os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = str(args.gpu_memory_fraction)
     try:
         # Check the previously failing rewrite before allocating the PPO model.
         with (args.output / "strict-fp32-test.log").open("w") as log:
@@ -58,6 +71,7 @@ def main():
                     "xlron/models/spectrum_transformer_test.py::test_fused_convolution_value_and_gradient_match_offset_reference",
                 ],
                 stdout=log,
+                check=False,
                 stderr=subprocess.STDOUT,
                 timeout=120,
             )
@@ -68,14 +82,19 @@ def main():
         import jax.numpy as jnp
         import numpy as np
         from absl import flags
-        import xlron.parameter_flags
+
+        import xlron.parameter_flags  # noqa: F401 -- register the shared absl flags
         from xlron.environments import env_funcs
-        from xlron.environments.gn_model import isrs_gn_model as gn, rmsa_gn_model
+        from xlron.environments.gn_model import isrs_gn_model as gn
+        from xlron.environments.gn_model import rmsa_gn_model
         from xlron.environments.make_env import process_config
         from xlron.train import train_utils
         from xlron.train.ppo import _env_rollout_advantages, get_learner_fn
 
         gn.get_snr = partial(gn.get_snr, xpm_backend="pallas_grouped")
+        env_funcs.get_candidate_baseline_snr = partial(
+            env_funcs.get_candidate_baseline_snr, backend="pallas"
+        )
         env_funcs.get_candidate_snr_evidence = partial(
             env_funcs.get_candidate_snr_evidence, backend="pallas"
         )
@@ -83,7 +102,14 @@ def main():
             env_funcs.get_lightpath_snr, nsr_backend="pallas_precomputed"
         )
         env_funcs.mask_slots_rmsa_gn_model = partial(
-            env_funcs.mask_slots_rmsa_gn_model, prefilter_new=True
+            env_funcs.mask_slots_rmsa_gn_model,
+            prefilter_new=True,
+            pack_old=args.pack_old_predicates,
+            reuse_screened_power=args.reuse_screened_power,
+            narrow_new_snr=args.narrow_new_snr,
+            reuse_unaffected_snr=args.reuse_unaffected_snr,
+            compact_snr_updates=args.compact_snr_updates,
+            screen_batch_size=args.screen_batch_size,
         )
         rmsa_gn_model.mask_slots_rmsa_gn_model = env_funcs.mask_slots_rmsa_gn_model
         c = {k: flags.FLAGS[k].default for k in flags.FLAGS}
@@ -164,18 +190,18 @@ def main():
             )
             # Keep the actual policy rollout and advantage calculation live, without
             # writing the entire learning-only observation buffer to host outputs.
-            return dict(
-                runner_state=final_runner,
-                reward_sum=jnp.sum(trajectory.reward),
-                advantage_sum=jnp.sum(advantages),
-                target_sum=jnp.sum(targets),
-            )
+            return {
+                "runner_state": final_runner,
+                "reward_sum": jnp.sum(trajectory.reward),
+                "advantage_sum": jnp.sum(advantages),
+                "target_sum": jnp.sum(targets),
+            }
 
         def measure(name, function):
             start = time.perf_counter()
             executable = jax.jit(function).lower(runner).compile()
             compile_s = time.perf_counter() - start
-            print(json.dumps(dict(phase=name, compile_s=compile_s)), flush=True)
+            print(json.dumps({"phase": name, "compile_s": compile_s}), flush=True)
             for _ in range(2):
                 result = jax.block_until_ready(executable(runner))
             samples = []
@@ -184,13 +210,13 @@ def main():
                 result = jax.block_until_ready(executable(runner))
                 samples.append(time.perf_counter() - start)
             median = float(np.median(samples))
-            phase = dict(
-                compile_s=compile_s,
-                median_s=median,
-                environment_transitions_per_s=batch / median,
-                samples_s=samples,
-                memory=str(executable.memory_analysis()),
-            )
+            phase = {
+                "compile_s": compile_s,
+                "median_s": median,
+                "environment_transitions_per_s": batch / median,
+                "samples_s": samples,
+                "memory": str(executable.memory_analysis()),
+            }
             print(json.dumps(dict(phase=name, **phase)), flush=True)
             return result, phase
 
@@ -208,31 +234,48 @@ def main():
         model = result["runner_state"][0].model_params
         assert all(np.isfinite(x).all() for x in jax.tree.leaves(eqx.filter(model, eqx.is_array)))
         assert all(np.isfinite(x).all() for x in jax.tree.leaves(result["loss_info"]))
-        report = dict(
-            device=jax.devices()[0].device_kind,
-            jax=jax.__version__,
-            encoder=args.encoder,
-            width=args.width,
-            envs=args.envs,
-            rollout=args.rollout,
-            epochs=1,
-            minibatches=8,
-            observations="lifetime_snr",
-            modulation_features=True,
-            mask="all_slots",
-            candidate_batch=64,
-            mask_env_chunk=1,
-            fp32_matmul="highest",
-            transitions_per_rollout=batch,
-            optimizer_minibatch_updates_per_rollout=optimizer_updates,
-            rollout_with_advantages=rollout_phase,
-            full_ppo=ppo_phase,
-            additional_learning_s=ppo_phase["median_s"] - rollout_phase["median_s"],
-            final_environment_states_exact=True,
-            state_sha256=hashlib.sha256(args.state_input.read_bytes()).hexdigest(),
-            loss={k: np.asarray(v).tolist() for k, v in result["loss_info"].items()},
-            note="Same initial policy, physical states, random keys and rollout length for both phases. Rollout includes advantages; full PPO also retains learning buffers, computes losses/gradients and applies Adam updates. Excludes compilation, warmup and W&B. Repeats fixed initial inputs; not a learning-quality trial.",
-        )
+        final_states = {
+            f"state_{i}": np.asarray(x)
+            for i, x in enumerate(jax.tree.leaves(result["runner_state"][1]))
+        }
+        np.savez_compressed(args.output / "final-states.npz", **final_states)
+        if args.reference:
+            with np.load(args.reference) as expected:
+                for name, value in final_states.items():
+                    np.testing.assert_array_equal(value, expected[name])
+        report = {
+            "device": jax.devices()[0].device_kind,
+            "jax": jax.__version__,
+            "encoder": args.encoder,
+            "width": args.width,
+            "envs": args.envs,
+            "rollout": args.rollout,
+            "epochs": 1,
+            "minibatches": 8,
+            "observations": "lifetime_snr",
+            "modulation_features": True,
+            "mask": "all_slots",
+            "candidate_batch": 64,
+            "mask_env_chunk": 1,
+            "fp32_matmul": "highest",
+            "transitions_per_rollout": batch,
+            "optimizer_minibatch_updates_per_rollout": optimizer_updates,
+            "rollout_with_advantages": rollout_phase,
+            "full_ppo": ppo_phase,
+            "additional_learning_s": ppo_phase["median_s"] - rollout_phase["median_s"],
+            "final_environment_states_exact": True,
+            "state_sha256": hashlib.sha256(args.state_input.read_bytes()).hexdigest(),
+            "reference_final_states_exact": True if args.reference else None,
+            "gpu_memory_fraction": args.gpu_memory_fraction,
+            "pack_old_predicates": args.pack_old_predicates,
+            "reuse_screened_power": args.reuse_screened_power,
+            "narrow_new_snr": args.narrow_new_snr,
+            "reuse_unaffected_snr": args.reuse_unaffected_snr,
+            "compact_snr_updates": args.compact_snr_updates,
+            "screen_batch_size": args.screen_batch_size,
+            "loss": {k: np.asarray(v).tolist() for k, v in result["loss_info"].items()},
+            "note": "Same initial policy, physical states, random keys and rollout length for both phases. Rollout includes advantages; full PPO also retains learning buffers, computes losses/gradients and applies Adam updates. Excludes compilation, warmup and W&B. Repeats fixed initial inputs; not a learning-quality trial.",
+        }
         (args.output / "ppo.json").write_text(json.dumps(report, indent=2) + "\n")
         print(
             json.dumps({k: v for k, v in report.items() if k not in ("loss", "memory")}), flush=True
@@ -243,7 +286,7 @@ def main():
             entity="micdoh",
             project="XLRON-GN-CLS",
             group="gn-cls-20261025-fullslot-observations",
-            name=f"full-mask-ppo-{args.encoder}{args.width}",
+            name=args.name or f"full-mask-ppo-{args.encoder}{args.width}",
             job_type="benchmark",
             config={k: v for k, v in report.items() if k not in ("loss", "memory", "samples_s")},
         ) as run:
@@ -259,7 +302,7 @@ def main():
             run.save(str(args.output / "ppo.json"), base_path=str(args.output))
             run.save(str(args.output / "source_sha256.json"), base_path=str(args.output))
             (args.output / "wandb-report.json").write_text(
-                json.dumps(dict(id=run.id, url=run.url)) + "\n"
+                json.dumps({"id": run.id, "url": run.url}) + "\n"
             )
     finally:
         lease.close()

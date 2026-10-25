@@ -22,6 +22,11 @@ def main():
     parser.add_argument("--no-full-format-pruning", action="store_true")
     parser.add_argument("--new-lightpath-prefilter", action="store_true")
     parser.add_argument("--pack-old-predicates", action="store_true")
+    parser.add_argument("--reuse-screened-power", action="store_true")
+    parser.add_argument("--narrow-new-snr", action="store_true")
+    parser.add_argument("--reuse-unaffected-snr", action="store_true")
+    parser.add_argument("--compact-snr-updates", action="store_true")
+    parser.add_argument("--screen-batch-size", type=int)
     parser.add_argument(
         "--step-xpm-backend", choices=["jax", "pallas", "pallas_grouped"], default="jax"
     )
@@ -72,7 +77,16 @@ def main():
     from xlron.environments import env_funcs
     from xlron.environments.gn_model import isrs_gn_model
 
-    if args.no_full_format_pruning or args.new_lightpath_prefilter or args.pack_old_predicates:
+    if (
+        args.no_full_format_pruning
+        or args.new_lightpath_prefilter
+        or args.pack_old_predicates
+        or args.reuse_screened_power
+        or args.narrow_new_snr
+        or args.reuse_unaffected_snr
+        or args.compact_snr_updates
+        or args.screen_batch_size is not None
+    ):
         from xlron.environments.gn_model import rmsa_gn_model
 
         env_funcs.mask_slots_rmsa_gn_model = partial(
@@ -80,6 +94,11 @@ def main():
             prune_formats=not args.no_full_format_pruning,
             prefilter_new=args.new_lightpath_prefilter,
             pack_old=args.pack_old_predicates,
+            reuse_screened_power=args.reuse_screened_power,
+            narrow_new_snr=args.narrow_new_snr,
+            reuse_unaffected_snr=args.reuse_unaffected_snr,
+            compact_snr_updates=args.compact_snr_updates,
+            screen_batch_size=args.screen_batch_size,
         )
         rmsa_gn_model.mask_slots_rmsa_gn_model = env_funcs.mask_slots_rmsa_gn_model
 
@@ -93,6 +112,9 @@ def main():
         )
 
     if args.candidate_snr_backend != "jax":
+        env_funcs.get_candidate_baseline_snr = partial(
+            env_funcs.get_candidate_baseline_snr, backend=args.candidate_snr_backend
+        )
         env_funcs.get_candidate_snr_evidence = partial(
             env_funcs.get_candidate_snr_evidence, backend=args.candidate_snr_backend
         )
@@ -127,6 +149,11 @@ def main():
         report["full_format_pruning"] = not args.no_full_format_pruning
         report["new_lightpath_prefilter"] = args.new_lightpath_prefilter
         report["pack_old_predicates"] = args.pack_old_predicates
+        report["reuse_screened_power"] = args.reuse_screened_power
+        report["narrow_new_snr"] = args.narrow_new_snr
+        report["reuse_unaffected_snr"] = args.reuse_unaffected_snr
+        report["compact_snr_updates"] = args.compact_snr_updates
+        report["screen_batch_size"] = args.screen_batch_size
         report["xla_flags"] = os.environ.get("XLA_FLAGS", "")
         path.write_text(json.dumps(report, indent=2) + "\n")
 
