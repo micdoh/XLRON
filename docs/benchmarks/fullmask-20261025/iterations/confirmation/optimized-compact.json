@@ -1,0 +1,163 @@
+{
+  "args": {
+    "slots": 1668,
+    "env_type": "rmsa_gn_model",
+    "k": 5,
+    "gn_mask_mode": "all_slots",
+    "gn_mask_batch_size": 64,
+    "gn_mask_env_batch_size": 1,
+    "envs": 16,
+    "env_batch_size": 0,
+    "occupancy": 0.25,
+    "independent_streams": true,
+    "topology": "nsfnet_deeprmsa_directed",
+    "band_preference": "C,L,S",
+    "load": 5000.0,
+    "coherent": true,
+    "mode": "uniform",
+    "kernels": [
+      "mask",
+      "rollout"
+    ],
+    "iterations": 10,
+    "warm_executions": 3,
+    "profile": false,
+    "steps": 8,
+    "warmup_steps": 0,
+    "output": "runs/confirmation/mask/optimized-compact.json",
+    "snapshot": "runs/confirmation/mask/optimized-compact.npz",
+    "state_input": "dense-state.npz",
+    "state_output": null,
+    "reference": "runs/confirmation/mask/control.npz",
+    "matmul_precision": "highest"
+  },
+  "jax": "0.12.0.1",
+  "device": "cuda:0",
+  "device_kind": "NVIDIA H100 NVL",
+  "platform": "Linux-5.14.0-687.25.1.el9_8.x86_64-x86_64-with-glibc2.34",
+  "links": 44,
+  "resolved_slots": 1668,
+  "paths": 911,
+  "modulations": 4,
+  "lightpaths": 2762,
+  "occupancy": 0.6440313458442688,
+  "initial_accepted_services": [
+    2762,
+    2582,
+    2574,
+    2570,
+    2550,
+    2624,
+    2687,
+    2760,
+    2426,
+    2637,
+    2575,
+    2259,
+    2615,
+    2684,
+    2607,
+    2400
+  ],
+  "warmup_timing": {},
+  "metrics": {
+    "mask": {
+      "compile_s": 5.550387221388519,
+      "median_ms": 52.99549223855138,
+      "min_ms": 52.847011014819145,
+      "argument_bytes": 28182720,
+      "output_bytes": 800664,
+      "temp_bytes": 164947376,
+      "alias_bytes": 0,
+      "valid_actions_per_env": [
+        8,
+        251,
+        0,
+        566,
+        492,
+        0,
+        113,
+        15,
+        308,
+        64,
+        0,
+        116,
+        264,
+        27,
+        327,
+        0
+      ]
+    },
+    "rollout": {
+      "compile_s": 6.572785542346537,
+      "median_ms": 473.1807615607977,
+      "min_ms": 471.9398086890578,
+      "argument_bytes": 75982976,
+      "output_bytes": 75983840,
+      "temp_bytes": 153396240,
+      "alias_bytes": 0,
+      "steps_per_s": 270.5097298922066,
+      "accepted_services": [
+        2766,
+        2588,
+        2580,
+        2575,
+        2558,
+        2630,
+        2693,
+        2766,
+        2431,
+        2642,
+        2578,
+        2267,
+        2621,
+        2688,
+        2614,
+        2405
+      ],
+      "distinct_final_requests": 15
+    }
+  },
+  "accuracy": {
+    "mask_0": {
+      "exact": true,
+      "max_abs_error": 0.0
+    },
+    "mask_1": {
+      "exact": true,
+      "max_abs_error": 0.0
+    },
+    "mask_2": {
+      "exact": true,
+      "max_abs_error": 0.0
+    },
+    "rollout_rewards": {
+      "exact": true,
+      "max_abs_error": 0.0
+    },
+    "rollout_occupancy": {
+      "exact": true,
+      "max_abs_error": 0.0
+    }
+  },
+  "xpm_backend": "pallas_grouped",
+  "step_xpm_backend": "pallas_grouped",
+  "candidate_snr_backend": "pallas",
+  "xpm_tile": [
+    16,
+    32,
+    4
+  ],
+  "path_tile": null,
+  "path_snr_backend": "pallas_precomputed",
+  "compiler_profile": "library",
+  "full_format_pruning": true,
+  "new_lightpath_prefilter": true,
+  "pack_old_predicates": true,
+  "reuse_screened_power": true,
+  "narrow_new_snr": true,
+  "reuse_unaffected_snr": true,
+  "compact_snr_updates": true,
+  "screen_batch_size": 512,
+  "xla_flags": "--xla_gpu_cuda_data_dir=/apps/cuda/cuda-11.8.0 --xla_gpu_enable_triton_gemm=false --xla_gpu_autotune_level=0"
+}

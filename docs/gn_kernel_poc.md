@@ -366,6 +366,114 @@ are excluded above. Reports, source hashes, native-test output and CUDA
 statistics are in `predicates/`, with the
 [W&B comparison](https://forge.coreweave.com/wandb/micdoh/XLRON-GN-CLS/runs/su5mbb8j).
 
+### Further H100 profiling and mask iterations
+
+Follow-up experiments use isolated source copies on Malmö H100 NVL GPUs 0/1,
+with preallocation disabled and a 25% JAX pool. The live PPO and heuristic
+sources remain frozen. Compare each variant with its own paired H100 control;
+do not multiply these gains by the A100 measurements above.
+
+The path-SNR tile sweep (64/128/256 columns, two/four/eight warps) produced no
+convincing gain: its best result was less than 1% faster, while 64 columns/four
+warps was about 5% slower. The existing 128-column/four-warp tile remains.
+Reusing the exact fibre-power screening verdict and calculating only the two
+new-path margin outputs removed duplicate work, but their isolated paired
+rollout gain was only about 1.5% (230.77 to 234.28 transitions/s).
+
+A separate reuse mode caches baseline path SNR only for paths with **no link
+in common** with a candidate. Cached predicates still reject an invalid old
+path; every intersecting path recomputes SNR across all its links. Tests include
+both an already-invalid disjoint path and degradation on another shared link.
+Together with power/endpoint reuse, this measured 228.92 to 241.49 transitions/s
+in its paired run. A new Pallas variant that reads changed SNR rows directly
+avoids a full candidate scatter and is exactly equivalent, but its extra
+indirection lost throughput: 231.20 transitions/s with reuse versus 241.49
+without that kernel. It is retained as an opt-in experiment, not selected.
+
+Nsight also showed thousands of short launches around endpoint screening.
+Screening two new-channel outputs has a much smaller workspace than the full
+old-path solve, so these phases now have independently tunable batch sizes.
+The full solve remains at 64 candidates while screening can use larger batches:
+
+| Endpoint screen batch | Mask ms | Environment transitions/s |
+|---|---:|---:|
+| 32 | 84.05 | 181.40 |
+| 64, paired control | 65.07 | 226.87 |
+| 128 | 55.69 | 260.20 |
+| 256 | 52.86 | 269.52 |
+| 512 | 52.63 | 273.77 |
+
+This is a **20.67%** rollout improvement with exactly matching recorded masks,
+formats, rewards and final occupancy. Mask temporary storage remains about
+136.48 MiB; the 512-screen mask compiles in 5.54 seconds. In the ten-mask
+profile, screen-stage kernel invocations fall from 3,280 to 750 and CUDA graph
+launches from 5,430 to 2,900. These counts include tail padding, so they need not
+fall by the nominal batch-size ratio. Profiling times are excluded from the
+performance table.
+
+Extending the screen sweep to 1,024 and 2,048 candidates did not help: a fresh
+control measured 230.71 transitions/s, 512 measured 271.95, 1,024 measured
+260.33 and 2,048 measured 232.82. Larger batches add padded candidate work;
+reported peak temporary storage remains about 136.49 MiB. The selected screen
+batch remains 512.
+
+The final combined confirmation uses the 512-candidate screen, 64-candidate
+full solve, duplicate-predicate packing, power/endpoint reuse and disjoint-path
+SNR reuse. Ten synchronized samples follow three warm executions per phase:
+
+| Confirmation variant | Mask ms | Environment transitions/s |
+|---|---:|---:|
+| Current packed control | 63.85 | 230.11 |
+| Combined optimizations | 50.52 | 285.01 |
+| Combined plus direct-row kernel | 53.00 | 270.51 |
+| Control repeated after the variants | 64.96 | 228.94 |
+
+The selected version improves rollout throughput **23.86%** over the first
+control (24.49% over the repeated control). All recorded physical outputs are
+exactly equal; control drift is about 0.5%. Mask temporary storage rises from
+136.48 to 154.85 MiB. The extra-indirection kernel remains disabled. This table
+is environment-only; the separate PPO comparison below includes inference,
+observation refresh, advantages and learning.
+
+The new matched H100 PPO comparison uses 16 environments, 64-step rollouts,
+lifetime+SNR dense-128 transformers, the modulation residual, one epoch and
+eight minibatches. Each phase repeats identical initial policy/state/RNG inputs,
+with two warm executions and three synchronized measured samples:
+
+| PPO benchmark phase | Packed control transitions/s | Optimized transitions/s |
+|---|---:|---:|
+| Policy rollout plus advantages | 210.42 | 258.54 |
+| Same rollout plus full PPO | 207.73 | 252.28 |
+
+Full PPO improves **21.45%**, from 4.9295 to 4.0589 seconds per 1,024 collected
+transitions. Minibatch updates improve from 1.623 to 1.971 per second. Both
+versions produce exactly equal final environment states, and all PPO loss
+values and learned parameter arrays remain finite. The full PPO executable
+compiles in 15.43 seconds for the control and 15.17 seconds for the optimized
+version. The compiled PPO temporary-storage estimate is unchanged at about
+2.27 GiB. This is a throughput experiment, not an additional learning trial.
+
+The [combined mask benchmark](https://forge.coreweave.com/wandb/micdoh/XLRON-GN-CLS/runs/l4gknvqq),
+[PPO control](https://forge.coreweave.com/wandb/micdoh/XLRON-GN-CLS/runs/wgxi26be)
+and [optimized PPO](https://forge.coreweave.com/wandb/micdoh/XLRON-GN-CLS/runs/7aptgmoq)
+contain the reports. Reviewed evidence is in `iterations/confirmation`,
+`iterations/ppo-control` and `iterations/ppo-optimized`.
+
+All new controls, including unsuccessful variants, are logged to W&B with raw
+output artifacts. Reviewed JSON/CUDA statistics and native-test outputs are in
+`iterations/`. CPU path/mask checks pass **49 tests (25 native-only skips)**;
+the native link-update/cache gate passes **42 tests**, and the six new
+screen-batch cases pass natively. A real PPO/checkpoint entrypoint smoke test
+with the new options also passes. These experiments leave production defaults
+unchanged; the benchmark wrappers expose `--screen-batch-size`,
+`--reuse-screened-power`, `--narrow-new-snr`, `--reuse-unaffected-snr` and
+`--compact-snr-updates` explicitly.
+
+Cached path evidence explicitly uses the same backend as candidate admission,
+independent of the observation SNR backend. An exact-threshold regression
+guards that distinction. Empty/dummy paths retain their existing link-0
+metadata convention and are recomputed, rather than classified as disjoint.
+
 Full PPO uses a different workload from the heuristic-action environment benchmark:
 16 environments, 64 rollout steps, lifetime+SNR dense-128 transformer, a
 modulation-aware actor head, strict float32 matrix multiplication, one epoch and

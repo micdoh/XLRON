@@ -1,0 +1,6 @@
+{
+  "gpu": 1,
+  "memory_fraction": 0.25,
+  "shared_capacity": true,
+  "preallocation": false
+}
