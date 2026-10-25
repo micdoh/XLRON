@@ -25,10 +25,14 @@ Two-seed means (4242/4243), service blocking by cause, in percent:
 | MSCL-KSP, one interfering route per pair | 24.701 | 4.797 | 29.498 |
 | MSCL-KSP, all stored routes | 25.376 | 6.837 | 32.212 |
 
-Thus MSCL's spectrum-blocking component improves, while the SNR component
-reverses the total ranking. This is consistent with a spectrum-only objective
-missing the cost of lost SNR headroom. It does not establish causality: the
-high-SNR-blocking replicas require the separate state audit below.
+MSCL's spectrum-blocking component improves, while the SNR component reverses
+the total ranking. The per-replica histories in `replica-history.json` locate
+the dominant effect more precisely: three of 32 MSCL-KSP n=1 replicas account
+for 96.80% of its SNR blocking. Its final mean service blocking is 29.497%,
+but its median is 25.130%; the three outliers end at 54.684%, 75.098% and
+89.047% blocking. ARBR's mean is 26.154%, median 26.181%, and range
+25.452–26.871%. No replica is excluded from any mean. A spectrum-only objective
+is a limitation, but does not by itself explain these prolonged outages.
 
 MSCL counts the future contiguous placements lost on overlapping routes, with
 uniform weights for slot widths up to the maximum demand. It does not count
@@ -83,3 +87,84 @@ guarantee lower long-run blocking. The width fix does not remove these checks
 or resolve this separate physical-state behavior. Existing checks must not be
 weakened merely to improve the reported score. See `physical-state-audit.json`
 for the saved-state measurements and expiry counterfactuals.
+
+## Captured departure transition
+
+A controlled full-mask replay starts from valid bootstrap replica 5 with the
+same future traffic key, then checks fresh, ordinary-JAX path SNR after every
+step. The initial source is frozen at 4cc76cc with the endpoint compiler fix;
+it deliberately retains the original heuristic scoring. No mask-valid action
+was subsequently rejected by the admission checks in these replays. This
+isolates the outage mechanism, rather than measuring the scoring fix's benefit.
+
+At ARBR replay step 19,338, action 1,045 is admitted. Every active lightpath
+passes immediately after insertion. A different lightpath then expires during
+generation of the next arrival, and a survivor falls below its modulation
+minimum. `arbr-departure-transition.json` records all three stages:
+
+| Stage | Minimum margin over all active lightpaths | SNR of the affected survivor |
+| --- | ---: | ---: |
+| Before insertion | +0.010203 dB | 8.824699 dB |
+| After admission, before expiry | +0.010203 dB | 8.827790 dB |
+| After expiry | −0.016310 dB | 8.751421 dB |
+
+The affected survivor is path 35 on links 2 and 24, with centre offset
+−7,934.75 GHz and required SNR 8.767731 dB. Path 30, on link 2 at
++9,534.75 GHz, expires. The insertion slightly improves this survivor; the
+departure causes its failure. Thus the captured event is not a new admission
+that the existing-channel mask should have rejected under its current rules.
+
+`departure-noise-decomposition.json` separates the terms on link 2:
+
+| Quantity | Before expiry | After expiry |
+| --- | ---: | ---: |
+| Amplifier ASE | 9.698138 µW | 9.933185 µW |
+| Nonlinear noise | 0.254198 µW | 0.251518 µW |
+| Compensating amplifier gain | 65.542994 | 67.131506 |
+
+Under the implemented ISRS-dependent gain model, removing the higher-frequency
+service reduces Raman transfer into the lower-frequency survivor. Required
+amplifier gain and ASE rise; the ASE increase exceeds the NLI reduction. An
+independent NumPy float64 evaluation of the amplifier/ASE expression agrees
+with these values. With Raman coupling disabled only for this diagnostic,
+the departure slightly improves SNR instead. This verifies the code path and
+arithmetic; it is not independent validation of the physical model or its
+per-slot power representation.
+
+The outage persists: at replay step 25,000, ARBR has rejected 5,289 consecutive
+arrivals. `disjoint-admission-probe.json` shows a candidate on link 0 with
+sufficient new-channel SNR, no collision and no power violation, but the
+existing failed path on links 2/24 triggers the global SNR check. Its SNR is
+unchanged by that disjoint insertion. The checks have not been relaxed.
+Matched MSCL replay reaches 25,000 steps with ten shorter outage episodes and
+no 100-rejection lock. These single-trajectory diagnostics are not a new
+heuristic ranking.
+
+Historical MSCL anomaly snapshots also fail a fresh ordinary-JAX solve despite
+passing cached SNR (`historical-mscl-state-health.json`). The older ARBR runs
+are internally consistent for their restricted-mask setting, but absence of a
+catastrophic replica in those 32 samples does not establish immunity. New
+full-mask ARBR results must therefore remain provisional.
+
+An optional `existing_snr_margin` now protects a target reserve during later
+admissions in both the mask and actual step. The default remains zero. When a
+departure has consumed some reserve, admissions preserve the remaining
+headroom without making an unchanged, still-physical disjoint path fail just
+because it is below the target buffer. The original modulation minimum still
+applies globally. This reduces one source of fragility but is not a guarantee
+against all future departures. It has not yet been shown to improve long-run
+blocking; margin comparisons must start from empty states and retain all
+replicas.
+
+Validation: the existing mask/GN regression selection passed 111 tests on CPU
+(seven CUDA/unsupported cases skipped). The reserve edge-case and diagnostics
+selection passed seven tests on CUDA, including predicate packing. A separate
+1668-slot gate built a state from empty with one accepted existing lightpath:
+ordinary JAX and the fused-endpoint/persistent-Pallas implementation both expose
+8,029 valid starts, with identical modulation masks; all 32 sampled valid actions
+are actually admitted. See `retained-reserve-fullcls-gate.json`. This sparse
+correctness check does not measure steady-state margin performance.
+
+The [W&B departure audit](https://forge.coreweave.com/wandb/micdoh/XLRON-GN-CLS/runs/5axcr2ae)
+contains the transition SNR trace, per-replica summary and plot, and the evidence
+artifact. The analysis uses `diagnostics/`, `replicas/` and `eval/` namespaces.

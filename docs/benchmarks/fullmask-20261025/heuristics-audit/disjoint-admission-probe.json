@@ -1,0 +1,24 @@
+{
+  "source": 0,
+  "destination": 1,
+  "path": 0,
+  "slot": 653,
+  "links": [
+    0
+  ],
+  "preexisting_failed_paths": [
+    35
+  ],
+  "preexisting_failed_links": [
+    2,
+    24
+  ],
+  "new_path_snr_db": 12.303709030151367,
+  "new_required_with_margin_db": 2.359628200531006,
+  "checks": [
+    false,
+    true,
+    false
+  ],
+  "preexisting_bad_snr_exactly_unchanged": true
+}

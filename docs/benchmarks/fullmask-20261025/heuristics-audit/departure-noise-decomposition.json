@@ -1,0 +1,78 @@
+{
+  "path": 35,
+  "slot": 196,
+  "threshold_db": 8.767730712890625,
+  "links": [
+    2,
+    24
+  ],
+  "stages": {
+    "before_insertion": {
+      "snr_db": 8.824699401855469,
+      "per_link": [
+        {
+          "link": 2,
+          "ase_w": 9.698137546365615e-06,
+          "nli_w": 2.541978574299719e-07,
+          "amplifier_gain_linear_float64": 65.54299425457387,
+          "ase_w_independent_float64": 9.698135691486589e-06,
+          "gn_sum_slot_power_w": 0.12309999689023243
+        },
+        {
+          "link": 24,
+          "ase_w": 2.2688489025313174e-06,
+          "nli_w": 5.9443522104629665e-08,
+          "amplifier_gain_linear_float64": 46.00073819916099,
+          "ase_w_independent_float64": 2.268848644251461e-06,
+          "gn_sum_slot_power_w": 0.12639999680686742
+        }
+      ]
+    },
+    "after_admission": {
+      "snr_db": 8.827790260314941,
+      "per_link": [
+        {
+          "link": 2,
+          "ase_w": 9.698137546365615e-06,
+          "nli_w": 2.541978574299719e-07,
+          "amplifier_gain_linear_float64": 65.54299425457387,
+          "ase_w_independent_float64": 9.698135691486589e-06,
+          "gn_sum_slot_power_w": 0.12309999689023243
+        },
+        {
+          "link": 24,
+          "ase_w": 2.2593433186557377e-06,
+          "nli_w": 5.962620264199359e-08,
+          "amplifier_gain_linear_float64": 45.80800989407802,
+          "ase_w_independent_float64": 2.2593428978044536e-06,
+          "gn_sum_slot_power_w": 0.12719999678665772
+        }
+      ]
+    },
+    "after_departure": {
+      "snr_db": 8.751420974731445,
+      "per_link": [
+        {
+          "link": 2,
+          "ase_w": 9.933184628607705e-06,
+          "nli_w": 2.515178607609414e-07,
+          "amplifier_gain_linear_float64": 67.13150615946915,
+          "ase_w_independent_float64": 9.9331814683301e-06,
+          "gn_sum_slot_power_w": 0.11989999697107123
+        },
+        {
+          "link": 24,
+          "ase_w": 2.2593433186557377e-06,
+          "nli_w": 5.962620264199359e-08,
+          "amplifier_gain_linear_float64": 45.80800989407802,
+          "ase_w_independent_float64": 2.2593428978044536e-06,
+          "gn_sum_slot_power_w": 0.12719999678665772
+        }
+      ]
+    }
+  },
+  "without_raman": {
+    "after_admission": 7.091541290283203,
+    "after_departure": 7.091652870178223
+  }
+}

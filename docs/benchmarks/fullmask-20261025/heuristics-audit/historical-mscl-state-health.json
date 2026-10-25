@@ -1,0 +1,26 @@
+[
+  {
+    "seed": 4242,
+    "replica": 2,
+    "cached": {
+      "bad_link_slots": 0,
+      "min_margin_db": 0.0004119873046875
+    },
+    "refreshed": {
+      "bad_link_slots": 432,
+      "min_margin_db": -1.556067705154419
+    }
+  },
+  {
+    "seed": 4243,
+    "replica": 9,
+    "cached": {
+      "bad_link_slots": 0,
+      "min_margin_db": 0.05083107948303223
+    },
+    "refreshed": {
+      "bad_link_slots": 303,
+      "min_margin_db": -0.21858501434326172
+    }
+  }
+]
