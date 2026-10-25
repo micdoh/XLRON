@@ -271,6 +271,11 @@ Forgetting step 3 will cause metrics to not appear in wandb dashboards.
 
 ## Testing
 
+Name unit-test files after their source module (`ppo_test.py` for `ppo.py`) and
+add new cases to the matching file. Use classes to group feature-specific cases.
+Integration tests belong in `tests/integration/test_<source_module>.py`.
+Put shared fixtures in `tests/helpers/`; do not import another test module.
+
 ```bash
 # Run all tests
 pytest . -v

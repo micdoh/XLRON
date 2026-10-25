@@ -14,9 +14,16 @@ import jax.numpy as jnp
 import numpy as np
 from absl.testing import absltest, parameterized
 
+from tests.helpers.rsa import (
+    rsa_4node_3_slot_request_test_setup,
+    rsa_nsfnet_4_test_setup,
+    rsa_nsfnet_16_test_setup,
+    rwa_4node_test_setup,
+    settings_rwa_4node,
+)
 from xlron.environments.dataclasses import *
 from xlron.environments.env_funcs import *
-from xlron.environments.env_funcs_test import *
+from xlron.environments.make_env import make
 from xlron.environments.rsa.rsa import *
 from xlron.environments.wrappers import *
 

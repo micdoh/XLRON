@@ -1,19 +1,23 @@
 import chex
 import jax
 import jax.numpy as jnp
+import numpy as np
+import pytest
 from absl.testing import absltest, parameterized
 
 # from xlron.environments.env_funcs import
-from xlron.environments.env_funcs_test import (
+from tests.helpers.rsa import (
     rsa_4node_3_slot_request_test_setup,
     rsa_nsfnet_4_test_setup,
     rsa_nsfnet_16_mod_test_setup,
     rsa_nsfnet_16_test_setup,
     rwa_4node_test_setup,
 )
-from xlron.environments.rwa_lightpath_reuse.rwa_lightpath_reuse_test import (
+from tests.helpers.rwa_lightpath_reuse import (
     rwa_lightpath_reuse_4_nsfnet_test_setup,
 )
+from xlron.environments.dataclasses import HashableArrayWrapper
+from xlron.environments.make_env import make
 
 # from xlron.environments.vone import *
 # from xlron.environments.rsa import *
@@ -14594,7 +14598,6 @@ def _bruteforce_capacity_loss(state, params, num_interfering_routes=1):
     import numpy as np
 
     from xlron.environments.env_funcs import get_paths, read_rsa_request
-
     from xlron.heuristics.heuristics import get_request_num_slots
 
     k = params.k_paths
@@ -14856,7 +14859,6 @@ class ExactFitBruteforceTest(chex.TestCase):
         import numpy as np
 
         from xlron.environments.env_funcs import get_paths, read_rsa_request
-
         from xlron.heuristics.heuristics import get_request_num_slots
 
         key, env, obs, state, params = rsa_4node_3_slot_request_test_setup(link_resources=10)
@@ -15097,6 +15099,47 @@ class ArbrFfNsfnetTest(chex.TestCase):
         )
         action = self.variant(arbr_ff, static_argnums=(1,))(self.state, self.params)
         chex.assert_trees_all_close(action, jnp.array(16))
+
+
+@pytest.mark.parametrize("packed", [False, True])
+@pytest.mark.parametrize("k", [1, 2])
+def test_mscl_ignores_gn_sentinel_and_preserves_capacity(packed, k):
+    from dataclasses import fields
+    from unittest.mock import patch
+
+    from xlron.environments.dataclasses import RSAEnvParams
+    from xlron.heuristics.heuristics import get_action_mask
+
+    env, params = make(
+        {
+            "env_type": "rmsa_gn_model",
+            "topology_name": "5node_directed",
+            "k": k,
+            "link_resources": 24,
+            "slot_size": 25,
+            "guardband": 0,
+            "values_bw": [100],
+            "power_per_channel": -10,
+            "pack_path_bits": packed,
+        },
+        log_wrapper=False,
+    )
+    _, state = env.reset(jax.random.PRNGKey(3), params)
+    state = state.replace(
+        link_slot_array=jnp.asarray(
+            np.random.default_rng(7).integers(0, 2, state.link_slot_array.shape),
+            dtype=state.link_slot_array.dtype,
+        )
+    )
+    mask = get_action_mask(state, params)
+    ordinary = RSAEnvParams(**{f.name: getattr(params, f.name) for f in fields(RSAEnvParams)})
+    ordinary = ordinary.replace(
+        path_link_array=HashableArrayWrapper(params.path_link_array.val[:-1])
+    )
+    with patch("xlron.heuristics.heuristics.get_action_mask", return_value=mask):
+        expected, _ = capacity_loss(state, ordinary, num_interfering_routes=k)
+        actual, _ = capacity_loss(state, params, num_interfering_routes=k)
+    np.testing.assert_array_equal(actual, expected)
 
 
 if __name__ == "__main__":

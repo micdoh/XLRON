@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 
 from xlron.environments.env_funcs import get_obs_transformer
-from xlron.environments.transformer_snr_test import setup
+from tests.helpers.gn_model import setup
 from xlron.models.spectrum_transformer import band_convolution, ordered_spectrum_summary
 from xlron.train.train_utils import _make_param_label_fn, init_network
 

@@ -31,7 +31,7 @@ def main():
     )
     hashes = {
         str(p): hashlib.sha256(p.read_bytes()).hexdigest()
-        for p in sorted(Path("xlron").rglob("*.py"))
+        for p in sorted([*Path("xlron").rglob("*.py"), *Path("tests").rglob("*.py")])
     }
     (args.output / "source_sha256.json").write_text(json.dumps(hashes, indent=2) + "\n")
     common = [

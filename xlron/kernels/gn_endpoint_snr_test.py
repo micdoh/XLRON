@@ -10,7 +10,7 @@ import pytest
 
 from xlron.environments import env_funcs
 from xlron.environments.dataclasses import HashableArrayWrapper
-from xlron.environments.transformer_snr_test import setup
+from tests.helpers.gn_model import setup
 from xlron.kernels import gn_endpoint_snr, gn_xpm_legacy
 
 

@@ -10,9 +10,9 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from xlron.environments.transformer_snr_test import setup
+from tests.helpers.gn_model import setup
 from xlron.environments.wrappers import LogWrapper
-from xlron.kernels.gn_initial_state import restore_physical_state
+from xlron.train.gn_initial_state import restore_physical_state
 
 
 @pytest.mark.slow

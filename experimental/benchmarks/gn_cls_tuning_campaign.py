@@ -285,7 +285,7 @@ def main():
         raise FileExistsError(f"Use a fresh output directory: {manifest_path}")
     if not args.dry_run and not args.resume_model.is_file():
         raise FileNotFoundError(args.resume_model)
-    paths = sorted(Path("xlron").rglob("*.py")) + sorted(
+    paths = sorted([*Path("xlron").rglob("*.py"), *Path("tests").rglob("*.py")]) + sorted(
         Path("experimental/benchmarks").glob("gn_cls*.py")
     )
     hashes = {str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in paths}

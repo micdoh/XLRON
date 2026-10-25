@@ -140,7 +140,7 @@ def main():
     if args.initial_env_state:
         from pathlib import Path
 
-        from xlron.kernels.gn_initial_state import restore_physical_state
+        from xlron.train.gn_initial_state import restore_physical_state
 
         original_data_setup = train_utils.experiment_data_setup
 
@@ -180,7 +180,7 @@ def main():
         state_digest = None
 
     if args.per_env_output:
-        from xlron.kernels.gn_campaign_diagnostics import install_diagnostics
+        from xlron.train.gn_campaign_diagnostics import install_diagnostics
 
         install_diagnostics(train_utils, args.per_env_output)
 

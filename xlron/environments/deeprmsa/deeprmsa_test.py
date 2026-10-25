@@ -3,9 +3,9 @@ import jax
 import jax.numpy as jnp
 from absl.testing import absltest, parameterized
 
+from tests.helpers.rsa import rsa_nsfnet_16_mod_test_setup
 from xlron.environments.dataclasses import *
 from xlron.environments.env_funcs import *
-from xlron.environments.env_funcs_test import *
 from xlron.environments.rsa.rsa import *
 from xlron.environments.wrappers import *
 

@@ -1,18 +1,25 @@
 """Unit tests for train_utils heuristic plumbing, schedules, and checkpointing."""
 
+import ast
 import io
+from pathlib import Path
+from types import SimpleNamespace
 
 import chex
 import equinox as eqx
 import jax
 import jax.numpy as jnp
+import numpy as np
+import pytest
 from absl.testing import absltest, parameterized
 from box import Box
 
+from experimental.benchmarks.gn_cls_tuning_campaign import HEURISTICS
 from xlron.environments.make_env import make
 from xlron.heuristics.heuristics import ksp_ff
 from xlron.models.mlp import ActorCriticMLP
 from xlron.train import ppo
+from xlron.train import train_utils as tu
 from xlron.train.train_utils import (
     diagnostics_metrics,
     get_sweep_rewarm_fn,
@@ -462,6 +469,156 @@ class LossInfoMetricRegistrationTest(absltest.TestCase):
                 if line.startswith(f'"{prefix}'):
                     key = line.split('"')[1]
                     self.assertIn(key, registered, f"loss_info key {key} not registered")
+
+
+def test_new_diagnostics_are_registered_in_wandb():
+    assert "diagnostics/current_log_valid_mass_mean" in diagnostics_metrics
+    assert "diagnostics/current_valid_mass_below_floor_frac" in diagnostics_metrics
+
+
+class TestLogMetrics:
+    @staticmethod
+    @pytest.mark.parametrize("mode", ["training", "heuristic", "model"])
+    @pytest.mark.parametrize("continuous", [True, False])
+    def test_evaluation_metric_registration_and_logged_values(monkeypatch, mode, continuous):
+        definitions, logs = {}, []
+        fake = SimpleNamespace(
+            setup=lambda *_: None,
+            Settings=lambda **kw: kw,
+            init=lambda **_: SimpleNamespace(name=None),
+            config=SimpleNamespace(update=lambda _: None),
+            define_metric=lambda name, **kw: definitions.update({name: kw}),
+            log=logs.append,
+        )
+        monkeypatch.setattr(tu, "wandb", fake)
+        c = Box(
+            dict(
+                EVAL_HEURISTIC=mode == "heuristic",
+                EVAL_MODEL=mode == "model",
+                continuous_operation=continuous,
+                LOG_ALL_INFO=False,
+                WANDB=True,
+                LOG_LOSS_INFO=False,
+                DOWNSAMPLE_FACTOR=2,
+                STEPS_PER_INCREMENT=8,
+                NUM_ENVS=2,
+                NUM_LEARNERS=1,
+            )
+        )
+        tu.setup_wandb(c, "project", "name")
+        stats = {
+            key: np.arange(1, 5, dtype=float) for key in ("mean", "std", "iqr_upper", "iqr_lower")
+        }
+        stats.update(
+            {
+                "episode_end_" + key: np.array([0.25, 0.5])
+                for key in ("mean", "std", "iqr_upper", "iqr_lower")
+            }
+        )
+        processed = {
+            metric: {k: v.copy() for k, v in stats.items()}
+            for metric in (
+                "service_blocking_probability",
+                "bitrate_blocking_probability",
+                "accepted_services",
+                "accepted_bitrate",
+            )
+        }
+        monkeypatch.setattr(
+            tu, "process_metrics", lambda *_: ({}, None, processed, np.ones(2, bool))
+        )
+        tu.log_metrics(
+            c, {"runner_state": (None, None)}, 0, 1, lambda x: x, step_count=100, episode_count=7
+        )
+        name = "eval/service_blocking_probability_mean"
+        if mode == "training":
+            expected = (
+                "train/service_blocking_probability_mean"
+                if continuous
+                else "train/service_blocking_probability_episode_end_mean"
+            )
+            assert expected in logs[0] and name not in logs[0]
+            assert "performance/time_s" in logs[0]
+        else:
+            assert name in logs[0]
+            assert "service_blocking_probability_mean" not in definitions
+            assert "eval/time_s" in logs[0] and "training_time" not in logs[0]
+            assert not any(k.startswith("service_blocking_probability_") for k in logs[0])
+            assert definitions[name]["step_metric"] == (
+                "env_step" if continuous else "episode_count"
+            )
+            assert float(logs[0][name]) == (1.5 if continuous else 0.25)
+        assert logs[-1]["performance/environment_transitions_per_s"] == 8
+        for row in logs:
+            for key in row:
+                assert "/" in key or definitions[key]["hidden"] is True
+        assert all(
+            "/" in key or definition.get("hidden") for key, definition in definitions.items()
+        )
+
+
+@pytest.fixture(scope="module")
+def gn_setup():
+    env, params = make(
+        {
+            "env_type": "rmsa_gn_model",
+            "topology_name": "5node_directed",
+            "k": 2,
+            "link_resources": 24,
+            "slot_size": 25,
+            "guardband": 0,
+            "values_bw": [100],
+            "power_per_channel": -10,
+            "max_requests": 100,
+            "include_no_op": False,
+        }
+    )
+    obs, state = env.reset(jax.random.PRNGKey(3), params)
+    return env, params, obs, state
+
+
+class TestSelectActionEvalGn:
+    @staticmethod
+    def test_inventory_matches_actual_dispatch():
+        source = Path("xlron/train/train_utils.py").read_text()
+        function = next(
+            n
+            for n in ast.parse(source).body
+            if isinstance(n, ast.FunctionDef) and n.name == "select_action_eval"
+        )
+        actual = {
+            node.comparators[0].value
+            for node in ast.walk(function)
+            if isinstance(node, ast.Compare)
+            and "path_heuristic" in ast.unparse(node.left)
+            and isinstance(node.comparators[0], ast.Constant)
+        }
+        assert actual == set(HEURISTICS)
+
+    @staticmethod
+    @pytest.mark.parametrize("heuristic", HEURISTICS)
+    def test_all_heuristics_select_and_step_with_gn(gn_setup, heuristic):
+        env, params, obs, state = gn_setup
+        config = Box(
+            {
+                "EVAL_HEURISTIC": True,
+                "env_type": "rmsa_gn_model",
+                "path_heuristic": heuristic,
+                "launch_power_type": "fixed",
+            }
+        )
+        # Use an occupied state as well as an empty one: the GN modulation mask and
+        # the sentinel row must remain valid after an accepted placement.
+        for i in range(2):
+            state, action, _, _ = select_action_eval(
+                (jax.random.PRNGKey(i), state, obs), env, params, None, config
+            )
+            assert action.shape == (2,)
+            index = int(action[0])
+            assert 0 <= index < params.k_paths * params.link_resources
+            assert np.asarray(state.env_state.link_slot_mask)[index] > 0
+            obs, state, *_ = env.step(jax.random.PRNGKey(i + 50), state, action, params)
+        assert int(state.env_state.accepted_services) == 2
 
 
 if __name__ == "__main__":

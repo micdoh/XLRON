@@ -8,7 +8,7 @@ import numpy as np
 import optax
 import pytest
 
-from xlron.environments.transformer_snr_test import setup
+from tests.helpers.gn_model import setup
 from xlron.environments.dataclasses import RMSAGNModelEnvState
 from xlron.environments.wrappers import LogWrapper
 from xlron.models.modulation_actor import ModulationAwareActorCritic, candidate_modulation_features

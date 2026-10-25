@@ -10,7 +10,7 @@ import pytest
 from xlron.environments.gn_model import isrs_gn_model as gn
 from xlron.kernels import gn_xpm_legacy
 from xlron.kernels.gn_xpm_numerics import scaled_xpm_inputs
-from xlron.kernels.gn_xpm_test import PARAMS, inputs
+from tests.helpers.gn_xpm import PARAMS, inputs
 
 
 def reference(power, frequency, bandwidth, physics):

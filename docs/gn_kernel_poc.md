@@ -866,6 +866,22 @@ Pallas Triton is deprecated; the slower Mosaic port is not yet a replacement for
 performance purposes. Custom-call reverse-mode AD is not implemented. Differentiable
 physical-model optimization must use the supported JAX path.
 
+## Source and test organization
+
+Unit-test filenames now follow the source module. Full-mask, selected-link-SNR,
+observation and noise-array cases are grouped in `xlron/environments/env_funcs_test.py`;
+valid-mass cases are in `xlron/train/ppo_test.py`, metric/heuristic-dispatch cases in
+`xlron/train/train_utils_test.py`, and pooling cases in `xlron/models/transformer_test.py`.
+The training entrypoint suite is `xlron/train/train_test.py`. Native admission
+integration cases live in `tests/integration/test_env_funcs.py`.
+
+Shared environment/XPM fixtures live in `tests/helpers/`, independently of test
+collection. GN bootstrap and campaign-diagnostic source/test pairs live under
+`xlron/train/`; `xlron/kernels/` retains numerical kernels and their benchmarks.
+Benchmark fingerprints include the shared test support, and current preflight
+commands use the module-specific test classes. Historical benchmark artifacts
+retain the filenames, commands and source hashes used for their recorded runs.
+
 ## Reproduction and evidence
 
 Raw reports are under `docs/benchmarks/gn_kernel_v2_20261024/`,

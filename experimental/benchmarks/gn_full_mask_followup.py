@@ -63,7 +63,7 @@ def main():
     try:
         hashes = {
             str(p): hashlib.sha256(p.read_bytes()).hexdigest()
-            for p in sorted(Path("xlron").rglob("*.py"))
+            for p in sorted([*Path("xlron").rglob("*.py"), *Path("tests").rglob("*.py")])
         }
         (args.output / "source_sha256.json").write_text(json.dumps(hashes, indent=2) + "\n")
         run(
@@ -76,7 +76,8 @@ def main():
                 "-m",
                 "pytest",
                 "-q",
-                "xlron/environments/gn_model/all_slot_mask_test.py",
+                "xlron/environments/env_funcs_test.py::TestMaskSlotsRmsaGnModel",
+                        "xlron/environments/env_funcs_test.py::TestGetSnrLinkArray",
                 "xlron/models/modulation_actor_test.py",
                 "xlron/kernels/gn_predicate_pack_test.py",
                 "xlron/kernels/gn_path_snr_test.py::test_packed_old_path_still_rejects_degradation_on_another_shared_link",

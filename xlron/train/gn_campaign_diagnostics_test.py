@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import numpy as np
 from box import Box
 
-from xlron.kernels.gn_campaign_diagnostics import install_diagnostics, per_env_record
+from xlron.train.gn_campaign_diagnostics import install_diagnostics, per_env_record
 
 
 def metrics():

@@ -166,7 +166,7 @@ def main():
             json.dumps(
                 {
                     str(p): hashlib.sha256(p.read_bytes()).hexdigest()
-                    for p in sorted(Path("xlron").rglob("*.py"))
+                    for p in sorted([*Path("xlron").rglob("*.py"), *Path("tests").rglob("*.py")])
                 },
                 indent=2,
             )
@@ -193,7 +193,8 @@ def main():
                         "--no-sync",
                         "pytest",
                         "-q",
-                        "xlron/environments/gn_model/all_slot_mask_test.py",
+                        "xlron/environments/env_funcs_test.py::TestMaskSlotsRmsaGnModel",
+                        "xlron/environments/env_funcs_test.py::TestGetSnrLinkArray",
                         "xlron/kernels/gn_path_snr_test.py",
                         *(
                             [
