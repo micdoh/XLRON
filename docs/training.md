@@ -407,6 +407,38 @@ refresh the SNR cache after departures, once per generated request, outside neur
 network forward/backward passes. `departure_snr` also retains the request holding
 time feature. Other environment types reject SNR observation modes.
 
+The GN modes retain the same token layout: graph spectral coordinates, slot
+features, two endpoint traffic marginals, then request-specific features. For the
+full C+L+S NSFNET campaign (44 directed links, 1,668 slots, eight WiRE coordinates),
+the actor inputs have these shapes:
+
+| Observation | Shape | Slot features |
+|---|---|---|
+| `snr` | `44 × 1683` | 1,668 normalized SNR values |
+| `occupancy_snr` | `44 × 3351` | 1,668 occupancy values + 1,668 SNR values |
+| `departure_snr` | `44 × 3352` | 1,668 normalized departure values + 1,668 SNR values |
+
+Occupancy is passed directly: zero for free slots, one for occupied slots and
+minus one for permanent band gaps. The two traffic features sum the endpoint
+send/receive shares after each node marginal is normalized to sum to one.
+Requested bandwidth is divided by the largest configured bandwidth; four
+bounded link-relevance features describe the candidate paths through each link.
+The critic drops these five request-specific columns. Departure modes add a
+sixth request-specific column for the new request's holding time. Departures and
+holding times are divided by the mean holding time; with relative arrival times,
+active departure entries represent remaining lifetimes and are not clipped to
+one. Graph coordinates are signed, unit-norm Laplacian eigenvectors. These are
+fixed feature scales, without running observation standardization; the learned
+input projection is followed by GELU and LayerNorm.
+
+SNR-only observations contain current per-link SNR, rather than predicted
+post-allocation end-to-end SNR margins. Empty slots, band gaps and occupied slots
+at or below zero dB all have zero SNR features. Values at or above `max_snr`
+saturate at one. This makes occupancy implicit and loses band-gap distinctions;
+neither SNR-only nor occupancy+SNR includes remaining lifetimes. The action mask
+is applied separately during action selection and is not concatenated into the
+tokens. Normalizing SNR therefore does not make it a complete network state.
+
 ### Slot Aggregation
 
 #### `--aggregate_slots`

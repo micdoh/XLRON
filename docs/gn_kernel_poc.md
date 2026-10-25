@@ -192,8 +192,12 @@ among nonempty masks. This change affects policy optimization only; the full
 GN admission calculation is retained.
 
 After the user requested the transformer paper's stabilization stack, unstarted
-on-policy long-horizon trials were superseded. Active children were allowed to
-finish. The replacement `gn_cls_stabilized_campaign` starts all five trials from
+on-policy long-horizon trials were superseded. The active SNR-only control
+reached its full 8,388,608-step budget, but controller replacement interrupted
+final logging. Its 128 per-environment increment records and checkpoint are
+preserved; W&B retains its crashed status with explicitly labeled recovery
+counters. It is excluded from completed-run evaluation summaries. The
+replacement `gn_cls_stabilized_campaign` starts all five trials from
 the same selected occupancy+SNR checkpoint, with 16,777,216 additional steps per
 trial and separate comparison seeds 4242/4243 (4244 for selection). Both GPUs
 prioritize the observation mode that has improved most.
