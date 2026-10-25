@@ -21,45 +21,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--gpu", type=int, choices=(2, 3), required=True)
-    parser.add_argument("--lane", choices=("train", "heuristics_then_train"), required=True)
-    parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--project", default="XLRON-GN-CLS")
-    parser.add_argument("--entity", default="micdoh")
-    parser.add_argument("--group", default="gn-cls-20261024")
-    parser.add_argument("--wandb-app-url", help="Override the configured W&B application URL")
-    parser.add_argument("--train-timesteps", type=int, default=10_485_760)
-    parser.add_argument("--eval-timesteps", type=int, default=524_288)
-    parser.add_argument("--warmup", type=int, default=25_000)
-    parser.add_argument("--load", type=float, default=5000.0)
-    parser.add_argument("--pool-before-projection", action="store_true")
-    parser.add_argument("--dry-run", action="store_true")
-    args = parser.parse_args()
-    app_url = args.wandb_app_url
-    if app_url is None and not args.dry_run:
-        import wandb
-
-        app_url = wandb.Settings(base_url=wandb.Api(timeout=30).settings["base_url"]).app_url
-    app_url = (app_url or "https://wandb.ai").rstrip("/")
-    output = args.output.resolve()
-    output.mkdir(parents=True, exist_ok=True)
-    if not args.dry_run:
-        used = int(
-            subprocess.check_output(
-                [
-                    "nvidia-smi",
-                    f"--id={args.gpu}",
-                    "--query-gpu=memory.used",
-                    "--format=csv,noheader,nounits",
-                ],
-                text=True,
-            ).strip()
-        )
-        if used > 512:
-            raise RuntimeError(f"GPU {args.gpu} has {used} MiB allocated; refusing to start")
-
+def build_common(args):
+    """Keep the physical workload identical across campaigns and execution modes."""
     common = [
         "uv",
         "run",
@@ -107,6 +70,49 @@ def main():
     ]
     if args.pool_before_projection:
         common.append("--pool-before-projection")
+    return common
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--gpu", type=int, choices=(2, 3), required=True)
+    parser.add_argument("--lane", choices=("train", "heuristics_then_train"), required=True)
+    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--project", default="XLRON-GN-CLS")
+    parser.add_argument("--entity", default="micdoh")
+    parser.add_argument("--group", default="gn-cls-20261024")
+    parser.add_argument("--wandb-app-url", help="Override the configured W&B application URL")
+    parser.add_argument("--train-timesteps", type=int, default=10_485_760)
+    parser.add_argument("--eval-timesteps", type=int, default=524_288)
+    parser.add_argument("--warmup", type=int, default=25_000)
+    parser.add_argument("--load", type=float, default=5000.0)
+    parser.add_argument("--pool-before-projection", action="store_true")
+    parser.add_argument("--dry-run", action="store_true")
+    args = parser.parse_args()
+    app_url = args.wandb_app_url
+    if app_url is None and not args.dry_run:
+        import wandb
+
+        app_url = wandb.Settings(base_url=wandb.Api(timeout=30).settings["base_url"]).app_url
+    app_url = (app_url or "https://wandb.ai").rstrip("/")
+    output = args.output.resolve()
+    output.mkdir(parents=True, exist_ok=True)
+    if not args.dry_run:
+        used = int(
+            subprocess.check_output(
+                [
+                    "nvidia-smi",
+                    f"--id={args.gpu}",
+                    "--query-gpu=memory.used",
+                    "--format=csv,noheader,nounits",
+                ],
+                text=True,
+            ).strip()
+        )
+        if used > 512:
+            raise RuntimeError(f"GPU {args.gpu} has {used} MiB allocated; refusing to start")
+
+    common = build_common(args)
     jobs = []
     if args.lane == "heuristics_then_train":
         for heuristic in ("ksp_ff", "ff_ksp", "ksp_mscl", "mscl_ksp"):

@@ -1114,11 +1114,10 @@ def capacity_loss(
         raise ValueError(
             f"num_interfering_routes must be in [1, k_paths={params.k_paths}], got {n_int}"
         )
-    pair_major_rows = (
-        np.arange(params.path_link_array.val.shape[0])
-        .reshape(-1, params.k_paths)[:, :n_int]
-        .reshape(-1)
-    )
+    # GN appends one zero row for path_index_array == -1. It is not a
+    # node-pair route, including when k_paths == 1 makes the shape divisible.
+    num_route_rows = params.path_link_array.val.shape[0] - int(isinstance(params, GNModelEnvParams))
+    pair_major_rows = np.arange(num_route_rows).reshape(-1, params.k_paths)[:, :n_int].reshape(-1)
     interfering_paths = params.path_link_array.val[pair_major_rows]
     if params.pack_path_bits:
         interfering_paths = jnp.unpackbits(interfering_paths, axis=1)[:, : params.num_links]

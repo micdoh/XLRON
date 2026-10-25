@@ -20,6 +20,10 @@ from xlron.train.compilation import configure_jax_runtime
 
 def main():
     parser = argparse.ArgumentParser(add_help=False, allow_abbrev=False)
+    parser.add_argument("--initial-model", help="Load these weights while saving to --MODEL_PATH")
+    parser.add_argument(
+        "--per-env-output", help="Record per-environment blocking and anomaly states"
+    )
     parser.add_argument("--pool-before-projection", action="store_true")
     parser.add_argument(
         "--step-xpm-backend", choices=["jax", "pallas", "pallas_grouped"], default="jax"
@@ -58,6 +62,21 @@ def main():
     from xlron.environments.gn_model import isrs_gn_model
     from xlron.train import train_utils
 
+    if args.initial_model:
+        original_load_model = train_utils.load_model
+
+        def load_initial_model(config, key):
+            initial_config = config.copy()
+            initial_config.MODEL_PATH = args.initial_model
+            return original_load_model(initial_config, key)
+
+        train_utils.load_model = load_initial_model
+
+    if args.per_env_output:
+        from xlron.kernels.gn_campaign_diagnostics import install_diagnostics
+
+        install_diagnostics(train_utils, args.per_env_output)
+
     if args.pool_before_projection:
         train_utils.ActorCriticTransformer = partial(
             train_utils.ActorCriticTransformer, pool_before_projection=True
@@ -77,6 +96,8 @@ def main():
                 "kernel_path_tile": args.path_tile,
                 "pool_before_projection": args.pool_before_projection,
                 "experiment_source_fingerprint": os.environ.get("XLRON_SOURCE_FINGERPRINT"),
+                "initial_checkpoint": args.initial_model,
+                "optimizer_restored": False if args.initial_model else None,
             }
         )
 

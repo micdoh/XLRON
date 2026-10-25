@@ -125,6 +125,55 @@ the four heuristics followed by the SNR-only transformer; lane 3 runs the
 occupancy+SNR transformer. Both lanes evaluate their selected checkpoint on
 held-out traffic after training.
 
+The v5 runs finished at approximately **1,410 training steps/s** for SNR-only
+and **1,354 steps/s** for occupancy+SNR (execution only). Both completed
+10,485,760 steps. KSP-MSCL and MSCL-KSP failed because their capacity-loss
+calculation reshaped the GN sentinel path row as a real route. The fix excludes
+that single appended row, including with one path or packed path bits, and
+preserves ordinary RSA capacity losses.
+
+The initial blocking comparison is inconclusive: some replicas have unusually
+high SNR blocking. SNR-only model service blocking was 30.72% / 35.66% on seeds
+4242 / 4243; occupancy+SNR was 30.67% / 36.62%. KSP-FF and FF-KSP measured
+35.17% / 34.62% on seed 4242, with large between-replica dispersion. Their bitrate
+blocking was 45.57% / 45.81%, versus model two-seed means of 46.09% / 46.42%.
+This does not establish that PPO beats either heuristic. The SNR outlier cause
+has not been established and is retained in the reported metrics.
+
+The follow-up `experimental.benchmarks.gn_cls_tuning_campaign` covers **all 23
+implemented CLI heuristic choices**, each on seeds 4242/4243, plus both MSCL
+heuristics with all stored interfering routes: **50 heuristic evaluations**.
+The unique/non-relative most-used choices are included even where they coincide
+for this environment. The unimplemented `ksp_ff_multiband` stub is excluded.
+All runs retain the same full C+L+S, 1,668-slot, coherent, load-5,000 workload,
+25,000-request warmup and full physical admission checks.
+
+Each observation mode then continues its existing best checkpoint through
+three 8,388,608-step trials. The first uses LR 1e-4, entropy 0.005 and 128-step
+rollouts. The second uses on-policy masking and clip 0.1. The third uses
+256-step rollouts, gamma 0.9995, lambda 0.995, LR 5e-5, entropy 0.002 and reward
+centering. The third trial starts from the best initial/first/second checkpoint
+on selection seed 4244; comparison seeds 4242/4243 are evaluated separately.
+Optimizer state is restarted; actor and critic weights are retained. Source
+checkpoints are preserved and new checkpoints have separate paths.
+
+There are **76 jobs** across two queued workers: 50 heuristic evaluations,
+six training trials and 20 model evaluations. Exact plans and statuses are at
+`/tmp/xlron-gn-kernel-v2-20261024/runs/cls-20261025-v6/{lane2,lane3}/manifest.json`
+on Turin. Workers wait for GPUs 2/3 to have at most 512 MiB allocated, take an
+advisory lease against our other campaign workers, and check allocation before
+every child. Both GPUs were occupied by another user when queued; no full-sized
+v6 run had started at that point. Online runs use W&B group
+`gn-cls-20261025-all-heuristics-tuning` in
+[XLRON-GN-CLS](https://forge.coreweave.com/wandb/micdoh/XLRON-GN-CLS).
+
+The opt-in host recorder saves each replica's cumulative post-warmup blocking,
+a final W&B table and the first physical-state snapshot with SNR blocking over
+10%. This makes the outliers inspectable without filtering them or changing
+admission behavior. All 23 GN heuristic smoke checks, packed/unpacked sentinel
+regressions, existing MSCL capacity-loss checks and an actual adjusted-HP PPO
+checkpoint continuation pass on CPU. Native v6 CUDA validation awaits a free GPU.
+
 Latest CPU GN/kernel/observation/projection checks: **177 passed, 70 skipped,
 two expected issue-64 failures**. The two SNR PPO smoke tests and a separate
 campaign optimizer/checkpoint round trip also pass. Native suite results are
