@@ -214,7 +214,25 @@ For `rmsa_gn_model`, modulation formats are loaded from a CSV file. Each format 
 
 The number of slots required for a request is `ceil(requested_bandwidth / (slot_size * spectral_efficiency))`.
 
-The SNR margin parameter (`--snr_margin`, default 1 dB) is added to the `minimum_osnr` threshold when checking whether a channel's SNR is sufficient.
+The admission margin (`--snr_margin`, default 0.5 dB) is added to the modulation
+threshold for a new lightpath. By default, subsequent admissions need only keep
+existing lightpaths above their modulation minima; they can consume that initial
+buffer. Departures can also change ISRS tilt and reduce surviving channels' SNR.
+
+`--existing_snr_margin` (default 0 dB) optionally retains a reserve during later
+admissions. With modulation threshold `T`, fresh pre-admission SNR `B` and target
+reserve `R`, an old lightpath must remain above `max(T, min(T + R, B))`. Thus
+admissions protect the target buffer while it is available, and cannot further
+consume it if departures have already reduced it. A partly consumed reserve
+does not itself block an unchanged, unrelated lightpath. Actual SNR below `T`
+still fails the original global physical check.
+
+Set `0 <= existing_snr_margin <= snr_margin`; for example,
+`--snr_margin=2 --existing_snr_margin=1`. The reserve is enforced in both masking
+and actual admission, including all hops of affected existing paths. Increasing
+it trades some new admissions for headroom; it is not a guarantee against every
+future departure pattern. Compare existing-channel outages as well as request
+blocking when tuning it.
 
 Default formats for the GN model environments (from `modulations_gn_model.csv`):
 
@@ -700,7 +718,8 @@ The per-channel Raman gain varies across the spectrum (typically higher for L-ba
 
 | Flag | Default | Units | Description |
 |---|---|---|---|
-| `--snr_margin` | 1 | dB | Margin added to modulation format SNR thresholds |
+| `--snr_margin` | 0.5 | dB | Required SNR headroom at new-lightpath admission |
+| `--existing_snr_margin` | 0 | dB | Target reserve preserved on existing lightpaths; capped by their fresh pre-admission headroom and never below their modulation minimum |
 | `--mod_format_correction` | False | -- | Enable modulation-format-dependent NLI correction |
 | `--modulations_csv_filepath` | (built-in) | -- | Path to modulation formats CSV file |
 | `--calc_minimum_osnr` | False | -- | Calculate `minimum_osnr` from spectral efficiency using GSNR threshold formula (ignores CSV values) |

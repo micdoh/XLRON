@@ -273,6 +273,7 @@ DEFAULTS = {
     "span_length": 100,
     "span_lumped_loss_db": None,
     "snr_margin": 0.5,
+    "existing_snr_margin": 0.0,
     "launch_power_type": "fixed",
     "max_power_per_fibre": 13.0,
     "power_per_channel": None,
@@ -1720,6 +1721,14 @@ def physical_layer_section() -> dict:
             help=_h("snr_margin"),
         )
         _emit(flags, "snr_margin", snr_m)
+        existing_snr_m = st.number_input(
+            "Existing Lightpath SNR Reserve (dB)",
+            min_value=0.0,
+            value=float(_get_preset_val("existing_snr_margin")),
+            step=0.1,
+            help=_h("existing_snr_margin"),
+        )
+        _emit(flags, "existing_snr_margin", existing_snr_m)
 
         gap_ghz = st.number_input(
             "Inter-Band Gap (GHz)",

@@ -844,6 +844,13 @@ flags.DEFINE_float(
     "Margin required for estimated SNR for mod. format selection [dB]",
 )
 flags.DEFINE_float(
+    "existing_snr_margin",
+    0.0,
+    "SNR reserve (dB) preserved by later admissions on existing RMSA-GN lightpaths. "
+    "If departures consumed part of the reserve, preserve the remaining headroom "
+    "without relaxing the modulation minimum. Requires snr_margin >= this value.",
+)
+flags.DEFINE_float(
     "max_snr",
     30.0,
     "Maximum SNR that a link can take (just used for normalization purposes)",

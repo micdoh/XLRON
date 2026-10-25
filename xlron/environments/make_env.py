@@ -513,6 +513,11 @@ def make(
     roadm_loss = config.get("roadm_loss", 18)
     span_lumped_loss_db = config.get("span_lumped_loss_db", None)
     snr_margin = config.get("snr_margin", 0.5)
+    existing_snr_margin = config.get("existing_snr_margin", 0.0)
+    if env_type == "rmsa_gn_model" and (
+        existing_snr_margin < 0 or existing_snr_margin > snr_margin
+    ):
+        raise ValueError("Require 0 <= existing_snr_margin <= snr_margin")
     path_snr = True if env_type in ["rsa_gn_model", "rmsa_gn_model"] else False
     max_snr = config.get("max_snr", 30.0)
     min_snr = config.get("min_snr", 7.0)
@@ -1271,6 +1276,7 @@ def make(
                 gn_mask_mode=config.get("gn_mask_mode", "ff_lf"),
                 gn_mask_batch_size=config.get("gn_mask_batch_size", 8),
                 gn_mask_env_batch_size=config.get("gn_mask_env_batch_size", 0),
+                existing_snr_margin=existing_snr_margin,
             )
 
         # Print GN model power budget summary
@@ -1324,6 +1330,8 @@ def make(
             f"  Transceiver SNR range:    {float(jnp.min(trx_vals)):.1f} - {float(jnp.max(trx_vals)):.1f} dB"
         )
         print(f"  SNR margin:               {snr_margin} dB")
+        if env_type == "rmsa_gn_model":
+            print(f"  Existing SNR reserve:     {existing_snr_margin} dB")
         if (
             consider_modulation_format
             and hasattr(modulations_array, "__len__")

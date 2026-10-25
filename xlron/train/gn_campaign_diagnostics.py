@@ -7,6 +7,24 @@ from pathlib import Path
 import numpy as np
 
 
+def summarize_replicas(record):
+    """Expose catastrophic tails without dropping them from reported means."""
+    blocking = np.asarray(record["service_blocking_probability"], dtype=float)
+    snr = np.asarray(record.get("snr_blocking_probability", np.zeros_like(blocking)), dtype=float)
+    high_snr = snr > 0.1
+    return {
+        "replica_count": int(blocking.size),
+        "service_blocking_mean": float(np.mean(blocking)),
+        "service_blocking_median": float(np.median(blocking)),
+        "service_blocking_min": float(np.min(blocking)),
+        "service_blocking_max": float(np.max(blocking)),
+        "high_snr_blocking_count": int(np.count_nonzero(high_snr)),
+        "high_snr_share_of_snr_blocks": float(
+            np.sum(snr[high_snr]) / np.sum(snr) if np.sum(snr) > 0 else 0.0
+        ),
+    }
+
+
 def per_env_record(metrics, num_envs, measured_steps):
     """Extract cumulative post-warmup counters without averaging away replicas."""
     result = {"measured_steps_per_env": measured_steps}
@@ -54,6 +72,7 @@ def install_diagnostics(train_utils, output_path):
         measured_steps += config.STEPS_PER_INCREMENT // config.NUM_ENVS
         record = per_env_record(out["metrics"], config.NUM_ENVS, measured_steps)
         record["increment"] = calls
+        record["replica_summary"] = summarize_replicas(record)
         snr = np.asarray(record.get("snr_blocking_probability", [0]))
         if not captured and np.max(snr) > 0.1:
             inner = out["runner_state"][1].env_state
@@ -85,6 +104,8 @@ def install_diagnostics(train_utils, output_path):
             run = train_utils.wandb.run
             run.summary["replicas/max_snr_blocking"] = float(np.max(snr))
             run.summary["replicas/high_snr_blocking_count"] = int(np.count_nonzero(snr > 0.1))
+            for name, value in record["replica_summary"].items():
+                run.summary[f"replicas/{name}"] = value
             if calls == config.NUM_INCREMENTS:
                 columns = ["env_index", "service_blocking", "bitrate_blocking", "snr_blocking"]
                 rows = [

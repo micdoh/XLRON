@@ -4441,7 +4441,35 @@ def compute_total_power_per_link(channel_power_array, path_index_array, channel_
     return jnp.sum(channel_start_powers, axis=1)
 
 
-def check_snr_sufficient(state: RMSAGNModelEnvState, params: RMSAGNModelEnvParams) -> Array:
+def get_existing_snr_requirements(
+    state: RMSAGNModelEnvState,
+    params: RMSAGNModelEnvParams,
+    baseline_path_snr: Array | None = None,
+) -> Array:
+    """Protect the target reserve, or remaining headroom after a departure.
+
+    A fixed reserve on an already depleted, unrelated path would itself freeze
+    global admission. Cap the reserve at fresh pre-admission SNR, while always
+    retaining the modulation minimum. Inactive predicates remain unconditional.
+    """
+    required = get_required_snr_se_kurtosis_array(state.modulation_format_index_array, 2, params)
+    if params.existing_snr_margin > 0:
+        if baseline_path_snr is None:
+            baseline_path_snr = get_lightpath_snr(
+                state.replace(link_snr_array=get_snr_link_array(state, params)), params
+            )
+        required = jnp.maximum(
+            required, jnp.minimum(required + params.existing_snr_margin, baseline_path_snr)
+        )
+    return jnp.where(state.channel_centre_bw_array != 0, required, -jnp.inf)
+
+
+def check_snr_sufficient(
+    state: RMSAGNModelEnvState,
+    params: RMSAGNModelEnvParams,
+    *,
+    existing_required: Array | None = None,
+) -> Array:
     """Check if SNR is sufficient for all active connections.
     Args:
         state (EnvState): Environment state
@@ -4452,6 +4480,8 @@ def check_snr_sufficient(state: RMSAGNModelEnvState, params: RMSAGNModelEnvParam
     required_snr_array = get_required_snr_se_kurtosis_array(
         state.modulation_format_index_array, 2, params
     )
+    if existing_required is not None:
+        required_snr_array = jnp.maximum(required_snr_array, existing_required)
     lightpath_snr_array = get_lightpath_snr(state, params)
     # Only check slots that are actually occupied (have nonzero channel bandwidth)
     is_occupied = state.channel_centre_bw_array != 0
@@ -4776,7 +4806,21 @@ def check_action_rmsa_gn_model_components(
         tuple: (rsa_check, snr_sufficient_check, power_check) - each truthy if the
         corresponding check failed (action invalid)
     """
-    snr_sufficient_check = check_snr_sufficient(state, params)
+    rmsa_params = cast(RMSAGNModelEnvParams, params)
+    rmsa_state = cast(RMSAGNModelEnvState, state)
+    existing_required = None
+    if rmsa_params.existing_snr_margin > 0:
+        before = rmsa_state.replace(
+            path_index_array=rmsa_state.path_index_array_prev,
+            channel_centre_bw_array=rmsa_state.channel_centre_bw_array_prev,
+            channel_power_array=rmsa_state.channel_power_array_prev,
+            channel_centre_freq_array=rmsa_state.channel_centre_freq_array_prev,
+            modulation_format_index_array=rmsa_state.modulation_format_index_array_prev,
+        )
+        existing_required = get_existing_snr_requirements(before, rmsa_params)
+    snr_sufficient_check = check_snr_sufficient(
+        rmsa_state, rmsa_params, existing_required=existing_required
+    )
     rsa_check = check_action_rsa(state, action_info, params)
     # Check total power per link doesn't exceed max_power_per_fibre
     total_power = compute_total_power_per_link(
@@ -5443,16 +5487,18 @@ def _mask_slots_rmsa_gn_model(
         if params.uniform_spans
         and not params.mod_format_correction
         and params.gn_mask_mode != "all_slots"
+        and params.existing_snr_margin == 0
         else get_snr_link_array
     )
     baseline_snr = snr_fn(state, params)
     baseline_path_snr = path_overlaps = None
-    if reuse_unaffected_snr:
-        if params.gn_mask_mode != "all_slots" or params.differentiable:
-            raise ValueError("Unaffected path SNR reuse requires hard full physical masking")
+    if params.existing_snr_margin > 0 or reuse_unaffected_snr:
         baseline_path_snr = get_candidate_baseline_snr(
             state.replace(link_snr_array=baseline_snr), params
         )
+    if reuse_unaffected_snr:
+        if params.gn_mask_mode != "all_slots" or params.differentiable:
+            raise ValueError("Unaffected path SNR reuse requires hard full physical masking")
         padded_paths = jnp.pad(paths, ((0, 0), (0, 1)))
         path_overlaps = jnp.any(padded_paths[:, params.path_link_indices.val] > 0, axis=-1)
         # Empty/dummy paths use link 0 metadata in the existing SNR convention.
@@ -5468,18 +5514,19 @@ def _mask_slots_rmsa_gn_model(
     compact_candidates = not params.differentiable and (
         params.link_resources > 128 or params.gn_mask_mode == "all_slots"
     )
-    old_required = None
+    old_required = (
+        get_existing_snr_requirements(state, params, baseline_path_snr)
+        if params.existing_snr_margin > 0
+        else None
+    )
     if pack_old:
         if params.gn_mask_mode != "all_slots" or params.differentiable:
             raise ValueError("Old-path predicate packing requires hard full physical masking")
         from xlron.kernels.gn_predicate_pack import pack_old_snr_predicates
 
-        required = get_required_snr_se_kurtosis_array(
-            state.modulation_format_index_array, 2, params
-        )
         old_required = pack_old_snr_predicates(
             state.path_index_array,
-            jnp.where(state.channel_centre_bw_array != 0, required, -jnp.inf),
+            get_existing_snr_requirements(state, params, baseline_path_snr),
             params.path_link_indices.val.shape[0],
         )
 
@@ -5594,7 +5641,7 @@ def _mask_slots_rmsa_gn_model(
 
         if not compact_candidates:
             return (new_snr >= req_snr_val).astype(jnp.float32) * (
-                1.0 - check_snr_sufficient(temp_state, params)
+                1.0 - check_snr_sufficient(temp_state, params, existing_required=old_required)
             )
 
         # Separate old connections from the new one so identical footprints can

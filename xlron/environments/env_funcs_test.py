@@ -1580,7 +1580,117 @@ def with_mask(env, p, s):
     return s.replace(link_slot_mask=mask, full_link_slot_mask=full, mod_format_mask=mods)
 
 
+class TestGetExistingSnrRequirements:
+    @staticmethod
+    def test_reserve_caps_at_fresh_headroom_and_never_relaxes_the_physical_minimum():
+        _, _, p, s = setup("rmsa_gn_model", "lifetime_snr")
+        p = p.replace(snr_margin=1.0, existing_snr_margin=1.0)
+        s = s.replace(
+            channel_centre_bw_array=jnp.ones_like(s.channel_centre_bw_array).at[:, -1].set(0),
+            modulation_format_index_array=jnp.zeros_like(s.modulation_format_index_array),
+        )
+        threshold = p.modulations_array.val[0, 2]
+        headroom = jnp.array([-1.0, 0.0, 0.2, 1.0, 3.0, 50.0, 0.5, 0.0])
+        baseline = jnp.broadcast_to(threshold + headroom, s.channel_centre_bw_array.shape)
+        actual = get_existing_snr_requirements(s, p, baseline)
+        expected = (
+            jnp.broadcast_to(
+                threshold + jnp.array([0.0, 0.0, 0.2, 1.0, 1.0, 1.0, 0.5, 0.0]), actual.shape
+            )
+            .at[:, -1]
+            .set(-jnp.inf)
+        )
+        np.testing.assert_allclose(actual, expected)
+        disabled = get_existing_snr_requirements(s, p.replace(existing_snr_margin=0), baseline)
+        np.testing.assert_array_equal(
+            disabled, jnp.where(s.channel_centre_bw_array > 0, threshold, -jnp.inf)
+        )
+
+
+def retained_reserve_fixture():
+    _, env, p, s = setup("rmsa_gn_model", "lifetime_snr")
+    p = p.replace(gn_mask_mode="all_slots", raman_gain_slope=0.0)
+    mods = p.modulations_array.val.at[:, 2].set(-100.0)
+    p = p.replace(modulations_array=HashableArrayWrapper(mods))
+    s = s.replace(request_array=jnp.array([0, 100, 1]))
+    s = with_mask(env, p, s)
+    s = env.step(jax.random.PRNGKey(2), s, jnp.int32(0), p)[1]
+    active = s.channel_centre_bw_array > 0
+    s = s.replace(
+        request_array=jnp.array([0, 100, 1]),
+        modulation_format_index_array=jnp.where(active, 0, -1),
+    )
+    fresh = s.replace(link_snr_array=get_snr_link_array(s, p))
+    baseline = get_lightpath_snr(fresh, p)
+    old_snr = float(np.asarray(baseline)[np.asarray(active)].min())
+    p = p.replace(modulations_array=HashableArrayWrapper(mods.at[0, 2].set(old_snr - 0.1)))
+    # The reserve must use fresh physics, even for a heuristic with a stale cache.
+    s = s.replace(link_snr_array=jnp.full_like(s.link_snr_array, 1e8))
+    return env, p, s
+
+
 class TestMaskSlotsRmsaGnModel:
+    @staticmethod
+    def test_new_insertion_cannot_break_an_existing_modulation_minimum():
+        env, p, s = retained_reserve_fixture()
+        active = s.channel_centre_bw_array > 0
+        plain = mask_slots_rmsa_gn_model(s, p, s.request_array)
+        action = jnp.int32(1)
+        tentative = implement_action_rmsa_gn_model(plain, env.process_action(plain, action, p), p)
+
+        def old_snr(state):
+            fresh = state.replace(link_snr_array=get_snr_link_array(state, p))
+            return float(np.asarray(get_lightpath_snr(fresh, p))[np.asarray(active)].min())
+
+        before, after = old_snr(s), old_snr(tentative)
+        assert before > after
+        # Put the old format's physical threshold between its pre/post-insertion
+        # SNR. The new service uses another format with an unchanged threshold.
+        mods = p.modulations_array.val.at[0, 2].set((before + after) / 2)
+        p = p.replace(modulations_array=HashableArrayWrapper(mods))
+        physical = mask_slots_rmsa_gn_model(s, p, s.request_array)
+        assert not physical.link_slot_mask[action]
+        assert physical.link_slot_mask[8]  # A disjoint candidate remains feasible.
+        # Admission independently rejects the harmful insertion even if passed
+        # the old mask, so masking and the step both protect the hard minimum.
+        rejected = env.step(jax.random.PRNGKey(4), plain, action, p)[1]
+        assert rejected.accepted_services == s.accepted_services
+
+    @staticmethod
+    @pytest.mark.parametrize("optimized", [False, True])
+    def test_retained_reserve_matches_admission_and_allows_unchanged_depleted_paths(optimized):
+        if optimized and jax.default_backend() != "gpu":
+            pytest.skip("predicate packing requires CUDA")
+        env, p, s = retained_reserve_fixture()
+        kwargs = (
+            dict(
+                prefilter_new=True,
+                pack_old=True,
+                reuse_screened_power=True,
+                narrow_new_snr=True,
+                reuse_unaffected_snr=True,
+                screen_batch_size=8,
+            )
+            if optimized
+            else {}
+        )
+        plain = mask_slots_rmsa_gn_model(s, p, s.request_array, **kwargs)
+        reserve_p = p.replace(existing_snr_margin=0.5)
+        protected = mask_slots_rmsa_gn_model(s, reserve_p, s.request_array, **kwargs)
+        assert plain.link_slot_mask[1] and not protected.link_slot_mask[1]
+        # Path 1 shares no links with the old lightpath. Its 0.1 dB headroom
+        # is below the target reserve, yet remains above its physical minimum.
+        assert protected.link_slot_mask[8]
+        rejected = env.step(jax.random.PRNGKey(4), plain, jnp.int32(1), reserve_p)[1]
+        accepted = env.step(jax.random.PRNGKey(4), protected, jnp.int32(8), reserve_p)[1]
+        assert rejected.accepted_services == s.accepted_services
+        assert accepted.accepted_services == s.accepted_services + 1
+        # A physically failing old connection is still rejected globally.
+        bad_mods = reserve_p.modulations_array.val.at[0, 2].add(0.2)
+        failing_p = reserve_p.replace(modulations_array=HashableArrayWrapper(bad_mods))
+        failing = mask_slots_rmsa_gn_model(s, failing_p, s.request_array, **kwargs)
+        assert not failing.link_slot_mask.any()
+
     @staticmethod
     def test_all_slots_exposes_interior_starts_and_respects_power():
         _, env, p, s = fixture("all_slots")
