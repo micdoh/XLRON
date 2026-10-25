@@ -159,6 +159,38 @@ def test_transformer_snr_campaign_optimizer_and_checkpoint(tmp_path):
     _run_train("rmsa_gn_model", architecture + ["--EVAL_MODEL", "--deterministic"])
 
 
+@pytest.mark.slow
+@pytest.mark.parametrize("encoder,mask_mode", [("conv", "all_slots"), ("dense", "all_slots")])
+def test_full_slot_lifetime_snr_ppo_and_checkpoint(tmp_path, encoder, mask_mode):
+    path = tmp_path / "spectrum.eqx"
+    args = [
+        "--launch_power_type=fixed",
+        "--USE_TRANSFORMER",
+        "--continuous_operation",
+        "--incremental_loading=false",
+        "--transformer_obs_type=lifetime_snr",
+        f"--transformer_spectrum_encoder={encoder}",
+        "--transformer_embedding_size=16",
+        "--transformer_intermediate_size=32",
+        "--transformer_actor_pooling=sum",
+        f"--gn_mask_mode={mask_mode}",
+        "--transformer_modulation_features",
+        "--gn_mask_env_batch_size=1",
+        "--aggregate_slots=1",
+        "--NUM_ENVS=2",
+        "--ENV_WARMUP_STEPS=2",
+        "--TOTAL_TIMESTEPS=40",
+        "--SEPARATE_VF_OPTIMIZER",
+        "--OFF_POLICY_IAM",
+        "--VALID_MASS_LOSS_COEF=0.002",
+        "--ENHANCED_LOGGING",
+        f"--MODEL_PATH={path}",
+    ]
+    _run_train("rmsa_gn_model", args + ["--SAVE_MODEL"])
+    assert path.is_file()
+    _run_train("rmsa_gn_model", args + ["--EVAL_MODEL", "--deterministic"])
+
+
 LOAD_SWEEP_ARGS = [
     "-m",
     "xlron.train.train",

@@ -388,7 +388,12 @@ A transformer encoder that processes link-level tokens with graph-aware position
 | `--transformer_num_heads` | Number of attention heads | `4` |
 | `--transformer_embedding_size` | Token embedding dimension | `128` |
 | `--transformer_intermediate_size` | Feed-forward hidden dimension | `256` |
-| `--transformer_obs_type` | `departure`, `occupancy`, `capacity` (RWA-LR), or GN modes `snr`, `occupancy_snr`, `departure_snr` | `departure` |
+| `--transformer_obs_type` | `departure`, `occupancy`, `capacity` (RWA-LR), or GN modes `snr`, `occupancy_snr`, `departure_snr`, `lifetime_snr` | `departure` |
+| `--transformer_spectrum_encoder` | `dense`, or band-aware `conv` with local action features (`lifetime_snr` and aggregation 1 required) | `dense` |
+| `--gn_mask_mode` | RMSA-GN: `ff_lf`, `all_slots`, or `selected_slot`; unrestricted modes require aggregation 1 | `ff_lf` |
+| `--gn_mask_batch_size` | Candidates evaluated together in full physical masking; 1--64, tune against environment batch and memory | `8` |
+| `--gn_mask_env_batch_size` | Full masks per environment chunk; 0 vmaps all, 1--32 streams chunks while policy inference stays batched; hard dynamics only | `0` |
+| `--transformer_modulation_features` | Small candidate scoring head using resolved modulation, required width and SNR threshold; RMSA-GN transformer, `all_slots`, aggregation 1 and fixed power | `False` |
 | `--num_wire_features` | Number of spectral features for WIRE positional encoding | `8` |
 | `--transformer_actor_mlp_width` / `--transformer_actor_mlp_depth` | Actor head MLP width/depth | `128` / `1` |
 | `--transformer_critic_mlp_width` / `--transformer_critic_mlp_depth` | Critic head MLP width/depth | `128` / `2` |
@@ -417,6 +422,7 @@ the actor inputs have these shapes:
 | `snr` | `44 × 1683` | 1,668 normalized SNR values |
 | `occupancy_snr` | `44 × 3351` | 1,668 occupancy values + 1,668 SNR values |
 | `departure_snr` | `44 × 3352` | 1,668 normalized departure values + 1,668 SNR values |
+| `lifetime_snr` | `44 × 3352` | 1,668 lifetime/status values + 1,668 smoothly scaled SNR values |
 
 Occupancy is passed directly: zero for free slots, one for occupied slots and
 minus one for permanent band gaps. The two traffic features sum the endpoint
@@ -439,6 +445,67 @@ neither SNR-only nor occupancy+SNR includes remaining lifetimes. The action mask
 is applied separately during action selection and is not concatenated into the
 tokens. Normalizing SNR therefore does not make it a complete network state.
 
+`lifetime_snr` encodes a free slot as zero, a permanent band gap as minus one,
+and an occupied slot as `1 + log1p(remaining_time / mean_holding_time)`. Absolute
+departure times are converted to remaining lifetimes first. Its quality channel
+uses `asinh(2 * SNR_dB / max_snr - 1)` for powered channels and zero otherwise.
+Finite SNR values below zero or above `max_snr` remain distinguishable; invalid
+cache values receive finite replacements for the observation only. Incoming
+holding time uses `log1p(holding_time / mean_holding_time)`. These transforms do
+not alter physical state or admission thresholds.
+
+The optional `conv` encoder applies two shared five-slot filters with eight
+channels, including normalized physical frequency as an input. Filters do not
+mix across band gaps. Sixteen ordered mean/max feature summaries and metadata
+are projected to the transformer width; all full-resolution local features
+also reach the actor head. There is still one logit for every path/start-slot
+pair: the summaries do not aggregate actions. Actor and critic encoders are
+independent, and separate critic optimization covers the complete critic encoder.
+
+For RMSA-GN, `gn_mask_mode=ff_lf` preserves the legacy first/last-fit candidate
+mask. `all_slots` evaluates complete physical feasibility at every
+spectrum-feasible starting slot. `selected_slot` offers all spectrum-feasible
+starts and resolves modulation after sampling: it tries spectrum-fitting
+formats by descending spectral efficiency, retains every old/new lightpath SNR
+and fibre-power check, and applies the endpoint SNR margin. The successful
+tentative state is reused in the step, avoiding a second GN solve. If no format
+passes, the request is blocked and rolled back. Thus its mask is a spectrum mask,
+not a physical-feasibility guarantee, and a sampled action can incur SNR/power
+blocking. Both unrestricted modes require `aggregate_slots=1`; `selected_slot`
+uses hard checks and is not available with differentiable dynamics.
+
+Full physical masking tries formats by descending spectral efficiency. Once a
+path/start passes, lower-efficiency formats cannot change that action's validity
+or its automatically selected format. Ties retain the first format in the table.
+Every configured candidate path and every raw start is considered; this does
+not enumerate all possible routes in the topology. New `all_slots` masks use
+the same GN function as actual admission, retaining its existing equations.
+
+The experimental `gn_environment_benchmark` and `gn_train_benchmark` wrappers
+accept `--new-lightpath-prefilter`. For uniform spans without format correction
+or Raman amplification, this first computes the new lightpath's endpoint SNR
+using only the required output rows, retaining **all interferers**, the inserted
+power's Raman tilt, and ASE. Candidates clearly below threshold are packed out
+before full old-connection checks. A 0.01 dB screening allowance retains near
+threshold candidates for the full solve; final admission thresholds are
+unchanged. Unsupported configurations use the exhaustive calculation.
+
+`gn_mask_env_batch_size` applies a custom batching rule to physical masking only.
+Smaller chunks avoid running every environment's dynamic candidate loops to
+the busiest environment's count and bound candidate workspace. Neural-network
+and PPO batch sizes are unaffected. Tune this with `gn_mask_batch_size`; the
+full C+L+S benchmark favored candidate batch 64 and environment chunk 1.
+
+`transformer_modulation_features` adds a 57-parameter residual head to either
+transformer. For each raw path/start action it reads validity, normalized
+spectral efficiency, log-scaled required slot width and required SNR, alongside
+the base actor score. This adds no per-link token columns. Masking precedes
+the policy call, and PPO stores that exact acting state so features match during
+optimization. The head is initially zero, preserving the base policy. Modulation
+remains the highest-efficiency feasible format chosen by the environment; this
+head makes resource cost available to action scoring rather than adding an
+explicit modulation action dimension.
+
 ### Slot Aggregation
 
 #### `--aggregate_slots`
@@ -453,6 +520,20 @@ Reduce the action space by grouping frequency slots into blocks of N. The agent 
 #### `--WANDB`
 
 Enable logging to W&B. See [Understanding XLRON](understanding_xlron.md#weights-biases-wandb-integration) for setup and sweep configuration.
+
+Environment statistics collected during learning use `train/`, while periodic
+policy evaluation and standalone model/heuristic evaluation share `eval/` names
+such as `eval/service_blocking_probability_mean`. Losses and diagnostics retain
+their own namespaces. Timings use `performance/time_s`,
+`performance/increment_time_s` and `performance/environment_transitions_per_s`;
+the last is aggregate collected environment transitions divided by synchronized
+increment execution time, including PPO learning when enabled. It is not a
+gradient-update rate. Standalone evaluation elapsed time is `eval/time_s`.
+
+The step counters (`env_step`, `episode_count`, `increment`, `update_epoch`) are
+registered as hidden axes. New metrics in this workflow therefore create
+namespaced panels rather than default Charts panels. Previously saved workspace
+panels and historical unprefixed metrics are retained.
 
 #### `--LOG_LOSS_INFO`
 

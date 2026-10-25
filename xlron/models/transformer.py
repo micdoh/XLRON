@@ -332,13 +332,18 @@ class Encoder(eqx.Module):
         dropout_rate: float,
         attention_dropout_rate: float,
         key: chex.PRNGKey,
+        preembedded: bool = False,
     ):
         embedder_key, layer_key, wire_key = jax.random.split(key, 3)
         self.num_layers = num_layers
-        self.embedder_block = Embedder(
-            in_size=input_size,
-            out_size=embedding_size,
-            key=embedder_key,
+        self.embedder_block = (
+            eqx.nn.Identity()
+            if preembedded
+            else Embedder(
+                in_size=input_size,
+                out_size=embedding_size,
+                key=embedder_key,
+            )
         )
         head_dim = embedding_size // num_heads
         self.wire = WIRE(num_wire_features, head_dim, wire_key)
@@ -366,6 +371,7 @@ class Encoder(eqx.Module):
         enable_dropout: bool = False,
         attn_mask: Array | None = None,
         key: chex.PRNGKey | None = None,
+        embeddings: Array | None = None,
     ) -> dict[str, Array]:
         # Index the inputs to retrieve the features used by WiRE (either spectral or random walks)
         wire_features = inputs[:, : self.num_wire_features]
@@ -388,7 +394,8 @@ class Encoder(eqx.Module):
             )
             return query_heads, key_heads, value_heads
 
-        embeddings = jax.vmap(self.embedder_block)(inputs)
+        if embeddings is None:
+            embeddings = jax.vmap(self.embedder_block)(inputs)
 
         layer_outputs: Array | list[Array | None] = []
 

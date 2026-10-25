@@ -371,6 +371,32 @@ def make(
     traffic_requests_csv_filepath = config.get("traffic_requests_csv_filepath", None)
     multiple_topologies_directory = config.get("multiple_topologies_directory", None)
     aggregate_slots = config.get("aggregate_slots", 1)
+    gn_mask_mode = config.get("gn_mask_mode", "ff_lf")
+    if config.get("transformer_modulation_features", False):
+        assert env_type == "rmsa_gn_model" and config.get("USE_TRANSFORMER", False), (
+            "transformer_modulation_features requires an RMSA-GN transformer"
+        )
+        assert gn_mask_mode == "all_slots" and aggregate_slots == 1, (
+            "transformer_modulation_features requires all_slots masking and aggregate_slots=1"
+        )
+        assert config.get("launch_power_type", "fixed") == "fixed", (
+            "transformer_modulation_features requires fixed launch power"
+        )
+    assert 1 <= config.get("gn_mask_batch_size", 8) <= 64, "gn_mask_batch_size must be in [1,64]"
+    assert 0 <= config.get("gn_mask_env_batch_size", 0) <= 32, (
+        "gn_mask_env_batch_size must be in [0,32]"
+    )
+    if config.get("gn_mask_env_batch_size", 0):
+        assert not config.get("differentiable", False), (
+            "GN mask environment chunks require hard dynamics"
+        )
+    if gn_mask_mode != "ff_lf":
+        assert env_type == "rmsa_gn_model", "gn_mask_mode requires rmsa_gn_model"
+        assert aggregate_slots == 1, "Unrestricted GN slot selection requires aggregate_slots=1"
+        if gn_mask_mode == "selected_slot":
+            assert not config.get("differentiable", False), (
+                "selected_slot uses hard admission checks; use all_slots for differentiable masking"
+            )
     # The lowercase disable_node_features alias is resolved in process_config
     disable_node_features = config.get("DISABLE_NODE_FEATURES", False)
     disjoint_paths = config.get("disjoint_paths", False)
@@ -827,15 +853,33 @@ def make(
 
     transformer_obs_type = config.get("transformer_obs_type", "departure")
     if transformer_obs_type:
-        obs_types = ("departure", "occupancy", "capacity", "snr", "occupancy_snr", "departure_snr")
+        obs_types = (
+            "departure",
+            "occupancy",
+            "capacity",
+            "snr",
+            "occupancy_snr",
+            "departure_snr",
+            "lifetime_snr",
+        )
         assert transformer_obs_type in obs_types, (
             f"transformer_obs_type must be one of {obs_types}, got {transformer_obs_type}"
         )
-        if transformer_obs_type in ("snr", "occupancy_snr", "departure_snr"):
+        if transformer_obs_type in ("snr", "occupancy_snr", "departure_snr", "lifetime_snr"):
             assert env_type in ("rsa_gn_model", "rmsa_gn_model"), (
                 f"transformer_obs_type '{transformer_obs_type}' requires a GN environment"
             )
             assert max_snr > 0, "SNR observation normalization requires max_snr > 0"
+        if config.get("transformer_spectrum_encoder", "dense") == "conv":
+            assert transformer_obs_type == "lifetime_snr", (
+                "The conv spectrum encoder requires lifetime_snr"
+            )
+            assert config.get("aggregate_slots", 1) == 1, (
+                "The conv spectrum policy requires aggregate_slots=1"
+            )
+            assert not config.get("transformer_share_layers", False), (
+                "The conv spectrum policy uses independent actor/critic encoders"
+            )
         if transformer_obs_type == "capacity":
             assert env_type == "rwa_lightpath_reuse", (
                 f"transformer_obs_type 'capacity' is only supported for env_type 'rwa_lightpath_reuse', got {env_type}"
@@ -1224,6 +1268,9 @@ def make(
                 if not remove_array_wrappers
                 else modulations_array,
                 fec_rate=config.get("fec_rate", 0.8),
+                gn_mask_mode=config.get("gn_mask_mode", "ff_lf"),
+                gn_mask_batch_size=config.get("gn_mask_batch_size", 8),
+                gn_mask_env_batch_size=config.get("gn_mask_env_batch_size", 0),
             )
 
         # Print GN model power budget summary

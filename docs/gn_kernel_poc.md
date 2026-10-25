@@ -6,6 +6,11 @@ and the normal environment default remain ordinary JAX. All simulations below
 retain float32 physics, modulation thresholds, new-path margin, existing-path
 checks and per-fibre power checks.
 
+Throughput units: historical "training steps/s" entries count **environment
+transitions collected per second through the entire PPO loop**, including
+learning. They do not count gradient or optimizer updates. New reports label
+environment transitions and minibatch updates separately.
+
 ## Latest profiling iteration: generic step XPM and dense C+L+S
 
 The previous mask optimizations exposed a separate dense reduction in the actual
@@ -220,6 +225,280 @@ load 5,000 and 25,000-request warmup. Its records are under
 `/tmp/xlron-gn-kernel-v2-20261024/runs/cls-20261025-v7/` on Turin, with W&B group
 `gn-cls-20261025-paper-stabilized`. Numerical-loss tests, the PPO regression
 suite, actual GN checkpoint save/reload and physical-config preflight pass.
+
+### Unrestricted slots and compact spectrum observations
+
+The observation comparison adds `lifetime_snr`: one slot channel encodes
+free/occupied/band-gap status and a smooth remaining lifetime; the other carries
+smoothly scaled SNR, retaining finite values outside the former 0--30 dB clip.
+Its full-band input is `44 x 3352`, compared with `44 x 3351` for occupancy+SNR.
+Dense encoders at widths 128/256 are compared with a local spectrum encoder at
+width 128. The local encoder retains per-slot features for scoring actions and
+uses band-aware filters; ordered feature pooling does not aggregate actions.
+
+The existing GN mask restricted starts to first/last-fit positions even with
+slot aggregation one. New explicit modes offer every spectrum-feasible raw
+start. `all_slots` evaluates physical feasibility before sampling;
+`selected_slot` resolves modulation and checks full physical feasibility for the
+chosen start, counting failed choices as blocking. Accepted tentative states
+are reused instead of recomputing their GN physics. All comparison jobs pin
+`aggregate_slots=1`, yielding 8,340 path/start-slot actions.
+
+A synchronized initial mask/step microbenchmark uses the first four replicas of
+the same saved full C+L+S, load-5,000 state (65.55% powered-slot occupancy), A100
+80 GB PCIe, JAX 0.12.0.1 and the existing Pallas backends. It measures one step
+with three warm executions and two timed executions, excluding compilation:
+
+| Mode | Mask ms | Mask + step ms | Env steps/s |
+|---|---:|---:|---:|
+| First/last-fit control | 2.861 | 3.764 | 1,063 |
+| Every slot, full physical mask | 109.808 | 111.001 | 36 |
+| Every slot, selected-slot physical checks | 0.293 | 3.051 | 1,311 |
+
+These are short mechanism benchmarks with different masks/selected admissions,
+not equivalent-output speedups or steady-state PPO throughput. This workload
+uses the benchmark's default departure observation mode and excludes the extra
+post-departure SNR-cache refresh used by SNR-aware training. Both full and
+selected-slot modes retain final admission checks. Full masking is about 36x
+slower for this measured step. After the user required physical feasibility
+before sampling, selected-slot trials were canceled before training. New
+representation trials use full physical masks. Full masking streams candidates
+and avoids a quadratic candidate-grouping table.
+
+The optimized full-mask baseline uses the **actual admission GN function**;
+the initial table above used the legacy fused mask GN function. This changes
+neither function's equations and does not fix the deferred physical-model
+discrepancies. Matched-output speedups below compare the same admission physics.
+
+A descending-SE pass stops checking formats at a path/start once the selected
+highest-efficiency feasible format is known. This alone gave little benefit.
+Larger candidate batches improved utilization. A new exact-output-row screening
+pass computes only the new lightpath endpoints, still summing every interferer
+and retaining post-insertion Raman/ASE dependence. Candidates within 0.01 dB of
+the threshold are retained conservatively; every surviving candidate receives
+the original complete new/old-lightpath and power checks.
+
+The four-state A100 follow-up, with identical saved states and masks/formats/
+one-step rewards/occupancy exactly equal, measured:
+
+| Full physical mask | Mask ms | Mask + step ms |
+|---|---:|---:|
+| Exhaustive reference, batch 8 | 113.63 | 114.51 |
+| Descending format pruning, batch 8 | 109.76 | 110.70 |
+| Descending format pruning, batch 64 | 77.14 | 78.46 |
+| Endpoint screening + format pruning, batch 64 | 39.65 | 40.74 |
+
+This is a **2.87x mask speedup** and **2.81x one-step rollout speedup**, including
+all physically feasible raw starts on the five configured paths. Results use
+three warm and two timed executions; larger matched rollouts and CUDA profiling
+are recorded separately. Source hashes and reports are in the `masking-v3`
+directory of the isolated observation stage.
+
+The subsequent 16-state comparison uses independent traffic keys, eight rollout
+steps, three warm executions and ten synchronized timed samples. Recorded
+masks, selected formats, all rewards and final occupancy are exactly equal:
+
+| Full physical mask scheduling | Mask ms | Eight-step rollout ms | Env steps/s |
+|---|---:|---:|---:|
+| Exhaustive reference, candidate batch 8 | 419.73 | 4661.61 | 27.46 |
+| Screened, candidate batch 64, all 16 envs | 196.10 | 2158.98 | 59.29 |
+| Screened, candidate batch 64, env chunks 4 | 126.18 | 1242.59 | 103.01 |
+| Screened, candidate batch 64, env chunks 1 | 93.26 | 842.62 | 151.91 |
+
+This is a **4.50x mask speedup and 5.53x rollout speedup** in the matched
+independent-stream workload. Environment-only timings exclude neural inference,
+PPO updates and SNR-observation refresh. The first chunk experiment streams the
+complete benchmark environment operation. Production integration uses
+`gn_mask_env_batch_size` to stream physical masking only, leaving policy/optimizer
+batches intact. The integrated follow-up measured **420.57 to 90.13 ms** per
+full mask and **4671.30 to 789.73 ms** per independent eight-step rollout:
+**27.40 to 162.08 env steps/s (5.92x)**. Recorded outputs remain exactly equal.
+Full-mask temporary storage falls from 363.70 to 136.47 MiB. The endpoint path
+screen now retains just its two output columns through ROADM/transceiver
+accumulation, avoiding a full-spectrum candidate scatter.
+
+Reviewed reports, source hashes and CUDA statistics are under
+[`docs/benchmarks/fullmask-20261025`](benchmarks/fullmask-20261025/unpruned16.json).
+The [W&B comparison](https://forge.coreweave.com/wandb/micdoh/XLRON-GN-CLS/runs/ifqrifmb)
+contains the timing table and raw evidence artifact. Nsight 2025 with CUDA graph
+node tracing attributes roughly 14% of measured kernel time to SNR evidence,
+9% to generic XPM, with substantial remaining reduction/scatter/packing work.
+CUDA profiler timings are excluded from the synchronized performance table.
+The integration reports and source hashes are in the `integrated` subdirectory.
+The next workspace rewrite constructs endpoint-screening inputs only for the
+changed path's link rows, retaining all interfering channels on those links.
+This reduces the mask from **90.13 to 82.71 ms** and the independent eight-step
+rollout from **789.73 to 731.16 ms**, reaching **175.06 environment transitions/s**.
+Masks, selected formats, rewards and final occupancy still match the exhaustive
+reference exactly. Reports and source hashes are in the `workspace` subdirectory.
+
+The next prototype merges duplicate existing-path SNR predicates by path ID and
+slot, keeping the strongest threshold. It computes the candidate's path SNR
+across every traversed link as before; it neither reuses pre-insertion SNR nor
+omits shared-link degradation. Native tests include a case where the retained
+predicate is on the first link but degradation on another shared link must
+reject the insertion. NaN thresholds and invalid path IDs retain their original
+behavior. Packing is an experimental benchmark option and is not enabled in
+the frozen training or heuristic campaigns.
+
+A fresh paired A100 run, including packing overhead, measured:
+
+| Full physical mask variant | Mask ms | Eight-step rollout ms | Environment transitions/s |
+|---|---:|---:|---:|
+| Exhaustive reference | 421.48 | 4671.61 | 27.40 |
+| Path-only workspace, mask chunks 1 | 84.02 | 741.87 | 172.54 |
+| Same plus duplicate-predicate packing | 80.72 | 717.39 | 178.42 |
+
+The incremental rollout improvement is **3.41%**; the full sequence is **6.51x**
+the exhaustive reference. Recorded masks, resolved modulation formats, rewards
+and final occupancy match exactly. Compilation takes 4.37 seconds for the
+packed mask and 6.43 seconds for its eight-step rollout. All 20 native tests
+pass. These are matched environment-only measurements, not a PPO speedup claim.
+The user permits idle shared GPU capacity under a 25% JAX memory budget;
+GPU 3 reported no other VRAM allocation when this paired benchmark started,
+but these are not guaranteed exclusive-GPU measurements.
+
+The packed-mask trace attributes 13.3% of CUDA kernel time to path SNR evidence,
+11.0% to the main generic XPM kernel and 0.3% to predicate packing. Reductions,
+spectrum scans and scatters remain substantial targets. Timed-region profiling
+uses Nsight 2025 with CUDA graph node tracing; profiler-instrumented timings
+are excluded above. Reports, source hashes, native-test output and CUDA
+statistics are in `predicates/`, with the
+[W&B comparison](https://forge.coreweave.com/wandb/micdoh/XLRON-GN-CLS/runs/su5mbb8j).
+
+Full PPO uses a different workload from the heuristic-action environment benchmark:
+16 environments, 64 rollout steps, lifetime+SNR dense-128 transformer, a
+modulation-aware actor head, strict float32 matrix multiplication, one epoch and
+eight minibatches. Its synchronized throughput improves from **149.36 to 159.14
+environment transitions/s** after the path workspace rewrite. These are rates
+of collected transitions through rollout plus learning, not optimizer-update
+rates. One rollout collects 1,024 transitions and performs eight minibatch
+updates (each updating actor and critic). The latest 6.435-second rollout/update
+therefore executes **1.24 minibatch updates/s**. The 162.08 and 149.36 results
+must not be used to infer training overhead: their actions, rollout lengths and
+observation work differ. Raw PPO reports are in `ppo` and `ppo-workspace`.
+
+A matched decomposition now uses the same initial policy, physical states,
+random keys, 16 environments and 64-step rollout for both phases. Two warm
+executions precede five synchronized samples per phase:
+
+| Phase | Seconds per 1,024 transitions | Environment transitions/s | Minibatch updates/s |
+|---|---:|---:|---:|
+| Policy rollout plus advantage calculation | 6.352 | 161.20 | 0 |
+| Same rollout plus full PPO learning | 6.431 | 159.22 | 1.244 |
+
+Final environment states match exactly. The median difference is 78.9 ms,
+or 1.24% additional wall time, for this specific one-epoch/eight-minibatch
+configuration. This difference includes retaining learning buffers, loss and
+gradient calculations, optimizer updates and diagnostics; it is not an isolated
+gradient-kernel timing. The rollout-only phase already includes advantages.
+The benchmark repeats fixed initial inputs and excludes compilation, warmup
+and W&B; it does not measure long-run learning quality. Raw evidence is in
+`ppo-matched/ppo.json` and the
+[matched W&B benchmark](https://forge.coreweave.com/wandb/micdoh/XLRON-GN-CLS/runs/hwdp5v4l).
+
+CPU execution remains supported with the ordinary JAX backend. A bounded check
+on one loaded full-C+L+S state, with an eight-core Xeon Gold 6242 CPU affinity,
+compiled in 2.075 seconds and computed one full physical mask in **876.83 ms**.
+This is a mask timing, not CPU environment or training throughput; the report
+is in `cpu/cpu.json`.
+
+Native mask/model validation passes 15 tests. Current CPU GN/model/optimizer
+checks pass 107 tests (6 skips); PPO/behaviour-probability checks pass 23 tests,
+and full-mask/chunked dense/local PPO checkpoint smoke checks pass. A subsequent
+full-shape CUDA PPO preflight passed on a shared Malmö H100 NVL: 32 environments,
+128-step rollouts, four epochs and eight minibatches. Its 8,192 transitions took
+37.685 seconds (217.38 transitions/s, including 64 minibatch updates), with
+31.762 seconds of startup. This is a short preflight, not a learning result,
+and differs from the A100 throughput benchmark in hardware and PPO settings.
+
+An optional modulation-aware residual actor head adds 57 parameters and four
+features per candidate (validity, efficiency, required width and threshold),
+without extending link tokens. Both dense and local encoders can use it.
+Masking precedes the forward pass and PPO stores the exact acting state;
+a regression checks that stored features reproduce the behaviour probability.
+Modulation is still selected automatically by highest feasible efficiency;
+the policy now sees its resource cost. Explicit lower-efficiency format choice
+would require a separate joint/conditional action experiment, for which format
+pruning after the first success would not apply.
+
+Initial 16-replica model microbenchmarks use identical saved states and a
+negative log-probability plus value loss, rather than the complete PPO loss:
+
+| Encoder | Parameters | Forward ms | Forward/backward ms |
+|---|---:|---:|---:|
+| Occupancy+SNR, dense 128 | 1,650,949 | 0.896 | 2.975 |
+| Lifetime+SNR, dense 128 | 1,651,077 | 1.210 | 3.104 |
+| Lifetime+SNR, local 128 (initial) | 632,938 | 5.247 | 11.606 |
+| Lifetime+SNR, dense 256 | 4,118,661 | 1.239 | 3.387 |
+
+The local encoder is smaller but its initial implementation is slower. Its five
+offset contractions are now fused into one masked-window contraction, with
+ordinary JAX reverse-mode AD. Values/gradients match an independent offset-sum
+reference within float32 tolerances. The repeat GPU benchmark measured local
+forward/backward at 10.023 ms versus 11.606 ms initially (about 14% lower), while
+forward increased from 5.247 to 5.611 ms. Dense-128 forward/backward remained
+about 3.158 ms, so fewer parameters do not establish a speed advantage. These
+encoder controls precede the optional 57-parameter candidate head. An attempted capture with the default
+Nsight 2022 tool produced no usable CUDA kernel trace and exited abnormally;
+those captures are excluded from performance evidence.
+
+New comparisons initialize fresh weights and use both seeds 42/43, identical
+PPO settings, full C+L+S/load 5,000 and a 25,000-request warmup. They compare all
+four rows above, with 16,777,216 training steps per run plus separate model
+selection/comparison seeds. Eight minibatches keep full-resolution local feature
+activations bounded (256 transitions per minibatch). A separate-optimizer bug
+that assigned the legacy critic transformer encoder to the actor optimizer is
+fixed for all new comparisons. Existing saved policy weights remain compatible;
+these trials restart their optimizer.
+
+Native validation and short full-shape PPO preflight gate long runs. The
+representation trials above remain staged; the current priority is an
+8,388,608-transition continuation of the best existing occupancy+SNR dense-128
+checkpoint. A zero-initialized 57-parameter modulation residual preserves its
+initial policy and its existing path-sum pooling (the legacy configuration
+string `transformer_actor_pooling=mean` also takes the sum branch). The
+full-shape preflight passed and this continuation is
+**running**, with a fresh optimizer, actor LR 1e-4, critic LR 5e-5, entropy 0.005
+annealed linearly, clip 0.04, gamma 0.996, GAE lambda 0.99, off-policy IAM,
+damping/gating and valid-mass coefficient 0.002. It uses 32 environments,
+128-step rollouts, four update epochs, eight minibatches, candidate batches 64
+and mask environment chunks 1. Every raw slot on each configured path remains
+selectable when physically feasible.
+
+Empty-state full-physics warmup was a startup bottleneck: an earlier local
+encoder preflight took 345.8 seconds for 32 warmup requests and then hit its
+900-second training timeout. The new experiment-only bootstrap restores 16
+independently admitted physical states from a workload-validated NPZ snapshot,
+cycles them to initialize 32 replicas and retains independent future traffic
+keys. It refreshes physical SNR and clears measurement counters. This bypasses
+the slow empty-state startup; it does not claim the bootstrap is steady state.
+Final model and heuristic comparisons each add 25,000 warmup requests per
+replica, then measure 524,288 aggregate transitions on separate seeds.
+
+Frozen continuation sources are under
+`/tmp/xlron-gn-malmo-fullmask-20261025/training` on Malmö GPU 2. JAX preallocation
+is disabled with a 25% memory pool (about 23 GiB); the observed worker allocation
+was about 17.9 GiB. The
+[live primary run](https://forge.coreweave.com/wandb/micdoh/XLRON-GN-CLS/runs/b4e50003)
+and [passed preflight](https://forge.coreweave.com/wandb/micdoh/XLRON-GN-CLS/runs/5b65572c)
+use group `gn-cls-20261025-full-physical-best-hp`. Reviewed command plans,
+source hashes and preflight timings are in `primary/`.
+
+All 23 implemented heuristics plus two multi-route MSCL variants are planned
+on seeds 4242/4243 (50 jobs). Their fresh frozen source is
+`/tmp/xlron-gn-fullmask-heurs-20261025` on Turin GPU 3; ARBR-FF is running first,
+followed by MSCL-KSP and KSP-FF. Historical FF/LF heuristic blocking is not a
+matched baseline for unrestricted actions. Previous partial continuations and
+an interrupted heuristic startup are labeled retired/excluded with their
+checkpoints and logs preserved.
+
+All new training/evaluation metrics are namespaced, with hidden step axes.
+Completed historical evaluations also received `eval/` aliases: 65 runs and
+33,280 history rows were copied without overwriting their original histories.
+Two initial unsupported-MSCL runs contained no scalar result and were left
+unchanged. Migration reports are in `logging/`; old default Charts panels are
+not deleted.
 
 Latest CPU GN/kernel/observation/projection checks: **177 passed, 70 skipped,
 two expected issue-64 failures**. The two SNR PPO smoke tests and a separate

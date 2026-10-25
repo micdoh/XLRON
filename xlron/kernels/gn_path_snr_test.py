@@ -20,6 +20,74 @@ from xlron.environments.env_funcs import (
 )
 from xlron.environments.make_env import make
 from xlron.kernels import gn_path_snr
+from xlron.kernels.gn_predicate_pack import pack_old_snr_predicates
+
+
+@pytest.mark.parametrize("native", [False, True])
+def test_packed_old_path_still_rejects_degradation_on_another_shared_link(native, monkeypatch):
+    if native and jax.default_backend() != "gpu":
+        pytest.skip("requires CUDA")
+    if not native:
+        monkeypatch.setattr(
+            gn_path_snr, "path_snr_pallas", partial(gn_path_snr.path_snr_pallas, interpret=True)
+        )
+    env, params = make(
+        dict(
+            env_type="rmsa_gn_model",
+            topology_name="5node_directed",
+            link_resources=17,
+            k=2,
+            values_bw=[100],
+        ),
+        log_wrapper=False,
+    )
+    params = cast(RMSAGNModelEnvParams, params)
+    _, empty = env.reset(jax.random.PRNGKey(0), params)
+    paths = np.asarray(params.path_link_indices.val)
+    pid = int(np.flatnonzero(np.sum(paths < params.num_links, axis=1) >= 2)[0])
+    links = jnp.asarray(paths[pid][paths[pid] < params.num_links])
+    old_slot, new_slot = 3, 9
+    state = empty.replace(
+        link_snr_array=jnp.full_like(empty.link_snr_array, 1000),
+        path_index_array=empty.path_index_array.at[links, old_slot].set(pid),
+        channel_power_array=empty.channel_power_array.at[links, old_slot].set(1e-4),
+        channel_centre_bw_array=empty.channel_centre_bw_array.at[links, old_slot].set(12.5),
+        modulation_format_index_array=empty.modulation_format_index_array.at[links, old_slot].set(
+            0
+        ),
+    )
+    candidate = state.replace(
+        path_index_array=state.path_index_array.at[links, new_slot].set(pid),
+        channel_power_array=state.channel_power_array.at[links, new_slot].set(1e-4),
+        channel_centre_bw_array=state.channel_centre_bw_array.at[links, new_slot].set(12.5),
+    )
+    affected = jnp.zeros_like(state.path_index_array, dtype=bool).at[links, new_slot].set(True)
+    required = get_required_snr_se_kurtosis_array(state.modulation_format_index_array, 2, params)
+    packed = pack_old_snr_predicates(
+        state.path_index_array,
+        jnp.where(state.channel_centre_bw_array != 0, required, -jnp.inf),
+        len(paths),
+        interpret=not native,
+    )
+    assert np.isfinite(packed[links[0], old_slot])
+    assert packed[links[-1], old_slot] == -jnp.inf
+
+    evaluate = jax.jit(
+        lambda c, r: get_candidate_snr_evidence(
+            state, c, affected, params, backend="pallas", old_required=r
+        )
+    )
+    before_floor, before_ok = evaluate(candidate, packed)
+    assert before_ok
+    # The checked predicate lives on the first link row, but the SNR must still
+    # gather the changed last link of that existing path at its original slot.
+    degraded = candidate.replace(
+        link_snr_array=candidate.link_snr_array.at[links[-1], old_slot].set(0.01)
+    )
+    after_floor, after_ok = evaluate(degraded, packed)
+    _, exhaustive_ok = get_candidate_snr_evidence(state, degraded, affected, params)
+    np.testing.assert_allclose(after_floor, before_floor)
+    assert after_floor > 1.9 and not after_ok and not exhaustive_ok
 
 
 @pytest.mark.parametrize("native", [False, True])

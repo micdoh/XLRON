@@ -3,7 +3,33 @@
 import json
 from argparse import Namespace
 
-from experimental.benchmarks.gn_cls_tuning_campaign import HEURISTICS, build_jobs, selection_score
+import pytest
+
+from experimental.benchmarks.gn_cls_tuning_campaign import (
+    HEURISTICS,
+    build_jobs,
+    gpu_capacity,
+    selection_score,
+)
+
+
+@pytest.mark.parametrize(
+    "used,utilization,fraction,ready",
+    [
+        (22, 0, None, True),
+        (900, 0, None, False),
+        (30000, 0, 0.25, True),
+        (30000, 70, 0.25, False),
+        (60000, 0, 0.25, False),
+    ],
+)
+def test_shared_capacity_requires_idle_compute_and_memory_headroom(
+    monkeypatch, used, utilization, fraction, ready
+):
+    monkeypatch.setattr(
+        "subprocess.check_output", lambda *_a, **_kw: f"{used}, 96000, {utilization}"
+    )
+    assert gpu_capacity(1, fraction) == (used, ready)
 
 
 def test_two_shards_cover_every_heuristic_and_continue_matching_models(tmp_path):

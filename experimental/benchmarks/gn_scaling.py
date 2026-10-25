@@ -12,8 +12,10 @@ whole, non-overlapping lightpaths; rollout measurements exercise real env steps.
 """
 
 import argparse
+import ctypes
 import json
 import platform
+import sysconfig
 import time
 from pathlib import Path
 
@@ -85,18 +87,27 @@ def loaded_state(state, params, seed=7, target_occupancy=0.25):
     return state.replace(**{n: jnp.asarray(a) for n, a in arrays.items()}), placed
 
 
-def measure(fn, arg, iterations):
+def measure(fn, arg, iterations, profile=False, warm_executions=3):
     jax.block_until_ready(arg)
     start = time.perf_counter()
     executable = jax.jit(fn).lower(arg).compile()
     compile_s = time.perf_counter() - start
-    for _ in range(3):
+    print(f"Compiled in {compile_s:.3f}s; executing", flush=True)
+    for _ in range(warm_executions):
         result = jax.block_until_ready(executable(arg))
+    runtime = None
+    if profile:
+        library = Path(sysconfig.get_paths()["purelib"]) / "nvidia/cuda_runtime/lib/libcudart.so.12"
+        runtime = ctypes.CDLL(str(library) if library.is_file() else "libcudart.so.12")
+        if runtime.cudaProfilerStart():
+            raise RuntimeError("cudaProfilerStart failed")
     samples = []
     for _ in range(iterations):
         start = time.perf_counter()
         result = jax.block_until_ready(executable(arg))
         samples.append(time.perf_counter() - start)
+    if runtime is not None and runtime.cudaProfilerStop():
+        raise RuntimeError("cudaProfilerStop failed")
     mem = executable.memory_analysis()
     metrics = {
         "compile_s": compile_s,
@@ -117,7 +128,19 @@ def main():
         "--env-type", choices=["rmsa_gn_model", "rsa_gn_model"], default="rmsa_gn_model"
     )
     parser.add_argument("--k", type=int, default=5)
+    parser.add_argument(
+        "--gn-mask-mode", choices=["ff_lf", "all_slots", "selected_slot"], default="ff_lf"
+    )
+    parser.add_argument("--gn-mask-batch-size", type=int, default=8, choices=range(1, 65))
+    parser.add_argument("--gn-mask-env-batch-size", type=int, default=0, choices=range(33))
     parser.add_argument("--envs", type=int, default=1)
+    parser.add_argument(
+        "--env-batch-size",
+        type=int,
+        choices=(0, 1, 2, 4, 8, 16, 32),
+        default=0,
+        help="0 vmaps all envs; positive values stream independent env chunks",
+    )
     parser.add_argument("--occupancy", type=float, default=0.25, help="Synthetic occupancy target")
     parser.add_argument(
         "--independent-streams",
@@ -131,6 +154,10 @@ def main():
     parser.add_argument("--mode", choices=["uniform", "corrected", "nonuniform"], default="uniform")
     parser.add_argument("--kernels", nargs="+", default=["link", "lightpath", "mask"])
     parser.add_argument("--iterations", type=int, default=10)
+    parser.add_argument("--warm-executions", type=int, default=3)
+    parser.add_argument(
+        "--profile", action="store_true", help="Capture timed executions with CUDA profiler API"
+    )
     parser.add_argument("--steps", type=int, default=16)
     parser.add_argument(
         "--warmup-steps",
@@ -177,6 +204,12 @@ def main():
         config["load"] = args.load
     workload_key = json.dumps(config, sort_keys=True)
     env, params = make(config, log_wrapper=False)
+    if hasattr(params, "gn_mask_mode"):
+        params = params.replace(
+            gn_mask_mode=args.gn_mask_mode,
+            gn_mask_batch_size=args.gn_mask_batch_size,
+            gn_mask_env_batch_size=args.gn_mask_env_batch_size,
+        )
     key = jax.random.PRNGKey(3)
     _, empty = env.reset(key, params)
 
@@ -212,11 +245,13 @@ def main():
             restored = []
             for index, leaf in enumerate(leaves):
                 value = archive[f"state_{index}"]
+                if value.shape[1:] == leaf.shape[1:] and value.shape[0] >= leaf.shape[0]:
+                    value = value[: leaf.shape[0]]
                 if value.shape != leaf.shape or value.dtype != leaf.dtype:
                     raise ValueError(f"Saved state leaf {index} has a different shape or dtype")
                 restored.append(jnp.asarray(value))
             batched = jax.tree.unflatten(definition, restored)
-            env_keys = jnp.asarray(archive["env_keys"])
+            env_keys = jnp.asarray(archive["env_keys"][: args.envs])
         placed = int(batched.accepted_services[0])
         print(f"Loaded identical warmup state from {args.state_input}", flush=True)
     elif args.independent_streams and args.warmup_steps:
@@ -293,13 +328,29 @@ def main():
         else:
             raise ValueError(name)
         if name == "rollout" and args.independent_streams:
+
+            def independent_rollouts(sk):
+                one = lambda pair: rollout(pair[0], args.steps, pair[1])
+                if args.env_batch_size:
+                    return jax.lax.map(one, sk, batch_size=args.env_batch_size)
+                return jax.vmap(lambda s, k: rollout(s, args.steps, k))(*sk)
+
             metrics, result = measure(
-                lambda sk: jax.vmap(lambda s, k: rollout(s, args.steps, k))(*sk),
+                independent_rollouts,
                 (batched, env_keys),
                 args.iterations,
+                args.profile,
+                args.warm_executions,
             )
         else:
-            metrics, result = measure(jax.vmap(fn), batched, args.iterations)
+            batch_fn = (
+                (lambda states: jax.lax.map(fn, states, batch_size=args.env_batch_size))
+                if args.env_batch_size
+                else jax.vmap(fn)
+            )
+            metrics, result = measure(
+                batch_fn, batched, args.iterations, args.profile, args.warm_executions
+            )
         report["metrics"][name] = metrics
         if name == "rollout":
             snapshots["rollout_rewards"] = np.asarray(result[1])
@@ -311,6 +362,8 @@ def main():
                 np.unique(np.asarray(final.request_array), axis=0)
             )
         else:
+            if name == "mask":
+                metrics["valid_actions_per_env"] = np.asarray(result[0]).sum(axis=-1).tolist()
             for i, leaf in enumerate(jax.tree.leaves(result)):
                 snapshots[f"{name}_{i}"] = np.asarray(leaf)
         print(json.dumps({name: metrics}), flush=True)

@@ -55,6 +55,7 @@ from xlron.environments.env_funcs import (
     zero,
     calculate_throughput_from_active_lightpaths,
     get_lightpath_snr,
+    get_minimum_snr_of_channels_on_path,
 )
 from xlron.environments.wrappers import *
 
@@ -296,18 +297,32 @@ class RSAEnv(environment.Environment):
             )
         else:
             # Implement action
-            state = jit_profiler.call(params.profile, implement_action, state, action_info, params)
+            selected_checks = None
+            if (
+                params.__class__.__name__ == "RMSAGNModelEnvParams"
+                and cast(RMSAGNModelEnvParams, params).gn_mask_mode == "selected_slot"
+            ):
+                state, action_info, selected_checks = self.implement_selected_gn_slot(
+                    state, action, action_info, params
+                )
+            else:
+                state = jit_profiler.call(
+                    params.profile, implement_action, state, action_info, params
+                )
 
             # Check action. For GN-model envs, keep the individual check components so the
             # blocking cause (spectrum vs SNR vs power) can be counted without recomputation.
             if params.__class__.__name__ == "RMSAGNModelEnvParams":
-                spectrum_check, snr_check, power_check = jit_profiler.call(
-                    params.profile,
-                    check_action_rmsa_gn_model_components,
-                    state,
-                    action_info,
-                    params,
-                )
+                if selected_checks is None:
+                    spectrum_check, snr_check, power_check = jit_profiler.call(
+                        params.profile,
+                        check_action_rmsa_gn_model_components,
+                        state,
+                        action_info,
+                        params,
+                    )
+                else:
+                    spectrum_check, snr_check, power_check = selected_checks
                 # Same aggregation (order included) as check_action_rmsa_gn_model
                 check = jnp.any(jnp.stack((spectrum_check, snr_check, power_check)))
                 blocking_cause_checks = (spectrum_check, snr_check, power_check)
@@ -1163,6 +1178,53 @@ class RSAEnv(environment.Environment):
             )
         state = generate_request_rsa(key, state, params)
         return self.get_obs(state, params), state
+
+    def implement_selected_gn_slot(self, state, action, action_info, params):
+        """Resolve modulation at the chosen raw slot, retaining exact admission checks.
+
+        Try spectrum-fitting formats by descending SE. Reuse the successful
+        tentative state in step_env, including its rollback snapshots, so the
+        accepted format does not require a second GN solve.
+        """
+        flat = action_info.path_index * params.link_resources + action_info.initial_slot_index
+
+        def evaluate(candidate_state, info):
+            candidate = implement_action_rmsa_gn_model(candidate_state, info, params)
+            spectrum, snr, power = check_action_rmsa_gn_model_components(candidate, info, params)
+            spectrum = spectrum | check_action_rsa_prestate(state, info, params)
+            modulation = candidate.mod_format_mask[flat].astype(jnp.int32)
+            endpoint = get_minimum_snr_of_channels_on_path(
+                candidate, info.path, info.initial_slot_index, info.num_slots, params
+            )
+            margin_failure = ~jnp.all(
+                endpoint >= params.modulations_array.val[modulation, 2] + params.snr_margin
+            )
+            checks = (spectrum, snr | margin_failure, power)
+            return candidate, info, checks, ~jnp.any(jnp.stack(checks))
+
+        initial = evaluate(state, action_info)
+        order = jnp.argsort(-params.modulations_array.val[:, 1])
+        nominal = state.mod_format_mask[flat].astype(jnp.int32)
+
+        def try_format(i, carry):
+            mod = order[i]
+            candidate_state = state.replace(
+                mod_format_mask=state.mod_format_mask.at[flat].set(
+                    mod.astype(state.mod_format_mask.dtype)
+                )
+            )
+            info = self.process_action(candidate_state, action, params)
+            spectrum_ok = ~check_action_rsa_prestate(state, info, params)
+            should_try = ~carry[3] & (mod != nominal) & spectrum_ok
+
+            def attempt(_):
+                result = evaluate(candidate_state, info)
+                return jax.lax.cond(result[3], lambda _: result, lambda _: carry, None)
+
+            return jax.lax.cond(should_try, attempt, lambda _: carry, None)
+
+        candidate, info, checks, _ = jax.lax.fori_loop(0, order.shape[0], try_format, initial)
+        return candidate, info, checks
 
     def process_action(
         self,

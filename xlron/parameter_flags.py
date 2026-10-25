@@ -696,7 +696,14 @@ flags.DEFINE_string(
     2. 'occupancy': use link occupancy (binary). \
     3. 'capacity': use remaining capacity array (for use with RWA-LR environment). \
     4. 'snr': normalized per-channel link SNR in GN environments. \
-    5. 'occupancy_snr' / 'departure_snr': concatenate occupancy / departures with SNR.",
+    5. 'occupancy_snr' / 'departure_snr': concatenate occupancy / departures with SNR. \
+    6. 'lifetime_snr': two channels encoding lifetime/status and smoothly scaled SNR.",
+)
+flags.DEFINE_enum(
+    "transformer_spectrum_encoder",
+    "dense",
+    ["dense", "conv"],
+    "Spectrum encoder: dense projection, or band-aware local convolutions with full-resolution action features (requires lifetime_snr and aggregate_slots=1).",
 )
 flags.DEFINE_integer("transformer_embedding_size", 128, "Size of transformer token embeddings")
 flags.DEFINE_integer(
@@ -853,6 +860,25 @@ flags.DEFINE_boolean("discrete_launch_power", False, "Discrete launch power valu
 flags.DEFINE_float("min_concentration", 0.1, "For continuous launch power dist.")
 flags.DEFINE_float("max_concentration", 20.0, "For continuous launch power dist.")
 flags.DEFINE_boolean("last_fit", False, "Use KSP-FF for path_action, else KSP-LF")
+flags.DEFINE_enum(
+    "gn_mask_mode",
+    "ff_lf",
+    ["ff_lf", "all_slots", "selected_slot"],
+    "RMSA GN masking: first/last fit; full physical checks at every spectrum-feasible start; or every spectrum-feasible start with exact selected-slot modulation/admission checks. Non-ff_lf modes require aggregate_slots=1.",
+)
+flags.DEFINE_integer(
+    "gn_mask_batch_size", 8, "Candidate batch size for full all-slot GN masking (1--64)."
+)
+flags.DEFINE_boolean(
+    "transformer_modulation_features",
+    False,
+    "Score full GN candidates using their resolved format, required width and SNR threshold; requires all_slots masking and fixed launch power.",
+)
+flags.DEFINE_integer(
+    "gn_mask_env_batch_size",
+    0,
+    "Full physical masks per environment chunk; 0 vmaps all environments, 1--32 streams smaller chunks (hard dynamics only).",
+)
 flags.DEFINE_boolean(
     "GNN_OUTPUT_LP",
     False,

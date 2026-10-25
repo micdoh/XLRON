@@ -1,0 +1,462 @@
+[
+  {
+    "id": "bf9ac24b",
+    "name": "heuristic-ff_ksp",
+    "url": "https://forge.coreweave.com/wandb/micdoh/XLRON-GN-CLS/runs/bf9ac24b",
+    "status": "backfilled",
+    "rows": 512
+  },
+  {
+    "id": "c1c561f1",
+    "name": "heuristic-ksp_mscl",
+    "url": "https://forge.coreweave.com/wandb/micdoh/XLRON-GN-CLS/runs/c1c561f1",
+    "status": "no_scalar_history"
+  },
+  {
+    "id": "dd0d4b62",
+    "name": "heuristic-mscl_ksp",
+    "url": "https://forge.coreweave.com/wandb/micdoh/XLRON-GN-CLS/runs/dd0d4b62",
+    "status": "no_scalar_history"
+  },
+  {
+    "id": "0af62c02",
+    "name": "eval-transformer-occupancy_snr-lr0.0005-seed4242",
+    "url": "https://forge.coreweave.com/wandb/micdoh/XLRON-GN-CLS/runs/0af62c02",
+    "status": "backfilled",
+    "rows": 512
+  },
+  {
+    "id": "d2bb3169",
+    "name": "eval-transformer-snr-lr0.001-seed4242",
+    "url": "https://forge.coreweave.com/wandb/micdoh/XLRON-GN-CLS/runs/d2bb3169",
+    "status": "backfilled",
+    "rows": 512
+  },
+  {
+    "id": "24d4f8a8",
+    "name": "eval-transformer-occupancy_snr-lr0.0005-seed4243",
+    "url": "https://forge.coreweave.com/wandb/micdoh/XLRON-GN-CLS/runs/24d4f8a8",
+    "status": "backfilled",
+    "rows": 512
+  },
+  {
+    "id": "ed47ced9",
+    "name": "eval-transformer-snr-lr0.001-seed4243",
+    "url": "https://forge.coreweave.com/wandb/micdoh/XLRON-GN-CLS/runs/ed47ced9",
+    "status": "backfilled",
+    "rows": 512
+  },
+  {
+    "id": "096af3ff",
+    "name": "heuristic-ksp_ff-n1-seed4242",
+    "url": "https://forge.coreweave.com/wandb/micdoh/XLRON-GN-CLS/runs/096af3ff",
+    "status": "backfilled",
+    "rows": 512
+  },
+  {
+    "id": "9b2ab6bf",
+    "name": "heuristic-ff_ksp-n1-seed4242",
+    "url": "https://forge.coreweave.com/wandb/micdoh/XLRON-GN-CLS/runs/9b2ab6bf",
+    "status": "backfilled",
+    "rows": 512
+  },
+  {
+    "id": "4250477f",
+    "name": "heuristic-ksp_ff-n1-seed4243",
+    "url": "https://forge.coreweave.com/wandb/micdoh/XLRON-GN-CLS/runs/4250477f",
+    "status": "backfilled",
+    "rows": 512
+  },
+  {
+    "id": "394eba57",
+    "name": "heuristic-ff_ksp-n1-seed4243",
+    "url": "https://forge.coreweave.com/wandb/micdoh/XLRON-GN-CLS/runs/394eba57",
+    "status": "backfilled",
+    "rows": 512
+  },
+  {
+    "id": "f2a11b39",
+    "name": "heuristic-kmc_ff-n1-seed4242",
+    "url": "https://forge.coreweave.com/wandb/micdoh/XLRON-GN-CLS/runs/f2a11b39",
+    "status": "backfilled",
+    "rows": 512
+  },
+  {
+    "id": "6b64168b",
+    "name": "heuristic-kmf_ff-n1-seed4242",
+    "url": "https://forge.coreweave.com/wandb/micdoh/XLRON-GN-CLS/runs/6b64168b",
+    "status": "backfilled",
+    "rows": 512
+  },
+  {
+    "id": "2d3150f9",
+    "name": "heuristic-kmc_ff-n1-seed4243",
+    "url": "https://forge.coreweave.com/wandb/micdoh/XLRON-GN-CLS/runs/2d3150f9",
+    "status": "backfilled",
+    "rows": 512
+  },
+  {
+    "id": "4764c281",
+    "name": "heuristic-kmf_ff-n1-seed4243",
+    "url": "https://forge.coreweave.com/wandb/micdoh/XLRON-GN-CLS/runs/4764c281",
+    "status": "backfilled",
+    "rows": 512
+  },
+  {
+    "id": "80d97c7b",
+    "name": "heuristic-ksp_mu-n1-seed4242",
+    "url": "https://forge.coreweave.com/wandb/micdoh/XLRON-GN-CLS/runs/80d97c7b",
+    "status": "backfilled",
+    "rows": 512
+  },
+  {
+    "id": "11ee164f",
+    "name": "heuristic-ksp_mu_nonrel-n1-seed4242",
+    "url": "https://forge.coreweave.com/wandb/micdoh/XLRON-GN-CLS/runs/11ee164f",
+    "status": "backfilled",
+    "rows": 512
+  },
+  {
+    "id": "d4723573",
+    "name": "heuristic-ksp_mu-n1-seed4243",
+    "url": "https://forge.coreweave.com/wandb/micdoh/XLRON-GN-CLS/runs/d4723573",
+    "status": "backfilled",
+    "rows": 512
+  },
+  {
+    "id": "f0dd0fa7",
+    "name": "heuristic-ksp_mu_nonrel-n1-seed4243",
+    "url": "https://forge.coreweave.com/wandb/micdoh/XLRON-GN-CLS/runs/f0dd0fa7",
+    "status": "backfilled",
+    "rows": 512
+  },
+  {
+    "id": "ef58788e",
+    "name": "heuristic-ksp_mu_unique-n1-seed4242",
+    "url": "https://forge.coreweave.com/wandb/micdoh/XLRON-GN-CLS/runs/ef58788e",
+    "status": "backfilled",
+    "rows": 512
+  },
+  {
+    "id": "8b5da741",
+    "name": "heuristic-mu_ksp-n1-seed4242",
+    "url": "https://forge.coreweave.com/wandb/micdoh/XLRON-GN-CLS/runs/8b5da741",
+    "status": "backfilled",
+    "rows": 512
+  },
+  {
+    "id": "87c0fc4f",
+    "name": "heuristic-ksp_mu_unique-n1-seed4243",
+    "url": "https://forge.coreweave.com/wandb/micdoh/XLRON-GN-CLS/runs/87c0fc4f",
+    "status": "backfilled",
+    "rows": 512
+  },
+  {
+    "id": "ff85a18b",
+    "name": "heuristic-mu_ksp-n1-seed4243",
+    "url": "https://forge.coreweave.com/wandb/micdoh/XLRON-GN-CLS/runs/ff85a18b",
+    "status": "backfilled",
+    "rows": 512
+  },
+  {
+    "id": "df6045b0",
+    "name": "heuristic-mu_ksp_nonrel-n1-seed4242",
+    "url": "https://forge.coreweave.com/wandb/micdoh/XLRON-GN-CLS/runs/df6045b0",
+    "status": "backfilled",
+    "rows": 512
+  },
+  {
+    "id": "99eea150",
+    "name": "heuristic-mu_ksp_unique-n1-seed4242",
+    "url": "https://forge.coreweave.com/wandb/micdoh/XLRON-GN-CLS/runs/99eea150",
+    "status": "backfilled",
+    "rows": 512
+  },
+  {
+    "id": "a25c5bc2",
+    "name": "heuristic-mu_ksp_nonrel-n1-seed4243",
+    "url": "https://forge.coreweave.com/wandb/micdoh/XLRON-GN-CLS/runs/a25c5bc2",
+    "status": "backfilled",
+    "rows": 512
+  },
+  {
+    "id": "6dfed675",
+    "name": "heuristic-mu_ksp_unique-n1-seed4243",
+    "url": "https://forge.coreweave.com/wandb/micdoh/XLRON-GN-CLS/runs/6dfed675",
+    "status": "backfilled",
+    "rows": 512
+  },
+  {
+    "id": "8a2a8d75",
+    "name": "heuristic-kca_ff-n1-seed4242",
+    "url": "https://forge.coreweave.com/wandb/micdoh/XLRON-GN-CLS/runs/8a2a8d75",
+    "status": "backfilled",
+    "rows": 512
+  },
+  {
+    "id": "434d3fa2",
+    "name": "heuristic-arbr_ff-n1-seed4242",
+    "url": "https://forge.coreweave.com/wandb/micdoh/XLRON-GN-CLS/runs/434d3fa2",
+    "status": "backfilled",
+    "rows": 512
+  },
+  {
+    "id": "d1921a17",
+    "name": "heuristic-kca_ff-n1-seed4243",
+    "url": "https://forge.coreweave.com/wandb/micdoh/XLRON-GN-CLS/runs/d1921a17",
+    "status": "backfilled",
+    "rows": 512
+  },
+  {
+    "id": "cd213856",
+    "name": "heuristic-arbr_ff-n1-seed4243",
+    "url": "https://forge.coreweave.com/wandb/micdoh/XLRON-GN-CLS/runs/cd213856",
+    "status": "backfilled",
+    "rows": 512
+  },
+  {
+    "id": "b6202619",
+    "name": "heuristic-kme_ff-n1-seed4242",
+    "url": "https://forge.coreweave.com/wandb/micdoh/XLRON-GN-CLS/runs/b6202619",
+    "status": "backfilled",
+    "rows": 512
+  },
+  {
+    "id": "e5497a35",
+    "name": "heuristic-ksp_bf-n1-seed4242",
+    "url": "https://forge.coreweave.com/wandb/micdoh/XLRON-GN-CLS/runs/e5497a35",
+    "status": "backfilled",
+    "rows": 512
+  },
+  {
+    "id": "8a64809d",
+    "name": "heuristic-ksp_bf-n1-seed4243",
+    "url": "https://forge.coreweave.com/wandb/micdoh/XLRON-GN-CLS/runs/8a64809d",
+    "status": "backfilled",
+    "rows": 512
+  },
+  {
+    "id": "07131b6b",
+    "name": "heuristic-kme_ff-n1-seed4243",
+    "url": "https://forge.coreweave.com/wandb/micdoh/XLRON-GN-CLS/runs/07131b6b",
+    "status": "backfilled",
+    "rows": 512
+  },
+  {
+    "id": "8d1f9ef3",
+    "name": "heuristic-ksp_lf-n1-seed4242",
+    "url": "https://forge.coreweave.com/wandb/micdoh/XLRON-GN-CLS/runs/8d1f9ef3",
+    "status": "backfilled",
+    "rows": 512
+  },
+  {
+    "id": "8401e603",
+    "name": "heuristic-bf_ksp-n1-seed4242",
+    "url": "https://forge.coreweave.com/wandb/micdoh/XLRON-GN-CLS/runs/8401e603",
+    "status": "backfilled",
+    "rows": 512
+  },
+  {
+    "id": "79bb7f1f",
+    "name": "heuristic-ksp_lf-n1-seed4243",
+    "url": "https://forge.coreweave.com/wandb/micdoh/XLRON-GN-CLS/runs/79bb7f1f",
+    "status": "backfilled",
+    "rows": 512
+  },
+  {
+    "id": "0baec499",
+    "name": "heuristic-bf_ksp-n1-seed4243",
+    "url": "https://forge.coreweave.com/wandb/micdoh/XLRON-GN-CLS/runs/0baec499",
+    "status": "backfilled",
+    "rows": 512
+  },
+  {
+    "id": "22bf6a31",
+    "name": "heuristic-ksp_ef-n1-seed4242",
+    "url": "https://forge.coreweave.com/wandb/micdoh/XLRON-GN-CLS/runs/22bf6a31",
+    "status": "backfilled",
+    "rows": 512
+  },
+  {
+    "id": "f8876415",
+    "name": "heuristic-lf_ksp-n1-seed4242",
+    "url": "https://forge.coreweave.com/wandb/micdoh/XLRON-GN-CLS/runs/f8876415",
+    "status": "backfilled",
+    "rows": 512
+  },
+  {
+    "id": "f99725fe",
+    "name": "heuristic-ksp_ef-n1-seed4243",
+    "url": "https://forge.coreweave.com/wandb/micdoh/XLRON-GN-CLS/runs/f99725fe",
+    "status": "backfilled",
+    "rows": 512
+  },
+  {
+    "id": "64efc6f8",
+    "name": "heuristic-lf_ksp-n1-seed4243",
+    "url": "https://forge.coreweave.com/wandb/micdoh/XLRON-GN-CLS/runs/64efc6f8",
+    "status": "backfilled",
+    "rows": 512
+  },
+  {
+    "id": "1d19ce91",
+    "name": "heuristic-flf_ksp-n1-seed4242",
+    "url": "https://forge.coreweave.com/wandb/micdoh/XLRON-GN-CLS/runs/1d19ce91",
+    "status": "backfilled",
+    "rows": 512
+  },
+  {
+    "id": "093a6fcc",
+    "name": "heuristic-ksp_flf-n1-seed4242",
+    "url": "https://forge.coreweave.com/wandb/micdoh/XLRON-GN-CLS/runs/093a6fcc",
+    "status": "backfilled",
+    "rows": 512
+  },
+  {
+    "id": "e8a945ef",
+    "name": "heuristic-flf_ksp-n1-seed4243",
+    "url": "https://forge.coreweave.com/wandb/micdoh/XLRON-GN-CLS/runs/e8a945ef",
+    "status": "backfilled",
+    "rows": 512
+  },
+  {
+    "id": "61e1f55a",
+    "name": "heuristic-ksp_flf-n1-seed4243",
+    "url": "https://forge.coreweave.com/wandb/micdoh/XLRON-GN-CLS/runs/61e1f55a",
+    "status": "backfilled",
+    "rows": 512
+  },
+  {
+    "id": "1eb27ad6",
+    "name": "heuristic-ksp_mscl-n1-seed4242",
+    "url": "https://forge.coreweave.com/wandb/micdoh/XLRON-GN-CLS/runs/1eb27ad6",
+    "status": "backfilled",
+    "rows": 512
+  },
+  {
+    "id": "ab4fef67",
+    "name": "heuristic-ksp_flef-n1-seed4242",
+    "url": "https://forge.coreweave.com/wandb/micdoh/XLRON-GN-CLS/runs/ab4fef67",
+    "status": "backfilled",
+    "rows": 512
+  },
+  {
+    "id": "99728030",
+    "name": "heuristic-ksp_mscl-n1-seed4243",
+    "url": "https://forge.coreweave.com/wandb/micdoh/XLRON-GN-CLS/runs/99728030",
+    "status": "backfilled",
+    "rows": 512
+  },
+  {
+    "id": "06a65e9c",
+    "name": "heuristic-ksp_flef-n1-seed4243",
+    "url": "https://forge.coreweave.com/wandb/micdoh/XLRON-GN-CLS/runs/06a65e9c",
+    "status": "backfilled",
+    "rows": 512
+  },
+  {
+    "id": "21ba7f0e",
+    "name": "heuristic-ksp_mscl-n0-seed4242",
+    "url": "https://forge.coreweave.com/wandb/micdoh/XLRON-GN-CLS/runs/21ba7f0e",
+    "status": "backfilled",
+    "rows": 512
+  },
+  {
+    "id": "f07d7151",
+    "name": "heuristic-mscl_ksp-n1-seed4242",
+    "url": "https://forge.coreweave.com/wandb/micdoh/XLRON-GN-CLS/runs/f07d7151",
+    "status": "backfilled",
+    "rows": 512
+  },
+  {
+    "id": "52d7810f",
+    "name": "heuristic-mscl_ksp-n1-seed4243",
+    "url": "https://forge.coreweave.com/wandb/micdoh/XLRON-GN-CLS/runs/52d7810f",
+    "status": "backfilled",
+    "rows": 512
+  },
+  {
+    "id": "c0ec5d34",
+    "name": "heuristic-ksp_mscl-n0-seed4243",
+    "url": "https://forge.coreweave.com/wandb/micdoh/XLRON-GN-CLS/runs/c0ec5d34",
+    "status": "backfilled",
+    "rows": 512
+  },
+  {
+    "id": "44c95634",
+    "name": "heuristic-mscl_ksp-n0-seed4242",
+    "url": "https://forge.coreweave.com/wandb/micdoh/XLRON-GN-CLS/runs/44c95634",
+    "status": "backfilled",
+    "rows": 512
+  },
+  {
+    "id": "62c1071d",
+    "name": "eval-transformer-occupancy_snr-initial-seed4244",
+    "url": "https://forge.coreweave.com/wandb/micdoh/XLRON-GN-CLS/runs/62c1071d",
+    "status": "backfilled",
+    "rows": 512
+  },
+  {
+    "id": "16d8917c",
+    "name": "heuristic-mscl_ksp-n0-seed4243",
+    "url": "https://forge.coreweave.com/wandb/micdoh/XLRON-GN-CLS/runs/16d8917c",
+    "status": "backfilled",
+    "rows": 512
+  },
+  {
+    "id": "2bd07a53",
+    "name": "eval-transformer-snr-initial-seed4244",
+    "url": "https://forge.coreweave.com/wandb/micdoh/XLRON-GN-CLS/runs/2bd07a53",
+    "status": "backfilled",
+    "rows": 512
+  },
+  {
+    "id": "49de80eb",
+    "name": "eval-transformer-occupancy_snr-lower_lr_entropy-seed4244",
+    "url": "https://forge.coreweave.com/wandb/micdoh/XLRON-GN-CLS/runs/49de80eb",
+    "status": "backfilled",
+    "rows": 512
+  },
+  {
+    "id": "c1404ed7",
+    "name": "eval-transformer-occupancy_snr-lower_lr_entropy-seed4242",
+    "url": "https://forge.coreweave.com/wandb/micdoh/XLRON-GN-CLS/runs/c1404ed7",
+    "status": "backfilled",
+    "rows": 512
+  },
+  {
+    "id": "583dc2ce",
+    "name": "eval-transformer-snr-lower_lr_entropy-seed4244",
+    "url": "https://forge.coreweave.com/wandb/micdoh/XLRON-GN-CLS/runs/583dc2ce",
+    "status": "backfilled",
+    "rows": 512
+  },
+  {
+    "id": "0e5a2f8f",
+    "name": "eval-transformer-occupancy_snr-lower_lr_entropy-seed4243",
+    "url": "https://forge.coreweave.com/wandb/micdoh/XLRON-GN-CLS/runs/0e5a2f8f",
+    "status": "backfilled",
+    "rows": 512
+  },
+  {
+    "id": "a870d528",
+    "name": "eval-transformer-snr-lower_lr_entropy-seed4242",
+    "url": "https://forge.coreweave.com/wandb/micdoh/XLRON-GN-CLS/runs/a870d528",
+    "status": "backfilled",
+    "rows": 512
+  },
+  {
+    "id": "d2e6312c",
+    "name": "eval-transformer-snr-lower_lr_entropy-seed4243",
+    "url": "https://forge.coreweave.com/wandb/micdoh/XLRON-GN-CLS/runs/d2e6312c",
+    "status": "backfilled",
+    "rows": 512
+  },
+  {
+    "id": "d7e8ff1b",
+    "name": "eval-transformer-occupancy_snr-on_policy-seed4244",
+    "url": "https://forge.coreweave.com/wandb/micdoh/XLRON-GN-CLS/runs/d7e8ff1b",
+    "status": "backfilled",
+    "rows": 512
+  }
+]

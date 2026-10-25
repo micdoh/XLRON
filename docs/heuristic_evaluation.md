@@ -261,6 +261,13 @@ Random seed for reproducibility. Default: `42`.
 
 Enable logging to [Weights & Biases](https://wandb.ai/). See [Understanding XLRON](understanding_xlron.md#weights-biases-wandb-integration) for setup instructions.
 
+Heuristic and standalone model evaluations log metrics under `eval/`, including
+`eval/service_blocking_probability_mean` and
+`eval/bitrate_blocking_probability_mean`. These names match periodic evaluation
+inside PPO training, so select them to compare heuristics and trained policies
+on the same W&B panels. Continuous evaluations use `env_step`; episodic
+evaluations use `episode_count`. Evaluation elapsed time is `eval/time_s`.
+
 ### `--PROJECT` / `--EXPERIMENT_NAME`
 
 Set the W&B project and run name. If unspecified, an experiment name is auto-generated from the flags.

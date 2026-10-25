@@ -1,0 +1,71 @@
+{
+  "args": {
+    "slots": 1668,
+    "env_type": "rmsa_gn_model",
+    "k": 5,
+    "gn_mask_mode": "all_slots",
+    "gn_mask_batch_size": 1,
+    "gn_mask_env_batch_size": 1,
+    "envs": 1,
+    "env_batch_size": 0,
+    "occupancy": 0.25,
+    "independent_streams": false,
+    "topology": "nsfnet_deeprmsa_directed",
+    "band_preference": "C,L,S",
+    "load": 5000.0,
+    "coherent": true,
+    "mode": "uniform",
+    "kernels": [
+      "mask"
+    ],
+    "iterations": 1,
+    "warm_executions": 0,
+    "profile": false,
+    "steps": 16,
+    "warmup_steps": 0,
+    "output": "runs/cpu-full-mask/cpu.json",
+    "snapshot": null,
+    "state_input": "dense-state.npz",
+    "state_output": null,
+    "reference": null,
+    "matmul_precision": "highest"
+  },
+  "jax": "0.12.0.1",
+  "device": "cpu:0",
+  "device_kind": "cpu",
+  "platform": "Linux-5.14.0-611.55.1.el9_7.0.3.x86_64-x86_64-with-glibc2.34",
+  "links": 44,
+  "resolved_slots": 1668,
+  "paths": 911,
+  "modulations": 4,
+  "lightpaths": 2762,
+  "occupancy": 0.6695824861526489,
+  "initial_accepted_services": [
+    2762
+  ],
+  "warmup_timing": {},
+  "metrics": {
+    "mask": {
+      "compile_s": 2.075170274823904,
+      "median_ms": 876.8327329307795,
+      "min_ms": 876.8327329307795,
+      "argument_bytes": 1761420,
+      "output_bytes": 50064,
+      "temp_bytes": 503657856,
+      "alias_bytes": 0,
+      "valid_actions_per_env": [
+        8
+      ]
+    }
+  },
+  "xpm_backend": "jax",
+  "step_xpm_backend": "jax",
+  "candidate_snr_backend": "jax",
+  "xpm_tile": null,
+  "path_tile": null,
+  "path_snr_backend": "jax",
+  "compiler_profile": "default",
+  "full_format_pruning": true,
+  "new_lightpath_prefilter": true,
+  "xla_flags": "--xla_cpu_multi_thread_eigen=false"
+}

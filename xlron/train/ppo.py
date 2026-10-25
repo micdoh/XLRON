@@ -183,6 +183,11 @@ def _env_step(
     # would replace the action mask / valid mass actually used by select_action with the
     # initial state's all-ones mask and valid_mass=1.0 in the stored transition.
     acting_state = env_state.env_state
+    transition_obs = (
+        (acting_state, env_params)
+        if config.get("transformer_modulation_features", False)
+        else last_obs
+    )
 
     obsv, env_state, reward, terminal, truncated, info = jit_profiler.call(
         env_params.profile, env.step, env_key, env_state, action, env_params
@@ -206,7 +211,7 @@ def _env_step(
             value,
             reward,
             log_prob,
-            last_obs,
+            transition_obs,
             info,
             acting_state.node_mask_s,
             acting_state.link_slot_mask,
@@ -222,7 +227,7 @@ def _env_step(
             value,
             reward,
             log_prob,
-            last_obs,
+            transition_obs,
             info,
             acting_state.link_slot_mask,
             acting_state.valid_mass,

@@ -443,6 +443,9 @@ class RMSAGNModelEnvParams(GNModelEnvParams):
 
     modulations_array: HashableArrayWrapper = struct.field(pytree_node=False)
     fec_rate: chex.Scalar = struct.field(pytree_node=False)
+    gn_mask_mode: str = struct.field(pytree_node=False, default="ff_lf")
+    gn_mask_batch_size: int = struct.field(pytree_node=False, default=8)
+    gn_mask_env_batch_size: int = struct.field(pytree_node=False, default=0)
 
 
 @struct.dataclass

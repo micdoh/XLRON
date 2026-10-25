@@ -59,6 +59,7 @@ from xlron.heuristics.heuristics import (
 from xlron.models.gnn import ActorCriticGNN
 from xlron.models.mlp import ActorCriticMLP, LaunchPowerActorCriticMLP
 from xlron.models.transformer import ActorCriticTransformer
+from xlron.models.spectrum_transformer import ActorCriticSpectrumTransformer
 
 # TODO - Add all possible metrics here (they will all be registered in wandb) then just add a try except when adding them to processed data
 metrics = [
@@ -633,16 +634,28 @@ def init_network(config: Box, key: chex.PRNGKey) -> eqx.Module:
             num_request_specific_cols = (
                 4  # link relevance
                 + 1  # request size
-                + int(config.transformer_obs_type in ("departure", "departure_snr"))  # holding time
+                + int(
+                    config.transformer_obs_type in ("departure", "departure_snr", "lifetime_snr")
+                )  # holding time
             )
             input_size = (
                 config.num_wire_features
                 + config.link_resources
-                * (2 if config.transformer_obs_type in ("occupancy_snr", "departure_snr") else 1)
+                * (
+                    2
+                    if config.transformer_obs_type
+                    in ("occupancy_snr", "departure_snr", "lifetime_snr")
+                    else 1
+                )
                 + 2  # traffic marginals
                 + num_request_specific_cols
             )
-            network = ActorCriticTransformer(
+            transformer_cls = (
+                ActorCriticSpectrumTransformer
+                if config.get("transformer_spectrum_encoder", "dense") == "conv"
+                else ActorCriticTransformer
+            )
+            network = transformer_cls(
                 input_size=input_size,
                 embedding_size=config.transformer_embedding_size,
                 intermediate_size=config.transformer_intermediate_size,
@@ -772,6 +785,10 @@ def init_network(config: Box, key: chex.PRNGKey) -> eqx.Module:
             )
     else:
         raise ValueError(f"Invalid environment type {config.env_type}")
+    if config.get("transformer_modulation_features", False):
+        from xlron.models.modulation_actor import ModulationAwareActorCritic
+
+        network = ModulationAwareActorCritic(network, jax.random.fold_in(key, 20261025))
     return network
 
 
@@ -823,8 +840,8 @@ def _make_param_label_fn(model: eqx.Module) -> Callable:
     mistaken for label functions by optax when passed as a static pytree.
 
     Works across ActorCriticMLP, ActorCriticGNN, and ActorCriticTransformer:
-    any leaf whose key-path contains ".critic" is labelled ``"critic"``;
-    everything else is ``"actor"``.
+    Critic attributes and the legacy transformer's actor_critic[1] encoder
+    receive ``"critic"`` labels; everything else receives ``"actor"``.
     """
     # Snapshot the pytree structure of the learnable parameters at build time.
     params = eqx.filter(model, eqx.is_inexact_array)
@@ -834,7 +851,12 @@ def _make_param_label_fn(model: eqx.Module) -> Callable:
     label_list: list[str] = []
     jax.tree_util.tree_map_with_path(
         lambda path, _: label_list.append(
-            "critic" if ".critic" in jax.tree_util.keystr(path) else "actor"
+            "critic"
+            if (
+                ".critic" in jax.tree_util.keystr(path)
+                or ".actor_critic[1]" in jax.tree_util.keystr(path)
+            )
+            else "actor"
         ),
         params,
     )
@@ -1133,14 +1155,25 @@ def select_action(select_action_state, env, env_params, train_state, config):
         last_obs = (env_state.env_state, env_params)
     model = eqx.combine(train_state.model_params, train_state.model_static)
     model = cast_model_for_compute(model)
-    pi, value = model(*last_obs)
-    # Action masking
+    # This opt-in head reads the freshly resolved format/width at each candidate.
+    # Save the same acting state in PPO so gradient updates see identical features.
+    modulation_features = config.get("transformer_modulation_features", False)
     mask_result = env.action_mask(env_state.env_state, env_params)
     if len(mask_result) == 3:
         action_mask, full_action_mask, mod_format_mask = mask_result
     else:
         action_mask, full_action_mask = mask_result
         mod_format_mask = None
+
+    if modulation_features:
+        model_state = env_state.env_state.replace(
+            link_slot_mask=action_mask,
+            full_link_slot_mask=full_action_mask,
+            mod_format_mask=mod_format_mask,
+        )
+        pi, value = model(model_state, env_params)
+    else:
+        pi, value = model(*last_obs)
 
     # Always do action masking with VONE
     if config.env_type.lower() == "vone":
@@ -1748,23 +1781,31 @@ def setup_wandb(config, project_name, experiment_name):
     )
     wandb.config.update(config)
     run.name = experiment_name
-    wandb.define_metric("episode_count")
-    wandb.define_metric("env_step")
-    wandb.define_metric("increment")
+    for axis in ("episode_count", "env_step", "increment", "update_epoch"):
+        wandb.define_metric(axis, hidden=True)
+    standalone_eval = config.get("EVAL_HEURISTIC", False) or config.get("EVAL_MODEL", False)
+    eval_step = (
+        "episode_count" if standalone_eval and not config.continuous_operation else "env_step"
+    )
     for metric in metrics:
         for agg in ["mean", "std", "iqr_upper", "iqr_lower"]:
-            wandb.define_metric(f"{metric}_{agg}", step_metric="env_step")
+            # Share names with periodic policy evaluation so heuristics and
+            # trained policies can occupy the same W&B panels.
+            wandb.define_metric(f"eval/{metric}_{agg}", step_metric=eval_step)
+            if standalone_eval:
+                continue
+            wandb.define_metric(f"train/{metric}_{agg}", step_metric="env_step")
             wandb.define_metric(
-                f"{metric}_episode_end_{agg}", step_metric="episode_count", summary="last"
+                f"train/{metric}_episode_end_{agg}", step_metric="episode_count", summary="last"
             )
             wandb.define_metric(
-                f"{metric}_episode_end_{agg}", step_metric="episode_count", summary="mean"
+                f"train/{metric}_episode_end_{agg}", step_metric="episode_count", summary="mean"
             )
             wandb.define_metric(
-                f"{metric}_episode_end_{agg}", step_metric="episode_count", summary="min"
+                f"train/{metric}_episode_end_{agg}", step_metric="episode_count", summary="min"
             )
             wandb.define_metric(
-                f"{metric}_episode_end_{agg}", step_metric="episode_count", summary="max"
+                f"train/{metric}_episode_end_{agg}", step_metric="episode_count", summary="max"
             )
     for metric in loss_metrics:
         wandb.define_metric(f"{metric}", step_metric="update_epoch")
@@ -1778,11 +1819,12 @@ def setup_wandb(config, project_name, experiment_name):
     if config.get("ENHANCED_LOGGING", False):
         for metric in diagnostics_metrics:
             wandb.define_metric(f"{metric}", step_metric="update_epoch")
-    wandb.define_metric("training_time", step_metric="env_step")
-    # Eval during training metrics
-    for bp in ["service_blocking_probability", "bitrate_blocking_probability"]:
-        for stat in ["mean", "std"]:
-            wandb.define_metric(f"eval/{bp}_{stat}", step_metric="env_step")
+    if standalone_eval:
+        wandb.define_metric("eval/time_s", step_metric=eval_step)
+    else:
+        wandb.define_metric("performance/time_s", step_metric="env_step")
+    for metric in ("increment_time_s", "environment_transitions_per_s"):
+        wandb.define_metric(f"performance/{metric}", step_metric="env_step")
 
 
 def run_eval_during_training(
@@ -2440,6 +2482,9 @@ def log_metrics(
     step_count: int = 0,
 ) -> Tuple[Dict, Dict]:
     """Log metrics to wandb and/or save episode end metrics to CSV."""
+    standalone_eval = config.get("EVAL_HEURISTIC", False) or config.get("EVAL_MODEL", False)
+    prefix = "eval/" if standalone_eval else "train/"
+    time_metric = "eval/time_s" if standalone_eval else "performance/time_s"
 
     with TimeIt("Processing metrics"):
         merged_out, merged_out_loss, processed_data, episode_ends = process_metrics(
@@ -2533,7 +2578,11 @@ def log_metrics(
                 print(f"Logging episode end metrics for {np.sum(episode_ends)} episodes")
                 for i in range(len(processed_data[all_metrics[0]]["episode_end_mean"])):
                     log_dict = {
-                        f"{metric}_{stat}": processed_data[metric][stat][i]
+                        (
+                            f"eval/{metric}_{stat.removeprefix('episode_end_')}"
+                            if standalone_eval
+                            else f"train/{metric}_{stat}"
+                        ): processed_data[metric][stat][i]
                         for metric in all_metrics
                         for stat in [
                             "episode_end_mean",
@@ -2542,7 +2591,7 @@ def log_metrics(
                             "episode_end_iqr_lower",
                         ]
                     }
-                    log_dict["training_time"] = training_time[i]
+                    log_dict[time_metric] = training_time[i]
                     log_dict["episode_count"] = i + episode_count
                     wandb.log(log_dict)
 
@@ -2577,13 +2626,25 @@ def log_metrics(
                 print("Logging per step metrics")
                 for i in range(len(processed_data[all_metrics[0]]["mean"])):
                     log_dict = {
-                        f"{metric}_{agg}": processed_data[metric][agg][i]
+                        f"{prefix}{metric}_{agg}": processed_data[metric][agg][i]
                         for metric in all_metrics
                         for agg in ["mean", "std", "iqr_upper", "iqr_lower"]
                     }
-                    log_dict["training_time"] = training_time[i]
+                    log_dict[time_metric] = training_time[i]
                     log_dict["env_step"] = (i * config.DOWNSAMPLE_FACTOR) + step_count
                     wandb.log(log_dict)
+
+            wandb.log(
+                {
+                    "performance/increment_time_s": increment_run_time,
+                    "performance/environment_transitions_per_s": (
+                        config.STEPS_PER_INCREMENT
+                        * config.NUM_LEARNERS
+                        / max(increment_run_time, 1e-9)
+                    ),
+                    "env_step": step_count + config.STEPS_PER_INCREMENT // config.NUM_ENVS,
+                }
+            )
 
             if config.LOG_LOSS_INFO and merged_out_loss is not None:
                 print("Logging loss info")

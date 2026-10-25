@@ -19,6 +19,9 @@ from pathlib import Path
 
 def main():
     parser = argparse.ArgumentParser(add_help=False, allow_abbrev=False)
+    parser.add_argument("--no-full-format-pruning", action="store_true")
+    parser.add_argument("--new-lightpath-prefilter", action="store_true")
+    parser.add_argument("--pack-old-predicates", action="store_true")
     parser.add_argument(
         "--step-xpm-backend", choices=["jax", "pallas", "pallas_grouped"], default="jax"
     )
@@ -69,6 +72,17 @@ def main():
     from xlron.environments import env_funcs
     from xlron.environments.gn_model import isrs_gn_model
 
+    if args.no_full_format_pruning or args.new_lightpath_prefilter or args.pack_old_predicates:
+        from xlron.environments.gn_model import rmsa_gn_model
+
+        env_funcs.mask_slots_rmsa_gn_model = partial(
+            env_funcs.mask_slots_rmsa_gn_model,
+            prune_formats=not args.no_full_format_pruning,
+            prefilter_new=args.new_lightpath_prefilter,
+            pack_old=args.pack_old_predicates,
+        )
+        rmsa_gn_model.mask_slots_rmsa_gn_model = env_funcs.mask_slots_rmsa_gn_model
+
     if args.path_tile:
         from xlron.kernels import gn_path_snr
 
@@ -110,6 +124,9 @@ def main():
         report["path_tile"] = args.path_tile
         report["path_snr_backend"] = args.path_snr_backend
         report["compiler_profile"] = args.compiler_profile
+        report["full_format_pruning"] = not args.no_full_format_pruning
+        report["new_lightpath_prefilter"] = args.new_lightpath_prefilter
+        report["pack_old_predicates"] = args.pack_old_predicates
         report["xla_flags"] = os.environ.get("XLA_FLAGS", "")
         path.write_text(json.dumps(report, indent=2) + "\n")
 

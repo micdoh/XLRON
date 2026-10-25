@@ -178,6 +178,11 @@ DEFAULTS = {
     "transformer_num_heads": 4,
     "transformer_embedding_size": 128,
     "transformer_obs_type": "departure",
+    "transformer_spectrum_encoder": "dense",
+    "transformer_modulation_features": False,
+    "gn_mask_mode": "ff_lf",
+    "gn_mask_batch_size": 8,
+    "gn_mask_env_batch_size": 0,
     "transformer_share_layers": False,
     "transformer_actor_mlp_width": 128,
     "transformer_critic_mlp_width": 128,
@@ -1046,6 +1051,7 @@ def architecture_section() -> dict:
                 "snr",
                 "occupancy_snr",
                 "departure_snr",
+                "lifetime_snr",
             ]
             t_obs = st.selectbox(
                 "Observation Type",
@@ -1054,6 +1060,20 @@ def architecture_section() -> dict:
                 help=_h("transformer_obs_type"),
             )
             _emit(flags, "transformer_obs_type", t_obs)
+            encoder_options = ["dense", "conv"]
+            spectrum_encoder = st.selectbox(
+                "Spectrum Encoder",
+                encoder_options,
+                index=encoder_options.index(_get_preset_val("transformer_spectrum_encoder")),
+                help=_h("transformer_spectrum_encoder"),
+            )
+            _emit(flags, "transformer_spectrum_encoder", spectrum_encoder)
+            modulation_features = st.checkbox(
+                "Modulation-aware candidate scores",
+                value=_get_preset_val("transformer_modulation_features"),
+                help=_h("transformer_modulation_features"),
+            )
+            _emit(flags, "transformer_modulation_features", modulation_features)
         with col2:
             t_actor_w = st.number_input(
                 "Actor MLP Width",
@@ -1461,6 +1481,30 @@ def advanced_training_section() -> dict:
 def physical_layer_section() -> dict:
     """GN model physical layer params. Only shown for *gn_model env types."""
     flags = {}
+    mask_options = ["ff_lf", "all_slots", "selected_slot"]
+    mask_mode = st.selectbox(
+        "GN Slot Mask",
+        mask_options,
+        index=mask_options.index(_get_preset_val("gn_mask_mode")),
+        help=_h("gn_mask_mode"),
+    )
+    _emit(flags, "gn_mask_mode", mask_mode)
+    mask_batch = st.number_input(
+        "Full GN Mask Candidate Batch",
+        min_value=1,
+        max_value=64,
+        value=int(_get_preset_val("gn_mask_batch_size")),
+        help=_h("gn_mask_batch_size"),
+    )
+    _emit(flags, "gn_mask_batch_size", int(mask_batch))
+    mask_env_batch = st.number_input(
+        "Full GN Mask Environment Chunk",
+        min_value=0,
+        max_value=32,
+        value=int(_get_preset_val("gn_mask_env_batch_size")),
+        help=_h("gn_mask_env_batch_size"),
+    )
+    _emit(flags, "gn_mask_env_batch_size", int(mask_env_batch))
 
     mod_files = _scan_modulations()
     default_mod = _get_preset_val("modulations_csv_filepath")

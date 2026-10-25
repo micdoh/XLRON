@@ -1,0 +1,16 @@
+{
+  "recorded_utc": "2026-10-25T17:49:32.328465+00:00",
+  "primary_wandb": "https://forge.coreweave.com/wandb/micdoh/XLRON-GN-CLS/runs/b4e50003",
+  "preflight_wandb": "https://forge.coreweave.com/wandb/micdoh/XLRON-GN-CLS/runs/5b65572c",
+  "preflight_exit_code": 0,
+  "long_run_state_at_capture": "running",
+  "observed_jax_worker_vram_mib": 18334,
+  "gpu": "Malm\u00f6 H100 NVL GPU 2",
+  "preallocation": false,
+  "jax_memory_fraction": 0.25,
+  "sharing": "User-authorized idle spare capacity; observations are not exclusive-GPU benchmarks.",
+  "initial_state_sha256": "70e2e9ef588603676e71c0c74aff9e852f177a7a333f4de523f81a1df9336ee7",
+  "training_source_frozen": true,
+  "bootstrap": "16 loaded independent initial physical states cycled to 32 replicas; future RNG streams independent; not a steady-state result",
+  "final_evaluation": "3 seeds; 25,000 additional warmup requests per replica then 524,288 aggregate measured transitions each"
+}

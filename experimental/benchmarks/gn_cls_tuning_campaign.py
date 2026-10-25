@@ -1,7 +1,8 @@
 """All implemented GN heuristics, followed by checkpoint-based PPO tuning.
 
 Two workers shard the heuristic inventory, then tune one observation mode each.
-Workers reserve only GPUs 2/3 and wait while another process owns GPU memory.
+Workers wait for idle capacity on the selected GPU. Sharing requires an explicit
+memory fraction and at least twice that budget free before each child launch.
 Every child runs online in W&B; exact plans and outcomes are saved before launch.
 """
 
@@ -193,8 +194,31 @@ def save_manifest(path, manifest):
     temporary.replace(path)
 
 
-def wait_for_gpu(gpu, status):
-    """Hold our advisory lease, then wait for other GPU users without touching them."""
+def gpu_capacity(gpu, memory_fraction=None):
+    """Sharing is explicit: require idle compute and twice our memory budget free."""
+    used, total, utilization = map(
+        int,
+        subprocess.check_output(
+            [
+                "nvidia-smi",
+                f"--id={gpu}",
+                "--query-gpu=memory.used,memory.total,utilization.gpu",
+                "--format=csv,noheader,nounits",
+            ],
+            text=True,
+        )
+        .strip()
+        .split(","),
+    )
+    if memory_fraction is None:
+        return used, used <= 512
+    if not 0 < memory_fraction <= 0.5:
+        raise ValueError("Shared GPU memory fraction must be in (0, 0.5]")
+    return used, utilization <= 10 and total - used >= 2 * memory_fraction * total
+
+
+def wait_for_gpu(gpu, status, memory_fraction=None):
+    """Hold our lease; default to exclusive use, or explicitly budget shared use."""
     lease = Path(f"/tmp/xlron-gn-gpu-{gpu}-{os.getuid()}.lock").open("a+")  # noqa: SIM115 -- caller closes the campaign lease
     last_report = 0.0
     while True:
@@ -207,18 +231,8 @@ def wait_for_gpu(gpu, status):
                 last_report = time.monotonic()
             time.sleep(30)
     while True:
-        used = int(
-            subprocess.check_output(
-                [
-                    "nvidia-smi",
-                    f"--id={gpu}",
-                    "--query-gpu=memory.used",
-                    "--format=csv,noheader,nounits",
-                ],
-                text=True,
-            ).strip()
-        )
-        if used <= 512:
+        used, ready = gpu_capacity(gpu, memory_fraction)
+        if ready:
             status("gpu_ready", gpu=gpu, memory_mib=used)
             return lease
         if time.monotonic() - last_report > 600:
@@ -245,7 +259,8 @@ def selection_score(output, record):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--gpu", type=int, choices=(2, 3), required=True)
+    parser.add_argument("--gpu", type=int, required=True)
+    parser.add_argument("--gpu-memory-fraction", type=float)
     parser.add_argument("--shard", type=int, choices=(0, 1), required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--resume-model", type=Path, required=True)
@@ -279,6 +294,7 @@ def main():
     manifest = {
         "created_utc": datetime.now(UTC).isoformat(),
         "gpu": args.gpu,
+        "gpu_memory_fraction": args.gpu_memory_fraction,
         "source_sha256": hashes,
         "source_fingerprint": fingerprint,
         "initial_checkpoint": str(args.resume_model),
@@ -292,6 +308,10 @@ def main():
     for record in jobs:
         run_id = uuid.uuid4().hex[:8]
         record.update(status="planned", wandb_run_id=run_id)
+        if args.gpu_memory_fraction is not None:
+            record["command"] = replace_flags(
+                record["command"], f"--PREALLOCATE_MEM_FRACTION={args.gpu_memory_fraction}"
+            )
         record["command"] += [
             f"--EXPERIMENT_NAME={record['name']}",
             f"--DATA_OUTPUT_FILE={args.output / (record['name'] + '.jsonl')}",
@@ -317,7 +337,7 @@ def main():
             f"{app_url}/{args.entity}/{args.project}/runs/{record['wandb_run_id']}"
         )
     save_manifest(manifest_path, manifest)
-    lease = wait_for_gpu(args.gpu, status)
+    lease = wait_for_gpu(args.gpu, status, args.gpu_memory_fraction)
     failed_parents = set()
     candidates = []
     try:
@@ -348,18 +368,8 @@ def main():
                     record["selected_checkpoint"] = str(args.resume_model)
             # Recheck external users before each child, retaining our lease.
             while True:
-                used = int(
-                    subprocess.check_output(
-                        [
-                            "nvidia-smi",
-                            f"--id={args.gpu}",
-                            "--query-gpu=memory.used",
-                            "--format=csv,noheader,nounits",
-                        ],
-                        text=True,
-                    ).strip()
-                )
-                if used <= 512:
+                used, ready = gpu_capacity(args.gpu, args.gpu_memory_fraction)
+                if ready:
                     break
                 status("waiting_gpu", gpu=args.gpu, memory_mib=used)
                 time.sleep(30)
@@ -377,6 +387,9 @@ def main():
                 "WANDB_DIR": str(args.output),
                 "XLRON_SOURCE_FINGERPRINT": fingerprint,
             }
+            if args.gpu_memory_fraction is not None:
+                overrides["XLA_PYTHON_CLIENT_MEM_FRACTION"] = str(args.gpu_memory_fraction)
+                overrides["XLRON_GPU_SHARING"] = "user-authorized idle capacity; bounded JAX pool"
             record["environment"] = overrides
             started = time.monotonic()
             with (args.output / (record["name"] + ".log")).open("w") as log:

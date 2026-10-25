@@ -262,6 +262,7 @@ def isrs_gn_model_uniform(
     max_spans: int | None = None,
     num_subchannels: int = 1,
     xpm_backend: str = "jax",
+    output_indices: Array | None = None,
 ):
     """
     Simplified ISRS GN model for uniform spans with identical parameters.
@@ -306,30 +307,45 @@ def isrs_gn_model_uniform(
     Phi = excess_kurtosis_i if excess_kurtosis_i is not None else jnp.zeros(num_channels)
 
     total_power = jnp.sum(ch_pow)
+    if output_indices is not None and (mod_format_correction or xpm_backend != "jax"):
+        raise ValueError("Selected output rows require uncorrected ordinary-JAX uniform GN")
+    if output_indices is not None and any(
+        jnp.ndim(x) != 0 for x in (a, a_bar, gamma, cr, beta2, beta3, beta4)
+    ):
+        raise ValueError("Selected output rows require scalar uniform-span physics")
+    output_f = f if output_indices is None else f[output_indices]
+    output_bw = ch_bw if output_indices is None else ch_bw[output_indices]
+    output_power = ch_pow if output_indices is None else ch_pow[output_indices]
 
     # -- Fused SPM computation --
     # Nyquist subchannels: use effective bandwidth B_eff = B / N_sub for SPM
-    B_eff = ch_bw / num_subchannels
+    B_eff = output_bw / num_subchannels
     # phi_i for SPM
-    phi_i = 3 / 2 * pi**2 * (beta2 + pi * beta3 * (f + f) + 2 * pi**2 * beta4 * f**2)
+    phi_i = (
+        3
+        / 2
+        * pi**2
+        * (beta2 + pi * beta3 * (output_f + output_f) + 2 * pi**2 * beta4 * output_f**2)
+    )
     # T term
     T = (a + a_bar - f * total_power * cr) ** 2
+    output_T = T if output_indices is None else T[output_indices]
     # SPM (inlined _spm)
     B2 = jnp.maximum(B_eff**2, EPS)
     a_plus_abar = a + a_bar
     eta_spm = 4 / 9 * gamma**2 / B2 * pi / (phi_i * a_bar * (2 * a + a_bar)) * (
-        T - a**2
-    ) / a * jnp.arcsinh(phi_i * B2 / a / pi) + (a_plus_abar**2 - T) / a_plus_abar * jnp.arcsinh(
-        phi_i * B2 / a_plus_abar / pi
-    )
+        output_T - a**2
+    ) / a * jnp.arcsinh(phi_i * B2 / a / pi) + (
+        a_plus_abar**2 - output_T
+    ) / a_plus_abar * jnp.arcsinh(phi_i * B2 / a_plus_abar / pi)
     # Coherence scaling (uses B_eff for subchannel coherence)
-    eps = _eps(B_eff, f, a, length, beta2, beta3) * coherent
+    eps = _eps(B_eff, output_f, a, length, beta2, beta3) * coherent
     eta_spm = eta_spm * num_spans ** (1 + eps)
     # Scale: total NLI = N_sub * (P/N_sub)^3 * eta(B_eff) = P^3 * eta(B_eff) / N_sub^2
     eta_spm = eta_spm / (num_subchannels**2)
 
     # -- XPM computation --
-    f_i = f[:, None]
+    f_i = output_f[:, None]
     f_k = f[None, :]
     f_i_plus_f_k = f_i + f_k
     phi_ik = (
@@ -396,11 +412,11 @@ def isrs_gn_model_uniform(
             * num_spans
         )
     else:
-        eta_xpm_corr = jnp.zeros((num_channels,))
-        eta_xpm_corr_asymp = jnp.zeros((num_channels,))
+        eta_xpm_corr = jnp.zeros_like(eta_spm)
+        eta_xpm_corr_asymp = jnp.zeros_like(eta_spm)
 
     eta_n = (eta_spm + eta_xpm + eta_xpm_corr_asymp).T + eta_xpm_corr
-    NLI = jnp.squeeze(ch_pow) ** 3 * eta_n
+    NLI = jnp.squeeze(output_power) ** 3 * eta_n
 
     return NLI, eta_n, eta_spm, eta_xpm
 
@@ -725,6 +741,7 @@ def get_snr(
     num_subchannels: int = 1,
     span_lumped_loss_db: float | None = None,
     xpm_backend: str = "jax",
+    output_indices: Array | None = None,
 ):
     """
     Compute the signal-to-noise ratio (SNR) of a WDM system.
@@ -733,6 +750,8 @@ def get_snr(
         snr: signal-to-noise ratio (linear units)
     """
     gn_model = isrs_gn_model_uniform if uniform_spans else isrs_gn_model
+    if output_indices is not None and (not uniform_spans or mod_format_correction):
+        raise ValueError("Selected output rows require uncorrected uniform GN")
     if xpm_backend != "jax" and (not uniform_spans or mod_format_correction):
         raise ValueError("generic Pallas XPM requires uniform spans without modulation corrections")
     span_length = jnp.sum(length) / num_spans
@@ -770,14 +789,19 @@ def get_snr(
         mod_format_correction=mod_format_correction,
         excess_kurtosis_i=excess_kurtosis_i,
         num_subchannels=num_subchannels,
-        **({"xpm_backend": xpm_backend} if uniform_spans else {}),
+        **({"xpm_backend": xpm_backend, "output_indices": output_indices} if uniform_spans else {}),
     )
 
     # SNR (optical only — transceiver noise is added once at path level in get_snr_for_path)
     transceiver_noise = ch_power_w_i / from_db(transceiver_snr)
+    if output_indices is not None:
+        p_ase_inline = p_ase_inline[output_indices]
+        transceiver_noise = transceiver_noise[output_indices]
     noise_power = p_ase_inline + p_nli
     noise_power = jnp.maximum(noise_power, EPS)
     ch_power_squeezed = jnp.squeeze(ch_power_w_i)
+    if output_indices is not None:
+        ch_power_squeezed = ch_power_squeezed[output_indices]
     snr = jnp.where(ch_power_squeezed > 0, ch_power_squeezed / noise_power, -1e5)
     # ROADM ASE is computed at path level (see calculate_roadm_ase); zero placeholder
     # kept in return tuple for API compatibility.
