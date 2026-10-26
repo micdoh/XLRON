@@ -2007,6 +2007,49 @@ class TestSafeReleaseDepartures:
         assert int(nxt.accepted_services) == int(s.accepted_services) + 1
 
     @staticmethod
+    @pytest.mark.parametrize("margin", [0.0, 0.5])
+    def test_safe_release_keeps_the_link_snr_cache_fresh(margin):
+        """Release checks re-solve only the departing path's links, which is exact
+        only if the cached link SNR is fresh after every step; pin that invariant
+        through admissions, blocks and departures."""
+        env, p = make(
+            dict(
+                env_type="rmsa_gn_model",
+                topology_name="5node_directed",
+                k=2,
+                link_resources=16,
+                slot_size=50,
+                guardband=0,
+                values_bw=[100, 200],
+                max_requests=200,
+                include_no_op=False,
+                power_per_channel=0,
+                load=8,
+                mean_service_holding_time=4,
+                existing_snr_margin=margin,
+                snr_margin=max(margin, 0.5),
+            ),
+            log_wrapper=False,
+        )
+        p = cast(RMSAGNModelEnvParams, p)
+        assert p.departure_policy == "safe_release"
+        _, s = env.reset(jax.random.PRNGKey(5), p)
+        step = jax.jit(lambda key, st, a: env.step(key, st, a, p)[1])
+        accepted = blocked = 0
+        for i in range(40):
+            s = with_mask(env, p, s)
+            before = int(s.accepted_services)
+            s = step(jax.random.PRNGKey(i), s, jnp.argmax(s.link_slot_mask))
+            accepted += int(s.accepted_services) - before
+            blocked += 1 - (int(s.accepted_services) - before)
+            np.testing.assert_allclose(
+                s.link_snr_array, get_snr_link_array(s, p), rtol=1e-5, atol=1e-6
+            )
+        # Most admitted lightpaths have departed through the release path.
+        present = int(jnp.sum(lightpath_representatives(s, p)))
+        assert accepted > 20 and present < accepted // 2
+
+    @staticmethod
     def test_safe_release_is_the_default_for_hard_rmsa_gn():
         base = dict(env_type="rmsa_gn_model", topology_name="5node_directed", link_resources=8)
         _, params = make(base, log_wrapper=False)

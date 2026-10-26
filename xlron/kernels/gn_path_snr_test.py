@@ -225,6 +225,8 @@ def test_reduced_candidate_evidence_keeps_all_original_predicates(mode, mask_dty
             modulations_array=HashableArrayWrapper(mods.at[:, 2].set(thresholds[mode]))
         )
     state = state.replace(
+        # Every existing lightpath departs in the future (none is held for release).
+        link_slot_departure_array=jnp.full(shape, 100.0, state.link_slot_departure_array.dtype),
         channel_centre_bw_array=jnp.asarray(old_bw.astype(np.float32) * 12.5),
         modulation_format_index_array=jnp.asarray(
             rng.integers(0, len(mods), shape, dtype=np.int32)

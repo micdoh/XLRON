@@ -4462,8 +4462,9 @@ def release_departures_safely(
     """Departure processing for departure_policy="safe_release" (issue #67).
 
     Expired lightpaths are held (see held_lightpath_mask). Held lightpaths are then
-    switched off oldest-first, each only if a full-network GN solve of the state
-    without it leaves every live lightpath at or above its modulation threshold
+    switched off oldest-first, each only if the GN model of the state without it
+    (its path links re-solved; all other links are unchanged) and full end-to-end
+    path SNR leave every live lightpath at or above its modulation threshold
     (and the existing_snr_margin reserve, capped at its current SNR, as for
     admissions). Every intermediate optical state is therefore safe, so live
     lightpaths never fall below threshold because of a departure. A rejected
@@ -4480,8 +4481,7 @@ def release_departures_safely(
     count = jnp.sum(held)
     order = jnp.argsort(jnp.where(held, state.link_slot_departure_array, jnp.inf).reshape(-1))
     if params.existing_snr_margin > 0:
-        fresh = state.replace(link_snr_array=get_snr_link_array(state, params))
-        current_snr = get_lightpath_snr(fresh, params)
+        current_snr = get_lightpath_snr(state, params)  # The cache is fresh (see attempt).
     else:
         current_snr = None
 
@@ -4489,7 +4489,15 @@ def release_departures_safely(
         k, passes, released_in_pass, s, snr = carry
         link, slot = jnp.divmod(order[k], params.link_resources)
         candidate = _switch_off_lightpath(s, link, slot)
-        candidate = candidate.replace(link_snr_array=get_snr_link_array(candidate, params))
+        # Only the departing lightpath's links change. The cache is fresh under
+        # safe_release (every step refreshes or restores it, releases update it),
+        # so recompute just those links (padding entries are dropped).
+        path_links = params.path_link_indices.val[s.path_index_array[link, slot]]
+        candidate = candidate.replace(
+            link_snr_array=candidate.link_snr_array.at[path_links].set(
+                get_snr_link_array(candidate, params, path_links), mode="drop"
+            )
+        )
         candidate_snr = get_lightpath_snr(candidate, params)
         required = get_required_snr_se_kurtosis_array(
             candidate.modulation_format_index_array, 2, params
