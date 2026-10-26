@@ -346,6 +346,30 @@ candidate oracles at both 12 and 140 slots for uniform, corrected and non-unifor
 modes, unequal modulation thresholds on reused footprints, different batched live
 counts, and full dense-versus-packed SNR with empty, sparse and dense links.
 
+## Pallas kernel backend
+
+`--gn_kernel_backend=pallas` (see [training](training.md)) was measured against the
+ordinary-JAX reference on an A100 80GB. The GPU was shared with another job at
+roughly 98% utilisation, so absolute rates are conservative. The workload is
+NSFNET directed, full C+L+S (1,668 slots), k=5, `all_slots` masks, load 5,000,
+coherent NLI, 4 independent environments, candidate batch 64 and environment
+chunk 1. Every arm starts from the same saved state (256 requests admitted per
+environment by a Pallas warmup) and replays the same traffic:
+
+```bash
+python -m experimental.benchmarks.gn_scaling --gn-kernel-backend pallas --slots 1668 --envs 4 --k 5 --load 5000 --coherent --band-preference C,L,S --gn-mask-mode all_slots --gn-mask-batch-size 64 --gn-mask-env-batch-size 1 --independent-streams --kernels mask rollout --steps 4 --iterations 3 --state-input state.npz
+```
+
+| Arm | Mask, 4 envs (median) | 4-step rollout (median) | Environment transitions/s |
+|---|---:|---:|---:|
+| `jax` (reference) | 13.15 s | 50.70 s | 0.32 |
+| `pallas` | **0.71 s** | **2.62 s** | **6.12** (19×) |
+| #65 code, best flags (archived) | 0.67 s | 2.58 s | 6.20 |
+
+All arms produce identical valid-action counts and admissions. The #65 control
+used the pre-#66 XPM broadcast. Its kernels are not faster for that reason: in
+this state every channel has the same launch power, so the two formulas agree.
+
 ## Dependencies and Gymnax
 
 `uv.lock` was refreshed: 159 package versions changed, 20 packages were added and
