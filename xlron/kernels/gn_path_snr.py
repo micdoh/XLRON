@@ -132,10 +132,15 @@ def path_snr_pallas(
         if evidence is None:
             plt.store(out_ref.at[row, columns], calculate(), mask=mask)
             return
+        # Triton needs both branches to yield IR values, not Python constants,
+        # so build the fallback scalars by reducing vectors.
         floor, ok = jax.lax.cond(
             jnp.sum(wanted.astype(jnp.int32)) > 0,
             calculate,
-            lambda: (jnp.float32(jnp.inf), jnp.float32(1.0)),
+            lambda: (
+                jnp.min(jnp.full((block_slots,), jnp.inf, jnp.float32)),
+                jnp.max(jnp.ones((block_slots,), jnp.float32)),
+            ),
         )
         plt.store(out_ref.at[jnp.int32(0), row, tile], floor)
         plt.store(out_ref.at[jnp.int32(1), row, tile], ok * unchanged_ok.astype(jnp.float32))
