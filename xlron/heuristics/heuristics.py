@@ -700,12 +700,14 @@ def arbr_ff(state: EnvState, params: RSAEnvParams) -> Array:
     Returns:
         Array: Action
     """
-    mask = get_action_mask(state, params)
-    first_slots = first_fit(state, params)
+    mask, candidate_slots = get_action_mask_and_slots(state, params)
+    first_slots = _first_fit_from_mask(mask, params)
     nodes_sd, _ = read_rsa_request(state.request_array)
     paths = get_paths(params, nodes_sd)
     # Static cost: slots consumed network-wide = path hops * required slots
-    num_slots = get_request_num_slots(state, params)
+    num_slots = jnp.take_along_axis(
+        candidate_slots, jnp.minimum(first_slots, params.link_resources - 1)[:, None], axis=1
+    ).squeeze(1)
     c_static = jnp.sum(paths, axis=1) * num_slots
     # Dynamic cost: max link utilisation on the path, quantised to deciles
     # (0-10% -> 10, 11-20% -> 20, ..., 91-100% -> 100)
@@ -868,6 +870,11 @@ def first_fit(state: EnvState, params: RSAEnvParams) -> Array:
     slots are searched in band preference order rather than raw index order.
     """
     mask = get_action_mask(state, params)
+    return _first_fit_from_mask(mask, params)
+
+
+def _first_fit_from_mask(mask: Array, params: RSAEnvParams) -> Array:
+    """Search a computed mask, retaining GN band preference and no-fit sentinels."""
     if isinstance(params, GNModelEnvParams) and len(params.band_slot_order_ff.val) > 0:
         order = params.band_slot_order_ff.val
         reordered = mask[:, order]
@@ -925,6 +932,28 @@ def get_request_num_slots(state: EnvState, params: RSAEnvParams) -> Array:
         requested_bw, se, params.slot_size, params.guardband
     )
     return num_slots.astype(jnp.int32)
+
+
+def get_action_mask_and_slots(state: EnvState, params: RSAEnvParams) -> Tuple[Array, Array]:
+    """Return feasible starts and the actual footprint of each (path, start).
+
+    GN resolves modulation separately for every start. Its nominal reach-based
+    path efficiency does not describe the physically admitted footprint. Compute
+    the mask and widths together so direct heuristic calls also use fresh formats.
+    """
+    if isinstance(params, RMSAGNModelEnvParams):
+        updated = jit_profiler.call(
+            params.profile, mask_slots_rmsa_gn_model, state, params, state.request_array
+        )
+        formats = updated.mod_format_mask.reshape(params.k_paths, -1).astype(jnp.int32)
+        mask = formats >= 0
+        efficiencies = params.modulations_array.val[jnp.maximum(formats, 0), 1]
+        _, requested_bw = read_rsa_request(state.request_array)
+        slots = required_slots(requested_bw, efficiencies, params.slot_size, params.guardband)
+    else:
+        mask = get_action_mask(state, params)
+        slots = jnp.broadcast_to(get_request_num_slots(state, params)[:, None], mask.shape)
+    return mask, slots.astype(jnp.int32)
 
 
 def get_path_free_arrays(link_slot_array: Array, path_links: Array) -> Array:
@@ -1090,19 +1119,20 @@ def capacity_loss(
         Tuple: (loss, mask). loss is (k_paths, link_resources) float32 with jnp.inf
         at invalid actions; mask is the (k_paths, link_resources) action mask.
     """
-    mask = get_action_mask(state, params)
+    mask, num_slots = get_action_mask_and_slots(state, params)
     nodes_sd, _ = read_rsa_request(state.request_array)
-    num_slots = get_request_num_slots(state, params)
     num_resources = params.link_resources
 
     # Maximum future demand size (in slots, incl. guardband) to account capacity for.
     # params fields are static under jit so this is computed at trace time.
     values_bw = np.asarray(params.values_bw.val)
-    min_se = (
-        float(np.min(np.asarray(params.path_se_array.val)))
-        if params.consider_modulation_format
-        else 1.0
-    )
+    if isinstance(params, RMSAGNModelEnvParams):
+        # GN resolves a physical format per start; any format may be the cheapest.
+        min_se = float(np.min(np.asarray(params.modulations_array.val)[:, 1]))
+    elif params.consider_modulation_format:
+        min_se = float(np.min(np.asarray(params.path_se_array.val)))
+    else:
+        min_se = 1.0
     w_cap = int(np.ceil(float(np.max(values_bw)) / (min_se * float(params.slot_size))))
     w_cap = max(w_cap + int(params.guardband), 1)
 
@@ -1114,11 +1144,10 @@ def capacity_loss(
         raise ValueError(
             f"num_interfering_routes must be in [1, k_paths={params.k_paths}], got {n_int}"
         )
-    pair_major_rows = (
-        np.arange(params.path_link_array.val.shape[0])
-        .reshape(-1, params.k_paths)[:, :n_int]
-        .reshape(-1)
-    )
+    # GN appends one zero row for path_index_array == -1. It is not a
+    # node-pair route, including when k_paths == 1 makes the shape divisible.
+    num_route_rows = params.path_link_array.val.shape[0] - int(isinstance(params, GNModelEnvParams))
+    pair_major_rows = np.arange(num_route_rows).reshape(-1, params.k_paths)[:, :n_int].reshape(-1)
     interfering_paths = params.path_link_array.val[pair_major_rows]
     if params.pack_path_bits:
         interfering_paths = jnp.unpackbits(interfering_paths, axis=1)[:, : params.num_links]
@@ -1139,7 +1168,7 @@ def capacity_loss(
     slot_indices = jnp.arange(num_resources, dtype=jnp.int32)
     # Block end (exclusive) of each candidate assignment; clipped for safe gathering
     # (assignments that overrun the spectrum are already invalid in the mask)
-    ends = jnp.minimum(slot_indices[None, :] + num_slots[:, None], num_resources)
+    ends = jnp.minimum(slot_indices[None, :] + num_slots, num_resources)
 
     def sum_min(d, offset):
         # sum_{i=1..d} min(i + offset, w_cap), for the left-of-block truncation term

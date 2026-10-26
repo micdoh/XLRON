@@ -295,3 +295,8 @@ def test_make_env_config_get_fallbacks_match_flag_defaults():
         "config.get() fallbacks in make_env.py diverge from parameter_flags defaults "
         f"(line, key, fallback, flag default): {violations}"
     )
+
+
+def test_snr_observations_reject_non_gn_environments():
+    with pytest.raises(AssertionError, match="requires a GN environment"):
+        make({"env_type": "rsa", "transformer_obs_type": "snr"})

@@ -1,6 +1,8 @@
 """Unit tests for train_utils heuristic plumbing, schedules, and checkpointing."""
 
+import ast
 import io
+from pathlib import Path
 from types import SimpleNamespace
 
 import chex
@@ -51,6 +53,33 @@ GUI_PATH_HEURISTICS = [
     "arbr_ff",
 ]
 
+# Every path heuristic dispatched by select_action_eval (checked against its source).
+HEURISTICS = (
+    "ksp_ff",
+    "ff_ksp",
+    "kmc_ff",
+    "kmf_ff",
+    "ksp_mu",
+    "ksp_mu_nonrel",
+    "ksp_mu_unique",
+    "mu_ksp",
+    "mu_ksp_nonrel",
+    "mu_ksp_unique",
+    "kca_ff",
+    "arbr_ff",
+    "kme_ff",
+    "ksp_bf",
+    "bf_ksp",
+    "ksp_lf",
+    "lf_ksp",
+    "ksp_ef",
+    "ksp_flf",
+    "flf_ksp",
+    "ksp_flef",
+    "ksp_mscl",
+    "mscl_ksp",
+)
+
 
 def _rwa_4node_settings():
     return dict(
@@ -72,6 +101,15 @@ def _make_log_wrapped_env():
     env, params = make(_rwa_4node_settings())
     obs, state = env.reset(key, params)
     return key, env, obs, state, params
+
+
+class TestInitNetwork:
+    @staticmethod
+    @pytest.mark.parametrize("env_type", ["rsa_gn_model", "rmsa_gn_model"])
+    def test_transformer_power_control_explains_missing_joint_mask(env_type):
+        config = Box(USE_TRANSFORMER=True, env_type=env_type, launch_power_type="rl")
+        with pytest.raises(NotImplementedError, match="power-conditioned physical action mask"):
+            tu.init_network(config, jax.random.PRNGKey(0))
 
 
 class SelectActionEvalDispatchTest(chex.TestCase):
@@ -575,6 +613,70 @@ class TestLogMetrics:
         assert all(
             "/" in key or definition.get("hidden") for key, definition in definitions.items()
         )
+
+
+@pytest.fixture(scope="module")
+def gn_setup():
+    env, params = make(
+        {
+            "env_type": "rmsa_gn_model",
+            "topology_name": "5node_directed",
+            "k": 2,
+            "link_resources": 24,
+            "slot_size": 25,
+            "guardband": 0,
+            "values_bw": [100],
+            "power_per_channel": -10,
+            "max_requests": 100,
+            "include_no_op": False,
+        }
+    )
+    obs, state = env.reset(jax.random.PRNGKey(3), params)
+    return env, params, obs, state
+
+
+class TestSelectActionEvalGn:
+    @staticmethod
+    def test_inventory_matches_actual_dispatch():
+        source = Path("xlron/train/train_utils.py").read_text()
+        function = next(
+            n
+            for n in ast.parse(source).body
+            if isinstance(n, ast.FunctionDef) and n.name == "select_action_eval"
+        )
+        actual = {
+            node.comparators[0].value
+            for node in ast.walk(function)
+            if isinstance(node, ast.Compare)
+            and "path_heuristic" in ast.unparse(node.left)
+            and isinstance(node.comparators[0], ast.Constant)
+        }
+        assert actual == set(HEURISTICS)
+
+    @staticmethod
+    @pytest.mark.parametrize("heuristic", HEURISTICS)
+    def test_all_heuristics_select_and_step_with_gn(gn_setup, heuristic):
+        env, params, obs, state = gn_setup
+        config = Box(
+            {
+                "EVAL_HEURISTIC": True,
+                "env_type": "rmsa_gn_model",
+                "path_heuristic": heuristic,
+                "launch_power_type": "fixed",
+            }
+        )
+        # Use an occupied state as well as an empty one: the GN modulation mask and
+        # the sentinel row must remain valid after an accepted placement.
+        for i in range(2):
+            state, action, _, _ = select_action_eval(
+                (jax.random.PRNGKey(i), state, obs), env, params, None, config
+            )
+            assert action.shape == (2,)
+            index = int(action[0])
+            assert 0 <= index < params.k_paths * params.link_resources
+            assert np.asarray(state.env_state.link_slot_mask)[index] > 0
+            obs, state, *_ = env.step(jax.random.PRNGKey(i + 50), state, action, params)
+        assert int(state.env_state.accepted_services) == 2
 
 
 if __name__ == "__main__":

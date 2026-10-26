@@ -16,9 +16,28 @@ from xlron import dtype_config
 from xlron.environments.dataclasses import EnvParams, EnvState
 from xlron.environments.env_funcs import (
     get_obs_transformer,
+    get_paths,
     get_path_slots,
     read_rsa_request,
 )
+
+
+def pooled_actor_projection(mlp, embeddings, paths):
+    """Commute only the final affine projection with a path's weighted sum.
+
+    Hidden nonlinearities remain per link. The bias is multiplied by the sum
+    of path weights, including zero for dummy paths. This keeps ordinary JAX AD.
+    Exact because the actor MLP's final layer has an identity activation (the
+    eqx.nn.MLP default), so sum pooling of logits equals projecting summed features.
+    """
+    hidden_mlp = eqx.tree_at(lambda m: m.layers[-1], mlp, eqx.nn.Identity())
+    hidden = jax.vmap(hidden_mlp)(embeddings)
+    pooled = jnp.sum(paths[:, :, None] * hidden[None, :, :], axis=1)
+    final = mlp.layers[-1]
+    logits = jax.vmap(lambda x: final.weight @ x)(pooled)
+    if final.bias is not None:
+        logits = logits + jnp.sum(paths, axis=1)[:, None] * final.bias[None, :]
+    return logits
 
 
 class Embedder(eqx.Module):
@@ -310,13 +329,18 @@ class Encoder(eqx.Module):
         dropout_rate: float,
         attention_dropout_rate: float,
         key: chex.PRNGKey,
+        preembedded: bool = False,
     ):
         embedder_key, layer_key, wire_key = jax.random.split(key, 3)
         self.num_layers = num_layers
-        self.embedder_block = Embedder(
-            in_size=input_size,
-            out_size=embedding_size,
-            key=embedder_key,
+        self.embedder_block = (
+            eqx.nn.Identity()
+            if preembedded
+            else Embedder(
+                in_size=input_size,
+                out_size=embedding_size,
+                key=embedder_key,
+            )
         )
         head_dim = embedding_size // num_heads
         self.wire = WIRE(num_wire_features, head_dim, wire_key)
@@ -344,6 +368,7 @@ class Encoder(eqx.Module):
         enable_dropout: bool = False,
         attn_mask: Array | None = None,
         key: chex.PRNGKey | None = None,
+        embeddings: Array | None = None,
     ) -> dict[str, Array]:
         # Index the inputs to retrieve the features used by WiRE (either spectral or random walks)
         wire_features = inputs[:, : self.num_wire_features]
@@ -366,7 +391,8 @@ class Encoder(eqx.Module):
             )
             return query_heads, key_heads, value_heads
 
-        embeddings = jax.vmap(self.embedder_block)(inputs)
+        if embeddings is None:
+            embeddings = jax.vmap(self.embedder_block)(inputs)
 
         layer_outputs: Array | list[Array | None] = []
 
@@ -559,12 +585,10 @@ class ActorCriticTransformer(eqx.Module):
             key=critic_key,
         )["output"]
 
-        # Project per-link embeddings to slot logits, then pool across path links
-        action_tokens = jax.vmap(self.actor_mlp)(action_tokens)
-
         # ACTOR POOLING
         nodes_sd, requested_bw = read_rsa_request(state.request_array)
         if self.actor_pooling == "min_mean_max":
+            action_tokens = jax.vmap(self.actor_mlp)(action_tokens)
 
             def path_action_min_mean_max(i):
                 # Gather per-link features for this path using min, mean, max
@@ -576,17 +600,11 @@ class ActorCriticTransformer(eqx.Module):
 
             path_action_logits = jax.vmap(path_action_min_mean_max)(jnp.arange(params.k_paths))
         else:
-            # Default: sum pooling
-            def path_action_dist(i):
-                return get_path_slots(
-                    action_tokens,
-                    params,
-                    nodes_sd,
-                    i,
-                    agg_func="sum",
-                )
-
-            path_action_logits = jax.vmap(path_action_dist)(jnp.arange(params.k_paths))
+            # Default: sum pooling. Pool hidden features over each path's links and
+            # project once, rather than projecting every link to slot logits first.
+            path_action_logits = pooled_actor_projection(
+                self.actor_mlp, action_tokens, get_paths(params, nodes_sd)
+            )
         action_logits = path_action_logits.reshape((-1,))
 
         if params.include_no_op:

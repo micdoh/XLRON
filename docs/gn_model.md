@@ -161,6 +161,23 @@ The total optical power on each fibre link is constrained by `max_power_per_fibr
 The per-channel launch power is set by `power_per_channel` (in dBm). If not specified, it defaults to `max_power_per_fibre` divided equally among all slots. For example, with `max_power_per_fibre=21` dBm (125.9 mW) and `link_resources=100`, the default per-channel power is approximately 1.26 mW (1.0 dBm).
 
 
+### Learned launch power
+
+The full-mask transformer experiments currently use fixed −10 dBm launch
+power. Existing `--launch_power_type=rl` support is for MLP/GNN policies; the
+MLP power policy chooses routing/spectrum through a heuristic. It does not
+directly enable a transformer to jointly choose arbitrary path, slot and power.
+Transformer initialization rejects that unsupported combination explicitly.
+
+Joint control must condition physical feasibility and resolved modulation/width
+on the selected power, check every existing lightpath, and retain the fibre
+power limit. A discrete joint path/slot/power mask would retain all feasible
+choices, while a power-only proposal followed by masking can miss placements
+that work at a different power. A small power set around the current operating
+point is a useful first target. Sensitivity can be checked by bracketing the
+fixed setting with a bracket such as −11 and −9 dBm. The older learned power flags
+default to −5 to +0.5 dBm, so those defaults do not bracket −10 dBm.
+
 ## Spectral Band Data
 
 The amplifier noise figure and transceiver SNR can vary across the optical spectrum. XLRON loads per-band values from a CSV file (`transceiver_amplifier_data.csv`) that defines spectral bands with associated NF and transceiver SNR. Each frequency slot is assigned the values of the band it falls within.
@@ -214,7 +231,33 @@ For `rmsa_gn_model`, modulation formats are loaded from a CSV file. Each format 
 
 The number of slots required for a request is `ceil(requested_bandwidth / (slot_size * spectral_efficiency))`.
 
-The SNR margin parameter (`--snr_margin`, default 1 dB) is added to the `minimum_osnr` threshold when checking whether a channel's SNR is sufficient.
+The admission margin (`--snr_margin`, default 0.5 dB) is added to the modulation
+threshold for a new lightpath. By default, subsequent admissions need only keep
+existing lightpaths above their modulation minima; they can consume that initial
+buffer. Departures can also change ISRS tilt and reduce surviving channels' SNR.
+
+`--existing_snr_margin` (default 0 dB) optionally retains a reserve during later
+admissions. With modulation threshold `T`, fresh pre-admission SNR `B` and target
+reserve `R`, an old lightpath must remain above `max(T, min(T + R, B))`. Thus
+admissions protect the target buffer while it is available, and cannot further
+consume it if departures have already reduced it. A partly consumed reserve
+does not itself block an unchanged, unrelated lightpath. Actual SNR below `T`
+still fails the original global physical check.
+
+Set `0 <= existing_snr_margin <= snr_margin`; for example,
+`--snr_margin=2 --existing_snr_margin=1`. The reserve is enforced in both masking
+and actual admission, including all hops of affected existing paths. Increasing
+it trades some new admissions for headroom; it is not a guarantee against every
+future departure pattern. Compare existing-channel outages as well as request
+blocking when tuning it.
+
+Build each network from empty with the trial's settings when comparing margins:
+a network admitted without a reserve may already have consumed its headroom.
+
+Departures are not checked: removing a channel changes the ISRS tilt and can push a
+surviving lightpath below its threshold, after which every later admission fails
+the global existing-path check. Modelling departures as events that are held until
+they are safe is tracked in [issue #67](https://github.com/micdoh/XLRON/issues/67).
 
 Default formats for the GN model environments (from `modulations_gn_model.csv`):
 
@@ -700,7 +743,8 @@ The per-channel Raman gain varies across the spectrum (typically higher for L-ba
 
 | Flag | Default | Units | Description |
 |---|---|---|---|
-| `--snr_margin` | 1 | dB | Margin added to modulation format SNR thresholds |
+| `--snr_margin` | 0.5 | dB | Required SNR headroom at new-lightpath admission |
+| `--existing_snr_margin` | 0 | dB | Target reserve preserved on existing lightpaths; capped by their fresh pre-admission headroom and never below their modulation minimum |
 | `--mod_format_correction` | False | -- | Enable modulation-format-dependent NLI correction |
 | `--modulations_csv_filepath` | (built-in) | -- | Path to modulation formats CSV file |
 | `--calc_minimum_osnr` | False | -- | Calculate `minimum_osnr` from spectral efficiency using GSNR threshold formula (ignores CSV values) |

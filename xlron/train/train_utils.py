@@ -59,6 +59,7 @@ from xlron.heuristics.heuristics import (
 from xlron.models.gnn import ActorCriticGNN
 from xlron.models.mlp import ActorCriticMLP, LaunchPowerActorCriticMLP
 from xlron.models.transformer import ActorCriticTransformer
+from xlron.models.spectrum_transformer import ActorCriticSpectrumTransformer
 
 # TODO - Add all possible metrics here (they will all be registered in wandb) then just add a try except when adding them to processed data
 metrics = [
@@ -598,6 +599,16 @@ def save_model(model: eqx.Module, config: Box, first_save: bool = True) -> pathl
 
 
 def init_network(config: Box, key: chex.PRNGKey) -> eqx.Module:
+    if (
+        config.get("USE_TRANSFORMER", False)
+        and "gn_model" in config.env_type.lower()
+        and config.get("launch_power_type", "fixed") == "rl"
+    ):
+        raise NotImplementedError(
+            "Transformer launch-power control requires a power-conditioned physical action mask "
+            "and a joint path/slot/power policy; use launch_power_type=fixed for transformers. "
+            "Existing launch_power_type=rl policies support MLP or GNN architectures."
+        )
     if config.env_type.lower() == "vone" and config.USE_TRANSFORMER:
         # Fail fast: the transformer emits per-path-slot logits only, but VONE's
         # select_action/_loss_fn slice [source | dest | path-slot] heads.
@@ -633,15 +644,28 @@ def init_network(config: Box, key: chex.PRNGKey) -> eqx.Module:
             num_request_specific_cols = (
                 4  # link relevance
                 + 1  # request size
-                + int(config.transformer_obs_type == "departure")  # holding time
+                + int(
+                    config.transformer_obs_type in ("departure", "departure_snr", "lifetime_snr")
+                )  # holding time
             )
             input_size = (
                 config.num_wire_features
                 + config.link_resources
+                * (
+                    2
+                    if config.transformer_obs_type
+                    in ("occupancy_snr", "departure_snr", "lifetime_snr")
+                    else 1
+                )
                 + 2  # traffic marginals
                 + num_request_specific_cols
             )
-            network = ActorCriticTransformer(
+            transformer_cls = (
+                ActorCriticSpectrumTransformer
+                if config.get("transformer_spectrum_encoder", "dense") == "conv"
+                else ActorCriticTransformer
+            )
+            network = transformer_cls(
                 input_size=input_size,
                 embedding_size=config.transformer_embedding_size,
                 intermediate_size=config.transformer_intermediate_size,
@@ -771,6 +795,10 @@ def init_network(config: Box, key: chex.PRNGKey) -> eqx.Module:
             )
     else:
         raise ValueError(f"Invalid environment type {config.env_type}")
+    if config.get("transformer_modulation_features", False):
+        from xlron.models.modulation_actor import ModulationAwareActorCritic
+
+        network = ModulationAwareActorCritic(network, jax.random.fold_in(key, 20261025))
     return network
 
 
@@ -1138,14 +1166,25 @@ def select_action(select_action_state, env, env_params, train_state, config):
         last_obs = (env_state.env_state, env_params)
     model = eqx.combine(train_state.model_params, train_state.model_static)
     model = cast_model_for_compute(model)
-    pi, value = model(*last_obs)
-    # Action masking
+    # This opt-in head reads the freshly resolved format/width at each candidate.
+    # Save the same acting state in PPO so gradient updates see identical features.
+    modulation_features = config.get("transformer_modulation_features", False)
     mask_result = env.action_mask(env_state.env_state, env_params)
     if len(mask_result) == 3:
         action_mask, full_action_mask, mod_format_mask = mask_result
     else:
         action_mask, full_action_mask = mask_result
         mod_format_mask = None
+
+    if modulation_features:
+        model_state = env_state.env_state.replace(
+            link_slot_mask=action_mask,
+            full_link_slot_mask=full_action_mask,
+            mod_format_mask=mod_format_mask,
+        )
+        pi, value = model(model_state, env_params)
+    else:
+        pi, value = model(*last_obs)
 
     # Always do action masking with VONE
     if config.env_type.lower() == "vone":

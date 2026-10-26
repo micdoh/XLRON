@@ -261,6 +261,7 @@ def isrs_gn_model_uniform(
     mod_format_correction: bool = False,
     max_spans: int | None = None,
     num_subchannels: int = 1,
+    xpm_backend: str = "jax",
 ):
     """
     Simplified ISRS GN model for uniform spans with identical parameters.
@@ -342,7 +343,27 @@ def isrs_gn_model_uniform(
         )
     )
     T_k = T[None, :]
-    xpm_single = _xpm(ch_pow, ch_pow.T, phi_ik, T_k, ch_bw, ch_bw.T, a.T, a_bar.T, gamma)
+    if xpm_backend == "pallas":
+        if mod_format_correction:
+            raise ValueError("The Pallas XPM kernel does not support modulation corrections")
+        from xlron.kernels.gn_xpm import xpm_pallas
+
+        xpm_single = xpm_pallas(
+            ch_pow,
+            f,
+            ch_bw,
+            a=a,
+            a_bar=a_bar,
+            gamma=gamma,
+            cr=cr,
+            beta2=beta2,
+            beta3=beta3,
+            beta4=beta4,
+        )
+    elif xpm_backend == "jax":
+        xpm_single = _xpm(ch_pow, ch_pow.T, phi_ik, T_k, ch_bw, ch_bw.T, a.T, a_bar.T, gamma)
+    else:
+        raise ValueError(f"Unknown XPM backend: {xpm_backend}")
     eta_xpm = xpm_single * num_spans
 
     # XPM corrections (if enabled)
@@ -373,8 +394,8 @@ def isrs_gn_model_uniform(
             * num_spans
         )
     else:
-        eta_xpm_corr = jnp.zeros((num_channels,))
-        eta_xpm_corr_asymp = jnp.zeros((num_channels,))
+        eta_xpm_corr = jnp.zeros_like(eta_spm)
+        eta_xpm_corr_asymp = jnp.zeros_like(eta_spm)
 
     eta_n = (eta_spm + eta_xpm + eta_xpm_corr_asymp).T + eta_xpm_corr
     NLI = jnp.squeeze(ch_pow) ** 3 * eta_n
@@ -669,24 +690,40 @@ def calculate_roadm_ase(
     Returns:
         Total ROADM ASE noise power per channel, shape (N,)
     """
-    freq_abs = c / ref_lambda + ch_centre_i
-    nf_lin = 10 ** (roadm_noise_figure / 10)
+    express, add_drop = roadm_ase_coefficients(
+        roadm_express_loss, roadm_add_drop_loss, roadm_noise_figure
+    )
+    return jnp.squeeze(
+        roadm_ase_from_coefficients(
+            express, add_drop, num_roadm_express, ref_lambda, ch_centre_i, ch_bandwidth_i
+        )
+    )
 
+
+def roadm_ase_coefficients(roadm_express_loss, roadm_add_drop_loss, roadm_noise_figure):
+    """Per-slot ROADM booster ASE coefficients, independent of the path.
+
+    Returns (express, add_drop) such that the path ASE is
+    (num_express * express + add_drop) * f_abs * B, see calculate_roadm_ase.
+    """
+    nf_lin = 10 ** (roadm_noise_figure / 10)
     # Express ROADM booster amplifiers
     express_gain = 10 ** (roadm_express_loss / 10)
     express_gain_m1 = express_gain - 1
     nsp_express = (nf_lin * express_gain) / (2.0 * express_gain_m1)
-    p_ase_express = (
-        num_roadm_express * 2 * nsp_express * express_gain_m1 * h * freq_abs * ch_bandwidth_i
-    )
-
     # Add/drop ROADM booster amplifiers (2: one at source, one at destination)
     ad_gain = 10 ** (roadm_add_drop_loss / 10)
     ad_gain_m1 = ad_gain - 1
     nsp_ad = (nf_lin * ad_gain) / (2.0 * ad_gain_m1)
-    p_ase_ad = 2 * 2 * nsp_ad * ad_gain_m1 * h * freq_abs * ch_bandwidth_i
+    return 2 * nsp_express * express_gain_m1 * h, 2 * 2 * nsp_ad * ad_gain_m1 * h
 
-    return jnp.squeeze(p_ase_express + p_ase_ad)
+
+def roadm_ase_from_coefficients(
+    express, add_drop, num_roadm_express, ref_lambda, centre, bandwidth
+):
+    """ROADM ASE power from roadm_ase_coefficients (centre/bandwidth in Hz)."""
+    freq_abs = c / ref_lambda + centre
+    return (num_roadm_express * express + add_drop) * freq_abs * bandwidth
 
 
 def get_snr(
@@ -714,14 +751,20 @@ def get_snr(
     uniform_spans: bool = True,
     num_subchannels: int = 1,
     span_lumped_loss_db: float | None = None,
+    xpm_backend: str = "jax",
 ):
     """
     Compute the signal-to-noise ratio (SNR) of a WDM system.
+
+    xpm_backend: "jax", or "pallas" for the XPM kernel (uniform spans without
+        modulation-format correction only; no reverse-mode derivatives).
 
     Returns:
         snr: signal-to-noise ratio (linear units)
     """
     gn_model = isrs_gn_model_uniform if uniform_spans else isrs_gn_model
+    if xpm_backend != "jax" and (not uniform_spans or mod_format_correction):
+        raise ValueError("Pallas XPM requires uniform spans without modulation corrections")
     span_length = jnp.sum(length) / num_spans
 
     # ASE noise - inline amplifiers (ISRS-aware gain)
@@ -757,6 +800,7 @@ def get_snr(
         mod_format_correction=mod_format_correction,
         excess_kurtosis_i=excess_kurtosis_i,
         num_subchannels=num_subchannels,
+        **({"xpm_backend": xpm_backend} if uniform_spans else {}),
     )
 
     # SNR (optical only — transceiver noise is added once at path level in get_snr_for_path)
@@ -771,9 +815,15 @@ def get_snr(
     return snr, (eta_nli, eta_spm, eta_xpm, p_ase_inline, p_ase_roadm, p_nli, transceiver_noise)
 
 
-def _xpm_pair_tile(pi, fi, bi, pk, fk, bk, total, *, a, a_bar, gamma, cr, beta2, beta3, beta4):
-    """Sum one output-row tile against one interfering-channel tile."""
-    fi, fk = fi[:, None], fk[None, :]
+def xpm_pairs(
+    pi, fi, bi, pk, fk, bk, total, *, a, a_bar, gamma, cr, beta2, beta3, beta4, atan_fn=jnp.arctan
+):
+    """XPM pair contributions eta_ik, Ref. [1, Eq. (11)], before the sum over k.
+
+    Operands must already be broadcast: channel-of-interest values (pi, fi, bi)
+    along the row axis and interferer values (pk, fk, bk) along the column axis.
+    This is the single formula shared by the tiled JAX path and the Pallas kernels.
+    """
     phi = (
         2
         * jnp.pi**2
@@ -786,20 +836,32 @@ def _xpm_pair_tile(pi, fi, bi, pk, fk, bk, total, *, a, a_bar, gamma, cr, beta2,
     )
     ap = a + a_bar
     tilt = (ap - fk * total * cr) ** 2
-    denom = bk[None, :] * phi * a_bar * (2 * a + a_bar)
-    ratio = (pk[None, :] / jnp.maximum(pi[:, None], EPS)) ** 2
+    denom = bk * phi * a_bar * (2 * a + a_bar)
+    ratio = (pk / jnp.maximum(pi, EPS)) ** 2
     pairs = (
         32
         / 27
         * ratio
         * gamma**2
         / jnp.where(denom != 0, denom, 1.0)
-        * (
-            (tilt - a**2) / a * jnp.arctan(phi * bi[:, None] / a)
-            + (ap**2 - tilt) / ap * jnp.arctan(phi * bi[:, None] / ap)
-        )
+        * ((tilt - a**2) / a * atan_fn(phi * bi / a) + (ap**2 - tilt) / ap * atan_fn(phi * bi / ap))
     )
-    return jnp.sum(jnp.where(denom != 0, pairs, 0.0), axis=1)
+    return jnp.where(denom != 0, pairs, 0.0)
+
+
+def _xpm_pair_tile(pi, fi, bi, pk, fk, bk, total, **physics):
+    """Sum one output-row tile against one interfering-channel tile."""
+    pairs = xpm_pairs(
+        pi[:, None],
+        fi[:, None],
+        bi[:, None],
+        pk[None, :],
+        fk[None, :],
+        bk[None, :],
+        total,
+        **physics,
+    )
+    return jnp.sum(pairs, axis=1)
 
 
 def _xpm_compact(power, frequency, bandwidth, *, block_k=128, **physics):
@@ -850,6 +912,7 @@ def get_snr_fused(
     num_subchannels: int = 1,
     span_lumped_loss_db: float | None = None,
     compact_xpm: bool = False,
+    xpm_backend: str = "jax",
 ):
     """Fully fused SNR computation for a single link (uniform spans, no mod_format_correction).
 
@@ -870,6 +933,8 @@ def get_snr_fused(
         compact_xpm: skip zero interfering channels in a dynamic tiled reduction.
             Keep false for reverse-mode differentiation; the environment enables
             this only for non-differentiable wide spectra.
+        xpm_backend: "jax" (dense, or tiled when compact_xpm), or "pallas" for the
+            XPM kernel, which does not provide reverse-mode derivatives.
 
     Returns:
         snr: shape (N,) — linear SNR per channel
@@ -919,7 +984,27 @@ def get_snr_fused(
     # Scale: total NLI = N_sub * (P/N_sub)^3 * eta(B_eff) = P^3 * eta(B_eff) / N_sub^2
     eta_spm = eta_spm / (num_subchannels**2)
 
-    if compact_xpm:
+    if xpm_backend == "pallas":
+        from xlron.kernels.gn_xpm import xpm_pallas
+
+        eta_xpm = (
+            xpm_pallas(
+                ch_pow,
+                f,
+                ch_bw,
+                a=a,
+                a_bar=a_bar,
+                gamma=gamma,
+                cr=cr,
+                beta2=beta2,
+                beta3=beta3,
+                beta4=beta4,
+            )
+            * num_spans
+        )
+    elif xpm_backend != "jax":
+        raise ValueError(f"Unknown XPM backend: {xpm_backend}")
+    elif compact_xpm:
         eta_xpm = (
             _xpm_compact(
                 ch_pow,

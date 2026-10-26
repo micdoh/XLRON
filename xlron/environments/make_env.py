@@ -371,6 +371,42 @@ def make(
     traffic_requests_csv_filepath = config.get("traffic_requests_csv_filepath", None)
     multiple_topologies_directory = config.get("multiple_topologies_directory", None)
     aggregate_slots = config.get("aggregate_slots", 1)
+    gn_mask_mode = config.get("gn_mask_mode", "ff_lf")
+    gn_kernel_backend = config.get("gn_kernel_backend", "jax")
+    differentiable = config.get("differentiable", False)
+    if config.get("transformer_modulation_features", False):
+        if env_type != "rmsa_gn_model" or not config.get("USE_TRANSFORMER", False):
+            raise ValueError("transformer_modulation_features requires an RMSA-GN transformer")
+        if gn_mask_mode != "all_slots" or aggregate_slots != 1:
+            raise ValueError(
+                "transformer_modulation_features requires all_slots masking and aggregate_slots=1"
+            )
+        if config.get("launch_power_type", "fixed") != "fixed":
+            raise ValueError("transformer_modulation_features requires fixed launch power")
+    if not 1 <= config.get("gn_mask_batch_size", 8) <= 64:
+        raise ValueError("gn_mask_batch_size must be in [1, 64]")
+    if not 1 <= config.get("gn_mask_screen_batch_size", 512) <= 2048:
+        raise ValueError("gn_mask_screen_batch_size must be in [1, 2048]")
+    if not 0 <= config.get("gn_mask_env_batch_size", 0) <= 32:
+        raise ValueError("gn_mask_env_batch_size must be in [0, 32]")
+    if config.get("gn_mask_env_batch_size", 0) and differentiable:
+        raise ValueError("GN mask environment chunks require hard dynamics")
+    if gn_kernel_backend not in ("jax", "pallas"):
+        raise ValueError(f"gn_kernel_backend must be 'jax' or 'pallas', got {gn_kernel_backend!r}")
+    if gn_kernel_backend == "pallas":
+        if env_type not in ("rsa_gn_model", "rmsa_gn_model"):
+            raise ValueError("gn_kernel_backend=pallas requires a GN environment")
+        if differentiable:
+            raise ValueError("Pallas GN kernels have no reverse-mode derivatives; use jax")
+    if gn_mask_mode != "ff_lf":
+        if env_type != "rmsa_gn_model":
+            raise ValueError("gn_mask_mode requires rmsa_gn_model")
+        if aggregate_slots != 1:
+            raise ValueError("Unrestricted GN slot selection requires aggregate_slots=1")
+        if gn_mask_mode == "selected_slot" and differentiable:
+            raise ValueError(
+                "selected_slot uses hard admission checks; use all_slots for differentiable masking"
+            )
     # The lowercase disable_node_features alias is resolved in process_config
     disable_node_features = config.get("DISABLE_NODE_FEATURES", False)
     disjoint_paths = config.get("disjoint_paths", False)
@@ -487,6 +523,11 @@ def make(
     roadm_loss = config.get("roadm_loss", 18)
     span_lumped_loss_db = config.get("span_lumped_loss_db", None)
     snr_margin = config.get("snr_margin", 0.5)
+    existing_snr_margin = config.get("existing_snr_margin", 0.0)
+    if env_type == "rmsa_gn_model" and (
+        existing_snr_margin < 0 or existing_snr_margin > snr_margin
+    ):
+        raise ValueError("Require 0 <= existing_snr_margin <= snr_margin")
     path_snr = True if env_type in ["rsa_gn_model", "rmsa_gn_model"] else False
     max_snr = config.get("max_snr", 30.0)
     min_snr = config.get("min_snr", 7.0)
@@ -827,9 +868,33 @@ def make(
 
     transformer_obs_type = config.get("transformer_obs_type", "departure")
     if transformer_obs_type:
-        assert transformer_obs_type in ["departure", "occupancy", "capacity"], (
-            f"transformer_obs_type must be one of 'departure', 'occupancy', or 'capacity', got {transformer_obs_type}"
+        obs_types = (
+            "departure",
+            "occupancy",
+            "capacity",
+            "snr",
+            "occupancy_snr",
+            "departure_snr",
+            "lifetime_snr",
         )
+        assert transformer_obs_type in obs_types, (
+            f"transformer_obs_type must be one of {obs_types}, got {transformer_obs_type}"
+        )
+        if transformer_obs_type in ("snr", "occupancy_snr", "departure_snr", "lifetime_snr"):
+            assert env_type in ("rsa_gn_model", "rmsa_gn_model"), (
+                f"transformer_obs_type '{transformer_obs_type}' requires a GN environment"
+            )
+            assert max_snr > 0, "SNR observation normalization requires max_snr > 0"
+        if config.get("transformer_spectrum_encoder", "dense") == "conv":
+            assert transformer_obs_type == "lifetime_snr", (
+                "The conv spectrum encoder requires lifetime_snr"
+            )
+            assert config.get("aggregate_slots", 1) == 1, (
+                "The conv spectrum policy requires aggregate_slots=1"
+            )
+            assert not config.get("transformer_share_layers", False), (
+                "The conv spectrum policy uses independent actor/critic encoders"
+            )
         if transformer_obs_type == "capacity":
             assert env_type == "rwa_lightpath_reuse", (
                 f"transformer_obs_type 'capacity' is only supported for env_type 'rwa_lightpath_reuse', got {env_type}"
@@ -1218,7 +1283,13 @@ def make(
                 if not remove_array_wrappers
                 else modulations_array,
                 fec_rate=config.get("fec_rate", 0.8),
+                gn_mask_mode=config.get("gn_mask_mode", "ff_lf"),
+                gn_mask_batch_size=config.get("gn_mask_batch_size", 8),
+                gn_mask_env_batch_size=config.get("gn_mask_env_batch_size", 0),
+                gn_mask_screen_batch_size=config.get("gn_mask_screen_batch_size", 512),
+                existing_snr_margin=existing_snr_margin,
             )
+        params_dict.update(gn_kernel_backend=gn_kernel_backend)
 
         # Print GN model power budget summary
         per_channel_power_w = default_launch_power
@@ -1271,6 +1342,8 @@ def make(
             f"  Transceiver SNR range:    {float(jnp.min(trx_vals)):.1f} - {float(jnp.max(trx_vals)):.1f} dB"
         )
         print(f"  SNR margin:               {snr_margin} dB")
+        if env_type == "rmsa_gn_model":
+            print(f"  Existing SNR reserve:     {existing_snr_margin} dB")
         if (
             consider_modulation_format
             and hasattr(modulations_array, "__len__")

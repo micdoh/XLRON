@@ -178,6 +178,13 @@ DEFAULTS = {
     "transformer_num_heads": 4,
     "transformer_embedding_size": 128,
     "transformer_obs_type": "departure",
+    "transformer_spectrum_encoder": "dense",
+    "transformer_modulation_features": False,
+    "gn_mask_mode": "ff_lf",
+    "gn_mask_batch_size": 8,
+    "gn_mask_env_batch_size": 0,
+    "gn_kernel_backend": "jax",
+    "gn_mask_screen_batch_size": 512,
     "transformer_share_layers": False,
     "transformer_actor_mlp_width": 128,
     "transformer_critic_mlp_width": 128,
@@ -268,6 +275,7 @@ DEFAULTS = {
     "span_length": 100,
     "span_lumped_loss_db": None,
     "snr_margin": 0.5,
+    "existing_snr_margin": 0.0,
     "launch_power_type": "fixed",
     "max_power_per_fibre": 13.0,
     "power_per_channel": None,
@@ -1039,15 +1047,36 @@ def architecture_section() -> dict:
             )
             _emit(flags, "transformer_intermediate_size", int(t_inter))
 
+            t_obs_options = [
+                "departure",
+                "occupancy",
+                "capacity",
+                "snr",
+                "occupancy_snr",
+                "departure_snr",
+                "lifetime_snr",
+            ]
             t_obs = st.selectbox(
                 "Observation Type",
-                ["departure", "occupancy", "capacity"],
-                index=["departure", "occupancy", "capacity"].index(
-                    _get_preset_val("transformer_obs_type")
-                ),
+                t_obs_options,
+                index=t_obs_options.index(_get_preset_val("transformer_obs_type")),
                 help=_h("transformer_obs_type"),
             )
             _emit(flags, "transformer_obs_type", t_obs)
+            encoder_options = ["dense", "conv"]
+            spectrum_encoder = st.selectbox(
+                "Spectrum Encoder",
+                encoder_options,
+                index=encoder_options.index(_get_preset_val("transformer_spectrum_encoder")),
+                help=_h("transformer_spectrum_encoder"),
+            )
+            _emit(flags, "transformer_spectrum_encoder", spectrum_encoder)
+            modulation_features = st.checkbox(
+                "Modulation-aware candidate scores",
+                value=_get_preset_val("transformer_modulation_features"),
+                help=_h("transformer_modulation_features"),
+            )
+            _emit(flags, "transformer_modulation_features", modulation_features)
         with col2:
             t_actor_w = st.number_input(
                 "Actor MLP Width",
@@ -1455,6 +1484,46 @@ def advanced_training_section() -> dict:
 def physical_layer_section() -> dict:
     """GN model physical layer params. Only shown for *gn_model env types."""
     flags = {}
+    mask_options = ["ff_lf", "all_slots", "selected_slot"]
+    mask_mode = st.selectbox(
+        "GN Slot Mask",
+        mask_options,
+        index=mask_options.index(_get_preset_val("gn_mask_mode")),
+        help=_h("gn_mask_mode"),
+    )
+    _emit(flags, "gn_mask_mode", mask_mode)
+    mask_batch = st.number_input(
+        "Full GN Mask Candidate Batch",
+        min_value=1,
+        max_value=64,
+        value=int(_get_preset_val("gn_mask_batch_size")),
+        help=_h("gn_mask_batch_size"),
+    )
+    _emit(flags, "gn_mask_batch_size", int(mask_batch))
+    mask_env_batch = st.number_input(
+        "Full GN Mask Environment Chunk",
+        min_value=0,
+        max_value=32,
+        value=int(_get_preset_val("gn_mask_env_batch_size")),
+        help=_h("gn_mask_env_batch_size"),
+    )
+    _emit(flags, "gn_mask_env_batch_size", int(mask_env_batch))
+    kernel_options = ["jax", "pallas"]
+    kernel_backend = st.selectbox(
+        "GN Kernel Backend",
+        kernel_options,
+        index=kernel_options.index(_get_preset_val("gn_kernel_backend")),
+        help=_h("gn_kernel_backend"),
+    )
+    _emit(flags, "gn_kernel_backend", kernel_backend)
+    screen_batch = st.number_input(
+        "Pallas GN Mask Screen Batch",
+        min_value=1,
+        max_value=2048,
+        value=int(_get_preset_val("gn_mask_screen_batch_size")),
+        help=_h("gn_mask_screen_batch_size"),
+    )
+    _emit(flags, "gn_mask_screen_batch_size", int(screen_batch))
 
     mod_files = _scan_modulations()
     default_mod = _get_preset_val("modulations_csv_filepath")
@@ -1670,6 +1739,14 @@ def physical_layer_section() -> dict:
             help=_h("snr_margin"),
         )
         _emit(flags, "snr_margin", snr_m)
+        existing_snr_m = st.number_input(
+            "Existing Lightpath SNR Reserve (dB)",
+            min_value=0.0,
+            value=float(_get_preset_val("existing_snr_margin")),
+            step=0.1,
+            help=_h("existing_snr_margin"),
+        )
+        _emit(flags, "existing_snr_margin", existing_snr_m)
 
         gap_ghz = st.number_input(
             "Inter-Band Gap (GHz)",

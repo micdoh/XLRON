@@ -82,6 +82,115 @@ def test_fixed_power_routing_training_parallel_with_policy_warmup(env_type):
     )
 
 
+@pytest.mark.slow
+@pytest.mark.parametrize("env_type", ["rsa_gn_model", "rmsa_gn_model"])
+def test_transformer_gn_training_with_policy_warmup(env_type):
+    """GN transformer logits must match path-slot masks throughout real PPO."""
+    _run_train(
+        env_type,
+        [
+            "--launch_power_type=fixed",
+            "--USE_TRANSFORMER",
+            "--transformer_embedding_size=16",
+            "--transformer_intermediate_size=32",
+            "--NUM_ENVS=2",
+            "--ENV_WARMUP_STEPS=2",
+            "--TOTAL_TIMESTEPS=40",
+        ],
+    )
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("env_type", ["rsa_gn_model", "rmsa_gn_model"])
+def test_transformer_snr_training_with_continuous_traffic(env_type):
+    """The combined SNR features support the real batched PPO backward pass."""
+    _run_train(
+        env_type,
+        [
+            "--launch_power_type=fixed",
+            "--USE_TRANSFORMER",
+            "--continuous_operation",
+            "--transformer_obs_type=occupancy_snr",
+            "--transformer_embedding_size=16",
+            "--transformer_intermediate_size=32",
+            "--NUM_ENVS=2",
+            "--ENV_WARMUP_STEPS=2",
+            "--TOTAL_TIMESTEPS=40",
+        ],
+    )
+
+
+@pytest.mark.slow
+def test_transformer_snr_campaign_optimizer_and_checkpoint(tmp_path):
+    """Exercise the campaign's optimizer, best-checkpoint save and model reload."""
+    model_path = tmp_path / "snr.eqx"
+    architecture = [
+        "--launch_power_type=fixed",
+        "--USE_TRANSFORMER",
+        "--continuous_operation",
+        "--incremental_loading=false",
+        "--transformer_obs_type=occupancy_snr",
+        "--transformer_embedding_size=16",
+        "--transformer_intermediate_size=32",
+        "--NUM_ENVS=2",
+        "--ENV_WARMUP_STEPS=2",
+        "--TOTAL_TIMESTEPS=40",
+        f"--MODEL_PATH={model_path}",
+    ]
+    _run_train(
+        "rmsa_gn_model",
+        architecture
+        + [
+            "--NUM_MINIBATCHES=2",
+            "--UPDATE_EPOCHS=2",
+            "--LR=0.0005",
+            "--SEPARATE_VF_OPTIMIZER",
+            "--VF_LR=0.0001",
+            "--OFF_POLICY_IAM",
+            "--VALID_MASS_LOSS_COEF=0.0002",
+            "--ENHANCED_LOGGING",
+            "--SAVE_MODEL",
+            "--EVAL_DURING_TRAINING",
+            "--EVAL_FREQUENCY=1",
+            "--EVAL_TIMESTEPS=20",
+        ],
+    )
+    assert model_path.exists()
+    _run_train("rmsa_gn_model", architecture + ["--EVAL_MODEL", "--deterministic"])
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("encoder,mask_mode", [("conv", "all_slots"), ("dense", "all_slots")])
+def test_full_slot_lifetime_snr_ppo_and_checkpoint(tmp_path, encoder, mask_mode):
+    path = tmp_path / "spectrum.eqx"
+    args = [
+        "--launch_power_type=fixed",
+        "--USE_TRANSFORMER",
+        "--continuous_operation",
+        "--incremental_loading=false",
+        "--transformer_obs_type=lifetime_snr",
+        f"--transformer_spectrum_encoder={encoder}",
+        "--transformer_embedding_size=16",
+        "--transformer_intermediate_size=32",
+        "--transformer_actor_pooling=sum",
+        f"--gn_mask_mode={mask_mode}",
+        "--transformer_modulation_features",
+        "--gn_mask_env_batch_size=1",
+        "--aggregate_slots=1",
+        "--NUM_ENVS=2",
+        "--ENV_WARMUP_STEPS=2",
+        "--TOTAL_TIMESTEPS=40",
+        "--SEPARATE_VF_OPTIMIZER",
+        "--OFF_POLICY_IAM",
+        "--VALID_MASS_LOSS_COEF=0.002",
+        "--ENHANCED_LOGGING",
+        f"--MODEL_PATH={path}",
+    ]
+    _run_train("rmsa_gn_model", args + ["--SAVE_MODEL"])
+    assert path.is_file()
+    _run_train("rmsa_gn_model", args + ["--EVAL_MODEL", "--deterministic"])
+
+
 LOAD_SWEEP_ARGS = [
     "-m",
     "xlron.train.train",

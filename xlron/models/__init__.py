@@ -20,6 +20,7 @@ from xlron.models.mlp import (  # Helper functions; MLP-based models
     select_activation,
 )
 from xlron.models.transformer import ActorCriticTransformer
+from xlron.models.spectrum_transformer import ActorCriticSpectrumTransformer
 
 __all__ = [
     # MLP models
@@ -43,4 +44,5 @@ __all__ = [
     "GAT",
     # Transformer models
     "ActorCriticTransformer",
+    "ActorCriticSpectrumTransformer",
 ]

@@ -694,7 +694,16 @@ flags.DEFINE_string(
     "Type of observation to feed to transformer. \
     1. 'departure': use departure times. \
     2. 'occupancy': use link occupancy (binary). \
-    3. 'capacity': use remaining capacity array (for use with RWA-LR environment).",
+    3. 'capacity': use remaining capacity array (for use with RWA-LR environment). \
+    4. 'snr': normalized per-channel link SNR in GN environments. \
+    5. 'occupancy_snr' / 'departure_snr': concatenate occupancy / departures with SNR. \
+    6. 'lifetime_snr': two channels encoding lifetime/status and smoothly scaled SNR.",
+)
+flags.DEFINE_enum(
+    "transformer_spectrum_encoder",
+    "dense",
+    ["dense", "conv"],
+    "Spectrum encoder: dense projection, or band-aware local convolutions with full-resolution action features (requires lifetime_snr and aggregate_slots=1).",
 )
 flags.DEFINE_integer("transformer_embedding_size", 128, "Size of transformer token embeddings")
 flags.DEFINE_integer(
@@ -835,6 +844,13 @@ flags.DEFINE_float(
     "Margin required for estimated SNR for mod. format selection [dB]",
 )
 flags.DEFINE_float(
+    "existing_snr_margin",
+    0.0,
+    "SNR reserve (dB) preserved by later admissions on existing RMSA-GN lightpaths. "
+    "If departures consumed part of the reserve, preserve the remaining headroom "
+    "without relaxing the modulation minimum. Requires snr_margin >= this value.",
+)
+flags.DEFINE_float(
     "max_snr",
     30.0,
     "Maximum SNR that a link can take (just used for normalization purposes)",
@@ -851,6 +867,36 @@ flags.DEFINE_boolean("discrete_launch_power", False, "Discrete launch power valu
 flags.DEFINE_float("min_concentration", 0.1, "For continuous launch power dist.")
 flags.DEFINE_float("max_concentration", 20.0, "For continuous launch power dist.")
 flags.DEFINE_boolean("last_fit", False, "Use KSP-FF for path_action, else KSP-LF")
+flags.DEFINE_enum(
+    "gn_mask_mode",
+    "ff_lf",
+    ["ff_lf", "all_slots", "selected_slot"],
+    "RMSA GN masking: first/last fit; full physical checks at every spectrum-feasible start; or every spectrum-feasible start with exact selected-slot modulation/admission checks. Non-ff_lf modes require aggregate_slots=1.",
+)
+flags.DEFINE_integer(
+    "gn_mask_batch_size", 8, "Candidate batch size for full all-slot GN masking (1--64)."
+)
+flags.DEFINE_boolean(
+    "transformer_modulation_features",
+    False,
+    "Score full GN candidates using their resolved format, required width and SNR threshold; requires all_slots masking and fixed launch power.",
+)
+flags.DEFINE_enum(
+    "gn_kernel_backend",
+    "jax",
+    ["jax", "pallas"],
+    "GN model kernels for rsa_gn_model/rmsa_gn_model: ordinary JAX (reference, differentiable) or Pallas GPU kernels for XPM and path SNR, plus endpoint screening in all_slots masks. Pallas runs in the slow interpreter off-GPU and has no reverse-mode derivatives.",
+)
+flags.DEFINE_integer(
+    "gn_mask_screen_batch_size",
+    512,
+    "Candidates per endpoint-screen batch in Pallas all_slots GN masks (1--2048).",
+)
+flags.DEFINE_integer(
+    "gn_mask_env_batch_size",
+    0,
+    "Full physical masks per environment chunk; 0 vmaps all environments, 1--32 streams smaller chunks (hard dynamics only).",
+)
 flags.DEFINE_boolean(
     "GNN_OUTPUT_LP",
     False,

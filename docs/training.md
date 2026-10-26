@@ -209,7 +209,7 @@ Multiply each step's actor-loss contribution by its valid mass `mu(s)` (default:
 
 The PPO loss uses a gating mechanism to handle steps where the agent has very few or no valid actions:
 
-- Steps with 0 valid actions are completely gated out (no gradient signal)
+- Steps with 0 valid actions are gated out of the actor/entropy losses; the critic still learns
 - Steps with only 1 valid action are gated out of the actor/entropy loss (the action is forced, so no learning signal)
 - Steps with low "valid mass" (probability the unmasked policy places on valid actions) have their actor/entropy loss contribution damped
 
@@ -219,7 +219,11 @@ Threshold below which the actor/entropy loss is linearly damped based on valid m
 
 #### `--VALID_MASS_LOSS_COEF`
 
-Coefficient for an auxiliary loss that encourages the *unmasked* policy to place probability on valid actions. This helps prevent the unmasked logits from drifting away from valid actions, which would cause the valid mass to collapse and reduce learning signal. Default: `0.0` (disabled). Enable with values like `0.01` to `0.1`.
+Coefficient for an auxiliary loss that encourages the *unmasked* policy to place probability on valid actions. This helps prevent the unmasked logits from drifting away from valid actions, which would cause the valid mass to collapse and reduce learning signal. Default: `0.0` (disabled). The graph-transformer paper uses `0.001` or `0.002` in its large-topology experiments; tune the coefficient with the actor/critic scales rather than assuming a universal value.
+
+The barrier is computed in log space as `logsumexp(all_logits) - logsumexp(valid_logits)`. This retains a corrective gradient even when valid probabilities underflow in float32. In contrast, `-log(mu + 1e-8)` caps the penalty near 18.42 and suppresses its gradient as `mu` falls below `1e-8`. Empty masks contribute zero barrier and zero gradient, without changing the batch denominator; a policy cannot put mass on an empty feasible set. Forced actions (one valid action) still receive the valid-mass regularizer even when their actor/entropy terms are gated out.
+
+With `ENHANCED_LOGGING` and the barrier enabled, `diagnostics/current_log_valid_mass_mean` and `diagnostics/current_valid_mass_below_floor_frac` describe the current policy on nonempty masks. The latter counts feasible states below the old `1e-8` floor. Both are registered automatically through `LossDiagnostics`.
 
 #### `--VML_SCHEDULE` / `--VML_END_FRACTION`
 
@@ -379,7 +383,14 @@ A transformer encoder that processes link-level tokens with graph-aware position
 | `--transformer_num_heads` | Number of attention heads | `4` |
 | `--transformer_embedding_size` | Token embedding dimension | `128` |
 | `--transformer_intermediate_size` | Feed-forward hidden dimension | `256` |
-| `--transformer_obs_type` | Observation type: `departure` (departure times), `occupancy` (binary), or `capacity` (for RWA-LR) | `departure` |
+| `--transformer_obs_type` | `departure`, `occupancy`, `capacity` (RWA-LR), or GN modes `snr`, `occupancy_snr`, `departure_snr`, `lifetime_snr` | `departure` |
+| `--transformer_spectrum_encoder` | `dense`, or band-aware `conv` with local action features (`lifetime_snr` and aggregation 1 required) | `dense` |
+| `--gn_mask_mode` | RMSA-GN: `ff_lf`, `all_slots`, or `selected_slot`; unrestricted modes require aggregation 1 | `ff_lf` |
+| `--gn_mask_batch_size` | Candidates evaluated together in full physical masking; 1--64, tune against environment batch and memory | `8` |
+| `--gn_mask_env_batch_size` | Full masks per environment chunk; 0 vmaps all, 1--32 streams chunks while policy inference stays batched; hard dynamics only | `0` |
+| `--gn_kernel_backend` | GN environments: `jax` (reference, differentiable) or `pallas` (GPU kernels plus endpoint screening in `all_slots` masks); see below | `jax` |
+| `--gn_mask_screen_batch_size` | Candidates per endpoint-screen batch with `pallas` and `all_slots`; 1--2048 | `512` |
+| `--transformer_modulation_features` | Small candidate scoring head using resolved modulation, required width and SNR threshold; RMSA-GN transformer, `all_slots`, aggregation 1 and fixed power | `False` |
 | `--num_wire_features` | Number of spectral features for WIRE positional encoding | `8` |
 | `--transformer_actor_mlp_width` / `--transformer_actor_mlp_depth` | Actor head MLP width/depth | `128` / `1` |
 | `--transformer_critic_mlp_width` / `--transformer_critic_mlp_depth` | Critic head MLP width/depth | `128` / `2` |
@@ -388,6 +399,120 @@ A transformer encoder that processes link-level tokens with graph-aware position
 | `--transformer_enable_dropout` | Enable dropout during training | `False` |
 
 The transformer processes each link as a token, with per-link spectral features and request-specific information. WIRE positional encodings inject graph structure through rotary embeddings derived from the graph Laplacian.
+
+For `rsa_gn_model` and `rmsa_gn_model`, `snr` supplies one normalized link-SNR
+feature per channel. `occupancy_snr` and `departure_snr` concatenate those features
+with occupancy or normalized departures, doubling the spectral feature width.
+SNR features use dB divided by `max_snr`, clipped to [0, 1]; empty channels are
+zero. The physical SNR arrays and admission thresholds are unchanged. These modes
+refresh the SNR cache after departures, once per generated request, outside neural
+network forward/backward passes. `departure_snr` also retains the request holding
+time feature. Other environment types reject SNR observation modes.
+
+The GN modes retain the same token layout: graph spectral coordinates, slot
+features, two endpoint traffic marginals, then request-specific features. For the
+full C+L+S NSFNET configuration (44 directed links, 1,668 slots, eight WiRE coordinates),
+the actor inputs have these shapes:
+
+| Observation | Shape | Slot features |
+|---|---|---|
+| `snr` | `44 × 1683` | 1,668 normalized SNR values |
+| `occupancy_snr` | `44 × 3351` | 1,668 occupancy values + 1,668 SNR values |
+| `departure_snr` | `44 × 3352` | 1,668 normalized departure values + 1,668 SNR values |
+| `lifetime_snr` | `44 × 3352` | 1,668 lifetime/status values + 1,668 smoothly scaled SNR values |
+
+Occupancy is passed directly: zero for free slots, one for occupied slots and
+minus one for permanent band gaps. The two traffic features sum the endpoint
+send/receive shares after each node marginal is normalized to sum to one.
+Requested bandwidth is divided by the largest configured bandwidth; four
+bounded link-relevance features describe the candidate paths through each link.
+The critic drops these five request-specific columns. Departure modes add a
+sixth request-specific column for the new request's holding time. Departures and
+holding times are divided by the mean holding time; with relative arrival times,
+active departure entries represent remaining lifetimes and are not clipped to
+one. Graph coordinates are signed, unit-norm Laplacian eigenvectors. These are
+fixed feature scales, without running observation standardization; the learned
+input projection is followed by GELU and LayerNorm.
+
+SNR-only observations contain current per-link SNR, rather than predicted
+post-allocation end-to-end SNR margins. Empty slots, band gaps and occupied slots
+at or below zero dB all have zero SNR features. Values at or above `max_snr`
+saturate at one. This makes occupancy implicit and loses band-gap distinctions;
+neither SNR-only nor occupancy+SNR includes remaining lifetimes. The action mask
+is applied separately during action selection and is not concatenated into the
+tokens. Normalizing SNR therefore does not make it a complete network state.
+
+`lifetime_snr` encodes a free slot as zero, a permanent band gap as minus one,
+and an occupied slot as `1 + log1p(remaining_time / mean_holding_time)`. Absolute
+departure times are converted to remaining lifetimes first. Its quality channel
+uses `asinh(2 * SNR_dB / max_snr - 1)` for powered channels and zero otherwise.
+Finite SNR values below zero or above `max_snr` remain distinguishable; invalid
+cache values receive finite replacements for the observation only. Incoming
+holding time uses `log1p(holding_time / mean_holding_time)`. These transforms do
+not alter physical state or admission thresholds.
+
+The optional `conv` encoder applies two shared five-slot filters with eight
+channels, including normalized physical frequency as an input. Filters do not
+mix across band gaps. Sixteen ordered mean/max feature summaries and metadata
+are projected to the transformer width; all full-resolution local features
+also reach the actor head. There is still one logit for every path/start-slot
+pair: the summaries do not aggregate actions. Actor and critic encoders are
+independent, and separate critic optimization covers the complete critic encoder.
+
+For RMSA-GN, `gn_mask_mode=ff_lf` preserves the legacy first/last-fit candidate
+mask. `all_slots` evaluates complete physical feasibility at every
+spectrum-feasible starting slot. `selected_slot` offers all spectrum-feasible
+starts and resolves modulation after sampling: it tries spectrum-fitting
+formats by descending spectral efficiency, retains every old/new lightpath SNR
+and fibre-power check, and applies the endpoint SNR margin. The successful
+tentative state is reused in the step, avoiding a second GN solve. If no format
+passes, the request is blocked and rolled back. Thus its mask is a spectrum mask,
+not a physical-feasibility guarantee, and a sampled action can incur SNR/power
+blocking. Both unrestricted modes require `aggregate_slots=1`; `selected_slot`
+uses hard checks and is not available with differentiable dynamics.
+
+Full physical masking tries formats by descending spectral efficiency. Once a
+path/start passes, lower-efficiency formats cannot change that action's validity
+or its automatically selected format. Ties retain the first format in the table.
+Every configured candidate path and every raw start is considered; this does
+not enumerate all possible routes in the topology. New `all_slots` masks use
+the same GN function as actual admission, retaining its existing equations.
+
+`--gn_kernel_backend=pallas` replaces the XPM reduction and the path-SNR gather
+with Pallas GPU kernels everywhere the GN model is evaluated (steps, masks,
+observations) and, for `all_slots` masks, adds three exact accelerations:
+
+- **Endpoint screen.** For uniform spans without format correction or Raman
+  amplification, a fused kernel computes the new lightpath's two endpoint SNRs
+  on its path links (all interferers, the inserted power's Raman tilt and ASE)
+  in batches of `gn_mask_screen_batch_size`. Candidates below threshold by more
+  than `ENDPOINT_SCREEN_SLACK_DB` (0.01 dB, covering float32 evaluation order)
+  skip the full solve; survivors are decided by it with unchanged thresholds.
+- **Predicate merging.** Existing-path checks repeated on every hop of a path are
+  merged at their strongest threshold.
+- **Disjoint-path reuse.** Existing paths sharing no link with the candidate keep
+  their baseline SNR; every other path is recomputed over all its hops.
+
+Masks, resolved formats and admissions match the `jax` backend (tested on CPU in
+the Pallas interpreter, natively on GPU). Pallas kernels provide no reverse-mode
+derivatives, so `--differentiable` requires `jax`. Off-GPU the kernels run in the
+slow interpreter; use `pallas` only on a GPU in practice.
+
+`gn_mask_env_batch_size` applies a custom batching rule to physical masking only.
+Smaller chunks avoid running every environment's dynamic candidate loops to
+the busiest environment's count and bound candidate workspace. Neural-network
+and PPO batch sizes are unaffected. Tune this with `gn_mask_batch_size`; the
+full C+L+S benchmark favored candidate batch 64 and environment chunk 1.
+
+`transformer_modulation_features` adds a 57-parameter residual head to either
+transformer. For each raw path/start action it reads validity, normalized
+spectral efficiency, log-scaled required slot width and required SNR, alongside
+the base actor score. This adds no per-link token columns. Masking precedes
+the policy call, and PPO stores that exact acting state so features match during
+optimization. The head is initially zero, preserving the base policy. Modulation
+remains the highest-efficiency feasible format chosen by the environment; this
+head makes resource cost available to action scoring rather than adding an
+explicit modulation action dimension.
 
 ### Slot Aggregation
 

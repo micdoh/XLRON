@@ -201,6 +201,15 @@ The heuristic algorithm to use. Available options:
 
 Default: `ksp_ff`.
 
+In RMSA-GN, ARBR's resource cost and MSCL's occupied block use the modulation
+selected by the physical mask at each candidate start. The resulting width can
+differ across slots on the same path; a nominal reach-based path efficiency is
+insufficient. ARBR retains the configured band order for first-fit. MSCL retains
+its original path/slot tie-break and spectrum-capacity objective: the full physical
+mask excludes invalid placements, but its score does not estimate the loss of
+future SNR headroom or future physically feasible placements. A low spectrum loss
+therefore does not guarantee the lowest blocking with GN impairments.
+
 ### `--arbr_alpha`
 
 Tuning parameter of the `arbr_ff` heuristic, weighting its dynamic component (maximum link utilisation on the path) against its static component (hops × required slots): `0.0` = static cost only, `1.0` = dynamic utilisation only. The original paper tested α ∈ {0, 0.2, 0.4, 0.6, 0.8, 1.0} and recommends `0.8`, but notes the best value depends on topology and traffic scenario. Default: `0.8`.
@@ -260,6 +269,13 @@ Random seed for reproducibility. Default: `42`.
 ### `--WANDB`
 
 Enable logging to [Weights & Biases](https://wandb.ai/). See [Understanding XLRON](understanding_xlron.md#weights-biases-wandb-integration) for setup instructions.
+
+Heuristic and standalone model evaluations log metrics under `eval/`, including
+`eval/service_blocking_probability_mean` and
+`eval/bitrate_blocking_probability_mean`. These names match periodic evaluation
+inside PPO training, so select them to compare heuristics and trained policies
+on the same W&B panels. Continuous evaluations use `env_step`; episodic
+evaluations use `episode_count`. Evaluation elapsed time is `eval/time_s`.
 
 ### `--PROJECT` / `--EXPERIMENT_NAME`
 
