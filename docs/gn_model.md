@@ -254,10 +254,35 @@ blocking when tuning it.
 Build each network from empty with the trial's settings when comparing margins:
 a network admitted without a reserve may already have consumed its headroom.
 
-Departures are not checked: removing a channel changes the ISRS tilt and can push a
-surviving lightpath below its threshold, after which every later admission fails
-the global existing-path check. Modelling departures as events that are held until
-they are safe is tracked in [issue #67](https://github.com/micdoh/XLRON/issues/67).
+### Departures (`--departure_policy`)
+
+Switching a channel off changes the total fibre power, and so the ISRS tilt and the
+amplifier gain and ASE of every other channel on the link. A departure can therefore
+lower a surviving lightpath's SNR even though NLI falls, and push it below its
+threshold. Every later admission then fails the global existing-path check
+([issue #67](https://github.com/micdoh/XLRON/issues/67)).
+
+- `immediate` (default): expired lightpaths are switched off at the next arrival,
+  as before. Survivors can fall below threshold.
+- `safe_release` (RMSA-GN, hard dynamics): separates traffic completion from optical
+  release.
+  - At expiry a lightpath stops carrying traffic, but its channel stays lit with
+    the same spectrum, power and interference. Masks and admission keep its
+    spectrum occupied, but it no longer has to meet an SNR threshold.
+  - At each arrival, held lightpaths are switched off oldest-first. Each is
+    switched off only if a full-network GN solve without it leaves every live
+    lightpath at or above its modulation threshold (and the `existing_snr_margin`
+    reserve, as for admissions). A release can enable another, so a second pass
+    follows any release.
+  - Because every intermediate optical state is checked, departures never push a
+    live lightpath below threshold, provided it started above. A release that is
+    not yet safe is retried at later arrivals.
+  - Each release attempt costs one full-network solve. The number of held
+    lightpaths is logged as `held_lightpaths`.
+
+Held channels model an idle modulated signal. They keep transmitter, spectrum and
+power resources committed, which raises blocking. They do not model amplifier
+transients, power/tilt reconfiguration or failures.
 
 Default formats for the GN model environments (from `modulations_gn_model.csv`):
 
@@ -744,6 +769,7 @@ The per-channel Raman gain varies across the spectrum (typically higher for L-ba
 | Flag | Default | Units | Description |
 |---|---|---|---|
 | `--snr_margin` | 0.5 | dB | Required SNR headroom at new-lightpath admission |
+| `--departure_policy` | `immediate` | | `immediate`, or `safe_release` to hold expired lightpaths lit until switching them off keeps every live lightpath above threshold |
 | `--existing_snr_margin` | 0 | dB | Target reserve preserved on existing lightpaths; capped by their fresh pre-admission headroom and never below their modulation minimum |
 | `--mod_format_correction` | False | -- | Enable modulation-format-dependent NLI correction |
 | `--modulations_csv_filepath` | (built-in) | -- | Path to modulation formats CSV file |

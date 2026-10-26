@@ -80,6 +80,7 @@ metrics = [
     "spectrum_blocking_probability",
     "snr_blocking_probability",
     "power_blocking_probability",
+    "held_lightpaths",  # RMSA-GN with departure_policy=safe_release only
     "throughput",  # Only for RSA GN Model
     "launch_power",
     "path_snr",
@@ -2546,6 +2547,17 @@ def log_metrics(
             "bitrate_blocking_probability",
             "accepted_services",
             "accepted_bitrate",
+        ]
+        # GN-model diagnostics, logged whenever the environment reports them.
+        all_metrics += [
+            name
+            for name in (
+                "spectrum_blocking_probability",
+                "snr_blocking_probability",
+                "power_blocking_probability",
+                "held_lightpaths",
+            )
+            if name in processed_data
         ]
 
     with TimeIt("Logging metrics"):

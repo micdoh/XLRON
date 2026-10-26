@@ -9,6 +9,7 @@ parameterized.named_parameters() decorator runs the test once for each set of pa
 """
 
 import json
+from typing import cast
 from functools import partial
 import pathlib
 import tempfile
@@ -1889,6 +1890,125 @@ class TestMaskSlotsRmsaGnModel:
         _, ns, _, *_ = env.step(jax.random.PRNGKey(10), s, jnp.array(3), p)
         assert ns.blocked_spectrum == 1 and ns.accepted_services == 0
         np.testing.assert_array_equal(ns.link_slot_array, s.link_slot_array)
+
+
+def departure_fixture(relative):
+    """Two lightpaths on one path; switching off the high-frequency one lowers the
+    low-frequency survivor's SNR (ISRS tilt / amplifier gain), as in issue #67."""
+    env, p = make(
+        dict(
+            env_type="rmsa_gn_model",
+            topology_name="5node_directed",
+            k=2,
+            link_resources=16,
+            slot_size=50,
+            guardband=0,
+            values_bw=[100],
+            max_requests=50,
+            include_no_op=False,
+            power_per_channel=0,
+            gn_mask_mode="all_slots",
+            incremental_loading=True,
+            relative_arrival_times=relative,
+        ),
+        log_wrapper=False,
+    )
+    # A stronger Raman slope makes the departure-induced dip ~0.1 dB.
+    p = cast(RMSAGNModelEnvParams, p)
+    p = p.replace(raman_gain_slope=p.raman_gain_slope * 100)
+    _, s = env.reset(jax.random.PRNGKey(0), p)
+    for action in (0, 14):
+        s = s.replace(request_array=jnp.array([0, 100, 1]))
+        s = with_mask(env, p, s)
+        s = env.step(jax.random.PRNGKey(action), s, jnp.int32(action), p)[1]
+    assert int(s.accepted_services) == 2
+    survivor = (s.channel_centre_bw_array != 0) & (jnp.arange(16) < 8)[None, :]
+    departing = (s.channel_centre_bw_array != 0) & ~survivor
+    # The departing lightpath has its own format so its threshold can differ.
+    num_mods = p.modulations_array.val.shape[0]
+    s = s.replace(
+        modulation_format_index_array=jnp.where(departing, num_mods - 1, 0).astype(
+            s.modulation_format_index_array.dtype
+        )
+    )
+
+    def fresh_snr(state, params):
+        state = state.replace(link_snr_array=get_snr_link_array(state, params))
+        return np.asarray(get_lightpath_snr(state, params))
+
+    before = fresh_snr(s, p)[np.asarray(survivor)].min()
+    link, slot = np.argwhere(np.asarray(lightpath_representatives(s, p) & departing))[0]
+    after = fresh_snr(ef._switch_off_lightpath(s, link, slot), p)[np.asarray(survivor)].min()
+    assert after < before - 0.05
+    now = 0.0 if relative else float(jnp.ravel(s.current_time)[0])
+    s = s.replace(
+        link_slot_departure_array=jnp.where(
+            departing, now + 1e-6, jnp.where(survivor, now + 1e6, s.link_slot_departure_array)
+        ).astype(s.link_slot_departure_array.dtype)
+    )
+    # Survivor threshold between its SNR before and after the departure; the
+    # departing lightpath's own threshold is unattainable (it no longer matters).
+    mods = p.modulations_array.val.at[0, 2].set((before + after) / 2).at[-1, 2].set(1000.0)
+    p = p.replace(incremental_loading=False, modulations_array=HashableArrayWrapper(mods))
+    return env, p, s, survivor, departing, fresh_snr, (before, after)
+
+
+class TestSafeReleaseDepartures:
+    @staticmethod
+    @pytest.mark.parametrize("relative", [True, False])
+    def test_immediate_departure_pushes_survivor_below_threshold(relative):
+        _, p, s, survivor, _, fresh_snr, _ = departure_fixture(relative)
+        nxt = generate_request_rsa(jax.random.PRNGKey(1), s, p)
+        threshold = float(p.modulations_array.val[0, 2])
+        assert int(jnp.sum(nxt.channel_centre_bw_array != 0)) == int(jnp.sum(survivor))
+        assert fresh_snr(nxt, p)[np.asarray(survivor)].min() < threshold
+        # Outage: with fresh physics every later admission now fails the global check.
+        fresh = nxt.replace(link_snr_array=get_snr_link_array(nxt, p))
+        assert bool(check_snr_sufficient(fresh, p))
+
+    @staticmethod
+    @pytest.mark.parametrize("relative", [True, False])
+    def test_safe_release_holds_until_switching_off_is_safe(relative):
+        env, p, s, survivor, departing, fresh_snr, (before, after) = departure_fixture(relative)
+        safe = p.replace(departure_policy="safe_release")
+        held = generate_request_rsa(jax.random.PRNGKey(1), s, safe)
+        threshold = float(safe.modulations_array.val[0, 2])
+        # The departing lightpath stays lit, so the survivor keeps its SNR.
+        np.testing.assert_array_equal(held.channel_centre_bw_array != 0, survivor | departing)
+        assert int(jnp.sum(held_lightpath_mask(held, safe))) == int(jnp.sum(departing))
+        assert fresh_snr(held, safe)[np.asarray(survivor)].min() >= threshold
+        # Held lightpaths impose no SNR requirement (their own is unattainable here)
+        # but still occupy spectrum.
+        fresh = held.replace(link_snr_array=get_snr_link_array(held, safe))
+        assert not bool(check_snr_sufficient(fresh, safe))
+        mask, _, _ = env.action_mask(held.replace(request_array=jnp.array([0, 100, 1])), safe)
+        held_slots = np.flatnonzero(np.asarray(departing).any(axis=0))  # Path 0 actions.
+        assert not np.asarray(mask)[held_slots].any() and np.asarray(mask)[8]
+        # Once switching off is safe, the next arrival releases it.
+        relaxed_mods = safe.modulations_array.val.at[0, 2].set(after - 0.05)
+        relaxed = safe.replace(modulations_array=HashableArrayWrapper(relaxed_mods))
+        released = generate_request_rsa(jax.random.PRNGKey(2), held, relaxed)
+        np.testing.assert_array_equal(released.channel_centre_bw_array != 0, survivor)
+        assert not bool(held_lightpath_mask(released, relaxed).any())
+
+    @staticmethod
+    def test_safe_release_step_reports_held_lightpaths_and_admits():
+        env, p, s, survivor, departing, _, _ = departure_fixture(True)
+        safe = p.replace(departure_policy="safe_release")
+        s = generate_request_rsa(jax.random.PRNGKey(1), s, safe).replace(
+            request_array=jnp.array([0, 100, 1])
+        )
+        s = with_mask(env, safe, s)
+        _, nxt, _, _, _, info = env.step(
+            jax.random.PRNGKey(3), s, jnp.argmax(s.link_slot_mask), safe
+        )
+        assert int(info["held_lightpaths"]) == 1
+        assert int(nxt.accepted_services) == int(s.accepted_services) + 1
+
+    @staticmethod
+    def test_safe_release_requires_rmsa_gn():
+        with pytest.raises(ValueError, match="safe_release"):
+            make(dict(env_type="rsa_gn_model", departure_policy="safe_release"), log_wrapper=False)
 
 
 class TestGetSnrLinkArray:

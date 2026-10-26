@@ -887,6 +887,12 @@ flags.DEFINE_enum(
     ["jax", "pallas"],
     "GN model kernels for rsa_gn_model/rmsa_gn_model: ordinary JAX (reference, differentiable) or Pallas GPU kernels for XPM and path SNR, plus endpoint screening in all_slots masks. Pallas runs in the slow interpreter off-GPU and has no reverse-mode derivatives.",
 )
+flags.DEFINE_enum(
+    "departure_policy",
+    "immediate",
+    ["immediate", "safe_release"],
+    "RMSA-GN departures: switch expired lightpaths off at once (can push survivors below their SNR threshold), or hold them lit until a full-network check shows switching off is safe for every live lightpath.",
+)
 flags.DEFINE_integer(
     "gn_mask_screen_batch_size",
     512,
