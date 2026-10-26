@@ -349,7 +349,16 @@ def isrs_gn_model_uniform(
         from xlron.kernels.gn_xpm import xpm_pallas
 
         xpm_single = xpm_pallas(
-            ch_pow, f, ch_bw, a=a, a_bar=a_bar, gamma=gamma, cr=cr, beta2=beta2, beta3=beta3, beta4=beta4
+            ch_pow,
+            f,
+            ch_bw,
+            a=a,
+            a_bar=a_bar,
+            gamma=gamma,
+            cr=cr,
+            beta2=beta2,
+            beta3=beta3,
+            beta4=beta4,
         )
     elif xpm_backend == "jax":
         xpm_single = _xpm(ch_pow, ch_pow.T, phi_ik, T_k, ch_bw, ch_bw.T, a.T, a_bar.T, gamma)
@@ -709,7 +718,9 @@ def roadm_ase_coefficients(roadm_express_loss, roadm_add_drop_loss, roadm_noise_
     return 2 * nsp_express * express_gain_m1 * h, 2 * 2 * nsp_ad * ad_gain_m1 * h
 
 
-def roadm_ase_from_coefficients(express, add_drop, num_roadm_express, ref_lambda, centre, bandwidth):
+def roadm_ase_from_coefficients(
+    express, add_drop, num_roadm_express, ref_lambda, centre, bandwidth
+):
     """ROADM ASE power from roadm_ase_coefficients (centre/bandwidth in Hz)."""
     freq_abs = c / ref_lambda + centre
     return (num_roadm_express * express + add_drop) * freq_abs * bandwidth
@@ -833,10 +844,7 @@ def xpm_pairs(
         * ratio
         * gamma**2
         / jnp.where(denom != 0, denom, 1.0)
-        * (
-            (tilt - a**2) / a * atan_fn(phi * bi / a)
-            + (ap**2 - tilt) / ap * atan_fn(phi * bi / ap)
-        )
+        * ((tilt - a**2) / a * atan_fn(phi * bi / a) + (ap**2 - tilt) / ap * atan_fn(phi * bi / ap))
     )
     return jnp.where(denom != 0, pairs, 0.0)
 
@@ -844,7 +852,14 @@ def xpm_pairs(
 def _xpm_pair_tile(pi, fi, bi, pk, fk, bk, total, **physics):
     """Sum one output-row tile against one interfering-channel tile."""
     pairs = xpm_pairs(
-        pi[:, None], fi[:, None], bi[:, None], pk[None, :], fk[None, :], bk[None, :], total, **physics
+        pi[:, None],
+        fi[:, None],
+        bi[:, None],
+        pk[None, :],
+        fk[None, :],
+        bk[None, :],
+        total,
+        **physics,
     )
     return jnp.sum(pairs, axis=1)
 

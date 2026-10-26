@@ -98,8 +98,6 @@ def test_full_snr_pallas_backend_matches_jax_including_empty_links(coherent):
         "coherent": coherent,
     }
     expected = jax.jit(jax.vmap(lambda *x: get_snr_fused(*x, **physics)))(*args)
-    actual = jax.jit(jax.vmap(lambda *x: get_snr_fused(*x, **physics, xpm_backend="pallas")))(
-        *args
-    )
+    actual = jax.jit(jax.vmap(lambda *x: get_snr_fused(*x, **physics, xpm_backend="pallas")))(*args)
     np.testing.assert_allclose(actual, expected, rtol=5e-5, atol=1e-5)
     np.testing.assert_array_equal(np.asarray(actual)[0], -1e5)

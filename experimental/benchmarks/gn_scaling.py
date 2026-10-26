@@ -138,6 +138,8 @@ def main():
     )
     parser.add_argument("--gn-mask-batch-size", type=int, default=8, choices=range(1, 65))
     parser.add_argument("--gn-mask-env-batch-size", type=int, default=0, choices=range(33))
+    parser.add_argument("--gn-kernel-backend", choices=["jax", "pallas"], default="jax")
+    parser.add_argument("--gn-mask-screen-batch-size", type=int, default=512)
     parser.add_argument("--envs", type=int, default=1)
     parser.add_argument(
         "--env-batch-size",
@@ -202,6 +204,7 @@ def main():
         "include_no_op": False,
         "continuous_operation": True,
         "TOTAL_TIMESTEPS": 10000,
+        "gn_kernel_backend": args.gn_kernel_backend,
     }
     if args.band_preference:
         config["band_preference"] = args.band_preference
@@ -214,6 +217,7 @@ def main():
             gn_mask_mode=args.gn_mask_mode,
             gn_mask_batch_size=args.gn_mask_batch_size,
             gn_mask_env_batch_size=args.gn_mask_env_batch_size,
+            gn_mask_screen_batch_size=args.gn_mask_screen_batch_size,
         )
     key = jax.random.PRNGKey(3)
     _, empty = env.reset(key, params)

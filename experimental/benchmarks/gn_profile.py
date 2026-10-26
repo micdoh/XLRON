@@ -16,51 +16,15 @@ throughput numbers. The launch limit may cover only part of the captured range.
 """
 
 import ctypes
-import argparse
-from functools import partial
 import os
 from pathlib import Path
-import sys
 
 import jax
 
 from experimental.benchmarks import gn_scaling
-from xlron.environments.gn_model import isrs_gn_model
-from xlron.environments import env_funcs
 
 
 def main():
-    parser = argparse.ArgumentParser(add_help=False, allow_abbrev=False)
-    parser.add_argument("--step-xpm-backend", choices=["jax", "pallas", "pallas_grouped"], default="jax")
-    parser.add_argument("--path-tile", type=int, nargs=2, metavar=("SLOTS", "WARPS"))
-    parser.add_argument("--candidate-snr-backend", choices=["jax", "pallas"], default="jax")
-    parser.add_argument("--xpm-tile", type=int, nargs=3)
-    parser.add_argument("--xpm-backend", default="jax")
-    parser.add_argument("--path-snr-backend", default="jax")
-    args, remaining = parser.parse_known_args()
-    if args.path_tile:
-        from xlron.kernels import gn_path_snr
-
-        gn_path_snr.path_snr_pallas = partial(
-            gn_path_snr.path_snr_pallas,
-            block_slots=args.path_tile[0], num_warps=args.path_tile[1],
-        )
-
-    if args.candidate_snr_backend != "jax":
-        env_funcs.get_candidate_snr_evidence = partial(
-            env_funcs.get_candidate_snr_evidence, backend=args.candidate_snr_backend
-        )
-    if args.step_xpm_backend != "jax":
-        isrs_gn_model.get_snr = partial(isrs_gn_model.get_snr, xpm_backend=args.step_xpm_backend)
-    isrs_gn_model.get_snr_fused = partial(
-        isrs_gn_model.get_snr_fused,
-        xpm_backend=args.xpm_backend,
-        xpm_tile=tuple(args.xpm_tile) if args.xpm_tile else None,
-    )
-    env_funcs.get_lightpath_snr = partial(
-        env_funcs.get_lightpath_snr, nsr_backend=args.path_snr_backend
-    )
-    sys.argv = [sys.argv[0], *remaining]
     runtime = ctypes.CDLL(os.environ.get("CUDART_PATH", "libcudart.so.12"))
     original_measure = gn_scaling.measure
 

@@ -5675,7 +5675,9 @@ def _mask_slots_rmsa_gn_model(
                     & (evidence[:, 2] > 0)
                 )
                 destination = jnp.where(positions < live, flat, starts)
-                chosen = chosen.at[destination].set(jnp.where(valid, mod, chosen[flat]), mode="drop")
+                chosen = chosen.at[destination].set(
+                    jnp.where(valid, mod, chosen[flat]), mode="drop"
+                )
                 return start + batch_size, chosen
 
             _, best = jax.lax.while_loop(

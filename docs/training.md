@@ -388,6 +388,8 @@ A transformer encoder that processes link-level tokens with graph-aware position
 | `--gn_mask_mode` | RMSA-GN: `ff_lf`, `all_slots`, or `selected_slot`; unrestricted modes require aggregation 1 | `ff_lf` |
 | `--gn_mask_batch_size` | Candidates evaluated together in full physical masking; 1--64, tune against environment batch and memory | `8` |
 | `--gn_mask_env_batch_size` | Full masks per environment chunk; 0 vmaps all, 1--32 streams chunks while policy inference stays batched; hard dynamics only | `0` |
+| `--gn_kernel_backend` | GN environments: `jax` (reference, differentiable) or `pallas` (GPU kernels plus endpoint screening in `all_slots` masks); see below | `jax` |
+| `--gn_mask_screen_batch_size` | Candidates per endpoint-screen batch with `pallas` and `all_slots`; 1--2048 | `512` |
 | `--transformer_modulation_features` | Small candidate scoring head using resolved modulation, required width and SNR threshold; RMSA-GN transformer, `all_slots`, aggregation 1 and fixed power | `False` |
 | `--num_wire_features` | Number of spectral features for WIRE positional encoding | `8` |
 | `--transformer_actor_mlp_width` / `--transformer_actor_mlp_depth` | Actor head MLP width/depth | `128` / `1` |
@@ -409,7 +411,7 @@ time feature. Other environment types reject SNR observation modes.
 
 The GN modes retain the same token layout: graph spectral coordinates, slot
 features, two endpoint traffic marginals, then request-specific features. For the
-full C+L+S NSFNET campaign (44 directed links, 1,668 slots, eight WiRE coordinates),
+full C+L+S NSFNET configuration (44 directed links, 1,668 slots, eight WiRE coordinates),
 the actor inputs have these shapes:
 
 | Observation | Shape | Slot features |
@@ -476,14 +478,25 @@ Every configured candidate path and every raw start is considered; this does
 not enumerate all possible routes in the topology. New `all_slots` masks use
 the same GN function as actual admission, retaining its existing equations.
 
-The experimental `gn_environment_benchmark` and `gn_train_benchmark` wrappers
-accept `--new-lightpath-prefilter`. For uniform spans without format correction
-or Raman amplification, this first computes the new lightpath's endpoint SNR
-using only the required output rows, retaining **all interferers**, the inserted
-power's Raman tilt, and ASE. Candidates clearly below threshold are packed out
-before full old-connection checks. A 0.01 dB screening allowance retains near
-threshold candidates for the full solve; final admission thresholds are
-unchanged. Unsupported configurations use the exhaustive calculation.
+`--gn_kernel_backend=pallas` replaces the XPM reduction and the path-SNR gather
+with Pallas GPU kernels everywhere the GN model is evaluated (steps, masks,
+observations) and, for `all_slots` masks, adds three exact accelerations:
+
+- **Endpoint screen.** For uniform spans without format correction or Raman
+  amplification, a fused kernel computes the new lightpath's two endpoint SNRs
+  on its path links (all interferers, the inserted power's Raman tilt and ASE)
+  in batches of `gn_mask_screen_batch_size`. Candidates below threshold by more
+  than `ENDPOINT_SCREEN_SLACK_DB` (0.01 dB, covering float32 evaluation order)
+  skip the full solve; survivors are decided by it with unchanged thresholds.
+- **Predicate merging.** Existing-path checks repeated on every hop of a path are
+  merged at their strongest threshold.
+- **Disjoint-path reuse.** Existing paths sharing no link with the candidate keep
+  their baseline SNR; every other path is recomputed over all its hops.
+
+Masks, resolved formats and admissions match the `jax` backend (tested on CPU in
+the Pallas interpreter, natively on GPU). Pallas kernels provide no reverse-mode
+derivatives, so `--differentiable` requires `jax`. Off-GPU the kernels run in the
+slow interpreter; use `pallas` only on a GPU in practice.
 
 `gn_mask_env_batch_size` applies a custom batching rule to physical masking only.
 Smaller chunks avoid running every environment's dynamic candidate loops to

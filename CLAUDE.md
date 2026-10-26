@@ -59,6 +59,7 @@ xlron/
 │   ├── mlp.py             # ActorCriticMLP
 │   ├── gnn.py             # ActorCriticGNN (Jraph-based, with optional GAT attention)
 │   └── transformer.py     # ActorCriticTransformer (with WIRE positional encodings)
+├── kernels/               # Optional Pallas GN kernels (XPM, path SNR, endpoint screen); --gn_kernel_backend=pallas
 ├── dtype_config.py        # Device-aware dtype configuration
 └── parameter_flags.py     # Command-line flags (absl)
 ```
@@ -129,6 +130,8 @@ Uses `get_eval_fn` with a loaded model (`--MODEL_PATH`). Runs the trained policy
 - `--truncate_holding_time` - Truncate to < 2*mean (for DeepRMSA paper compatibility)
 - `--max_requests` - Episode length for episodic mode only; ignored with continuous_operation (set to TOTAL_TIMESTEPS automatically)
 - `--path_sort_criteria` - How K paths are sorted: `spectral_resources` (default), `hops`, `distance`, `hops_distance`, `capacity` (RWA-LR only)
+- `--gn_mask_mode` - RMSA-GN mask: `ff_lf` (default, first/last fit), `all_slots` (full physical check at every start), `selected_slot` (spectrum mask, format resolved at step)
+- `--gn_kernel_backend` - GN envs: `jax` (default, reference/differentiable) or `pallas` (GPU kernels + screened `all_slots` mask; exact up to float32 order, no reverse-mode AD). Selected only through params: never monkeypatch module functions
 
 ### Training (PPO)
 - `--LR` - Learning rate (most important hyperparameter)

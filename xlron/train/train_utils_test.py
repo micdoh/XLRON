@@ -14,7 +14,6 @@ import pytest
 from absl.testing import absltest, parameterized
 from box import Box
 
-from experimental.benchmarks.gn_cls_tuning_campaign import HEURISTICS
 from xlron.environments.make_env import make
 from xlron.heuristics.heuristics import ksp_ff
 from xlron.models.mlp import ActorCriticMLP
@@ -53,6 +52,33 @@ GUI_PATH_HEURISTICS = [
     "kca_ff",
     "arbr_ff",
 ]
+
+# Every path heuristic dispatched by select_action_eval (checked against its source).
+HEURISTICS = (
+    "ksp_ff",
+    "ff_ksp",
+    "kmc_ff",
+    "kmf_ff",
+    "ksp_mu",
+    "ksp_mu_nonrel",
+    "ksp_mu_unique",
+    "mu_ksp",
+    "mu_ksp_nonrel",
+    "mu_ksp_unique",
+    "kca_ff",
+    "arbr_ff",
+    "kme_ff",
+    "ksp_bf",
+    "bf_ksp",
+    "ksp_lf",
+    "lf_ksp",
+    "ksp_ef",
+    "ksp_flf",
+    "flf_ksp",
+    "ksp_flef",
+    "ksp_mscl",
+    "mscl_ksp",
+)
 
 
 def _rwa_4node_settings():

@@ -174,10 +174,9 @@ on the selected power, check every existing lightpath, and retain the fibre
 power limit. A discrete joint path/slot/power mask would retain all feasible
 choices, while a power-only proposal followed by masking can miss placements
 that work at a different power. A small power set around the current operating
-point is a useful first target. The margin campaign's power lane brackets the
-fixed setting at −11 and −9 dBm with the same retained 0.5 dB reserve. This tests
-power sensitivity; it is not a learned-power training run. The older learned
-power flags default to −5 to +0.5 dBm, so those defaults do not bracket −10 dBm.
+point is a useful first target. Sensitivity can be checked by bracketing the
+fixed setting with a bracket such as −11 and −9 dBm. The older learned power flags
+default to −5 to +0.5 dBm, so those defaults do not bracket −10 dBm.
 
 ## Spectral Band Data
 
@@ -252,15 +251,13 @@ it trades some new admissions for headroom; it is not a guarantee against every
 future departure pattern. Compare existing-channel outages as well as request
 blocking when tuning it.
 
-A first retained-reserve trial is `--snr_margin=0.5 --existing_snr_margin=0.5`.
-Compare it with the original `0.5/0` setting and `1/0.5` (admission/reserve in
-dB). Build each network from empty with the trial's settings: a bootstrap
-admitted without a reserve may already have consumed its headroom. The
-experimental `gn_margin_campaign` compares ARBR and MSCL with matching seeds,
-25,000 discarded requests per replica, full C+L+S masks and no slot aggregation.
-It records fresh existing-path SNR health at each logging increment, in addition
-to blocking by cause. These are periodic samples, not an event-complete outage
-counter. All replicas remain in the reported blocking means.
+Build each network from empty with the trial's settings when comparing margins:
+a network admitted without a reserve may already have consumed its headroom.
+
+Departures are not checked: removing a channel changes the ISRS tilt and can push a
+surviving lightpath below its threshold, after which every later admission fails
+the global existing-path check. Modelling departures as events that are held until
+they are safe is tracked in [issue #67](https://github.com/micdoh/XLRON/issues/67).
 
 Default formats for the GN model environments (from `modulations_gn_model.csv`):
 

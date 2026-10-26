@@ -1229,7 +1229,9 @@ class RSAEnv(environment.Environment):
         def try_next(carry):
             k, result = carry
             candidate_state = with_format(fallbacks[k])
-            attempt = evaluate(candidate_state, self.process_action(candidate_state, action, params))
+            attempt = evaluate(
+                candidate_state, self.process_action(candidate_state, action, params)
+            )
             keep = attempt[3]
             result = jax.tree.map(lambda a, b: jnp.where(keep, a, b), attempt, result)
             return k + 1, result

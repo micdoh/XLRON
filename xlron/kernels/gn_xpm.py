@@ -152,9 +152,7 @@ def xpm_pallas(
                 row_tile(tile_i)
                 return tile_i + programs
 
-            jax.lax.while_loop(
-                lambda tile_i: tile_i * block_i < row_count_ref[()], visit, program
-            )
+            jax.lax.while_loop(lambda tile_i: tile_i * block_i < row_count_ref[()], visit, program)
 
     packed = pl.pallas_call(
         kernel,

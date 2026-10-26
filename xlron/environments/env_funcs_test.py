@@ -9,6 +9,7 @@ parameterized.named_parameters() decorator runs the test once for each set of pa
 """
 
 import json
+from functools import partial
 import pathlib
 import tempfile
 
@@ -1575,6 +1576,14 @@ def fixture(mode):
     return c, env, p, s
 
 
+def reference_mask(s, p):
+    """Unpruned ordinary-JAX all_slots mask (every format evaluated at every start)."""
+    jax_params = p.replace(gn_kernel_backend="jax")
+    return jax.jit(partial(ef._mask_slots_rmsa_gn_model, prune_formats=False), static_argnums=1)(
+        s, jax_params, s.request_array
+    )
+
+
 def with_mask(env, p, s):
     mask, full, mods = env.action_mask(s, p)
     return s.replace(link_slot_mask=mask, full_link_slot_mask=full, mod_format_mask=mods)
@@ -1657,26 +1666,13 @@ class TestMaskSlotsRmsaGnModel:
         assert rejected.accepted_services == s.accepted_services
 
     @staticmethod
-    @pytest.mark.parametrize("optimized", [False, True])
-    def test_retained_reserve_matches_admission_and_allows_unchanged_depleted_paths(optimized):
-        if optimized and jax.default_backend() != "gpu":
-            pytest.skip("predicate packing requires CUDA")
+    @pytest.mark.parametrize("backend", ["jax", "pallas"])
+    def test_retained_reserve_matches_admission_and_allows_unchanged_depleted_paths(backend):
         env, p, s = retained_reserve_fixture()
-        kwargs = (
-            dict(
-                prefilter_new=True,
-                pack_old=True,
-                reuse_screened_power=True,
-                narrow_new_snr=True,
-                reuse_unaffected_snr=True,
-                screen_batch_size=8,
-            )
-            if optimized
-            else {}
-        )
-        plain = mask_slots_rmsa_gn_model(s, p, s.request_array, **kwargs)
+        p = p.replace(gn_kernel_backend=backend, gn_mask_screen_batch_size=8)
+        plain = mask_slots_rmsa_gn_model(s, p, s.request_array)
         reserve_p = p.replace(existing_snr_margin=0.5)
-        protected = mask_slots_rmsa_gn_model(s, reserve_p, s.request_array, **kwargs)
+        protected = mask_slots_rmsa_gn_model(s, reserve_p, s.request_array)
         assert plain.link_slot_mask[1] and not protected.link_slot_mask[1]
         # Path 1 shares no links with the old lightpath. Its 0.1 dB headroom
         # is below the target reserve, yet remains above its physical minimum.
@@ -1688,7 +1684,7 @@ class TestMaskSlotsRmsaGnModel:
         # A physically failing old connection is still rejected globally.
         bad_mods = reserve_p.modulations_array.val.at[0, 2].add(0.2)
         failing_p = reserve_p.replace(modulations_array=HashableArrayWrapper(bad_mods))
-        failing = mask_slots_rmsa_gn_model(s, failing_p, s.request_array, **kwargs)
+        failing = mask_slots_rmsa_gn_model(s, failing_p, s.request_array)
         assert not failing.link_slot_mask.any()
 
     @staticmethod
@@ -1712,116 +1708,89 @@ class TestMaskSlotsRmsaGnModel:
         mods = mods.at[1, 1].set(mods[0, 1])
         p = p.replace(gn_mask_batch_size=batch_size, modulations_array=HashableArrayWrapper(mods))
         s = s.replace(link_slot_array=s.link_slot_array.at[:, 4].set(-1))
-        reference = mask_slots_rmsa_gn_model(s, p, s.request_array, prune_formats=False)
+        reference = reference_mask(s, p)
         actual = mask_slots_rmsa_gn_model(s, p, s.request_array)
         np.testing.assert_array_equal(actual.link_slot_mask, reference.link_slot_mask)
         np.testing.assert_array_equal(actual.mod_format_mask, reference.mod_format_mask)
         assert actual.link_slot_mask.any()
 
     @staticmethod
-    def test_full_mask_valid_actions_pass_actual_admission():
-        # Real thresholds: compare the mask to a separate full-network admission
-        # solve, including existing connections, after a first accepted request.
+    @pytest.mark.parametrize("backend", ["jax", "pallas"])
+    @pytest.mark.parametrize("margin", [0.0, 0.5])
+    def test_full_mask_matches_exhaustive_admission_oracle(backend, margin):
+        """Every (path, start, format) is stepped from the same state.
+
+        snr_margin applies to mask selection only (admission checks the bare
+        thresholds), so with zero margin the mask must allow exactly the starts
+        some format admits and select the highest-SE admitted format; with a
+        margin every allowed start must still be admitted.
+        """
         _, env, p, s = setup("rmsa_gn_model", "lifetime_snr")
-        p = p.replace(gn_mask_mode="all_slots")
+        p = p.replace(gn_mask_mode="all_slots", gn_kernel_backend=backend, snr_margin=margin)
+        # Partially load the network so existing lightpaths constrain admission.
         for key in (21, 22):
             s = with_mask(env, p, s)
-            indices = np.flatnonzero(np.asarray(s.link_slot_mask))
-            assert len(indices)
-            # Exercise an interior start where possible.
-            action = indices[len(indices) // 2]
-            before = int(s.accepted_services)
-            _, s, reward, *_ = env.step(jax.random.PRNGKey(key), s, jnp.int32(action), p)
-            assert reward >= 0 and int(s.accepted_services) == before + 1
+            action = np.flatnonzero(np.asarray(s.link_slot_mask))[0]
+            s = env.step(jax.random.PRNGKey(key), s, jnp.int32(action), p)[1]
+        s = with_mask(env, p, s)
+        num_mods = p.modulations_array.val.shape[0]
+        actions = jnp.arange(p.k_paths * p.link_resources)
+
+        def admitted(action, mod):
+            trial = s.replace(
+                mod_format_mask=s.mod_format_mask.at[action].set(
+                    mod.astype(s.mod_format_mask.dtype)
+                )
+            )
+            after = env.step(jax.random.PRNGKey(0), trial, action, p)[1]
+            return after.accepted_services > s.accepted_services
+
+        table = jax.jit(
+            jax.vmap(lambda a: jax.vmap(lambda m: admitted(a, m))(jnp.arange(num_mods)))
+        )(actions)
+        table = np.asarray(table)
+        mask = np.asarray(s.link_slot_mask[: len(actions)]) > 0
+        assert mask.sum() > 1 and (~mask).sum() > 1
+        chosen = np.asarray(s.mod_format_mask[: len(actions)]).astype(int)
+        assert np.all(table[np.flatnonzero(mask), chosen[mask]])
+        if margin > 0:
+            return
+        np.testing.assert_array_equal(mask, table.any(axis=1))
+        se = np.asarray(p.modulations_array.val[:, 1])
+        for action in np.flatnonzero(mask):
+            best = max(np.flatnonzero(table[action]), key=lambda m: (se[m], -m))
+            assert int(s.mod_format_mask[action]) == best
 
     @staticmethod
-    @pytest.mark.parametrize("narrow", [False, True])
-    @pytest.mark.parametrize("screen_batch", [None, 1, 8])
-    def test_new_endpoint_screen_preserves_full_mask(narrow, screen_batch):
+    @pytest.mark.parametrize("screen_batch", [1, 8, 512])
+    def test_pallas_endpoint_screen_preserves_full_mask(screen_batch):
         _, _, p, s = setup("rmsa_gn_model", "lifetime_snr")
         p = p.replace(gn_mask_mode="all_slots", gn_mask_batch_size=3)
-        reference = mask_slots_rmsa_gn_model(s, p, s.request_array, prune_formats=False)
-        actual = mask_slots_rmsa_gn_model(
-            s,
-            p,
-            s.request_array,
-            prefilter_new=True,
-            narrow_new_snr=narrow,
-            screen_batch_size=screen_batch,
-        )
+        reference = reference_mask(s, p)
+        kernel = p.replace(gn_kernel_backend="pallas", gn_mask_screen_batch_size=screen_batch)
+        actual = mask_slots_rmsa_gn_model(s, kernel, s.request_array)
         np.testing.assert_array_equal(actual.link_slot_mask, reference.link_slot_mask)
         np.testing.assert_array_equal(actual.mod_format_mask, reference.mod_format_mask)
 
     @staticmethod
-    @pytest.mark.parametrize("bandwidth", [100, 200, 400])
-    @pytest.mark.parametrize("thresholds", ["real", "highest_reject", "tie"])
-    def test_width_grouping_preserves_every_format_and_admission(bandwidth, thresholds):
-        _, env, p, state = setup("rmsa_gn_model", "lifetime_snr")
-        mods = p.modulations_array.val
-        if thresholds == "highest_reject":
-            mods = mods.at[-1, 2].set(1000.0)
-        elif thresholds == "tie":
-            mods = mods.at[:, 2].set(-100.0).at[-1, 1].set(mods[-2, 1])
-        p = p.replace(
-            gn_mask_mode="all_slots",
-            gn_mask_batch_size=3,
-            modulations_array=HashableArrayWrapper(mods),
-        )
-        for seed in (71, 72):
-            state = state.replace(request_array=state.request_array.at[1].set(bandwidth))
-            reference = mask_slots_rmsa_gn_model(state, p, state.request_array, prune_formats=False)
-            actual = mask_slots_rmsa_gn_model(
-                state,
-                p,
-                state.request_array,
-                prefilter_new=True,
-                group_widths=True,
-                reuse_screened_power=True,
-                narrow_new_snr=True,
-                reuse_unaffected_snr=True,
-                screen_batch_size=8,
-            )
-            np.testing.assert_array_equal(actual.link_slot_mask, reference.link_slot_mask)
-            np.testing.assert_array_equal(actual.mod_format_mask, reference.mod_format_mask)
-            if thresholds in ("highest_reject", "tie"):
-                assert not np.any(np.asarray(actual.mod_format_mask) == len(mods) - 1)
-            if actual.link_slot_mask.any():
-                _, state, *_ = env.step(
-                    jax.random.PRNGKey(seed), actual, jnp.argmax(actual.link_slot_mask), p
-                )
-
-    @staticmethod
-    @pytest.mark.parametrize("field", ["mod_format_correction", "use_raman_amp"])
-    def test_width_grouping_rejects_format_dependent_physics(field):
-        _, _, p, state = fixture("all_slots")
-        with pytest.raises(ValueError, match="Width grouping requires"):
-            mask_slots_rmsa_gn_model(
-                state, p.replace(**{field: True}), state.request_array, group_widths=True
-            )
-
-    @staticmethod
-    @pytest.mark.parametrize("screening,pruning", [(True, True), (False, True), (True, False)])
-    def test_reusing_screened_power_preserves_thresholds_and_fallback(screening, pruning):
+    @pytest.mark.parametrize("pruning", [True, False])
+    def test_screened_power_reuse_preserves_the_exact_power_limit(pruning):
         _, _, p, state = fixture("all_slots")
         p = p.replace(gn_mask_batch_size=3)
         power = p.slot_launch_power_array.val[0]
         # Include both sides of the exact one-channel limit and the boundary itself.
         for limit in (jnp.nextafter(power, jnp.float32(0)), power, jnp.nextafter(power, jnp.inf)):
             q = p.replace(max_power_per_fibre=float(limit))
-            reference = mask_slots_rmsa_gn_model(state, q, state.request_array, prune_formats=False)
-            actual = mask_slots_rmsa_gn_model(
-                state,
-                q,
-                state.request_array,
-                prune_formats=pruning,
-                prefilter_new=screening,
-                reuse_screened_power=True,
-            )
+            reference = reference_mask(state, q)
+            kernel = q.replace(gn_kernel_backend="pallas")
+            actual = jax.jit(
+                partial(ef._mask_slots_rmsa_gn_model, prune_formats=pruning), static_argnums=1
+            )(state, kernel, state.request_array)
             np.testing.assert_array_equal(actual.link_slot_mask, reference.link_slot_mask)
             np.testing.assert_array_equal(actual.mod_format_mask, reference.mod_format_mask)
 
     @staticmethod
-    def test_reusing_screened_power_checks_unaffected_overloaded_links():
+    def test_screened_power_reuse_checks_unaffected_overloaded_links():
         _, _, p, state = fixture("all_slots")
         p = p.replace(gn_mask_batch_size=3)
         state = state.replace(
@@ -1831,47 +1800,26 @@ class TestMaskSlotsRmsaGnModel:
             link_slot_array=state.link_slot_array.at[0, 0].set(1),
         )
         p = p.replace(max_power_per_fibre=0.1)
-        reference = mask_slots_rmsa_gn_model(state, p, state.request_array, prune_formats=False)
+        reference = reference_mask(state, p)
         actual = mask_slots_rmsa_gn_model(
-            state, p, state.request_array, prefilter_new=True, reuse_screened_power=True
+            state, p.replace(gn_kernel_backend="pallas"), state.request_array
         )
         assert not actual.link_slot_mask.any()
         np.testing.assert_array_equal(actual.link_slot_mask, reference.link_slot_mask)
         np.testing.assert_array_equal(actual.mod_format_mask, reference.mod_format_mask)
 
     @staticmethod
-    @pytest.mark.parametrize("narrow", [False, True, "compact"])
-    def test_compacted_old_path_predicates_preserve_full_mask(monkeypatch, narrow):
-        from functools import partial
-
-        from xlron.kernels import gn_predicate_pack
-
-        if jax.default_backend() != "gpu":
-            monkeypatch.setattr(
-                gn_predicate_pack,
-                "pack_old_snr_predicates",
-                partial(gn_predicate_pack.pack_old_snr_predicates, interpret=True),
-            )
+    def test_pallas_mask_matches_reference_across_admissions():
         _, env, p, state = setup("rmsa_gn_model", "lifetime_snr")
         p = p.replace(gn_mask_mode="all_slots", gn_mask_batch_size=3)
+        kernel = p.replace(gn_kernel_backend="pallas")
         for seed in (28, 29):
-            reference = mask_slots_rmsa_gn_model(state, p, state.request_array, prefilter_new=True)
-            actual = mask_slots_rmsa_gn_model(
-                state,
-                p,
-                state.request_array,
-                prefilter_new=True,
-                pack_old=True,
-                reuse_screened_power=bool(narrow),
-                narrow_new_snr=bool(narrow),
-                reuse_unaffected_snr=bool(narrow),
-                compact_snr_updates=narrow == "compact",
-            )
+            reference = mask_slots_rmsa_gn_model(state, p, state.request_array)
+            actual = mask_slots_rmsa_gn_model(state, kernel, state.request_array)
             np.testing.assert_array_equal(actual.link_slot_mask, reference.link_slot_mask)
             np.testing.assert_array_equal(actual.mod_format_mask, reference.mod_format_mask)
-            state = actual
             _, state, *_ = env.step(
-                jax.random.PRNGKey(seed), state, jnp.argmax(actual.link_slot_mask), p
+                jax.random.PRNGKey(seed), actual, jnp.argmax(actual.link_slot_mask), kernel
             )
 
     @staticmethod
@@ -1882,13 +1830,9 @@ class TestMaskSlotsRmsaGnModel:
         # Different candidate counts, plus a non-divisible final environment chunk.
         states = [s.replace(link_slot_array=s.link_slot_array.at[:, :i].set(-1)) for i in (0, 3, 7)]
         states = jax.tree.map(lambda *xs: jnp.stack(xs), *states)
-        reference = jax.vmap(
-            lambda st: mask_slots_rmsa_gn_model(st, p, st.request_array, prefilter_new=True)
-        )(states)
+        reference = jax.vmap(lambda st: mask_slots_rmsa_gn_model(st, p, st.request_array))(states)
         q = p.replace(gn_mask_env_batch_size=chunk)
-        actual = jax.vmap(
-            lambda st: mask_slots_rmsa_gn_model(st, q, st.request_array, prefilter_new=True)
-        )(states)
+        actual = jax.vmap(lambda st: mask_slots_rmsa_gn_model(st, q, st.request_array))(states)
         np.testing.assert_array_equal(actual.link_slot_mask, reference.link_slot_mask)
         np.testing.assert_array_equal(actual.mod_format_mask, reference.mod_format_mask)
 
@@ -1904,6 +1848,24 @@ class TestMaskSlotsRmsaGnModel:
         occupied = np.asarray(next_state.channel_power_array) > 0
         assert occupied.any()
         assert np.all(np.asarray(next_state.modulation_format_index_array)[occupied] == 0)
+
+    @staticmethod
+    def test_selected_slot_resolution_under_env_vmap():
+        """Environments needing different numbers of fallback formats batch correctly."""
+        _, env, p, s = fixture("selected_slot")
+        mods = p.modulations_array.val.at[1:, 2].set(1000.0)
+        p = p.replace(modulations_array=HashableArrayWrapper(mods))
+        s = with_mask(env, p, s)
+        actions = jnp.array([3, 5, 3])
+        states = jax.tree.map(lambda x: jnp.stack([x, x, x]), s)
+        step = jax.vmap(lambda st, a: env.step(jax.random.PRNGKey(8), st, a, p)[1])
+        batched = step(states, actions)
+        for i, action in enumerate(np.asarray(actions)):
+            single = env.step(jax.random.PRNGKey(8), s, jnp.array(action), p)[1]
+            np.testing.assert_array_equal(
+                batched.modulation_format_index_array[i], single.modulation_format_index_array
+            )
+            assert batched.accepted_services[i] == single.accepted_services
 
     @staticmethod
     def test_selected_slot_physical_rejection_rolls_back_and_counts_blocking():
@@ -1931,21 +1893,7 @@ class TestMaskSlotsRmsaGnModel:
 
 class TestGetSnrLinkArray:
     @staticmethod
-    @pytest.mark.parametrize("backend", ["jax", "pallas"])
-    def test_selected_gn_output_rows_retain_full_interferer_sum(backend, monkeypatch):
-        if backend == "pallas" and jax.default_backend() != "gpu":
-            from functools import partial
-
-            from xlron.kernels import gn_xpm_legacy
-
-            monkeypatch.setattr(
-                gn_xpm_legacy,
-                "xpm_selected_pallas",
-                partial(
-                    gn_xpm_legacy.xpm_selected_pallas,
-                    interpret=True,
-                ),
-            )
+    def test_pallas_backend_matches_jax_with_mixed_channels():
         _, _, p, s = setup("rmsa_gn_model", "lifetime_snr")
         f = jnp.linspace(-1000.0, 1000.0, p.link_resources)
         power = jnp.array([1e-4, 2e-4, 0, 1e-4, 3e-4, 0, 1e-4, 2e-4])
@@ -1954,20 +1902,16 @@ class TestGetSnrLinkArray:
             channel_centre_bw_array=jnp.full_like(s.channel_centre_bw_array, 25.0),
             channel_centre_freq_array=jnp.broadcast_to(f, s.channel_centre_freq_array.shape),
         )
-        indices = jnp.array([6, 0, 6, 2])
-        actual = get_snr_link_array(s, p, output_indices=indices, output_xpm_backend=backend)
-        expected = get_snr_link_array(s, p)[:, indices]
-        np.testing.assert_allclose(actual, expected, rtol=1e-5, atol=1e-5)
+        kernel = p.replace(gn_kernel_backend="pallas")
+        expected = get_snr_link_array(s, p)
+        np.testing.assert_allclose(get_snr_link_array(s, kernel), expected, rtol=1e-5, atol=1e-5)
         links = jnp.array([3, 1, 3])
-        rows = (
-            s.channel_power_array[links],
-            s.channel_centre_freq_array[links],
-            s.channel_centre_bw_array[links],
+        np.testing.assert_allclose(
+            get_snr_link_array(s, kernel, links), expected[links], rtol=1e-5, atol=1e-5
         )
-        selected = get_snr_link_array(
-            s, p, links, output_indices=indices, channel_rows=rows, output_xpm_backend=backend
+        np.testing.assert_allclose(
+            get_snr_link_array_fused(s, kernel), get_snr_link_array_fused(s, p), rtol=1e-5
         )
-        np.testing.assert_allclose(selected, expected[links], rtol=1e-5, atol=1e-5)
 
 
 class TestGetObsTransformer:

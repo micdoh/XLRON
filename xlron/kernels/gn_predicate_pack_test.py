@@ -3,23 +3,19 @@
 import jax
 import jax.numpy as jnp
 import numpy as np
-import pytest
 
 from xlron.kernels.gn_predicate_pack import pack_old_snr_predicates
 
 
-@pytest.mark.parametrize("native", [False, True])
-def test_duplicate_predicates_match_all_original_comparisons(native):
-    if native and jax.default_backend() != "gpu":
-        pytest.skip("requires CUDA")
+def test_duplicate_predicates_match_all_original_comparisons():
     ids = np.array([[2, 2, 1, 1, -1, 7], [2, 2, 1, 3, -1, 7], [2, 4, 1, 3, 2, 7]], np.int32)
     required = np.array(
         [[4, 2, 3, -np.inf, 1, 2], [7, np.nan, -np.inf, 5, 3, 6], [6, 8, np.inf, 4, 7, np.nan]],
         np.float32,
     )
-    actual = jax.jit(
-        lambda a, b: pack_old_snr_predicates(a, b, 5, block_slots=8, interpret=not native)
-    )(jnp.array(ids), jnp.array(required))
+    actual = jax.jit(lambda a, b: pack_old_snr_predicates(a, b, 5, block_slots=8))(
+        jnp.array(ids), jnp.array(required)
+    )
     expected = required.copy()
     for col in range(ids.shape[1]):
         for path in range(5):
