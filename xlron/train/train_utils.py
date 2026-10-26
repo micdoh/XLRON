@@ -1083,13 +1083,14 @@ def experiment_data_setup(
     )
     warmup_state = (warmup_key, env_state, obsv)
     warmup_fn = get_warmup_fn(warmup_state, env, env_params, runner_state, config)
-    if setup_timings is None:
-        warmup_fn = jax.vmap(warmup_fn) if config.NUM_ENVS > 1 else warmup_fn
-        env_state, obsv = warmup_fn(warmup_state)
+    # Pass weights dynamically, so the compiler/cache does not specialize this
+    # program to a particular initialization or checkpoint's values.
+    warmup_fn = jax.vmap(warmup_fn, in_axes=(0, None)) if config.NUM_ENVS > 1 else warmup_fn
+    if isinstance(rng, jax.core.Tracer):
+        # Under the NUM_LEARNERS vmap the inputs are traced, so the warmup is
+        # traced into the caller's program instead of compiled ahead of time.
+        env_state, obsv = warmup_fn(warmup_state, runner_state)
     else:
-        # Pass weights dynamically, so the compiler/cache does not specialize
-        # this program to a particular initialization or checkpoint's values.
-        warmup_fn = jax.vmap(warmup_fn, in_axes=(0, None)) if config.NUM_ENVS > 1 else warmup_fn
         warmup_lowered = jax.jit(warmup_fn).lower(warmup_state, runner_state)
         finish_phase("warmup_trace_lower", None)
         # Warmup is executed once. Exhaustive GPU GEMM autotuning added ~15 s

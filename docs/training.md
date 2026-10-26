@@ -36,23 +36,18 @@ python -m xlron.train.train \
 
 ## 1. Parallelism and Scale
 
-### Startup and compiled-program reuse
+### Startup timing and compilation cache
 
-Training enables JAX's persistent compilation cache in the per-user
-`$XDG_CACHE_HOME/xlron/jax` directory (default `~/.cache/xlron/jax`), capped at
-2 GiB. `JAX_COMPILATION_CACHE_DIR`, `JAX_ENABLE_COMPILATION_CACHE`, cache thresholds
-and explicit `XLA_FLAGS` override the defaults. Programs are reused only when
-JAX's computation, runtime, device and compiler-option cache keys match.
+The setup log separates environment creation, reset, model/optimizer initialization, warmup tracing/compilation/execution, and PPO tracing/compilation. In the JSON run summary:
+- `startup_time_s` is the total setup time.
+- `compilation_time_s` covers only the explicit warmup and training compile/load calls. It used to include all startup work.
+- `tracing_time_s` and `warmup_execution_time_s` report tracing and warmup execution separately.
 
-The setup log separates environment creation, reset, model/optimizer initialization,
-warmup tracing/compilation/execution and PPO tracing/compilation. JSON timing now
-reports `startup_time_s` for total setup; `compilation_time_s` measures the explicit
-warmup and training compile/load calls, with tracing and warmup execution reported
-separately. Previously the compilation field included all startup work. GPU warmup
-uses a faster library-GEMM compilation profile; PPO retains the normal tuning policy.
+On GPU, the warmup (executed once) is compiled with library GEMMs and without exhaustive autotuning. PPO updates keep the normal tuning policy.
 
-For GN benchmark compiler troubleshooting and matched original-code measurements,
-see [the kernel report](gn_kernel_poc.md#making-the-420-slot-baseline-compile).
+`XLA_FLAGS` you set yourself are kept. XLRON only adds its defaults for flags you have not set, except that `--DETERMINISTIC_OPS` forces the deterministic flags.
+
+A persistent JAX compilation cache is **opt-in**. Set `XLRON_COMPILATION_CACHE=1` to use `$XDG_CACHE_HOME/xlron/jax` (default `~/.cache/xlron/jax`, capped at 2 GiB), or set it to a directory path to use that directory. JAX's own `JAX_COMPILATION_CACHE_DIR`, `JAX_ENABLE_COMPILATION_CACHE` and threshold variables are respected. A cached program is reused only when JAX's computation, runtime, device and compiler-option keys all match.
 
 ### `--NUM_ENVS`
 
@@ -521,19 +516,14 @@ Reduce the action space by grouping frequency slots into blocks of N. The agent 
 
 Enable logging to W&B. See [Understanding XLRON](understanding_xlron.md#weights-biases-wandb-integration) for setup and sweep configuration.
 
-Environment statistics collected during learning use `train/`, while periodic
-policy evaluation and standalone model/heuristic evaluation share `eval/` names
-such as `eval/service_blocking_probability_mean`. Losses and diagnostics retain
-their own namespaces. Timings use `performance/time_s`,
-`performance/increment_time_s` and `performance/environment_transitions_per_s`;
-the last is aggregate collected environment transitions divided by synchronized
-increment execution time, including PPO learning when enabled. It is not a
-gradient-update rate. Standalone evaluation elapsed time is `eval/time_s`.
+Metric names are namespaced:
+- Environment statistics collected during learning use `train/`, e.g. `train/service_blocking_probability_mean`.
+- Periodic policy evaluation and standalone model/heuristic evaluation (`--EVAL_MODEL`, `--EVAL_HEURISTIC`) share `eval/` names, e.g. `eval/service_blocking_probability_mean`. Heuristics and trained policies can therefore share W&B panels.
+- Losses and diagnostics keep their existing `loss/`, `diagnostics/` and related namespaces.
+- Timings are `performance/time_s`, `performance/increment_time_s` and `performance/environment_transitions_per_s`. The last is the number of collected environment transitions divided by the synchronized increment execution time, PPO learning included; it is not a gradient-update rate. Standalone evaluation logs its elapsed time as `eval/time_s`.
+- The step counters (`env_step`, `episode_count`, `increment`, `update_epoch`) are registered as hidden axes.
 
-The step counters (`env_step`, `episode_count`, `increment`, `update_epoch`) are
-registered as hidden axes. New metrics in this workflow therefore create
-namespaced panels rather than default Charts panels. Previously saved workspace
-panels and historical unprefixed metrics are retained.
+**Migrating from 1.6:** before this change, the environment statistics were unprefixed (`service_blocking_probability_mean`, ...) and elapsed time was `training_time`. Update sweep `metric.name` entries (see `examples/sweep.yaml`) and any dashboard panels or scripts that read W&B histories. Runs logged earlier keep their original names.
 
 #### `--LOG_LOSS_INFO`
 

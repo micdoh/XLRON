@@ -6,7 +6,7 @@ name: "DEEPRMSA_TRANSFORMER"
 program: xlron/train/train.py
 method: bayes
 metric:
-  name: service_blocking_probability_mean
+  name: train/service_blocking_probability_mean
   goal: minimize
 early_terminate:
   type: hyperband

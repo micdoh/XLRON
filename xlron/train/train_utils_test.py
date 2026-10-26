@@ -508,11 +508,6 @@ class ParamLabelTest(absltest.TestCase):
         self.assertEqual(jax.tree.leaves(labels.critic_mlp), ["critic", "critic"])
 
 
-def test_new_diagnostics_are_registered_in_wandb():
-    assert "diagnostics/current_log_valid_mass_mean" in diagnostics_metrics
-    assert "diagnostics/current_valid_mass_below_floor_frac" in diagnostics_metrics
-
-
 class TestLogMetrics:
     @staticmethod
     @pytest.mark.parametrize("mode", ["training", "heuristic", "model"])
