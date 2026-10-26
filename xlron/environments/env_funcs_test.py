@@ -2055,12 +2055,12 @@ class TestSafeReleaseDepartures:
     def test_safe_release_is_the_default_for_hard_rmsa_gn():
         base = dict(env_type="rmsa_gn_model", topology_name="5node_directed", link_resources=8)
         _, params = make(base, log_wrapper=False)
-        assert params.departure_policy == "safe_release"
+        assert cast(RMSAGNModelEnvParams, params).departure_policy == "safe_release"
         _, params = make(base | {"departure_policy": "immediate"}, log_wrapper=False)
-        assert params.departure_policy == "immediate"
+        assert cast(RMSAGNModelEnvParams, params).departure_policy == "immediate"
         # The differentiable relaxation keeps immediate departures.
         _, params = make(base | {"differentiable": True}, log_wrapper=False)
-        assert params.departure_policy == "immediate"
+        assert cast(RMSAGNModelEnvParams, params).departure_policy == "immediate"
         # Other environment types have no departure policy.
         make(dict(env_type="rsa_gn_model", topology_name="5node_directed"), log_wrapper=False)
 
