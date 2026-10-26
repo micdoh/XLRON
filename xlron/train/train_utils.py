@@ -1336,58 +1336,61 @@ def select_action_eval(select_action_state, env, env_params, eval_state, config)
             # For RMSA GN model, update mod_format_mask on state before heuristic
             # action selection so that implement_action_rmsa_gn_model sees the
             # correct modulation format for the chosen slot.
+            heuristic_params = env_params
             if isinstance(env_params, RMSAGNModelEnvParams):
                 updated_inner = mask_slots_rmsa_gn_model(
                     env_state.env_state, env_params, env_state.env_state.request_array
                 )
                 env_state = env_state.replace(env_state=updated_inner)
+                # The heuristic reuses this mask rather than recomputing it.
+                heuristic_params = env_params.replace(heuristic_mask_from_state=True)
 
             if config.path_heuristic.lower() == "ksp_ff":
-                action = ksp_ff(env_state.env_state, env_params)
+                action = ksp_ff(env_state.env_state, heuristic_params)
             elif config.path_heuristic.lower() == "ff_ksp":
-                action = ff_ksp(env_state.env_state, env_params)
+                action = ff_ksp(env_state.env_state, heuristic_params)
             elif config.path_heuristic.lower() == "kmc_ff":
-                action = kmc_ff(env_state.env_state, env_params)
+                action = kmc_ff(env_state.env_state, heuristic_params)
             elif config.path_heuristic.lower() == "kmf_ff":
-                action = kmf_ff(env_state.env_state, env_params)
+                action = kmf_ff(env_state.env_state, heuristic_params)
             elif config.path_heuristic.lower() == "ksp_mu":
-                action = ksp_mu(env_state.env_state, env_params, False, True)
+                action = ksp_mu(env_state.env_state, heuristic_params, False, True)
             elif config.path_heuristic.lower() == "ksp_mu_nonrel":
-                action = ksp_mu(env_state.env_state, env_params, False, False)
+                action = ksp_mu(env_state.env_state, heuristic_params, False, False)
             elif config.path_heuristic.lower() == "ksp_mu_unique":
-                action = ksp_mu(env_state.env_state, env_params, True, True)
+                action = ksp_mu(env_state.env_state, heuristic_params, True, True)
             elif config.path_heuristic.lower() == "mu_ksp":
-                action = mu_ksp(env_state.env_state, env_params, False, True)
+                action = mu_ksp(env_state.env_state, heuristic_params, False, True)
             elif config.path_heuristic.lower() == "mu_ksp_nonrel":
-                action = mu_ksp(env_state.env_state, env_params, False, False)
+                action = mu_ksp(env_state.env_state, heuristic_params, False, False)
             elif config.path_heuristic.lower() == "mu_ksp_unique":
-                action = mu_ksp(env_state.env_state, env_params, True, True)
+                action = mu_ksp(env_state.env_state, heuristic_params, True, True)
             elif config.path_heuristic.lower() == "kca_ff":
-                action = kca_ff(env_state.env_state, env_params)
+                action = kca_ff(env_state.env_state, heuristic_params)
             elif config.path_heuristic.lower() == "arbr_ff":
-                action = arbr_ff(env_state.env_state, env_params)
+                action = arbr_ff(env_state.env_state, heuristic_params)
             elif config.path_heuristic.lower() == "kme_ff":
-                action = kme_ff(env_state.env_state, env_params)
+                action = kme_ff(env_state.env_state, heuristic_params)
             elif config.path_heuristic.lower() == "ksp_bf":
-                action = ksp_bf(env_state.env_state, env_params)
+                action = ksp_bf(env_state.env_state, heuristic_params)
             elif config.path_heuristic.lower() == "bf_ksp":
-                action = bf_ksp(env_state.env_state, env_params)
+                action = bf_ksp(env_state.env_state, heuristic_params)
             elif config.path_heuristic.lower() == "ksp_lf":
-                action = ksp_lf(env_state.env_state, env_params)
+                action = ksp_lf(env_state.env_state, heuristic_params)
             elif config.path_heuristic.lower() == "lf_ksp":
-                action = lf_ksp(env_state.env_state, env_params)
+                action = lf_ksp(env_state.env_state, heuristic_params)
             elif config.path_heuristic.lower() == "ksp_ef":
-                action = ksp_ef(env_state.env_state, env_params)
+                action = ksp_ef(env_state.env_state, heuristic_params)
             elif config.path_heuristic.lower() == "ksp_flf":
-                action = ksp_flf(env_state.env_state, env_params)
+                action = ksp_flf(env_state.env_state, heuristic_params)
             elif config.path_heuristic.lower() == "flf_ksp":
-                action = flf_ksp(env_state.env_state, env_params)
+                action = flf_ksp(env_state.env_state, heuristic_params)
             elif config.path_heuristic.lower() == "ksp_flef":
-                action = ksp_flef(env_state.env_state, env_params)
+                action = ksp_flef(env_state.env_state, heuristic_params)
             elif config.path_heuristic.lower() == "ksp_mscl":
-                action = ksp_mscl(env_state.env_state, env_params)
+                action = ksp_mscl(env_state.env_state, heuristic_params)
             elif config.path_heuristic.lower() == "mscl_ksp":
-                action = mscl_ksp(env_state.env_state, env_params)
+                action = mscl_ksp(env_state.env_state, heuristic_params)
             else:
                 raise ValueError(f"Invalid path heuristic {config.path_heuristic}")
             if env_params.__class__.__name__ in ["RSAGNModelEnvParams", "RMSAGNModelEnvParams"]:

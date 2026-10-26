@@ -15233,3 +15233,28 @@ def test_mscl_physical_widths_match_independent_spectrum_recount(monkeypatch, in
 if __name__ == "__main__":
     jax.config.update("jax_numpy_rank_promotion", "raise")
     absltest.main()
+
+
+@pytest.mark.parametrize(
+    "name", ["ksp_ff", "ff_ksp", "kca_ff", "arbr_ff", "kmc_ff", "ksp_bf", "mscl_ksp"]
+)
+def test_gn_heuristics_reuse_a_fresh_state_mask(name):
+    """heuristic_mask_from_state must give the same action as recomputing the
+    physical mask when the state's mask is fresh, and is off by default."""
+    from tests.helpers.gn_model import setup
+    from xlron.environments.env_funcs import mask_slots_rmsa_gn_model
+    from xlron.heuristics import heuristics
+
+    _, env, params, state = setup("rmsa_gn_model", "lifetime_snr")
+    params = params.replace(gn_mask_mode="all_slots")
+    assert not params.heuristic_mask_from_state
+    heuristic = getattr(heuristics, name)
+    reuse = params.replace(heuristic_mask_from_state=True)
+    for key in range(3):
+        fresh = mask_slots_rmsa_gn_model(state, params, state.request_array)
+        expected = heuristic(fresh, params)
+        np.testing.assert_array_equal(heuristic(fresh, reuse), expected)
+        # With the default params a stale (all-invalid) state mask is ignored.
+        stale = fresh.replace(mod_format_mask=jnp.full_like(fresh.mod_format_mask, -1))
+        np.testing.assert_array_equal(heuristic(stale, params), expected)
+        state = env.step(jax.random.PRNGKey(key), fresh, expected, params)[1]

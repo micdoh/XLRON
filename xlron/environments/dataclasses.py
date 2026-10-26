@@ -455,6 +455,10 @@ class RMSAGNModelEnvParams(GNModelEnvParams):
     # "immediate" or "safe_release" (hold expired lightpaths until switching them off
     # keeps every live lightpath above threshold; issue #67).
     departure_policy: str = struct.field(pytree_node=False, default="safe_release")
+    # Heuristics read state.mod_format_mask instead of recomputing the physical
+    # mask. Only for callers that have just computed it for state.request_array
+    # (select_action_eval sets this on the params it passes to heuristics).
+    heuristic_mask_from_state: bool = struct.field(pytree_node=False, default=False)
 
 
 @struct.dataclass
