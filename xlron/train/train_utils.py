@@ -81,6 +81,7 @@ metrics = [
     "snr_blocking_probability",
     "power_blocking_probability",
     "held_lightpaths",  # RMSA-GN with departure_policy=safe_release only
+    "held_lightpaths_peak",
     "throughput",  # Only for RSA GN Model
     "launch_power",
     "path_snr",
@@ -2523,7 +2524,14 @@ def log_metrics(
         # (eval_heuristic._pack_info), so the entries may be absent from
         # processed_data and need creating from an always-present metric's shape.
         template = processed_data.get("accepted_services") or next(iter(processed_data.values()))
-        for metric_name, value in (("utilisation", util), ("fragmentation", frag)):
+        injected = [("utilisation", util), ("fragmentation", frag)]
+        if "held_lightpaths" in merged_out:
+            # Peak number of lightpaths held lit at once (any env, any step) in this
+            # increment; block-averaged per-step logging would hide it.
+            injected.append(
+                ("held_lightpaths_peak", float(np.max(np.asarray(merged_out["held_lightpaths"]))))
+            )
+        for metric_name, value in injected:
             stats = processed_data.get(metric_name, template)
             if isinstance(stats, dict):
                 processed_data[metric_name] = {
@@ -2556,6 +2564,7 @@ def log_metrics(
                 "snr_blocking_probability",
                 "power_blocking_probability",
                 "held_lightpaths",
+                "held_lightpaths_peak",
             )
             if name in processed_data
         ]
