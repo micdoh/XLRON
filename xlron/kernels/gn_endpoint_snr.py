@@ -13,7 +13,6 @@ import jax
 import jax.numpy as jnp
 from jax.experimental import pallas as pl
 from jax.experimental.pallas import triton as plt
-from scipy.constants import pi
 
 from xlron.environments.gn_model import isrs_gn_model as gn
 from xlron.kernels import interpret_default
@@ -105,11 +104,10 @@ def endpoint_snr_pallas(state, params, links, start, end, power, centre, *, inte
                     a=a, a_bar=ab, gamma=gamma, cr=cr, beta2=b2, beta3_s=b3_s, beta4_s=b4_s,
                 )
             )  # fmt: skip
-            fsi = fi * gn.INV_FREQ_SCALE
-            phi = 3 / 2 * pi**2 * (b2 + pi * b3_s * (fsi + fsi) + 2 * pi**2 * b4_s * fsi**2)
+            phi_s = gn.spm_phase(b2, b3_s, b4_s, fi * gn.INV_FREQ_SCALE)
             tilt = (a + ab - fi * total * cr) ** 2
             effective_bw = bi / params.num_subchannels
-            spm = gn._spm(phi, tilt, effective_bw, a, ab, gamma)
+            spm = gn._spm(phi_s, tilt, effective_bw * gn.INV_FREQ_SCALE, a, ab, gamma)
             eps = gn._eps(effective_bw, fi, a, length_ref[link], b2, b3_s) * params.coherent
             count = spans_ref[link]
             spm = spm * count ** (1 + eps) / params.num_subchannels**2

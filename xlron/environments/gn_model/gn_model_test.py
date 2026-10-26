@@ -15,11 +15,14 @@ from xlron.environments.env_funcs import *
 from xlron.environments.gn_model.isrs_gn_model import (
     FREQ_SCALE,
     INV_FREQ_SCALE,
+    _eps,
+    _spm,
     _xpm_compact,
     dispersion_betas,
     get_snr_fused,
     isrs_gn_model,
     isrs_gn_model_uniform,
+    spm_phase,
     xpm_pairs,
 )
 from xlron.environments.make_env import make
@@ -2929,13 +2932,12 @@ class DispersionFloat32UnderflowTest(chex.TestCase):
         np.testing.assert_array_equal(float32[~live], -1e5)
 
     def test_launch_power_gradients_stay_finite_and_match_float64(self):
-        """Differentiation w.r.t. channel power is what --differentiable uses."""
+        """Differentiation w.r.t. channel power is what --differentiable uses.
+
+        The fixture keeps its empty slots, which used to make the coherence
+        factor infinite and poison every gradient in the spectrum.
+        """
         power, frequency, bandwidth = _issue64_channels(n=65)
-        # Fill the empty slots: a zero-bandwidth channel makes the coherence
-        # factor infinite, and reverse mode then carries a NaN out of the
-        # sentinel branch. That behaviour predates the dispersion rescaling.
-        power = np.maximum(power, 1e-5)
-        bandwidth = np.maximum(bandwidth, 12.5e9)
         n = power.size
 
         def total(p, dtype):
@@ -2963,7 +2965,7 @@ class DispersionFloat32UnderflowTest(chex.TestCase):
             jax.grad(lambda p: total(p, jnp.float32))(jnp.asarray(power, jnp.float32))
         )
         assert np.all(np.isfinite(float32))
-        assert np.all(float32 != 0)
+        assert np.all(float32[power > 0] != 0)
         with jax.enable_x64(True):
             float64 = np.asarray(
                 jax.grad(lambda p: total(p, jnp.float64))(jnp.asarray(power, jnp.float64))
@@ -3023,6 +3025,143 @@ class DispersionFloat32UnderflowTest(chex.TestCase):
             results.append(np.asarray(snr(state, params))[live])
         relative = np.abs(results[1] / results[0] - 1)
         assert relative.max() > 1e-3, relative.max()
+
+
+class DispersionGradientTest(chex.TestCase):
+    """Reverse-mode differentiation of the GN model w.r.t. fibre dispersion.
+
+    Two float32 limits used to make these gradients NaN, independently of the
+    beta3/beta4 underflow of issue #64:
+
+    - the SPM coefficient contains 1 / phi, so its derivative needs phi**2, and
+      the SI phase mismatch (~1e-25 s^2/m) squares to ~1e-50, far below the
+      smallest float32 subnormal. Working in the FREQ_SCALE frequency unit, where
+      phi is of order 0.5, removes that underflow; `_spm` depends on phi and the
+      bandwidth only through phi*B^2, so the forward value is untouched.
+    - an unoccupied channel (zero bandwidth) made the coherence factor infinite.
+      The forward infinity was masked by the SNR sentinel, but reverse mode
+      carried a NaN out of it into every channel's gradient.
+    """
+
+    ref_lambda = 1550e-9
+    dispersion = 17e-6
+    slope = 0.067e3
+    attenuation = 4.6e-5
+    gamma = 1.2e-3
+    cr = 2.8e-17
+    num_spans = 3
+    span_length = 80e3
+
+    def _total_snr(self, dtype, **overrides):
+        """Sum of the optical SNR over a spectrum that keeps its empty slots."""
+        power, frequency, bandwidth = _issue64_channels(n=65)
+        n = power.size
+        settings = dict(
+            num_spans=self.num_spans,
+            span_length=self.span_length,
+            num_channels=n,
+            ref_lambda=self.ref_lambda,
+            attenuation=self.attenuation,
+            attenuation_bar=self.attenuation,
+            nonlinear_coeff=self.gamma,
+            raman_gain_slope=self.cr,
+            dispersion_coeff=self.dispersion,
+            dispersion_slope=self.slope,
+            amplifier_noise_figure=jnp.full((n,), 5.0, dtype),
+            transceiver_snr=jnp.full((n,), 30.0, dtype),
+        )
+        settings.update(overrides)
+        return jnp.sum(
+            get_snr_fused(
+                jnp.asarray(power, dtype),
+                jnp.asarray(frequency, dtype),
+                jnp.asarray(bandwidth, dtype),
+                **settings,
+            )
+        )
+
+    @parameterized.parameters(
+        {"parameter": "dispersion_coeff"},
+        {"parameter": "dispersion_slope"},
+    )
+    def test_gradient_is_finite_and_matches_float64(self, parameter):
+        value = {"dispersion_coeff": self.dispersion, "dispersion_slope": self.slope}[parameter]
+
+        def total(x, dtype):
+            return self._total_snr(dtype, **{parameter: x})
+
+        float32 = float(jax.grad(lambda x: total(x, jnp.float32))(jnp.float32(value)))
+        assert np.isfinite(float32), f"{parameter} gradient is {float32}"
+        assert float32 != 0.0
+        with jax.enable_x64(True):
+            float64 = float(jax.grad(lambda x: total(x, jnp.float64))(jnp.float64(value)))
+        np.testing.assert_allclose(float32, float64, rtol=1e-5)
+
+    def test_spm_is_invariant_under_the_phase_rescaling(self):
+        """_spm sees phi and B only through phi*B^2, so the unit cannot matter.
+
+        The one exception is an unoccupied channel, where the EPS bandwidth floor
+        takes over. EPS is a bare constant rather than a scaled quantity, so it
+        stands for a different bandwidth in each unit; in SI the floored value
+        drives the coefficient past the top of float32, while in the rescaled
+        unit it stays finite. Those entries reach the SNR sentinel either way.
+        """
+        bandwidth = jnp.asarray([12.5e9, 25e9, 50e9, 0.0], jnp.float32)
+        tilt = jnp.full((4,), (2 * self.attenuation) ** 2, jnp.float32)
+        beta2, beta3_s, beta4_s = dispersion_betas(self.ref_lambda, self.dispersion, self.slope)
+        frequency = jnp.asarray([-4e12, 0.0, 2e12, 6e12], jnp.float32)
+        phi_s = spm_phase(beta2, beta3_s, beta4_s, frequency * INV_FREQ_SCALE)
+        phi_si = phi_s * (INV_FREQ_SCALE**2)
+        scaled = np.asarray(
+            _spm(
+                phi_s,
+                tilt,
+                bandwidth * INV_FREQ_SCALE,
+                self.attenuation,
+                self.attenuation,
+                self.gamma,
+            )  # fmt: skip
+        )
+        si = np.asarray(_spm(phi_si, tilt, bandwidth, self.attenuation, self.attenuation,
+                             self.gamma))  # fmt: skip
+        occupied = np.asarray(bandwidth) > 0
+        np.testing.assert_array_equal(scaled[occupied], si[occupied])
+        assert np.all(np.isfinite(scaled)), scaled
+        assert np.isinf(si[~occupied]).all()
+        # phi in this unit is an ordinary number whose square is not a denormal.
+        assert np.all(np.abs(np.asarray(phi_s)) > np.sqrt(np.finfo(np.float32).tiny))
+
+    def test_unoccupied_channels_get_no_coherence_factor(self):
+        """A zero-bandwidth slot must not produce an infinity for reverse mode."""
+        bandwidth = jnp.asarray([25e9, 0.0, 12.5e9, 0.0], jnp.float32)
+        frequency = jnp.asarray([-2e12, -1e12, 1e12, 2e12], jnp.float32)
+        beta2, beta3_s, _ = dispersion_betas(self.ref_lambda, self.dispersion, self.slope)
+        eps = _eps(bandwidth, frequency, self.attenuation, self.span_length, beta2, beta3_s)
+        eps = np.asarray(eps)
+        assert np.all(np.isfinite(eps))
+        np.testing.assert_array_equal(eps[np.asarray(bandwidth) == 0.0], 0.0)
+        assert np.all(eps[np.asarray(bandwidth) > 0.0] > 0.0)
+        # The occupied entries must not have moved: compute them on their own.
+        occupied = jnp.asarray([25e9, 12.5e9], jnp.float32)
+        alone = _eps(
+            occupied,
+            jnp.asarray([-2e12, 1e12], jnp.float32),
+            self.attenuation,
+            self.span_length,
+            beta2,
+            beta3_s,
+        )
+        np.testing.assert_allclose(eps[[0, 2]], np.asarray(alone), rtol=1e-6)
+
+    def test_gradient_survives_jit_and_vmap(self):
+        def total(x):
+            return self._total_snr(jnp.float32, dispersion_coeff=x)
+
+        batched = jax.jit(jax.vmap(jax.grad(total)))(
+            jnp.asarray([self.dispersion, 2 * self.dispersion, 0.5 * self.dispersion], jnp.float32)
+        )
+        assert np.all(np.isfinite(np.asarray(batched)))
+        assert np.all(np.asarray(batched) != 0.0)
 
 
 if __name__ == "__main__":

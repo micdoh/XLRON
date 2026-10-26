@@ -88,6 +88,28 @@ def dispersion_betas(ref_lambda, dispersion_coeff, dispersion_slope):
     return beta2, beta3_s, beta4_s
 
 
+def spm_phase(beta2, beta3_s, beta4_s, fs):
+    """SPM phase mismatch, Ref. [1, Eq. (10)], in the FREQ_SCALE frequency unit.
+
+    Returns ``3/2 pi^2 (beta2 + 2 pi beta3 f + 2 pi^2 beta4 f^2) * FREQ_SCALE**2``
+    from the scaled coefficients of dispersion_betas and ``fs = f * INV_FREQ_SCALE``.
+    Pair it with a bandwidth in the same unit; `_spm` is invariant under that pair
+    of scalings, and in float32 it is the only form whose reverse-mode pass stays
+    finite. The SI phase mismatch is of order 1e-25 s^2/m, so ``1 / phi``, which
+    the SPM coefficient contains, differentiates to ``-1 / phi**2``, and 1e-50
+    is far below the smallest float32 subnormal. In this unit phi is of order
+    0.5 and its square is an ordinary number. FREQ_SCALE**2 is folded into the
+    leading constant, so nothing underflows on the way either.
+    """
+    return (
+        3
+        / 2
+        * pi**2
+        * FREQ_SCALE**2
+        * (beta2 + pi * beta3_s * (fs + fs) + 2 * pi**2 * beta4_s * fs**2)
+    )
+
+
 def isrs_gn_model(
     num_channels: int = 420,
     num_spans: int = 1,
@@ -232,7 +254,7 @@ def isrs_gn_model(
     ch_bw_k = ch_bw.T
     ch_pow_k = ch_pow.T
     df = jnp.abs(f_k - f_i)
-    phi_i = 3 / 2 * pi**2 * (beta2 + pi * beta3_s * (fs + fs) + 2 * pi**2 * beta4_s * fs**2)
+    phi_i_s = spm_phase(beta2, beta3_s, beta4_s, fs)
     phi = jnp.abs(4 * pi**2 * (beta2 + pi * beta3_s * fs_i_plus_fs_k))
     phi_ik = (
         2
@@ -249,7 +271,10 @@ def isrs_gn_model(
 
     # Nyquist subchannels: use effective bandwidth B_eff = B / N_sub for SPM
     B_eff = ch_bw / num_subchannels
-    spm_single = jnp.squeeze(_spm(phi_i, T_i, B_eff, a, a_bar, gamma)) / (num_subchannels**2)
+    # SPM takes the phase mismatch and the bandwidth in the same rescaled unit.
+    spm_single = jnp.squeeze(_spm(phi_i_s, T_i, B_eff * INV_FREQ_SCALE, a, a_bar, gamma)) / (
+        num_subchannels**2
+    )
     xpm_single = _xpm(ch_pow, ch_pow_k, phi_ik, T_k, ch_bw, ch_bw_k, a.T, a_bar.T, gamma)
 
     def scan_fun(carry, l_span):
@@ -351,17 +376,18 @@ def isrs_gn_model_uniform(
     # -- Fused SPM computation --
     # Nyquist subchannels: use effective bandwidth B_eff = B / N_sub for SPM
     B_eff = ch_bw / num_subchannels
-    # phi_i for SPM
-    phi_i = 3 / 2 * pi**2 * (beta2 + pi * beta3_s * (fs + fs) + 2 * pi**2 * beta4_s * fs**2)
+    # phi_i for SPM, with the bandwidth in the same rescaled unit (see spm_phase)
+    phi_i_s = spm_phase(beta2, beta3_s, beta4_s, fs)
+    B_eff_s = B_eff * INV_FREQ_SCALE
     # T term
     T = (a + a_bar - f * total_power * cr) ** 2
     # SPM (inlined _spm)
-    B2 = jnp.maximum(B_eff**2, EPS)
+    B2 = jnp.maximum(B_eff_s**2, EPS)
     a_plus_abar = a + a_bar
-    eta_spm = 4 / 9 * gamma**2 / B2 * pi / (phi_i * a_bar * (2 * a + a_bar)) * (
+    eta_spm = 4 / 9 * gamma**2 / B2 * pi / (phi_i_s * a_bar * (2 * a + a_bar)) * (
         T - a**2
-    ) / a * jnp.arcsinh(phi_i * B2 / a / pi) + (a_plus_abar**2 - T) / a_plus_abar * jnp.arcsinh(
-        phi_i * B2 / a_plus_abar / pi
+    ) / a * jnp.arcsinh(phi_i_s * B2 / a / pi) + (a_plus_abar**2 - T) / a_plus_abar * jnp.arcsinh(
+        phi_i_s * B2 / a_plus_abar / pi
     )
     # Coherence scaling (uses B_eff for subchannel coherence)
     eps = _eps(B_eff, f, a, length, beta2, beta3_s) * coherent
@@ -452,37 +478,41 @@ def _eps(B_i, f_i, a_i, mean_l, beta2, beta3_s):
 
     f_i is in Hz; beta3_s is scaled per dispersion_betas and is paired here with
     the rescaled frequency, so the phase mismatch is the SI value.
+
+    An unoccupied channel has B_i == 0, which makes the arcsinh zero and the
+    division by it infinite. The forward infinity is harmless, because such a
+    channel ends up at the SNR sentinel either way, but reverse mode carries a
+    NaN out of it and poisons every gradient in the spectrum. So the divisor is
+    guarded and unoccupied channels get no coherence factor at all.
     """
     fs_i = f_i * INV_FREQ_SCALE
-    return (
-        3
-        / 10
-        * jnp.log(
-            1
-            + (6 / a_i)
-            / (
-                mean_l
-                * jnp.arcsinh(
-                    pi**2
-                    / 2
-                    * jnp.abs(jnp.mean(beta2) + 2 * pi * jnp.mean(beta3_s) * fs_i)
-                    / a_i
-                    * B_i**2
-                )
-            )
-        )
+    divisor = mean_l * jnp.arcsinh(
+        pi**2 / 2 * jnp.abs(jnp.mean(beta2) + 2 * pi * jnp.mean(beta3_s) * fs_i) / a_i * B_i**2
+    )
+    occupied = divisor > 0
+    return jnp.where(
+        occupied,
+        3 / 10 * jnp.log(1 + (6 / a_i) / jnp.where(occupied, divisor, 1.0)),
+        0.0,
     )
 
 
-def _spm(phi_i, t_i, B_i, a_i, a_bar_i, gamma):
-    """SPM contribution, see Ref. [1, Eq. (9-10)]"""
-    B2 = jnp.maximum(B_i**2, EPS)
+def _spm(phi_i_s, t_i, B_i_s, a_i, a_bar_i, gamma):
+    """SPM contribution, see Ref. [1, Eq. (9-10)]
+
+    phi_i_s and B_i_s are the phase mismatch and the bandwidth in the FREQ_SCALE
+    frequency unit (`spm_phase` and ``B * INV_FREQ_SCALE``). Both enter only
+    through the product phi*B^2, so the result is the SI value; working in this
+    unit is what keeps the reverse-mode pass finite in float32, since the SI
+    phase mismatch squares to an underflow.
+    """
+    B2 = jnp.maximum(B_i_s**2, EPS)
     a_plus_abar = a_i + a_bar_i
-    return 4 / 9 * gamma**2 / B2 * pi / (phi_i * a_bar_i * (2 * a_i + a_bar_i)) * (
+    return 4 / 9 * gamma**2 / B2 * pi / (phi_i_s * a_bar_i * (2 * a_i + a_bar_i)) * (
         t_i - a_i**2
-    ) / a_i * jnp.arcsinh(phi_i * B2 / a_i / pi) + (
+    ) / a_i * jnp.arcsinh(phi_i_s * B2 / a_i / pi) + (
         a_plus_abar**2 - t_i
-    ) / a_plus_abar * jnp.arcsinh(phi_i * B2 / a_plus_abar / pi)
+    ) / a_plus_abar * jnp.arcsinh(phi_i_s * B2 / a_plus_abar / pi)
 
 
 def _as_channel_column(x):
@@ -1029,14 +1059,16 @@ def get_snr_fused(
     # Nyquist subchannels: use effective bandwidth B_eff = B / N_sub for SPM
     B_eff = ch_bw / num_subchannels
     fs = f * INV_FREQ_SCALE
-    phi_i = 3 / 2 * pi**2 * (beta2 + pi * beta3_s * (fs + fs) + 2 * pi**2 * beta4_s * fs**2)
+    # Phase mismatch and bandwidth in the same rescaled unit (see spm_phase)
+    phi_i_s = spm_phase(beta2, beta3_s, beta4_s, fs)
+    B_eff_s = B_eff * INV_FREQ_SCALE
     T = (a + a_bar - f * total_power * cr) ** 2
-    B2 = jnp.maximum(B_eff**2, EPS)
+    B2 = jnp.maximum(B_eff_s**2, EPS)
     a_plus_abar = a + a_bar
-    eta_spm = 4 / 9 * gamma**2 / B2 * pi / (phi_i * a_bar * (2 * a + a_bar)) * (
+    eta_spm = 4 / 9 * gamma**2 / B2 * pi / (phi_i_s * a_bar * (2 * a + a_bar)) * (
         T - a**2
-    ) / a * jnp.arcsinh(phi_i * B2 / a / pi) + (a_plus_abar**2 - T) / a_plus_abar * jnp.arcsinh(
-        phi_i * B2 / a_plus_abar / pi
+    ) / a * jnp.arcsinh(phi_i_s * B2 / a / pi) + (a_plus_abar**2 - T) / a_plus_abar * jnp.arcsinh(
+        phi_i_s * B2 / a_plus_abar / pi
     )
     # Coherence factor (uses B_eff for subchannel coherence)
     eps = _eps(B_eff, f, a, span_length, beta2, beta3_s) * coherent
