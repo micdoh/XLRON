@@ -889,9 +889,9 @@ flags.DEFINE_enum(
 )
 flags.DEFINE_enum(
     "departure_policy",
-    "immediate",
+    "safe_release",
     ["immediate", "safe_release"],
-    "RMSA-GN departures: switch expired lightpaths off at once (can push survivors below their SNR threshold), or hold them lit until a full-network check shows switching off is safe for every live lightpath.",
+    "RMSA-GN departures: hold expired lightpaths lit until a full-network check shows switching them off keeps every live lightpath above its SNR threshold (default; differentiable runs use immediate), or switch them off at once, which can push survivors below threshold.",
 )
 flags.DEFINE_integer(
     "gn_mask_screen_batch_size",

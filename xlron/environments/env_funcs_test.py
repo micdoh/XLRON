@@ -1958,6 +1958,7 @@ class TestSafeReleaseDepartures:
     @pytest.mark.parametrize("relative", [True, False])
     def test_immediate_departure_pushes_survivor_below_threshold(relative):
         _, p, s, survivor, _, fresh_snr, _ = departure_fixture(relative)
+        p = p.replace(departure_policy="immediate")
         nxt = generate_request_rsa(jax.random.PRNGKey(1), s, p)
         threshold = float(p.modulations_array.val[0, 2])
         assert int(jnp.sum(nxt.channel_centre_bw_array != 0)) == int(jnp.sum(survivor))
@@ -2006,9 +2007,17 @@ class TestSafeReleaseDepartures:
         assert int(nxt.accepted_services) == int(s.accepted_services) + 1
 
     @staticmethod
-    def test_safe_release_requires_rmsa_gn():
-        with pytest.raises(ValueError, match="safe_release"):
-            make(dict(env_type="rsa_gn_model", departure_policy="safe_release"), log_wrapper=False)
+    def test_safe_release_is_the_default_for_hard_rmsa_gn():
+        base = dict(env_type="rmsa_gn_model", topology_name="5node_directed", link_resources=8)
+        _, params = make(base, log_wrapper=False)
+        assert params.departure_policy == "safe_release"
+        _, params = make(base | {"departure_policy": "immediate"}, log_wrapper=False)
+        assert params.departure_policy == "immediate"
+        # The differentiable relaxation keeps immediate departures.
+        _, params = make(base | {"differentiable": True}, log_wrapper=False)
+        assert params.departure_policy == "immediate"
+        # Other environment types have no departure policy.
+        make(dict(env_type="rsa_gn_model", topology_name="5node_directed"), log_wrapper=False)
 
 
 class TestGetSnrLinkArray:
