@@ -645,6 +645,23 @@ def _policy_log_prob_entropy(
     return log_prob, entropy, recenter_clip
 
 
+def _log_valid_mass(logits: Array, action_mask: Array) -> Array:
+    """Log valid probability mass without softmax underflow or an epsilon ceiling.
+
+    Empty masks contribute zero loss/gradient: no policy can allocate probability
+    to an empty feasible set. The fallback makes both logsumexp reductions finite
+    before autodiff, rather than masking an all-negative-infinity reduction later.
+    Nonbinary, nonnegative masks retain their weighted-probability semantics.
+    """
+    logits = logits.astype(jnp.float32)
+    mask = action_mask.astype(jnp.float32)
+    has_valid = jnp.any(mask > 0, axis=-1, keepdims=True)
+    safe_mask = jnp.where(has_valid, mask, 1.0)
+    log_weights = jnp.log(jnp.where(safe_mask > 0, safe_mask, 1.0))
+    valid_logits = jnp.where(safe_mask > 0, logits + log_weights, -jnp.inf)
+    return jax.nn.logsumexp(valid_logits, axis=-1) - jax.nn.logsumexp(logits, axis=-1)
+
+
 def _importance_ratio(
     log_prob: Array,
     traj_batch: RSATransition | VONETransition,
@@ -807,6 +824,7 @@ def _loss_fn(
     entropy_loss = -(ent_coef * entropy * w).sum() / w_sum
 
     # --- Valid mass loss (encourages current policy to place mass on valid actions) -
+    validmass_mask = traj_batch.action_mask
     if config.VALID_MASS_LOSS_COEF > 0:
         # Recompute valid mass from *current* logits so gradients flow back
         if config.env_type.lower() == "vone":
@@ -814,21 +832,15 @@ def _loss_fn(
             num_nodes = vone_batch.action_mask_s.shape[-1]
             path_dim = vone_batch.action_mask_p.shape[-1]
             path_logits = pi._logits[..., 2 * num_nodes : 2 * num_nodes + path_dim]
-            current_probs = jax.nn.softmax(path_logits, axis=-1)
-            current_valid_mass = jnp.sum(
-                current_probs * vone_batch.action_mask_p.astype(jnp.float32), axis=-1
-            )
+            validmass_mask = vone_batch.action_mask_p
+            current_log_valid_mass = _log_valid_mass(path_logits, validmass_mask)
         elif "gn_model" in config.env_type.lower() and config.launch_power_type == "rl":
-            current_probs = jax.nn.softmax(pi[0]._logits, axis=-1)
-            current_valid_mass = jnp.sum(current_probs * traj_batch.action_mask, axis=-1)
-        elif config.OFF_POLICY_IAM:
-            current_probs = jax.nn.softmax(pi._logits, axis=-1)
-            current_valid_mass = jnp.sum(current_probs * traj_batch.action_mask, axis=-1)
+            current_log_valid_mass = _log_valid_mass(pi[0]._logits, traj_batch.action_mask)
         else:
-            current_probs = jax.nn.softmax(pi._logits, axis=-1)
-            current_valid_mass = jnp.sum(current_probs * traj_batch.action_mask, axis=-1)
-        validmass_loss = -jnp.log(current_valid_mass + 1e-8).mean()
+            current_log_valid_mass = _log_valid_mass(pi._logits, traj_batch.action_mask)
+        validmass_loss = -current_log_valid_mass.mean()
     else:
+        current_log_valid_mass = jnp.zeros_like(traj_batch.valid_mass, dtype=jnp.float32)
         validmass_loss = jnp.array(0.0)
 
     # --- Total loss --------------------------------------------------------------
@@ -863,6 +875,14 @@ def _loss_fn(
         valid_mass_std = valid_mass.std()
         valid_mass_min = valid_mass.min()
         valid_mass_max = valid_mass.max()
+        # Current log mass reveals collapse beyond the probability-space floor.
+        # These two diagnostics exclude genuinely empty masks from their denominator.
+        mass_has_valid = jnp.any(validmass_mask > 0, axis=-1).astype(jnp.float32)
+        mass_count = jnp.maximum(mass_has_valid.sum(), 1.0)
+        current_log_valid_mass_mean = (current_log_valid_mass * mass_has_valid).sum() / mass_count
+        current_valid_mass_below_floor_frac = (
+            (current_log_valid_mass < jnp.log(1e-8)).astype(jnp.float32) * mass_has_valid
+        ).sum() / mass_count
         # n_valid: number of valid actions per step
         n_valid = traj_batch.action_mask.sum(axis=-1)
         n_valid_mean = n_valid.mean()
@@ -929,6 +949,8 @@ def _loss_fn(
             valid_mass_std=valid_mass_std,
             valid_mass_min=valid_mass_min,
             valid_mass_max=valid_mass_max,
+            current_log_valid_mass_mean=current_log_valid_mass_mean,
+            current_valid_mass_below_floor_frac=current_valid_mass_below_floor_frac,
             n_valid_mean=n_valid_mean,
             n_valid_min=n_valid_min,
             n_valid_max=n_valid_max,

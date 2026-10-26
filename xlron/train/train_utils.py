@@ -141,6 +141,8 @@ class LossDiagnostics(NamedTuple):
     valid_mass_std: Array
     valid_mass_min: Array
     valid_mass_max: Array
+    current_log_valid_mass_mean: Array
+    current_valid_mass_below_floor_frac: Array
     n_valid_mean: Array
     n_valid_min: Array
     n_valid_max: Array
@@ -819,8 +821,8 @@ def _make_param_label_fn(model: eqx.Module) -> Callable:
     mistaken for label functions by optax when passed as a static pytree.
 
     Works across ActorCriticMLP, ActorCriticGNN, and ActorCriticTransformer:
-    any leaf whose key-path contains ".critic" is labelled ``"critic"``;
-    everything else is ``"actor"``.
+    critic attributes and the legacy transformer's actor_critic[1] encoder
+    receive ``"critic"`` labels; everything else receives ``"actor"``.
     """
     # Snapshot the pytree structure of the learnable parameters at build time.
     params = eqx.filter(model, eqx.is_inexact_array)
@@ -830,7 +832,12 @@ def _make_param_label_fn(model: eqx.Module) -> Callable:
     label_list: list[str] = []
     jax.tree_util.tree_map_with_path(
         lambda path, _: label_list.append(
-            "critic" if ".critic" in jax.tree_util.keystr(path) else "actor"
+            "critic"
+            if (
+                ".critic" in jax.tree_util.keystr(path)
+                or ".actor_critic[1]" in jax.tree_util.keystr(path)
+            )
+            else "actor"
         ),
         params,
     )
