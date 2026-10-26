@@ -1402,7 +1402,11 @@ def generate_request_rsa(
         )
         remove_expired_services = remove_expired_services_rwalr
     elif params.__class__.__name__ == "RMSAGNModelEnvParams":
-        remove_expired_services = remove_expired_services_rmsa_gn_model
+        remove_expired_services = (
+            release_departures_safely
+            if cast(RMSAGNModelEnvParams, params).departure_policy == "safe_release"
+            else remove_expired_services_rmsa_gn_model
+        )
     elif params.__class__.__name__ == "RSAGNModelEnvParams":
         remove_expired_services = remove_expired_services_rsa_gn_model
     state = remove_expired_services(state, params) if not params.incremental_loading else state
@@ -4314,7 +4318,7 @@ def get_candidate_snr_evidence(
     """
     required = get_required_snr_se_kurtosis_array(state.modulation_format_index_array, 2, params)
     encoded = (
-        jnp.where(state.channel_centre_bw_array != 0, required, -jnp.inf)
+        jnp.where(live_lightpath_mask(state, params), required, -jnp.inf)
         if old_required is None
         else old_required
     )
@@ -4373,6 +4377,151 @@ def compute_total_power_per_link(channel_power_array, path_index_array, channel_
     return jnp.sum(channel_start_powers, axis=1)
 
 
+def held_lightpath_mask(state: GNModelEnvState, params: GNModelEnvParams) -> Array:
+    """(links, slots) cells of lightpaths whose traffic has ended but are still lit.
+
+    Only the safe_release departure policy holds lightpaths (issue #67): an expired
+    lightpath keeps its optical signal, and so its spectrum, power and interference,
+    until switching it off leaves every live lightpath above its SNR threshold.
+    Held cells are identified by an elapsed departure time on an occupied cell:
+    departure <= current_time with absolute times, departure <= 0 with relative
+    times (remaining time). Newly admitted lightpaths always depart in the future.
+    """
+    present = state.channel_centre_bw_array != 0
+    if getattr(params, "departure_policy", "immediate") != "safe_release":
+        return jnp.zeros_like(present)
+    now = 0.0 if params.relative_arrival_times else state.current_time
+    return present & (state.link_slot_departure_array <= now)
+
+
+def live_lightpath_mask(state: GNModelEnvState, params: GNModelEnvParams) -> Array:
+    """Occupied cells whose lightpath carries traffic and so must meet its SNR threshold."""
+    return (state.channel_centre_bw_array != 0) & ~held_lightpath_mask(state, params)
+
+
+def lightpath_representatives(state: GNModelEnvState, params: GNModelEnvParams) -> Array:
+    """One (links, slots) cell per lightpath: its first slot on the first link of its path.
+
+    A lightpath is identified by its path index and centre frequency: two lightpaths on
+    one path never share a centre frequency because their slots cannot overlap.
+    """
+    pid = state.path_index_array
+    centre = state.channel_centre_freq_array
+    present = state.channel_centre_bw_array != 0
+    first_link = params.path_link_indices.val[jnp.maximum(pid, 0), 0]
+    on_first_link = first_link == jnp.arange(params.num_links)[:, None]
+    continues = jnp.concatenate(
+        (
+            jnp.zeros((params.num_links, 1), bool),
+            (pid[:, 1:] == pid[:, :-1]) & (centre[:, 1:] == centre[:, :-1]) & present[:, :-1],
+        ),
+        axis=1,
+    )
+    return present & (pid >= 0) & on_first_link & ~continues
+
+
+def _switch_off_lightpath(state: RMSAGNModelEnvState, link: Array, slot: Array):
+    """Remove the whole lightpath through cell (link, slot) from every array."""
+    pid = state.path_index_array[link, slot]
+    centre = state.channel_centre_freq_array[link, slot]
+    footprint = (
+        (state.channel_centre_bw_array != 0)
+        & (state.path_index_array == pid)
+        & (state.channel_centre_freq_array == centre)
+    )
+
+    def clear(array, value):
+        return jnp.where(footprint, jnp.asarray(value, array.dtype), array)
+
+    return state.replace(
+        link_slot_array=clear(state.link_slot_array, 0),
+        link_slot_departure_array=clear(state.link_slot_departure_array, 0),
+        link_snr_array=clear(state.link_snr_array, 0),
+        path_index_array=clear(state.path_index_array, -1),
+        channel_centre_bw_array=clear(state.channel_centre_bw_array, 0),
+        channel_power_array=clear(state.channel_power_array, 0),
+        channel_centre_freq_array=clear(state.channel_centre_freq_array, 0),
+        modulation_format_index_array=clear(state.modulation_format_index_array, -1),
+        path_index_array_prev=clear(state.path_index_array_prev, -1),
+        channel_centre_bw_array_prev=clear(state.channel_centre_bw_array_prev, 0),
+        channel_power_array_prev=clear(state.channel_power_array_prev, 0),
+        channel_centre_freq_array_prev=clear(state.channel_centre_freq_array_prev, 0),
+        modulation_format_index_array_prev=clear(state.modulation_format_index_array_prev, -1),
+        link_snr_array_prev=clear(state.link_snr_array_prev, 0),
+    )
+
+
+# Release passes per arrival: a release can raise other survivors' margins and
+# enable an earlier-rejected release, so repeat while the previous pass released.
+SAFE_RELEASE_PASSES = 2
+
+
+def release_departures_safely(
+    state: RMSAGNModelEnvState, params: RMSAGNModelEnvParams
+) -> RMSAGNModelEnvState:
+    """Departure processing for departure_policy="safe_release" (issue #67).
+
+    Expired lightpaths are held (see held_lightpath_mask). Held lightpaths are then
+    switched off oldest-first, each only if a full-network GN solve of the state
+    without it leaves every live lightpath at or above its modulation threshold
+    (and the existing_snr_margin reserve, capped at its current SNR, as for
+    admissions). Every intermediate optical state is therefore safe, so live
+    lightpaths never fall below threshold because of a departure. A rejected
+    release is retried at later arrivals.
+    """
+    if params.relative_arrival_times:
+        # Remaining times count down; held cells continue below zero, oldest lowest.
+        present = state.channel_centre_bw_array != 0
+        dep = state.link_slot_departure_array
+        state = state.replace(
+            link_slot_departure_array=jnp.where(present, dep - state.arrival_time, dep)
+        )
+    held = held_lightpath_mask(state, params) & lightpath_representatives(state, params)
+    count = jnp.sum(held)
+    order = jnp.argsort(jnp.where(held, state.link_slot_departure_array, jnp.inf).reshape(-1))
+    if params.existing_snr_margin > 0:
+        fresh = state.replace(link_snr_array=get_snr_link_array(state, params))
+        current_snr = get_lightpath_snr(fresh, params)
+    else:
+        current_snr = None
+
+    def attempt(carry):
+        k, passes, released_in_pass, s, snr = carry
+        link, slot = jnp.divmod(order[k], params.link_resources)
+        candidate = _switch_off_lightpath(s, link, slot)
+        candidate = candidate.replace(link_snr_array=get_snr_link_array(candidate, params))
+        candidate_snr = get_lightpath_snr(candidate, params)
+        required = get_required_snr_se_kurtosis_array(
+            candidate.modulation_format_index_array, 2, params
+        )
+        if snr is not None:
+            required = jnp.maximum(
+                required, jnp.minimum(required + params.existing_snr_margin, snr)
+            )
+        still_held = held_lightpath_mask(s, params)[link, slot]
+        safe = jnp.all(
+            jnp.where(live_lightpath_mask(candidate, params), candidate_snr >= required, True)
+        )
+        release = still_held & safe
+        s = jax.tree.map(lambda a, b: jnp.where(release, a, b), candidate, s)
+        if snr is not None:
+            snr = jnp.where(release, candidate_snr, snr)
+        released_in_pass = released_in_pass | release
+        # Start another pass over the remaining held lightpaths after a release.
+        wrap = (k + 1 >= count) & released_in_pass & (passes + 1 < SAFE_RELEASE_PASSES)
+        k = jnp.where(wrap, 0, k + 1)
+        passes = passes + wrap
+        released_in_pass = released_in_pass & ~wrap
+        return k, passes, released_in_pass, s, snr
+
+    _, _, _, state, _ = jax.lax.while_loop(
+        lambda carry: carry[0] < count,
+        attempt,
+        (jnp.int32(0), jnp.int32(0), jnp.array(False), state, current_snr),
+    )
+    return state
+
+
 def get_existing_snr_requirements(
     state: RMSAGNModelEnvState,
     params: RMSAGNModelEnvParams,
@@ -4393,7 +4542,7 @@ def get_existing_snr_requirements(
         required = jnp.maximum(
             required, jnp.minimum(required + params.existing_snr_margin, baseline_path_snr)
         )
-    return jnp.where(state.channel_centre_bw_array != 0, required, -jnp.inf)
+    return jnp.where(live_lightpath_mask(state, params), required, -jnp.inf)
 
 
 def check_snr_sufficient(
@@ -4416,7 +4565,7 @@ def check_snr_sufficient(
         required_snr_array = jnp.maximum(required_snr_array, existing_required)
     lightpath_snr_array = get_lightpath_snr(state, params)
     # Only check slots that are actually occupied (have nonzero channel bandwidth)
-    is_occupied = state.channel_centre_bw_array != 0
+    is_occupied = live_lightpath_mask(state, params)
     snr_insufficient = jnp.where(lightpath_snr_array >= required_snr_array, 0, 1)
     snr_insufficient = jnp.where(is_occupied, snr_insufficient, 0)
     return jnp.any(snr_insufficient)

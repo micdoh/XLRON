@@ -398,6 +398,11 @@ def make(
             raise ValueError("gn_kernel_backend=pallas requires a GN environment")
         if differentiable:
             raise ValueError("Pallas GN kernels have no reverse-mode derivatives; use jax")
+    departure_policy = config.get("departure_policy", "immediate")
+    if departure_policy not in ("immediate", "safe_release"):
+        raise ValueError(f"Unknown departure_policy {departure_policy!r}")
+    if departure_policy == "safe_release" and (env_type != "rmsa_gn_model" or differentiable):
+        raise ValueError("departure_policy=safe_release requires hard rmsa_gn_model dynamics")
     if gn_mask_mode != "ff_lf":
         if env_type != "rmsa_gn_model":
             raise ValueError("gn_mask_mode requires rmsa_gn_model")
@@ -1287,6 +1292,7 @@ def make(
                 gn_mask_batch_size=config.get("gn_mask_batch_size", 8),
                 gn_mask_env_batch_size=config.get("gn_mask_env_batch_size", 0),
                 gn_mask_screen_batch_size=config.get("gn_mask_screen_batch_size", 512),
+                departure_policy=departure_policy,
                 existing_snr_margin=existing_snr_margin,
             )
         params_dict.update(gn_kernel_backend=gn_kernel_backend)

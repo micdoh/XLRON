@@ -20,6 +20,8 @@ from xlron.environments.dataclasses import (
 )
 from xlron.environments.diff_utils import *
 from xlron.environments.env_funcs import (
+    held_lightpath_mask,
+    lightpath_representatives,
     calculate_path_stats,
     check_action_rmsa_gn_model_components,
     check_action_rsa,
@@ -400,6 +402,11 @@ class RSAEnv(environment.Environment):
             info["_blocked_spectrum"] = gn_state.blocked_spectrum
             info["_blocked_snr"] = gn_state.blocked_snr
             info["_blocked_power"] = gn_state.blocked_power
+        if getattr(params, "departure_policy", "immediate") == "safe_release":
+            # Lightpaths whose traffic has ended but are still lit (issue #67).
+            info["held_lightpaths"] = jnp.sum(
+                held_lightpath_mask(state, params) & lightpath_representatives(state, params)
+            ).astype(dtype_config.LARGE_INT_DTYPE)
         # Utilisation/fragmentation are NOT stashed per step: their full-array
         # reductions cost ~10-15% of hot-path step time and both are state
         # properties, so log_metrics computes them once per logging increment

@@ -452,6 +452,9 @@ class RMSAGNModelEnvParams(GNModelEnvParams):
     gn_kernel_backend: str = struct.field(pytree_node=False, default="jax")
     # Candidates per endpoint-screen batch in the Pallas all_slots mask.
     gn_mask_screen_batch_size: int = struct.field(pytree_node=False, default=512)
+    # "immediate" or "safe_release" (hold expired lightpaths until switching them off
+    # keeps every live lightpath above threshold; issue #67).
+    departure_policy: str = struct.field(pytree_node=False, default="immediate")
 
 
 @struct.dataclass
