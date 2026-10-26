@@ -7,6 +7,12 @@ DETERMINISTIC_XLA_FLAGS = (
     "--xla_gpu_deterministic_ops=true",
     "--xla_gpu_enable_triton_gemm=false",
 )
+# Run while/cond loops as CUDA-graph conditional nodes instead of copying each
+# loop predicate to the host. The GN masks and departure releases use
+# data-dependent loops; on a time-sliced (shared) GPU every host round trip costs
+# a scheduling slice, and this made full-mask rollouts ~7.5x faster. Applied in
+# both modes; it does not change results.
+DEVICE_LOOP_XLA_FLAGS = ("--xla_gpu_enable_command_buffer=+WHILE,+CONDITIONAL",)
 PERFORMANCE_XLA_FLAGS = (
     "--xla_gpu_triton_gemm_any=True",
     "--xla_gpu_enable_latency_hiding_scheduler=true",
@@ -52,9 +58,13 @@ def configure_jax_runtime(argv):
     """
     deterministic = deterministic_ops_requested(argv)
     os.environ["XLA_FLAGS"] = merge_xla_flags(
-        os.environ.get("XLA_FLAGS", ""),
-        DETERMINISTIC_XLA_FLAGS if deterministic else PERFORMANCE_XLA_FLAGS,
-        override=deterministic,
+        merge_xla_flags(
+            os.environ.get("XLA_FLAGS", ""),
+            DETERMINISTIC_XLA_FLAGS if deterministic else PERFORMANCE_XLA_FLAGS,
+            override=deterministic,
+        ),
+        DEVICE_LOOP_XLA_FLAGS,
+        override=False,
     )
     if deterministic:
         os.environ["NVIDIA_TF32_OVERRIDE"] = "0"

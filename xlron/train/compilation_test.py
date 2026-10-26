@@ -8,6 +8,7 @@ import pytest
 
 from xlron.train.compilation import (
     DETERMINISTIC_XLA_FLAGS,
+    DEVICE_LOOP_XLA_FLAGS,
     PERFORMANCE_XLA_FLAGS,
     deterministic_ops_requested,
     merge_xla_flags,
@@ -93,3 +94,18 @@ print(float(f(jnp.arange(128, dtype=jnp.float32)).block_until_ready()))
         assert run.returncode == 0, run.stderr
     assert runs[0].stdout == runs[1].stdout
     assert "Persistent compilation cache hit" in runs[1].stderr
+
+
+@pytest.mark.parametrize("argv", [[], ["--DETERMINISTIC_OPS"]])
+def test_device_side_loops_are_enabled_unless_the_user_sets_command_buffers(argv, monkeypatch):
+    from xlron.train.compilation import configure_jax_runtime
+
+    monkeypatch.delenv("XLRON_COMPILATION_CACHE", raising=False)
+    monkeypatch.setenv("XLA_FLAGS", "--xla_gpu_autotune_level=0")
+    configure_jax_runtime(argv)
+    flags = os.environ["XLA_FLAGS"].split()
+    assert DEVICE_LOOP_XLA_FLAGS[0] in flags and "--xla_gpu_autotune_level=0" in flags
+    monkeypatch.setenv("XLA_FLAGS", "--xla_gpu_enable_command_buffer=")
+    configure_jax_runtime(argv)
+    assert "--xla_gpu_enable_command_buffer=" in os.environ["XLA_FLAGS"].split()
+    assert DEVICE_LOOP_XLA_FLAGS[0] not in os.environ["XLA_FLAGS"].split()

@@ -12,6 +12,12 @@ whole, non-overlapping lightpaths; rollout measurements exercise real env steps.
 """
 
 import argparse
+import sys
+
+from xlron.train.compilation import configure_jax_runtime
+
+# Same XLA runtime configuration as training (set before JAX initialises).
+configure_jax_runtime(sys.argv)
 import ctypes
 import json
 import os
