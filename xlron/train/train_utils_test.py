@@ -76,6 +76,15 @@ def _make_log_wrapped_env():
     return key, env, obs, state, params
 
 
+class TestInitNetwork:
+    @staticmethod
+    @pytest.mark.parametrize("env_type", ["rsa_gn_model", "rmsa_gn_model"])
+    def test_transformer_power_control_explains_missing_joint_mask(env_type):
+        config = Box(USE_TRANSFORMER=True, env_type=env_type, launch_power_type="rl")
+        with pytest.raises(NotImplementedError, match="power-conditioned physical action mask"):
+            tu.init_network(config, jax.random.PRNGKey(0))
+
+
 class SelectActionEvalDispatchTest(chex.TestCase):
     @parameterized.parameters(*GUI_PATH_HEURISTICS)
     def test_dispatches_all_gui_heuristics(self, heuristic_name):

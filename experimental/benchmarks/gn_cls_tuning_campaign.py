@@ -48,15 +48,32 @@ SEEDS = (4242, 4243)
 
 
 def replace_flags(command, *flags):
-    """Replace whole absl flags without retaining an earlier conflicting value."""
-    names = {flag.split("=", 1)[0] for flag in flags}
-    return [arg for arg in command if arg.split("=", 1)[0] not in names] + list(flags)
+    """Replace CLI options, preserving numeric values of unrelated options.
+
+    Absl options use --name=value, while wrapper options can take separate
+    values (including multi-value tiles). Remove the latter's old arguments
+    together with their option rather than treating values as option names.
+    """
+    names = {flag.split("=", 1)[0] for flag in flags if flag.startswith("--")}
+    result = []
+    index = 0
+    while index < len(command):
+        arg = command[index]
+        index += 1
+        if arg.split("=", 1)[0] not in names:
+            result.append(arg)
+        elif "=" not in arg:
+            while index < len(command) and not command[index].startswith("--"):
+                index += 1
+    return result + list(flags)
 
 
 def build_jobs(args):
     common = build_common(args)
     jobs = []
-    variants = [(name, 1) for name in HEURISTICS] + [(name, 0) for name in ("ksp_mscl", "mscl_ksp")]
+    variants = [(name, 1) for name in HEURISTICS] + [
+        (name, 0) for name in ("ksp_mscl", "mscl_ksp")
+    ]
     for index, (heuristic, interfering_k) in enumerate(variants):
         if index % 2 != args.shard:
             continue
@@ -142,7 +159,10 @@ def build_jobs(args):
         )
         if variant != "lower_lr_entropy":
             train = replace_flags(
-                train, "--OFF_POLICY_IAM=false", "--CLIP_EPS=0.1", "--VALID_MASS_LOSS_COEF=0.0"
+                train,
+                "--OFF_POLICY_IAM=false",
+                "--CLIP_EPS=0.1",
+                "--VALID_MASS_LOSS_COEF=0.0",
             )
         if variant == "long_horizon":
             train = replace_flags(
@@ -246,7 +266,9 @@ def selection_score(output, record):
     import math
 
     try:
-        result = json.loads((output / (record["name"] + ".jsonl")).read_text().splitlines()[-1])
+        result = json.loads(
+            (output / (record["name"] + ".jsonl")).read_text().splitlines()[-1]
+        )
         metrics = result["metrics"]
         score = tuple(
             float(metrics[key]["mean"])
@@ -273,7 +295,9 @@ def main():
     parser.add_argument("--load", type=float, default=5000)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument(
-        "--job-plan", type=Path, help="Run an explicit JSON job list instead of the original sweep"
+        "--job-plan",
+        type=Path,
+        help="Run an explicit JSON job list instead of the original sweep",
     )
     args = parser.parse_args()
     args.pool_before_projection = False
@@ -285,11 +309,13 @@ def main():
         raise FileExistsError(f"Use a fresh output directory: {manifest_path}")
     if not args.dry_run and not args.resume_model.is_file():
         raise FileNotFoundError(args.resume_model)
-    paths = sorted([*Path("xlron").rglob("*.py"), *Path("tests").rglob("*.py")]) + sorted(
-        Path("experimental/benchmarks").glob("gn_cls*.py")
-    )
+    paths = sorted(
+        [*Path("xlron").rglob("*.py"), *Path("tests").rglob("*.py")]
+    ) + sorted(Path("experimental/benchmarks").glob("gn_*.py"))
     hashes = {str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in paths}
-    fingerprint = hashlib.sha256(json.dumps(hashes, sort_keys=True).encode()).hexdigest()
+    fingerprint = hashlib.sha256(
+        json.dumps(hashes, sort_keys=True).encode()
+    ).hexdigest()
     jobs = json.loads(args.job_plan.read_text()) if args.job_plan else build_jobs(args)
     manifest = {
         "created_utc": datetime.now(UTC).isoformat(),
@@ -298,7 +324,9 @@ def main():
         "source_sha256": hashes,
         "source_fingerprint": fingerprint,
         "initial_checkpoint": str(args.resume_model),
-        "initial_checkpoint_sha256": hashlib.sha256(args.resume_model.read_bytes()).hexdigest()
+        "initial_checkpoint_sha256": hashlib.sha256(
+            args.resume_model.read_bytes()
+        ).hexdigest()
         if args.resume_model.is_file()
         else None,
         "optimizer_restored": False,
@@ -310,7 +338,8 @@ def main():
         record.update(status="planned", wandb_run_id=run_id)
         if args.gpu_memory_fraction is not None:
             record["command"] = replace_flags(
-                record["command"], f"--PREALLOCATE_MEM_FRACTION={args.gpu_memory_fraction}"
+                record["command"],
+                f"--PREALLOCATE_MEM_FRACTION={args.gpu_memory_fraction}",
             )
         record["command"] += [
             f"--EXPERIMENT_NAME={record['name']}",
@@ -323,15 +352,17 @@ def main():
         return
 
     def status(state, **details):
-        manifest.update(state=state, updated_utc=datetime.now(UTC).isoformat(), **details)
+        manifest.update(
+            state=state, updated_utc=datetime.now(UTC).isoformat(), **details
+        )
         save_manifest(manifest_path, manifest)
         print(json.dumps(dict(state=state, **details)), flush=True)
 
     import wandb
 
-    app_url = wandb.Settings(base_url=wandb.Api(timeout=30).settings["base_url"]).app_url.rstrip(
-        "/"
-    )
+    app_url = wandb.Settings(
+        base_url=wandb.Api(timeout=30).settings["base_url"]
+    ).app_url.rstrip("/")
     for record in jobs:
         record["wandb_url"] = (
             f"{app_url}/{args.entity}/{args.project}/runs/{record['wandb_run_id']}"
@@ -362,7 +393,9 @@ def main():
                     command = record["command"]
                     command[command.index("--initial-model") + 1] = best[1]
                     record.update(
-                        selected_checkpoint=best[1], selection_score=best[0], selection_seed=4244
+                        selected_checkpoint=best[1],
+                        selection_score=best[0],
+                        selection_seed=4244,
                     )
                 else:
                     record["selected_checkpoint"] = str(args.resume_model)
@@ -388,8 +421,12 @@ def main():
                 "XLRON_SOURCE_FINGERPRINT": fingerprint,
             }
             if args.gpu_memory_fraction is not None:
-                overrides["XLA_PYTHON_CLIENT_MEM_FRACTION"] = str(args.gpu_memory_fraction)
-                overrides["XLRON_GPU_SHARING"] = "user-authorized idle capacity; bounded JAX pool"
+                overrides["XLA_PYTHON_CLIENT_MEM_FRACTION"] = str(
+                    args.gpu_memory_fraction
+                )
+                overrides["XLRON_GPU_SHARING"] = (
+                    "user-authorized idle capacity; bounded JAX pool"
+                )
             record["environment"] = overrides
             started = time.monotonic()
             with (args.output / (record["name"] + ".log")).open("w") as log:
@@ -400,7 +437,9 @@ def main():
                     stderr=subprocess.STDOUT,
                 )
                 record.update(
-                    status="running", pid=child.pid, started_utc=datetime.now(UTC).isoformat()
+                    status="running",
+                    pid=child.pid,
+                    started_utc=datetime.now(UTC).isoformat(),
                 )
                 status("running", active_job=record["name"])
                 code = child.wait()
@@ -421,10 +460,14 @@ def main():
                     candidates.append((score, model_path))
             status("between_jobs", last_job=record["name"], exit_code=code)
         status(
-            "completed_with_failures" if any(j["status"] == "failed" for j in jobs) else "completed"
+            "completed_with_failures"
+            if any(j["status"] == "failed" for j in jobs)
+            else "completed"
         )
     finally:
         lease.close()
+    if any(job["status"] == "failed" for job in jobs):
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":

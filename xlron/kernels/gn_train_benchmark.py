@@ -30,6 +30,11 @@ def main():
     parser.add_argument(
         "--per-env-output", help="Record per-environment blocking and anomaly states"
     )
+    parser.add_argument(
+        "--audit-existing-snr",
+        action="store_true",
+        help="Fresh existing-path SNR audit at each logging increment (requires --per-env-output)",
+    )
     parser.add_argument("--pool-before-projection", action="store_true")
     parser.add_argument("--new-lightpath-prefilter", action="store_true")
     parser.add_argument("--pack-old-predicates", action="store_true")
@@ -75,6 +80,8 @@ def main():
         required=True,
     )
     args, remaining = parser.parse_known_args()
+    if args.audit_existing_snr and not args.per_env_output:
+        parser.error("--audit-existing-snr requires --per-env-output")
     configure_jax_runtime(remaining)
     if args.matmul_precision:
         import jax
@@ -180,9 +187,30 @@ def main():
         state_digest = None
 
     if args.per_env_output:
-        from xlron.train.gn_campaign_diagnostics import install_diagnostics
+        from xlron.train.gn_campaign_diagnostics import existing_path_health, install_diagnostics
 
-        install_diagnostics(train_utils, args.per_env_output)
+        physical_audit = None
+        if args.audit_existing_snr:
+            import jax
+
+            setup = train_utils.experiment_data_setup
+            audit_functions = []
+
+            def setup_with_audit(config, *setup_args, **setup_kwargs):
+                result = setup(config, *setup_args, **setup_kwargs)
+                params = result[2]
+                audit = partial(existing_path_health, params=params)
+                if config.NUM_ENVS > 1:
+                    audit = jax.vmap(audit)
+                audit_functions[:] = [jax.jit(audit)]
+                return result
+
+            train_utils.experiment_data_setup = setup_with_audit
+
+            def physical_audit(state):
+                return audit_functions[0](state)
+
+        install_diagnostics(train_utils, args.per_env_output, physical_audit=physical_audit)
 
     if args.pool_before_projection:
         train_utils.ActorCriticTransformer = partial(
@@ -226,6 +254,7 @@ def main():
                 else None,
                 "upgraded_modulation_head": args.upgrade_modulation_head,
                 "optimizer_restored": False if args.initial_model else None,
+                "periodic_existing_snr_audit": args.audit_existing_snr,
             }
         )
 

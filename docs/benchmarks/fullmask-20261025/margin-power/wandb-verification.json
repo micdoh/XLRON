@@ -1,0 +1,101 @@
+[
+  {
+    "id": "472de30b",
+    "state": "running",
+    "name": "control-arbr_ff-seed4242-power-10-admit0.5-retain0.0",
+    "config": {
+      "snr_margin": 0.5,
+      "existing_snr_margin": 0,
+      "power_per_channel": -10,
+      "gn_mask_mode": "all_slots",
+      "aggregate_slots": 1,
+      "ENV_WARMUP_STEPS": 25000,
+      "NUM_ENVS": 4,
+      "USE_TRANSFORMER": false,
+      "OFF_POLICY_IAM": false,
+      "VALID_MASS_LOSS_COEF": 0
+    }
+  },
+  {
+    "id": "b74123c7",
+    "state": "running",
+    "name": "reserve-arbr_ff-seed4242-power-10-admit0.5-retain0.5",
+    "config": {
+      "snr_margin": 0.5,
+      "existing_snr_margin": 0.5,
+      "power_per_channel": -10,
+      "gn_mask_mode": "all_slots",
+      "aggregate_slots": 1,
+      "ENV_WARMUP_STEPS": 25000,
+      "NUM_ENVS": 4,
+      "USE_TRANSFORMER": false,
+      "OFF_POLICY_IAM": false,
+      "VALID_MASS_LOSS_COEF": 0
+    }
+  },
+  {
+    "id": "dc9e487c",
+    "state": "running",
+    "name": "admission-arbr_ff-seed4242-power-10-admit1.0-retain0.5",
+    "config": {
+      "snr_margin": 1,
+      "existing_snr_margin": 0.5,
+      "power_per_channel": -10,
+      "gn_mask_mode": "all_slots",
+      "aggregate_slots": 1,
+      "ENV_WARMUP_STEPS": 25000,
+      "NUM_ENVS": 4,
+      "USE_TRANSFORMER": false,
+      "OFF_POLICY_IAM": false,
+      "VALID_MASS_LOSS_COEF": 0
+    }
+  },
+  {
+    "id": "e23936b2",
+    "state": "running",
+    "name": "power-arbr_ff-seed4242-power-11-admit0.5-retain0.5",
+    "config": {
+      "snr_margin": 0.5,
+      "existing_snr_margin": 0.5,
+      "power_per_channel": -11,
+      "gn_mask_mode": "all_slots",
+      "aggregate_slots": 1,
+      "ENV_WARMUP_STEPS": 25000,
+      "NUM_ENVS": 4,
+      "USE_TRANSFORMER": false,
+      "OFF_POLICY_IAM": false,
+      "VALID_MASS_LOSS_COEF": 0
+    }
+  },
+  {
+    "id": "2d5ad041",
+    "state": "finished",
+    "name": "preflight-transformer-retained-margin0.5",
+    "config": {
+      "snr_margin": 0.5,
+      "existing_snr_margin": 0.5,
+      "power_per_channel": -10,
+      "gn_mask_mode": "all_slots",
+      "aggregate_slots": 1,
+      "ENV_WARMUP_STEPS": 8,
+      "NUM_ENVS": 4,
+      "USE_TRANSFORMER": true,
+      "OFF_POLICY_IAM": true,
+      "VALID_MASS_LOSS_COEF": 0.002
+    },
+    "loss_summary": {
+      "loss/actor_loss": 0.01424342580139637,
+      "loss/entropy": 1.1838176250457764,
+      "loss/entropy_loss_scaled": 0.005919087678194046,
+      "loss/gae": -0.3886546492576599,
+      "loss/log_prob": -29.36891746520996,
+      "loss/ratio": 0.2975454330444336,
+      "loss/total_loss": 0.5970856547355652,
+      "loss/validmass_loss": 26.943857192993164,
+      "loss/validmass_loss_scaled": 0.05388771742582321,
+      "loss/value_loss": 10.689813613891602,
+      "loss/value_loss_scaled": 0.534490704536438
+    },
+    "core_losses_finite": true
+  }
+]

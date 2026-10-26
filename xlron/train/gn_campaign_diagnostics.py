@@ -54,7 +54,26 @@ def per_env_record(metrics, num_envs, measured_steps):
     return result
 
 
-def install_diagnostics(train_utils, output_path):
+def existing_path_health(state, params):
+    """Fresh physical health of one replica; predicates repeat paths over slots/hops."""
+    import jax.numpy as jnp
+
+    from xlron.environments import env_funcs
+
+    fresh = state.replace(link_snr_array=env_funcs.get_snr_link_array(state, params))
+    snr = env_funcs.get_lightpath_snr(fresh, params)
+    required = env_funcs.get_required_snr_se_kurtosis_array(
+        state.modulation_format_index_array, 2, params
+    )
+    occupied = state.channel_centre_bw_array > 0
+    return {
+        "active_link_slot_predicates": jnp.count_nonzero(occupied),
+        "failed_link_slot_predicates": jnp.count_nonzero(occupied & ~(snr >= required)),
+        "min_margin_db": jnp.min(jnp.where(occupied, snr - required, jnp.inf)),
+    }
+
+
+def install_diagnostics(train_utils, output_path, *, physical_audit=None):
     """Wrap host logging; keep diagnostics outside compiled rollouts/gradients."""
     path = Path(output_path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -73,6 +92,12 @@ def install_diagnostics(train_utils, output_path):
         record = per_env_record(out["metrics"], config.NUM_ENVS, measured_steps)
         record["increment"] = calls
         record["replica_summary"] = summarize_replicas(record)
+        if physical_audit is not None:
+            health = physical_audit(out["runner_state"][1].env_state)
+            record["physical_health"] = {
+                key: [float(x) if np.isfinite(x) else None for x in np.asarray(value).reshape(-1)]
+                for key, value in health.items()
+            }
         snr = np.asarray(record.get("snr_blocking_probability", [0]))
         if not captured and np.max(snr) > 0.1:
             inner = out["runner_state"][1].env_state
@@ -106,6 +131,13 @@ def install_diagnostics(train_utils, output_path):
             run.summary["replicas/high_snr_blocking_count"] = int(np.count_nonzero(snr > 0.1))
             for name, value in record["replica_summary"].items():
                 run.summary[f"replicas/{name}"] = value
+            if "physical_health" in record:
+                health = record["physical_health"]
+                failed = np.asarray(health["failed_link_slot_predicates"])
+                run.summary["diagnostics/existing_snr_outage_replicas"] = int(np.sum(failed > 0))
+                margins = [x for x in health["min_margin_db"] if x is not None]
+                if margins:
+                    run.summary["diagnostics/existing_snr_min_margin_db"] = min(margins)
             if calls == config.NUM_INCREMENTS:
                 columns = ["env_index", "service_blocking", "bitrate_blocking", "snr_blocking"]
                 rows = [

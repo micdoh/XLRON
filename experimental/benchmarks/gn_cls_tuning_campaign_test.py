@@ -9,8 +9,41 @@ from experimental.benchmarks.gn_cls_tuning_campaign import (
     HEURISTICS,
     build_jobs,
     gpu_capacity,
+    replace_flags,
     selection_score,
 )
+
+
+def test_wrapper_flag_replacement_preserves_tiles_and_removes_old_separate_values():
+    command = [
+        "uv",
+        "run",
+        "--no-sync",
+        "python",
+        "-m",
+        "wrapper",
+        "--xpm-tile",
+        "16",
+        "32",
+        "4",
+        "--screen-batch-size",
+        "8",
+        "--gn_mask_mode=ff_lf",
+    ]
+    replaced = replace_flags(
+        command,
+        "--generic-row-programs",
+        "16",
+        "--screen-batch-size",
+        "512",
+        "--gn_mask_mode=all_slots",
+    )
+    assert replaced[:6] == command[:6]
+    index = replaced.index("--xpm-tile")
+    assert replaced[index + 1 : index + 4] == ["16", "32", "4"]
+    assert "8" not in replaced and "--gn_mask_mode=ff_lf" not in replaced
+    assert replaced.count("--screen-batch-size") == 1
+    assert replaced[replaced.index("--screen-batch-size") + 1] == "512"
 
 
 @pytest.mark.parametrize(
@@ -61,17 +94,21 @@ def test_two_shards_cover_every_heuristic_and_continue_matching_models(tmp_path)
         for train in trains:
             assert "--RETRAIN_MODEL" in train["command"]
             assert "--KEEP_VF=false" in train["command"]
-            assert train["command"][train["command"].index("--initial-model") + 1] == str(
-                args.resume_model
-            )
+            assert train["command"][
+                train["command"].index("--initial-model") + 1
+            ] == str(args.resume_model)
             assert train["model_path"] != str(args.resume_model)
         assert trains[-1]["adaptive_parent"]
         assert all("--SEED=4244" in j["command"] for j in lane if j.get("selection"))
     heuristics = [j for j in jobs if j["kind"] == "heuristic"]
     assert len(heuristics) == 50
     for heuristic in HEURISTICS:
-        matched = [j for j in heuristics if f"--path_heuristic={heuristic}" in j["command"]]
-        assert {next(x for x in j["command"] if x.startswith("--SEED=")) for j in matched} == {
+        matched = [
+            j for j in heuristics if f"--path_heuristic={heuristic}" in j["command"]
+        ]
+        assert {
+            next(x for x in j["command"] if x.startswith("--SEED=")) for j in matched
+        } == {
             "--SEED=4242",
             "--SEED=4243",
         }

@@ -599,6 +599,16 @@ def save_model(model: eqx.Module, config: Box, first_save: bool = True) -> pathl
 
 
 def init_network(config: Box, key: chex.PRNGKey) -> eqx.Module:
+    if (
+        config.get("USE_TRANSFORMER", False)
+        and "gn_model" in config.env_type.lower()
+        and config.get("launch_power_type", "fixed") == "rl"
+    ):
+        raise NotImplementedError(
+            "Transformer launch-power control requires a power-conditioned physical action mask "
+            "and a joint path/slot/power policy; use launch_power_type=fixed for transformers. "
+            "Existing launch_power_type=rl policies support MLP or GNN architectures."
+        )
     if config.env_type.lower() == "vone" and config.USE_TRANSFORMER:
         # Fail fast: the transformer emits per-path-slot logits only, but VONE's
         # select_action/_loss_fn slice [source | dest | path-slot] heads.

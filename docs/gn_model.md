@@ -161,6 +161,24 @@ The total optical power on each fibre link is constrained by `max_power_per_fibr
 The per-channel launch power is set by `power_per_channel` (in dBm). If not specified, it defaults to `max_power_per_fibre` divided equally among all slots. For example, with `max_power_per_fibre=21` dBm (125.9 mW) and `link_resources=100`, the default per-channel power is approximately 1.26 mW (1.0 dBm).
 
 
+### Learned launch power
+
+The full-mask transformer experiments currently use fixed −10 dBm launch
+power. Existing `--launch_power_type=rl` support is for MLP/GNN policies; the
+MLP power policy chooses routing/spectrum through a heuristic. It does not
+directly enable a transformer to jointly choose arbitrary path, slot and power.
+Transformer initialization rejects that unsupported combination explicitly.
+
+Joint control must condition physical feasibility and resolved modulation/width
+on the selected power, check every existing lightpath, and retain the fibre
+power limit. A discrete joint path/slot/power mask would retain all feasible
+choices, while a power-only proposal followed by masking can miss placements
+that work at a different power. A small power set around the current operating
+point is a useful first target. The margin campaign's power lane brackets the
+fixed setting at −11 and −9 dBm with the same retained 0.5 dB reserve. This tests
+power sensitivity; it is not a learned-power training run. The older learned
+power flags default to −5 to +0.5 dBm, so those defaults do not bracket −10 dBm.
+
 ## Spectral Band Data
 
 The amplifier noise figure and transceiver SNR can vary across the optical spectrum. XLRON loads per-band values from a CSV file (`transceiver_amplifier_data.csv`) that defines spectral bands with associated NF and transceiver SNR. Each frequency slot is assigned the values of the band it falls within.
@@ -233,6 +251,16 @@ and actual admission, including all hops of affected existing paths. Increasing
 it trades some new admissions for headroom; it is not a guarantee against every
 future departure pattern. Compare existing-channel outages as well as request
 blocking when tuning it.
+
+A first retained-reserve trial is `--snr_margin=0.5 --existing_snr_margin=0.5`.
+Compare it with the original `0.5/0` setting and `1/0.5` (admission/reserve in
+dB). Build each network from empty with the trial's settings: a bootstrap
+admitted without a reserve may already have consumed its headroom. The
+experimental `gn_margin_campaign` compares ARBR and MSCL with matching seeds,
+25,000 discarded requests per replica, full C+L+S masks and no slot aggregation.
+It records fresh existing-path SNR health at each logging increment, in addition
+to blocking by cause. These are periodic samples, not an event-complete outage
+counter. All replicas remain in the reported blocking means.
 
 Default formats for the GN model environments (from `modulations_gn_model.csv`):
 
