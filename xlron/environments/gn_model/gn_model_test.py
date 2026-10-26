@@ -3008,7 +3008,7 @@ class DispersionFloat32UnderflowTest(chex.TestCase):
                     live,
                     np.where(live, 10 ** (rng.uniform(-13, -7, live.shape) / 10), 0.0),
                     np.where(live, rng.choice([12.5, 25.0], live.shape), 0.0),
-                    np.where(live, params.slot_centre_freq_array.val[None, :], 0.0),
+                    np.where(live, getattr(params, "slot_centre_freq_array").val[None, :], 0.0),
                 )
             live, power, bandwidth, centre = arrays
             state = state.replace(
