@@ -4498,7 +4498,7 @@ def release_departures_safely(
         current_snr = None
 
     def attempt(carry):
-        k, passes, released_in_pass, s, snr = carry
+        k, passes, released_in_pass, rejected_in_pass, s, snr = carry
         link, slot = jnp.divmod(order[k], params.link_resources)
         candidate = _switch_off_lightpath(s, link, slot)
         # Only the departing lightpath's links change. The cache is fresh under
@@ -4532,17 +4532,24 @@ def release_departures_safely(
         if snr is not None:
             snr = jnp.where(release, candidate_snr, snr)
         released_in_pass = released_in_pass | release
-        # Start another pass over the remaining held lightpaths after a release.
-        wrap = (k + 1 >= count) & released_in_pass & (passes + 1 < SAFE_RELEASE_PASSES)
+        rejected_in_pass = rejected_in_pass | (still_held & ~safe)
+        # Retry the pass only if it both released (so margins changed) and rejected.
+        wrap = (
+            (k + 1 >= count)
+            & released_in_pass
+            & rejected_in_pass
+            & (passes + 1 < SAFE_RELEASE_PASSES)
+        )
         k = jnp.where(wrap, 0, k + 1)
         passes = passes + wrap
         released_in_pass = released_in_pass & ~wrap
-        return k, passes, released_in_pass, s, snr
+        rejected_in_pass = rejected_in_pass & ~wrap
+        return k, passes, released_in_pass, rejected_in_pass, s, snr
 
-    _, _, _, state, _ = jax.lax.while_loop(
+    _, _, _, _, state, _ = jax.lax.while_loop(
         lambda carry: carry[0] < count,
         attempt,
-        (jnp.int32(0), jnp.int32(0), jnp.array(False), state, current_snr),
+        (jnp.int32(0), jnp.int32(0), jnp.array(False), jnp.array(False), state, current_snr),
     )
     return state
 
