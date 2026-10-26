@@ -454,7 +454,7 @@ class RMSAGNModelEnvParams(GNModelEnvParams):
     gn_mask_screen_batch_size: int = struct.field(pytree_node=False, default=512)
     # "immediate" or "safe_release" (hold expired lightpaths until switching them off
     # keeps every live lightpath above threshold; issue #67).
-    departure_policy: str = struct.field(pytree_node=False, default="immediate")
+    departure_policy: str = struct.field(pytree_node=False, default="safe_release")
 
 
 @struct.dataclass

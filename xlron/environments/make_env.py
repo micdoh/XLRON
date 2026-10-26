@@ -398,11 +398,13 @@ def make(
             raise ValueError("gn_kernel_backend=pallas requires a GN environment")
         if differentiable:
             raise ValueError("Pallas GN kernels have no reverse-mode derivatives; use jax")
-    departure_policy = config.get("departure_policy", "immediate")
+    departure_policy = config.get("departure_policy", "safe_release")
     if departure_policy not in ("immediate", "safe_release"):
         raise ValueError(f"Unknown departure_policy {departure_policy!r}")
-    if departure_policy == "safe_release" and (env_type != "rmsa_gn_model" or differentiable):
-        raise ValueError("departure_policy=safe_release requires hard rmsa_gn_model dynamics")
+    # Safe release (the default) applies to hard RMSA-GN dynamics; the soft
+    # differentiable relaxation keeps immediate departures.
+    if differentiable:
+        departure_policy = "immediate"
     if gn_mask_mode != "ff_lf":
         if env_type != "rmsa_gn_model":
             raise ValueError("gn_mask_mode requires rmsa_gn_model")

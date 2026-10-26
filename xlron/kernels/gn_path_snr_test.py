@@ -42,6 +42,8 @@ def test_packed_old_path_still_rejects_degradation_on_another_shared_link(reuse)
     links = jnp.asarray(paths[pid][paths[pid] < params.num_links])
     old_slot, new_slot = 3, 9
     state = empty.replace(
+        # Existing lightpaths depart in the future (none is held for release).
+        link_slot_departure_array=jnp.full_like(empty.link_slot_departure_array, 100.0),
         link_snr_array=jnp.full_like(empty.link_snr_array, 1000),
         path_index_array=empty.path_index_array.at[links, old_slot].set(pid),
         channel_power_array=empty.channel_power_array.at[links, old_slot].set(1e-4),
@@ -117,6 +119,8 @@ def test_unaffected_path_reuse_preserves_existing_rejection(bad_baseline):
     old_links = jnp.asarray(paths[old][paths[old] < params.num_links])
     new_links = jnp.asarray(paths[new][paths[new] < params.num_links])
     state = empty.replace(
+        # Existing lightpaths depart in the future (none is held for release).
+        link_slot_departure_array=jnp.full_like(empty.link_slot_departure_array, 100.0),
         link_snr_array=jnp.full_like(empty.link_snr_array, 1000)
         .at[old_links[-1], 3]
         .set(0.01 if bad_baseline else 1000),
@@ -225,6 +229,8 @@ def test_reduced_candidate_evidence_keeps_all_original_predicates(mode, mask_dty
             modulations_array=HashableArrayWrapper(mods.at[:, 2].set(thresholds[mode]))
         )
     state = state.replace(
+        # Every existing lightpath departs in the future (none is held for release).
+        link_slot_departure_array=jnp.full(shape, 100.0, state.link_slot_departure_array.dtype),
         channel_centre_bw_array=jnp.asarray(old_bw.astype(np.float32) * 12.5),
         modulation_format_index_array=jnp.asarray(
             rng.integers(0, len(mods), shape, dtype=np.int32)

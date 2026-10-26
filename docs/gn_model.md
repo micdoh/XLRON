@@ -262,10 +262,8 @@ lower a surviving lightpath's SNR even though NLI falls, and push it below its
 threshold. Every later admission then fails the global existing-path check
 ([issue #67](https://github.com/micdoh/XLRON/issues/67)).
 
-- `immediate` (default): expired lightpaths are switched off at the next arrival,
-  as before. Survivors can fall below threshold.
-- `safe_release` (RMSA-GN, hard dynamics): separates traffic completion from optical
-  release.
+- `safe_release` (default for RMSA-GN; differentiable runs use `immediate`):
+  separates traffic completion from optical release.
   - At expiry a lightpath stops carrying traffic, but its channel stays lit with
     the same spectrum, power and interference. Masks and admission keep its
     spectrum occupied, but it no longer has to meet an SNR threshold.
@@ -277,8 +275,18 @@ threshold. Every later admission then fails the global existing-path check
   - Because every intermediate optical state is checked, departures never push a
     live lightpath below threshold, provided it started above. A release that is
     not yet safe is retried at later arrivals.
-  - Each release attempt costs one full-network solve. The number of held
-    lightpaths is logged as `held_lightpaths`.
+  - Each release attempt re-solves only the departing lightpath's path links
+    (the cached link SNR is kept fresh, which a test pins down) and the
+    end-to-end SNR of the live lightpaths. Measured on an H100 (full C+L+S,
+    1,668 slots, 4 environments, same steady-state state and traffic for both
+    policies), this costs about 1.7 ms per step: **−4.4%** steps/s with
+    `all_slots` masks (107.2 → 102.4) and **−29%** with `ff_lf` masks
+    (905 → 642), whose steps are otherwise much cheaper. Admissions were
+    identical in both cases. The number of held lightpaths is logged as
+    `held_lightpaths`.
+- `immediate` (the behaviour before 1.7): expired lightpaths are switched off at the
+  next arrival. Survivors can fall below threshold. Set it explicitly to reproduce
+  earlier results.
 
 Held channels model an idle modulated signal. They keep transmitter, spectrum and
 power resources committed, which raises blocking. They do not model amplifier
@@ -769,7 +777,7 @@ The per-channel Raman gain varies across the spectrum (typically higher for L-ba
 | Flag | Default | Units | Description |
 |---|---|---|---|
 | `--snr_margin` | 0.5 | dB | Required SNR headroom at new-lightpath admission |
-| `--departure_policy` | `immediate` | | `immediate`, or `safe_release` to hold expired lightpaths lit until switching them off keeps every live lightpath above threshold |
+| `--departure_policy` | `safe_release` | | Hold expired lightpaths lit until switching them off keeps every live lightpath above threshold; `immediate` restores the previous behaviour |
 | `--existing_snr_margin` | 0 | dB | Target reserve preserved on existing lightpaths; capped by their fresh pre-admission headroom and never below their modulation minimum |
 | `--mod_format_correction` | False | -- | Enable modulation-format-dependent NLI correction |
 | `--modulations_csv_filepath` | (built-in) | -- | Path to modulation formats CSV file |

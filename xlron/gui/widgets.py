@@ -185,7 +185,7 @@ DEFAULTS = {
     "gn_mask_env_batch_size": 0,
     "gn_kernel_backend": "jax",
     "gn_mask_screen_batch_size": 512,
-    "departure_policy": "immediate",
+    "departure_policy": "safe_release",
     "transformer_share_layers": False,
     "transformer_actor_mlp_width": 128,
     "transformer_critic_mlp_width": 128,

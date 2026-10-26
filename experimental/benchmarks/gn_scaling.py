@@ -24,6 +24,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
+from xlron.environments.env_funcs import held_lightpath_mask, lightpath_representatives
 from xlron.environments.env_funcs import (
     calculate_throughput_from_active_lightpaths,
     get_lightpath_snr,
@@ -139,6 +140,9 @@ def main():
     parser.add_argument("--gn-mask-batch-size", type=int, default=8, choices=range(1, 65))
     parser.add_argument("--gn-mask-env-batch-size", type=int, default=0, choices=range(33))
     parser.add_argument("--gn-kernel-backend", choices=["jax", "pallas"], default="jax")
+    parser.add_argument(
+        "--departure-policy", choices=["immediate", "safe_release"], default="safe_release"
+    )
     parser.add_argument("--gn-mask-screen-batch-size", type=int, default=512)
     parser.add_argument("--envs", type=int, default=1)
     parser.add_argument(
@@ -213,6 +217,7 @@ def main():
     # workload key so saved states can be replayed with either backend.
     workload_key = json.dumps(config, sort_keys=True)
     config["gn_kernel_backend"] = args.gn_kernel_backend
+    config["departure_policy"] = args.departure_policy
     env, params = make(config, log_wrapper=False)
     if hasattr(params, "gn_mask_mode"):
         params = params.replace(
@@ -369,6 +374,13 @@ def main():
             snapshots["rollout_occupancy"] = np.asarray(final.link_slot_array)
             metrics["steps_per_s"] = args.envs * args.steps * 1000 / metrics["median_ms"]
             metrics["accepted_services"] = np.asarray(final.accepted_services).tolist()
+            if args.env_type == "rmsa_gn_model":
+                held = jax.vmap(
+                    lambda st: jnp.sum(
+                        held_lightpath_mask(st, params) & lightpath_representatives(st, params)
+                    )
+                )(final)
+                metrics["held_lightpaths"] = np.asarray(held).tolist()
             metrics["distinct_final_requests"] = len(
                 np.unique(np.asarray(final.request_array), axis=0)
             )

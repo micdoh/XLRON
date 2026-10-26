@@ -131,7 +131,7 @@ Uses `get_eval_fn` with a loaded model (`--MODEL_PATH`). Runs the trained policy
 - `--max_requests` - Episode length for episodic mode only; ignored with continuous_operation (set to TOTAL_TIMESTEPS automatically)
 - `--path_sort_criteria` - How K paths are sorted: `spectral_resources` (default), `hops`, `distance`, `hops_distance`, `capacity` (RWA-LR only)
 - `--gn_mask_mode` - RMSA-GN mask: `ff_lf` (default, first/last fit), `all_slots` (full physical check at every start), `selected_slot` (spectrum mask, format resolved at step)
-- `--departure_policy` - RMSA-GN: `immediate` (default) or `safe_release` (expired lightpaths stay lit until a full-network check shows switching off keeps all live lightpaths above threshold; issue #67)
+- `--departure_policy` - RMSA-GN: `safe_release` (default; expired lightpaths stay lit until a full-network check shows switching off keeps all live lightpaths above threshold; issue #67) or `immediate` (previous behaviour; used automatically with `--differentiable`)
 - `--gn_kernel_backend` - GN envs: `jax` (default, reference/differentiable) or `pallas` (GPU kernels + screened `all_slots` mask; exact up to float32 order, no reverse-mode AD). Selected only through params: never monkeypatch module functions
 
 ### Training (PPO)

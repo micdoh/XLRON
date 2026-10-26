@@ -2349,6 +2349,8 @@ class BlockingCauseCountersTest(chex.TestCase):
             modulation_format_index_array=state.modulation_format_index_array.at[0, slot].set(
                 num_mods - 1
             ),
+            # A live connection departing in the future (not held for release).
+            link_slot_departure_array=state.link_slot_departure_array.at[0, slot].set(1e6),
         )
         _, new_state, reward, _, _, info = self.env.step(self.key, state, action, self.params)
         self.assertEqual(int(new_state.accepted_services), 0)
