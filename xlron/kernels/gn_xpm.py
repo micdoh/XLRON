@@ -24,7 +24,7 @@ from jax.experimental.pallas import triton as plt
 from xlron.environments.gn_model.isrs_gn_model import xpm_pairs
 from xlron.kernels import interpret_default
 
-PHYSICS = ("a", "a_bar", "gamma", "cr", "beta2", "beta3", "beta4")
+PHYSICS = ("a", "a_bar", "gamma", "cr", "beta2", "beta3_s", "beta4_s")
 
 
 def _runs(power, frequency, bandwidth):
@@ -49,8 +49,8 @@ def xpm_pallas(
     gamma,
     cr,
     beta2,
-    beta3,
-    beta4,
+    beta3_s,
+    beta4_s,
     block_i=16,
     block_k=32,
     num_warps=4,
@@ -61,7 +61,8 @@ def xpm_pallas(
 
     Args:
         power, frequency, bandwidth: float32 (N,) channel arrays [W, Hz, Hz].
-        a ... beta4: scalar uniform-span physics (Python or 0-d JAX values).
+        a ... beta4_s: scalar uniform-span physics (Python or 0-d JAX values);
+            beta3_s and beta4_s are scaled per isrs_gn_model.dispersion_betas.
         block_i, block_k: output-row and interferer tile sizes (powers of two).
         persistent_rows: number of programs that loop over row tiles; None
             launches one program per row tile.
@@ -75,7 +76,7 @@ def xpm_pallas(
         raise ValueError("tile sizes and num_warps must be positive powers of two")
     if persistent_rows is not None and persistent_rows < 1:
         raise ValueError("persistent_rows must be positive")
-    values = (a, a_bar, gamma, cr, beta2, beta3, beta4)
+    values = (a, a_bar, gamma, cr, beta2, beta3_s, beta4_s)
     if any(jnp.ndim(x) != 0 for x in values):
         raise ValueError("the Pallas XPM kernel requires scalar uniform-span physics")
     interpret = interpret_default() if interpret is None else interpret

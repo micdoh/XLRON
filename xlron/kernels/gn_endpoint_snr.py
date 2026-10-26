@@ -13,7 +13,6 @@ import jax
 import jax.numpy as jnp
 from jax.experimental import pallas as pl
 from jax.experimental.pallas import triton as plt
-from scipy.constants import c, pi
 
 from xlron.environments.gn_model import isrs_gn_model as gn
 from xlron.kernels import interpret_default
@@ -41,13 +40,9 @@ def endpoint_snr_pallas(state, params, links, start, end, power, centre, *, inte
     d = jnp.asarray(params.dispersion_coeff, jnp.float32)
     slope = jnp.asarray(params.dispersion_slope, jnp.float32)
     wavelength = params.ref_lambda
-    beta2 = -d * wavelength**2 / (2 * pi * c)
-    beta3 = wavelength**2 / (2 * pi * c) ** 2 * (wavelength**2 * slope + 2 * wavelength * d)
-    beta4 = (
-        -(wavelength**4)
-        / (2 * pi * c) ** 3
-        * (6 * wavelength * slope + 6 * d + slope * wavelength**2)
-    )
+    # beta3/beta4 come back scaled for the gn.FREQ_SCALE frequency unit, so the
+    # kernel's dispersion brackets pair them with rescaled frequencies.
+    beta2, beta3_s, beta4_s = gn.dispersion_betas(wavelength, d, slope)
     physics = jnp.stack(
         [
             jnp.asarray(x, jnp.float32)
@@ -57,8 +52,8 @@ def endpoint_snr_pallas(state, params, links, start, end, power, centre, *, inte
                 params.nonlinear_coeff,
                 params.raman_gain_slope,
                 beta2,
-                beta3,
-                beta4,
+                beta3_s,
+                beta4_s,
             )
         ]
     )
@@ -100,20 +95,20 @@ def endpoint_snr_pallas(state, params, links, start, end, power, centre, *, inte
             b = jnp.where(inside, params.slot_size, b) * 1e9
             fi = new_centre * 1e9
             bi = jnp.float32(params.slot_size) * 1e9
-            a, ab, gamma, cr, b2, b3, b4 = (physics_ref[i] for i in range(7))
+            a, ab, gamma, cr, b2, b3_s, b4_s = (physics_ref[i] for i in range(7))
             total = jnp.sum(p)
             # XPM on the new channel (power new_power, bandwidth bi) from every channel.
             xpm = jnp.sum(
                 gn.xpm_pairs(
                     new_power, fi, bi, p, f, b, total,
-                    a=a, a_bar=ab, gamma=gamma, cr=cr, beta2=b2, beta3=b3, beta4=b4,
+                    a=a, a_bar=ab, gamma=gamma, cr=cr, beta2=b2, beta3_s=b3_s, beta4_s=b4_s,
                 )
             )  # fmt: skip
-            phi = 3 / 2 * pi**2 * (b2 + pi * b3 * (fi + fi) + 2 * pi**2 * b4 * fi**2)
+            phi_s = gn.spm_phase(b2, b3_s, b4_s, fi * gn.INV_FREQ_SCALE)
             tilt = (a + ab - fi * total * cr) ** 2
             effective_bw = bi / params.num_subchannels
-            spm = gn._spm(phi, tilt, effective_bw, a, ab, gamma)
-            eps = gn._eps(effective_bw, fi, a, length_ref[link], b2, b3) * params.coherent
+            spm = gn._spm(phi_s, tilt, effective_bw * gn.INV_FREQ_SCALE, a, ab, gamma)
+            eps = gn._eps(effective_bw, fi, a, length_ref[link], b2, b3_s) * params.coherent
             count = spans_ref[link]
             spm = spm * count ** (1 + eps) / params.num_subchannels**2
             nli = new_power**3 * (spm + xpm * count)

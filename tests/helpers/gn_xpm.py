@@ -3,6 +3,8 @@
 import jax.numpy as jnp
 import numpy as np
 
+from xlron.environments.gn_model.isrs_gn_model import FREQ_SCALE
+
 PARAMS = {
     "a": 4.6e-5,
     "a_bar": 4.6e-5,
@@ -57,17 +59,15 @@ def numpy_xpm64(power, frequency, bandwidth, **physics):
     return result
 
 
-def scaled_xpm_inputs(frequency, physics):
-    """Binary-rescale frequencies so float32 keeps beta3/beta4 (see issue #64).
+def kernel_physics(physics=None):
+    """SI physics converted to what `xpm_pairs` and `xpm_pallas` accept.
 
-    SI beta4 (~1e-55) is below the float32 range and CPU execution flushes
-    subnormal beta3 (~1e-40). A power-of-two frequency unit leaves the XPM output
-    unchanged while keeping these coefficients representable.
+    Those take frequencies in Hz but the two higher-order dispersion
+    coefficients in the FREQ_SCALE unit of isrs_gn_model.dispersion_betas, which
+    is what keeps them normal float32 values (issue #64). The scaling happens
+    here in float64, as production does it from the fibre parameters.
     """
-    scale = 2.0**40
-    coefficients = dict(physics)
-    coefficients["beta2"] *= scale
-    coefficients["beta3"] *= scale**2
-    coefficients["beta4"] *= scale**3
-    coefficients["cr"] *= scale
-    return frequency / scale, coefficients
+    coefficients = dict(PARAMS if physics is None else physics)
+    coefficients["beta3_s"] = coefficients.pop("beta3") * FREQ_SCALE
+    coefficients["beta4_s"] = coefficients.pop("beta4") * FREQ_SCALE**2
+    return coefficients
