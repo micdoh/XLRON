@@ -36,6 +36,19 @@ python -m xlron.train.train \
 
 ## 1. Parallelism and Scale
 
+### Startup timing and compilation cache
+
+The setup log separates environment creation, reset, model/optimizer initialization, warmup tracing/compilation/execution, and PPO tracing/compilation. In the JSON run summary:
+- `startup_time_s` is the total setup time.
+- `compilation_time_s` covers only the explicit warmup and training compile/load calls. It used to include all startup work.
+- `tracing_time_s` and `warmup_execution_time_s` report tracing and warmup execution separately.
+
+On GPU, the warmup (executed once) is compiled with library GEMMs and without exhaustive autotuning. PPO updates keep the normal tuning policy.
+
+`XLA_FLAGS` you set yourself are kept. XLRON only adds its defaults for flags you have not set, except that `--DETERMINISTIC_OPS` forces the deterministic flags.
+
+A persistent JAX compilation cache is **opt-in**. Set `XLRON_COMPILATION_CACHE=1` to use `$XDG_CACHE_HOME/xlron/jax` (default `~/.cache/xlron/jax`, capped at 2 GiB), or set it to a directory path to use that directory. JAX's own `JAX_COMPILATION_CACHE_DIR`, `JAX_ENABLE_COMPILATION_CACHE` and threshold variables are respected. A cached program is reused only when JAX's computation, runtime, device and compiler-option keys all match.
+
 ### `--NUM_ENVS`
 
 Number of parallel environment instances per learner. Each environment runs an independent simulation. The batch size for each update is `NUM_ENVS * ROLLOUT_LENGTH`. More environments improve sample diversity and statistical stability, but increase memory usage. Typical values: `16` to `2000`.
@@ -390,6 +403,15 @@ Reduce the action space by grouping frequency slots into blocks of N. The agent 
 #### `--WANDB`
 
 Enable logging to W&B. See [Understanding XLRON](understanding_xlron.md#weights-biases-wandb-integration) for setup and sweep configuration.
+
+Metric names are namespaced:
+- Environment statistics collected during learning use `train/`, e.g. `train/service_blocking_probability_mean`.
+- Periodic policy evaluation and standalone model/heuristic evaluation (`--EVAL_MODEL`, `--EVAL_HEURISTIC`) share `eval/` names, e.g. `eval/service_blocking_probability_mean`. Heuristics and trained policies can therefore share W&B panels.
+- Losses and diagnostics keep their existing `loss/`, `diagnostics/` and related namespaces.
+- Timings are `performance/time_s`, `performance/increment_time_s` and `performance/environment_transitions_per_s`. The last is the number of collected environment transitions divided by the synchronized increment execution time, PPO learning included; it is not a gradient-update rate. Standalone evaluation logs its elapsed time as `eval/time_s`.
+- The step counters (`env_step`, `episode_count`, `increment`, `update_epoch`) are registered as hidden axes.
+
+**Migrating from 1.6:** before this change, the environment statistics were unprefixed (`service_blocking_probability_mean`, ...) and elapsed time was `training_time`. Update sweep `metric.name` entries (see `examples/sweep.yaml`) and any dashboard panels or scripts that read W&B histories. Runs logged earlier keep their original names.
 
 #### `--LOG_LOSS_INFO`
 
