@@ -5,9 +5,12 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from tests.helpers.gn_xpm import PARAMS, inputs, numpy_xpm64, scaled_xpm_inputs
+from tests.helpers.gn_xpm import PARAMS, inputs, kernel_physics, numpy_xpm64
 from xlron.environments.gn_model.isrs_gn_model import _xpm_compact, get_snr_fused, xpm_pairs
 from xlron.kernels.gn_xpm import xpm_pallas
+
+# PARAMS holds the SI truth for numpy_xpm64; the kernels take scaled dispersion.
+KERNEL = kernel_physics()
 
 
 def xpm_reference(power, frequency, bandwidth, **physics):
@@ -31,9 +34,9 @@ def test_matches_dense_with_padding_and_empty_slots(n, persistent_rows):
     args = list(inputs(n))
     if n > 1:
         args[0] = args[0].at[1].set(0)  # Positive-bandwidth rows survive even at zero power.
-    expected = xpm_reference(*args, **PARAMS)
+    expected = xpm_reference(*args, **KERNEL)
     actual = jax.jit(
-        lambda *x: xpm_pallas(*x, **PARAMS, block_i=8, block_k=16, persistent_rows=persistent_rows)
+        lambda *x: xpm_pallas(*x, **KERNEL, block_i=8, block_k=16, persistent_rows=persistent_rows)
     )(*args)
     np.testing.assert_allclose(actual, expected, rtol=3e-5, atol=1e-5)
 
@@ -44,38 +47,32 @@ def test_repeated_runs_preserve_every_output_and_interferer():
     p, f, b = (jnp.repeat(x, 5) for x in inputs(13))
     p = p.at[6].multiply(2).at[16].set(0)
     b = b.at[7].multiply(2).at[20:35].set(0)
-    actual = jax.jit(lambda *x: xpm_pallas(*x, **PARAMS, block_i=8, block_k=8))(p, f, b)
-    np.testing.assert_allclose(actual, xpm_reference(p, f, b, **PARAMS), rtol=3e-5, atol=1e-5)
+    actual = jax.jit(lambda *x: xpm_pallas(*x, **KERNEL, block_i=8, block_k=8))(p, f, b)
+    np.testing.assert_allclose(actual, xpm_reference(p, f, b, **KERNEL), rtol=3e-5, atol=1e-5)
 
 
 def test_nested_vmap_and_jit_with_different_live_counts():
     args = [jnp.stack([inputs(13, seed)[i] for seed in range(3)]) for i in range(3)]
     # Different live counts, including an empty link, exercise dynamic loop bounds.
     args[0] = args[0].at[0].set(0).at[1, :7].set(0)
-    expected = jax.vmap(lambda *x: xpm_reference(*x, **PARAMS))(*args)
-    actual = jax.jit(jax.vmap(lambda *x: xpm_pallas(*x, **PARAMS)))(*args)
+    expected = jax.vmap(lambda *x: xpm_reference(*x, **KERNEL))(*args)
+    actual = jax.jit(jax.vmap(lambda *x: xpm_pallas(*x, **KERNEL)))(*args)
     np.testing.assert_allclose(actual, expected, rtol=3e-5, atol=1e-5)
-    compact = jax.jit(jax.vmap(lambda *x: _xpm_compact(*x, **PARAMS)))(*args)
+    compact = jax.jit(jax.vmap(lambda *x: _xpm_compact(*x, **KERNEL)))(*args)
     np.testing.assert_allclose(compact, expected, rtol=3e-5, atol=1e-5)
 
 
 @pytest.mark.parametrize("n", [33, 257])
-def test_rescaled_float32_matches_float64_reference(n):
-    """With binary frequency rescaling float32 keeps beta3/beta4 (issue #64)."""
+def test_float32_keeps_higher_order_dispersion(n):
+    """Scaled beta3/beta4 keep the kernel on the float64 answer (issue #64).
+
+    SI beta4 is below the float32 range and CPU arithmetic flushes subnormal
+    beta3 to zero, so the unscaled coefficients lose both contributions here.
+    """
     p, f, b = inputs(n)
     physics = {**PARAMS, "beta4": -2e-55}
-    f_scaled, scaled = scaled_xpm_inputs(f, physics)
-    actual = jax.jit(lambda *x: xpm_pallas(*x, **scaled))(p, f_scaled, b)
+    actual = jax.jit(lambda *x: xpm_pallas(*x, **kernel_physics(physics)))(p, f, b)
     np.testing.assert_allclose(actual, numpy_xpm64(p, f, b, **physics), rtol=5e-6, atol=1e-5)
-
-
-@pytest.mark.parametrize("n", [33, 257])
-@pytest.mark.xfail(strict=True, reason="Issue #64: SI float32 beta4 underflow; CPU loses beta3")
-def test_si_float32_known_dispersion_underflow(n):
-    args = inputs(n)
-    physics = {**PARAMS, "beta4": -2e-55}
-    actual = jax.jit(lambda *x: xpm_reference(*x, **physics))(*args)
-    np.testing.assert_allclose(actual, numpy_xpm64(*args, **physics), rtol=5e-6, atol=1e-5)
 
 
 @pytest.mark.parametrize("coherent", [False, True])

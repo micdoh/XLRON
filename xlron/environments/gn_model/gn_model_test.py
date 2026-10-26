@@ -8,9 +8,20 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from absl.testing import absltest, parameterized
+from scipy.constants import c as scipy_c
 
 from xlron.environments.dataclasses import *
 from xlron.environments.env_funcs import *
+from xlron.environments.gn_model.isrs_gn_model import (
+    FREQ_SCALE,
+    INV_FREQ_SCALE,
+    _xpm_compact,
+    dispersion_betas,
+    get_snr_fused,
+    isrs_gn_model,
+    isrs_gn_model_uniform,
+    xpm_pairs,
+)
 from xlron.environments.make_env import make
 from xlron.environments.rsa import *
 from xlron.environments.wrappers import *
@@ -2653,6 +2664,365 @@ class MinimumPathSnrJitTest(chex.TestCase):
             jnp.arange(3)
         )
         assert snr.shape == (3,)
+
+
+def _issue64_channels(n=257, seed=7):
+    """Wide-spectrum fixture from issue #64.
+
+    Band edges at +/-8 THz, heterogeneous powers and 12.5/25/50 GHz bandwidths,
+    empty slots and a repeated centre frequency (self terms must stay excluded).
+    """
+    rng = np.random.default_rng(seed)
+    power = rng.uniform(1e-5, 3e-4, n)
+    bandwidth = rng.choice([12.5e9, 25e9, 50e9], n)
+    frequency = np.linspace(-8e12, 8e12, n)
+    power[::5] = 0.0
+    bandwidth[::5] = 0.0
+    frequency[2] = frequency[1]
+    return power, frequency, bandwidth
+
+
+class DispersionFloat32UnderflowTest(chex.TestCase):
+    """Higher-order dispersion must survive float32 (issue #64).
+
+    SI beta3 (~1e-40) is a float32 subnormal that CPU arithmetic flushes to zero
+    and SI beta4 (~1e-55) is below the smallest subnormal, yet beta3*f and
+    beta4*f^2 are both representable and significant at optical frequencies.
+    isrs_gn_model.dispersion_betas folds a power-of-two frequency unit into the
+    wavelength constants so neither coefficient is ever materialised underflowed.
+    """
+
+    ref_lambda = 1550e-9
+    dispersion = 17e-6
+    slope = 0.067e3
+    attenuation = 4.6e-5
+    gamma = 1.2e-3
+    cr = 2.8e-17
+    num_spans = 3
+    span_length = 80e3
+
+    def _si_betas(self):
+        """The SI coefficients the scaled ones stand for, in float64."""
+        lam, d, s = self.ref_lambda, self.dispersion, self.slope
+        two_pi_c = 2 * np.pi * scipy_c
+        return (
+            -d * lam**2 / two_pi_c,
+            lam**2 / two_pi_c**2 * (lam**2 * s + 2 * lam * d),
+            -(lam**4) / two_pi_c**3 * (6 * lam * s + 6 * d + s * lam**2),
+        )
+
+    def test_si_coefficients_underflow_float32_but_scaled_ones_do_not(self):
+        tiny = np.finfo(np.float32).tiny
+        beta2, beta3, beta4 = self._si_betas()
+        # Why the rescaling is needed at all: beta4 rounds to zero in float32 on
+        # any device, and beta3 only survives conversion as a subnormal, which
+        # CPU arithmetic then flushes (the tested A100 kept it, so the unscaled
+        # coefficients also made CPU and GPU disagree).
+        assert np.float32(beta4) == 0.0
+        assert 0 < abs(np.float32(beta3)) < tiny
+
+        beta2_s, beta3_s, beta4_s = dispersion_betas(self.ref_lambda, self.dispersion, self.slope)
+        for value in (beta2_s, beta3_s, beta4_s):
+            assert abs(np.float32(value)) > tiny
+        # The scaled values stand for the SI ones to float32 precision.
+        np.testing.assert_allclose(beta2_s, beta2, rtol=1e-6)
+        np.testing.assert_allclose(beta3_s, beta3 * FREQ_SCALE, rtol=1e-6)
+        np.testing.assert_allclose(beta4_s, beta4 * FREQ_SCALE**2, rtol=1e-6)
+
+    def test_frequency_rescaling_is_exact(self):
+        """A power-of-two unit leaves mantissas, and close differences, intact."""
+        _, frequency, _ = _issue64_channels()
+        frequency = np.append(frequency, [193.4e12, 193.4e12 + 12.5e9])
+        f32 = jnp.asarray(frequency, jnp.float32)
+        scaled = np.asarray(f32 * INV_FREQ_SCALE, np.float64)
+        np.testing.assert_array_equal(scaled, np.asarray(f32, np.float64) * INV_FREQ_SCALE)
+        differences = np.asarray(f32[:, None] - f32[None, :], np.float64)
+        scaled_differences = np.asarray(
+            (f32 * INV_FREQ_SCALE)[:, None] - (f32 * INV_FREQ_SCALE)[None, :], np.float64
+        )
+        np.testing.assert_array_equal(scaled_differences, differences * INV_FREQ_SCALE)
+
+    @parameterized.parameters(
+        {"frequency_offset": 0.0},  # baseband offsets, as the environments use
+        {"frequency_offset": 193.4e12},  # absolute frequencies, worst cancellation
+    )
+    def test_phase_brackets_match_float64(self, frequency_offset):
+        beta2, beta3, beta4 = self._si_betas()
+        _, frequency, _ = _issue64_channels(n=65)
+        frequency = frequency + frequency_offset
+        f = jnp.asarray(frequency, jnp.float32)
+        fs = f * INV_FREQ_SCALE
+        beta2_s, beta3_s, beta4_s = dispersion_betas(self.ref_lambda, self.dispersion, self.slope)
+
+        spm = (
+            3
+            / 2
+            * np.pi**2
+            * (beta2_s + np.pi * beta3_s * (fs + fs) + 2 * np.pi**2 * beta4_s * fs**2)
+        )
+        f64 = np.asarray(f, np.float64)
+        spm_reference = (
+            3 / 2 * np.pi**2 * (beta2 + np.pi * beta3 * 2 * f64 + 2 * np.pi**2 * beta4 * f64**2)
+        )
+        np.testing.assert_allclose(np.asarray(spm), spm_reference, rtol=1e-5)
+
+        fs_i, fs_k = fs[:, None], fs[None, :]
+        xpm = (
+            2
+            * np.pi**2
+            * (f[:, None] - f[None, :])
+            * (
+                beta2_s
+                + np.pi * beta3_s * (fs_i + fs_k)
+                + 2 / 3 * np.pi**2 * beta4_s * (fs_i**2 + fs_i * fs_k + fs_k**2)
+            )
+        )
+        fi, fk = f64[:, None], f64[None, :]
+        xpm_reference = (
+            2
+            * np.pi**2
+            * (fi - fk)
+            * (
+                beta2
+                + np.pi * beta3 * (fi + fk)
+                + 2 / 3 * np.pi**2 * beta4 * (fi**2 + fi * fk + fk**2)
+            )
+        )
+        # Off-diagonal only: the diagonal is an exact zero in both evaluations.
+        off_diagonal = ~np.eye(f.size, dtype=bool)
+        np.testing.assert_allclose(
+            np.asarray(xpm)[off_diagonal], xpm_reference[off_diagonal], rtol=1e-4
+        )
+
+    def _reference_xpm(self):
+        power, frequency, bandwidth = _issue64_channels()
+        beta2, beta3, beta4 = self._si_betas()
+        return _numpy_xpm64(
+            power,
+            frequency,
+            bandwidth,
+            num_spans=self.num_spans,
+            a=self.attenuation,
+            a_bar=self.attenuation,
+            gamma=self.gamma,
+            cr=self.cr,
+            beta2=beta2,
+            beta3=beta3,
+            beta4=beta4,
+        )
+
+    def _float32_channels(self):
+        return tuple(jnp.asarray(x, jnp.float32) for x in _issue64_channels())
+
+    def _model_kwargs(self):
+        power, frequency, bandwidth = _issue64_channels()
+        n = power.size
+        return dict(
+            num_channels=n,
+            num_spans=self.num_spans,
+            ref_lambda=self.ref_lambda,
+            ch_power_W_i=jnp.asarray(power, jnp.float32),
+            ch_centre_i=jnp.asarray(frequency, jnp.float32),
+            ch_bandwidth_i=jnp.asarray(bandwidth, jnp.float32),
+            attenuation_i=self.attenuation * jnp.ones(n, jnp.float32),
+            attenuation_bar_i=self.attenuation * jnp.ones(n, jnp.float32),
+            raman_gain_slope_i=self.cr * jnp.ones(n, jnp.float32),
+            nonlinear_coeff=self.gamma,
+            dispersion_coeff=self.dispersion,
+            dispersion_slope=self.slope,
+            coherent=False,
+        )
+
+    def test_uniform_model_float32_xpm_matches_float64(self):
+        _, _, _, eta_xpm = isrs_gn_model_uniform(**self._model_kwargs(), length=self.span_length)
+        np.testing.assert_allclose(np.asarray(eta_xpm), self._reference_xpm(), rtol=1e-5)
+
+    def test_non_uniform_model_float32_xpm_matches_float64(self):
+        _, _, _, eta_xpm = isrs_gn_model(
+            **self._model_kwargs(),
+            length=self.span_length * jnp.ones(self.num_spans),
+            max_spans=self.num_spans,
+        )
+        np.testing.assert_allclose(np.asarray(eta_xpm), self._reference_xpm(), rtol=1e-5)
+
+    def _shared_physics(self):
+        """Physics for xpm_pairs / _xpm_compact, with scaled dispersion."""
+        beta2, beta3_s, beta4_s = dispersion_betas(self.ref_lambda, self.dispersion, self.slope)
+        return dict(
+            a=self.attenuation,
+            a_bar=self.attenuation,
+            gamma=self.gamma,
+            cr=self.cr,
+            beta2=beta2,
+            beta3_s=beta3_s,
+            beta4_s=beta4_s,
+        )
+
+    def test_dense_pair_formula_float32_xpm_matches_float64(self):
+        """xpm_pairs is the formula the fused path and the Pallas kernels share."""
+        physics = self._shared_physics()
+
+        def dense(power, frequency, bandwidth):
+            pairs = xpm_pairs(
+                power[:, None],
+                frequency[:, None],
+                bandwidth[:, None],
+                power[None, :],
+                frequency[None, :],
+                bandwidth[None, :],
+                jnp.sum(power),
+                **physics,
+            )
+            return jnp.sum(pairs, axis=1) * self.num_spans
+
+        eta_xpm = jax.jit(dense)(*self._float32_channels())
+        np.testing.assert_allclose(np.asarray(eta_xpm), self._reference_xpm(), rtol=1e-5)
+
+    def test_compact_tiled_float32_xpm_matches_float64(self):
+        """The compacted reduction used for wide spectra sees the same physics."""
+        physics = self._shared_physics()
+        eta_xpm = jax.jit(lambda *x: _xpm_compact(*x, **physics) * self.num_spans)(
+            *self._float32_channels()
+        )
+        np.testing.assert_allclose(np.asarray(eta_xpm), self._reference_xpm(), rtol=1e-5)
+
+    def _fused_snr(self, dtype, coherent):
+        power, frequency, bandwidth = _issue64_channels()
+        n = power.size
+        arrays = [jnp.asarray(x, dtype) for x in (power, frequency, bandwidth)]
+        return np.asarray(
+            jax.jit(
+                lambda p, f, b: get_snr_fused(
+                    p,
+                    f,
+                    b,
+                    num_spans=self.num_spans,
+                    span_length=self.span_length,
+                    num_channels=n,
+                    ref_lambda=self.ref_lambda,
+                    attenuation=self.attenuation,
+                    attenuation_bar=self.attenuation,
+                    nonlinear_coeff=self.gamma,
+                    raman_gain_slope=self.cr,
+                    dispersion_coeff=self.dispersion,
+                    dispersion_slope=self.slope,
+                    amplifier_noise_figure=jnp.full((n,), 5.0, dtype),
+                    transceiver_snr=jnp.full((n,), 30.0, dtype),
+                    coherent=coherent,
+                )
+            )(*arrays)
+        )
+
+    @parameterized.parameters({"coherent": False}, {"coherent": True})
+    def test_full_snr_float32_matches_float64_evaluation(self, coherent):
+        """Issue #64 measured 0.034 dB (incoherent) and 0.048 dB (coherent) here."""
+        power, _, _ = _issue64_channels()
+        float32 = self._fused_snr(jnp.float32, coherent)
+        with jax.enable_x64(True):
+            float64 = self._fused_snr(jnp.float64, coherent)
+        live = power > 0
+        difference_db = np.abs(
+            10 * np.log10(float32[live]) - 10 * np.log10(np.asarray(float64[live], np.float64))
+        )
+        assert difference_db.max() < 1e-4, difference_db.max()
+        # Empty slots keep their sentinel in both precisions.
+        np.testing.assert_array_equal(float32[~live], -1e5)
+
+    def test_launch_power_gradients_stay_finite_and_match_float64(self):
+        """Differentiation w.r.t. channel power is what --differentiable uses."""
+        power, frequency, bandwidth = _issue64_channels(n=65)
+        # Fill the empty slots: a zero-bandwidth channel makes the coherence
+        # factor infinite, and reverse mode then carries a NaN out of the
+        # sentinel branch. That behaviour predates the dispersion rescaling.
+        power = np.maximum(power, 1e-5)
+        bandwidth = np.maximum(bandwidth, 12.5e9)
+        n = power.size
+
+        def total(p, dtype):
+            return jnp.sum(
+                get_snr_fused(
+                    p,
+                    jnp.asarray(frequency, dtype),
+                    jnp.asarray(bandwidth, dtype),
+                    num_spans=self.num_spans,
+                    span_length=self.span_length,
+                    num_channels=n,
+                    ref_lambda=self.ref_lambda,
+                    attenuation=self.attenuation,
+                    attenuation_bar=self.attenuation,
+                    nonlinear_coeff=self.gamma,
+                    raman_gain_slope=self.cr,
+                    dispersion_coeff=self.dispersion,
+                    dispersion_slope=self.slope,
+                    amplifier_noise_figure=jnp.full((n,), 5.0, dtype),
+                    transceiver_snr=jnp.full((n,), 30.0, dtype),
+                )
+            )
+
+        float32 = np.asarray(
+            jax.grad(lambda p: total(p, jnp.float32))(jnp.asarray(power, jnp.float32))
+        )
+        assert np.all(np.isfinite(float32))
+        assert np.all(float32 != 0)
+        with jax.enable_x64(True):
+            float64 = np.asarray(
+                jax.grad(lambda p: total(p, jnp.float64))(jnp.asarray(power, jnp.float64))
+            )
+        np.testing.assert_allclose(float32, float64, rtol=1e-4)
+
+    @parameterized.parameters({"fused": False}, {"fused": True})
+    def test_link_snr_responds_to_dispersion_slope(self, fused):
+        """End to end in the RMSA-GN environment, where link SNR gates admission.
+
+        dispersion_slope reaches the model only through beta3 and beta4, so while
+        both underflowed in float32 the flag had no effect on CPU at all: the two
+        link SNR arrays below were bit-identical.
+        """
+        arrays = None
+        results = []
+        for slope in (self.slope, 4 * self.slope):
+            env, params = make(
+                {
+                    "env_type": "rmsa_gn_model",
+                    "topology_name": "5node_directed",
+                    "k": 2,
+                    "link_resources": 16,
+                    "slot_size": 25,
+                    "guardband": 0,
+                    "values_bw": [100],
+                    "max_requests": 10,
+                    "incremental_loading": True,
+                    "coherent": False,
+                    "max_power_per_fibre": 21,
+                    "power_per_channel": -10,
+                    "include_no_op": False,
+                    "dispersion_slope": slope,
+                },
+                log_wrapper=False,
+            )
+            _, state = env.reset(jax.random.PRNGKey(0), params)
+            if arrays is None:
+                rng = np.random.default_rng(0)
+                live = rng.random((params.num_links, params.link_resources)) < 0.6
+                arrays = (
+                    live,
+                    np.where(live, 10 ** (rng.uniform(-13, -7, live.shape) / 10), 0.0),
+                    np.where(live, rng.choice([12.5, 25.0], live.shape), 0.0),
+                    np.where(live, params.slot_centre_freq_array.val[None, :], 0.0),
+                )
+            live, power, bandwidth, centre = arrays
+            state = state.replace(
+                channel_power_array=jnp.asarray(power, jnp.float32),
+                channel_centre_bw_array=jnp.asarray(bandwidth, jnp.float32),
+                channel_centre_freq_array=jnp.asarray(centre, jnp.float32),
+                path_index_array=jnp.where(jnp.asarray(live), 0, -1).astype(
+                    state.path_index_array.dtype
+                ),
+            )
+            snr = get_snr_link_array_fused if fused else get_snr_link_array
+            results.append(np.asarray(snr(state, params))[live])
+        relative = np.abs(results[1] / results[0] - 1)
+        assert relative.max() > 1e-3, relative.max()
 
 
 if __name__ == "__main__":

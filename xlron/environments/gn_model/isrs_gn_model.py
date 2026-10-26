@@ -37,6 +37,56 @@ from scipy.constants import c, h, pi
 # Small constant to avoid division by zero
 EPS = 1e-12
 
+# Frequency unit [Hz] for the dispersion phase terms, an exact power of two
+# (~1.1 THz). SI beta3 (~1e-40) is a float32 subnormal that CPU arithmetic
+# flushes to zero and SI beta4 (~1e-55) is below the smallest subnormal, so in
+# float32 their contributions vanish before the large frequency factor can
+# restore them (issue #64). Expressing frequencies in this unit, with beta3 and
+# beta4 pre-multiplied to match (see dispersion_betas), keeps every coefficient
+# a normal float32. The power of two makes the conversion exact, so frequency
+# mantissas - and hence close frequency differences - are untouched.
+FREQ_SCALE = 2.0**40
+INV_FREQ_SCALE = 1.0 / FREQ_SCALE
+
+
+def dispersion_betas(ref_lambda, dispersion_coeff, dispersion_slope):
+    """Dispersion coefficients for the GN-model phase terms, scaled for float32.
+
+    Returns ``(beta2, beta3_s, beta4_s)`` with ``beta2`` in SI units [s^2/m] and
+
+        beta3_s = beta3 * FREQ_SCALE,   beta4_s = beta4 * FREQ_SCALE**2
+
+    so a dispersion bracket written with ``f * INV_FREQ_SCALE`` in place of each
+    bare frequency ``f`` evaluates to the SI value, e.g.
+
+        beta2 + pi * beta3_s * (fs_i + fs_k) + 2/3 * pi**2 * beta4_s * fs_i**2.
+
+    The scale factors are folded into the wavelength constants instead of being
+    applied to finished coefficients: materialising SI beta3/beta4 in float32
+    first rounds them to zero, and no later multiplication recovers them.
+
+    All inputs in SI units: ref_lambda [m], dispersion_coeff [s/m^2],
+    dispersion_slope [s/m^3]. Either dispersion argument may be traced.
+    """
+    beta2 = -dispersion_coeff * ref_lambda**2 / (2 * pi * c)
+    beta3_s = (
+        ref_lambda**2
+        * FREQ_SCALE
+        / (2 * pi * c) ** 2
+        * (ref_lambda**2 * dispersion_slope + 2 * ref_lambda * dispersion_coeff)
+    )
+    beta4_s = (
+        -(ref_lambda**4)
+        * FREQ_SCALE**2
+        / (2 * pi * c) ** 3
+        * (
+            6 * ref_lambda * dispersion_slope
+            + 6 * dispersion_coeff
+            + dispersion_slope * ref_lambda**2
+        )
+    )
+    return beta2, beta3_s, beta4_s
+
 
 def isrs_gn_model(
     num_channels: int = 420,
@@ -152,13 +202,9 @@ def isrs_gn_model(
     ch_bw = ch_bandwidth_i
     cr = raman_gain_slope_i
 
-    beta2 = -dispersion * ref_lambda**2 / (2 * pi * c)
-    beta3 = ref_lambda**3 / (2 * pi * c) ** 2 * (ref_lambda * dispersion_slope + 2 * dispersion)
-    beta4 = (
-        -(ref_lambda**4)
-        / (2 * pi * c) ** 3
-        * (6 * ref_lambda * dispersion_slope + 6 * dispersion + dispersion_slope * ref_lambda**2)
-    )
+    # beta3/beta4 are scaled for the FREQ_SCALE frequency unit, so every
+    # dispersion bracket below pairs them with f * INV_FREQ_SCALE.
+    beta2, beta3_s, beta4_s = dispersion_betas(ref_lambda, dispersion, dispersion_slope)
 
     Phi = excess_kurtosis_i if excess_kurtosis_i is not None else jnp.zeros(num_channels)
     tx1_i = jnp.ones((num_channels, 1))
@@ -167,10 +213,16 @@ def isrs_gn_model(
 
     f_i = f[:, None]
     f_k = f[None, :]
-    f_i_plus_f_k = f_i + f_k
+    fs = f * INV_FREQ_SCALE
+    fs_i = fs[:, None]
+    fs_k = fs[None, :]
+    fs_i_plus_fs_k = fs_i + fs_k
 
     phi_ik_corr = (
-        2 * pi**2 * (f_k - f_i) * (beta2 + pi * beta3 * f_i_plus_f_k + 2 * pi**2 * beta4 * f_i**2)
+        2
+        * pi**2
+        * (f_k - f_i)
+        * (beta2 + pi * beta3_s * fs_i_plus_fs_k + 2 * pi**2 * beta4_s * fs_i**2)
     )
     eta_xpm_corr = _xpm_corr(
         ch_pow, ch_pow.T, phi_ik_corr, T_0.T, ch_bw, ch_bw.T, a.T, a_bar.T, gamma, Phi.T, tx1_i
@@ -180,16 +232,16 @@ def isrs_gn_model(
     ch_bw_k = ch_bw.T
     ch_pow_k = ch_pow.T
     df = jnp.abs(f_k - f_i)
-    phi_i = 3 / 2 * pi**2 * (beta2 + pi * beta3 * (f + f) + 2 * pi**2 * beta4 * f**2)
-    phi = jnp.abs(4 * pi**2 * (beta2 + pi * beta3 * f_i_plus_f_k))
+    phi_i = 3 / 2 * pi**2 * (beta2 + pi * beta3_s * (fs + fs) + 2 * pi**2 * beta4_s * fs**2)
+    phi = jnp.abs(4 * pi**2 * (beta2 + pi * beta3_s * fs_i_plus_fs_k))
     phi_ik = (
         2
         * pi**2
         * (f_i - f_k)
         * (
             beta2
-            + pi * beta3 * f_i_plus_f_k
-            + 2 / 3 * pi**2 * beta4 * (f_i**2 + f_i * f_k + f_k**2)
+            + pi * beta3_s * fs_i_plus_fs_k
+            + 2 / 3 * pi**2 * beta4_s * (fs_i**2 + fs_i * fs_k + fs_k**2)
         )
     )
     T_i = T_0
@@ -228,7 +280,7 @@ def isrs_gn_model(
     init = (jnp.zeros(num_channels), jnp.zeros(num_channels), jnp.zeros(num_channels))
     final_state, _ = jax.lax.scan(scan_fun, init, length, length=max_spans)
 
-    eps = _eps(B_eff, f, a, l_mean, beta2, beta3)
+    eps = _eps(B_eff, f, a, l_mean, beta2, beta3_s)
     eta_spm = final_state[0] * num_spans ** (eps * coherent)
     eta_xpm = final_state[1]
     eta_xpm_corr_asymp = final_state[2]
@@ -287,21 +339,10 @@ def isrs_gn_model_uniform(
         else 0.028 / 1e3 / 1e12 * jnp.ones(num_channels)
     )
 
-    beta2 = -dispersion_coeff * ref_lambda**2 / (2 * pi * c)
-    beta3 = (
-        ref_lambda**2
-        / (2 * pi * c) ** 2
-        * (ref_lambda**2 * dispersion_slope + 2 * ref_lambda * dispersion_coeff)
-    )
-    beta4 = (
-        -(ref_lambda**4)
-        / (2 * pi * c) ** 3
-        * (
-            6 * ref_lambda * dispersion_slope
-            + 6 * dispersion_coeff
-            + dispersion_slope * ref_lambda**2
-        )
-    )
+    # beta3/beta4 are scaled for the FREQ_SCALE frequency unit, so every
+    # dispersion bracket below pairs them with f * INV_FREQ_SCALE.
+    beta2, beta3_s, beta4_s = dispersion_betas(ref_lambda, dispersion_coeff, dispersion_slope)
+    fs = f * INV_FREQ_SCALE
 
     Phi = excess_kurtosis_i if excess_kurtosis_i is not None else jnp.zeros(num_channels)
 
@@ -311,7 +352,7 @@ def isrs_gn_model_uniform(
     # Nyquist subchannels: use effective bandwidth B_eff = B / N_sub for SPM
     B_eff = ch_bw / num_subchannels
     # phi_i for SPM
-    phi_i = 3 / 2 * pi**2 * (beta2 + pi * beta3 * (f + f) + 2 * pi**2 * beta4 * f**2)
+    phi_i = 3 / 2 * pi**2 * (beta2 + pi * beta3_s * (fs + fs) + 2 * pi**2 * beta4_s * fs**2)
     # T term
     T = (a + a_bar - f * total_power * cr) ** 2
     # SPM (inlined _spm)
@@ -323,23 +364,26 @@ def isrs_gn_model_uniform(
         phi_i * B2 / a_plus_abar / pi
     )
     # Coherence scaling (uses B_eff for subchannel coherence)
-    eps = _eps(B_eff, f, a, length, beta2, beta3) * coherent
+    eps = _eps(B_eff, f, a, length, beta2, beta3_s) * coherent
     eta_spm = eta_spm * num_spans ** (1 + eps)
     # Scale: total NLI = N_sub * (P/N_sub)^3 * eta(B_eff) = P^3 * eta(B_eff) / N_sub^2
     eta_spm = eta_spm / (num_subchannels**2)
 
     # -- XPM computation --
-    f_i = f[:, None]
-    f_k = f[None, :]
-    f_i_plus_f_k = f_i + f_k
+    fs_i = fs[:, None]
+    fs_k = fs[None, :]
+    fs_i_plus_fs_k = fs_i + fs_k
+    # FREQ_SCALE * (fs_i - fs_k) is f_i - f_k exactly, the unit being a power of
+    # two, so the pair matrices need only the rescaled frequencies.
     phi_ik = (
         2
         * pi**2
-        * (f_i - f_k)
+        * FREQ_SCALE
+        * (fs_i - fs_k)
         * (
             beta2
-            + pi * beta3 * f_i_plus_f_k
-            + 2 / 3 * pi**2 * beta4 * (f_i**2 + f_i * f_k + f_k**2)
+            + pi * beta3_s * fs_i_plus_fs_k
+            + 2 / 3 * pi**2 * beta4_s * (fs_i**2 + fs_i * fs_k + fs_k**2)
         )
     )
     T_k = T[None, :]
@@ -357,8 +401,8 @@ def isrs_gn_model_uniform(
             gamma=gamma,
             cr=cr,
             beta2=beta2,
-            beta3=beta3,
-            beta4=beta4,
+            beta3_s=beta3_s,
+            beta4_s=beta4_s,
         )
     elif xpm_backend == "jax":
         xpm_single = _xpm(ch_pow, ch_pow.T, phi_ik, T_k, ch_bw, ch_bw.T, a.T, a_bar.T, gamma)
@@ -372,8 +416,8 @@ def isrs_gn_model_uniform(
         eta_xpm_corr = _xpm_corr(
             ch_pow, ch_pow.T, phi_ik, T_k, ch_bw, ch_bw.T, a.T, a_bar.T, gamma, Phi.T, tx1_i
         )
-        df = jnp.abs(f_k - f_i)
-        phi = jnp.abs(4 * pi**2 * (beta2 + pi * beta3 * f_i_plus_f_k))
+        df = jnp.abs(f[None, :] - f[:, None])
+        phi = jnp.abs(4 * pi**2 * (beta2 + pi * beta3_s * fs_i_plus_fs_k))
         tx2_i = jnp.ones((num_channels, 1))
         eta_xpm_corr_asymp = (
             _xpm_corr_asymp(
@@ -403,8 +447,13 @@ def isrs_gn_model_uniform(
     return NLI, eta_n, eta_spm, eta_xpm
 
 
-def _eps(B_i, f_i, a_i, mean_l, beta2, beta3):
-    """Coherence factor, cf. Ref. [2, Eq. (22)]"""
+def _eps(B_i, f_i, a_i, mean_l, beta2, beta3_s):
+    """Coherence factor, cf. Ref. [2, Eq. (22)]
+
+    f_i is in Hz; beta3_s is scaled per dispersion_betas and is paired here with
+    the rescaled frequency, so the phase mismatch is the SI value.
+    """
+    fs_i = f_i * INV_FREQ_SCALE
     return (
         3
         / 10
@@ -416,7 +465,7 @@ def _eps(B_i, f_i, a_i, mean_l, beta2, beta3):
                 * jnp.arcsinh(
                     pi**2
                     / 2
-                    * jnp.abs(jnp.mean(beta2) + 2 * pi * jnp.mean(beta3) * f_i)
+                    * jnp.abs(jnp.mean(beta2) + 2 * pi * jnp.mean(beta3_s) * fs_i)
                     / a_i
                     * B_i**2
                 )
@@ -816,22 +865,44 @@ def get_snr(
 
 
 def xpm_pairs(
-    pi, fi, bi, pk, fk, bk, total, *, a, a_bar, gamma, cr, beta2, beta3, beta4, atan_fn=jnp.arctan
+    pi,
+    fi,
+    bi,
+    pk,
+    fk,
+    bk,
+    total,
+    *,
+    a,
+    a_bar,
+    gamma,
+    cr,
+    beta2,
+    beta3_s,
+    beta4_s,
+    atan_fn=jnp.arctan,
 ):
     """XPM pair contributions eta_ik, Ref. [1, Eq. (11)], before the sum over k.
 
     Operands must already be broadcast: channel-of-interest values (pi, fi, bi)
     along the row axis and interferer values (pk, fk, bk) along the column axis.
     This is the single formula shared by the tiled JAX path and the Pallas kernels.
+
+    Frequencies are in Hz; beta3_s and beta4_s are scaled per dispersion_betas
+    and are paired here with the rescaled frequencies.
     """
+    fsi = fi * INV_FREQ_SCALE
+    fsk = fk * INV_FREQ_SCALE
+    # FREQ_SCALE * (fsi - fsk) is fi - fk exactly, the unit being a power of two.
     phi = (
         2
         * jnp.pi**2
-        * (fi - fk)
+        * FREQ_SCALE
+        * (fsi - fsk)
         * (
             beta2
-            + jnp.pi * beta3 * (fi + fk)
-            + 2 / 3 * jnp.pi**2 * beta4 * (fi**2 + fi * fk + fk**2)
+            + jnp.pi * beta3_s * (fsi + fsk)
+            + 2 / 3 * jnp.pi**2 * beta4_s * (fsi**2 + fsi * fsk + fsk**2)
         )
     )
     ap = a + a_bar
@@ -944,22 +1015,10 @@ def get_snr_fused(
     gamma = nonlinear_coeff
     cr = raman_gain_slope
 
-    # Dispersion coefficients (scalars)
-    beta2 = -dispersion_coeff * ref_lambda**2 / (2 * pi * c)
-    beta3 = (
-        ref_lambda**2
-        / (2 * pi * c) ** 2
-        * (ref_lambda**2 * dispersion_slope + 2 * ref_lambda * dispersion_coeff)
-    )
-    beta4 = (
-        -(ref_lambda**4)
-        / (2 * pi * c) ** 3
-        * (
-            6 * ref_lambda * dispersion_slope
-            + 6 * dispersion_coeff
-            + dispersion_slope * ref_lambda**2
-        )
-    )
+    # Dispersion coefficients (scalars). beta3/beta4 are scaled for the
+    # FREQ_SCALE frequency unit, so every dispersion bracket below pairs them
+    # with f * INV_FREQ_SCALE.
+    beta2, beta3_s, beta4_s = dispersion_betas(ref_lambda, dispersion_coeff, dispersion_slope)
 
     f = ch_centre_i  # (N,)
     ch_bw = ch_bandwidth_i  # (N,)
@@ -969,7 +1028,8 @@ def get_snr_fused(
     # === SPM (inlined, no function call overhead) ===
     # Nyquist subchannels: use effective bandwidth B_eff = B / N_sub for SPM
     B_eff = ch_bw / num_subchannels
-    phi_i = 3 / 2 * pi**2 * (beta2 + pi * beta3 * (f + f) + 2 * pi**2 * beta4 * f**2)
+    fs = f * INV_FREQ_SCALE
+    phi_i = 3 / 2 * pi**2 * (beta2 + pi * beta3_s * (fs + fs) + 2 * pi**2 * beta4_s * fs**2)
     T = (a + a_bar - f * total_power * cr) ** 2
     B2 = jnp.maximum(B_eff**2, EPS)
     a_plus_abar = a + a_bar
@@ -979,7 +1039,7 @@ def get_snr_fused(
         phi_i * B2 / a_plus_abar / pi
     )
     # Coherence factor (uses B_eff for subchannel coherence)
-    eps = _eps(B_eff, f, a, span_length, beta2, beta3) * coherent
+    eps = _eps(B_eff, f, a, span_length, beta2, beta3_s) * coherent
     eta_spm = eta_spm * num_spans ** (1 + eps)
     # Scale: total NLI = N_sub * (P/N_sub)^3 * eta(B_eff) = P^3 * eta(B_eff) / N_sub^2
     eta_spm = eta_spm / (num_subchannels**2)
@@ -997,8 +1057,8 @@ def get_snr_fused(
                 gamma=gamma,
                 cr=cr,
                 beta2=beta2,
-                beta3=beta3,
-                beta4=beta4,
+                beta3_s=beta3_s,
+                beta4_s=beta4_s,
             )
             * num_spans
         )
@@ -1015,21 +1075,27 @@ def get_snr_fused(
                 gamma=gamma,
                 cr=cr,
                 beta2=beta2,
-                beta3=beta3,
-                beta4=beta4,
+                beta3_s=beta3_s,
+                beta4_s=beta4_s,
             )
             * num_spans
         )
     else:
         # === XPM (inlined, fused N x N computation) ===
-        f_i = f[:, None]  # (N, 1)
-        f_k = f[None, :]  # (1, N)
-        f_sum = f_i + f_k
+        fs_i = fs[:, None]  # (N, 1)
+        fs_k = fs[None, :]  # (1, N)
+        # FREQ_SCALE * (fs_i - fs_k) is f_i - f_k exactly, the unit being a power
+        # of two, so the pair matrices need only the rescaled frequencies.
         phi_ik = (
             2
             * pi**2
-            * (f_i - f_k)
-            * (beta2 + pi * beta3 * f_sum + 2 / 3 * pi**2 * beta4 * (f_i**2 + f_i * f_k + f_k**2))
+            * FREQ_SCALE
+            * (fs_i - fs_k)
+            * (
+                beta2
+                + pi * beta3_s * (fs_i + fs_k)
+                + 2 / 3 * pi**2 * beta4_s * (fs_i**2 + fs_i * fs_k + fs_k**2)
+            )
         )
         T_k = T[None, :]  # (1, N)
         a_k = a  # scalar (uniform fiber)
