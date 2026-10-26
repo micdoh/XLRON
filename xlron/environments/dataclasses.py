@@ -421,7 +421,8 @@ class GNModelEnvState(RSAEnvState):
 class RSAGNModelEnvParams(GNModelEnvParams):
     """Dataclass to hold environment params for RSA with GN model."""
 
-    pass
+    # "jax" or "pallas" (GN kernels for XPM / path SNR; hard dynamics only).
+    gn_kernel_backend: str = struct.field(pytree_node=False, default="jax")
 
 
 @struct.dataclass
@@ -447,6 +448,10 @@ class RMSAGNModelEnvParams(GNModelEnvParams):
     gn_mask_batch_size: int = struct.field(pytree_node=False, default=8)
     gn_mask_env_batch_size: int = struct.field(pytree_node=False, default=0)
     existing_snr_margin: float = struct.field(pytree_node=False, default=0.0)
+    # "jax" or "pallas" (GN kernels plus the screened all_slots mask; hard dynamics only).
+    gn_kernel_backend: str = struct.field(pytree_node=False, default="jax")
+    # Candidates per endpoint-screen batch in the Pallas all_slots mask.
+    gn_mask_screen_batch_size: int = struct.field(pytree_node=False, default=512)
 
 
 @struct.dataclass

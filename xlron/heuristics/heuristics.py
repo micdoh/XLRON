@@ -1126,13 +1126,13 @@ def capacity_loss(
     # Maximum future demand size (in slots, incl. guardband) to account capacity for.
     # params fields are static under jit so this is computed at trace time.
     values_bw = np.asarray(params.values_bw.val)
-    min_se = (
-        float(np.min(np.asarray(params.modulations_array.val)[:, 1]))
-        if isinstance(params, RMSAGNModelEnvParams)
-        else float(np.min(np.asarray(params.path_se_array.val)))
-        if params.consider_modulation_format
-        else 1.0
-    )
+    if isinstance(params, RMSAGNModelEnvParams):
+        # GN resolves a physical format per start; any format may be the cheapest.
+        min_se = float(np.min(np.asarray(params.modulations_array.val)[:, 1]))
+    elif params.consider_modulation_format:
+        min_se = float(np.min(np.asarray(params.path_se_array.val)))
+    else:
+        min_se = 1.0
     w_cap = int(np.ceil(float(np.max(values_bw)) / (min_se * float(params.slot_size))))
     w_cap = max(w_cap + int(params.guardband), 1)
 

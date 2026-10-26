@@ -881,6 +881,17 @@ flags.DEFINE_boolean(
     False,
     "Score full GN candidates using their resolved format, required width and SNR threshold; requires all_slots masking and fixed launch power.",
 )
+flags.DEFINE_enum(
+    "gn_kernel_backend",
+    "jax",
+    ["jax", "pallas"],
+    "GN model kernels for rsa_gn_model/rmsa_gn_model: ordinary JAX (reference, differentiable) or Pallas GPU kernels for XPM and path SNR, plus endpoint screening in all_slots masks. Pallas runs in the slow interpreter off-GPU and has no reverse-mode derivatives.",
+)
+flags.DEFINE_integer(
+    "gn_mask_screen_batch_size",
+    512,
+    "Candidates per endpoint-screen batch in Pallas all_slots GN masks (1--2048).",
+)
 flags.DEFINE_integer(
     "gn_mask_env_batch_size",
     0,

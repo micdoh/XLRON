@@ -1,28 +1,30 @@
 """Candidate endpoint GN screen with an in-kernel channel insertion.
 
-The two endpoints of the proposed channel have the same centre, bandwidth and
-power. Their XPM/SPM and ISRS amplifier gain can be calculated once per changed
-link, retaining every interfering slot. Per-slot amplifier noise figures remain
-distinct. This is only the conservative screen: original admission checks still
-decide acceptance, including every affected existing path and fibre power.
+The two endpoints of a proposed channel share its centre, bandwidth and power,
+so their SPM/XPM is evaluated once per changed link against every interfering
+slot; each endpoint keeps its own amplifier noise figure. The physics comes from
+the shared `isrs_gn_model` helpers (`xpm_pairs`, `_spm`, `_eps`,
+`_calculate_ase_with_isrs_gain`); this module only owns the insertion and the
+reduction. It is a screen: the full admission check still decides every
+surviving candidate, including all existing paths and fibre power.
 """
 
 import jax
 import jax.numpy as jnp
 from jax.experimental import pallas as pl
 from jax.experimental.pallas import triton as plt
-from scipy.constants import c, h, pi
+from scipy.constants import c, pi
 
 from xlron.environments.gn_model import isrs_gn_model as gn
-from xlron.kernels.gn_xpm import _xpm_pairs
+from xlron.kernels import interpret_default
 
 
-def endpoint_snr_pallas(state, params, links, start, end, power, centre, *, interpret=False):
-    """Return exact-model optical SNR for both endpoints on each changed link.
+def endpoint_snr_pallas(state, params, links, start, end, power, centre, *, interpret=None):
+    """Optical SNR of both endpoints of the inserted channel on each changed link.
 
-    All reductions and arithmetic are float32. The original GN broadcast
-    convention and deferred dispersion underflow behavior are preserved.
-    No candidate-by-links-by-spectrum channel arrays are materialized.
+    Equals the generic uniform-span model (`get_snr_link_array`) at those two
+    slots up to float32 reduction order. No candidate x links x spectrum arrays
+    are materialized.
     """
     if not params.uniform_spans or params.mod_format_correction or params.use_raman_amp:
         raise ValueError("Fused endpoint screening requires uncorrected uniform GN")
@@ -35,6 +37,7 @@ def endpoint_snr_pallas(state, params, links, start, end, power, centre, *, inte
         )
     ):
         raise ValueError("Fused endpoint screening requires float32 channel arrays")
+    interpret = interpret_default() if interpret is None else interpret
     d = jnp.asarray(params.dispersion_coeff, jnp.float32)
     slope = jnp.asarray(params.dispersion_slope, jnp.float32)
     wavelength = params.ref_lambda
@@ -99,24 +102,13 @@ def endpoint_snr_pallas(state, params, links, start, end, power, centre, *, inte
             bi = jnp.float32(params.slot_size) * 1e9
             a, ab, gamma, cr, b2, b3, b4 = (physics_ref[i] for i in range(7))
             total = jnp.sum(p)
+            # XPM on the new channel (power new_power, bandwidth bi) from every channel.
             xpm = jnp.sum(
-                _xpm_pairs(
-                    p,
-                    fi,
-                    b,
-                    p,
-                    f,
-                    b,
-                    total,
-                    a=a,
-                    a_bar=ab,
-                    gamma=gamma,
-                    cr=cr,
-                    beta2=b2,
-                    beta3=b3,
-                    beta4=b4,
+                gn.xpm_pairs(
+                    new_power, fi, bi, p, f, b, total,
+                    a=a, a_bar=ab, gamma=gamma, cr=cr, beta2=b2, beta3=b3, beta4=b4,
                 )
-            )
+            )  # fmt: skip
             phi = 3 / 2 * pi**2 * (b2 + pi * b3 * (fi + fi) + 2 * pi**2 * b4 * fi**2)
             tilt = (a + ab - fi * total * cr) ** 2
             effective_bw = bi / params.num_subchannels
@@ -125,22 +117,17 @@ def endpoint_snr_pallas(state, params, links, start, end, power, centre, *, inte
             count = spans_ref[link]
             spm = spm * count ** (1 + eps) / params.num_subchannels**2
             nli = new_power**3 * (spm + xpm * count)
-            leff = (1 - jnp.exp(-a * length_ref[link])) / a
-            cr_leff_total = cr * leff * total
-            exp_tilt = jnp.exp(-f * cr_leff_total)
-            psd_sum = jnp.maximum(jnp.sum(p * exp_tilt), gn.EPS)
-            gsrs = total * jnp.exp(-fi * cr_leff_total) / psd_sum
-            loss = jnp.exp(length_ref[link] * a)
-            gain = jnp.where(new_power > 0, loss / gsrs, loss)
-            if params.span_lumped_loss_db is not None:
-                gain = gain * 10 ** (params.span_lumped_loss_db / 10)
-            gain_m1 = gain - 1
-            # Triton cannot stack scalar IR values; build the two-lane vector
-            # directly so both endpoint noise figures remain independent.
-            endpoints = jnp.where(jnp.arange(2) == 0, start, end).astype(jnp.int32)
-            nf = plt.load(nf_ref.at[endpoints])
-            nsp = (10 ** (nf / 10) * gain) / (2 * gain_m1)
-            ase = count * (2 * nsp * gain_m1 * h * (c / wavelength + fi) * bi)
+            # Per-slot ISRS-aware amplifier ASE over the full inserted spectrum, as in
+            # get_snr; both endpoints keep their own amplifier noise figure.
+            nf = plt.load(nf_ref.at[k], mask=k < n, other=0.0)
+            ase_all = count * gn._calculate_ase_with_isrs_gain(
+                nf, a, length_ref[link], wavelength, f, b, p, cr, params.span_lumped_loss_db
+            )
+            ase = jnp.where(
+                jnp.arange(2) == 0,
+                jnp.sum(jnp.where(k == start, ase_all, 0.0)),
+                jnp.sum(jnp.where(k == end, ase_all, 0.0)),
+            )
             snr = jnp.where(new_power > 0, new_power / jnp.maximum(ase + nli, gn.EPS), -1e5)
             return snr
 

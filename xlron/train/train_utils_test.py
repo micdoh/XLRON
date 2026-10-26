@@ -21,6 +21,7 @@ from xlron.models.mlp import ActorCriticMLP
 from xlron.train import ppo
 from xlron.train import train_utils as tu
 from xlron.train.train_utils import (
+    _make_param_label_fn,
     diagnostics_metrics,
     get_sweep_rewarm_fn,
     get_warmup_fn,
@@ -478,6 +479,33 @@ class LossInfoMetricRegistrationTest(absltest.TestCase):
                 if line.startswith(f'"{prefix}'):
                     key = line.split('"')[1]
                     self.assertIn(key, registered, f"loss_info key {key} not registered")
+
+    def test_valid_mass_diagnostics_are_registered(self):
+        self.assertIn("diagnostics/current_log_valid_mass_mean", diagnostics_metrics)
+        self.assertIn("diagnostics/current_valid_mass_below_floor_frac", diagnostics_metrics)
+
+
+class ParamLabelTest(absltest.TestCase):
+    def test_transformer_critic_encoder_uses_critic_label(self):
+        """The legacy transformer keeps its critic encoder at actor_critic[1]."""
+
+        class Toy(eqx.Module):
+            actor_critic: tuple
+            actor_mlp: eqx.nn.Linear
+            critic_mlp: eqx.nn.Linear
+
+        keys = jax.random.split(jax.random.PRNGKey(0), 4)
+        model = Toy(
+            (eqx.nn.Linear(2, 2, key=keys[0]), eqx.nn.Linear(2, 2, key=keys[1])),
+            eqx.nn.Linear(2, 2, key=keys[2]),
+            eqx.nn.Linear(2, 2, key=keys[3]),
+        )
+        params = eqx.filter(model, eqx.is_inexact_array)
+        labels = _make_param_label_fn(model)(params)
+        self.assertEqual(jax.tree.leaves(labels.actor_critic[0]), ["actor", "actor"])
+        self.assertEqual(jax.tree.leaves(labels.actor_critic[1]), ["critic", "critic"])
+        self.assertEqual(jax.tree.leaves(labels.actor_mlp), ["actor", "actor"])
+        self.assertEqual(jax.tree.leaves(labels.critic_mlp), ["critic", "critic"])
 
 
 def test_new_diagnostics_are_registered_in_wandb():

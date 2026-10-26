@@ -1,6 +1,0 @@
-{
-  "gpu": 3,
-  "jax_memory_fraction": 0.25,
-  "shared_allocations": true,
-  "note": "Shared VRAM permitted by user; require idle compute and at least twice our memory budget free before launch. Compare paired runs on this GPU; do not treat these as exclusive-GPU timings."
-}

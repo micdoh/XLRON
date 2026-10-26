@@ -1202,28 +1202,43 @@ class RSAEnv(environment.Environment):
             checks = (spectrum, snr | margin_failure, power)
             return candidate, info, checks, ~jnp.any(jnp.stack(checks))
 
-        initial = evaluate(state, action_info)
-        order = jnp.argsort(-params.modulations_array.val[:, 1])
-        nominal = state.mod_format_mask[flat].astype(jnp.int32)
-
-        def try_format(i, carry):
-            mod = order[i]
-            candidate_state = state.replace(
+        def with_format(mod):
+            return state.replace(
                 mod_format_mask=state.mod_format_mask.at[flat].set(
                     mod.astype(state.mod_format_mask.dtype)
                 )
             )
-            info = self.process_action(candidate_state, action, params)
-            spectrum_ok = ~check_action_rsa_prestate(state, info, params)
-            should_try = ~carry[3] & (mod != nominal) & spectrum_ok
 
-            def attempt(_):
-                result = evaluate(candidate_state, info)
-                return jax.lax.cond(result[3], lambda _: result, lambda _: carry, None)
+        # The sampled (nominal) format first, then every other format that fits
+        # the spectrum, by descending SE. Spectrum fit needs no GN solve.
+        nominal = state.mod_format_mask[flat].astype(jnp.int32)
+        order = jnp.argsort(-params.modulations_array.val[:, 1])
+        fits = jax.vmap(
+            lambda mod: ~check_action_rsa_prestate(
+                state, self.process_action(with_format(mod), action, params), params
+            )
+        )(order)
+        others = fits & (order != nominal)
+        fallbacks = order[jnp.nonzero(others, size=order.shape[0], fill_value=0)[0]]
+        count = jnp.sum(others)
 
-            return jax.lax.cond(should_try, attempt, lambda _: carry, None)
+        # A while loop (not a cond inside fori_loop, which vmap turns into a select
+        # that solves every format) stops at the first admissible format. Under an
+        # environment vmap it runs only as many GN solves as the batch maximum.
+        # If every format fails, the nominal format's result is kept.
+        def try_next(carry):
+            k, result = carry
+            candidate_state = with_format(fallbacks[k])
+            attempt = evaluate(candidate_state, self.process_action(candidate_state, action, params))
+            keep = attempt[3]
+            result = jax.tree.map(lambda a, b: jnp.where(keep, a, b), attempt, result)
+            return k + 1, result
 
-        candidate, info, checks, _ = jax.lax.fori_loop(0, order.shape[0], try_format, initial)
+        _, (candidate, info, checks, _) = jax.lax.while_loop(
+            lambda carry: (carry[0] < count) & ~carry[1][3],
+            try_next,
+            (jnp.int32(0), evaluate(state, action_info)),
+        )
         return candidate, info, checks
 
     def process_action(

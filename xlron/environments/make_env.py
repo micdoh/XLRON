@@ -372,29 +372,39 @@ def make(
     multiple_topologies_directory = config.get("multiple_topologies_directory", None)
     aggregate_slots = config.get("aggregate_slots", 1)
     gn_mask_mode = config.get("gn_mask_mode", "ff_lf")
+    gn_kernel_backend = config.get("gn_kernel_backend", "jax")
+    differentiable = config.get("differentiable", False)
     if config.get("transformer_modulation_features", False):
-        assert env_type == "rmsa_gn_model" and config.get("USE_TRANSFORMER", False), (
-            "transformer_modulation_features requires an RMSA-GN transformer"
-        )
-        assert gn_mask_mode == "all_slots" and aggregate_slots == 1, (
-            "transformer_modulation_features requires all_slots masking and aggregate_slots=1"
-        )
-        assert config.get("launch_power_type", "fixed") == "fixed", (
-            "transformer_modulation_features requires fixed launch power"
-        )
-    assert 1 <= config.get("gn_mask_batch_size", 8) <= 64, "gn_mask_batch_size must be in [1,64]"
-    assert 0 <= config.get("gn_mask_env_batch_size", 0) <= 32, (
-        "gn_mask_env_batch_size must be in [0,32]"
-    )
-    if config.get("gn_mask_env_batch_size", 0):
-        assert not config.get("differentiable", False), (
-            "GN mask environment chunks require hard dynamics"
-        )
+        if env_type != "rmsa_gn_model" or not config.get("USE_TRANSFORMER", False):
+            raise ValueError("transformer_modulation_features requires an RMSA-GN transformer")
+        if gn_mask_mode != "all_slots" or aggregate_slots != 1:
+            raise ValueError(
+                "transformer_modulation_features requires all_slots masking and aggregate_slots=1"
+            )
+        if config.get("launch_power_type", "fixed") != "fixed":
+            raise ValueError("transformer_modulation_features requires fixed launch power")
+    if not 1 <= config.get("gn_mask_batch_size", 8) <= 64:
+        raise ValueError("gn_mask_batch_size must be in [1, 64]")
+    if not 1 <= config.get("gn_mask_screen_batch_size", 512) <= 2048:
+        raise ValueError("gn_mask_screen_batch_size must be in [1, 2048]")
+    if not 0 <= config.get("gn_mask_env_batch_size", 0) <= 32:
+        raise ValueError("gn_mask_env_batch_size must be in [0, 32]")
+    if config.get("gn_mask_env_batch_size", 0) and differentiable:
+        raise ValueError("GN mask environment chunks require hard dynamics")
+    if gn_kernel_backend not in ("jax", "pallas"):
+        raise ValueError(f"gn_kernel_backend must be 'jax' or 'pallas', got {gn_kernel_backend!r}")
+    if gn_kernel_backend == "pallas":
+        if env_type not in ("rsa_gn_model", "rmsa_gn_model"):
+            raise ValueError("gn_kernel_backend=pallas requires a GN environment")
+        if differentiable:
+            raise ValueError("Pallas GN kernels have no reverse-mode derivatives; use jax")
     if gn_mask_mode != "ff_lf":
-        assert env_type == "rmsa_gn_model", "gn_mask_mode requires rmsa_gn_model"
-        assert aggregate_slots == 1, "Unrestricted GN slot selection requires aggregate_slots=1"
-        if gn_mask_mode == "selected_slot":
-            assert not config.get("differentiable", False), (
+        if env_type != "rmsa_gn_model":
+            raise ValueError("gn_mask_mode requires rmsa_gn_model")
+        if aggregate_slots != 1:
+            raise ValueError("Unrestricted GN slot selection requires aggregate_slots=1")
+        if gn_mask_mode == "selected_slot" and differentiable:
+            raise ValueError(
                 "selected_slot uses hard admission checks; use all_slots for differentiable masking"
             )
     # The lowercase disable_node_features alias is resolved in process_config
@@ -1276,8 +1286,10 @@ def make(
                 gn_mask_mode=config.get("gn_mask_mode", "ff_lf"),
                 gn_mask_batch_size=config.get("gn_mask_batch_size", 8),
                 gn_mask_env_batch_size=config.get("gn_mask_env_batch_size", 0),
+                gn_mask_screen_batch_size=config.get("gn_mask_screen_batch_size", 512),
                 existing_snr_margin=existing_snr_margin,
             )
+        params_dict.update(gn_kernel_backend=gn_kernel_backend)
 
         # Print GN model power budget summary
         per_channel_power_w = default_launch_power

@@ -183,6 +183,8 @@ DEFAULTS = {
     "gn_mask_mode": "ff_lf",
     "gn_mask_batch_size": 8,
     "gn_mask_env_batch_size": 0,
+    "gn_kernel_backend": "jax",
+    "gn_mask_screen_batch_size": 512,
     "transformer_share_layers": False,
     "transformer_actor_mlp_width": 128,
     "transformer_critic_mlp_width": 128,
@@ -1506,6 +1508,22 @@ def physical_layer_section() -> dict:
         help=_h("gn_mask_env_batch_size"),
     )
     _emit(flags, "gn_mask_env_batch_size", int(mask_env_batch))
+    kernel_options = ["jax", "pallas"]
+    kernel_backend = st.selectbox(
+        "GN Kernel Backend",
+        kernel_options,
+        index=kernel_options.index(_get_preset_val("gn_kernel_backend")),
+        help=_h("gn_kernel_backend"),
+    )
+    _emit(flags, "gn_kernel_backend", kernel_backend)
+    screen_batch = st.number_input(
+        "Pallas GN Mask Screen Batch",
+        min_value=1,
+        max_value=2048,
+        value=int(_get_preset_val("gn_mask_screen_batch_size")),
+        help=_h("gn_mask_screen_batch_size"),
+    )
+    _emit(flags, "gn_mask_screen_batch_size", int(screen_batch))
 
     mod_files = _scan_modulations()
     default_mod = _get_preset_val("modulations_csv_filepath")

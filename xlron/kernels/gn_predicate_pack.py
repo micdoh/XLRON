@@ -5,8 +5,15 @@ import jax.numpy as jnp
 from jax.experimental import pallas as pl
 from jax.experimental.pallas import triton as plt
 
+from xlron.kernels import interpret_default
 
-def pack_old_snr_predicates(path_index, required, num_paths, *, block_slots=128, interpret=False):
+
+# Each program compares its row against every link for a tile of slots, holding a
+# (next_pow2(links), block_slots) tile; keep that tile bounded on large topologies.
+MAX_TILE_ELEMENTS = 8192
+
+
+def pack_old_snr_predicates(path_index, required, num_paths, *, block_slots=None, interpret=None):
     """Keep one predicate per valid (path ID, slot), at its strongest threshold.
 
     Path SNR is a function of path ID and slot, independent of the referring
@@ -18,8 +25,12 @@ def pack_old_snr_predicates(path_index, required, num_paths, *, block_slots=128,
         raise ValueError("matching link/slot matrices are required")
     if required.dtype != jnp.float32:
         raise ValueError("float32 thresholds are required")
+    interpret = interpret_default() if interpret is None else interpret
     links, slots = required.shape
     padded_links = pl.next_power_of_2(links)
+    if block_slots is None:
+        # Work is O(links^2 * slots) either way; this only bounds register use.
+        block_slots = max(1, min(128, MAX_TILE_ELEMENTS // padded_links))
 
     def kernel(ids_ref, required_ref, out_ref):
         row, tile = pl.program_id(0), pl.program_id(1)

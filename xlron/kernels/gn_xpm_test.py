@@ -1,104 +1,85 @@
-"""Numerical and batching checks for the experimental tiled GN kernel."""
+"""Accuracy and batching checks for gn_xpm.py (interpret mode on CPU, native on GPU)."""
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from experimental.benchmarks.gn_precision_audit import numpy_xpm64
-from xlron.environments.gn_model.isrs_gn_model import get_snr_fused
-from xlron.kernels.gn_xpm import xpm_compact_jax, xpm_pallas, xpm_reference
-
-from tests.helpers.gn_xpm import PARAMS, inputs
+from tests.helpers.gn_xpm import PARAMS, inputs, numpy_xpm64, scaled_xpm_inputs
+from xlron.environments.gn_model.isrs_gn_model import _xpm_compact, get_snr_fused, xpm_pairs
+from xlron.kernels.gn_xpm import xpm_pallas
 
 
-@pytest.mark.parametrize("n", [33, 257])
-@pytest.mark.xfail(
-    strict=True, reason="Issue #64: SI float32 beta4 underflow; CPU also loses beta3"
-)
-def test_legacy_float32_known_dispersion_underflow(n):
-    args = inputs(n)
-    physics = {**PARAMS, "beta4": -2e-55}
-    expected = numpy_xpm64(*args, **physics)
-    for fn in [xpm_reference, xpm_compact_jax]:
-        actual = jax.jit(lambda *x, fn=fn: fn(*x, **physics))(*args)
-        np.testing.assert_allclose(actual, expected, rtol=5e-6, atol=1e-5)
+def xpm_reference(power, frequency, bandwidth, **physics):
+    """Dense ordinary-JAX XPM coefficient (the get_snr_fused formula)."""
+    pairs = xpm_pairs(
+        power[:, None],
+        frequency[:, None],
+        bandwidth[:, None],
+        power[None, :],
+        frequency[None, :],
+        bandwidth[None, :],
+        jnp.sum(power),
+        **physics,
+    )
+    return jnp.sum(pairs, axis=1)
 
 
 @pytest.mark.parametrize("n", [1, 7, 31, 129])
-@pytest.mark.parametrize("compact", [False, True])
-@pytest.mark.parametrize("compact_rows", [False, True])
-def test_interpret_matches_dense_with_padding_and_empty_slots(n, compact, compact_rows):
+@pytest.mark.parametrize("persistent_rows", [None, 1, 3])
+def test_matches_dense_with_padding_and_empty_slots(n, persistent_rows):
     args = list(inputs(n))
     if n > 1:
-        args[0] = args[0].at[1].set(0)  # Positive-bandwidth rows must survive even at zero power.
+        args[0] = args[0].at[1].set(0)  # Positive-bandwidth rows survive even at zero power.
     expected = xpm_reference(*args, **PARAMS)
     actual = jax.jit(
-        lambda *x: xpm_pallas(
-            *x, **PARAMS, compact=compact, compact_rows=compact_rows, interpret=True
-        )
+        lambda *x: xpm_pallas(*x, **PARAMS, block_i=8, block_k=16, persistent_rows=persistent_rows)
     )(*args)
     np.testing.assert_allclose(actual, expected, rtol=3e-5, atol=1e-5)
 
 
-def test_nested_vmap_and_jit():
-    args = [jnp.stack([inputs(13, seed)[i] for seed in range(3)]) for i in range(3)]
-    # Different live counts, including an empty link, exercise dynamic loop bounds.
-    args[0] = args[0].at[0].set(0).at[1, :7].set(0)
-    fn = jax.jit(jax.vmap(lambda *x: xpm_pallas(*x, **PARAMS, compact=True, interpret=True)))
-    expected = jax.vmap(lambda *x: xpm_reference(*x, **PARAMS))(*args)
-    np.testing.assert_allclose(fn(*args), expected, rtol=3e-5, atol=1e-5)
-    pure = jax.jit(jax.vmap(lambda *x: xpm_compact_jax(*x, **PARAMS)))(*args)
-    np.testing.assert_allclose(pure, expected, rtol=3e-5, atol=1e-5)
-
-
-@pytest.mark.parametrize("backend", ["interpret", "cuda"])
-@pytest.mark.parametrize(
-    "mode",
-    ["reuse_rows", "skip_empty_tiles", "skip_empty_columns", "group_interferers", "group_reuse"],
-)
-def test_repeated_rows_preserve_every_output_and_interferer(backend, mode):
-    if backend == "cuda" and jax.default_backend() != "gpu":
-        pytest.skip("requires a CUDA GPU")
-    # Runs cross tile boundaries; equal centres with unequal power/bandwidth must
-    # remain distinct. Include empty gaps, zero-power live rows and singleton tails.
+def test_repeated_runs_preserve_every_output_and_interferer():
+    # Runs cross tile boundaries; equal centres with unequal power/bandwidth stay
+    # distinct. Includes empty gaps, zero-power live rows and singleton tails.
     p, f, b = (jnp.repeat(x, 5) for x in inputs(13))
     p = p.at[6].multiply(2).at[16].set(0)
     b = b.at[7].multiply(2).at[20:35].set(0)
-    args = (p, f, b)
-    options = (
-        {"group_interferers": True, "reuse_rows": True} if mode == "group_reuse" else {mode: True}
-    )
-    actual = jax.jit(
-        lambda *x: xpm_pallas(
-            *x,
-            **PARAMS,
-            compact=mode != "skip_empty_columns",
-            **options,
-            interpret=backend == "interpret",
-        )
-    )(*args)
-    expected = xpm_reference(*args, **PARAMS)
+    actual = jax.jit(lambda *x: xpm_pallas(*x, **PARAMS, block_i=8, block_k=8))(p, f, b)
+    np.testing.assert_allclose(actual, xpm_reference(p, f, b, **PARAMS), rtol=3e-5, atol=1e-5)
+
+
+def test_nested_vmap_and_jit_with_different_live_counts():
+    args = [jnp.stack([inputs(13, seed)[i] for seed in range(3)]) for i in range(3)]
+    # Different live counts, including an empty link, exercise dynamic loop bounds.
+    args[0] = args[0].at[0].set(0).at[1, :7].set(0)
+    expected = jax.vmap(lambda *x: xpm_reference(*x, **PARAMS))(*args)
+    actual = jax.jit(jax.vmap(lambda *x: xpm_pallas(*x, **PARAMS)))(*args)
     np.testing.assert_allclose(actual, expected, rtol=3e-5, atol=1e-5)
+    compact = jax.jit(jax.vmap(lambda *x: _xpm_compact(*x, **PARAMS)))(*args)
+    np.testing.assert_allclose(compact, expected, rtol=3e-5, atol=1e-5)
 
 
-@pytest.mark.skipif(jax.default_backend() != "gpu", reason="requires a CUDA GPU")
-@pytest.mark.parametrize("compact", [False, True])
-@pytest.mark.parametrize("compact_rows", [False, True])
-def test_cuda_kernel_matches_dense(compact, compact_rows):
-    args = inputs(1376)
-    actual = jax.jit(
-        lambda *x: xpm_pallas(*x, **PARAMS, compact=compact, compact_rows=compact_rows)
-    )(*args)
-    expected = xpm_reference(*args, **PARAMS)
-    np.testing.assert_allclose(actual, expected, rtol=5e-5, atol=1e-4)
-    expected64 = numpy_xpm64(*args, **PARAMS)
-    np.testing.assert_allclose(actual, expected64, rtol=5e-6, atol=1e-5)
+@pytest.mark.parametrize("n", [33, 257])
+def test_rescaled_float32_matches_float64_reference(n):
+    """With binary frequency rescaling float32 keeps beta3/beta4 (issue #64)."""
+    p, f, b = inputs(n)
+    physics = {**PARAMS, "beta4": -2e-55}
+    f_scaled, scaled = scaled_xpm_inputs(f, physics)
+    actual = jax.jit(lambda *x: xpm_pallas(*x, **scaled))(p, f_scaled, b)
+    np.testing.assert_allclose(actual, numpy_xpm64(p, f, b, **physics), rtol=5e-6, atol=1e-5)
 
 
-@pytest.mark.skipif(jax.default_backend() != "gpu", reason="requires a CUDA GPU")
+@pytest.mark.parametrize("n", [33, 257])
+@pytest.mark.xfail(strict=True, reason="Issue #64: SI float32 beta4 underflow; CPU loses beta3")
+def test_si_float32_known_dispersion_underflow(n):
+    args = inputs(n)
+    physics = {**PARAMS, "beta4": -2e-55}
+    actual = jax.jit(lambda *x: xpm_reference(*x, **physics))(*args)
+    np.testing.assert_allclose(actual, numpy_xpm64(*args, **physics), rtol=5e-6, atol=1e-5)
+
+
 @pytest.mark.parametrize("coherent", [False, True])
-def test_cuda_full_snr_matches_dense_including_empty_links(coherent):
+def test_full_snr_pallas_backend_matches_jax_including_empty_links(coherent):
     args = [jnp.stack([inputs(140, seed)[i] for seed in range(3)]) for i in range(3)]
     args[0] = args[0].at[0].set(0).at[1, :80].set(0)
     physics = {
@@ -117,21 +98,8 @@ def test_cuda_full_snr_matches_dense_including_empty_links(coherent):
         "coherent": coherent,
     }
     expected = jax.jit(jax.vmap(lambda *x: get_snr_fused(*x, **physics)))(*args)
-    for backend in [
-        "jax_compact",
-        "pallas_compact",
-        "pallas_sparse",
-        "pallas_reuse",
-        "pallas_skip",
-        "pallas_inline",
-        "pallas_grouped",
-        "mosaic",
-    ]:
-        actual = jax.jit(
-            jax.vmap(lambda *x, backend=backend: get_snr_fused(*x, **physics, xpm_backend=backend))
-        )(*args)
-        np.testing.assert_allclose(actual, expected, rtol=5e-5, atol=1e-5)
-        np.testing.assert_array_equal(np.asarray(actual)[0], -1e5)
-        occupied = np.asarray(expected) > 0
-        db_difference = 10 * np.log10(np.asarray(actual)[occupied] / np.asarray(expected)[occupied])
-        assert np.max(np.abs(db_difference)) < 1e-4
+    actual = jax.jit(jax.vmap(lambda *x: get_snr_fused(*x, **physics, xpm_backend="pallas")))(
+        *args
+    )
+    np.testing.assert_allclose(actual, expected, rtol=5e-5, atol=1e-5)
+    np.testing.assert_array_equal(np.asarray(actual)[0], -1e5)

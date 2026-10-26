@@ -4245,57 +4245,35 @@ def get_snr_for_path(
     )  # Link SNR array must be in linear units so that 1/inf = 0
 
 
-def get_lightpath_snr(
-    state: GNModelEnvState, params: GNModelEnvParams, *, nsr_backend: str = "jax"
-) -> Array:
+def uses_pallas_kernels(params) -> bool:
+    """True when a GN environment selects the Pallas kernels (--gn_kernel_backend)."""
+    return getattr(params, "gn_kernel_backend", "jax") == "pallas"
+
+
+def get_lightpath_snr(state: GNModelEnvState, params: GNModelEnvParams) -> Array:
     """Accumulate full path SNR only for the paths referenced by link/slot state.
 
     The sparse gather uses (links, slots, max_path_hops) work/storage instead of
     producing (all_possible_paths, slots) matrices, including during candidate
     masking. Padding is selected out before summation, so zero-SNR links outside
-    a path cannot contaminate it with 0 * inf NaNs.
+    a path cannot contaminate it with 0 * inf NaNs. With the Pallas backend the
+    gather, ROADM ASE and dB conversion run in one kernel.
     """
-    if nsr_backend in {"pallas_fused", "pallas_precomputed"}:
-        from xlron.kernels.gn_path_snr import path_snr_pallas
+    if uses_pallas_kernels(params):
+        from xlron.kernels.gn_path_snr import path_snr_pallas_from_state
 
-        return path_snr_pallas(
-            state.link_snr_array,
-            state.path_index_array,
-            params.path_link_indices.val,
-            state.channel_power_array,
-            state.channel_centre_freq_array,
-            state.channel_centre_bw_array,
-            params.roadm_express_loss.val,
-            params.roadm_add_drop_loss.val,
-            params.roadm_noise_figure.val,
-            params.transceiver_snr.val,
-            ref_lambda=params.ref_lambda,
-            precompute=nsr_backend == "pallas_precomputed",
-        )
+        return path_snr_pallas_from_state(state, params)
     slot_indices = jnp.arange(params.link_resources)[None, :, None]
-    if nsr_backend == "pallas":
-        from xlron.kernels.gn_path_snr import path_nsr_pallas
-
-        path_table = params.path_link_indices.val
-        nsr = path_nsr_pallas(state.link_snr_array, state.path_index_array, path_table)
-        # Compute metadata once per path, then gather one scalar per output.
-        counts = jnp.sum(path_table < params.num_links, axis=-1)
-        num_express = jnp.maximum(counts[state.path_index_array] - 1, 0)
-        first = jnp.where(path_table[:, 0] < params.num_links, path_table[:, 0], 0)
-        first_link = first[state.path_index_array]
-    elif nsr_backend == "jax":
-        links = params.path_link_indices.val[state.path_index_array]
-        valid = links < params.num_links
-        safe_links = jnp.minimum(links, params.num_links - 1)
-        link_snr = state.link_snr_array[safe_links, slot_indices]
-        nsr = jnp.sum(jnp.where(valid, 1.0 / link_snr, 0.0), axis=-1)
-        num_express = jnp.maximum(jnp.sum(valid, axis=-1) - 1, 0)
-        first_link = jnp.where(valid[..., 0], links[..., 0], 0)
-    else:
-        raise ValueError(f"Unknown path NSR backend: {nsr_backend}")
+    links = params.path_link_indices.val[state.path_index_array]
+    valid = links < params.num_links
+    safe_links = jnp.minimum(links, params.num_links - 1)
+    link_snr = state.link_snr_array[safe_links, slot_indices]
+    nsr = jnp.sum(jnp.where(valid, 1.0 / link_snr, 0.0), axis=-1)
 
     if hasattr(params, "roadm_express_loss"):
+        num_express = jnp.maximum(jnp.sum(valid, axis=-1) - 1, 0)
         # Match argmax(incidence) == 0 for the empty/dummy path.
+        first_link = jnp.where(valid[..., 0], links[..., 0], 0)
         slots = slot_indices[..., 0]
         ch_power = state.channel_power_array[first_link, slots]
         roadm_ase = isrs_gn_model.calculate_roadm_ase(
@@ -4319,78 +4297,32 @@ def get_lightpath_snr(
     return jnp.nan_to_num(isrs_gn_model.to_db(1 / nsr), nan=-50, neginf=-50, posinf=50)
 
 
-def get_candidate_baseline_snr(state, params, *, backend="jax"):
-    """Use exactly the candidate-admission backend for cached path SNR."""
-    if backend == "jax":
-        return get_lightpath_snr(state, params)
-    if backend != "pallas":
-        raise ValueError(f"Unknown candidate SNR backend: {backend}")
-    from xlron.kernels.gn_path_snr import path_snr_pallas
-
-    return path_snr_pallas(
-        state.link_snr_array,
-        state.path_index_array,
-        params.path_link_indices.val,
-        state.channel_power_array,
-        state.channel_centre_freq_array,
-        state.channel_centre_bw_array,
-        params.roadm_express_loss.val,
-        params.roadm_add_drop_loss.val,
-        params.roadm_noise_figure.val,
-        params.transceiver_snr.val,
-        ref_lambda=params.ref_lambda,
-        precompute=True,
-    )
-
-
 def get_candidate_snr_evidence(
     state: RMSAGNModelEnvState,
     candidate: RMSAGNModelEnvState,
     affected: Array,
     params: RMSAGNModelEnvParams,
     *,
-    backend: str = "jax",
     old_required: Array | None = None,
     unchanged=None,
-    link_updates=None,
 ):
-    """Retain every existing-path check and minimum SNR over the new footprint."""
+    """(minimum new-path SNR over affected slots, all existing paths sufficient).
+
+    old_required encodes inactive predicates as -inf; NaN/+inf thresholds keep
+    rejecting. unchanged=(baseline_db, overlap_by_path) reuses the baseline SNR of
+    paths that share no link with the candidate; their predicates still count.
+    """
     required = get_required_snr_se_kurtosis_array(state.modulation_format_index_array, 2, params)
     encoded = (
         jnp.where(state.channel_centre_bw_array != 0, required, -jnp.inf)
         if old_required is None
         else old_required
     )
-    if backend == "pallas":
-        from xlron.kernels.gn_path_snr import path_snr_pallas
+    if uses_pallas_kernels(params):
+        from xlron.kernels.gn_path_snr import path_snr_pallas_from_state
 
-        return path_snr_pallas(
-            candidate.link_snr_array,
-            candidate.path_index_array,
-            params.path_link_indices.val,
-            candidate.channel_power_array,
-            candidate.channel_centre_freq_array,
-            candidate.channel_centre_bw_array,
-            params.roadm_express_loss.val,
-            params.roadm_add_drop_loss.val,
-            params.roadm_noise_figure.val,
-            params.transceiver_snr.val,
-            ref_lambda=params.ref_lambda,
-            precompute=True,
-            # -inf encodes an inactive (unconditionally passing) old predicate.
-            # Real NaN/+inf thresholds retain their original rejection behavior.
-            evidence=(encoded, affected),
-            unchanged=unchanged,
-            link_updates=link_updates,
-        )
-    if backend != "jax":
-        raise ValueError(f"Unknown candidate SNR backend: {backend}")
-    if link_updates is not None:
-        updated, lookup = link_updates
-        candidate = candidate.replace(
-            link_snr_array=jnp.where(
-                lookup[:, None] >= 0, updated[jnp.maximum(lookup, 0)], candidate.link_snr_array
-            )
+        return path_snr_pallas_from_state(
+            candidate, params, evidence=(encoded, affected), unchanged=unchanged
         )
     snr = get_lightpath_snr(candidate, params)
     if unchanged is not None:
@@ -4490,33 +4422,26 @@ def check_snr_sufficient(
     return jnp.any(snr_insufficient)
 
 
-@partial(jax.jit, static_argnums=(1,), static_argnames=("output_xpm_backend",))
+@partial(jax.jit, static_argnums=(1,))
 def get_snr_link_array(
-    state: GNModelEnvState,
-    params: GNModelEnvParams,
-    link_indices: Array | None = None,
-    *,
-    output_indices: Array | None = None,
-    channel_rows: tuple[Array, Array, Array] | None = None,
-    output_xpm_backend: str = "jax",
+    state: GNModelEnvState, params: GNModelEnvParams, link_indices: Array | None = None
 ) -> Array:
     """Get SNR per link
     Args:
         state (EnvState): Environment state
         params (EnvParams): Environment parameters
         link_indices: Optional subset of link rows; preserves their order and duplicates.
-        output_indices: Optional channel output rows; retains every interfering channel.
-        output_xpm_backend: Explicit experimental backend for selected output rows.
-        channel_rows: Optional preselected (power, centre GHz, bandwidth GHz) rows,
-            one per link_indices entry. Avoids full-network screening copies.
     Returns:
         jnp.array: SNR per link
     """
+    # The Pallas XPM kernel covers uniform spans without modulation corrections.
+    xpm_backend = (
+        "pallas"
+        if uses_pallas_kernels(params) and params.uniform_spans and not params.mod_format_correction
+        else "jax"
+    )
 
-    if channel_rows is not None and params.mod_format_correction:
-        raise ValueError("Preselected channel rows require no modulation correction")
-
-    def get_link_snr(link_index, row_index):
+    def get_link_snr(link_index):
         # Get channel power, channel centre, bandwidth, and noise figure
         link_lengths = params.link_length_array[link_index, :]  # in metres
         num_spans = jnp.ceil(jnp.sum(link_lengths) / params.max_span_length).astype(
@@ -4529,12 +4454,9 @@ def get_snr_link_array(
             kurtosis_link = get_required_snr_se_kurtosis_on_link(mod_format_link, 4, params)
         else:
             kurtosis_link = jnp.zeros(params.link_resources).astype(jnp.float32)
-        if channel_rows is None:
-            bw_link = state.channel_centre_bw_array[link_index, :]
-            ch_power_link = state.channel_power_array[link_index, :]
-            ch_centres_link = state.channel_centre_freq_array[link_index, :]
-        else:
-            ch_power_link, ch_centres_link, bw_link = (x[row_index] for x in channel_rows)
+        bw_link = state.channel_centre_bw_array[link_index, :]
+        ch_power_link = state.channel_power_array[link_index, :]
+        ch_centres_link = state.channel_centre_freq_array[link_index, :]
 
         # Calculate SNR
         P = dict(
@@ -4575,18 +4497,14 @@ def get_snr_link_array(
                 num_roadms=params.num_roadms,
                 roadm_loss=params.roadm_loss,
                 mod_format_correction=params.mod_format_correction,
-                **(
-                    {"output_indices": output_indices, "xpm_backend": output_xpm_backend}
-                    if output_indices is not None
-                    else {}
-                ),
+                xpm_backend=xpm_backend,
             )[0]
 
         return snr
 
     if link_indices is None:
         link_indices = jnp.arange(params.num_links)
-    link_snr_array = jax.vmap(get_link_snr)(link_indices, jnp.arange(link_indices.shape[0]))
+    link_snr_array = jax.vmap(get_link_snr)(link_indices)
     link_snr_array = jnp.nan_to_num(link_snr_array, nan=1e-5)
     return link_snr_array
 
@@ -4655,6 +4573,7 @@ def get_snr_link_array_fused(
             # Compaction wins in the measured 420/1376-slot workloads. Preserve
             # dense fusion for smaller spectra and reverse-mode AD callers.
             compact_xpm=not params.differentiable and params.link_resources >= 420,
+            xpm_backend="pallas" if uses_pallas_kernels(params) else "jax",
         )
 
     link_snr_array = jax.vmap(_link_snr_fused)(
@@ -4670,7 +4589,7 @@ def get_snr_link_array_fused(
     return link_snr_array
 
 
-@partial(jax.jit, static_argnums=(3,))
+@partial(jax.jit, static_argnums=(4,))
 def get_best_modulation_format(
     state: RMSAGNModelEnvState,
     path: Array,
@@ -5156,6 +5075,13 @@ def _gn_candidate_groups(paths, starts, widths, powers, mods, feasible, include_
     return representative, packed, jnp.sum(unique)
 
 
+# The Pallas all_slots mask rejects a candidate without the full solve when its
+# endpoint SNR (fused kernel) is below the threshold by more than this. Both paths
+# evaluate the same model; the slack covers float32 reduction-order differences
+# (measured max |screen - full| is recorded by the native screen test).
+ENDPOINT_SCREEN_SLACK_DB = 0.01
+
+
 def _store_unaggregated_gn_mask(state, params, modulation):
     modulation = modulation.reshape(-1)
     full_mask = (modulation >= 0).astype(dtype_config.MASK_DTYPE)
@@ -5169,56 +5095,19 @@ def _store_unaggregated_gn_mask(state, params, modulation):
     )
 
 
-@partial(
-    jax.jit,
-    static_argnums=(1,),
-    static_argnames=(
-        "prune_formats",
-        "prefilter_new",
-        "pack_old",
-        "reuse_screened_power",
-        "narrow_new_snr",
-        "reuse_unaffected_snr",
-        "compact_snr_updates",
-        "screen_batch_size",
-        "group_widths",
-        "fused_endpoint_snr",
-    ),
-)
+@partial(jax.jit, static_argnums=(1,))
 def mask_slots_rmsa_gn_model(
-    state: RMSAGNModelEnvState,
-    params: RMSAGNModelEnvParams,
-    request: Array,
-    *,
-    prune_formats: bool = True,
-    prefilter_new: bool = False,
-    pack_old: bool = False,
-    reuse_screened_power: bool = False,
-    narrow_new_snr: bool = False,
-    reuse_unaffected_snr: bool = False,
-    compact_snr_updates: bool = False,
-    screen_batch_size: int | None = None,
-    group_widths: bool = False,
-    fused_endpoint_snr: bool = False,
+    state: RMSAGNModelEnvState, params: RMSAGNModelEnvParams, request: Array
 ) -> EnvState:
-    """Full masks can stream environment chunks without changing policy batching."""
+    """Compute the RMSA-GN action mask (see _mask_slots_rmsa_gn_model).
+
+    With gn_mask_env_batch_size, all_slots masks under an outer environment vmap
+    are computed in chunks of that many environments, bounding peak memory
+    without changing policy batching.
+    """
 
     def one(s, r):
-        return _mask_slots_rmsa_gn_model(
-            s,
-            params,
-            r,
-            prune_formats=prune_formats,
-            prefilter_new=prefilter_new,
-            pack_old=pack_old,
-            reuse_screened_power=reuse_screened_power,
-            narrow_new_snr=narrow_new_snr,
-            reuse_unaffected_snr=reuse_unaffected_snr,
-            compact_snr_updates=compact_snr_updates,
-            screen_batch_size=screen_batch_size,
-            group_widths=group_widths,
-            fused_endpoint_snr=fused_endpoint_snr,
-        )
+        return _mask_slots_rmsa_gn_model(s, params, r)
 
     if params.gn_mask_mode != "all_slots" or not params.gn_mask_env_batch_size:
         return one(state, request)
@@ -5244,44 +5133,27 @@ def mask_slots_rmsa_gn_model(
     return batched_mask(state, request)
 
 
-@partial(
-    jax.jit,
-    static_argnums=(1,),
-    static_argnames=(
-        "prune_formats",
-        "prefilter_new",
-        "pack_old",
-        "reuse_screened_power",
-        "narrow_new_snr",
-        "reuse_unaffected_snr",
-        "compact_snr_updates",
-        "screen_batch_size",
-        "group_widths",
-        "fused_endpoint_snr",
-    ),
-)
 def _mask_slots_rmsa_gn_model(
     state: RMSAGNModelEnvState,
     params: RMSAGNModelEnvParams,
     request: Array,
     *,
     prune_formats: bool = True,
-    prefilter_new: bool = False,
-    pack_old: bool = False,
-    reuse_screened_power: bool = False,
-    narrow_new_snr: bool = False,
-    reuse_unaffected_snr: bool = False,
-    compact_snr_updates: bool = False,
-    screen_batch_size: int | None = None,
-    group_widths: bool = False,
-    fused_endpoint_snr: bool = False,
 ) -> EnvState:
     """Compute action mask for RMSA with GN model physical layer.
 
-    Legacy mode checks first/last fit. Full mode first packs spectrum-feasible
-    starts, then checks admission physics and retains the highest-SE valid
-    format at every path/start. Optional screening computes exact new-channel
-    output rows before the full old-connection solve; no interferers are dropped.
+    ff_lf checks first/last fit per (path, format). all_slots checks every
+    spectrum-feasible start with full admission physics (new-path endpoints,
+    every existing lightpath, fibre power) and keeps the highest-SE valid format
+    per (path, start); prune_formats (exact) skips lower-SE formats at starts that
+    already have one. selected_slot offers every spectrum-feasible start and
+    resolves the format at step time.
+
+    With gn_kernel_backend="pallas", all_slots additionally screens candidates by
+    the SNR of the new channel's two endpoint slots (a fused kernel computing the
+    same model) before the full solve, merges duplicate existing-path predicates,
+    and reuses baseline SNR for existing paths disjoint from the candidate. These
+    are exact up to float32 evaluation order and ENDPOINT_SCREEN_SLACK_DB.
 
     Args:
         state: Environment state
@@ -5291,27 +5163,17 @@ def _mask_slots_rmsa_gn_model(
     Returns:
         state: Updated environment state with link_slot_mask and mod_format_mask
     """
-    if fused_endpoint_snr and (
-        params.gn_mask_mode != "all_slots"
-        or not params.uniform_spans
-        or params.mod_format_correction
-        or params.use_raman_amp
-        or params.differentiable
-        or not prefilter_new
-    ):
-        raise ValueError("Fused endpoint screening requires hard uncorrected uniform full masking")
-    if group_widths and (
-        params.gn_mask_mode != "all_slots"
-        or not prune_formats
-        or params.differentiable
-        or not params.uniform_spans
-        or params.mod_format_correction
-        or params.use_raman_amp
-        or params.launch_power_type != "fixed"
-    ):
-        raise ValueError(
-            "Width grouping requires hard all-slot uniform-span fixed-power masking without modulation/Raman corrections"
-        )
+    optimized = (
+        uses_pallas_kernels(params)
+        and params.gn_mask_mode == "all_slots"
+        and not params.differentiable
+    )
+    # The fused endpoint kernel covers the uniform-span model without corrections.
+    endpoint_screen = (
+        optimized
+        and params.uniform_spans
+        and not (params.mod_format_correction or params.use_raman_amp)
+    )
     nodes_sd, requested_datarate = read_rsa_request(request)
     num_mods = params.modulations_array.val.shape[0]
 
@@ -5492,13 +5354,9 @@ def _mask_slots_rmsa_gn_model(
     )
     baseline_snr = snr_fn(state, params)
     baseline_path_snr = path_overlaps = None
-    if params.existing_snr_margin > 0 or reuse_unaffected_snr:
-        baseline_path_snr = get_candidate_baseline_snr(
-            state.replace(link_snr_array=baseline_snr), params
-        )
-    if reuse_unaffected_snr:
-        if params.gn_mask_mode != "all_slots" or params.differentiable:
-            raise ValueError("Unaffected path SNR reuse requires hard full physical masking")
+    if params.existing_snr_margin > 0 or optimized:
+        baseline_path_snr = get_lightpath_snr(state.replace(link_snr_array=baseline_snr), params)
+    if optimized:
         padded_paths = jnp.pad(paths, ((0, 0), (0, 1)))
         path_overlaps = jnp.any(padded_paths[:, params.path_link_indices.val] > 0, axis=-1)
         # Empty/dummy paths use link 0 metadata in the existing SNR convention.
@@ -5508,7 +5366,7 @@ def _mask_slots_rmsa_gn_model(
         compute_total_power_per_link(
             state.channel_power_array, state.path_index_array, state.channel_centre_freq_array
         )
-        if prefilter_new
+        if endpoint_screen
         else None
     )
     compact_candidates = not params.differentiable and (
@@ -5519,9 +5377,7 @@ def _mask_slots_rmsa_gn_model(
         if params.existing_snr_margin > 0
         else None
     )
-    if pack_old:
-        if params.gn_mask_mode != "all_slots" or params.differentiable:
-            raise ValueError("Old-path predicate packing requires hard full physical masking")
+    if optimized:
         from xlron.kernels.gn_predicate_pack import pack_old_snr_predicates
 
         old_required = pack_old_snr_predicates(
@@ -5559,32 +5415,15 @@ def _mask_slots_rmsa_gn_model(
             path_vec, size=params.path_link_indices.val.shape[1], fill_value=params.num_links
         )[0]
         changed_snr = snr_fn(temp_state, params, changed_links)
-        link_updates = None
-        if compact_snr_updates:
-            if params.gn_mask_mode != "all_slots" or params.differentiable:
-                raise ValueError("Compact SNR updates require hard full physical masking")
-            lookup = (
-                jnp.full((params.num_links,), -1, jnp.int32)
-                .at[changed_links]
-                .set(jnp.arange(changed_links.shape[0]), mode="drop")
-            )
-            link_updates = (changed_snr, lookup)
-            link_snr = baseline_snr
-        else:
-            link_snr = baseline_snr.at[changed_links].set(changed_snr, mode="drop")
+        link_snr = baseline_snr.at[changed_links].set(changed_snr, mode="drop")
         temp_state = temp_state.replace(link_snr_array=link_snr)
 
         # Check 1: New lightpath SNR meets modulation format threshold
         # (inlined get_minimum_snr_of_channels_on_path to avoid static_argnums issue in vmap)
-        if narrow_new_snr or compact_snr_updates:
+        if optimized:
+            # Accumulate only the two endpoint columns along the path.
             endpoints = jnp.stack((slot_idx, slot_idx + req_slots_val - 1))
-            endpoint_snr = (
-                jnp.ones((params.num_links, 2), changed_snr.dtype)
-                .at[changed_links]
-                .set(changed_snr[:, endpoints], mode="drop")
-                if compact_snr_updates
-                else temp_state.link_snr_array[:, endpoints]
-            )
+            endpoint_snr = temp_state.link_snr_array[:, endpoints]
             new_snr = jnp.min(
                 get_snr_for_path(
                     path_vec,
@@ -5653,9 +5492,8 @@ def _mask_slots_rmsa_gn_model(
             params,
             old_required=old_required,
             unchanged=(baseline_path_snr, path_overlaps[candidate_path_index])
-            if reuse_unaffected_snr
+            if optimized
             else None,
-            link_updates=link_updates,
         )
         return jnp.stack((new_snr, new_floor, existing_ok.astype(new_snr.dtype)))
 
@@ -5720,9 +5558,7 @@ def _mask_slots_rmsa_gn_model(
         starts = params.k_paths * params.link_resources
         batch_size = min(params.gn_mask_batch_size, starts)
         offsets = jnp.arange(batch_size)
-        if screen_batch_size is not None and not 1 <= screen_batch_size <= 2048:
-            raise ValueError("Endpoint screening batch size must be in [1,2048]")
-        screen_size = min(screen_batch_size or batch_size, starts)
+        screen_size = min(params.gn_mask_screen_batch_size, starts)
         screen_offsets = jnp.arange(screen_size)
         order = jnp.argsort(-se_values, stable=True)
 
@@ -5730,24 +5566,10 @@ def _mask_slots_rmsa_gn_model(
             mod = order[rank]
             available = slot_available[:, mod, :].reshape(-1) & (best < 0)
             screen_threshold = req_snr_values[mod]
-            if group_widths:
-                # Equal widths insert identical power/frequency/bandwidth arrays.
-                # Evaluate once, then apply every sibling's own thresholds.
-                siblings = all_req_slots == all_req_slots[mod]
-                seen = jnp.any(
-                    (all_req_slots[order] == all_req_slots[mod]) & (jnp.arange(num_mods) < rank)
-                )
-                available &= ~seen
-                screen_threshold = jnp.min(jnp.where(siblings, req_snr_values, jnp.inf))
             packed = jnp.nonzero(available, size=starts, fill_value=0)[0]
             live = jnp.sum(available)
 
-            endpoint_screened = (
-                prefilter_new
-                and params.uniform_spans
-                and not (params.mod_format_correction or params.use_raman_amp)
-            )
-            if endpoint_screened:
+            if endpoint_screen:
                 # Exact GN output rows for the two endpoints, still including
                 # every interferer and post-insertion Raman/ASE dependence.
                 # Repack survivors before vmapping full old-connection checks;
@@ -5762,9 +5584,8 @@ def _mask_slots_rmsa_gn_model(
                         size=params.path_link_indices.val.shape[1],
                         fill_value=params.num_links,
                     )[0]
-                    # Construct the footprint on path links only, retaining every
-                    # slot/interferer on those links. Unchanged link power checks
-                    # reuse the baseline reduction, not candidate-sized copies.
+                    # Fibre power on the path links after insertion; unchanged links
+                    # reuse the baseline reduction rather than candidate-sized copies.
                     inside = (slot_indices >= slots[0]) & (slot_indices <= slots[1])
                     power = jnp.where(
                         inside, all_launch_powers[i], state.channel_power_array[links]
@@ -5773,9 +5594,6 @@ def _mask_slots_rmsa_gn_model(
                         all_slot_indices[i], all_req_slots_flat[i], params
                     )
                     centres = jnp.where(inside, centre, state.channel_centre_freq_array[links])
-                    bandwidth = jnp.where(
-                        inside, params.slot_size, state.channel_centre_bw_array[links]
-                    )
                     path_ids = jnp.where(
                         inside, all_lightpath_indices[i], state.path_index_array[links]
                     )
@@ -5789,26 +5607,11 @@ def _mask_slots_rmsa_gn_model(
                         jnp.where(path > 0, True, baseline_power <= params.max_power_per_fibre)
                     )
                     feasible = all_has_candidate[i] & power_ok
-                    if fused_endpoint_snr:
-                        from xlron.kernels.gn_endpoint_snr import endpoint_snr_pallas
+                    from xlron.kernels.gn_endpoint_snr import endpoint_snr_pallas
 
-                        sampled = endpoint_snr_pallas(
-                            state,
-                            params,
-                            links,
-                            slots[0],
-                            slots[1],
-                            all_launch_powers[i],
-                            centre,
-                        )
-                    else:
-                        sampled = get_snr_link_array(
-                            state,
-                            params,
-                            links,
-                            output_indices=slots,
-                            channel_rows=(power, centres, bandwidth),
-                        )
+                    sampled = endpoint_snr_pallas(
+                        state, params, links, slots[0], slots[1], all_launch_powers[i], centre
+                    )
                     # Keep only the two requested output columns through path
                     # accumulation; avoid a candidate x links x full-spectrum scatter.
                     link_snr = (
@@ -5828,9 +5631,10 @@ def _mask_slots_rmsa_gn_model(
                             jnp.broadcast_to(centre, (2,)),
                         ),
                     )
-                    # Conservative screening only; the original full solve and
-                    # exact thresholds still decide admission for every survivor.
-                    return feasible & jnp.all(snr >= screen_threshold - 0.01)
+                    # Screening only: the full solve and exact thresholds still decide
+                    # admission for every survivor. The slack absorbs float32
+                    # evaluation-order differences between the two code paths.
+                    return feasible & jnp.all(snr >= screen_threshold - ENDPOINT_SCREEN_SLACK_DB)
 
                 def screen_batch(carry):
                     start, keep = carry
@@ -5862,32 +5666,16 @@ def _mask_slots_rmsa_gn_model(
                 # fibre-power checks above. Reuse that verdict rather than
                 # rebuilding another complete candidate power reduction.
                 evidence = jax.vmap(
-                    partial(
-                        evaluate_candidate_index,
-                        power_screened=reuse_screened_power and endpoint_screened,
-                    )
+                    partial(evaluate_candidate_index, power_screened=endpoint_screen)
                 )(candidate)
-                if group_widths:
-                    valid_formats = (
-                        siblings[None, :]
-                        & (evidence[:, 0, None] >= req_snr_values[None, :])
-                        & (evidence[:, 1, None] >= mod_formats[None, :, 2])
-                        & (evidence[:, 2, None] > 0)
-                    )
-                    selected = jnp.argmax(jnp.where(valid_formats, se_values, -jnp.inf), axis=1)
-                    valid = (positions < live) & jnp.any(valid_formats, axis=1)
-                else:
-                    selected = mod
-                    valid = (
-                        (positions < live)
-                        & (evidence[:, 0] >= req_snr_values[mod])
-                        & (evidence[:, 1] >= mod_formats[mod, 2])
-                        & (evidence[:, 2] > 0)
-                    )
-                destination = jnp.where(positions < live, flat, starts)
-                chosen = chosen.at[destination].set(
-                    jnp.where(valid, selected, chosen[flat]), mode="drop"
+                valid = (
+                    (positions < live)
+                    & (evidence[:, 0] >= req_snr_values[mod])
+                    & (evidence[:, 1] >= mod_formats[mod, 2])
+                    & (evidence[:, 2] > 0)
                 )
+                destination = jnp.where(positions < live, flat, starts)
+                chosen = chosen.at[destination].set(jnp.where(valid, mod, chosen[flat]), mode="drop")
                 return start + batch_size, chosen
 
             _, best = jax.lax.while_loop(

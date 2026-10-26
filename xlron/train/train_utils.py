@@ -850,7 +850,7 @@ def _make_param_label_fn(model: eqx.Module) -> Callable:
     mistaken for label functions by optax when passed as a static pytree.
 
     Works across ActorCriticMLP, ActorCriticGNN, and ActorCriticTransformer:
-    Critic attributes and the legacy transformer's actor_critic[1] encoder
+    critic attributes and the legacy transformer's actor_critic[1] encoder
     receive ``"critic"`` labels; everything else receives ``"actor"``.
     """
     # Snapshot the pytree structure of the learnable parameters at build time.
