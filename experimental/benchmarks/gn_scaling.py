@@ -24,6 +24,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
+from xlron.environments.env_funcs import held_lightpath_mask, lightpath_representatives
 from xlron.environments.env_funcs import (
     calculate_throughput_from_active_lightpaths,
     get_lightpath_snr,
@@ -373,6 +374,13 @@ def main():
             snapshots["rollout_occupancy"] = np.asarray(final.link_slot_array)
             metrics["steps_per_s"] = args.envs * args.steps * 1000 / metrics["median_ms"]
             metrics["accepted_services"] = np.asarray(final.accepted_services).tolist()
+            if args.env_type == "rmsa_gn_model":
+                held = jax.vmap(
+                    lambda st: jnp.sum(
+                        held_lightpath_mask(st, params) & lightpath_representatives(st, params)
+                    )
+                )(final)
+                metrics["held_lightpaths"] = np.asarray(held).tolist()
             metrics["distinct_final_requests"] = len(
                 np.unique(np.asarray(final.request_array), axis=0)
             )
