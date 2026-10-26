@@ -1,17 +1,11 @@
+# ruff: noqa: E402 -- Runtime settings must precede imports that create JAX arrays.
 import os
 import sys
 
-# Must set XLA env vars before importing JAX, so check sys.argv directly
-# (absl flags aren't parsed yet at import time)
-if "--DETERMINISTIC_OPS" in sys.argv:
-    os.environ["XLA_FLAGS"] = "--xla_gpu_deterministic_ops=true --xla_gpu_enable_triton_gemm=false "
-    os.environ["NVIDIA_TF32_OVERRIDE"] = "0"
-else:
-    os.environ["XLA_FLAGS"] = (
-        "--xla_gpu_triton_gemm_any=True "
-        "--xla_gpu_enable_latency_hiding_scheduler=true "
-        "--xla_gpu_enable_highest_priority_async_stream=true "
-    )
+from xlron.train.compilation import configure_jax_runtime
+
+# Configure flags and the persistent cache before imports create any JAX arrays.
+configure_jax_runtime(sys.argv)
 
 import subprocess
 import time
@@ -557,8 +551,9 @@ def train(argv: list[str], config: Dict[str, Any] = {}) -> None:
     else:
         loads = np.array([config.load])
 
-    with profiler.section("COMPILATION"):
-        print("\n---BEGINNING COMPILATION---\n")
+    setup_timings = {}
+    with profiler.section("STARTUP"):
+        print("\n---INITIALIZING AND COMPILING---\n", flush=True)
 
         rng = jax.random.PRNGKey(config.SEED)
         if config.NUM_LEARNERS > 1:
@@ -579,9 +574,19 @@ def train(argv: list[str], config: Dict[str, Any] = {}) -> None:
             experiment_fn = (
                 get_learner_fn if not (config.EVAL_HEURISTIC or config.EVAL_MODEL) else get_eval_fn
             )
-            experiment_input, env, env_params = experiment_data_setup(config, rng)
+            experiment_input, env, env_params = experiment_data_setup(config, rng, setup_timings)
             experiment_fn = experiment_fn(env, env_params, experiment_input, config)
-            run_experiment = jax.jit(experiment_fn).lower(experiment_input).compile()
+            compile_start = time.perf_counter()
+            lowered = jax.jit(experiment_fn).lower(experiment_input)
+            setup_timings["training_trace_lower"] = time.perf_counter() - compile_start
+            print(
+                f"SETUP training_trace_lower: {setup_timings['training_trace_lower']:.3f}s",
+                flush=True,
+            )
+            compile_start = time.perf_counter()
+            run_experiment = lowered.compile()
+            setup_timings["training_compile"] = time.perf_counter() - compile_start
+            print(f"SETUP training_compile: {setup_timings['training_compile']:.3f}s", flush=True)
 
     # Set up eval during training: fresh single-env setup without warmup
     if config.EVAL_DURING_TRAINING and not (config.EVAL_HEURISTIC or config.EVAL_MODEL):
@@ -811,8 +816,17 @@ def train(argv: list[str], config: Dict[str, Any] = {}) -> None:
         # END OF INCREMENTS FOR THIS LOAD
         # Build timing info from profiler records
         timing = {}
-        if "COMPILATION" in profiler._records:
-            timing["compilation_time_s"] = sum(e for e, _ in profiler._records["COMPILATION"])
+        if "STARTUP" in profiler._records:
+            timing["startup_time_s"] = sum(e for e, _ in profiler._records["STARTUP"])
+        if setup_timings:
+            timing["setup_phases_s"] = setup_timings
+            timing["compilation_time_s"] = (
+                setup_timings["warmup_compile"] + setup_timings["training_compile"]
+            )
+            timing["tracing_time_s"] = (
+                setup_timings["warmup_trace_lower"] + setup_timings["training_trace_lower"]
+            )
+            timing["warmup_execution_time_s"] = setup_timings["warmup_execute"]
         execution_entries = [
             (e, f)
             for tag, entries in profiler._records.items()

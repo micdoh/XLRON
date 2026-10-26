@@ -4,6 +4,7 @@ import math
 import os
 import pathlib
 import pickle
+import time
 from typing import Any, Callable, Dict, NamedTuple, Tuple, Union
 
 import chex
@@ -952,7 +953,20 @@ def heuristic_eval_obs_placeholder(num_envs: int = 1) -> Tuple[Array, ...]:
     return (jnp.zeros(shape, dtype=jnp.float32),)
 
 
-def experiment_data_setup(config: Box, rng: chex.PRNGKey) -> Tuple:
+def experiment_data_setup(
+    config: Box, rng: chex.PRNGKey, setup_timings: dict[str, float] | None = None
+) -> Tuple:
+    phase_start = time.perf_counter()
+
+    def finish_phase(name, result):
+        nonlocal phase_start
+        if setup_timings is not None:
+            jax.block_until_ready(result)
+            elapsed = time.perf_counter() - phase_start
+            setup_timings[name] = elapsed
+            print(f"SETUP {name}: {elapsed:.3f}s", flush=True)
+        phase_start = time.perf_counter()
+
     # INIT ENV
     env, env_params = make(config)
     # Sync config.k with env_params.k_paths (may differ when maximum_path_length_km trims paths)
@@ -961,6 +975,7 @@ def experiment_data_setup(config: Box, rng: chex.PRNGKey) -> Tuple:
     config.INPUT_DIM = int(env.observation_space(env_params).n)
     config.NUM_NODES = env_params.num_nodes
     config.NUM_LINKS = env_params.num_links
+    finish_phase("environment", env_params)
     rng, rng_step, rng_epoch, warmup_key, reset_key, network_key = jax.random.split(rng, 6)
     reset_key = jax.random.split(reset_key, config.NUM_ENVS) if config.NUM_ENVS > 1 else reset_key
     obsv, env_state = (
@@ -976,6 +991,7 @@ def experiment_data_setup(config: Box, rng: chex.PRNGKey) -> Tuple:
         obsv = heuristic_eval_obs_placeholder(config.NUM_ENVS)
     else:
         obsv = tuple([obsv])
+    finish_phase("reset", (obsv, env_state))
 
     # TRAINING MODE
     if config.RETRAIN_MODEL or config.EVAL_MODEL:
@@ -985,6 +1001,7 @@ def experiment_data_setup(config: Box, rng: chex.PRNGKey) -> Tuple:
         model = None
     else:
         model = init_network(config, network_key)
+    finish_phase("model_init", model)
 
     # INIT LEARNING RATE SCHEDULE AND OPTIMIZER
     lr_schedule = make_lr_schedule(config)
@@ -1030,6 +1047,7 @@ def experiment_data_setup(config: Box, rng: chex.PRNGKey) -> Tuple:
         reward_stepsize_init=config.REWARD_STEPSIZE,
         initial_avg_reward=config.INITIAL_AVERAGE_REWARD,
     )
+    finish_phase("optimizer_init", runner_state)
 
     # Recreate DeepRMSA warmup period
     warmup_key = (
@@ -1037,8 +1055,28 @@ def experiment_data_setup(config: Box, rng: chex.PRNGKey) -> Tuple:
     )
     warmup_state = (warmup_key, env_state, obsv)
     warmup_fn = get_warmup_fn(warmup_state, env, env_params, runner_state, config)
-    warmup_fn = jax.vmap(warmup_fn) if config.NUM_ENVS > 1 else warmup_fn
-    env_state, obsv = warmup_fn(warmup_state)
+    # Pass weights dynamically, so the compiler/cache does not specialize this
+    # program to a particular initialization or checkpoint's values.
+    warmup_fn = jax.vmap(warmup_fn, in_axes=(0, None)) if config.NUM_ENVS > 1 else warmup_fn
+    if isinstance(rng, jax.core.Tracer):
+        # Under the NUM_LEARNERS vmap the inputs are traced, so the warmup is
+        # traced into the caller's program instead of compiled ahead of time.
+        env_state, obsv = warmup_fn(warmup_state, runner_state)
+    else:
+        warmup_lowered = jax.jit(warmup_fn).lower(warmup_state, runner_state)
+        finish_phase("warmup_trace_lower", None)
+        # Warmup is executed once. Exhaustive GPU GEMM autotuning added ~15 s
+        # to compilation with no measured warmup speed benefit on the A100.
+        # Keep the normal, fully tuned compilation policy for PPO updates.
+        warmup_options = (
+            {"xla_gpu_enable_triton_gemm": False, "xla_gpu_autotune_level": 0}
+            if jax.default_backend() == "gpu"
+            else None
+        )
+        warmup_executable = warmup_lowered.compile(compiler_options=warmup_options)
+        finish_phase("warmup_compile", None)
+        env_state, obsv = warmup_executable(warmup_state, runner_state)
+        finish_phase("warmup_execute", (env_state, obsv))
 
     if config.ENV_WARMUP_STEPS:
         env_state = reset_warmup_metric_counters(env_state)
@@ -1367,7 +1405,7 @@ def get_warmup_fn(warmup_state, env, params, train_state, config) -> Callable[[T
         warmup_config = Box(config)
         warmup_config.EVAL_HEURISTIC = True
 
-    def warmup_fn(warmup_state) -> Tuple[EnvState, Array]:
+    def warmup_fn(warmup_state, runtime_train_state=None) -> Tuple[EnvState, Array]:
         rng, state, last_obs = warmup_state
 
         def warmup_step(i, val) -> Tuple:
@@ -1432,7 +1470,16 @@ def get_warmup_fn(warmup_state, env, params, train_state, config) -> Callable[[T
             return _rng, _state, _params, _train_state, obsv
 
         vals = jax.lax.fori_loop(
-            0, config.ENV_WARMUP_STEPS, warmup_step, (rng, state, params, train_state, last_obs)
+            0,
+            config.ENV_WARMUP_STEPS,
+            warmup_step,
+            (
+                rng,
+                state,
+                params,
+                train_state if runtime_train_state is None else runtime_train_state,
+                last_obs,
+            ),
         )
 
         return vals[1], vals[4]
@@ -1706,23 +1753,31 @@ def setup_wandb(config, project_name, experiment_name):
     )
     wandb.config.update(config)
     run.name = experiment_name
-    wandb.define_metric("episode_count")
-    wandb.define_metric("env_step")
-    wandb.define_metric("increment")
+    for axis in ("episode_count", "env_step", "increment", "update_epoch"):
+        wandb.define_metric(axis, hidden=True)
+    standalone_eval = config.get("EVAL_HEURISTIC", False) or config.get("EVAL_MODEL", False)
+    eval_step = (
+        "episode_count" if standalone_eval and not config.continuous_operation else "env_step"
+    )
     for metric in metrics:
         for agg in ["mean", "std", "iqr_upper", "iqr_lower"]:
-            wandb.define_metric(f"{metric}_{agg}", step_metric="env_step")
+            # Share names with periodic policy evaluation so heuristics and
+            # trained policies can occupy the same W&B panels.
+            wandb.define_metric(f"eval/{metric}_{agg}", step_metric=eval_step)
+            if standalone_eval:
+                continue
+            wandb.define_metric(f"train/{metric}_{agg}", step_metric="env_step")
             wandb.define_metric(
-                f"{metric}_episode_end_{agg}", step_metric="episode_count", summary="last"
+                f"train/{metric}_episode_end_{agg}", step_metric="episode_count", summary="last"
             )
             wandb.define_metric(
-                f"{metric}_episode_end_{agg}", step_metric="episode_count", summary="mean"
+                f"train/{metric}_episode_end_{agg}", step_metric="episode_count", summary="mean"
             )
             wandb.define_metric(
-                f"{metric}_episode_end_{agg}", step_metric="episode_count", summary="min"
+                f"train/{metric}_episode_end_{agg}", step_metric="episode_count", summary="min"
             )
             wandb.define_metric(
-                f"{metric}_episode_end_{agg}", step_metric="episode_count", summary="max"
+                f"train/{metric}_episode_end_{agg}", step_metric="episode_count", summary="max"
             )
     for metric in loss_metrics:
         wandb.define_metric(f"{metric}", step_metric="update_epoch")
@@ -1736,11 +1791,12 @@ def setup_wandb(config, project_name, experiment_name):
     if config.get("ENHANCED_LOGGING", False):
         for metric in diagnostics_metrics:
             wandb.define_metric(f"{metric}", step_metric="update_epoch")
-    wandb.define_metric("training_time", step_metric="env_step")
-    # Eval during training metrics
-    for bp in ["service_blocking_probability", "bitrate_blocking_probability"]:
-        for stat in ["mean", "std"]:
-            wandb.define_metric(f"eval/{bp}_{stat}", step_metric="env_step")
+    if standalone_eval:
+        wandb.define_metric("eval/time_s", step_metric=eval_step)
+    else:
+        wandb.define_metric("performance/time_s", step_metric="env_step")
+    for metric in ("increment_time_s", "environment_transitions_per_s"):
+        wandb.define_metric(f"performance/{metric}", step_metric="env_step")
 
 
 def run_eval_during_training(
@@ -2252,7 +2308,7 @@ def build_run_summary(
     run_type: str,
     config: dict,
     metrics_dict: Dict[str, Dict[str, float]],
-    timing: Dict[str, float] | None = None,
+    timing: Dict[str, Any] | None = None,
 ) -> dict:
     """Build a standardized run summary dictionary.
 
@@ -2315,8 +2371,12 @@ def write_run_summary(
         print(f"{'Timestamp:':<22s} {summary['timestamp']}")
         if summary.get("timing"):
             t = summary["timing"]
+            if t.get("startup_time_s") is not None:
+                print(f"{'Total startup:':<22s} {t['startup_time_s']:.2f}s")
             if t.get("compilation_time_s") is not None:
-                print(f"{'Compilation time:':<22s} {t['compilation_time_s']:.2f}s")
+                print(f"{'XLA compile/load:':<22s} {t['compilation_time_s']:.2f}s")
+            if t.get("warmup_execution_time_s") is not None:
+                print(f"{'Warmup execution:':<22s} {t['warmup_execution_time_s']:.2f}s")
             if t.get("execution_time_s") is not None:
                 print(f"{'Execution time:':<22s} {t['execution_time_s']:.2f}s")
             if t.get("fps") is not None:
@@ -2349,7 +2409,7 @@ def print_metrics(
     processed_data: Dict[str, Dict[str, Array]],
     config: Union[Box, Dict[str, Any]],
     user_flags: dict | None = None,
-    timing: Dict[str, float] | None = None,
+    timing: Dict[str, Any] | None = None,
 ) -> None:
     """Print final metrics as a standardized run summary and optionally write JSONL."""
     # Determine run type
@@ -2394,6 +2454,9 @@ def log_metrics(
     step_count: int = 0,
 ) -> Tuple[Dict, Dict]:
     """Log metrics to wandb and/or save episode end metrics to CSV."""
+    standalone_eval = config.get("EVAL_HEURISTIC", False) or config.get("EVAL_MODEL", False)
+    prefix = "eval/" if standalone_eval else "train/"
+    time_metric = "eval/time_s" if standalone_eval else "performance/time_s"
 
     with TimeIt("Processing metrics"):
         merged_out, merged_out_loss, processed_data, episode_ends = process_metrics(
@@ -2487,7 +2550,11 @@ def log_metrics(
                 print(f"Logging episode end metrics for {np.sum(episode_ends)} episodes")
                 for i in range(len(processed_data[all_metrics[0]]["episode_end_mean"])):
                     log_dict = {
-                        f"{metric}_{stat}": processed_data[metric][stat][i]
+                        (
+                            f"eval/{metric}_{stat.removeprefix('episode_end_')}"
+                            if standalone_eval
+                            else f"train/{metric}_{stat}"
+                        ): processed_data[metric][stat][i]
                         for metric in all_metrics
                         for stat in [
                             "episode_end_mean",
@@ -2496,7 +2563,7 @@ def log_metrics(
                             "episode_end_iqr_lower",
                         ]
                     }
-                    log_dict["training_time"] = training_time[i]
+                    log_dict[time_metric] = training_time[i]
                     log_dict["episode_count"] = i + episode_count
                     wandb.log(log_dict)
 
@@ -2531,13 +2598,25 @@ def log_metrics(
                 print("Logging per step metrics")
                 for i in range(len(processed_data[all_metrics[0]]["mean"])):
                     log_dict = {
-                        f"{metric}_{agg}": processed_data[metric][agg][i]
+                        f"{prefix}{metric}_{agg}": processed_data[metric][agg][i]
                         for metric in all_metrics
                         for agg in ["mean", "std", "iqr_upper", "iqr_lower"]
                     }
-                    log_dict["training_time"] = training_time[i]
+                    log_dict[time_metric] = training_time[i]
                     log_dict["env_step"] = (i * config.DOWNSAMPLE_FACTOR) + step_count
                     wandb.log(log_dict)
+
+            wandb.log(
+                {
+                    "performance/increment_time_s": increment_run_time,
+                    "performance/environment_transitions_per_s": (
+                        config.STEPS_PER_INCREMENT
+                        * config.NUM_LEARNERS
+                        / max(increment_run_time, 1e-9)
+                    ),
+                    "env_step": step_count + config.STEPS_PER_INCREMENT // config.NUM_ENVS,
+                }
+            )
 
             if config.LOG_LOSS_INFO and merged_out_loss is not None:
                 print("Logging loss info")
