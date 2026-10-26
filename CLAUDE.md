@@ -291,6 +291,43 @@ pytest xlron/environments/env_funcs_test.py::test_function_name -v
 pytest . --cov=xlron
 ```
 
+### Testing on a GPU
+
+CI runs on CPU only, so anything whose correctness can depend on the device --
+Pallas/Triton kernels, which the CPU interpreter lowers differently, and float32
+numerics near the limits of the format -- has to be confirmed on a real GPU
+before it is trusted.
+
+The departmental GPU hosts are `uceedoh@turin.ee.ucl.ac.uk` (4x A100 80GB PCIe),
+`uceedoh@geneva.ee.ucl.ac.uk` (4x A100-SXM4-80GB) and
+`uceedoh@malmo.ee.ucl.ac.uk` (4x H100 NVL). `~/scripts/gpu_status.sh` reports
+per-GPU memory, utilisation and active users on turin and geneva; pick an idle
+GPU from it rather than assuming one is free.
+
+**Reaching them needs UCL network access**: either the UCL VPN (Cisco
+AnyConnect) must be connected, or the connection must go through
+`ssh-gateway.ucl.ac.uk`. Nothing resolves or answers from outside. The
+`~/.ssh/config` aliases route via the gateway, which needs the SSH agent to hold
+the keys; with the VPN up, `-o ProxyJump=none` connects directly. If hosts stop
+answering mid-session, the VPN has usually dropped -- ask rather than retrying.
+
+Two traps on those hosts:
+
+- `~/.bashrc` sets `PYTHONPATH=/home/uceedoh/git/XLRON`, so pytest in any other
+  checkout silently imports that copy. `unset PYTHONPATH` and print
+  `xlron.__file__` before trusting a result.
+- They are shared. Pin one GPU and cap memory:
+  `CUDA_VISIBLE_DEVICES=<n> XLA_PYTHON_CLIENT_PREALLOCATE=false
+  XLA_PYTHON_CLIENT_MEM_FRACTION=0.25`. Run test files in separate processes
+  with `XLA_FLAGS=--xla_gpu_force_compilation_parallelism=1`; one long pytest
+  process hits `LLVM ERROR: pthread_create failed`.
+
+GitHub-hosted GPU runners are not an option for this repo: they are limited to
+organisations on Team/Enterprise Cloud plans, are billed per minute even on
+public repositories, and offer only a Tesla T4. A self-hosted runner on these
+machines would be free but is unsafe for a public repository, since a fork's
+pull request can run arbitrary code on the runner.
+
 ## Dtype Configuration
 
 `dtype_config.py` provides device-aware dtypes resolved by `initialize_dtypes(config)` (called from `process_config`, so every entry point picks them up):
