@@ -204,13 +204,15 @@ def main():
         "include_no_op": False,
         "continuous_operation": True,
         "TOTAL_TIMESTEPS": 10000,
-        "gn_kernel_backend": args.gn_kernel_backend,
     }
     if args.band_preference:
         config["band_preference"] = args.band_preference
     if args.load is not None:
         config["load"] = args.load
+    # The kernel backend changes how, not what, is computed: keep it out of the
+    # workload key so saved states can be replayed with either backend.
     workload_key = json.dumps(config, sort_keys=True)
+    config["gn_kernel_backend"] = args.gn_kernel_backend
     env, params = make(config, log_wrapper=False)
     if hasattr(params, "gn_mask_mode"):
         params = params.replace(
