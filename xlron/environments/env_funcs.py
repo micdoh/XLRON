@@ -4420,8 +4420,21 @@ def lightpath_representatives(state: GNModelEnvState, params: GNModelEnvParams) 
     return present & (pid >= 0) & on_first_link & ~continues
 
 
+# Arrays that describe a lit lightpath. The *_prev undo snapshots are not
+# touched: they are rewritten by the next tentative allocation before any use.
+_LIGHTPATH_ARRAYS = {
+    "link_slot_array": 0,
+    "link_slot_departure_array": 0,
+    "path_index_array": -1,
+    "channel_centre_bw_array": 0,
+    "channel_power_array": 0,
+    "channel_centre_freq_array": 0,
+    "modulation_format_index_array": -1,
+}
+
+
 def _switch_off_lightpath(state: RMSAGNModelEnvState, link: Array, slot: Array):
-    """Remove the whole lightpath through cell (link, slot) from every array."""
+    """Remove the whole lightpath through cell (link, slot) from the state arrays."""
     pid = state.path_index_array[link, slot]
     centre = state.channel_centre_freq_array[link, slot]
     footprint = (
@@ -4429,31 +4442,20 @@ def _switch_off_lightpath(state: RMSAGNModelEnvState, link: Array, slot: Array):
         & (state.path_index_array == pid)
         & (state.channel_centre_freq_array == centre)
     )
-
-    def clear(array, value):
-        return jnp.where(footprint, jnp.asarray(value, array.dtype), array)
-
     return state.replace(
-        link_slot_array=clear(state.link_slot_array, 0),
-        link_slot_departure_array=clear(state.link_slot_departure_array, 0),
-        link_snr_array=clear(state.link_snr_array, 0),
-        path_index_array=clear(state.path_index_array, -1),
-        channel_centre_bw_array=clear(state.channel_centre_bw_array, 0),
-        channel_power_array=clear(state.channel_power_array, 0),
-        channel_centre_freq_array=clear(state.channel_centre_freq_array, 0),
-        modulation_format_index_array=clear(state.modulation_format_index_array, -1),
-        path_index_array_prev=clear(state.path_index_array_prev, -1),
-        channel_centre_bw_array_prev=clear(state.channel_centre_bw_array_prev, 0),
-        channel_power_array_prev=clear(state.channel_power_array_prev, 0),
-        channel_centre_freq_array_prev=clear(state.channel_centre_freq_array_prev, 0),
-        modulation_format_index_array_prev=clear(state.modulation_format_index_array_prev, -1),
-        link_snr_array_prev=clear(state.link_snr_array_prev, 0),
+        **{
+            name: jnp.where(
+                footprint, jnp.asarray(value, getattr(state, name).dtype), getattr(state, name)
+            )
+            for name, value in _LIGHTPATH_ARRAYS.items()
+        }
     )
 
 
 # Release passes per arrival: a release can raise other survivors' margins and
 # enable an earlier-rejected release, so repeat while the previous pass released.
 SAFE_RELEASE_PASSES = 2
+MAX_RELEASE_CANDIDATES = 32
 
 
 def release_departures_safely(
@@ -4477,9 +4479,19 @@ def release_departures_safely(
         state = state.replace(
             link_slot_departure_array=jnp.where(present, dep - state.arrival_time, dep)
         )
-    held = held_lightpath_mask(state, params) & lightpath_representatives(state, params)
-    count = jnp.sum(held)
-    order = jnp.argsort(jnp.where(held, state.link_slot_departure_array, jnp.inf).reshape(-1))
+    held = (held_lightpath_mask(state, params) & lightpath_representatives(state, params)).reshape(
+        -1
+    )
+    # Order at most MAX_RELEASE_CANDIDATES held lightpaths per arrival, oldest first;
+    # any beyond that are attempted at later arrivals.
+    cells = jnp.nonzero(held, size=MAX_RELEASE_CANDIDATES, fill_value=0)[0]
+    count = jnp.minimum(jnp.sum(held), MAX_RELEASE_CANDIDATES)
+    ages = jnp.where(
+        jnp.arange(MAX_RELEASE_CANDIDATES) < count,
+        state.link_slot_departure_array.reshape(-1)[cells],
+        jnp.inf,
+    )
+    order = cells[jnp.argsort(ages)]
     if params.existing_snr_margin > 0:
         current_snr = get_lightpath_snr(state, params)  # The cache is fresh (see attempt).
     else:
@@ -4511,7 +4523,12 @@ def release_departures_safely(
             jnp.where(live_lightpath_mask(candidate, params), candidate_snr >= required, True)
         )
         release = still_held & safe
-        s = jax.tree.map(lambda a, b: jnp.where(release, a, b), candidate, s)
+        s = s.replace(
+            **{
+                name: jnp.where(release, getattr(candidate, name), getattr(s, name))
+                for name in (*_LIGHTPATH_ARRAYS, "link_snr_array")
+            }
+        )
         if snr is not None:
             snr = jnp.where(release, candidate_snr, snr)
         released_in_pass = released_in_pass | release

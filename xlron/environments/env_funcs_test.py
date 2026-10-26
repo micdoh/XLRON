@@ -1598,6 +1598,8 @@ class TestGetExistingSnrRequirements:
         s = s.replace(
             channel_centre_bw_array=jnp.ones_like(s.channel_centre_bw_array).at[:, -1].set(0),
             modulation_format_index_array=jnp.zeros_like(s.modulation_format_index_array),
+            # Live lightpaths depart in the future (none is held for release).
+            link_slot_departure_array=jnp.full_like(s.link_slot_departure_array, 100.0),
         )
         threshold = p.modulations_array.val[0, 2]
         headroom = jnp.array([-1.0, 0.0, 0.2, 1.0, 3.0, 50.0, 0.5, 0.0])
