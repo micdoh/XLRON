@@ -342,7 +342,6 @@ def isrs_gn_model_uniform(
         )
     )
     T_k = T[None, :]
-    # .T is a no-op on 1D arrays — matches original _xpm broadcasting conventions
     xpm_single = _xpm(ch_pow, ch_pow.T, phi_ik, T_k, ch_bw, ch_bw.T, a.T, a_bar.T, gamma)
     eta_xpm = xpm_single * num_spans
 
@@ -416,8 +415,19 @@ def _spm(phi_i, t_i, B_i, a_i, a_bar_i, gamma):
     ) / a_plus_abar * jnp.arcsinh(phi_i * B2 / a_plus_abar / pi)
 
 
+def _as_channel_column(x):
+    """Put per-channel (i) values on the row axis of an (i, k) pair matrix.
+
+    Callers pass 1-D arrays, and `.T` is a no-op on those, so without this the
+    channel-of-interest operands would broadcast along the interferer axis k.
+    """
+    x = jnp.asarray(x)
+    return x[:, None] if x.ndim == 1 else x
+
+
 def _xpm(p_i, p_k, phi_ik, T_k, B_i, B_k, a_k, a_bar_k, gamma):
     """XPM contribution, see Ref. [1, Eq. (11)]"""
+    p_i, B_i = _as_channel_column(p_i), _as_channel_column(B_i)
     p_i_safe = jnp.maximum(p_i, EPS)
     power_ratio_sq = (p_k / p_i_safe) ** 2
     denom = B_k * phi_ik * a_bar_k * (2 * a_k + a_bar_k)
@@ -445,6 +455,7 @@ def _xpm_corr(p_i, p_k, phi_ik, T_k, B_i, B_k, a_k, a_bar_k, gamma, Phi, TX1):
     Mirrors _xpm (same prefactor and denominator guards) with the modulation-format
     factor Phi * TX1 applied per interfering channel k.
     """
+    p_i, B_i = _as_channel_column(p_i), _as_channel_column(B_i)
     p_i_safe = jnp.maximum(p_i, EPS)
     power_ratio_sq = (p_k / p_i_safe) ** 2
     denom = B_k * phi_ik * a_bar_k * (2 * a_k + a_bar_k)
@@ -485,6 +496,7 @@ def _xpm_corr_asymp(p_i, p_k, phi_ik, phi, T_k, B_k, a, a_bar, gamma, df, Phi, T
     Correction Formula for the Gaussian Noise Model in the Presence of Inter-Channel
     Stimulated Raman Scattering," IEEE Photon. Technol. Lett., 2019 (arXiv:1903.02506).
     """
+    p_i = _as_channel_column(p_i)
     # Guard on the raw power/bandwidth (0 = unoccupied channel) before sanitising the
     # divisors; powers are in Watts (~1e-3) so a `> 1.0` guard would zero everything.
     p_i_safe = jnp.where(p_i > 0.0, p_i, 1.0)

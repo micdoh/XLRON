@@ -2469,6 +2469,192 @@ class BlockingCauseCountersTest(chex.TestCase):
         self.assertEqual(int(log_state.blocked_spectrum), 0)
 
 
+def _numpy_xpm64(
+    power, frequency, bandwidth, *, num_spans, a, a_bar, gamma, cr, beta2, beta3, beta4
+):
+    """Float64 ISRS GN XPM coefficient, Semrau et al. JLT 2019, Eq. (11).
+
+    eta_i = sum_k (P_k/P_i)^2 * 32/27 * gamma^2 / (B_k phi_ik a_bar (2a + a_bar))
+            * [(T_k - a^2)/a atan(phi_ik B_i/a) + ((a+a_bar)^2 - T_k)/(a+a_bar) atan(phi_ik B_i/(a+a_bar))]
+    """
+    p, f, b = (np.asarray(x, np.float64) for x in (power, frequency, bandwidth))
+    fi, fk = f[:, None], f[None, :]
+    phi = (
+        2
+        * np.pi**2
+        * (fi - fk)
+        * (beta2 + np.pi * beta3 * (fi + fk) + 2 / 3 * np.pi**2 * beta4 * (fi**2 + fi * fk + fk**2))
+    )
+    t_k = ((a + a_bar - f * p.sum() * cr) ** 2)[None, :]
+    denom = b[None, :] * phi * a_bar * (2 * a + a_bar)
+    ap = a + a_bar
+    with np.errstate(divide="ignore", invalid="ignore"):
+        pairs = (
+            (p[None, :] / np.maximum(p[:, None], 1e-12)) ** 2
+            * 32
+            / 27
+            * gamma**2
+            / denom
+            * (
+                (t_k - a**2) / a * np.arctan(phi * b[:, None] / a)
+                + (ap**2 - t_k) / ap * np.arctan(phi * b[:, None] / ap)
+            )
+        )
+    return num_spans * np.sum(np.where(denom != 0, pairs, 0.0), axis=1)
+
+
+class XpmChannelInterfererBroadcastTest(chex.TestCase):
+    """XPM must keep channel (i) and interferer (k) operands on separate axes.
+
+    Earlier tests used equal powers and bandwidths, which hides a 1-D `.T`
+    broadcast that replaced (P_k/P_i)^2 by 1 and B_i by B_k.
+    """
+
+    ref_lambda = 1550e-9
+    length = 80e3
+    num_spans = 3
+    power = np.array([1e-3, 4e-3, 0.5e-3, 2e-3, 1e-3])
+    bandwidth = np.array([25e9, 50e9, 12.5e9, 75e9, 37.5e9])
+    frequency = np.array([-300e9, -150e9, 0.0, 120e9, 280e9]) + 193.4e12
+
+    def _reference(self):
+        from scipy.constants import c
+
+        d, s, lam = 17e-12 / 1e-9 / 1e3, 0.067e-12 / 1e-9 / 1e3 / 1e-9, self.ref_lambda
+        a = 0.2 / 4.343 / 1e3
+        return _numpy_xpm64(
+            self.power,
+            self.frequency,
+            self.bandwidth,
+            num_spans=self.num_spans,
+            a=a,
+            a_bar=a,
+            gamma=1.2e-3,
+            cr=0.028 / 1e3 / 1e12,
+            beta2=-d * lam**2 / (2 * np.pi * c),
+            beta3=lam**2 / (2 * np.pi * c) ** 2 * (lam**2 * s + 2 * lam * d),
+            beta4=-(lam**4) / (2 * np.pi * c) ** 3 * (6 * lam * s + 6 * d + s * lam**2),
+        )
+
+    def _kwargs(self):
+        n = self.power.size
+        return dict(
+            num_channels=n,
+            num_spans=self.num_spans,
+            ref_lambda=self.ref_lambda,
+            ch_power_W_i=jnp.asarray(self.power),
+            ch_centre_i=jnp.asarray(self.frequency),
+            ch_bandwidth_i=jnp.asarray(self.bandwidth),
+            attenuation_i=0.2 / 4.343 / 1e3 * jnp.ones(n),
+            attenuation_bar_i=0.2 / 4.343 / 1e3 * jnp.ones(n),
+            raman_gain_slope_i=0.028 / 1e3 / 1e12 * jnp.ones(n),
+            nonlinear_coeff=1.2e-3,
+            coherent=False,
+        )
+
+    def test_uniform_model_matches_float64_reference(self):
+        from xlron.environments.gn_model.isrs_gn_model import isrs_gn_model_uniform
+
+        # x64 isolates the formula from the float32 dispersion underflow of issue #64.
+        with jax.enable_x64(True):
+            _, _, _, eta_xpm = isrs_gn_model_uniform(**self._kwargs(), length=self.length)
+            np.testing.assert_allclose(np.asarray(eta_xpm), self._reference(), rtol=1e-9)
+
+    def test_non_uniform_model_matches_float64_reference(self):
+        from xlron.environments.gn_model.isrs_gn_model import isrs_gn_model
+
+        with jax.enable_x64(True):
+            _, _, _, eta_xpm = isrs_gn_model(
+                **self._kwargs(),
+                length=self.length * jnp.ones(self.num_spans),
+                max_spans=self.num_spans,
+                dispersion_coeff=17e-12 / 1e-9 / 1e3,
+                dispersion_slope=0.067e-12 / 1e-9 / 1e3 / 1e-9,
+            )
+            np.testing.assert_allclose(np.asarray(eta_xpm), self._reference(), rtol=1e-9)
+
+    def test_xpm_nli_scales_with_channel_and_interferer_power(self):
+        from xlron.environments.gn_model.isrs_gn_model import isrs_gn_model_uniform
+
+        # Raman tilt depends on total power, so remove it to isolate the P_i P_k^2 law.
+        with jax.enable_x64(True):
+            kwargs = self._kwargs() | {"raman_gain_slope_i": jnp.zeros(self.power.size)}
+            _, _, _, base = isrs_gn_model_uniform(**kwargs, length=self.length)
+            doubled = kwargs | {"ch_power_W_i": kwargs["ch_power_W_i"].at[1].multiply(2.0)}
+            _, _, _, scaled = isrs_gn_model_uniform(**doubled, length=self.length)
+            nli_base = np.asarray(base) * self.power**3
+            p2 = self.power.copy()
+            p2[1] *= 2
+            nli_scaled = np.asarray(scaled) * p2**3
+            # XPM NLI on channel i scales as P_i * sum_k P_k^2: doubling P_1 doubles
+            # its own XPM NLI and raises every other channel's.
+            np.testing.assert_allclose(nli_scaled[1], 2 * nli_base[1], rtol=1e-9)
+            assert np.all(nli_scaled[[0, 2, 3, 4]] > nli_base[[0, 2, 3, 4]])
+
+    def test_generic_and_fused_link_snr_agree_with_mixed_channels(self):
+        env, params = make(
+            {
+                "env_type": "rmsa_gn_model",
+                "topology_name": "5node_directed",
+                "k": 2,
+                "link_resources": 16,
+                "slot_size": 25,
+                "guardband": 0,
+                "values_bw": [100],
+                "max_requests": 10,
+                "incremental_loading": True,
+                "coherent": False,
+                "max_power_per_fibre": 21,
+                "power_per_channel": -10,
+                "include_no_op": False,
+            },
+            log_wrapper=False,
+        )
+        _, state = env.reset(jax.random.PRNGKey(0), params)
+        rng = np.random.default_rng(0)
+        live = rng.random((params.num_links, params.link_resources)) < 0.6
+        power = np.where(live, 10 ** (rng.uniform(-13, -7, live.shape) / 10), 0.0)
+        bw = np.where(live, rng.choice([12.5, 25.0], live.shape), 0.0)
+        state = state.replace(
+            channel_power_array=jnp.asarray(power, jnp.float32),
+            channel_centre_bw_array=jnp.asarray(bw, jnp.float32),
+            channel_centre_freq_array=jnp.asarray(
+                np.where(live, getattr(params, "slot_centre_freq_array").val[None, :], 0.0),
+                jnp.float32,
+            ),
+            path_index_array=jnp.where(jnp.asarray(live), 0, -1).astype(
+                state.path_index_array.dtype
+            ),
+        )
+        generic = get_snr_link_array(state, params)
+        fused = get_snr_link_array_fused(state, params)
+        np.testing.assert_allclose(np.asarray(generic)[live], np.asarray(fused)[live], rtol=2e-4)
+
+
+class MinimumPathSnrJitTest(chex.TestCase):
+    def test_traced_slot_index_under_vmap(self):
+        """params (argument 4) is the static argument; slot indices may be traced."""
+        env, params = make(
+            {
+                "env_type": "rmsa_gn_model",
+                "topology_name": "5node_directed",
+                "k": 2,
+                "link_resources": 8,
+                "slot_size": 25,
+                "values_bw": [100],
+                "max_requests": 10,
+                "include_no_op": False,
+            },
+            log_wrapper=False,
+        )
+        _, state = env.reset(jax.random.PRNGKey(0), params)
+        path = get_paths(params, jnp.array([0, 1]))[0]
+        snr = jax.vmap(lambda s: get_minimum_snr_of_channels_on_path(state, path, s, 2, params))(
+            jnp.arange(3)
+        )
+        assert snr.shape == (3,)
+
+
 if __name__ == "__main__":
     jax.config.update("jax_numpy_rank_promotion", "raise")
     absltest.main()

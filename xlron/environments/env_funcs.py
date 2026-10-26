@@ -4893,7 +4893,7 @@ def calculate_throughput_from_active_lightpaths(
     return jnp.sum(datarate)
 
 
-@partial(jax.jit, static_argnums=(2,))
+@partial(jax.jit, static_argnums=(4,))
 def get_minimum_snr_of_channels_on_path(
     state: RSAGNModelEnvState,
     path: Array,
