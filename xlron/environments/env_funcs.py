@@ -1410,7 +1410,12 @@ def generate_request_rsa(
     elif params.__class__.__name__ == "RSAGNModelEnvParams":
         remove_expired_services = remove_expired_services_rsa_gn_model
     state = remove_expired_services(state, params) if not params.incremental_loading else state
-    if params.transformer_obs_type in ("snr", "occupancy_snr", "departure_snr", "lifetime_snr"):
+    if params.transformer_obs_type in (
+        "snr",
+        "occupancy_snr",
+        "departure_snr",
+        "lifetime_snr",
+    ) and not link_snr_cache_is_fresh(cast(GNModelEnvParams, params)):
         # Departures change interference on the remaining channels. Refresh once
         # here, outside the policy forward/backward passes, so observations do
         # not expose the stale pre-departure cache. Preserve the generic model
@@ -4394,6 +4399,17 @@ def held_lightpath_mask(state: GNModelEnvState, params: GNModelEnvParams) -> Arr
     return present & (state.link_slot_departure_array <= now)
 
 
+def link_snr_cache_is_fresh(params: GNModelEnvParams) -> bool:
+    """Whether state.link_snr_array always equals get_snr_link_array(state).
+
+    Link SNR depends only on that link's own channels. Under safe_release every
+    change re-solves exactly the links it touches (admissions, releases, and
+    rollbacks restore the snapshot), so consumers may read the cache directly.
+    Immediate departures leave the remaining channels on their links stale.
+    """
+    return getattr(params, "departure_policy", "immediate") == "safe_release"
+
+
 def live_lightpath_mask(state: GNModelEnvState, params: GNModelEnvParams) -> Array:
     """Occupied cells whose lightpath carries traffic and so must meet its SNR threshold."""
     return (state.channel_centre_bw_array != 0) & ~held_lightpath_mask(state, params)
@@ -5101,8 +5117,16 @@ def implement_action_rmsa_gn_model(
             get_centre_frequency(action_info.initial_slot_index, action_info.num_slots, params),
         ),
     )
-    # Update link_snr_array
-    state = state.replace(link_snr_array=get_snr_link_array(state, params))
+    if link_snr_cache_is_fresh(params):
+        # Only the new lightpath's links changed; the other rows are already exact.
+        path_links = params.path_link_indices.val[lightpath_index]
+        state = state.replace(
+            link_snr_array=state.link_snr_array.at[path_links].set(
+                get_snr_link_array(state, params, path_links), mode="drop"
+            )
+        )
+    else:
+        state = state.replace(link_snr_array=get_snr_link_array(state, params))
     # jax.debug.print("launch_power {}", launch_power, ordered=True)
     # jax.debug.print("mod_format_index {}", mod_format_index, ordered=True)
     # jax.debug.print("initial_slot_index {}", initial_slot_index, ordered=True)
@@ -5276,6 +5300,31 @@ def _store_unaggregated_gn_mask(state, params, modulation):
     )
 
 
+def _true_indices(mask: Array, params: GNModelEnvParams) -> tuple[Array, Array]:
+    """jnp.nonzero(mask, size=mask.size, fill_value=0)[0] and jnp.sum(mask)."""
+    if uses_pallas_kernels(params):
+        from xlron.kernels.compact import compact_true_indices
+
+        return compact_true_indices(mask)
+    return jnp.nonzero(mask, size=mask.shape[0], fill_value=0)[0], jnp.sum(mask)
+
+
+def _tiered_batches(live, batch_fn, size, carry):
+    """Run batch_fn(batch, carry) over positions [0, live) in a device while loop.
+
+    Live counts are usually far below the batch size in a loaded network, so each
+    iteration that can finish the remainder uses an eighth-size batch instead of
+    padding the full one. carry[0] is the next position; batch_fn advances it.
+    """
+    sizes = sorted({max(1, size // 8), size})
+
+    def body(c):
+        tier = jnp.sum(live - c[0] > jnp.array(sizes[:-1]))
+        return jax.lax.switch(tier, [partial(batch_fn, s) for s in sizes], c)
+
+    return jax.lax.while_loop(lambda c: c[0] < live, body, carry)
+
+
 @partial(jax.jit, static_argnums=(1,))
 def mask_slots_rmsa_gn_model(
     state: RMSAGNModelEnvState, params: RMSAGNModelEnvParams, request: Array
@@ -5304,10 +5353,13 @@ def mask_slots_rmsa_gn_model(
 
         states = jax.tree.map(broadcast, states, in_batched[0])
         requests = broadcast(requests, in_batched[1])
+        batch_size = min(params.gn_mask_env_batch_size, axis_size)
+        # lax.map with batch_size=1 still vmaps a batch of one, which turns every
+        # data-dependent cond/switch in the mask into a select of all branches.
         result = jax.lax.map(
             lambda pair: one(*pair),
             (states, requests),
-            batch_size=min(params.gn_mask_env_batch_size, axis_size),
+            batch_size=None if batch_size == 1 else batch_size,
         )
         return result, jax.tree.map(lambda _: True, result)
 
@@ -5524,7 +5576,8 @@ def _mask_slots_rmsa_gn_model(
         all_has_candidate = slot_available.reshape(-1)
 
     # Refresh once: departures can leave cached SNR stale on otherwise unchanged
-    # links. Each candidate subsequently recalculates only its own path links.
+    # links, and heuristics may pass a stale cache. Each candidate subsequently
+    # recalculates only its own path links.
     snr_fn = (
         get_snr_link_array_fused
         if params.uniform_spans
@@ -5738,17 +5791,21 @@ def _mask_slots_rmsa_gn_model(
         # kernels never evaluate candidates removed by this exact short circuit.
         starts = params.k_paths * params.link_resources
         batch_size = min(params.gn_mask_batch_size, starts)
-        offsets = jnp.arange(batch_size)
         screen_size = min(params.gn_mask_screen_batch_size, starts)
-        screen_offsets = jnp.arange(screen_size)
         order = jnp.argsort(-se_values, stable=True)
 
         def format_pass(rank, best):
             mod = order[rank]
             available = slot_available[:, mod, :].reshape(-1) & (best < 0)
+            # Skip packing for passes with no available start (common once
+            # higher-SE formats have claimed theirs in a loaded network).
+            return jax.lax.cond(
+                jnp.any(available), partial(evaluate_format, mod), lambda _a, b: b, available, best
+            )
+
+        def evaluate_format(mod, available, best):
             screen_threshold = req_snr_values[mod]
-            packed = jnp.nonzero(available, size=starts, fill_value=0)[0]
-            live = jnp.sum(available)
+            packed, live = _true_indices(available, params)
 
             if endpoint_screen:
                 # Exact GN output rows for the two endpoints, still including
@@ -5817,28 +5874,36 @@ def _mask_slots_rmsa_gn_model(
                     # evaluation-order differences between the two code paths.
                     return feasible & jnp.all(snr >= screen_threshold - ENDPOINT_SCREEN_SLACK_DB)
 
-                def screen_batch(carry):
+                def screen_batch(size, carry):
                     start, keep = carry
-                    positions = start + screen_offsets
+                    positions = start + jnp.arange(size)
                     flat = packed[jnp.minimum(positions, starts - 1)]
                     indices = (
                         (flat // params.link_resources) * num_mods + mod
                     ) * params.link_resources + flat % params.link_resources
                     ok = jax.vmap(new_endpoint_ok)(indices)
                     dest = jnp.where(positions < live, flat, starts)
-                    return start + screen_size, keep.at[dest].set(ok, mode="drop")
+                    return start + size, keep.at[dest].set(ok, mode="drop")
 
-                _, keep = jax.lax.while_loop(
-                    lambda c: c[0] < live,
-                    screen_batch,
-                    (jnp.int32(0), jnp.zeros((starts,), bool)),
+                _, keep = _tiered_batches(
+                    live, screen_batch, screen_size, (jnp.int32(0), jnp.zeros((starts,), bool))
                 )
-                packed = jnp.nonzero(available & keep, size=starts, fill_value=0)[0]
-                live = jnp.sum(available & keep)
+                available = available & keep
+            # Most screened passes have no survivor; skip their repacking too.
+            return jax.lax.cond(
+                jnp.any(available),
+                partial(evaluate_survivors, mod),
+                lambda _a, b: b,
+                available,
+                best,
+            )
 
-            def evaluate_batch(carry):
+        def evaluate_survivors(mod, available, best):
+            packed, live = _true_indices(available, params)
+
+            def evaluate_batch(size, carry):
                 start, chosen = carry
-                positions = start + offsets
+                positions = start + jnp.arange(size)
                 flat = packed[jnp.minimum(positions, starts - 1)]
                 path = flat // params.link_resources
                 slot = flat % params.link_resources
@@ -5859,11 +5924,9 @@ def _mask_slots_rmsa_gn_model(
                 chosen = chosen.at[destination].set(
                     jnp.where(valid, mod, chosen[flat]), mode="drop"
                 )
-                return start + batch_size, chosen
+                return start + size, chosen
 
-            _, best = jax.lax.while_loop(
-                lambda c: c[0] < live, evaluate_batch, (jnp.int32(0), best)
-            )
+            _, best = _tiered_batches(live, evaluate_batch, batch_size, (jnp.int32(0), best))
             return best
 
         best = jax.lax.fori_loop(0, num_mods, format_pass, jnp.full((starts,), -1, jnp.int32))
