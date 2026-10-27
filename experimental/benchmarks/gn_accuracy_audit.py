@@ -1,8 +1,11 @@
-"""Independent NumPy audit of two existing GN formula discrepancies.
+"""Independent NumPy audit of two formerly discrepant GN formulas.
 
-This is a diagnostic, not a replacement propagation model. The bracket grouping
-and channel axes follow the cited Semrau implementation; beta4 follows XLRON.
-No production formulas are changed by this audit. Run with:
+Both have since been fixed in production: the generic XPM channel/interferer
+axes, and the SPM bracket grouping (the Eq. (9) leading factor now multiplies
+both arcsinh terms), so both relative differences should now be at float32
+rounding level. This is a diagnostic, not a replacement propagation model. The
+bracket grouping and channel axes follow the cited Semrau implementation; beta4
+follows XLRON. No production formulas are changed by this audit. Run with:
   uv run python -m experimental.benchmarks.gn_accuracy_audit --output /tmp/audit.json
 """
 

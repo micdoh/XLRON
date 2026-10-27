@@ -119,6 +119,30 @@ In practice, incoherent accumulation is a reasonable approximation for most fibr
 
 One asymmetry is worth knowing about. `_spm` floors the squared bandwidth at `EPS`, a bare constant rather than a scaled quantity, so it stands for a different bandwidth in each unit. For an unoccupied channel the SI form drove the coefficient past the top of float32 while the rescaled form stays finite. Such channels reach the SNR sentinel either way, so no output changes.
 
+**SPM bracket grouping (changes results).** Ref. [1, Eq. (9)] multiplies *both* arcsinh terms of the SPM coefficient by its leading factor:
+
+```
+eta_SPM = 4/9 gamma^2 / B^2 * pi / (phi a_bar (2a + a_bar))
+          * [ (T - a^2)/a * asinh(phi B^2 / (pi a)) + ((a + a_bar)^2 - T)/(a + a_bar) * asinh(phi B^2 / (pi (a + a_bar))) ]
+```
+
+The bracket follows from the derivation: with the linear ISRS power profile `rho(z) = (1 - x/a_bar) e^{-a z} + (x/a_bar) e^{-(a + a_bar) z}`, `x = P_tot C_r f`, the link function is `(T + theta^2) / ((a^2 + theta^2)((a + a_bar)^2 + theta^2))` with `T = (a + a_bar - x)^2`. Splitting it into partial fractions in `theta^2` gives the two weights `T - a^2` and `(a + a_bar)^2 - T` over the common denominator `(a + a_bar)^2 - a^2 = a_bar (2a + a_bar)`. That denominator is the one in the leading factor, so the factor belongs to both terms. XLRON's XPM term (Eq. (11)) has always been bracketed this way. Until this fix, the SPM code applied the factor to the first term only. The second term was then added in units of 1/m to a coefficient in 1/W^2, about eight orders of magnitude too small, so it was effectively dropped. That term vanishes only without ISRS tilt (`T = (a + a_bar)^2`), so the error grew with total launch power and with distance from the reference frequency:
+
+- Low-frequency (L-band) channels, where `T > (a + a_bar)^2`, had their SPM overestimated.
+- High-frequency (C-band) channels had it underestimated.
+- Once depletion pushed `T` below `a^2`, eta_SPM came out negative.
+
+On a 9.6 THz C+L spectrum (192 x 50 GHz, `ref_lambda` = 1564 nm, 0.2 dB/km, NF 5 dB), the correction moves the optical SNR as follows. Edge refers to the outermost channel at each end of the spectrum.
+
+| Launch power per channel (total) | eta_SPM change | SNR change, 10 x 80 km incoherent (coherent) | L-band edge | C-band edge |
+|---|---|---|---|---|
+| -2 dBm (20.8 dBm) | -12% to +26% | -0.02 to +0.04 dB (-0.03 to +0.05) | +0.04 dB | -0.02 dB |
+| 0 dBm (22.8 dBm) | -17% to +63% | -0.08 to +0.16 dB (-0.11 to +0.20) | +0.16 dB | -0.08 dB |
+| 1 dBm (23.8 dBm) | -19% to +119% | -0.14 to +0.26 dB (-0.20 to +0.33) | +0.26 dB | -0.14 dB |
+| 4 dBm (26.8 dBm) | was negative on 28 of 192 channels | -0.56 to +0.55 dB (-0.82 to +0.66) | +0.55 dB | -0.56 dB |
+
+Channels at the reference frequency move by less than 0.005 dB. With the default `modulations.csv` thresholds and the 0.5 dB admission margin, between 0 and 10 of the 192 channels change their highest admissible format in each case above. These are the channels lying within a few tenths of a dB of a threshold. Changes go both ways: band-edge L-band channels gain formats, and C-band channels can lose them. **SNR, throughput and blocking results produced with `rsa_gn_model` / `rmsa_gn_model` before this change are affected**, most in high-power or wide-band C+L(+S) scenarios. `SpmBracketGroupingTest` in `gn_model_test.py` pins the bracketed form against a float64 reference and against its single-mode and `a_bar -> 0` limits.
+
 
 ### Modulation Format Correction
 
