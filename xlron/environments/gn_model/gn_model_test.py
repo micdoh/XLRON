@@ -2972,7 +2972,10 @@ class DispersionFloat32UnderflowTest(chex.TestCase):
             float64 = np.asarray(
                 jax.grad(lambda p: total(p, jnp.float64))(jnp.asarray(power, jnp.float64))
             )
-        np.testing.assert_allclose(float32, float64, rtol=1e-4)
+        # An empty slot's gradient reaches the SNR only through the ISRS tilt of
+        # the total power, a near-cancelling sum about 1e-3 the size of the
+        # occupied channels' gradients, so it is held to the spectrum's scale.
+        np.testing.assert_allclose(float32, float64, rtol=1e-4, atol=1e-6 * np.abs(float64).max())
 
     @parameterized.parameters({"fused": False}, {"fused": True})
     def test_link_snr_responds_to_dispersion_slope(self, fused):
@@ -3164,6 +3167,218 @@ class DispersionGradientTest(chex.TestCase):
         )
         assert np.all(np.isfinite(np.asarray(batched)))
         assert np.all(np.asarray(batched) != 0.0)
+
+
+def _numpy_spm64(frequency, bandwidth, total_power, *, a, a_bar, gamma, cr, beta2, beta3, beta4):
+    """Float64 ISRS GN SPM coefficient, Semrau et al. JLT 2019, Eq. (9)-(10).
+
+    eta_i = 4/9 gamma^2 / B_i^2 * pi / (phi_i a_bar (2a + a_bar))
+            * [(T_i - a^2)/a asinh(phi_i B_i^2/(pi a))
+               + ((a+a_bar)^2 - T_i)/(a+a_bar) asinh(phi_i B_i^2/(pi (a+a_bar)))]
+
+    with phi_i = 3/2 pi^2 (beta2 + 2 pi beta3 f_i + 2 pi^2 beta4 f_i^2) and
+    T_i = (a + a_bar - P_tot C_r f_i)^2. Plain SI units, no frequency rescaling.
+    """
+    f, b = (np.asarray(x, np.float64) for x in (frequency, bandwidth))
+    phi = 1.5 * np.pi**2 * (beta2 + 2 * np.pi * beta3 * f + 2 * np.pi**2 * beta4 * f**2)
+    t = (a + a_bar - f * total_power * cr) ** 2
+    ap = a + a_bar
+    return (
+        4 / 9 * gamma**2 / b**2 * np.pi / (phi * a_bar * (2 * a + a_bar))
+        * (
+            (t - a**2) / a * np.arcsinh(phi * b**2 / a / np.pi)
+            + (ap**2 - t) / ap * np.arcsinh(phi * b**2 / ap / np.pi)
+        )
+    )  # fmt: skip
+
+
+def _si_betas(ref_lambda, dispersion, slope):
+    lam, d, s = ref_lambda, dispersion, slope
+    return (
+        -d * lam**2 / (2 * np.pi * scipy_c),
+        lam**2 / (2 * np.pi * scipy_c) ** 2 * (lam**2 * s + 2 * lam * d),
+        -(lam**4) / (2 * np.pi * scipy_c) ** 3 * (6 * lam * s + 6 * d + s * lam**2),
+    )
+
+
+class SpmBracketGroupingTest(chex.TestCase):
+    """The SPM leading factor multiplies both arcsinh terms of Ref. [1, Eq. (9)].
+
+    With the linear ISRS profile rho(z) = (1 - x/a_bar) e^{-az} + (x/a_bar) e^{-(a+a_bar)z},
+    x = P_tot C_r f, the link function is (T + theta^2) / ((a^2 + theta^2)((a+a_bar)^2 + theta^2)).
+    Its partial fractions in theta^2 have weights (T - a^2) and ((a+a_bar)^2 - T) over the
+    common denominator (a+a_bar)^2 - a^2 = a_bar (2a + a_bar), which is the denominator of
+    the leading factor. Grouping that factor with the first term alone left the second in
+    units of 1/m, so in practice it was dropped: eta_SPM was wrong whenever the ISRS tilt
+    is non-zero, and negative once depletion pushes T below a^2.
+    """
+
+    ref_lambda = 1564e-9
+    dispersion = 17e-6
+    slope = 60.7
+    a = 0.2 / 4.343 / 1e3
+    # Distinct from a, so a swapped a / a_bar would not cancel.
+    a_bar = 0.7 * 0.2 / 4.343 / 1e3
+    gamma = 1.2e-3
+    cr = 2.8e-17
+
+    def _phase(self, frequency, dtype=jnp.float32):
+        beta2, beta3_s, beta4_s = dispersion_betas(self.ref_lambda, self.dispersion, self.slope)
+        return spm_phase(beta2, beta3_s, beta4_s, jnp.asarray(frequency, dtype) * INV_FREQ_SCALE)
+
+    def _spm(self, frequency, bandwidth, tilt, dtype=jnp.float32, a_bar=None):
+        return np.asarray(
+            _spm(
+                self._phase(frequency, dtype),
+                jnp.asarray(tilt, dtype),
+                jnp.asarray(bandwidth, dtype) * INV_FREQ_SCALE,
+                self.a,
+                self.a_bar if a_bar is None else a_bar,
+                self.gamma,
+            )
+        )
+
+    def _reference(self, frequency, bandwidth, total_power, a_bar=None):
+        return _numpy_spm64(
+            frequency,
+            bandwidth,
+            total_power,
+            a=self.a,
+            a_bar=self.a_bar if a_bar is None else a_bar,
+            gamma=self.gamma,
+            cr=self.cr,
+            beta2=_si_betas(self.ref_lambda, self.dispersion, self.slope)[0],
+            beta3=_si_betas(self.ref_lambda, self.dispersion, self.slope)[1],
+            beta4=_si_betas(self.ref_lambda, self.dispersion, self.slope)[2],
+        )
+
+    @parameterized.parameters({"total_power": 0.05}, {"total_power": 0.2}, {"total_power": 0.5})
+    def test_float32_spm_matches_float64_reference(self, total_power):
+        """Across a C+L spectrum, from mild tilt to depletion beyond T < a^2."""
+        frequency = np.linspace(-5e12, 5e12, 41)
+        bandwidth = np.resize([12.5e9, 25e9, 50e9, 100e9], frequency.size)
+        tilt = (self.a + self.a_bar - frequency * total_power * self.cr) ** 2
+        actual = self._spm(frequency, bandwidth, tilt)
+        expected = self._reference(frequency, bandwidth, total_power)
+        np.testing.assert_allclose(actual, expected, rtol=2e-5)
+
+    @parameterized.named_parameters(
+        # T = (a + a_bar)^2: no tilt, only the e^{-az} mode.
+        ("no_tilt", lambda a, a_bar: (a + a_bar) ** 2, lambda a, a_bar: a),
+        # T = a^2: all power in the e^{-(a + a_bar)z} mode.
+        ("full_depletion", lambda a, a_bar: a**2, lambda a, a_bar: a + a_bar),
+    )
+    def test_single_mode_limits_reduce_to_the_plain_closed_form(self, tilt_fn, alpha_fn):
+        """A single-exponential profile with attenuation alpha gives the familiar
+        4/9 gamma^2 pi / (B^2 phi alpha) * asinh(phi B^2 / (pi alpha)).
+        """
+        frequency = np.array([-4e12, 0.0, 3e12])
+        bandwidth = np.array([25e9, 50e9, 100e9])
+        alpha = alpha_fn(self.a, self.a_bar)
+        beta2, beta3, beta4 = _si_betas(self.ref_lambda, self.dispersion, self.slope)
+        phi = 1.5 * np.pi**2 * (beta2 + 2 * np.pi * beta3 * frequency
+                                + 2 * np.pi**2 * beta4 * frequency**2)  # fmt: skip
+        expected = (
+            4 / 9 * self.gamma**2 * np.pi / (bandwidth**2 * phi * alpha)
+            * np.arcsinh(phi * bandwidth**2 / (np.pi * alpha))
+        )  # fmt: skip
+        tilt = np.full(frequency.shape, tilt_fn(self.a, self.a_bar))
+        with jax.enable_x64(True):
+            actual = self._spm(frequency, bandwidth, tilt, jnp.float64)
+        np.testing.assert_allclose(actual, expected, rtol=1e-10)
+
+    def test_spm_stays_positive_when_depletion_pushes_tilt_below_a_squared(self):
+        """|link function|^2 is non-negative, so eta_SPM must be too.
+
+        The first term alone, which is what the old grouping effectively
+        returned, is negative here.
+        """
+        frequency = np.linspace(2e12, 5e12, 7)
+        bandwidth = np.full(frequency.shape, 50e9)
+        total_power = 0.6
+        tilt = (self.a + self.a_bar - frequency * total_power * self.cr) ** 2
+        assert np.all(tilt < self.a**2)
+        phi_s = np.asarray(self._phase(frequency))
+        b2 = (bandwidth * INV_FREQ_SCALE) ** 2
+        first_term_only = (
+            4 / 9 * self.gamma**2 / b2 * np.pi / (phi_s * self.a_bar * (2 * self.a + self.a_bar))
+            * (tilt - self.a**2) / self.a * np.arcsinh(phi_s * b2 / self.a / np.pi)
+        )  # fmt: skip
+        assert np.all(first_term_only < 0)
+        actual = self._spm(frequency, bandwidth, tilt)
+        assert np.all(actual > 0), actual
+        np.testing.assert_allclose(
+            actual, self._reference(frequency, bandwidth, total_power), rtol=2e-5
+        )
+
+    def test_a_bar_pole_is_removable(self):
+        """The 1 / a_bar in the leading factor cancels only against the whole bracket.
+
+        As a_bar -> 0 with x = P_tot C_r f fixed, the profile tends to
+        e^{-az}(1 - x z), whose SPM coefficient is finite.
+        """
+        frequency, bandwidth, x = np.array([3e12]), np.array([50e9]), 0.3 * self.a
+        values = []
+        with jax.enable_x64(True):
+            for scale in (1e-2, 1e-3, 1e-4):
+                a_bar = scale * self.a
+                tilt = (self.a + a_bar - x) ** 2
+                values.append(self._spm(frequency, bandwidth, tilt, jnp.float64, a_bar=a_bar))
+        values = np.concatenate(values)
+        assert np.all(np.isfinite(values)) and np.all(values > 0), values
+        np.testing.assert_allclose(values[1:], values[0], rtol=2e-2)
+
+    @parameterized.parameters({"path": "uniform"}, {"path": "non_uniform"}, {"path": "fused"})
+    def test_model_paths_use_the_bracketed_spm(self, path):
+        """One channel has no XPM partner, so its SPM is the whole NLI.
+
+        A strongly tilted single channel pins the SPM inside each model path.
+        For the fused path the amplifier noise is made negligible, which leaves
+        snr = 1 / (P^2 eta_SPM).
+        """
+        power, frequency, bandwidth = 0.4, 4e12, 50e9
+        expected = self._reference([frequency], [bandwidth], power)
+        with jax.enable_x64(True):
+            common = dict(
+                num_channels=1,
+                num_spans=1,
+                ref_lambda=self.ref_lambda,
+                ch_centre_i=jnp.array([frequency]),
+                ch_bandwidth_i=jnp.array([bandwidth]),
+                attenuation_i=jnp.array([self.a]),
+                attenuation_bar_i=jnp.array([self.a_bar]),
+                raman_gain_slope_i=jnp.array([self.cr]),
+                nonlinear_coeff=self.gamma,
+                dispersion_coeff=self.dispersion,
+                dispersion_slope=self.slope,
+                ch_power_W_i=jnp.array([power]),
+                coherent=False,
+            )
+            if path == "uniform":
+                eta_spm = isrs_gn_model_uniform(**common, length=80e3)[2]
+            elif path == "non_uniform":
+                eta_spm = isrs_gn_model(**common, length=jnp.array([80e3]), max_spans=1)[2]
+            else:
+                snr = get_snr_fused(
+                    jnp.array([power]),
+                    jnp.array([frequency]),
+                    jnp.array([bandwidth]),
+                    num_spans=1,
+                    span_length=80e3,
+                    num_channels=1,
+                    ref_lambda=self.ref_lambda,
+                    attenuation=self.a,
+                    attenuation_bar=self.a_bar,
+                    nonlinear_coeff=self.gamma,
+                    raman_gain_slope=self.cr,
+                    dispersion_coeff=self.dispersion,
+                    dispersion_slope=self.slope,
+                    amplifier_noise_figure=jnp.array([-200.0]),
+                    transceiver_snr=jnp.array([100.0]),
+                    coherent=False,
+                )
+                eta_spm = 1 / (np.asarray(snr) * power**2)
+        np.testing.assert_allclose(np.ravel(eta_spm), expected, rtol=1e-9)
 
 
 if __name__ == "__main__":

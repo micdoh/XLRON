@@ -381,14 +381,8 @@ def isrs_gn_model_uniform(
     B_eff_s = B_eff * INV_FREQ_SCALE
     # T term
     T = (a + a_bar - f * total_power * cr) ** 2
-    # SPM (inlined _spm)
-    B2 = jnp.maximum(B_eff_s**2, EPS)
-    a_plus_abar = a + a_bar
-    eta_spm = 4 / 9 * gamma**2 / B2 * pi / (phi_i_s * a_bar * (2 * a + a_bar)) * (
-        T - a**2
-    ) / a * jnp.arcsinh(phi_i_s * B2 / a / pi) + (a_plus_abar**2 - T) / a_plus_abar * jnp.arcsinh(
-        phi_i_s * B2 / a_plus_abar / pi
-    )
+    # SPM
+    eta_spm = _spm(phi_i_s, T, B_eff_s, a, a_bar, gamma)
     # Coherence scaling (uses B_eff for subchannel coherence)
     eps = _eps(B_eff, f, a, length, beta2, beta3_s) * coherent
     eta_spm = eta_spm * num_spans ** (1 + eps)
@@ -508,11 +502,18 @@ def _spm(phi_i_s, t_i, B_i_s, a_i, a_bar_i, gamma):
     """
     B2 = jnp.maximum(B_i_s**2, EPS)
     a_plus_abar = a_i + a_bar_i
-    return 4 / 9 * gamma**2 / B2 * pi / (phi_i_s * a_bar_i * (2 * a_i + a_bar_i)) * (
-        t_i - a_i**2
-    ) / a_i * jnp.arcsinh(phi_i_s * B2 / a_i / pi) + (
-        a_plus_abar**2 - t_i
-    ) / a_plus_abar * jnp.arcsinh(phi_i_s * B2 / a_plus_abar / pi)
+    # The leading factor multiplies the whole bracket of Eq. (9). Its
+    # 1 / (a_bar (2a + a_bar)) = 1 / ((a + a_bar)^2 - a^2) is the denominator of
+    # the partial-fraction split of the two-exponential ISRS link function into
+    # its e^{-a z} and e^{-(a + a_bar) z} modes, so it belongs to both terms; the
+    # second term alone has units of 1/m rather than 1/W^2.
+    return (
+        4 / 9 * gamma**2 / B2 * pi / (phi_i_s * a_bar_i * (2 * a_i + a_bar_i))
+        * (
+            (t_i - a_i**2) / a_i * jnp.arcsinh(phi_i_s * B2 / a_i / pi)
+            + (a_plus_abar**2 - t_i) / a_plus_abar * jnp.arcsinh(phi_i_s * B2 / a_plus_abar / pi)
+        )
+    )  # fmt: skip
 
 
 def _as_channel_column(x):
@@ -1055,7 +1056,7 @@ def get_snr_fused(
     ch_pow = ch_power_w_i  # (N,)
     total_power = jnp.sum(ch_pow)
 
-    # === SPM (inlined, no function call overhead) ===
+    # === SPM ===
     # Nyquist subchannels: use effective bandwidth B_eff = B / N_sub for SPM
     B_eff = ch_bw / num_subchannels
     fs = f * INV_FREQ_SCALE
@@ -1063,13 +1064,7 @@ def get_snr_fused(
     phi_i_s = spm_phase(beta2, beta3_s, beta4_s, fs)
     B_eff_s = B_eff * INV_FREQ_SCALE
     T = (a + a_bar - f * total_power * cr) ** 2
-    B2 = jnp.maximum(B_eff_s**2, EPS)
-    a_plus_abar = a + a_bar
-    eta_spm = 4 / 9 * gamma**2 / B2 * pi / (phi_i_s * a_bar * (2 * a + a_bar)) * (
-        T - a**2
-    ) / a * jnp.arcsinh(phi_i_s * B2 / a / pi) + (a_plus_abar**2 - T) / a_plus_abar * jnp.arcsinh(
-        phi_i_s * B2 / a_plus_abar / pi
-    )
+    eta_spm = _spm(phi_i_s, T, B_eff_s, a, a_bar, gamma)
     # Coherence factor (uses B_eff for subchannel coherence)
     eps = _eps(B_eff, f, a, span_length, beta2, beta3_s) * coherent
     eta_spm = eta_spm * num_spans ** (1 + eps)
