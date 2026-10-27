@@ -25,6 +25,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from xlron.environments.env_funcs import held_lightpath_mask, lightpath_representatives
+from xlron.heuristics.heuristics import FIRST_FIT_MASKS
 from xlron.environments.env_funcs import (
     calculate_throughput_from_active_lightpaths,
     get_lightpath_snr,
@@ -238,7 +239,7 @@ def main():
             if args.env_type == "rmsa_gn_model":
                 # As select_action_eval: first-fit heuristics need only first fits.
                 mask_params = params.replace(
-                    gn_mask_first_fit=args.heuristic in ("ksp_ff", "ff_ksp")
+                    gn_mask_first_fit=FIRST_FIT_MASKS.get(args.heuristic or "", "")
                 )
                 mask, full_mask, mods = env.action_mask(current, mask_params)
                 current = current.replace(

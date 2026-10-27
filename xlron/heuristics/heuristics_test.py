@@ -15264,8 +15264,8 @@ def test_gn_heuristics_reuse_a_fresh_state_mask(name):
 @pytest.mark.parametrize("name", ["ksp_ff", "ff_ksp"])
 @pytest.mark.parametrize("scenario", ["plain", "band_order", "varied_snr"])
 def test_first_fit_gn_mask_selects_the_full_mask_action(name, backend, scenario):
-    """gn_mask_first_fit keeps only each path's first valid start, with its
-    highest-SE format, so ksp_ff/ff_ksp choose the same action and format.
+    """The heuristic's gn_mask_first_fit mode keeps only first-fit starts, with the
+    full mask's highest-SE format, so ksp_ff/ff_ksp choose the same action.
 
     varied_snr spreads per-slot transceiver SNR across the format thresholds, so
     invalid starts and lower-SE formats precede higher-SE valid starts."""
@@ -15285,7 +15285,7 @@ def test_first_fit_gn_mask_selects_the_full_mask_action(name, backend, scenario)
         )
         params = params.replace(transceiver_snr=HashableArrayWrapper(jnp.asarray(trx, jnp.float32)))
     heuristic = getattr(heuristics, name)
-    first_fit = params.replace(gn_mask_first_fit=True)
+    first_fit = params.replace(gn_mask_first_fit=heuristics.FIRST_FIT_MASKS[name])
     reuse = params.replace(heuristic_mask_from_state=True)
     for key in range(6):
         full = mask_slots_rmsa_gn_model(state, params, state.request_array)

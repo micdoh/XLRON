@@ -502,7 +502,17 @@ slow interpreter; use `pallas` only on a GPU in practice.
 Smaller chunks avoid running every environment's dynamic candidate loops to
 the busiest environment's count and bound candidate workspace. Neural-network
 and PPO batch sizes are unaffected. Tune this with `gn_mask_batch_size`; the
-full C+L+S benchmark favored candidate batch 64 and environment chunk 1.
+full C+L+S benchmark favored candidate batch 64 and environment chunk 1. A
+chunk of 1 masks environments one at a time without any vmap, so the mask's
+data-dependent branches (skipped format passes, tail batches) really skip work;
+under a vmap they execute every branch. On an A100 with 16 environments, chunk
+1 ran 344 steps/s against 124 for chunk 16 or a full vmap.
+
+The heuristics `ksp_ff` and `ff_ksp` only read each path's first valid start, so
+heuristic evaluation (and heuristic warmup) gives them a first-fit mask: it
+visits starts in band-preference order and stops once every path has its first
+fit, with the format the full mask would select. Other heuristics and RL
+policies receive the full mask.
 
 `transformer_modulation_features` adds a 57-parameter residual head to either
 transformer. For each raw path/start action it reads validity, normalized

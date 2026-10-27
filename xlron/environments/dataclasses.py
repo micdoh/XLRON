@@ -459,10 +459,11 @@ class RMSAGNModelEnvParams(GNModelEnvParams):
     # mask. Only for callers that have just computed it for state.request_array
     # (select_action_eval sets this on the params it passes to heuristics).
     heuristic_mask_from_state: bool = struct.field(pytree_node=False, default=False)
-    # all_slots masks mark only each path's first valid start in first-fit (band
-    # preference) order, stopping early. Exact for ksp_ff/ff_ksp, which never look
-    # past those starts; select_action_eval sets it for them.
-    gn_mask_first_fit: bool = struct.field(pytree_node=False, default=False)
+    # all_slots masks mark only first-fit starts (band preference order), stopping
+    # early: "first_path" only the first path with a valid start (exact for
+    # ksp_ff), "every_path" each path's first valid start (exact for ff_ksp); ""
+    # gives the full mask. select_action_eval sets it for those heuristics.
+    gn_mask_first_fit: str = struct.field(pytree_node=False, default="")
 
 
 @struct.dataclass

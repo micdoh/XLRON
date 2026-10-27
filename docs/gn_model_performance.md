@@ -370,6 +370,72 @@ All arms produce identical valid-action counts and admissions. The #65 control
 used the pre-#66 XPM broadcast. Its kernels are not faster for that reason: in
 this state every channel has the same launch power, so the two formulas agree.
 
+## Mask throughput, 27 October 2026
+
+A second pass on the Pallas `all_slots` workload: NSFNET directed, full C+L+S
+(1,668 slots), k=5, load 5,000, coherent NLI, `safe_release`, candidate batch 64,
+environment chunk 1, 16 environments replaying the same saved steady state
+(about 6,000 admitted lightpaths each), on a dedicated A100 80GB with default XLA
+flags:
+
+```bash
+python -m experimental.benchmarks.gn_scaling --gn-kernel-backend pallas --slots 1668 --envs 16 --k 5 --load 5000 --coherent --band-preference C,L,S --gn-mask-mode all_slots --gn-mask-batch-size 64 --gn-mask-env-batch-size 1 --independent-streams --state-input ss16.npz --kernels rollout --steps 16 --iterations 3 [--heuristic NAME]
+```
+
+| Workload | Before | After |
+|---|---:|---:|
+| Full mask, 16 environments (median) | 41.4 ms | 23.4 ms |
+| Environment steps/s (all_slots mask, first valid action) | 321 | 600 |
+| `ksp_ff` steps/s | 167 | 826 |
+| `arbr_ff` steps/s | 167 | 588 |
+| `kca_ff` steps/s | 167 | 592 |
+
+Valid-action counts and admissions are identical in every arm. Changes, in
+order of effect:
+
+- **Unbatched environment chunks.** `lax.map(batch_size=1)` vmaps a batch of
+  one, which turns every data-dependent `cond`/`switch` in the mask into a
+  select of all branches and gives every while loop a batched predicate. Chunk 1
+  is now a plain scan.
+- **Delta evaluation of screened candidates.** Each candidate batch
+  materialised five (batch, links, slots) network copies for the evidence kernel.
+  Candidates now re-solve only their path links from explicit rows, and the
+  evidence kernel applies the insertion to the shared baseline arrays on the fly
+  (`delta=` in `path_snr_pallas`).
+- **Tail batches.** Most passes leave a handful of candidates. Each loop
+  iteration uses the smallest power-of-two fraction of the batch (down to 1/16)
+  that finishes the remainder; passes with nothing available, or no screen
+  survivor, are skipped.
+- **Single-kernel compaction.** `jnp.nonzero` lowers to a blocked cumulative
+  sum, a scatter and a broadcast; `xlron/kernels/compact.py` does it in one
+  Pallas program, for mask repacks and for the three per-link compactions in the
+  XPM wrapper (a full link-SNR refresh fell from 0.74 to 0.46 ms).
+- **Heuristics reuse the mask.** `select_action_eval` computes the physical mask
+  once; heuristics recomputed it two or three times (`heuristic_mask_from_state`).
+- **First-fit masks.** `ksp_ff` and `ff_ksp` only read each path's first valid
+  start, so they get a mask that visits (start, path, format) candidates in
+  band-preference order and stops once every path settles
+  (`gn_mask_first_fit`). In a nearly empty network almost every start is valid
+  and the full mask verifies all of them: heuristic warmup from empty with 16
+  environments rose from about 32 to 170 transitions/s.
+- **Exact link-SNR cache under `safe_release`.** Link SNR depends only on that
+  link's own channels, and every change re-solves exactly the links it touches,
+  so admission re-solves only the new path's links and SNR observations skip
+  their full refresh. The mask still refreshes once, as heuristics may pass a
+  stale cache.
+
+Tile sizes of the evidence and XPM kernels were swept (128 to 1,024 slots per
+evidence tile; XPM row/column tiles and persistent programs); all settings were
+within noise of the defaults. Environment vmapping remains slower (124 steps/s
+for chunk 16 or a full vmap), as each environment's loops run to the busiest.
+
+**Do not enable XLA's device-side loops.** With JAX 0.12,
+`--xla_gpu_enable_command_buffer=+WHILE,+CONDITIONAL` removes the per-iteration
+host synchronisation and was up to 7.9x faster on a shared GPU, but
+compute-sanitizer reports out-of-bounds reads in XLA fusions inside the
+command-buffer loops (either flag alone), and RMSA-GN runs with
+`departure_policy=immediate` segfaulted on A100s. It is not enabled.
+
 ## Dependencies and Gymnax
 
 `uv.lock` was refreshed: 159 package versions changed, 20 packages were added and

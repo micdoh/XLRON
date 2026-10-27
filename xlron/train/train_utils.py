@@ -36,6 +36,7 @@ from xlron.environments.env_funcs import (
 from xlron.environments.make_env import make
 from xlron.environments.wrappers import TimeIt
 from xlron.heuristics.heuristics import (
+    FIRST_FIT_MASKS,
     arbr_ff,
     bf_ksp,
     ff_ksp,
@@ -1338,9 +1339,9 @@ def select_action_eval(select_action_state, env, env_params, eval_state, config)
             # correct modulation format for the chosen slot.
             heuristic_params = env_params
             if isinstance(env_params, RMSAGNModelEnvParams):
-                # First-fit heuristics only read each path's first valid start.
+                # First-fit heuristics only read first-fit starts.
                 mask_params = env_params.replace(
-                    gn_mask_first_fit=config.path_heuristic.lower() in ("ksp_ff", "ff_ksp")
+                    gn_mask_first_fit=FIRST_FIT_MASKS.get(config.path_heuristic.lower(), "")
                 )
                 updated_inner = mask_slots_rmsa_gn_model(
                     env_state.env_state, mask_params, env_state.env_state.request_array

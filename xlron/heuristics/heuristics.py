@@ -36,6 +36,10 @@ from xlron.environments.wrappers import jit_profiler
 # TODO - define lower/highest GSNR heuristics. Will require returning an alternative mask
 #  e.g. of available SNR on path or of required slots
 
+# RMSA-GN first-fit mask mode (gn_mask_first_fit) that is exact for each heuristic:
+# ksp_ff reads only the first path with a valid start, ff_ksp each path's first fit.
+FIRST_FIT_MASKS = {"ksp_ff": "first_path", "ff_ksp": "every_path"}
+
 
 @partial(jax.jit, static_argnums=(1,))
 def ksp_ff(state: RSAEnvState, params: RSAEnvParams) -> Array:

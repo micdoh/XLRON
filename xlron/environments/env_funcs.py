@@ -5326,8 +5326,9 @@ def _true_indices(mask: Array, params: GNModelEnvParams) -> tuple[Array, Array]:
     return jnp.nonzero(mask, size=mask.shape[0], fill_value=0)[0], jnp.sum(mask)
 
 
-# Candidates screened per block by first-fit GN masks (gn_mask_first_fit).
-FIRST_FIT_SCREEN_BLOCK = 128
+# Candidates screened per block by first-fit GN masks (gn_mask_first_fit); each
+# further block of a continuing scan uses the next size.
+FIRST_FIT_SCREEN_BLOCKS = (256, 512, 1024, 2048)
 
 
 def _tiered_batches(live, batch_fn, size, carry, *, more=None):
@@ -5939,13 +5940,15 @@ def _mask_slots_rmsa_gn_model(
         order = jnp.argsort(-se_values, stable=True)
 
         def first_fit_formats():
-            """Formats of each path's first valid start in first-fit order, else -1.
+            """Formats of first-fit starts in band preference order, else -1.
 
-            One pass visits (start, path, format) candidates rank-major: every
-            path's next start in band preference order together, all formats of a
-            start together. A path settles at its first start with any valid
-            format, which keeps the highest-SE one, as the full mask would; later
-            starts are skipped. Blocks are screened, then only survivors checked.
+            Candidates are (path, start, format), path-major, starts in band
+            preference order and formats by descending SE. A path settles at its
+            first start with any valid format, keeping the highest-SE one as the
+            full mask would; the scan then jumps to the next path. "first_path"
+            stops at the first path with a valid start (all ksp_ff reads);
+            "every_path" settles every path (ff_ksp). Blocks are screened, then
+            only survivors checked, and grow while the scan continues.
             """
             k, slots = params.k_paths, params.link_resources
             ff_order = (
@@ -5954,33 +5957,58 @@ def _mask_slots_rmsa_gn_model(
                 else np.arange(slots)
             )
             ff_order = jnp.asarray(ff_order, jnp.int32)
-            # (rank, path, format by descending SE), flattened rank-major.
             by_rank = slot_available[:, order, :][:, :, ff_order]  # (k, M, S)
-            last = jnp.max(jnp.where(jnp.any(by_rank, axis=1), jnp.arange(slots), -1), axis=1)
-            packed, live = _true_indices(jnp.transpose(by_rank, (2, 0, 1)).reshape(-1), params)
-            per_rank = k * num_mods
+            per_path = jnp.sum(by_rank, axis=(1, 2))
+            segment_end = jnp.cumsum(per_path)
+            packed, live = _true_indices(jnp.transpose(by_rank, (0, 2, 1)).reshape(-1), params)
+            per_path_size = slots * num_mods
+            largest = FIRST_FIT_SCREEN_BLOCKS[-1]
 
-            def undecided(rank, first):
-                # Every format at a path's first fit must be checked; after that,
-                # or after its last candidate, the path is settled.
-                return jnp.any((rank <= first) & (rank <= last))
-
-            def block(c):
-                start, priority, first = c
-                positions = start + jnp.arange(FIRST_FIT_SCREEN_BLOCK)
+            def decode(start, size):
+                positions = start + jnp.arange(size)
                 flat = packed[jnp.minimum(positions, packed.shape[0] - 1)]
-                rank, path, position = flat // per_rank, (flat // num_mods) % k, flat % num_mods
+                path, rest = flat // per_path_size, flat % per_path_size
+                rank, position = rest // num_mods, rest % num_mods
                 mod, slot = order[position], ff_order[rank]
                 candidate = (path * num_mods + mod) * slots + slot
+                return positions, rank, path, position, mod, slot, candidate
+
+            def resume(start, first):
+                # Skip the rest of a settled path's segment (one jump suffices:
+                # the next path has not been visited).
+                _, rank, path, *_ = decode(start, 1)
+                settled = (start < live) & (rank[0] > first[path[0]])
+                return jnp.where(settled, segment_end[path[0]], start)
+
+            def more(start, first):
+                go = start < live
+                if params.gn_mask_first_fit == "first_path":
+                    path = decode(start, 1)[2][0]
+                    go &= ~jnp.any((jnp.arange(k) < path) & (first < slots))
+                return go
+
+            def screen(size, start, first):
+                positions, rank, path, _, mod, _, candidate = decode(start, size)
                 ok = (positions < live) & (rank <= first[path])
                 if endpoint_screen:
                     ok &= jax.vmap(new_endpoint_ok)(candidate, req_snr_values[mod])
+                return jnp.zeros((largest,), bool).at[:size].set(ok)
+
+            def block(c):
+                iteration, start, priority, first = c
+                # Blocks grow while the scan continues: deep first fits behind
+                # many screen-failing starts then take few iterations.
+                tier = jnp.minimum(iteration, len(FIRST_FIT_SCREEN_BLOCKS) - 1)
+                ok = jax.lax.switch(
+                    tier, [partial(screen, size) for size in FIRST_FIT_SCREEN_BLOCKS], start, first
+                )
+                _, rank, path, position, mod, slot, candidate = decode(start, largest)
                 lanes, count = _true_indices(ok, params)
 
                 def evaluate_batch(size, e):
                     offset, priority, first = e
                     at = offset + jnp.arange(size)
-                    lane = lanes[jnp.minimum(at, FIRST_FIT_SCREEN_BLOCK - 1)]
+                    lane = lanes[jnp.minimum(at, largest - 1)]
                     p, r, m = path[lane], rank[lane], mod[lane]
                     evidence = jax.vmap(
                         evaluate_candidate_delta if endpoint_screen else evaluate_candidate_index
@@ -5999,24 +6027,31 @@ def _mask_slots_rmsa_gn_model(
                     first = first.at[jnp.where(valid, p, k)].min(r, mode="drop")
                     return offset + size, priority, first
 
+                def unsettled(e):
+                    # Survivors are in scan order; stop once the next one is past
+                    # its path's first fit.
+                    lane = lanes[jnp.minimum(e[0], largest - 1)]
+                    return rank[lane] <= e[2][path[lane]]
+
                 _, priority, first = _tiered_batches(
                     count,
                     evaluate_batch,
                     batch_size,
                     (jnp.int32(0), priority, first),
-                    more=lambda e: undecided(
-                        rank[lanes[jnp.minimum(e[0], FIRST_FIT_SCREEN_BLOCK - 1)]], e[2]
-                    ),
+                    more=unsettled,
                 )
-                return start + FIRST_FIT_SCREEN_BLOCK, priority, first
+                size = jnp.array(FIRST_FIT_SCREEN_BLOCKS)[tier]
+                return iteration + 1, resume(start + size, first), priority, first
 
-            _, priority, first = jax.lax.while_loop(
-                lambda c: (
-                    (c[0] < live)
-                    & undecided(packed[jnp.minimum(c[0], packed.shape[0] - 1)] // per_rank, c[2])
-                ),
+            _, _, priority, first = jax.lax.while_loop(
+                lambda c: more(c[1], c[3]),
                 block,
-                (jnp.int32(0), jnp.zeros((starts,), jnp.int32), jnp.full((k,), slots, jnp.int32)),
+                (
+                    jnp.int32(0),
+                    jnp.int32(0),
+                    jnp.zeros((starts,), jnp.int32),
+                    jnp.full((k,), slots, jnp.int32),
+                ),
             )
             first_slot = ff_order[jnp.minimum(first, slots - 1)]
             keep = (slot_indices[None, :] == first_slot[:, None]) & (first[:, None] < slots)
