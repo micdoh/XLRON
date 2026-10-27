@@ -275,8 +275,16 @@ xlron.parameter_flags:
     the non-recentered off-policy IAM clip applies emergently; pairs with
     IAM_RECENTER_CLIP. Unlike the emergent filter (which binds only in congested
     states with valid mass < 1-eps), this filters every state including the
-    uncongested mu~1 majority, and it degraded late in training under float32 in
-    matched comparisons
+    uncongested mu~1 majority (no measured performance cost; see PO_MU_GATE for
+    the exact per-state rule)
+    (default: 'false')
+  --[no]PO_MU_GATE: ABLATION FLAG - apply POSITIVE_ADV_ONLY only in states with
+    valid mass < 1 - CLIP_EPS (requires POSITIVE_ADV_ONLY). This is exactly the
+    per-state rule the non-recentered off-policy IAM clip applies emergently:
+    negative advantages train two-sided in the uncongested mu ~ 1 lobe and are
+    filtered only in congested states. Combined with IAM_RECENTER_CLIP +
+    MU_WEIGHT_ACTOR this makes the explicit stack's actor gradient identical to
+    the emergent configuration at no-update (see ppo_test.py)
     (default: 'false')
   --[no]PREALLOCATE_MEM: Preallocate GPU memory
     (default: 'true')
@@ -446,6 +454,13 @@ xlron.parameter_flags:
     attenuation/attenuation_bar in [1/m].
     (default: '0.2')
     (a number)
+  --arbr_alpha: Tuning parameter alpha of the ARBR heuristic (arbr_ff). Weights
+    the dynamic component (max link utilisation on the path) against the static
+    component (hops x required slots) of the adaptive path metric: 0 = static
+    only, 1 = dynamic only. 0.8 is the value recommended in the original paper
+    (Walkowiak, Klinkowski & Lechowicz, JOCN 10(5), 2018).
+    (default: '0.8')
+    (a number)
   --attenuation: GN-model attenuation coefficient a [1/m] used in ISRS/GN NLI
     and ASE calculations.
     (default: '4.605111673e-05')
@@ -492,6 +507,12 @@ xlron.parameter_flags:
     entry (i, j) gives the relative traffic demand from node i to node j. Leave
     blank to use uniform traffic (equal probability for all source-destination
     pairs). Ignored when --random_traffic is enabled.
+  --departure_policy: <immediate|safe_release>: RMSA-GN departures: hold expired
+    lightpaths lit until a full-network check shows switching them off keeps
+    every live lightpath above its SNR threshold (default; differentiable runs
+    use immediate), or switch them off at once, which can push survivors below
+    threshold.
+    (default: 'safe_release')
   --[no]deterministic: Deterministic evaluation (use mode of action
     distribution)
     (default: 'false')
@@ -537,6 +558,12 @@ xlron.parameter_flags:
     (default: 'true')
   --env_type: Environment type
     (default: 'rmsa')
+  --existing_snr_margin: SNR reserve (dB) preserved by later admissions on
+    existing RMSA-GN lightpaths. If departures consumed part of the reserve,
+    preserve the remaining headroom without relaxing the modulation minimum.
+    Requires snr_margin >= this value.
+    (default: '0.0')
+    (a number)
   --fec_rate: FEC code rate (e.g. 0.8 = 20%% overhead). In rsa_gn_model it sets
     fec_threshold = 1 - fec_rate for the Shannon capacity formula; in
     rmsa_gn_model it scales accepted bitrate (effective_bitrate =
@@ -564,6 +591,29 @@ xlron.parameter_flags:
     (an integer)
   --global_output_size_critic: Size of global output for critic
     (default: '1')
+    (an integer)
+  --gn_kernel_backend: <jax|pallas>: GN model kernels for
+    rsa_gn_model/rmsa_gn_model: ordinary JAX (reference, differentiable) or
+    Pallas GPU kernels for XPM and path SNR, plus endpoint screening in
+    all_slots masks. Pallas runs in the slow interpreter off-GPU and has no
+    reverse-mode derivatives.
+    (default: 'jax')
+  --gn_mask_batch_size: Candidate batch size for full all-slot GN masking (1--
+    64).
+    (default: '8')
+    (an integer)
+  --gn_mask_env_batch_size: Full physical masks per environment chunk; 0 vmaps
+    all environments, 1--32 streams smaller chunks (hard dynamics only).
+    (default: '0')
+    (an integer)
+  --gn_mask_mode: <ff_lf|all_slots|selected_slot>: RMSA GN masking: first/last
+    fit; full physical checks at every spectrum-feasible start; or every
+    spectrum-feasible start with exact selected-slot modulation/admission
+    checks. Non-ff_lf modes require aggregate_slots=1.
+    (default: 'ff_lf')
+  --gn_mask_screen_batch_size: Candidates per endpoint-screen batch in Pallas
+    all_slots GN masks (1--2048).
+    (default: '512')
     (an integer)
   --[no]gnn_layer_norm: Use layer normalization in GNN
     (default: 'true')
@@ -700,6 +750,13 @@ xlron.parameter_flags:
     (default: 'false')
   --modulations_csv_filepath: Modulation format definitions for RSA environment
     (default: './xlron/data/modulations/modulations_deeprmsa.csv')
+  --mscl_interfering_k: Stored routes per node pair in the interfering route set
+    of the MSCL heuristics (ksp_mscl, mscl_ksp). 1 (default) = the single-route-
+    per-pair set of the original 2013 formulation; 0 = all k paths, giving the
+    multi-route MSCL Sequencial/Combinado of dos Santos (2021). Compute and
+    memory scale linearly with this value.
+    (default: '1')
+    (an integer)
   --multiple_topologies_directory: Directory containing JSON definitions of
     network topologies that will be alternated per episode
   --node_embedding_size: Size of node embeddings
@@ -900,6 +957,10 @@ xlron.parameter_flags:
     feed-forward blocks
     (default: '256')
     (an integer)
+  --[no]transformer_modulation_features: Score full GN candidates using their
+    resolved format, required width and SNR threshold; requires all_slots
+    masking and fixed launch power.
+    (default: 'false')
   --transformer_num_heads: Number of attention heads in transformer
     (default: '4')
     (an integer)
@@ -909,11 +970,18 @@ xlron.parameter_flags:
   --transformer_obs_type: Type of observation to feed to transformer.     1.
     'departure': use departure times.     2. 'occupancy': use link occupancy
     (binary).     3. 'capacity': use remaining capacity array (for use with RWA-
-    LR environment).
+    LR environment).     4. 'snr': normalized per-channel link SNR in GN
+    environments.     5. 'occupancy_snr' / 'departure_snr': concatenate
+    occupancy / departures with SNR.     6. 'lifetime_snr': two channels
+    encoding lifetime/status and smoothly scaled SNR.
     (default: 'departure')
   --[no]transformer_share_layers: Share encoder layers between actor and critic
     in transformer
     (default: 'false')
+  --transformer_spectrum_encoder: <dense|conv>: Spectrum encoder: dense
+    projection, or band-aware local convolutions with full-resolution action
+    features (requires lifetime_snr and aggregate_slots=1).
+    (default: 'dense')
   --[no]truncate_holding_time: Truncate holding time to less than
     2*mean_service_holding_time
     (default: 'false')
@@ -933,4 +1001,7 @@ xlron.parameter_flags:
     default for the run mode (RL policy or heuristic). 'heuristic' uses the
     heuristic specified by --path_heuristic. 'random' selects random valid
     actions.
+  --warmup_path_heuristic: Heuristic for heuristic warmup actions (default:
+    --path_heuristic). E.g. ksp_ff, whose first-fit RMSA-GN mask is far cheaper
+    than a full mask in a filling network.
 ```

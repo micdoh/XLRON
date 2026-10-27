@@ -437,6 +437,8 @@ def print_experiment_summary(config: Box, env_params=None) -> None:
         print(f"  Max requests / episode:   {max_requests}")
     if warmup > 0:
         warmup_type = config.get("warmup_action_type", None) or "default"
+        if config.get("warmup_path_heuristic"):
+            warmup_type += f", {config.warmup_path_heuristic}"
         print(f"  Warmup steps:             {warmup} ({warmup_type})")
 
     print(f"\n  {'--- Execution ---':^{W - 4}}")
@@ -1453,6 +1455,9 @@ def get_warmup_fn(warmup_state, env, params, train_state, config) -> Callable[[T
             )
         warmup_config = Box(config)
         warmup_config.EVAL_HEURISTIC = True
+    if use_heuristic_warmup and config.get("warmup_path_heuristic"):
+        warmup_config = Box(warmup_config)
+        warmup_config.path_heuristic = config.warmup_path_heuristic
 
     def warmup_fn(warmup_state, runtime_train_state=None) -> Tuple[EnvState, Array]:
         rng, state, last_obs = warmup_state

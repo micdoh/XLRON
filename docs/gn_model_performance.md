@@ -386,12 +386,16 @@ python -m experimental.benchmarks.gn_scaling --gn-kernel-backend pallas --slots 
 |---|---:|---:|
 | Full mask, 16 environments (median) | 41.4 ms | 23.4 ms |
 | Environment steps/s (all_slots mask, first valid action) | 321 | 600 |
-| `ksp_ff` steps/s | 167 | 826 |
+| `ksp_ff` steps/s | 167 | 1,474 |
 | `arbr_ff` steps/s | 167 | 588 |
 | `kca_ff` steps/s | 167 | 592 |
+| `ksp_ff` warmup from empty, 2,000 steps x 16 environments | 984 s | 23 s |
 
-Valid-action counts and admissions are identical in every arm. Changes, in
-order of effect:
+The warmup "before" was measured with the other changes already in place; the
+first-fit mask alone accounts for it.
+
+Full-mask valid-action counts and admissions are identical across the changes,
+and first-fit masks select the same actions as the full mask (tested). Changes:
 
 - **Unbatched environment chunks.** `lax.map(batch_size=1)` vmaps a batch of
   one, which turns every data-dependent `cond`/`switch` in the mask into a
@@ -412,12 +416,15 @@ order of effect:
   XPM wrapper (a full link-SNR refresh fell from 0.74 to 0.46 ms).
 - **Heuristics reuse the mask.** `select_action_eval` computes the physical mask
   once; heuristics recomputed it two or three times (`heuristic_mask_from_state`).
-- **First-fit masks.** `ksp_ff` and `ff_ksp` only read each path's first valid
-  start, so they get a mask that visits (start, path, format) candidates in
-  band-preference order and stops once every path settles
-  (`gn_mask_first_fit`). In a nearly empty network almost every start is valid
-  and the full mask verifies all of them: heuristic warmup from empty with 16
-  environments rose from about 32 to 170 transitions/s.
+- **First-fit masks.** `ksp_ff` reads only the first path with a valid start,
+  and `ff_ksp` each path's first fit, so they get a mask
+  (`gn_mask_first_fit`) that scans (path, start, format) candidates per path in
+  band-preference order, jumps past each path once it settles, and for `ksp_ff`
+  stops at the first feasible path. Screen blocks grow while the scan continues.
+  In a nearly empty or half-filled network almost every start is spectrum-free,
+  and the full mask verifies all of them; this dominated heuristic warmup, which
+  RL training also uses. `ff_ksp` gains less (about 300 steps/s mid-fill), as it
+  must settle every path.
 - **Exact link-SNR cache under `safe_release`.** Link SNR depends only on that
   link's own channels, and every change re-solves exactly the links it touches,
   so admission re-solves only the new path's links and SNR observations skip
