@@ -23,6 +23,7 @@ from jax.experimental.pallas import triton as plt
 
 from xlron.environments.gn_model.isrs_gn_model import xpm_pairs
 from xlron.kernels import interpret_default
+from xlron.kernels.compact import compact_true_indices
 
 PHYSICS = ("a", "a_bar", "gamma", "cr", "beta2", "beta3_s", "beta4_s")
 
@@ -86,17 +87,19 @@ def xpm_pallas(
     repeat = _runs(power, frequency, bandwidth)
     live = (power != 0) & (bandwidth != 0)
     columns = live & ~repeat
-    column_index = jnp.nonzero(columns, size=n, fill_value=0)[0]
-    column_count = jnp.sum(columns)
+    # Single-kernel compactions: jnp.nonzero costs several launches per call,
+    # and this runs for every changed link of every mask candidate.
+    column_index, column_count = compact_true_indices(columns, interpret=interpret)
     # A run starting at column_index[j] ends at the next live entry that is not
     # repeated by its successor; its length is the multiplicity.
-    run_end = jnp.nonzero(live & ~jnp.concatenate((repeat[1:], jnp.array([False]))), size=n)[0]
+    run_end, _ = compact_true_indices(
+        live & ~jnp.concatenate((repeat[1:], jnp.array([False]))), interpret=interpret
+    )
     multiplicity = (run_end - column_index + 1).astype(jnp.float32)
 
     outputs = bandwidth != 0
     rows = outputs & ~repeat
-    row_index = jnp.nonzero(rows, size=n, fill_value=0)[0]
-    row_count = jnp.sum(rows)
+    row_index, row_count, run = compact_true_indices(rows, ranks=True, interpret=interpret)
     row_tiles = pl.cdiv(n, block_i)
     programs = row_tiles if persistent_rows is None else min(row_tiles, persistent_rows)
 
@@ -176,5 +179,4 @@ def xpm_pallas(
     )
     # Packed slot r holds the r-th run of output rows; unused tail slots are
     # never read because every output row maps to a run that was evaluated.
-    run = jnp.maximum(jnp.cumsum(rows, dtype=jnp.int32) - 1, 0)
     return jnp.where(outputs, packed[run], 0.0)
