@@ -436,12 +436,77 @@ evidence tile; XPM row/column tiles and persistent programs); all settings were
 within noise of the defaults. Environment vmapping remains slower (124 steps/s
 for chunk 16 or a full vmap), as each environment's loops run to the busiest.
 
-**Do not enable XLA's device-side loops.** With JAX 0.12,
-`--xla_gpu_enable_command_buffer=+WHILE,+CONDITIONAL` removes the per-iteration
-host synchronisation and was up to 7.9x faster on a shared GPU, but
-compute-sanitizer reports out-of-bounds reads in XLA fusions inside the
-command-buffer loops (either flag alone), and RMSA-GN runs with
-`departure_policy=immediate` segfaulted on A100s. It is not enabled.
+XLA's device-side while loops are not enabled; see the next section.
+
+## XLA device-side while loops
+
+On GPU, XLA runs a `while` loop from the host: each iteration copies the loop
+predicate back to the CPU, waits for it, and launches the body again.
+`--xla_gpu_enable_command_buffer=+WHILE` records the loop as a CUDA graph with
+conditional nodes instead, so the GPU evaluates the predicate itself and the host
+launches the whole loop once. The GN masks and departure releases are made of
+data-dependent loops with small bodies (`_tiered_batches`, candidate evidence,
+the first-fit scan, `safe_release` passes), so this host round trip is a large
+part of their cost. In JAX 0.12, `CONDITIONAL` is already in XLA's default
+command-buffer set; adding `+CONDITIONAL` changes nothing, and `WHILE` is the
+only switch.
+
+**It crashes the CUDA driver on shared A100s, so it stays off.** With the
+departure-load sweep configuration (`arbr_ff`, load 4,500, `immediate`
+departures, 15,000 warmup steps; `experimental/benchmarks/device_loop_check.py`),
+processes sharing an A100 segfaulted inside `libcuda` (driver 595.71.05). Neither
+the CUDA 13 build nor the JAX nightly helps:
+
+| Configuration (A100-SXM4 unless stated) | Crashed |
+|---|---|
+| Three processes per GPU, `+WHILE`, JAX 0.12.0.1 cuda12 | 7 of 9 |
+| The same with `XLA_PYTHON_CLIENT_PREALLOCATE=true` | 2 of 3 |
+| Three processes per GPU, `+WHILE`, JAX 0.12.0.1 cuda13 | 2 of 3 |
+| Three processes per GPU, `+WHILE`, JAX nightly 0.12.1.dev20261026 | 3 of 3 |
+| Two processes per GPU, `+WHILE`, JAX 0.12.0.1 cuda12 (previous lock; this code and the code before #75) | 2 of 2 |
+| One process plus two of an unrelated JAX matmul loop, `+WHILE` | 4 of 4 |
+| One process plus two of a plain CUDA busy loop (no JAX), `+WHILE` | 4 of 4 |
+| One process per GPU, `+WHILE` | 0 of 6 |
+| Three processes per GPU, default flags | 0 of 3 |
+| H100 NVL, three processes per GPU, `+WHILE` (release and nightly) | 0 of 6 |
+
+Any other CUDA process on the GPU triggers it, not only other XLRON runs. The
+survivors of a three-process round may simply have finished alone after the
+others died. Reported upstream as
+[openxla/xla#51747](https://github.com/openxla/xla/issues/51747); small JAX
+programs with the same loop structure (an outer `scan` over data-dependent
+`while_loop`s with `switch` branches, nested loops and a Pallas kernel) did not
+reproduce it.
+
+The same bug shows under compute-sanitizer as invalid global reads "inside the
+nearest allocation" in kernels launched from command buffers: XLA fusions (whose
+indices are clamped), and masked Pallas kernels, a different kernel each time,
+ending in `CUDA_ERROR_ILLEGAL_ADDRESS`. Those kernels cannot index out of
+bounds themselves; the buffer addresses in the graph are wrong. An early
+comparison found nothing because it only exercised a saved 25%-occupancy state
+on idle GPUs. Preallocating GPU memory did not prevent it, and command-buffer
+VA remapping is not exposed as a flag in this build.
+
+The speed it would buy is real but mostly a contention effect: on an idle A100
+the rollouts below are about 10% faster, and with a second process on the same
+GPU several times faster, because every host round trip then also waits for a
+scheduling slice. That is exactly the configuration that crashes. After
+upgrading JAX, CUDA or the driver, re-run `device_loop_check.py` on an otherwise
+idle A100: it starts three processes on the GPU together (about ten minutes per
+round) and reports each exit code.
+
+Median rollout time, 16 environments x 16 steps, 1,668 slots, C+L+S, all_slots
+masks, Pallas kernels, saved mid-fill state; mean of three runs on one A100
+(geneva), JAX 0.12.0.1. "Shared" adds a second process running back-to-back
+4,096 x 4,096 matmuls on the same GPU:
+
+| Workload | cuda12 | cuda13 | cuda12 `+WHILE` | Shared cuda12 | Shared cuda12 `+WHILE` |
+|---|---:|---:|---:|---:|---:|
+| `ksp_ff` | 227 ms | 228 ms | 211 ms (1.08x) | 2,058 ms | 357 ms (5.8x) |
+| Full mask | 449 ms | 446 ms | 410 ms (1.10x) | 6,843 ms | 690 ms (9.9x) |
+
+Results are identical with and without the flag. The CUDA 13 plugin is no faster
+than CUDA 12, so the `gpu` group stays on `jax[cuda12]`.
 
 ## Dependencies and Gymnax
 
