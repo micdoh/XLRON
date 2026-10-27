@@ -464,12 +464,19 @@ the CUDA 13 build nor the JAX nightly helps:
 | Three processes per GPU, `+WHILE`, JAX 0.12.0.1 cuda13 | 2 of 3 |
 | Three processes per GPU, `+WHILE`, JAX nightly 0.12.1.dev20261026 | 3 of 3 |
 | Two processes per GPU, `+WHILE`, JAX 0.12.0.1 cuda12 (previous lock; this code and the code before #75) | 2 of 2 |
+| One process plus two of an unrelated JAX matmul loop, `+WHILE` | 4 of 4 |
+| One process plus two of a plain CUDA busy loop (no JAX), `+WHILE` | 4 of 4 |
 | One process per GPU, `+WHILE` | 0 of 6 |
 | Three processes per GPU, default flags | 0 of 3 |
 | H100 NVL, three processes per GPU, `+WHILE` (release and nightly) | 0 of 6 |
 
-The survivors of a three-process round may simply have finished alone after the
-others died.
+Any other CUDA process on the GPU triggers it, not only other XLRON runs. The
+survivors of a three-process round may simply have finished alone after the
+others died. Reported upstream as
+[openxla/xla#51747](https://github.com/openxla/xla/issues/51747); small JAX
+programs with the same loop structure (an outer `scan` over data-dependent
+`while_loop`s with `switch` branches, nested loops and a Pallas kernel) did not
+reproduce it.
 
 The same bug shows under compute-sanitizer as invalid global reads "inside the
 nearest allocation" in kernels launched from command buffers: XLA fusions (whose

@@ -3,8 +3,8 @@
 `--xla_gpu_enable_command_buffer=+WHILE` runs XLA while loops as CUDA-graph
 conditional nodes (CONDITIONAL is already a JAX 0.12 default). On JAX 0.12.0.1 it
 segfaults inside libcuda during RMSA-GN warmup when processes share an A100; see
-docs/gn_model_performance.md. Re-run this after upgrading JAX, CUDA or the driver,
-on an A100 that nothing else is using:
+docs/gn_model_performance.md and openxla/xla#51747. Re-run this after upgrading
+JAX, CUDA or the driver, on an A100 that nothing else is using:
 
   CUDA_VISIBLE_DEVICES=2 XLA_PYTHON_CLIENT_PREALLOCATE=false XLA_PYTHON_CLIENT_MEM_FRACTION=0.2 \\
     uv run --no-sync python -m experimental.benchmarks.device_loop_check
