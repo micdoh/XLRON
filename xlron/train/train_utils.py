@@ -36,6 +36,7 @@ from xlron.environments.env_funcs import (
 from xlron.environments.make_env import make
 from xlron.environments.wrappers import TimeIt
 from xlron.heuristics.heuristics import (
+    FIRST_FIT_MASKS,
     arbr_ff,
     bf_ksp,
     ff_ksp,
@@ -81,6 +82,7 @@ metrics = [
     "snr_blocking_probability",
     "power_blocking_probability",
     "held_lightpaths",  # RMSA-GN with departure_policy=safe_release only
+    "held_lightpaths_peak",
     "throughput",  # Only for RSA GN Model
     "launch_power",
     "path_snr",
@@ -435,6 +437,8 @@ def print_experiment_summary(config: Box, env_params=None) -> None:
         print(f"  Max requests / episode:   {max_requests}")
     if warmup > 0:
         warmup_type = config.get("warmup_action_type", None) or "default"
+        if config.get("warmup_path_heuristic"):
+            warmup_type += f", {config.warmup_path_heuristic}"
         print(f"  Warmup steps:             {warmup} ({warmup_type})")
 
     print(f"\n  {'--- Execution ---':^{W - 4}}")
@@ -1335,58 +1339,65 @@ def select_action_eval(select_action_state, env, env_params, eval_state, config)
             # For RMSA GN model, update mod_format_mask on state before heuristic
             # action selection so that implement_action_rmsa_gn_model sees the
             # correct modulation format for the chosen slot.
+            heuristic_params = env_params
             if isinstance(env_params, RMSAGNModelEnvParams):
+                # First-fit heuristics only read first-fit starts.
+                mask_params = env_params.replace(
+                    gn_mask_first_fit=FIRST_FIT_MASKS.get(config.path_heuristic.lower(), "")
+                )
                 updated_inner = mask_slots_rmsa_gn_model(
-                    env_state.env_state, env_params, env_state.env_state.request_array
+                    env_state.env_state, mask_params, env_state.env_state.request_array
                 )
                 env_state = env_state.replace(env_state=updated_inner)
+                # The heuristic reuses this mask rather than recomputing it.
+                heuristic_params = env_params.replace(heuristic_mask_from_state=True)
 
             if config.path_heuristic.lower() == "ksp_ff":
-                action = ksp_ff(env_state.env_state, env_params)
+                action = ksp_ff(env_state.env_state, heuristic_params)
             elif config.path_heuristic.lower() == "ff_ksp":
-                action = ff_ksp(env_state.env_state, env_params)
+                action = ff_ksp(env_state.env_state, heuristic_params)
             elif config.path_heuristic.lower() == "kmc_ff":
-                action = kmc_ff(env_state.env_state, env_params)
+                action = kmc_ff(env_state.env_state, heuristic_params)
             elif config.path_heuristic.lower() == "kmf_ff":
-                action = kmf_ff(env_state.env_state, env_params)
+                action = kmf_ff(env_state.env_state, heuristic_params)
             elif config.path_heuristic.lower() == "ksp_mu":
-                action = ksp_mu(env_state.env_state, env_params, False, True)
+                action = ksp_mu(env_state.env_state, heuristic_params, False, True)
             elif config.path_heuristic.lower() == "ksp_mu_nonrel":
-                action = ksp_mu(env_state.env_state, env_params, False, False)
+                action = ksp_mu(env_state.env_state, heuristic_params, False, False)
             elif config.path_heuristic.lower() == "ksp_mu_unique":
-                action = ksp_mu(env_state.env_state, env_params, True, True)
+                action = ksp_mu(env_state.env_state, heuristic_params, True, True)
             elif config.path_heuristic.lower() == "mu_ksp":
-                action = mu_ksp(env_state.env_state, env_params, False, True)
+                action = mu_ksp(env_state.env_state, heuristic_params, False, True)
             elif config.path_heuristic.lower() == "mu_ksp_nonrel":
-                action = mu_ksp(env_state.env_state, env_params, False, False)
+                action = mu_ksp(env_state.env_state, heuristic_params, False, False)
             elif config.path_heuristic.lower() == "mu_ksp_unique":
-                action = mu_ksp(env_state.env_state, env_params, True, True)
+                action = mu_ksp(env_state.env_state, heuristic_params, True, True)
             elif config.path_heuristic.lower() == "kca_ff":
-                action = kca_ff(env_state.env_state, env_params)
+                action = kca_ff(env_state.env_state, heuristic_params)
             elif config.path_heuristic.lower() == "arbr_ff":
-                action = arbr_ff(env_state.env_state, env_params)
+                action = arbr_ff(env_state.env_state, heuristic_params)
             elif config.path_heuristic.lower() == "kme_ff":
-                action = kme_ff(env_state.env_state, env_params)
+                action = kme_ff(env_state.env_state, heuristic_params)
             elif config.path_heuristic.lower() == "ksp_bf":
-                action = ksp_bf(env_state.env_state, env_params)
+                action = ksp_bf(env_state.env_state, heuristic_params)
             elif config.path_heuristic.lower() == "bf_ksp":
-                action = bf_ksp(env_state.env_state, env_params)
+                action = bf_ksp(env_state.env_state, heuristic_params)
             elif config.path_heuristic.lower() == "ksp_lf":
-                action = ksp_lf(env_state.env_state, env_params)
+                action = ksp_lf(env_state.env_state, heuristic_params)
             elif config.path_heuristic.lower() == "lf_ksp":
-                action = lf_ksp(env_state.env_state, env_params)
+                action = lf_ksp(env_state.env_state, heuristic_params)
             elif config.path_heuristic.lower() == "ksp_ef":
-                action = ksp_ef(env_state.env_state, env_params)
+                action = ksp_ef(env_state.env_state, heuristic_params)
             elif config.path_heuristic.lower() == "ksp_flf":
-                action = ksp_flf(env_state.env_state, env_params)
+                action = ksp_flf(env_state.env_state, heuristic_params)
             elif config.path_heuristic.lower() == "flf_ksp":
-                action = flf_ksp(env_state.env_state, env_params)
+                action = flf_ksp(env_state.env_state, heuristic_params)
             elif config.path_heuristic.lower() == "ksp_flef":
-                action = ksp_flef(env_state.env_state, env_params)
+                action = ksp_flef(env_state.env_state, heuristic_params)
             elif config.path_heuristic.lower() == "ksp_mscl":
-                action = ksp_mscl(env_state.env_state, env_params)
+                action = ksp_mscl(env_state.env_state, heuristic_params)
             elif config.path_heuristic.lower() == "mscl_ksp":
-                action = mscl_ksp(env_state.env_state, env_params)
+                action = mscl_ksp(env_state.env_state, heuristic_params)
             else:
                 raise ValueError(f"Invalid path heuristic {config.path_heuristic}")
             if env_params.__class__.__name__ in ["RSAGNModelEnvParams", "RMSAGNModelEnvParams"]:
@@ -1444,6 +1455,9 @@ def get_warmup_fn(warmup_state, env, params, train_state, config) -> Callable[[T
             )
         warmup_config = Box(config)
         warmup_config.EVAL_HEURISTIC = True
+    if use_heuristic_warmup and config.get("warmup_path_heuristic"):
+        warmup_config = Box(warmup_config)
+        warmup_config.path_heuristic = config.warmup_path_heuristic
 
     def warmup_fn(warmup_state, runtime_train_state=None) -> Tuple[EnvState, Array]:
         rng, state, last_obs = warmup_state
@@ -2523,7 +2537,14 @@ def log_metrics(
         # (eval_heuristic._pack_info), so the entries may be absent from
         # processed_data and need creating from an always-present metric's shape.
         template = processed_data.get("accepted_services") or next(iter(processed_data.values()))
-        for metric_name, value in (("utilisation", util), ("fragmentation", frag)):
+        injected = [("utilisation", util), ("fragmentation", frag)]
+        if "held_lightpaths" in merged_out:
+            # Peak number of lightpaths held lit at once (any env, any step) in this
+            # increment; block-averaged per-step logging would hide it.
+            injected.append(
+                ("held_lightpaths_peak", float(np.max(np.asarray(merged_out["held_lightpaths"]))))
+            )
+        for metric_name, value in injected:
             stats = processed_data.get(metric_name, template)
             if isinstance(stats, dict):
                 processed_data[metric_name] = {
@@ -2556,6 +2577,7 @@ def log_metrics(
                 "snr_blocking_probability",
                 "power_blocking_probability",
                 "held_lightpaths",
+                "held_lightpaths_peak",
             )
             if name in processed_data
         ]

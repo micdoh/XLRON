@@ -25,6 +25,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from xlron.environments.env_funcs import held_lightpath_mask, lightpath_representatives
+from xlron.heuristics.heuristics import FIRST_FIT_MASKS
 from xlron.environments.env_funcs import (
     calculate_throughput_from_active_lightpaths,
     get_lightpath_snr,
@@ -143,6 +144,8 @@ def main():
     parser.add_argument(
         "--departure-policy", choices=["immediate", "safe_release"], default="safe_release"
     )
+    parser.add_argument("--heuristic", help="Select actions with this heuristic (RMSA-GN)")
+    parser.add_argument("--heuristic-recompute-mask", action="store_true")
     parser.add_argument("--gn-mask-screen-batch-size", type=int, default=512)
     parser.add_argument("--envs", type=int, default=1)
     parser.add_argument(
@@ -234,11 +237,22 @@ def main():
             rng, current = carry
             rng, step_key = jax.random.split(rng)
             if args.env_type == "rmsa_gn_model":
-                mask, full_mask, mods = env.action_mask(current, params)
+                # As select_action_eval: first-fit heuristics need only first fits.
+                mask_params = params.replace(
+                    gn_mask_first_fit=FIRST_FIT_MASKS.get(args.heuristic or "", "")
+                )
+                mask, full_mask, mods = env.action_mask(current, mask_params)
                 current = current.replace(
                     link_slot_mask=mask, full_link_slot_mask=full_mask, mod_format_mask=mods
                 )
                 action = jnp.array([jnp.argmax(mask), 0], dtype=jnp.int32)
+                if args.heuristic:
+                    from xlron.heuristics import heuristics
+
+                    # As select_action_eval: reuse the mask just computed, unless
+                    # measuring the previous recompute-in-heuristic behaviour.
+                    hp = params.replace(heuristic_mask_from_state=not args.heuristic_recompute_mask)
+                    action = getattr(heuristics, args.heuristic)(current, hp)
             else:
                 mask, full_mask = env.action_mask(current, params)
                 current = current.replace(link_slot_mask=mask, full_link_slot_mask=full_mask)

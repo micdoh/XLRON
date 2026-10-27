@@ -2130,7 +2130,11 @@ class TestGenerateRequestRsaGn:
     @staticmethod
     @pytest.mark.parametrize("env_type", ["rsa_gn_model", "rmsa_gn_model"])
     def test_snr_cache_is_refreshed_after_departures(env_type):
+        """Immediate departures leave the cache stale, so SNR observations refresh it.
+        (safe_release keeps it exact instead; see test_safe_release_keeps_the_link_snr_cache_fresh.)"""
         _, env, params, state = setup(env_type, "occupancy_snr")
+        if env_type == "rmsa_gn_model":
+            params = params.replace(departure_policy="immediate")
         mask_output = env.action_mask(state, params)
         state = state.replace(link_slot_mask=mask_output[0], full_link_slot_mask=mask_output[1])
         if env_type == "rmsa_gn_model":

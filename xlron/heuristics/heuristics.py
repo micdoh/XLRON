@@ -12,6 +12,7 @@ from xlron.environments.dataclasses import (
     EnvState,
     GNModelEnvParams,
     RMSAGNModelEnvParams,
+    RMSAGNModelEnvState,
     RSAEnvParams,
     RSAEnvState,
     RWALightpathReuseEnvParams,
@@ -34,6 +35,10 @@ from xlron.environments.wrappers import jit_profiler
 
 # TODO - define lower/highest GSNR heuristics. Will require returning an alternative mask
 #  e.g. of available SNR on path or of required slots
+
+# RMSA-GN first-fit mask mode (gn_mask_first_fit) that is exact for each heuristic:
+# ksp_ff reads only the first path with a valid start, ff_ksp each path's first fit.
+FIRST_FIT_MASKS = {"ksp_ff": "first_path", "ff_ksp": "every_path"}
 
 
 @partial(jax.jit, static_argnums=(1,))
@@ -764,16 +769,30 @@ def get_link_weights(state: EnvState, params: RSAEnvParams):
     return link_weights
 
 
+def _gn_mask_state(state: EnvState, params: RMSAGNModelEnvParams) -> RMSAGNModelEnvState:
+    """State carrying the RMSA-GN physical mask (mod_format_mask) for its request.
+
+    The full physical mask dominates step cost, so callers that have just
+    computed it set params.heuristic_mask_from_state; otherwise recompute, so a
+    stale mask on the state can never be used.
+    """
+    if params.heuristic_mask_from_state:
+        return cast(RMSAGNModelEnvState, state)
+    return cast(
+        RMSAGNModelEnvState,
+        jit_profiler.call(
+            params.profile, mask_slots_rmsa_gn_model, state, params, state.request_array
+        ),
+    )
+
+
 def get_action_mask(state: EnvState, params: RSAEnvParams) -> Array:
     if isinstance(params, RWALightpathReuseEnvParams):
         _, full_mask = jit_profiler.call(
             params.profile, mask_slots_rwalr, state, params, state.request_array
         )
     elif isinstance(params, RMSAGNModelEnvParams):
-        updated_state = jit_profiler.call(
-            params.profile, mask_slots_rmsa_gn_model, state, params, state.request_array
-        )
-        full_mask = jnp.where(updated_state.mod_format_mask >= 0, 1.0, 0.0)
+        full_mask = jnp.where(_gn_mask_state(state, params).mod_format_mask >= 0, 1.0, 0.0)
     else:
         _, full_mask = jit_profiler.call(params.profile, mask_slots, state, params)
     mask = jnp.reshape(full_mask, (params.k_paths, -1))
@@ -942,9 +961,7 @@ def get_action_mask_and_slots(state: EnvState, params: RSAEnvParams) -> Tuple[Ar
     the mask and widths together so direct heuristic calls also use fresh formats.
     """
     if isinstance(params, RMSAGNModelEnvParams):
-        updated = jit_profiler.call(
-            params.profile, mask_slots_rmsa_gn_model, state, params, state.request_array
-        )
+        updated = _gn_mask_state(state, params)
         formats = updated.mod_format_mask.reshape(params.k_paths, -1).astype(jnp.int32)
         mask = formats >= 0
         efficiencies = params.modulations_array.val[jnp.maximum(formats, 0), 1]

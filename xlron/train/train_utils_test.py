@@ -15,7 +15,7 @@ from absl.testing import absltest, parameterized
 from box import Box
 
 from xlron.environments.make_env import make
-from xlron.heuristics.heuristics import ksp_ff
+from xlron.heuristics.heuristics import ksp_ff, ksp_lf
 from xlron.models.mlp import ActorCriticMLP
 from xlron.train import ppo
 from xlron.train import train_utils as tu
@@ -159,6 +159,35 @@ class WarmupHeuristicActionTest(chex.TestCase):
         chex.assert_trees_all_close(
             warmed_state.env_state.link_slot_array,
             expected_state.env_state.link_slot_array,
+        )
+
+    def test_warmup_path_heuristic_overrides_the_evaluated_heuristic(self):
+        """Heuristic evaluation warms up with warmup_path_heuristic, not path_heuristic."""
+        key, env, obs, state, params = _make_log_wrapped_env()
+        config = Box(
+            dict(
+                EVAL_HEURISTIC=True,
+                env_type="rwa",
+                path_heuristic="ksp_lf",
+                warmup_path_heuristic="ksp_ff",
+                launch_power_type="fixed",
+                ENV_WARMUP_STEPS=1,
+                USE_GNN=False,
+                USE_TRANSFORMER=False,
+            )
+        )
+        # Heuristic evaluation carries a placeholder observation.
+        warmup_state = (key, state, tu.heuristic_eval_obs_placeholder())
+        warmed_state, _ = get_warmup_fn(warmup_state, env, params, None, config)(warmup_state)
+        _, _, step_key = jax.random.split(key, 3)
+        expected = env.step(step_key, state, ksp_ff(state.env_state, params), params)[1]
+        chex.assert_trees_all_close(
+            warmed_state.env_state.link_slot_array, expected.env_state.link_slot_array
+        )
+        # ksp_lf would have occupied a different slot.
+        other = env.step(step_key, state, ksp_lf(state.env_state, params), params)[1]
+        self.assertFalse(
+            bool(jnp.all(other.env_state.link_slot_array == expected.env_state.link_slot_array))
         )
 
     def test_warmup_action_type_heuristic_rejects_aggregate_slots(self):

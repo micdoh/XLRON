@@ -143,6 +143,10 @@ When enabled, the environment does not reset between episodes. Services arrive a
 
 Number of initial environment steps to run before collecting statistics. This allows the network to reach a steady state before measurements begin. A typical value is `3000` but higher loads may require more warmup steps to stabilize. Only meaningful when `--continuous_operation` is enabled.
 
+### `--warmup_path_heuristic`
+
+Heuristic used for the warmup steps (default: `--path_heuristic`). In RMSA-GN with `--gn_mask_mode=all_slots`, a filling network makes almost every start valid, and heuristics such as `arbr_ff`, `kca_ff` or `mscl_ksp` need the full physical mask, which verifies every one; `ksp_ff` uses a first-fit mask that stops at its first feasible path. `--warmup_path_heuristic=ksp_ff` therefore reaches a steady state much faster, at the cost of a starting state shaped by a different policy (allow enough measured steps for it to adapt).
+
 ### `--max_requests`
 
 Maximum number of connection requests per episode. This only applies to **episodic** (non-continuous) operation, where it defines the episode length. In `--continuous_operation` mode, this flag is ignored — `max_requests` is automatically set to `TOTAL_TIMESTEPS`. Default: `4`.

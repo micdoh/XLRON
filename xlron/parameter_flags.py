@@ -574,6 +574,12 @@ flags.DEFINE_string(
     "(RL policy or heuristic). 'heuristic' uses the heuristic specified by --path_heuristic. "
     "'random' selects random valid actions.",
 )
+flags.DEFINE_string(
+    "warmup_path_heuristic",
+    None,
+    "Heuristic for heuristic warmup actions (default: --path_heuristic). E.g. ksp_ff, "
+    "whose first-fit RMSA-GN mask is far cheaper than a full mask in a filling network.",
+)
 flags.DEFINE_boolean(
     "pack_path_bits",
     False,

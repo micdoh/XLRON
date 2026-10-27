@@ -147,6 +147,7 @@ DEFAULTS = {
     "continuous_operation": False,
     "ENV_WARMUP_STEPS": 0,
     "warmup_action_type": "default",
+    "warmup_path_heuristic": None,
     "max_requests": 4,
     "reward_type": "service",
     "incremental_loading": False,
@@ -832,6 +833,13 @@ def traffic_section() -> dict:
             "'random' samples uniformly from valid actions.",
         )
         _emit(flags, "warmup_action_type", None if warmup_action == "default" else warmup_action)
+        warmup_heuristic = st.text_input(
+            "Warmup Path Heuristic",
+            value=str(_get_preset_val("warmup_path_heuristic") or ""),
+            help="Heuristic for heuristic warmup (empty: --path_heuristic). ksp_ff fills an "
+            "RMSA-GN network far faster than heuristics that need the full physical mask.",
+        )
+        _emit(flags, "warmup_path_heuristic", warmup_heuristic.strip() or None)
 
     reward_type = st.selectbox(
         "Reward Type",
