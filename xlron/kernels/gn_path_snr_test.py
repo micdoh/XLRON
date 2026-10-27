@@ -256,3 +256,83 @@ def test_reduced_candidate_evidence_keeps_all_original_predicates(mode, mask_dty
     )(state, candidate, jnp.asarray(affected, mask_dtype))
     np.testing.assert_allclose(floor, expected_floor, rtol=1e-6, atol=2e-5)
     np.testing.assert_array_equal(ok, expected_ok)
+
+
+@pytest.mark.parametrize("reuse", [False, True])
+def test_candidate_delta_matches_the_materialised_candidate(reuse):
+    """Evidence from shared baseline arrays plus a candidate delta equals evidence
+    from the materialised candidate network, including under vmap."""
+    from xlron.kernels.gn_path_snr import path_snr_pallas_from_state
+
+    env, params = make(
+        {
+            "env_type": "rmsa_gn_model",
+            "topology_name": "5node_directed",
+            "link_resources": 140,
+            "k": 2,
+            "values_bw": [100],
+        },
+        log_wrapper=False,
+    )
+    params = cast(RMSAGNModelEnvParams, params).replace(gn_kernel_backend="pallas")
+    _, state = env.reset(jax.random.PRNGKey(0), params)
+    shape = state.link_snr_array.shape
+    num_links, slots = shape
+    paths = np.asarray(params.path_link_indices.val)
+    rng = np.random.default_rng(5)
+    occupied = rng.random(shape) < 0.3
+    state = state.replace(
+        link_snr_array=jnp.asarray(rng.uniform(5, 100, shape).astype(np.float32)),
+        path_index_array=jnp.asarray(
+            np.where(occupied, rng.integers(0, len(paths) - 1, shape), -1).astype(np.int32)
+        ),
+        channel_power_array=jnp.asarray(np.where(occupied, 1e-4, 0).astype(np.float32)),
+        channel_centre_bw_array=jnp.asarray(np.where(occupied, 12.5, 0).astype(np.float32)),
+        channel_centre_freq_array=jnp.broadcast_to(jnp.linspace(-1000, 1000, slots), shape),
+    )
+    required = jnp.asarray(
+        np.where(occupied, rng.uniform(5, 25, shape), -np.inf).astype(np.float32)
+    )
+    baseline_db = get_lightpath_snr(state, params)
+
+    def candidate(pid, first, last):
+        hops = paths[pid]
+        links = jnp.asarray(hops, jnp.int32)  # padded with num_links
+        changed = jnp.asarray(rng.uniform(5, 100, (len(hops), slots)).astype(np.float32))
+        values = jnp.array([2e-4, 123.0, 12.5], jnp.float32)
+        delta = (links, changed, jnp.array([first, last, pid], jnp.int32), values)
+        real = hops[hops < num_links]
+        inside = np.zeros(shape, bool)
+        inside[np.ix_(real, np.arange(first, last + 1))] = True
+        overlap = jnp.asarray(np.any(np.isin(paths, real), axis=1))
+        materialised = state.replace(
+            link_snr_array=state.link_snr_array.at[links].set(changed, mode="drop"),
+            path_index_array=jnp.where(inside, pid, state.path_index_array),
+            channel_power_array=jnp.where(inside, values[0], state.channel_power_array),
+            channel_centre_freq_array=jnp.where(inside, values[1], state.channel_centre_freq_array),
+            channel_centre_bw_array=jnp.where(inside, values[2], state.channel_centre_bw_array),
+        )
+        return delta, overlap, materialised, jnp.asarray(inside)
+
+    def evidence(s, affected, overlap, delta=None):
+        return path_snr_pallas_from_state(
+            s,
+            params,
+            evidence=(required, affected),
+            unchanged=(baseline_db, overlap) if reuse else None,
+            delta=delta,
+        )
+
+    with_two_hops = [p for p in range(len(paths) - 1) if np.sum(paths[p] < num_links) >= 2]
+    cases = [candidate(p, f, f + w) for p, f, w in zip(with_two_hops[:3], (0, 60, 135), (3, 7, 4))]
+    for delta, overlap, materialised, inside in cases:
+        expected = jax.jit(evidence)(materialised, inside, overlap)
+        actual = jax.jit(evidence)(state, None, overlap, delta)
+        np.testing.assert_allclose(actual[0], expected[0], rtol=1e-6)
+        np.testing.assert_array_equal(actual[1], expected[1])
+    batched = jax.tree.map(lambda *x: jnp.stack(x), *[(c[0], c[1]) for c in cases])
+    floors, oks = jax.jit(jax.vmap(lambda d, o: evidence(state, None, o, d)))(*batched)
+    for (_, overlap, materialised, inside), floor, ok in zip(cases, floors, oks):
+        expected = jax.jit(evidence)(materialised, inside, overlap)
+        np.testing.assert_allclose(floor, expected[0], rtol=1e-6)
+        np.testing.assert_array_equal(ok, expected[1])
