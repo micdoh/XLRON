@@ -5317,28 +5317,44 @@ def _store_unaggregated_gn_mask(state, params, modulation):
 
 def _true_indices(mask: Array, params: GNModelEnvParams) -> tuple[Array, Array]:
     """jnp.nonzero(mask, size=mask.size, fill_value=0)[0] and jnp.sum(mask)."""
-    if uses_pallas_kernels(params):
+    from xlron.kernels.compact import MAX_ELEMENTS
+
+    if uses_pallas_kernels(params) and mask.shape[0] <= MAX_ELEMENTS:
         from xlron.kernels.compact import compact_true_indices
 
         return compact_true_indices(mask)
     return jnp.nonzero(mask, size=mask.shape[0], fill_value=0)[0], jnp.sum(mask)
 
 
-def _tiered_batches(live, batch_fn, size, carry):
+# Candidates screened per block by first-fit GN masks (gn_mask_first_fit).
+FIRST_FIT_SCREEN_BLOCK = 128
+
+
+def _tiered_batches(live, batch_fn, size, carry, *, more=None):
     """Run batch_fn(batch, carry) over positions [0, live) in a device while loop.
 
     Live counts are usually far below the batch size in a loaded network, so each
     iteration uses the smallest power-of-two fraction of the batch (down to 1/16)
     that finishes the remainder, instead of padding the full batch. Each tier
     compiles batch_fn once more. carry[0] is the next position; batch_fn advances it.
+
+    more(carry) adds an early-exit condition; the batch then also starts at the
+    second-smallest tier and doubles each iteration, as the loop may stop early.
     """
     sizes = sorted({max(1, size >> shift) for shift in range(5)})
 
     def body(c):
+        iteration, c = c
         tier = jnp.sum(live - c[0] > jnp.array(sizes[:-1]))
-        return jax.lax.switch(tier, [partial(batch_fn, s) for s in sizes], c)
+        if more is not None:
+            tier = jnp.minimum(tier, iteration + 1)
+        return iteration + 1, jax.lax.switch(tier, [partial(batch_fn, s) for s in sizes], c)
 
-    return jax.lax.while_loop(lambda c: c[0] < live, body, carry)
+    def cond(c):
+        go = c[1][0] < live
+        return go if more is None else go & more(c[1])
+
+    return jax.lax.while_loop(cond, body, (jnp.int32(0), carry))[1]
 
 
 @partial(jax.jit, static_argnums=(1,))
@@ -5854,6 +5870,61 @@ def _mask_slots_rmsa_gn_model(
         evidence = jnp.stack((new_snr, new_floor, existing_ok.astype(new_snr.dtype)))
         return jnp.where(all_has_candidate[i], evidence, -jnp.inf)
 
+    def new_endpoint_ok(i, screen_threshold):
+        """Endpoint-SNR and fibre-power screen of candidate i (Pallas masks).
+
+        Exact GN output rows for the two endpoints, still including every
+        interferer and post-insertion Raman/ASE dependence. Callers repack
+        survivors before vmapping full old-connection checks; a cond *inside*
+        vmap would execute both expensive branches.
+        """
+        slots = jnp.stack((all_slot_indices[i], all_slot_indices[i] + all_req_slots_flat[i] - 1))
+        path = all_paths[i]
+        links = jnp.nonzero(
+            path,
+            size=params.path_link_indices.val.shape[1],
+            fill_value=params.num_links,
+        )[0]
+        # Fibre power on the path links after insertion; unchanged links
+        # reuse the baseline reduction rather than candidate-sized copies.
+        inside = (slot_indices >= slots[0]) & (slot_indices <= slots[1])
+        power = jnp.where(inside, all_launch_powers[i], state.channel_power_array[links])
+        centre = get_centre_frequency(all_slot_indices[i], all_req_slots_flat[i], params)
+        centres = jnp.where(inside, centre, state.channel_centre_freq_array[links])
+        path_ids = jnp.where(inside, all_lightpath_indices[i], state.path_index_array[links])
+        totals = compute_total_power_per_link(power, path_ids, centres)
+        power_ok = jnp.all(
+            jnp.where(links < params.num_links, totals <= params.max_power_per_fibre, True)
+        )
+        power_ok &= jnp.all(jnp.where(path > 0, True, baseline_power <= params.max_power_per_fibre))
+        feasible = all_has_candidate[i] & power_ok
+        from xlron.kernels.gn_endpoint_snr import endpoint_snr_pallas
+
+        sampled = endpoint_snr_pallas(
+            state, params, links, slots[0], slots[1], all_launch_powers[i], centre
+        )
+        # Keep only the two requested output columns through path
+        # accumulation; avoid a candidate x links x full-spectrum scatter.
+        link_snr = (
+            jnp.ones((params.num_links, 2), sampled.dtype).at[links].set(sampled, mode="drop")
+        )
+        snr = get_snr_for_path(
+            path,
+            link_snr,
+            params,
+            state,
+            output_indices=slots,
+            channel_values=(
+                jnp.broadcast_to(all_launch_powers[i], (2,)),
+                jnp.full((2,), params.slot_size),
+                jnp.broadcast_to(centre, (2,)),
+            ),
+        )
+        # Screening only: the full solve and exact thresholds still decide
+        # admission for every survivor. The slack absorbs float32
+        # evaluation-order differences between the two code paths.
+        return feasible & jnp.all(snr >= screen_threshold - ENDPOINT_SCREEN_SLACK_DB)
+
     # Small spectra benefit from exposing more parallel candidates. Wideband
     # simulations need a tighter memory bound, especially under an outer env vmap.
     candidate_batch_size = min(40 if params.link_resources <= 128 else 8, all_slot_indices.shape[0])
@@ -5866,6 +5937,91 @@ def _mask_slots_rmsa_gn_model(
         batch_size = min(params.gn_mask_batch_size, starts)
         screen_size = min(params.gn_mask_screen_batch_size, starts)
         order = jnp.argsort(-se_values, stable=True)
+
+        def first_fit_formats():
+            """Formats of each path's first valid start in first-fit order, else -1.
+
+            One pass visits (start, path, format) candidates rank-major: every
+            path's next start in band preference order together, all formats of a
+            start together. A path settles at its first start with any valid
+            format, which keeps the highest-SE one, as the full mask would; later
+            starts are skipped. Blocks are screened, then only survivors checked.
+            """
+            k, slots = params.k_paths, params.link_resources
+            ff_order = (
+                params.band_slot_order_ff.val
+                if isinstance(params, GNModelEnvParams) and len(params.band_slot_order_ff.val)
+                else np.arange(slots)
+            )
+            ff_order = jnp.asarray(ff_order, jnp.int32)
+            # (rank, path, format by descending SE), flattened rank-major.
+            by_rank = slot_available[:, order, :][:, :, ff_order]  # (k, M, S)
+            last = jnp.max(jnp.where(jnp.any(by_rank, axis=1), jnp.arange(slots), -1), axis=1)
+            packed, live = _true_indices(jnp.transpose(by_rank, (2, 0, 1)).reshape(-1), params)
+            per_rank = k * num_mods
+
+            def undecided(rank, first):
+                # Every format at a path's first fit must be checked; after that,
+                # or after its last candidate, the path is settled.
+                return jnp.any((rank <= first) & (rank <= last))
+
+            def block(c):
+                start, priority, first = c
+                positions = start + jnp.arange(FIRST_FIT_SCREEN_BLOCK)
+                flat = packed[jnp.minimum(positions, packed.shape[0] - 1)]
+                rank, path, position = flat // per_rank, (flat // num_mods) % k, flat % num_mods
+                mod, slot = order[position], ff_order[rank]
+                candidate = (path * num_mods + mod) * slots + slot
+                ok = (positions < live) & (rank <= first[path])
+                if endpoint_screen:
+                    ok &= jax.vmap(new_endpoint_ok)(candidate, req_snr_values[mod])
+                lanes, count = _true_indices(ok, params)
+
+                def evaluate_batch(size, e):
+                    offset, priority, first = e
+                    at = offset + jnp.arange(size)
+                    lane = lanes[jnp.minimum(at, FIRST_FIT_SCREEN_BLOCK - 1)]
+                    p, r, m = path[lane], rank[lane], mod[lane]
+                    evidence = jax.vmap(
+                        evaluate_candidate_delta if endpoint_screen else evaluate_candidate_index
+                    )(candidate[lane])
+                    valid = (
+                        (at < count)
+                        & (r <= first[p])
+                        & (evidence[:, 0] >= req_snr_values[m])
+                        & (evidence[:, 1] >= mod_formats[m, 2])
+                        & (evidence[:, 2] > 0)
+                    )
+                    # Higher priority = earlier in the descending-SE order.
+                    priority = priority.at[jnp.where(valid, p * slots + slot[lane], starts)].max(
+                        num_mods - position[lane], mode="drop"
+                    )
+                    first = first.at[jnp.where(valid, p, k)].min(r, mode="drop")
+                    return offset + size, priority, first
+
+                _, priority, first = _tiered_batches(
+                    count,
+                    evaluate_batch,
+                    batch_size,
+                    (jnp.int32(0), priority, first),
+                    more=lambda e: undecided(
+                        rank[lanes[jnp.minimum(e[0], FIRST_FIT_SCREEN_BLOCK - 1)]], e[2]
+                    ),
+                )
+                return start + FIRST_FIT_SCREEN_BLOCK, priority, first
+
+            _, priority, first = jax.lax.while_loop(
+                lambda c: (
+                    (c[0] < live)
+                    & undecided(packed[jnp.minimum(c[0], packed.shape[0] - 1)] // per_rank, c[2])
+                ),
+                block,
+                (jnp.int32(0), jnp.zeros((starts,), jnp.int32), jnp.full((k,), slots, jnp.int32)),
+            )
+            first_slot = ff_order[jnp.minimum(first, slots - 1)]
+            keep = (slot_indices[None, :] == first_slot[:, None]) & (first[:, None] < slots)
+            formats = order[jnp.clip(num_mods - priority, 0, num_mods - 1)]
+            return jnp.where(keep.reshape(-1) & (priority > 0), formats, -1)
 
         def format_pass(rank, best):
             mod = order[rank]
@@ -5881,71 +6037,6 @@ def _mask_slots_rmsa_gn_model(
             packed, live = _true_indices(available, params)
 
             if endpoint_screen:
-                # Exact GN output rows for the two endpoints, still including
-                # every interferer and post-insertion Raman/ASE dependence.
-                # Repack survivors before vmapping full old-connection checks;
-                # a cond *inside* vmap would execute both expensive branches.
-                def new_endpoint_ok(i):
-                    slots = jnp.stack(
-                        (all_slot_indices[i], all_slot_indices[i] + all_req_slots_flat[i] - 1)
-                    )
-                    path = all_paths[i]
-                    links = jnp.nonzero(
-                        path,
-                        size=params.path_link_indices.val.shape[1],
-                        fill_value=params.num_links,
-                    )[0]
-                    # Fibre power on the path links after insertion; unchanged links
-                    # reuse the baseline reduction rather than candidate-sized copies.
-                    inside = (slot_indices >= slots[0]) & (slot_indices <= slots[1])
-                    power = jnp.where(
-                        inside, all_launch_powers[i], state.channel_power_array[links]
-                    )
-                    centre = get_centre_frequency(
-                        all_slot_indices[i], all_req_slots_flat[i], params
-                    )
-                    centres = jnp.where(inside, centre, state.channel_centre_freq_array[links])
-                    path_ids = jnp.where(
-                        inside, all_lightpath_indices[i], state.path_index_array[links]
-                    )
-                    totals = compute_total_power_per_link(power, path_ids, centres)
-                    power_ok = jnp.all(
-                        jnp.where(
-                            links < params.num_links, totals <= params.max_power_per_fibre, True
-                        )
-                    )
-                    power_ok &= jnp.all(
-                        jnp.where(path > 0, True, baseline_power <= params.max_power_per_fibre)
-                    )
-                    feasible = all_has_candidate[i] & power_ok
-                    from xlron.kernels.gn_endpoint_snr import endpoint_snr_pallas
-
-                    sampled = endpoint_snr_pallas(
-                        state, params, links, slots[0], slots[1], all_launch_powers[i], centre
-                    )
-                    # Keep only the two requested output columns through path
-                    # accumulation; avoid a candidate x links x full-spectrum scatter.
-                    link_snr = (
-                        jnp.ones((params.num_links, 2), sampled.dtype)
-                        .at[links]
-                        .set(sampled, mode="drop")
-                    )
-                    snr = get_snr_for_path(
-                        path,
-                        link_snr,
-                        params,
-                        state,
-                        output_indices=slots,
-                        channel_values=(
-                            jnp.broadcast_to(all_launch_powers[i], (2,)),
-                            jnp.full((2,), params.slot_size),
-                            jnp.broadcast_to(centre, (2,)),
-                        ),
-                    )
-                    # Screening only: the full solve and exact thresholds still decide
-                    # admission for every survivor. The slack absorbs float32
-                    # evaluation-order differences between the two code paths.
-                    return feasible & jnp.all(snr >= screen_threshold - ENDPOINT_SCREEN_SLACK_DB)
 
                 def screen_batch(size, carry):
                     start, keep = carry
@@ -5954,7 +6045,7 @@ def _mask_slots_rmsa_gn_model(
                     indices = (
                         (flat // params.link_resources) * num_mods + mod
                     ) * params.link_resources + flat % params.link_resources
-                    ok = jax.vmap(new_endpoint_ok)(indices)
+                    ok = jax.vmap(new_endpoint_ok, (0, None))(indices, screen_threshold)
                     dest = jnp.where(positions < live, flat, starts)
                     return start + size, keep.at[dest].set(ok, mode="drop")
 
@@ -6001,6 +6092,8 @@ def _mask_slots_rmsa_gn_model(
             _, best = _tiered_batches(live, evaluate_batch, batch_size, (jnp.int32(0), best))
             return best
 
+        if params.gn_mask_first_fit:
+            return _store_unaggregated_gn_mask(state, params, first_fit_formats())
         best = jax.lax.fori_loop(0, num_mods, format_pass, jnp.full((starts,), -1, jnp.int32))
         return _store_unaggregated_gn_mask(state, params, best)
 

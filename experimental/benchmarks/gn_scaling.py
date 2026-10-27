@@ -236,7 +236,11 @@ def main():
             rng, current = carry
             rng, step_key = jax.random.split(rng)
             if args.env_type == "rmsa_gn_model":
-                mask, full_mask, mods = env.action_mask(current, params)
+                # As select_action_eval: first-fit heuristics need only first fits.
+                mask_params = params.replace(
+                    gn_mask_first_fit=args.heuristic in ("ksp_ff", "ff_ksp")
+                )
+                mask, full_mask, mods = env.action_mask(current, mask_params)
                 current = current.replace(
                     link_slot_mask=mask, full_link_slot_mask=full_mask, mod_format_mask=mods
                 )

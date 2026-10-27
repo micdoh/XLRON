@@ -1338,8 +1338,12 @@ def select_action_eval(select_action_state, env, env_params, eval_state, config)
             # correct modulation format for the chosen slot.
             heuristic_params = env_params
             if isinstance(env_params, RMSAGNModelEnvParams):
+                # First-fit heuristics only read each path's first valid start.
+                mask_params = env_params.replace(
+                    gn_mask_first_fit=config.path_heuristic.lower() in ("ksp_ff", "ff_ksp")
+                )
                 updated_inner = mask_slots_rmsa_gn_model(
-                    env_state.env_state, env_params, env_state.env_state.request_array
+                    env_state.env_state, mask_params, env_state.env_state.request_array
                 )
                 env_state = env_state.replace(env_state=updated_inner)
                 # The heuristic reuses this mask rather than recomputing it.
