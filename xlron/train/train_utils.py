@@ -477,7 +477,12 @@ def print_experiment_summary(config: Box, env_params=None) -> None:
     if not (config.get("EVAL_HEURISTIC", False) or config.get("EVAL_MODEL", False)):
         print(f"\n  {'--- Model & Optimiser ---':^{W - 4}}")
         print(f"  Architecture:             {arch}  ({arch_detail})")
-        print(f"  Activation:               {config.get('ACTIVATION', '?')}")
+        activation = (
+            f"{config.get('transformer_ffn_activation', 'gelu')} (FFN)"
+            if config.get("USE_TRANSFORMER", False)
+            else config.get("ACTIVATION", "?")
+        )
+        print(f"  Activation:               {activation}")
         print(
             f"  Learning rate:            {config.get('LR', '?')}  (schedule: {config.get('LR_SCHEDULE', '?')})"
         )
@@ -692,6 +697,7 @@ def init_network(config: Box, key: chex.PRNGKey) -> eqx.Module:
                 key=key,
                 critic_pooling=config.transformer_critic_pooling,
                 actor_pooling=config.transformer_actor_pooling,
+                ffn_activation=config.get("transformer_ffn_activation", "gelu"),
             )
         elif config.USE_GNN:
             if "gn_model" in config.env_type.lower() and config.global_output_size_actor > 0:

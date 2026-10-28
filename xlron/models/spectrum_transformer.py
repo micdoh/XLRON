@@ -67,6 +67,7 @@ class SpectrumLinkEncoder(eqx.Module):
         dropout_rate,
         attention_dropout_rate,
         key,
+        ffn_activation="gelu",
     ):
         k1, k2, k3, k4 = jax.random.split(key, 4)
         self.conv1 = eqx.nn.Conv1d(3, 8, 5, key=k1)
@@ -83,6 +84,7 @@ class SpectrumLinkEncoder(eqx.Module):
             attention_dropout_rate,
             k4,
             preembedded=True,
+            ffn_activation=ffn_activation,
         )
         self.num_wire_features = num_wire_features
         self.request_cols = request_cols
@@ -145,6 +147,7 @@ class ActorCriticSpectrumTransformer(eqx.Module):
         key,
         critic_pooling="mean",
         actor_pooling="sum",
+        ffn_activation="gelu",
     ):
         if share_layers:
             raise ValueError("The spectrum policy uses independent actor/critic encoders")
@@ -162,9 +165,15 @@ class ActorCriticSpectrumTransformer(eqx.Module):
             dropout_rate,
             attention_dropout_rate,
         )
-        self.actor = SpectrumLinkEncoder(metadata, 0, *common, keys[0])
+        self.actor = SpectrumLinkEncoder(
+            metadata, 0, *common, keys[0], ffn_activation=ffn_activation
+        )
         self.critic = SpectrumLinkEncoder(
-            metadata - num_request_specific_cols, num_request_specific_cols, *common, keys[1]
+            metadata - num_request_specific_cols,
+            num_request_specific_cols,
+            *common,
+            keys[1],
+            ffn_activation=ffn_activation,
         )
         self.actor_context = eqx.nn.Linear(embedding_size, 8, key=keys[2])
         self.actor_local = eqx.nn.Linear(8, 8, key=keys[3])

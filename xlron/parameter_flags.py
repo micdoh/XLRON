@@ -44,7 +44,12 @@ flags.DEFINE_float("ADAM_EPS", 1e-5, "Adam epsilon")
 flags.DEFINE_float("ADAM_BETA1", 0.9, "Adam beta1")
 flags.DEFINE_float("ADAM_BETA2", 0.999, "Adam beta2")
 flags.DEFINE_float("MAX_GRAD_NORM", 0.5, "Maximum gradient norm")
-flags.DEFINE_string("ACTIVATION", "tanh", "Activation function")
+flags.DEFINE_enum(
+    "ACTIVATION",
+    "tanh",
+    ["tanh", "relu", "crelu", "gelu", "silu", "relu2", "relu3"],
+    "Hidden-layer activation for the MLP and GNN models (relu2/relu3 = max(x, 0)^2 / ^3)",
+)
 flags.DEFINE_float("LOGR_CLIP", 10.0, "Log ratio clip to range +/- this value")
 flags.DEFINE_float("ADV_CLIP", 10.0, "Advantage clip to range +/- this value")
 flags.DEFINE_string("LR_SCHEDULE", "cosine", "Learning rate schedule")
@@ -721,6 +726,12 @@ flags.DEFINE_integer(
     "transformer_intermediate_size",
     256,
     "Size of intermediate layer in transformer feed-forward blocks",
+)
+flags.DEFINE_enum(
+    "transformer_ffn_activation",
+    "gelu",
+    ["tanh", "relu", "gelu", "silu", "relu2", "relu3"],
+    "Activation inside the transformer feed-forward blocks (relu2 = squared ReLU, as in Primer)",
 )
 flags.DEFINE_integer("transformer_num_layers", 1, "Number of transformer encoder layers")
 flags.DEFINE_integer("transformer_num_heads", 4, "Number of attention heads in transformer")

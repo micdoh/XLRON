@@ -20,6 +20,7 @@ from xlron.environments.env_funcs import (
     get_path_slots,
     read_rsa_request,
 )
+from xlron.models.mlp import select_activation
 
 
 def pooled_actor_projection(mlp, embeddings, paths):
@@ -210,6 +211,7 @@ class FeedForwardBlock(eqx.Module):
     output: eqx.nn.Linear
     layernorm: eqx.nn.LayerNorm
     dropout: eqx.nn.Dropout
+    activation: str = eqx.field(static=True)
 
     def __init__(
         self,
@@ -217,8 +219,11 @@ class FeedForwardBlock(eqx.Module):
         intermediate_size: int,
         dropout_rate: float,
         key: chex.PRNGKey,
+        activation: str = "gelu",
     ):
         mlp_key, output_key = jax.random.split(key)
+        select_activation(activation)  # fail at construction on an unknown name
+        self.activation = activation
         self.linear = eqx.nn.Linear(
             in_features=embedding_size, out_features=intermediate_size, key=mlp_key
         )
@@ -238,7 +243,7 @@ class FeedForwardBlock(eqx.Module):
 
         # Feed-forward.
         hidden = self.linear(hidden)
-        hidden = jax.nn.gelu(hidden)
+        hidden = select_activation(self.activation)(hidden)
 
         # Project back to input size.
         output = self.output(hidden)
@@ -265,6 +270,7 @@ class TransformerLayer(eqx.Module):
         attention_dropout_rate: float,
         key: chex.PRNGKey,
         custom_bias: bool = False,
+        ffn_activation: str = "gelu",
     ):
         attention_key, ff_key = jax.random.split(key)
 
@@ -280,6 +286,7 @@ class TransformerLayer(eqx.Module):
             intermediate_size=intermediate_size,
             dropout_rate=dropout_rate,
             key=ff_key,
+            activation=ffn_activation,
         )
 
     def __call__(
@@ -330,6 +337,7 @@ class Encoder(eqx.Module):
         attention_dropout_rate: float,
         key: chex.PRNGKey,
         preembedded: bool = False,
+        ffn_activation: str = "gelu",
     ):
         embedder_key, layer_key, wire_key = jax.random.split(key, 3)
         self.num_layers = num_layers
@@ -357,6 +365,7 @@ class Encoder(eqx.Module):
                 dropout_rate=dropout_rate,
                 attention_dropout_rate=attention_dropout_rate,
                 key=key,
+                ffn_activation=ffn_activation,
             )
 
         self.layers = make_layer(layer_keys)
@@ -475,6 +484,7 @@ class ActorCriticTransformer(eqx.Module):
         key: chex.PRNGKey,
         critic_pooling: str = "mean",
         actor_pooling: str = "sum",
+        ffn_activation: str = "gelu",
     ):
         (
             encoder_key,
@@ -502,6 +512,7 @@ class ActorCriticTransformer(eqx.Module):
             dropout_rate=dropout_rate,
             attention_dropout_rate=attention_dropout_rate,
             key=encoder_key,
+            ffn_activation=ffn_activation,
         )
         critic = Encoder(
             input_size=input_size - num_request_specific_cols,
@@ -513,6 +524,7 @@ class ActorCriticTransformer(eqx.Module):
             dropout_rate=dropout_rate,
             attention_dropout_rate=attention_dropout_rate,
             key=critic_enc_key,
+            ffn_activation=ffn_activation,
         )
         if self.share_layers:
             # When sharing layers, use the same encoder for both actor and critic
