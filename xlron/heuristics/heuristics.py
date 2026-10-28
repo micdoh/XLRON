@@ -1,4 +1,4 @@
-from functools import partial
+from functools import lru_cache, partial
 from typing import Tuple
 
 import jax
@@ -734,6 +734,19 @@ def arbr_ff(state: EnvState, params: RSAEnvParams) -> Array:
     return action
 
 
+@lru_cache(maxsize=8)
+def initial_path_capacity_array(params: RWALightpathReuseEnvParams) -> Array:
+    """Per-path capacity before any allocation, from the whole path table.
+
+    Evaluated eagerly once per params: inside a trace the path table is a runtime
+    argument, so computing this there would redo a full-table product every step.
+    """
+    with jax.ensure_compile_time_eval():
+        return init_path_capacity_array(
+            params.link_length_array.val, params.path_link_array.val, scale_factor=1.0
+        )
+
+
 def get_link_weights(state: EnvState, params: RSAEnvParams):
     """Get link weights based on occupancy for use in congestion-aware routing heuristics.
 
@@ -746,9 +759,7 @@ def get_link_weights(state: EnvState, params: RSAEnvParams):
     """
     if isinstance(params, RWALightpathReuseEnvParams):
         rwalr_state = cast(RWALightpathReuseEnvState, state)
-        initial_path_capacity = init_path_capacity_array(
-            params.link_length_array.val, params.path_link_array.val, scale_factor=1.0
-        )
+        initial_path_capacity = initial_path_capacity_array(params)
         initial_path_capacity = jnp.squeeze(
             jax.vmap(lambda x: initial_path_capacity[x])(rwalr_state.path_index_array)
         )
@@ -1165,10 +1176,13 @@ def capacity_loss(
     # node-pair route, including when k_paths == 1 makes the shape divisible.
     num_route_rows = params.path_link_array.val.shape[0] - int(isinstance(params, GNModelEnvParams))
     pair_major_rows = np.arange(num_route_rows).reshape(-1, params.k_paths)[:, :n_int].reshape(-1)
-    interfering_paths = params.path_link_array.val[pair_major_rows]
-    if params.pack_path_bits:
-        interfering_paths = jnp.unpackbits(interfering_paths, axis=1)[:, : params.num_links]
-    interfering_paths = jnp.asarray(interfering_paths, dtype=jnp.float32)
+    # Gather eagerly so the result is a concrete array passed to the program, not a
+    # gather over the whole (runtime-argument) path table on every step.
+    with jax.ensure_compile_time_eval():
+        interfering_paths = params.path_link_array.val[pair_major_rows]
+        if params.pack_path_bits:
+            interfering_paths = jnp.unpackbits(interfering_paths, axis=1)[:, : params.num_links]
+        interfering_paths = jnp.asarray(interfering_paths, dtype=jnp.float32)
     cand_paths = jnp.asarray(get_paths(params, nodes_sd), dtype=jnp.float32)
 
     def prep(paths):
@@ -1250,9 +1264,7 @@ def most_used(state: EnvState, params: RSAEnvParams, unique_lightpaths, relative
     elif isinstance(params, RWALightpathReuseEnvParams) and not unique_lightpaths:
         rwalr_state = cast(RWALightpathReuseEnvState, state)
         # Get initial path capacity
-        initial_path_capacity = init_path_capacity_array(
-            params.link_length_array.val, params.path_link_array.val, scale_factor=1.0
-        )
+        initial_path_capacity = initial_path_capacity_array(params)
         initial_path_capacity = jnp.squeeze(
             jax.vmap(lambda x: initial_path_capacity[x])(rwalr_state.path_index_array)
         )

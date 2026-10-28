@@ -6948,22 +6948,14 @@ def get_launch_power(
             params.num_nodes,
             directed=params.directed_graph,
         )
-        # Path length = path-link incidence row dotted with per-link total (span-summed)
-        # lengths. (Indexing the per-link length vector with a path index, and taking the
-        # max over per-span partial sums, both produced garbage scalings here.)
-        link_length_array = jnp.sum(params.link_length_array.val, axis=1, promote_integers=False)
-        path_link_array = (
-            jnp.unpackbits(params.path_link_array.val, axis=1)[:, : params.num_links]
-            if params.pack_path_bits
-            else params.path_link_array.val
-        )
-        path = path_link_array[(i + k_path_index).astype(dtype_config.INDEX_DTYPE)]
-        path_length = jnp.dot(path.astype(link_length_array.dtype), link_length_array)
-        maximum_path_length = jnp.max(
-            jnp.dot(path_link_array.astype(link_length_array.dtype), link_length_array)
-        )
+        # Path lengths are per-path totals of span-summed link lengths, precomputed at
+        # env creation. (Indexing the per-link length vector with a path index, and
+        # taking the max over per-span partial sums, both produced garbage scalings here.)
+        path_length = params.path_length_array.val[
+            (i + k_path_index).astype(dtype_config.INDEX_DTYPE)
+        ]
         return params.slot_launch_power_array.val[initial_slot_index] * (
-            path_length / maximum_path_length
+            path_length / params.max_path_length
         )
     else:
         raise ValueError(
@@ -6980,7 +6972,6 @@ def get_paths_obs_gn_model(state: RSAGNModelEnvState, params: RSAGNModelEnvParam
     path_stats = calculate_path_stats(state, params, request_array)
     # Remove first 3 items of path stats for each path
     path_stats = path_stats[:, 3:]
-    link_length_array = jnp.sum(params.link_length_array.val, axis=1, promote_integers=False)
     lightpath_snr_array = get_lightpath_snr(state, params)
     nodes_sd, requested_datarate = read_rsa_request(request_array)
     source, dest = nodes_sd
@@ -6998,19 +6989,16 @@ def get_paths_obs_gn_model(state: RSAGNModelEnvState, params: RSAGNModelEnvParam
             )
             + k_path_index
         )
-        path_link_array = (
-            jnp.unpackbits(params.path_link_array.val, axis=1)[:, : params.num_links]
-            if params.pack_path_bits
-            else params.path_link_array.val
-        )
-        path = path_link_array[path_index.astype(dtype_config.INDEX_DTYPE)]
-        path_length = jnp.dot(path, link_length_array)
-        max_path_length = jnp.max(jnp.dot(path_link_array, link_length_array))
-        path_length_norm = path_length / max_path_length
-        max_path_length_hops = jnp.max(jnp.sum(path_link_array, axis=1, promote_integers=False))
+        path_index = path_index.astype(dtype_config.INDEX_DTYPE)
+        path = params.path_link_array.val[path_index]
+        if params.pack_path_bits:
+            path = jnp.unpackbits(path)[: params.num_links]
+        # Lengths and maxima are precomputed: reducing over the whole path table here
+        # would run every step now that the table is a runtime argument.
+        path_length_norm = params.path_length_array.val[path_index] / params.max_path_length
         path_length_hops_norm = (
             jnp.sum(path, promote_integers=False).astype(dtype_config.LARGE_FLOAT_DTYPE)
-            / max_path_length_hops
+            / params.max_path_hops
         )
         # Connections on path
         num_connections = jnp.where(

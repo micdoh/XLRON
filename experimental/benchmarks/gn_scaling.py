@@ -164,6 +164,9 @@ def main():
     parser.add_argument("--topology", default="nsfnet_deeprmsa_directed")
     parser.add_argument("--band-preference", help="Use the full named optical bands, e.g. C,L,S")
     parser.add_argument("--load", type=float, help="Override the default offered load")
+    parser.add_argument(
+        "--launch-power-type", choices=["fixed", "scaled"], help="Override the launch power type"
+    )
     parser.add_argument("--coherent", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--mode", choices=["uniform", "corrected", "nonuniform"], default="uniform")
     parser.add_argument("--kernels", nargs="+", default=["link", "lightpath", "mask"])
@@ -216,6 +219,8 @@ def main():
         config["band_preference"] = args.band_preference
     if args.load is not None:
         config["load"] = args.load
+    if args.launch_power_type:
+        config["launch_power_type"] = args.launch_power_type
     # The kernel backend changes how, not what, is computed: keep it out of the
     # workload key so saved states can be replayed with either backend.
     workload_key = json.dumps(config, sort_keys=True)

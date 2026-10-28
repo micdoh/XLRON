@@ -44,9 +44,17 @@ class HashableArrayWrapper(Generic[T]):
 
     def __setitem__(self, key, val):
         self.val[key] = val
+        object.__getattribute__(self, "__dict__").pop("_hash", None)
 
     def __hash__(self):
-        return hash(self.val.tobytes())
+        # Hashing copies the array to host, and every nested jit with static params
+        # rehashes it during tracing (950 MB for the USA100 k=70 path table), so cache.
+        cache = object.__getattribute__(self, "__dict__")
+        cached = cache.get("_hash")
+        if cached is None or cached[0] is not self.val:
+            cached = (self.val, hash(self.val.tobytes()))
+            cache["_hash"] = cached
+        return cached[1]
 
     def __eq__(self, other):
         if isinstance(other, HashableArrayWrapper):
@@ -319,6 +327,11 @@ class GNModelEnvParams(RSAEnvParams):
 
     # Padded constituent link indices, (num_paths, max_path_hops); num_links is padding.
     path_link_indices: HashableArrayWrapper = struct.field(pytree_node=False)
+    # Per-path total length (metres) and its maxima, precomputed so that steps never
+    # reduce over the whole path table (it is a runtime argument, not a folded constant).
+    path_length_array: HashableArrayWrapper = struct.field(pytree_node=False)
+    max_path_length: chex.Scalar = struct.field(pytree_node=False)
+    max_path_hops: chex.Scalar = struct.field(pytree_node=False)
     ref_lambda: chex.Scalar = struct.field(pytree_node=False)
     max_spans: chex.Scalar = struct.field(pytree_node=False)
     max_span_length: chex.Scalar = struct.field(pytree_node=False)

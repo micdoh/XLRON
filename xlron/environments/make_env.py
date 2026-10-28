@@ -1151,11 +1151,21 @@ def make(config: Optional[Union[dict, FlagValues]], **kwargs) -> Tuple[RSAEnv | 
             links = np.flatnonzero(path)
             path_link_indices[path_idx, : len(links)] = links
         path_link_indices = jnp.asarray(path_link_indices)
+        total_link_lengths = np.sum(np.asarray(link_length_array), axis=1)
+        path_length_array = jnp.asarray(
+            path_incidence.astype(np.float64) @ total_link_lengths.astype(np.float64),
+            dtype=total_link_lengths.dtype,
+        )
 
         params_dict.update(
             path_link_indices=HashableArrayWrapper(path_link_indices)
             if not remove_array_wrappers
             else path_link_indices,
+            path_length_array=HashableArrayWrapper(path_length_array)
+            if not remove_array_wrappers
+            else path_length_array,
+            max_path_length=float(np.max(path_length_array)),
+            max_path_hops=max_hops,
             ref_lambda=ref_lambda,
             max_spans=max_spans,
             max_span_length=max_span_length,

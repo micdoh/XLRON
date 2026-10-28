@@ -2,11 +2,13 @@
 and configuration processing (process_config / make)."""
 
 import jax
+import numpy as np
 import jax.numpy as jnp
 import pytest
 from box import Box
 
 from xlron import dtype_config
+from xlron.environments.dataclasses import GNModelEnvParams
 from xlron.environments.make_env import make, process_config, validate_config
 
 
@@ -300,3 +302,43 @@ def test_make_env_config_get_fallbacks_match_flag_defaults():
 def test_snr_observations_reject_non_gn_environments():
     with pytest.raises(AssertionError, match="requires a GN environment"):
         make({"env_type": "rsa", "transformer_obs_type": "snr"})
+
+
+class TestRouteTableStorage:
+    """Path tables are runtime arguments of compiled programs, not constants (#80)."""
+
+    def test_path_table_is_passed_to_programs_not_embedded(self):
+        from xlron.environments.env_funcs import mask_slots
+
+        assert jax.config.jax_use_simplified_jaxpr_constants
+        env, params = make(
+            {"env_type": "rmsa", "topology_name": "nsfnet_deeprmsa_directed", "k": 5},
+            log_wrapper=False,
+        )
+        _, state = env.reset(jax.random.PRNGKey(0), params)
+        lowered = jax.jit(mask_slots, static_argnums=(1,)).lower(state, params)
+        const_ids = {id(c) for c in lowered._lowering.const_args}
+        assert id(params.path_link_array.val) in const_ids
+        # ... as an argument of the program's entry point, so its elements are not
+        # spelled out in the program
+        rows, cols = params.path_link_array.val.shape
+        main = next(line for line in lowered.as_text().splitlines() if "@main(" in line)
+        assert f"tensor<{rows}x{cols}xi" in main and "jax.const = true" in main
+
+    def test_gn_path_lengths_match_incidence_product(self):
+        env, params = make(
+            {
+                "env_type": "rmsa_gn_model",
+                "topology_name": "cost239_deeprmsa_directed",
+                "link_resources": 40,
+                "slot_size": 100,
+                "k": 5,
+            },
+            log_wrapper=False,
+        )
+        assert isinstance(params, GNModelEnvParams)
+        paths = np.asarray(params.path_link_array.val, dtype=np.float64)
+        lengths = paths @ np.asarray(params.link_length_array.val, dtype=np.float64).sum(axis=1)
+        np.testing.assert_allclose(np.asarray(params.path_length_array.val), lengths, rtol=1e-6)
+        assert params.max_path_length == pytest.approx(lengths.max(), rel=1e-6)
+        assert params.max_path_hops == int(paths.sum(axis=1).max())
