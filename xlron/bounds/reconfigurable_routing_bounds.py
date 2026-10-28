@@ -61,13 +61,13 @@ def generate_request_list(
     def get_request(carry, _rng):
         _state, _params = carry
         new_state = generate_request_rsa(_rng, _state, _params)
-        source, bitrate, dest = new_state.request_array  # ty: ignore[unresolved-attribute]
+        source, bitrate, dest = new_state.request_array
         source = source.astype(jnp.int32)
         bitrate = bitrate.astype(jnp.float32)
         dest = dest.astype(jnp.int32)
-        holding_time = jnp.squeeze(new_state.holding_time)  # ty: ignore[unresolved-attribute]
-        arrival_time = jnp.squeeze(new_state.current_time - _state.current_time)  # ty: ignore[unresolved-attribute]
-        current_time = jnp.squeeze(new_state.current_time)  # ty: ignore[unresolved-attribute]
+        holding_time = jnp.squeeze(new_state.holding_time)
+        arrival_time = jnp.squeeze(new_state.current_time - _state.current_time)
+        current_time = jnp.squeeze(new_state.current_time)
         return (new_state, params), jnp.array(
             [source, bitrate, dest, arrival_time, holding_time, current_time]
         )
@@ -603,7 +603,7 @@ def main(argv):
             env_key = jax.random.split(rng, 1)[0]
             if compile_defrag:
                 max_active = max(1, int(effective_max_load * 2))
-                defrag_list = jnp.zeros((max_active, 6), dtype=request_array.dtype)  # ty: ignore[unresolved-attribute]
+                defrag_list = jnp.zeros((max_active, 6), dtype=request_array.dtype)
                 defrag_initial_state = initial_state.replace(
                     env_state=initial_state.env_state.replace(list_of_requests=defrag_list)
                 )
@@ -659,7 +659,7 @@ def main(argv):
             else:
                 run_defrag = defrag_fn
                 with TimeIt(tag="STEP ENV COMPILATION") as comp_timer:
-                    step_env.lower(env_key, raw_env, env_state, env_params_det, profile).compile()  # ty: ignore[unresolved-attribute]
+                    step_env.lower(env_key, raw_env, env_state, env_params_det, profile).compile()
                 total_compilation_time += comp_timer.elapsed_secs
 
                 jit_profiler.reset()

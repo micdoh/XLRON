@@ -67,7 +67,7 @@ class SpectrumLinkEncoder(eqx.Module):
         dropout_rate,
         attention_dropout_rate,
         key,
-        ffn_activation="gelu",
+        ffn_activation="relu2",
     ):
         k1, k2, k3, k4 = jax.random.split(key, 4)
         self.conv1 = eqx.nn.Conv1d(3, 8, 5, key=k1)
@@ -147,7 +147,7 @@ class ActorCriticSpectrumTransformer(eqx.Module):
         key,
         critic_pooling="mean",
         actor_pooling="sum",
-        ffn_activation="gelu",
+        ffn_activation="relu2",
     ):
         if share_layers:
             raise ValueError("The spectrum policy uses independent actor/critic encoders")

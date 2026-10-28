@@ -3,7 +3,6 @@ import pathlib
 import warnings
 from typing import Any, Optional, Tuple, Union
 
-import absl
 import jax
 import jax.numpy as jnp
 import networkx as nx
@@ -304,9 +303,7 @@ def process_config(config: Optional[Union[dict, FlagValues]], **kwargs: Any) -> 
     return config
 
 
-def make(
-    config: Optional[Union[dict, absl.flags.FlagValues]], **kwargs
-) -> Tuple[RSAEnv | VONEEnv, EnvParams]:
+def make(config: Optional[Union[dict, FlagValues]], **kwargs) -> Tuple[RSAEnv | VONEEnv, EnvParams]:
     """Create RSA environment.
 
     This function is the entry point to setting up any XLRON environment.

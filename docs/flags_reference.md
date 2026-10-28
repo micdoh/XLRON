@@ -963,8 +963,9 @@ xlron.parameter_flags:
     (default: 'false')
   --transformer_ffn_activation: <tanh|relu|gelu|silu|relu2|relu3>: Activation
     inside the transformer feed-forward blocks (relu2 = squared ReLU, as in
-    Primer)
-    (default: 'gelu')
+    Primer). Checkpoints trained before relu2 became the default need
+    --transformer_ffn_activation=gelu
+    (default: 'relu2')
   --transformer_intermediate_size: Size of intermediate layer in transformer
     feed-forward blocks
     (default: '256')

@@ -999,11 +999,11 @@ class RsaMultibandBandGapTest(chex.TestCase):
             arrival_time=t.astype(self.state.arrival_time.dtype),
         )
         new_state = remove_expired_services_rsa(state, self.params)
-        self.assertEqual(float(new_state.link_slot_array[0, 0]), 0.0)  # ty: ignore[unresolved-attribute]
-        self.assertTrue(jnp.all(new_state.link_slot_departure_array == 0))  # ty: ignore[unresolved-attribute]
+        self.assertEqual(float(new_state.link_slot_array[0, 0]), 0.0)
+        self.assertTrue(jnp.all(new_state.link_slot_departure_array == 0))
         self.assertTrue(
-            jnp.all(new_state.link_slot_array[:, 8:10] == -1),  # ty: ignore[unresolved-attribute]
-            f"Gap sentinels erased by expiry: {new_state.link_slot_array}",  # ty: ignore[unresolved-attribute]
+            jnp.all(new_state.link_slot_array[:, 8:10] == -1),
+            f"Gap sentinels erased by expiry: {new_state.link_slot_array}",
         )
 
     def test_utilisation_excludes_gap_slots(self):

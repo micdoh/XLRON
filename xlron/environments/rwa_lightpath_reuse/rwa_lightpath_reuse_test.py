@@ -802,9 +802,9 @@ class DynamicExpiryCapacityRestoreTest(chex.TestCase):
 
         far_future = jnp.full_like(state.current_time, 1e7)
         expired = remove_expired_services_rwalr(state.replace(current_time=far_future), params)
-        self.assertTrue(bool(jnp.all(expired.path_index_array == -1)))  # ty: ignore[unresolved-attribute]
-        self.assertTrue(bool(jnp.all(expired.link_capacity_array == 1e6)))  # ty: ignore[unresolved-attribute]
-        self.assertTrue(bool(jnp.all(expired.link_slot_array == 0)))  # ty: ignore[unresolved-attribute]
+        self.assertTrue(bool(jnp.all(expired.path_index_array == -1)))
+        self.assertTrue(bool(jnp.all(expired.link_capacity_array == 1e6)))
+        self.assertTrue(bool(jnp.all(expired.link_slot_array == 0)))
 
 
 if __name__ == "__main__":

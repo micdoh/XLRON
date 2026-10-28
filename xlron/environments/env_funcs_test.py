@@ -1390,7 +1390,7 @@ class UndirectedEdgeFeatureLayoutTest(chex.TestCase):
         )
 
         graph = init_graph_tuple(state, params, jnp.eye(int(params.num_nodes)))
-        got = np.asarray(graph.edges, dtype=np.float32)  # ty: ignore[unresolved-attribute]
+        got = np.asarray(graph.edges, dtype=np.float32)
         self.assertEqual(got.shape[0], 2 * e)
         np.testing.assert_allclose(got[:e], expected_rows, rtol=1e-2)  # forward block, link order
         np.testing.assert_allclose(got[e:], expected_rows, rtol=1e-2)  # reverse block, link order
@@ -1446,7 +1446,7 @@ class GenerateRequestBwProbsTest(chex.TestCase):
 
         def _gen_bw(k):
             new_state = generate_request_rsa(k, state, params)
-            return new_state.request_array[1]  # ty: ignore[unresolved-attribute]
+            return new_state.request_array[1]
 
         bws = jax.vmap(_gen_bw)(keys)
         return jnp.array([jnp.mean(bws == v) for v in values])
@@ -1488,7 +1488,7 @@ class GenerateRequestDistributionTest(chex.TestCase):
 
         def _gen(k):
             s = generate_request_rsa(k, state, params)
-            return s.request_array, s.arrival_time, s.holding_time  # ty: ignore[unresolved-attribute]
+            return s.request_array, s.arrival_time, s.holding_time
 
         return jax.vmap(_gen)(keys)
 

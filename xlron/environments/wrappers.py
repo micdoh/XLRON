@@ -2,7 +2,7 @@ import time
 import timeit
 from collections import defaultdict
 from functools import partial
-from typing import Any, Optional, Tuple, Union, cast
+from typing import Any, Optional, Tuple, Union
 
 import chex
 import jax
@@ -144,7 +144,7 @@ class LogWrapper(GymnaxWrapper):
                 action[1]
                 if action.shape[0] > 1
                 else jnp.asarray(
-                    cast(GNModelEnvParams, params).default_launch_power,
+                    params.default_launch_power,
                     dtype=dtype_config.LARGE_FLOAT_DTYPE,
                 )
             )

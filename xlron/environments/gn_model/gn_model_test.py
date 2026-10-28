@@ -1185,7 +1185,7 @@ class Gerard2025RegressionTest(absltest.TestCase):
             _, initial_slot_index = process_path_action(state, params, action)
             launch_power = get_launch_power(state, action, action, initial_slot_index, params)
             full_action = jnp.concatenate(
-                [action.reshape((1,)), launch_power.reshape((1,))],  # ty: ignore[unresolved-attribute]
+                [action.reshape((1,)), launch_power.reshape((1,))],
                 axis=0,
             )
             obs, state, reward, terminal, truncated, info = raw_env.step_env(
@@ -1376,8 +1376,8 @@ class ActiveLightpathRegistryTest(chex.TestCase):
         expired = remove_expired_services_rsa_gn_model(
             state2.replace(current_time=far_future), params
         )
-        self.assertTrue(bool(jnp.all(expired.active_lightpaths_array == -1)))  # ty: ignore[unresolved-attribute]
-        self.assertTrue(bool(jnp.all(expired.active_lightpaths_array_departure == 0)))  # ty: ignore[unresolved-attribute]
+        self.assertTrue(bool(jnp.all(expired.active_lightpaths_array == -1)))
+        self.assertTrue(bool(jnp.all(expired.active_lightpaths_array_departure == 0)))
 
 
 class TotalPowerPerLinkTest(chex.TestCase):
@@ -1461,7 +1461,7 @@ class GetPathsObsGNModelTest(chex.TestCase):
     def test_path_length_feature_is_normalised(self):
         _, env, _, state, params = rsa_gn_model_4_nsfnet_test_setup()
         request = state.request_array.reshape((-1,))
-        ps_w = calculate_path_stats(state, params, request).shape[1] - 3  # ty: ignore[unresolved-attribute]
+        ps_w = calculate_path_stats(state, params, request).shape[1] - 3
         obs = get_paths_obs_gn_model(state, params)
         stats = obs[4:].reshape(params.k_paths, ps_w + 5)
         path_length_norm = stats[:, ps_w]
@@ -2282,7 +2282,7 @@ class GetPathsObsGNModelVmapTest(chex.TestCase):
                 link_snr_array=get_snr_link_array(self.state, params),
             )
             request = state.request_array.reshape((-1,))
-            ps_w = calculate_path_stats(state, params, request).shape[1] - 3  # ty: ignore[unresolved-attribute]
+            ps_w = calculate_path_stats(state, params, request).shape[1] - 3
             obs = get_paths_obs_gn_model(state, params)
             gn_stats = np.asarray(obs)[4:].reshape(params.k_paths, ps_w + 5)[:, ps_w:]
             expected = self._reference_gn_path_stats(state, params)

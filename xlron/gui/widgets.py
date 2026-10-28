@@ -191,7 +191,7 @@ DEFAULTS = {
     "transformer_actor_mlp_width": 128,
     "transformer_critic_mlp_width": 128,
     "transformer_intermediate_size": 256,
-    "transformer_ffn_activation": "gelu",
+    "transformer_ffn_activation": "relu2",
     "transformer_actor_mlp_depth": 1,
     "transformer_critic_mlp_depth": 2,
     # PPO

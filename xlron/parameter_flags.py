@@ -729,9 +729,9 @@ flags.DEFINE_integer(
 )
 flags.DEFINE_enum(
     "transformer_ffn_activation",
-    "gelu",
+    "relu2",
     ["tanh", "relu", "gelu", "silu", "relu2", "relu3"],
-    "Activation inside the transformer feed-forward blocks (relu2 = squared ReLU, as in Primer)",
+    "Activation inside the transformer feed-forward blocks (relu2 = squared ReLU, as in Primer). Checkpoints trained before relu2 became the default need --transformer_ffn_activation=gelu",
 )
 flags.DEFINE_integer("transformer_num_layers", 1, "Number of transformer encoder layers")
 flags.DEFINE_integer("transformer_num_heads", 4, "Number of attention heads in transformer")

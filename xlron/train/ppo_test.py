@@ -689,7 +689,7 @@ class TransitionMaskTest(chex.TestCase):
             total_requests=jnp.array(params.max_requests - 1, dtype=inner.total_requests.dtype),
         )
         env_state = env_state.replace(env_state=inner)
-        expected_mask = env.action_mask(inner, params)[0]  # ty: ignore[unresolved-attribute]
+        expected_mask = env.action_mask(inner, params)[0]
         # Precondition: the acting mask is not the all-ones initial mask
         self.assertFalse(bool(jnp.all(expected_mask == 1)))
 

@@ -219,7 +219,7 @@ class FeedForwardBlock(eqx.Module):
         intermediate_size: int,
         dropout_rate: float,
         key: chex.PRNGKey,
-        activation: str = "gelu",
+        activation: str = "relu2",
     ):
         mlp_key, output_key = jax.random.split(key)
         select_activation(activation)  # fail at construction on an unknown name
@@ -270,7 +270,7 @@ class TransformerLayer(eqx.Module):
         attention_dropout_rate: float,
         key: chex.PRNGKey,
         custom_bias: bool = False,
-        ffn_activation: str = "gelu",
+        ffn_activation: str = "relu2",
     ):
         attention_key, ff_key = jax.random.split(key)
 
@@ -337,7 +337,7 @@ class Encoder(eqx.Module):
         attention_dropout_rate: float,
         key: chex.PRNGKey,
         preembedded: bool = False,
-        ffn_activation: str = "gelu",
+        ffn_activation: str = "relu2",
     ):
         embedder_key, layer_key, wire_key = jax.random.split(key, 3)
         self.num_layers = num_layers
@@ -484,7 +484,7 @@ class ActorCriticTransformer(eqx.Module):
         key: chex.PRNGKey,
         critic_pooling: str = "mean",
         actor_pooling: str = "sum",
-        ffn_activation: str = "gelu",
+        ffn_activation: str = "relu2",
     ):
         (
             encoder_key,
@@ -586,7 +586,7 @@ class ActorCriticTransformer(eqx.Module):
         actor_key, critic_key = jax.random.split(key) if key is not None else (None, None)
         # Cast tokens up to the NN compute dtype: under mixed precision the env-sourced token
         # columns may be low precision, but attention/weights stay at COMPUTE_DTYPE for stability.
-        tokens = get_obs_transformer(state, params).astype(dtype_config.COMPUTE_DTYPE)  # ty: ignore[unresolved-attribute]
+        tokens = get_obs_transformer(state, params).astype(dtype_config.COMPUTE_DTYPE)
 
         action_tokens = actor(
             tokens,

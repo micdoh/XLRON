@@ -989,7 +989,7 @@ def get_obs_transformer(state: RSAEnvState, params: RSAEnvParams) -> Array:
         rwalr_state = cast(RWALightpathReuseEnvState, state)
         paths_quality = jnp.take(
             rwalr_state.path_capacity_array.flatten(),
-            index_array.flatten(),  # ty: ignore[unresolved-attribute]
+            index_array.flatten(),
         )
         paths_quality = paths_quality / (jnp.max(paths_quality) + 1e-8)  # normalize
     else:
@@ -1003,7 +1003,7 @@ def get_obs_transformer(state: RSAEnvState, params: RSAEnvParams) -> Array:
                 guardband=params.guardband,
                 temperature=params.temperature,
             )
-        )(paths_se.flatten())  # ty: ignore[unresolved-attribute]
+        )(paths_se.flatten())
         paths_quality = 1.0 / num_slots
     link_relevance_features = get_link_relevance_array(paths, paths_quality, params)  # (E, 4)
 
@@ -1782,7 +1782,7 @@ def remove_expired_services_rsa(state: RSAEnvState, params: EnvParams) -> RSAEnv
     keep = differentiable_compare(
         dep, t, ">", temperature=params.temperature, differentiable=params.differentiable
     )  # 1 where dep > t, else 0
-    keep_f = keep.astype(dep.dtype)  # 0/1 in dep dtype  # ty: ignore[unresolved-attribute]
+    keep_f = keep.astype(dep.dtype)  # 0/1 in dep dtype
 
     # Clear only slots occupied by an expired service (0 < dep <= t). Band-gap
     # sentinels (-1 in link_slot_array) carry dep == 0 and must survive expiry.
@@ -1845,7 +1845,7 @@ def remove_expired_services_rwalr(
             ">",
             temperature=params.temperature,
             differentiable=params.differentiable,
-        ).astype(dep.dtype)  # ty: ignore[unresolved-attribute]
+        ).astype(dep.dtype)
         updated_link_slot_departure_array = (
             updated_link_slot_departure_array
             - jnp.squeeze(current_time).astype(dep.dtype) * mask_subtract
@@ -1934,7 +1934,7 @@ def remove_expired_services_rsa_gn_model(
     # Under relative arrival times the surviving departures must shift by -t in lockstep
     # with link_slot_departure_array (empty rows stay 0)
     if params.relative_arrival_times:
-        new_dep_lp = (dep_lp - t * live_lp.astype(dep_lp.dtype)) * keep_lp_f  # ty: ignore[unresolved-attribute]
+        new_dep_lp = (dep_lp - t * live_lp.astype(dep_lp.dtype)) * keep_lp_f
     else:
         new_dep_lp = dep_lp * keep_lp_f
 
@@ -2663,7 +2663,7 @@ def mask_slots(state: RSAEnvState, params: RSAEnvParams) -> Array:
     # Get path indices ONCE, reuse for both paths and SEs
     path_indices = get_path_index_array(params, nodes_sd)  # (k,)
     # Cast to int for indexing (differentiable mode returns float indices)
-    path_indices = path_indices.astype(dtype_config.INDEX_DTYPE)  # ty: ignore[unresolved-attribute]
+    path_indices = path_indices.astype(dtype_config.INDEX_DTYPE)
 
     # Direct take - no recomputing indices
     paths = jnp.take(params.path_link_array.val, path_indices, axis=0)  # (k, num_links)
@@ -3030,7 +3030,7 @@ def calculate_path_stats(state, params, request):
             temperature=params.temperature,
         )
         req_slots_norm = req_slots * slot_size / jnp.max(params.values_bw.val)
-        free = (slots == 0).astype(dtype_config.LARGE_FLOAT_DTYPE)  # ty: ignore[unresolved-attribute]
+        free = (slots == 0).astype(dtype_config.LARGE_FLOAT_DTYPE)
         free_slots_norm = jnp.sum(free) / link_resources
 
         block_sizes = find_block_sizes(
@@ -3040,7 +3040,7 @@ def calculate_path_stats(state, params, request):
         first_block_index_norm = (
             first_block_index.astype(dtype_config.LARGE_FLOAT_DTYPE) / link_resources
         )
-        first_block_size_norm = block_sizes[first_block_index] / req_slots.astype(  # ty: ignore[unresolved-attribute]
+        first_block_size_norm = block_sizes[first_block_index] / req_slots.astype(
             dtype_config.LARGE_FLOAT_DTYPE
         )
 
@@ -6890,7 +6890,7 @@ def _mask_slots_rmsa_gn_model(
     # carried field dtypes stable (matches init_link_slot_mask / init_mod_format_mask);
     # mod_format_mask stays float: it holds -1 sentinels / small modulation indices.
     state = state.replace(
-        link_slot_mask=link_slot_mask.astype(dtype_config.MASK_DTYPE),  # ty: ignore[unresolved-attribute]
+        link_slot_mask=link_slot_mask.astype(dtype_config.MASK_DTYPE),
         full_link_slot_mask=full_link_slot_mask.astype(dtype_config.MASK_DTYPE),
         mod_format_mask=mod_format_mask.astype(dtype_config.SMALL_FLOAT_DTYPE),
     )

@@ -650,9 +650,9 @@ def train(argv: list[str], config: Dict[str, Any] = {}) -> None:
     # arrival rate (compiled once, reused across loads) and zero the metric counters
     # so per-load metrics exclude the re-equilibration transient.
     sweep_rewarm = None
+    sweep_rng = jax.random.PRNGKey(config.SEED + 2)
     if len(loads) > 1 and config.ENV_WARMUP_STEPS:
         sweep_rewarm = get_sweep_rewarm_fn(env, env_params, config)
-        sweep_rng = jax.random.PRNGKey(config.SEED + 2)
 
     for load_idx, load_val in enumerate(loads):
         load_val = float(load_val)

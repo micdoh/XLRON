@@ -52,7 +52,7 @@ from xlron.models.mlp import (
     relu3,
     select_activation,
 )
-from xlron.models.transformer import ActorCriticTransformer, FeedForwardBlock
+from xlron.models.transformer import ActorCriticTransformer, Encoder, FeedForwardBlock
 from xlron.train.train_utils import TrainState, init_network, select_action
 
 # Module-level caches for expensive make() calls (mirrors gn_model_test.py)
@@ -247,8 +247,8 @@ class ActivationTest(chex.TestCase):
 
     @parameterized.parameters("tanh", "relu", "crelu", "gelu", "silu", "relu2", "relu3")
     def test_every_flag_choice_resolves(self, name):
-        flag_choices = flags.FLAGS["ACTIVATION"].parser.enum_values
-        self.assertIn(name, flag_choices)
+        # The enum flag's parser rejects any name outside its choices.
+        self.assertEqual(flags.FLAGS["ACTIVATION"].parser.parse(name), name)
         self.assertTrue(callable(select_activation(name)))
 
     def test_unknown_name_raises(self):
@@ -268,9 +268,9 @@ class ActivationTest(chex.TestCase):
     def test_transformer_ffn_activation(self):
         x = jnp.linspace(-2.0, 2.0, 8)
         key = jax.random.PRNGKey(0)
-        gelu = FeedForwardBlock(8, 16, 0.0, key)
-        squared = FeedForwardBlock(8, 16, 0.0, key, activation="relu2")
-        self.assertEqual(gelu.activation, "gelu")  # default keeps old checkpoints' behaviour
+        gelu = FeedForwardBlock(8, 16, 0.0, key, activation="gelu")
+        squared = FeedForwardBlock(8, 16, 0.0, key)
+        self.assertEqual(squared.activation, "relu2")  # the default
         expected = x + squared.output(relu2(squared.linear(squared.layernorm(x))))
         chex.assert_trees_all_close(squared(x, enable_dropout=False), expected, atol=1e-6)
         self.assertFalse(bool(jnp.allclose(gelu(x, enable_dropout=False), expected)))
@@ -292,8 +292,11 @@ def test_init_network_passes_transformer_ffn_activation():
     config.ACTION_DIM = env.num_actions(params)
     config.INPUT_DIM = int(env.observation_space(params).n)
     model = init_network(config, key)
+    assert isinstance(model, ActorCriticTransformer)
     for encoder in model.actor_critic:
-        assert encoder.layers.ff_block.activation == "relu2"
+        assert isinstance(encoder, Encoder)
+        # Encoder.layers is one vmapped TransformerLayer, not the annotated list.
+        assert encoder.layers.ff_block.activation == "relu2"  # ty: ignore[unresolved-attribute]
     pi, value = model(state, params)
     chex.assert_tree_all_finite((pi.logits, value))
 
@@ -753,7 +756,7 @@ class GNNModelConstructionTest(chex.TestCase):
         self.assertEqual(new_state.graph.nodes.dtype, state.graph.nodes.dtype)  # ty: ignore[unresolved-attribute]
         spectral = slice(1, 1 + params.num_spectral_features)
         chex.assert_trees_all_close(
-            new_state.graph.nodes[:, spectral],  # ty: ignore[unresolved-attribute]
+            new_state.graph.nodes[:, spectral],
             state.graph.nodes[:, spectral],
         )
 
