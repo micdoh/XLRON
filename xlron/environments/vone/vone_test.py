@@ -198,7 +198,7 @@ class RemoveExpiredNodeRequestsTest(chex.TestCase):
     def test_remove_expired_node_requests_capacity(self, s, d, sr, dr, n, expected):
         state = implement_node_action(self.state, s, d, sr, dr, n=n)
         state = finalise_vone_action(state)
-        state = state.replace(current_time=10e4)  # ty: ignore[unresolved-attribute]
+        state = state.replace(current_time=10e4)
         updated_state = self.variant(remove_expired_node_requests, static_argnums=(1,))(
             state, self.params
         )
@@ -209,7 +209,7 @@ class RemoveExpiredNodeRequestsTest(chex.TestCase):
     def test_remove_expired_node_requests_resource(self, s, d, sr, dr, n, expected):
         state = implement_node_action(self.state, s, d, sr, dr, n=n)
         state = finalise_vone_action(state)
-        state = state.replace(current_time=10e4)  # ty: ignore[unresolved-attribute]
+        state = state.replace(current_time=10e4)
         updated_state = self.variant(remove_expired_node_requests, static_argnums=(1,))(
             state, self.params
         )
@@ -220,7 +220,7 @@ class RemoveExpiredNodeRequestsTest(chex.TestCase):
     def test_remove_expired_node_requests_departure(self, s, d, sr, dr, n, expected):
         state = implement_node_action(self.state, s, d, sr, dr, n=n)
         state = finalise_vone_action(state)
-        state = state.replace(current_time=10e4)  # ty: ignore[unresolved-attribute]
+        state = state.replace(current_time=10e4)
         updated_state = self.variant(remove_expired_node_requests, static_argnums=(1,))(
             state, self.params
         )

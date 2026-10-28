@@ -95,7 +95,7 @@ class DifferentiableEqualsTest(chex.TestCase):
         # Test gradient flow for x
         def wrapper(x_input):
             return jnp.sum(
-                differentiable_compare(x_input, y, op_type="==", temperature=10.0).astype(  # ty: ignore[unresolved-attribute]
+                differentiable_compare(x_input, y, op_type="==", temperature=10.0).astype(
                     jnp.float32
                 )
             )

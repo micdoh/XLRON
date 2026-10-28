@@ -359,7 +359,7 @@ A simple multi-layer perceptron. Used by default when neither `--USE_GNN` nor `-
 |------|-------------|---------|
 | `--NUM_LAYERS` | Number of hidden layers (shared by actor and critic) | `2` |
 | `--NUM_UNITS` | Hidden units per layer | `64` |
-| `--ACTIVATION` | Activation function (`tanh`, `relu`) | `tanh` |
+| `--ACTIVATION` | Hidden-layer activation: `tanh`, `relu`, `crelu`, `gelu`, `silu`, `relu2`, `relu3` (`relu2`/`relu3` = max(x, 0)² / ³) | `tanh` |
 
 The MLP takes a flat observation vector as input. Its simplicity makes it fast to train and a good baseline.
 
@@ -395,6 +395,7 @@ A transformer encoder that processes link-level tokens with graph-aware position
 | `--transformer_num_heads` | Number of attention heads | `4` |
 | `--transformer_embedding_size` | Token embedding dimension | `128` |
 | `--transformer_intermediate_size` | Feed-forward hidden dimension | `256` |
+| `--transformer_ffn_activation` | Feed-forward activation: `gelu`, `relu2` (squared ReLU, as in Primer), `relu3`, `relu`, `silu`, `tanh`; see the note below | `relu2` |
 | `--transformer_obs_type` | `departure`, `occupancy`, `capacity` (RWA-LR), or GN modes `snr`, `occupancy_snr`, `departure_snr`, `lifetime_snr` | `departure` |
 | `--transformer_spectrum_encoder` | `dense`, or band-aware `conv` with local action features (`lifetime_snr` and aggregation 1 required) | `dense` |
 | `--gn_mask_mode` | RMSA-GN: `ff_lf`, `all_slots`, or `selected_slot`; unrestricted modes require aggregation 1 | `ff_lf` |
@@ -411,6 +412,8 @@ A transformer encoder that processes link-level tokens with graph-aware position
 | `--transformer_enable_dropout` | Enable dropout during training | `False` |
 
 The transformer processes each link as a token, with per-link spectral features and request-specific information. WIRE positional encodings inject graph structure through rotary embeddings derived from the graph Laplacian.
+
+**Squared ReLU.** The feed-forward blocks use max(x, 0)² (`relu2`) by default, which beat GELU in language-model pre-training (So et al., "Primer", 2021). Each block normalises its input first, so the quadratic growth stays bounded. In a 16.8M-step RMSA-GN PPO run (C+L+S NSFNET, 64 envs) it tracked GELU to within 0.2 points of blocking throughout. Checkpoints trained with the earlier GELU default must be loaded with `--transformer_ffn_activation=gelu`: the activation is not stored in the weights file. In the MLP (`--ACTIVATION`), which has no normalisation and uses sqrt(2) orthogonal init chosen for ReLU and tanh, `relu2`/`relu3` can blow up activations and gradients with depth. Units that only see negative inputs also stop learning (the gradient is zero there), which compounds the plasticity loss that non-stationary RL targets already cause.
 
 For `rsa_gn_model` and `rmsa_gn_model`, `snr` supplies one normalized link-SNR
 feature per channel. `occupancy_snr` and `departure_snr` concatenate those features

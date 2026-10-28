@@ -477,7 +477,12 @@ def print_experiment_summary(config: Box, env_params=None) -> None:
     if not (config.get("EVAL_HEURISTIC", False) or config.get("EVAL_MODEL", False)):
         print(f"\n  {'--- Model & Optimiser ---':^{W - 4}}")
         print(f"  Architecture:             {arch}  ({arch_detail})")
-        print(f"  Activation:               {config.get('ACTIVATION', '?')}")
+        activation = (
+            f"{config.get('transformer_ffn_activation', 'gelu')} (FFN)"
+            if config.get("USE_TRANSFORMER", False)
+            else config.get("ACTIVATION", "?")
+        )
+        print(f"  Activation:               {activation}")
         print(
             f"  Learning rate:            {config.get('LR', '?')}  (schedule: {config.get('LR_SCHEDULE', '?')})"
         )
@@ -692,6 +697,7 @@ def init_network(config: Box, key: chex.PRNGKey) -> eqx.Module:
                 key=key,
                 critic_pooling=config.transformer_critic_pooling,
                 actor_pooling=config.transformer_actor_pooling,
+                ffn_activation=config.get("transformer_ffn_activation", "relu2"),
             )
         elif config.USE_GNN:
             if "gn_model" in config.env_type.lower() and config.global_output_size_actor > 0:
@@ -1093,7 +1099,7 @@ def experiment_data_setup(
     # Pass weights dynamically, so the compiler/cache does not specialize this
     # program to a particular initialization or checkpoint's values.
     warmup_fn = jax.vmap(warmup_fn, in_axes=(0, None)) if config.NUM_ENVS > 1 else warmup_fn
-    if isinstance(rng, jax.core.Tracer):
+    if isinstance(rng, jax.core.Tracer):  # ty: ignore[possibly-missing-submodule]
         # Under the NUM_LEARNERS vmap the inputs are traced, so the warmup is
         # traced into the caller's program instead of compiled ahead of time.
         env_state, obsv = warmup_fn(warmup_state, runner_state)
@@ -1387,7 +1393,7 @@ def select_action(select_action_state, env, env_params, train_state, config):
             # Per-path power head: keep only the sampled path's power/log_prob
             path_index, _ = process_path_action(env_state.env_state, env_params, path_action)
             power_action, log_prob = power_action[path_index], log_prob[path_index]
-        action = jnp.concatenate([path_action.reshape((1,)), power_action.reshape((1,))], axis=0)  # ty: ignore[unresolved-attribute]
+        action = jnp.concatenate([path_action.reshape((1,)), power_action.reshape((1,))], axis=0)
         if config.GNN_OUTPUT_RSA:
             probs = jax.nn.softmax(pi[0]._logits, axis=-1)
             valid_mass = jnp.sum(probs * action_mask, axis=-1)
@@ -1511,7 +1517,7 @@ def select_action_eval(select_action_state, env, env_params, eval_state, config)
                 launch_power = get_launch_power(
                     env_state.env_state, action, action, initial_slot_index, env_params
                 )
-                action = jnp.concatenate([action.reshape((1,)), launch_power.reshape((1,))], axis=0)  # ty: ignore[unresolved-attribute]
+                action = jnp.concatenate([action.reshape((1,)), launch_power.reshape((1,))], axis=0)
         else:
             raise ValueError(f"Invalid environment type {config.env_type}")
         # For DeepRMSA env, the action can only be the path index (first-fit for spectrum always)
@@ -1597,7 +1603,7 @@ def get_warmup_fn(warmup_state, env, params, train_state, config) -> Callable[[T
                 )
                 action = jnp.concatenate(
                     [
-                        path_action.reshape((1,)),  # ty: ignore[unresolved-attribute]
+                        path_action.reshape((1,)),
                         jnp.array(
                             [
                                 params.default_launch_power,

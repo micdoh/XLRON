@@ -191,6 +191,7 @@ DEFAULTS = {
     "transformer_actor_mlp_width": 128,
     "transformer_critic_mlp_width": 128,
     "transformer_intermediate_size": 256,
+    "transformer_ffn_activation": "relu2",
     "transformer_actor_mlp_depth": 1,
     "transformer_critic_mlp_depth": 2,
     # PPO
@@ -319,6 +320,8 @@ DEFAULTS = {
     "CUTSET_PARALLEL_PROCESSES": 1,
     "COMPILE_RR_BOUNDS": True,
 }
+
+ACTIVATION_OPTIONS = ["tanh", "relu", "crelu", "gelu", "silu", "relu2", "relu3"]
 
 ENV_TYPES = [
     "rwa",
@@ -978,8 +981,8 @@ def architecture_section() -> dict:
         with col3:
             activation = st.selectbox(
                 "Activation",
-                ["tanh", "relu", "gelu", "silu"],
-                index=["tanh", "relu", "gelu", "silu"].index(_get_preset_val("ACTIVATION")),
+                ACTIVATION_OPTIONS,
+                index=ACTIVATION_OPTIONS.index(_get_preset_val("ACTIVATION")),
                 help=_h("ACTIVATION"),
             )
             _emit(flags, "ACTIVATION", activation)
@@ -1055,6 +1058,15 @@ def architecture_section() -> dict:
                 help=_h("transformer_intermediate_size"),
             )
             _emit(flags, "transformer_intermediate_size", int(t_inter))
+
+            ffn_options = [a for a in ACTIVATION_OPTIONS if a != "crelu"]
+            t_act = st.selectbox(
+                "FFN Activation",
+                ffn_options,
+                index=ffn_options.index(_get_preset_val("transformer_ffn_activation")),
+                help=_h("transformer_ffn_activation"),
+            )
+            _emit(flags, "transformer_ffn_activation", t_act)
 
             t_obs_options = [
                 "departure",

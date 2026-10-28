@@ -12,7 +12,8 @@ xlron.parameter_flags:
   --[no]ACTION_OPTIMIZATION: Directly optimise rollout actions using first-order
     gradients from differentiable environment
     (default: 'false')
-  --ACTIVATION: Activation function
+  --ACTIVATION: <tanh|relu|crelu|gelu|silu|relu2|relu3>: Hidden-layer activation
+    for the MLP and GNN models (relu2/relu3 = max(x, 0)^2 / ^3)
     (default: 'tanh')
   --ADAM_BETA1: Adam beta1
     (default: '0.9')
@@ -960,6 +961,11 @@ xlron.parameter_flags:
   --[no]transformer_enable_dropout: Enable dropout during training in
     transformer
     (default: 'false')
+  --transformer_ffn_activation: <tanh|relu|gelu|silu|relu2|relu3>: Activation
+    inside the transformer feed-forward blocks (relu2 = squared ReLU, as in
+    Primer). Checkpoints trained before relu2 became the default need
+    --transformer_ffn_activation=gelu
+    (default: 'relu2')
   --transformer_intermediate_size: Size of intermediate layer in transformer
     feed-forward blocks
     (default: '256')

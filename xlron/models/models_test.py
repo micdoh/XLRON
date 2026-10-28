@@ -36,7 +36,7 @@ import numpy as np
 import optax
 import pytest
 from absl import flags
-from absl.testing import absltest
+from absl.testing import absltest, parameterized
 from box import Box
 
 import xlron.parameter_flags  # noqa: F401  (registers all XLRON flags)
@@ -45,8 +45,14 @@ from xlron.environments.env_funcs import update_graph_tuple
 from xlron.environments.gn_model.isrs_gn_model import from_dbm
 from xlron.environments.make_env import make, process_config
 from xlron.models.gnn import ActorCriticGNN
-from xlron.models.mlp import ActorCriticMLP, LaunchPowerActorCriticMLP
-from xlron.models.transformer import ActorCriticTransformer
+from xlron.models.mlp import (
+    ActorCriticMLP,
+    LaunchPowerActorCriticMLP,
+    relu2,
+    relu3,
+    select_activation,
+)
+from xlron.models.transformer import ActorCriticTransformer, Encoder, FeedForwardBlock
 from xlron.train.train_utils import TrainState, init_network, select_action
 
 # Module-level caches for expensive make() calls (mirrors gn_model_test.py)
@@ -226,6 +232,73 @@ def test_gn_routing_policy_has_one_logit_per_action(env_type, transformer):
     chex.assert_tree_all_finite((pi.logits, value))
     # Power-only policies keep their separate scalar-action contract.
     assert env.num_actions(params.replace(launch_power_type="rl")) == 1
+
+
+class ActivationTest(chex.TestCase):
+    """Named activations, including the ReLU powers, resolve and fail loudly otherwise."""
+
+    def test_relu_powers(self):
+        x = jnp.array([-2.0, -0.5, 0.0, 0.5, 3.0])
+        chex.assert_trees_all_close(relu2(x), jnp.array([0.0, 0.0, 0.0, 0.25, 9.0]))
+        chex.assert_trees_all_close(relu3(x), jnp.array([0.0, 0.0, 0.0, 0.125, 27.0]))
+        # d/dx relu(x)^p = p * relu(x)^(p-1): zero (not NaN) at and below zero
+        chex.assert_trees_all_close(jax.vmap(jax.grad(relu2))(x), 2 * jax.nn.relu(x))
+        chex.assert_trees_all_close(jax.vmap(jax.grad(relu3))(x), 3 * jax.nn.relu(x) ** 2)
+
+    @parameterized.parameters("tanh", "relu", "crelu", "gelu", "silu", "relu2", "relu3")
+    def test_every_flag_choice_resolves(self, name):
+        # The enum flag's parser rejects any name outside its choices.
+        self.assertEqual(flags.FLAGS["ACTIVATION"].parser.parse(name), name)
+        self.assertTrue(callable(select_activation(name)))
+
+    def test_unknown_name_raises(self):
+        # Previously any unrecognised name (e.g. the GUI's "gelu") silently became tanh.
+        with self.assertRaisesRegex(ValueError, "Unknown activation"):
+            select_activation("swish")
+
+    @parameterized.parameters("relu2", "relu3", "gelu", "silu")
+    def test_mlp_uses_named_activation(self, name):
+        model = ActorCriticMLP(
+            10, 7, num_layers=2, num_units=16, activation=name, key=jax.random.PRNGKey(0)
+        )
+        self.assertIs(model.actor.activation_fn, select_activation(name))
+        pi, value = model(jnp.linspace(-1.0, 1.0, 7))
+        chex.assert_tree_all_finite((pi.logits, value))
+
+    def test_transformer_ffn_activation(self):
+        x = jnp.linspace(-2.0, 2.0, 8)
+        key = jax.random.PRNGKey(0)
+        gelu = FeedForwardBlock(8, 16, 0.0, key, activation="gelu")
+        squared = FeedForwardBlock(8, 16, 0.0, key)
+        self.assertEqual(squared.activation, "relu2")  # the default
+        expected = x + squared.output(relu2(squared.linear(squared.layernorm(x))))
+        chex.assert_trees_all_close(squared(x, enable_dropout=False), expected, atol=1e-6)
+        self.assertFalse(bool(jnp.allclose(gelu(x, enable_dropout=False), expected)))
+        with self.assertRaisesRegex(ValueError, "Unknown activation"):
+            FeedForwardBlock(8, 16, 0.0, key, activation="swish")
+
+
+def test_init_network_passes_transformer_ffn_activation():
+    config, env, params, state, key = _gnn_env_setup(
+        "rmsa_gn_model",
+        USE_GNN=False,
+        USE_TRANSFORMER=True,
+        launch_power_type="fixed",
+        aggregate_slots=3,
+        transformer_embedding_size=16,
+        transformer_intermediate_size=32,
+        transformer_ffn_activation="relu2",
+    )
+    config.ACTION_DIM = env.num_actions(params)
+    config.INPUT_DIM = int(env.observation_space(params).n)
+    model = init_network(config, key)
+    assert isinstance(model, ActorCriticTransformer)
+    for encoder in model.actor_critic:
+        assert isinstance(encoder, Encoder)
+        # Encoder.layers is one vmapped TransformerLayer, not the annotated list.
+        assert encoder.layers.ff_block.activation == "relu2"  # ty: ignore[unresolved-attribute]
+    pi, value = model(state, params)
+    chex.assert_tree_all_finite((pi.logits, value))
 
 
 class MLPInitScaleTest(chex.TestCase):
@@ -683,7 +756,7 @@ class GNNModelConstructionTest(chex.TestCase):
         self.assertEqual(new_state.graph.nodes.dtype, state.graph.nodes.dtype)  # ty: ignore[unresolved-attribute]
         spectral = slice(1, 1 + params.num_spectral_features)
         chex.assert_trees_all_close(
-            new_state.graph.nodes[:, spectral],  # ty: ignore[unresolved-attribute]
+            new_state.graph.nodes[:, spectral],
             state.graph.nodes[:, spectral],
         )
 

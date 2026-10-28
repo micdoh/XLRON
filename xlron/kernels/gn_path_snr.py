@@ -128,6 +128,7 @@ def path_snr_pallas(
         stacked_row = row + env_row
         unchanged_ok = jnp.bool_(True)
         wanted = mask
+        changed_links, inserted = [], mask  # only read when delta is not None
         if delta is not None:
             links_ref, changed_ref, slots_ref, values_ref = tail_refs[-5:-1]
             changed_links = [links_ref[h] for h in range(changed_hops)]

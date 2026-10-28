@@ -69,14 +69,36 @@ def crelu(x: ArrayLike) -> Array:
     return jax.nn.relu(x)
 
 
+def relu2(x: ArrayLike) -> Array:
+    """Squared ReLU, max(x, 0)^2 (So et al. 2021, "Primer")."""
+    return jnp.square(jax.nn.relu(x))
+
+
+def relu3(x: ArrayLike) -> Array:
+    """Cubed ReLU, max(x, 0)^3."""
+    r = jax.nn.relu(x)
+    return r * r * r
+
+
+ACTIVATIONS: dict[str, Callable[[ArrayLike], Array]] = {
+    "tanh": jax.nn.tanh,
+    "relu": jax.nn.relu,
+    "crelu": crelu,
+    "gelu": jax.nn.gelu,
+    "silu": jax.nn.silu,
+    "relu2": relu2,
+    "relu3": relu3,
+}
+
+
 def select_activation(activation: str) -> Callable[[ArrayLike], Array]:
     """Selects the activation function based on the provided string."""
-    if activation == "relu":
-        return jax.nn.relu
-    elif activation == "crelu":
-        return crelu
-    else:
-        return jax.nn.tanh  # Default to tanh if no valid activation is specified
+    try:
+        return ACTIVATIONS[activation]
+    except KeyError:
+        raise ValueError(
+            f"Unknown activation {activation!r}; expected one of {sorted(ACTIVATIONS)}"
+        ) from None
 
 
 def bfloat16_safe_orthogonal(scale: float = 1.0) -> Callable:
@@ -387,11 +409,7 @@ class LaunchPowerActorCriticMLP(eqx.Module):
         )
 
     def _activate(self, x):
-        if self.activation == "relu":
-            return jax.nn.relu(x)
-        elif self.activation == "crelu":
-            return crelu(x)
-        return jnp.tanh(x)
+        return select_activation(self.activation)(x)
 
     def _forward_layers(self, x, layers):
         for layer in layers:
