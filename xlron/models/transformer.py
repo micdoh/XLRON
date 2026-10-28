@@ -429,7 +429,12 @@ class Encoder(eqx.Module):
         # Scan inputs: dynamic layers and layer-specific attention weights/biases
         scan_inputs = dynamic_layers
 
-        (output, key), layer_outputs = jax.lax.scan(apply_layer, initial_carry, scan_inputs)
+        # Unrolled: a rolled scan stacks every layer's backward residuals into
+        # (num_layers, batch, ...) buffers and copies them in and out of the loop,
+        # which dominated the PPO update for these small models.
+        (output, key), layer_outputs = jax.lax.scan(
+            apply_layer, initial_carry, scan_inputs, unroll=True
+        )
 
         return {"output": output, "layers": layer_outputs}
 

@@ -1590,6 +1590,19 @@ def with_mask(env, p, s):
     return s.replace(link_slot_mask=mask, full_link_slot_mask=full, mod_format_mask=mods)
 
 
+class TestFirstTrueIndices:
+    @staticmethod
+    @pytest.mark.parametrize(
+        "n, fraction, size", [(73392, 3e-4, 32), (100, 0.5, 32), (10, 0.0, 4), (9, 1.0, 4)]
+    )
+    def test_matches_nonzero(n, fraction, size):
+        mask = jnp.asarray(np.random.default_rng(n).random(n) < fraction)
+        expected = jnp.nonzero(mask, size=size, fill_value=0)[0]
+        actual = ef.first_true_indices(mask, size)
+        np.testing.assert_array_equal(actual, expected)
+        assert actual.dtype == expected.dtype
+
+
 class TestGetExistingSnrRequirements:
     @staticmethod
     def test_reserve_caps_at_fresh_headroom_and_never_relaxes_the_physical_minimum():
@@ -1826,18 +1839,86 @@ class TestMaskSlotsRmsaGnModel:
             )
 
     @staticmethod
-    @pytest.mark.parametrize("chunk", [1, 2])
+    @pytest.mark.parametrize("chunk", [0, 1, 2])
     def test_mask_environment_chunks_preserve_outer_vmap(chunk):
         _, _, p, s = fixture("all_slots")
         p = p.replace(gn_mask_batch_size=3)
         # Different candidate counts, plus a non-divisible final environment chunk.
         states = [s.replace(link_slot_array=s.link_slot_array.at[:, :i].set(-1)) for i in (0, 3, 7)]
+        reference = [mask_slots_rmsa_gn_model(st, p, st.request_array) for st in states]
+        reference = jax.tree.map(lambda *xs: jnp.stack(xs), *reference)
         states = jax.tree.map(lambda *xs: jnp.stack(xs), *states)
-        reference = jax.vmap(lambda st: mask_slots_rmsa_gn_model(st, p, st.request_array))(states)
         q = p.replace(gn_mask_env_batch_size=chunk)
         actual = jax.vmap(lambda st: mask_slots_rmsa_gn_model(st, q, st.request_array))(states)
         np.testing.assert_array_equal(actual.link_slot_mask, reference.link_slot_mask)
         np.testing.assert_array_equal(actual.mod_format_mask, reference.mod_format_mask)
+
+    @staticmethod
+    @pytest.mark.parametrize("backend", ["jax", "pallas"])
+    @pytest.mark.parametrize("first_fit", ["first_path", "every_path"])
+    def test_first_fit_masks_keep_each_paths_full_mask_first_fit(first_fit, backend):
+        """every_path keeps every path's first valid start in band order, also when
+        an earlier path settles inside the same screen block; first_path keeps it
+        for each path up to the first one that has a valid start."""
+        _, env, p, s = setup("rmsa_gn_model", "lifetime_snr")
+        p = p.replace(gn_mask_mode="all_slots", gn_kernel_backend=backend)
+        ff = p.replace(gn_mask_first_fit=first_fit)
+        order = np.asarray(p.band_slot_order_ff.val)
+        order = order if len(order) else np.arange(p.link_resources)
+        for key in range(4):
+            full = mask_slots_rmsa_gn_model(s, p, s.request_array)
+            kept = mask_slots_rmsa_gn_model(s, ff, s.request_array)
+            full_formats = np.asarray(full.mod_format_mask).reshape(p.k_paths, -1)
+            kept_formats = np.asarray(kept.mod_format_mask).reshape(p.k_paths, -1)
+            for path in range(p.k_paths):
+                valid = [slot for slot in order if full_formats[path, slot] >= 0]
+                expected = np.full(p.link_resources, -1.0)
+                if valid:
+                    expected[valid[0]] = full_formats[path, valid[0]]
+                np.testing.assert_array_equal(kept_formats[path], expected)
+                if first_fit == "first_path" and valid:
+                    break
+            s = env.step(jax.random.PRNGKey(key), full, jnp.argmax(full.link_slot_mask), p)[1]
+
+    @staticmethod
+    @pytest.mark.parametrize("first_fit", ["", "first_path", "every_path"])
+    @pytest.mark.parametrize("chunk", [0, 2])
+    def test_lockstep_pallas_chunks_match_per_environment_masks(chunk, first_fit):
+        """Lockstep chunks share loops/branches; envs whose screens, survivors and
+        first fits differ must still get exactly their own masks."""
+        _, env, p, s = setup("rmsa_gn_model", "lifetime_snr")
+        p = p.replace(
+            gn_mask_mode="all_slots",
+            gn_mask_batch_size=2,
+            gn_mask_screen_batch_size=4,
+            gn_kernel_backend="pallas",
+            gn_mask_first_fit=first_fit,
+        )
+        states = []
+        for env_index, admissions in enumerate((0, 2, 4)):
+            state = s
+            for step in range(admissions):
+                key = jax.random.PRNGKey(100 * env_index + step)
+                state = with_mask(env, p.replace(gn_mask_first_fit=""), state)
+                _, state, *_ = env.step(key, state, jnp.argmax(state.link_slot_mask), p)
+            states.append(state)
+        states = jax.tree.map(lambda *xs: jnp.stack(xs), *states)
+        expected = [
+            mask_slots_rmsa_gn_model(
+                jax.tree.map(lambda x, i=i: x[i], states), p, states.request_array[i]
+            )
+            for i in range(3)
+        ]
+        formats = [np.asarray(e.mod_format_mask) for e in expected]
+        # First-fit masks keep one start per path, so two environments may agree.
+        assert len({f.tobytes() for f in formats}) >= (2 if first_fit else 3)
+        assert all((f >= 0).any() for f in formats)
+        assert len(np.unique(np.concatenate(formats))) >= 3  # -1 and differing formats
+        q = p.replace(gn_mask_env_batch_size=chunk)
+        actual = jax.vmap(lambda st: mask_slots_rmsa_gn_model(st, q, st.request_array))(states)
+        for i, reference in enumerate(expected):
+            np.testing.assert_array_equal(actual.link_slot_mask[i], reference.link_slot_mask)
+            np.testing.assert_array_equal(actual.mod_format_mask[i], reference.mod_format_mask)
 
     @staticmethod
     def test_selected_slot_falls_back_to_physically_valid_modulation():

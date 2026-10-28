@@ -508,6 +508,130 @@ masks, Pallas kernels, saved mid-fill state; mean of three runs on one A100
 Results are identical with and without the flag. The CUDA 13 plugin is no faster
 than CUDA 12, so the `gpu` group stays on `jax[cuda12]`.
 
+## Pooled environment masks and PPO, 28 October 2026
+
+A third pass, aimed at transformer PPO and heuristic evaluation on the full C+L+S
+workload (NSFNET directed, 1,668 slots, k=5, load 5,000, coherent NLI,
+`safe_release`, `all_slots`, Pallas). Masks, formats, rewards and occupancy are
+identical to the previous code in every comparison below (`gn_scaling
+--reference`, max abs error 0). Measured on an A100-SXM4-80GB.
+
+| Workload, 16 environments at steady state (about 6,200 lightpaths each) | Before | After |
+|---|---:|---:|
+| Full mask, all environments | 27.4 ms | 5.1 ms |
+| Steps/s with full masks (RL policies, `arbr_ff`, `kca_ff`, ...) | 575 | 2,872 |
+| `ksp_ff` steps/s | 1,130 | 2,963 |
+| `ff_ksp` steps/s | 1,115 | 2,720 |
+
+The "after" rollout figures use `--xla_gpu_graph_min_graph_size=1`, which
+`train.py` now sets by default (`gn_scaling` itself sets no XLA flags).
+
+Transformer PPO with the GN sweep scripts' settings (32 environments, rollout 128,
+8 minibatches, 4 epochs, `occupancy_snr` tokens, modulation features, 25,000
+`ksp_ff` warmup steps), same seed:
+
+| | Before | After |
+|---|---:|---:|
+| Training steps/s | 607 | 2,530 |
+| Warmup, 25,000 steps x 32 environments | 483 s | 163 s (0.5 s from `--WARMUP_CACHE_DIR`) |
+| Training compile, `--xla_gpu_force_compilation_parallelism=1` | 273 s | 291 s |
+| Training compile, default XLA flags | 23 s | 27 s |
+| Estimated 4.2M-step run, default flags | 2.1 h | 31 min (28 min with a cached warmup) |
+
+The single-threaded compilation flag used for long pytest runs (see `CLAUDE.md`)
+adds about four minutes to every training run; leave it out of launch scripts.
+GPU PPO training is not bitwise reproducible between runs (two runs of the same
+code and seed differ in their third significant figure), so training comparisons
+are of throughput only; the environment comparisons above are exact.
+
+What changed, in order of effect:
+
+- **Pooled environment chunks.** A serial per-environment mask is latency-bound:
+  about 266 kernels of a few microseconds and 19 host synchronisations per
+  environment, leaving the GPU idle half the time. Masking a chunk in lockstep
+  (`vmap` with a named axis whose control-flow predicates are reduced over the
+  chunk) shares the loops and branches, but on its own pads every environment to
+  the busiest one: the GN work grew 13x and the mask slowed to 102 ms. So the
+  per-environment inputs are gathered (`all_gather`, free inside the vmap) and
+  every environment's screen and full-check candidates go through one queue; the
+  endpoint and evidence kernels read each lane's environment from the stacked
+  arrays in place (`env=`), with no per-lane copies. Batches then cover the
+  chunk, so `gn_mask_batch_size` and `gn_mask_screen_batch_size` are scaled by
+  the chunk size up to 256 and 2048, where mask time plateaued. The default
+  `gn_mask_env_batch_size=0` is now one chunk of all environments (it was a
+  plain vmap, which executes every branch: 124 steps/s).
+- **Pooled first fit.** First-fit masks keep each environment's own scan (block
+  growth, settled paths, early stop); each round screens the next block of every
+  unfinished environment through one queue, then checks pending survivors with
+  per-environment allowances that double while checks continue.
+- **Polynomial XPM re-solve.** Total power enters every XPM pair only through the
+  Raman tilt `(ap - fk * P * cr)^2`, so each pair is exactly `c0 + c1 P + c2 P^2`
+  (`xpm_pair_coefficients`). The kernel's `polynomial=True` mode stores each
+  link's three sums once per mask; a candidate's path links then get their XPM
+  at the new total power plus the inserted channel's own pairs
+  (`xpm_after_insertion`) in O(slots) per link, instead of a full reduction.
+- **Changed-row evidence.** Every existing lightpath whose SNR an insertion can
+  change crosses one of the candidate's own links, so the evidence kernel visits
+  only those rows (`changed_rows_only`, 5 instead of 44 here) with per-cell
+  thresholds. Lightpaths sharing no link with the candidate path are decided once
+  per mask from their baseline SNR. This also removes the predicate-packing
+  kernel from these masks.
+- **Unrolled transformer layers.** The encoder's `lax.scan` over layers stacked
+  every layer's backward residuals into `(layers, batch, ...)` buffers: 73 copies
+  and 65 GB of device copies per PPO update. Unrolled, a 512-sample minibatch's
+  forward/backward pass fell from 14.3 to 11.1 ms (`policy_update_bench.py`).
+
+- **Single-kernel CUDA graphs.** `--xla_gpu_graph_min_graph_size=1` (now in
+  `train.py`'s default XLA flags) lets XLA capture even single kernels between
+  host synchronisations in CUDA graphs: +8% PPO, +9% `ksp_ff`. Adding custom
+  calls to command buffers was slower; device-side while loops stay off.
+- **No scatter for small `nonzero`.** `release_departures_safely` picked held
+  lightpaths with `jnp.nonzero(size=32)` over all 73k cells, which lowers to a
+  scatter of every cell (0.8 ms per 16-environment step);
+  `first_true_indices` searches the running count instead. Candidate path links
+  come from `path_link_indices` rather than a per-lane `nonzero`, and
+  `searchsorted` over short arrays uses `compare_all` (the default `scan` is a
+  loop of launches).
+- **Endpoint-only amplifier ASE.** The endpoint screen evaluated the ISRS-aware
+  ASE at every slot and kept two (`_ase_with_isrs_gain_at`).
+- **Additive fibre power.** A candidate fills free slots, so it adds exactly one
+  channel to its links' total power; the screen adds its launch power to the
+  baseline totals instead of re-reducing the spectrum (equal up to float32
+  summation order).
+- **Packed hop rows.** Paths are padded to the longest one's six hops (3.7 real
+  on average here). The pooled full check re-solves only real (lane, hop) link
+  rows, in a buffer of three quarters of the padded size with a full fallback.
+- **Overlapped logging and cached warmups.** Increments run on a worker thread
+  while the previous one is logged (3.5% of wall time with W&B off), and
+  `--WARMUP_CACHE_DIR` reuses warmed-up states (see [training](training.md)).
+
+Measured and not adopted: peeling the first iteration of the candidate loops
+into device-side conds (no change; the step is GPU-bound now), `bfloat16`
+compute for the transformer (`--compute_dtype=bfloat16`, +5% end to end, changes
+numerics), and trusting the `safe_release` link-SNR cache instead of the mask's
+baseline refresh (about 3%, but the cache differs from a fresh solve by float32
+rounding, so masks would change). 64 environments ran 9% faster than 32 (2,769
+steps/s), with a larger PPO batch.
+
+Fixed on the way: `every_path` first-fit masks (`ff_ksp`) lost later paths'
+first fits whenever an earlier path settled inside the same screen block, as the
+survivor loop stopped at the first settled survivor. It now skips to the next
+survivor whose path is unsettled.
+
+Profiles after these changes. A 16-environment full-mask step is GPU-bound
+(5.9 ms of kernels in about 6 ms): the mask's XLA fusions (2.9 ms, led by the
+inserted rows' SNR) and its Pallas kernels (endpoint screen 1.1 ms, XPM 0.5 ms,
+evidence 0.4 ms), departures and request generation 0.5 ms. In training, the
+rollout is about three quarters of the time and the PPO update most of the
+rest; the policy's rollout forward pass is 0.75 ms per 32-environment step. The
+update's forward/backward pass is memory-bound with no dominant kernel (the
+largest, the token embedding GEMM, is 8%).
+
+```bash
+python -m experimental.benchmarks.gn_scaling --gn-kernel-backend pallas --slots 1668 --envs 16 --k 5 --load 5000 --coherent --band-preference C,L,S --gn-mask-mode all_slots --gn-mask-batch-size 64 --gn-mask-env-batch-size 16 --independent-streams --state-input ss16.npz --kernels mask rollout --steps 16 --iterations 3 [--heuristic NAME] [--reference chunk1.npz]
+python -m experimental.benchmarks.policy_update_bench --minibatch 512 [--forward-only]
+```
+
 ## Dependencies and Gymnax
 
 `uv.lock` was refreshed: 159 package versions changed, 20 packages were added and

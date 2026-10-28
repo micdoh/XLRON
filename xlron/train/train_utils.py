@@ -1,4 +1,6 @@
+import dataclasses
 import datetime
+import hashlib
 import json
 import math
 import os
@@ -23,7 +25,7 @@ from optax import Schedule
 
 import wandb
 from xlron import dtype_config
-from xlron.environments.dataclasses import EnvState, RMSAGNModelEnvParams
+from xlron.environments.dataclasses import EnvState, HashableArrayWrapper, RMSAGNModelEnvParams
 from xlron.environments.env_funcs import (
     calculate_fragmentation,
     calculate_utilisation,
@@ -1095,6 +1097,14 @@ def experiment_data_setup(
         # Under the NUM_LEARNERS vmap the inputs are traced, so the warmup is
         # traced into the caller's program instead of compiled ahead of time.
         env_state, obsv = warmup_fn(warmup_state, runner_state)
+    elif (cache := warmup_cache_path(config, warmup_state, env_params, runner_state)) and (
+        cache.exists()
+    ):
+        finish_phase("warmup_trace_lower", None)
+        finish_phase("warmup_compile", None)
+        env_state, obsv = load_warmup_cache(cache, (env_state, obsv))
+        print(f"Loaded warmed-up state from {cache}", flush=True)
+        finish_phase("warmup_execute", (env_state, obsv))
     else:
         warmup_lowered = jax.jit(warmup_fn).lower(warmup_state, runner_state)
         finish_phase("warmup_trace_lower", None)
@@ -1110,6 +1120,9 @@ def experiment_data_setup(
         finish_phase("warmup_compile", None)
         env_state, obsv = warmup_executable(warmup_state, runner_state)
         finish_phase("warmup_execute", (env_state, obsv))
+        if cache:
+            save_warmup_cache(cache, (env_state, obsv))
+            print(f"Saved warmed-up state to {cache}", flush=True)
 
     if config.ENV_WARMUP_STEPS:
         env_state = reset_warmup_metric_counters(env_state)
@@ -1118,6 +1131,95 @@ def experiment_data_setup(
     init_runner_state = (runner_state, env_state, obsv, rng_step, rng_epoch)
 
     return init_runner_state, env, env_params
+
+
+def _fingerprint(digest, value) -> None:
+    """Feed value's content into a hashlib digest: arrays by dtype, shape and bytes,
+    dataclasses (environment params and states, including static fields) by field."""
+    if isinstance(value, HashableArrayWrapper):
+        value = value.val
+    if dataclasses.is_dataclass(value) and not isinstance(value, type):
+        digest.update(type(value).__name__.encode())
+        for field in dataclasses.fields(value):
+            digest.update(field.name.encode())
+            _fingerprint(digest, getattr(value, field.name))
+    elif isinstance(value, (tuple, list)):
+        digest.update(f"{type(value).__name__}{len(value)}".encode())
+        for item in value:
+            _fingerprint(digest, item)
+    elif isinstance(value, dict):
+        for key in sorted(value, key=str):
+            digest.update(str(key).encode())
+            _fingerprint(digest, value[key])
+    elif hasattr(value, "shape") and hasattr(value, "dtype"):
+        array = np.asarray(value)
+        digest.update(f"{array.dtype}{array.shape}".encode())
+        digest.update(np.ascontiguousarray(array).tobytes())
+    else:
+        digest.update(repr(value).encode())
+
+
+def warmup_cache_path(config, warmup_state, env_params, runner_state) -> pathlib.Path | None:
+    """File of this warmup's result under --WARMUP_CACHE_DIR, or None if not caching.
+
+    The name hashes everything the warmup's result depends on: the environment
+    parameters (static fields included), reset states and warmup keys, the warmup
+    settings, the policy weights when the policy acts, and the xlron source code,
+    so a code change never reuses an older result.
+    """
+    directory = config.get("WARMUP_CACHE_DIR")
+    if not directory or not config.ENV_WARMUP_STEPS:
+        return None
+    digest = hashlib.sha256()
+    for key in (
+        "ENV_WARMUP_STEPS",
+        "EVAL_HEURISTIC",
+        "warmup_action_type",
+        "path_heuristic",
+        "warmup_path_heuristic",
+        "NUM_ENVS",
+    ):
+        digest.update(f"{key}={config.get(key)!r}".encode())
+    # Continuous operation sets max_requests to TOTAL_TIMESTEPS; any value beyond
+    # the warmup gives the same warmup, so runs of any length share its result.
+    if getattr(env_params, "max_requests", 0) > config.ENV_WARMUP_STEPS:
+        env_params = env_params.replace(max_requests=-1)
+    _fingerprint(digest, (warmup_state, env_params))
+    policy_acts = not (
+        config.EVAL_HEURISTIC or config.get("warmup_action_type") in ("heuristic", "random")
+    )
+    if policy_acts and runner_state is not None:
+        _fingerprint(digest, eqx.filter(runner_state.model_params, eqx.is_array))
+    source = pathlib.Path(__file__).resolve().parents[1]
+    for path in sorted(source.rglob("*.py")):
+        if not path.name.endswith("_test.py"):
+            digest.update(str(path.relative_to(source)).encode())
+            digest.update(path.read_bytes())
+    return pathlib.Path(directory) / f"warmup-{digest.hexdigest()[:32]}.npz"
+
+
+def save_warmup_cache(path: pathlib.Path, result) -> None:
+    """Save the warmup's (env_state, obs) leaves; written atomically."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    partial_path = path.with_suffix(f".{os.getpid()}.tmp.npz")
+    leaves = jax.tree.leaves(result)
+    np.savez(partial_path, **{f"leaf_{i}": np.asarray(x) for i, x in enumerate(leaves)})
+    os.replace(partial_path, path)
+
+
+def load_warmup_cache(path: pathlib.Path, template):
+    """Restore save_warmup_cache's result into template's structure, shapes and dtypes."""
+    leaves, treedef = jax.tree.flatten(template)
+    with np.load(path) as archive:
+        restored = []
+        for i, leaf in enumerate(leaves):
+            value = archive[f"leaf_{i}"]
+            if value.shape != jnp.shape(leaf) or value.dtype != jnp.asarray(leaf).dtype:
+                raise ValueError(f"{path} does not match this run's warmup state (leaf {i})")
+            restored.append(jnp.asarray(value))
+        if len(archive.files) != len(leaves):
+            raise ValueError(f"{path} does not match this run's warmup state")
+    return jax.tree.unflatten(treedef, restored)
 
 
 def cast_model_for_compute(model: eqx.Module) -> eqx.Module:

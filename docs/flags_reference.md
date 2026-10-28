@@ -436,6 +436,10 @@ xlron.parameter_flags:
     (a number)
   --[no]WANDB: Use wandb
     (default: 'false')
+  --WARMUP_CACHE_DIR: Directory caching warmed-up environment states: a run
+    whose warmup inputs (environment, seed, warmup settings, policy if it acts,
+    xlron source) match an earlier run loads that result instead of compiling
+    and running the warmup.
   --WARMUP_MULTIPLIER: Increase the learning rate warmup peak compared to init
     (default: '1.0')
     (a number)
@@ -602,8 +606,11 @@ xlron.parameter_flags:
     64).
     (default: '8')
     (an integer)
-  --gn_mask_env_batch_size: Full physical masks per environment chunk; 0 vmaps
-    all environments, 1--32 streams smaller chunks (hard dynamics only).
+  --gn_mask_env_batch_size: Environments per lockstep chunk of full physical
+    all_slots masks under the environment vmap; 0 = all environments in one
+    chunk (plain vmap for differentiable runs), 1--32 smaller chunks (1 masks
+    environments one at a time). Chunks share candidate batches across
+    environments; results are identical for every value.
     (default: '0')
     (an integer)
   --gn_mask_mode: <ff_lf|all_slots|selected_slot>: RMSA GN masking: first/last

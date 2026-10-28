@@ -138,7 +138,7 @@ def main():
     parser.add_argument(
         "--gn-mask-mode", choices=["ff_lf", "all_slots", "selected_slot"], default="ff_lf"
     )
-    parser.add_argument("--gn-mask-batch-size", type=int, default=8, choices=range(1, 65))
+    parser.add_argument("--gn-mask-batch-size", type=int, default=8, choices=range(1, 513))
     parser.add_argument("--gn-mask-env-batch-size", type=int, default=0, choices=range(33))
     parser.add_argument("--gn-kernel-backend", choices=["jax", "pallas"], default="jax")
     parser.add_argument(
@@ -395,6 +395,16 @@ def main():
                     )
                 )(final)
                 metrics["held_lightpaths"] = np.asarray(held).tolist()
+                # Under safe_release the link-SNR cache should equal a full re-solve.
+                fresh = jax.jit(jax.vmap(lambda st: get_snr_link_array(st, params)))(final)
+                cached = np.asarray(final.link_snr_array)
+                live = np.asarray(final.channel_power_array) > 0
+                metrics["link_snr_cache_max_abs_error_live"] = float(
+                    np.max(np.abs(cached - np.asarray(fresh))[live], initial=0.0)
+                )
+                metrics["link_snr_cache_bitwise_live"] = bool(
+                    np.array_equal(cached[live], np.asarray(fresh)[live])
+                )
             metrics["distinct_final_requests"] = len(
                 np.unique(np.asarray(final.request_array), axis=0)
             )

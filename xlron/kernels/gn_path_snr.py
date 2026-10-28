@@ -37,6 +37,8 @@ def path_snr_pallas(
     evidence=None,
     unchanged=None,
     delta=None,
+    env=None,
+    changed_rows_only=False,
     block_slots=128,
     num_warps=4,
     interpret=None,
@@ -65,15 +67,41 @@ def path_snr_pallas(
             path ID] (int32) and values = [power, centre GHz, bandwidth GHz]
             (float32) for the new channel. evidence's affected must be None; the
             affected cells are the candidate's links over its slot range.
+        env: optional environment index with delta. The (L, S) inputs (link_snr,
+            path_index, channel metadata, required_db, baseline_db) are then
+            stacked over environments, (E, L, S), and environment env is read in
+            place, so a vmap over candidates of several environments shares one
+            copy of each. overlap_by_path and the delta remain per candidate.
+        changed_rows_only: with delta and without unchanged, visit only the
+            candidate's own link rows. Every old lightpath whose SNR the insertion
+            changes crosses one of them, so this checks all of those (lightpaths
+            crossing several are checked once per row); the caller accounts for
+            the others, e.g. from their baseline SNR. required_db must then hold
+            each lightpath's threshold on every row it occupies (not packed to
+            one representative row).
     """
     if unchanged is not None and evidence is None:
         raise ValueError("Unchanged path results require admission evidence")
     if delta is not None and (evidence is None or evidence[1] is not None):
         raise ValueError("Candidate deltas require evidence without an affected mask")
-    if link_snr.ndim != 2 or path_index.shape != link_snr.shape or path_links.ndim != 2:
+    if env is not None and delta is None:
+        raise ValueError("Stacked environments require a candidate delta")
+    if changed_rows_only and (delta is None or unchanged is not None):
+        raise ValueError("Changed-row evidence requires a delta and no unchanged results")
+    stacked = 3 if env is not None else 2
+    if link_snr.ndim != stacked or path_index.shape != link_snr.shape or path_links.ndim != 2:
         raise ValueError("Expected (links, slots) SNR/path IDs and (paths, hops) link IDs")
     interpret = interpret_default() if interpret is None else interpret
-    num_links, slots = link_snr.shape
+    num_links, slots = link_snr.shape[-2:]
+    offset = jnp.reshape(0 if env is None else env * num_links, (1,)).astype(jnp.int32)
+    if env is not None:
+        link_snr, path_index, channel_power, centre_ghz, bandwidth_ghz = (
+            x.reshape((-1, slots))
+            for x in (link_snr, path_index, channel_power, centre_ghz, bandwidth_ghz)
+        )
+        evidence = (evidence[0].reshape((-1, slots)), evidence[1])
+        if unchanged is not None:
+            unchanged = (unchanged[0].reshape((-1, slots)), unchanged[1])
     num_paths, hops = path_links.shape
     express, add_drop = (
         jnp.broadcast_to(x, (slots,)).astype(jnp.float32)
@@ -84,10 +112,20 @@ def path_snr_pallas(
 
     def kernel(snr_ref, index_ref, paths_ref, power_ref, centre_ref, bandwidth_ref, express_ref,
                add_drop_ref, trx_ref, *tail_refs):  # fmt: skip
-        row, tile = pl.program_id(0), pl.program_id(1)
+        out_row, tile = pl.program_id(0), pl.program_id(1)
         columns = tile * block_slots + jnp.arange(block_slots)
         mask = columns < slots
         out_ref = tail_refs[-1]
+        row = out_row
+        if changed_rows_only:
+            # Program h visits the candidate's h-th link; padding entries are empty.
+            listed = tail_refs[-6][out_row]
+            mask = mask & (listed < num_links)
+            row = jnp.minimum(listed, num_links - 1)
+        # Row of this link (and of any link) in the possibly stacked inputs.
+        env_row = tail_refs[-2][0]
+        tail_refs = tail_refs[:-2] + tail_refs[-1:]
+        stacked_row = row + env_row
         unchanged_ok = jnp.bool_(True)
         wanted = mask
         if delta is not None:
@@ -98,7 +136,7 @@ def path_snr_pallas(
             inserted = (columns >= slots_ref[0]) & (columns <= slots_ref[1]) & mask
 
         def path_ids(cells):
-            ids = plt.load(index_ref.at[row, columns], mask=cells, other=-1)
+            ids = plt.load(index_ref.at[stacked_row, columns], mask=cells, other=-1)
             if delta is None:
                 return ids
             on_path = functools.reduce(jnp.logical_or, [row == x for x in changed_links])
@@ -106,7 +144,7 @@ def path_snr_pallas(
 
         if evidence is not None:
             required_ref = tail_refs[0]
-            required = plt.load(required_ref.at[row, columns], mask=mask, other=-jnp.inf)
+            required = plt.load(required_ref.at[stacked_row, columns], mask=mask, other=-jnp.inf)
             old_live = required != -jnp.inf
             if delta is None:
                 affected_ref = tail_refs[1]
@@ -121,7 +159,9 @@ def path_snr_pallas(
                 ids = jnp.clip(jnp.where(ids < 0, ids + num_paths, ids), 0, num_paths - 1)
                 overlaps = plt.load(overlap_ref.at[ids], mask=mask, other=True)
                 retained = old_live & ~overlaps
-                baseline = plt.load(baseline_ref.at[row, columns], mask=retained, other=50.0)
+                baseline = plt.load(
+                    baseline_ref.at[stacked_row, columns], mask=retained, other=50.0
+                )
                 unchanged_ok = jnp.sum((retained & ~(baseline >= required)).astype(jnp.int32)) == 0
                 old_live = old_live & overlaps
             wanted = mask & (old_live | affected)
@@ -138,7 +178,7 @@ def path_snr_pallas(
                 valid = wanted & (link < num_links)
                 safe_link = jnp.minimum(link, num_links - 1)
                 if delta is None:
-                    snr = plt.load(snr_ref.at[safe_link, columns], mask=valid, other=1.0)
+                    snr = plt.load(snr_ref.at[safe_link + env_row, columns], mask=valid, other=1.0)
                 else:
                     # Changed links read the candidate's re-solved rows.
                     hop_row = jnp.full((block_slots,), -1, jnp.int32)
@@ -149,16 +189,17 @@ def path_snr_pallas(
                         fresh,
                         plt.load(changed_ref.at[jnp.maximum(hop_row, 0), columns], mask=fresh,
                                  other=1.0),
-                        plt.load(snr_ref.at[safe_link, columns], mask=valid & ~fresh, other=1.0),
+                        plt.load(snr_ref.at[safe_link + env_row, columns], mask=valid & ~fresh,
+                                 other=1.0),
                     )  # fmt: skip
                 # Padding is masked before the reciprocal: no 0 * inf NaNs.
                 nsr = nsr + jnp.where(valid, 1.0 / snr, 0.0)
                 count = count + valid.astype(jnp.int32)
                 if hop == 0:
                     first = jnp.where(valid, link, 0)
-            power = plt.load(power_ref.at[first, columns], mask=wanted, other=0.0)
-            centre = plt.load(centre_ref.at[first, columns], mask=wanted, other=0.0)
-            bandwidth = plt.load(bandwidth_ref.at[first, columns], mask=wanted, other=0.0)
+            power = plt.load(power_ref.at[first + env_row, columns], mask=wanted, other=0.0)
+            centre = plt.load(centre_ref.at[first + env_row, columns], mask=wanted, other=0.0)
+            bandwidth = plt.load(bandwidth_ref.at[first + env_row, columns], mask=wanted, other=0.0)
             if delta is not None:
                 power = jnp.where(new_channel, values_ref[0], power)
                 centre = jnp.where(new_channel, values_ref[1], centre)
@@ -194,16 +235,17 @@ def path_snr_pallas(
                 jnp.max(jnp.ones((block_slots,), jnp.float32)),
             ),
         )
-        plt.store(out_ref.at[jnp.int32(0), row, tile], floor)
-        plt.store(out_ref.at[jnp.int32(1), row, tile], ok * unchanged_ok.astype(jnp.float32))
+        plt.store(out_ref.at[jnp.int32(0), out_row, tile], floor)
+        plt.store(out_ref.at[jnp.int32(1), out_row, tile], ok * unchanged_ok.astype(jnp.float32))
 
     changed_hops = 0 if delta is None else delta[0].shape[0]
     tiles = pl.cdiv(slots, block_slots)
-    shape = (2, num_links, tiles) if evidence is not None else link_snr.shape
+    rows = changed_hops if changed_rows_only else num_links
+    shape = (2, rows, tiles) if evidence is not None else link_snr.shape
     result = pl.pallas_call(
         kernel,
         out_shape=jax.ShapeDtypeStruct(shape, jnp.float32),
-        grid=(num_links, tiles),
+        grid=(rows, tiles),
         compiler_params=plt.CompilerParams(num_warps=num_warps),
         interpret=interpret,
         name="gn_path_snr_evidence" if evidence is not None else "gn_path_snr",
@@ -220,6 +262,7 @@ def path_snr_pallas(
         *(x for x in evidence or () if x is not None),
         *(unchanged or ()),
         *(delta or ()),
+        offset,
     )
     if evidence is not None:
         return jnp.min(result[0]), jnp.all(result[1] != 0)

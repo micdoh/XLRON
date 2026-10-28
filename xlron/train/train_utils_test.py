@@ -230,6 +230,59 @@ def _schedule_config(step_on_gradient):
     )
 
 
+class TestWarmupCache:
+    def _config(self, tmp_path, **overrides):
+        values = dict(
+            WARMUP_CACHE_DIR=tmp_path,
+            ENV_WARMUP_STEPS=3,
+            EVAL_HEURISTIC=False,
+            warmup_action_type="heuristic",
+            path_heuristic="ksp_ff",
+            NUM_ENVS=1,
+            env_type="rwa",
+            launch_power_type="fixed",
+            USE_GNN=False,
+            USE_TRANSFORMER=False,
+        )
+        values.update(overrides)
+        return Box(values)
+
+    def test_round_trip_restores_the_warmed_up_state(self, tmp_path):
+        key, env, obs, state, params = _make_log_wrapped_env()
+        config = self._config(tmp_path)
+        warmup_state = (key, state, tuple([obs]))
+        warmed = get_warmup_fn(warmup_state, env, params, None, config)(warmup_state)
+        path = tu.warmup_cache_path(config, warmup_state, params, None)
+        tu.save_warmup_cache(path, warmed)
+        restored = tu.load_warmup_cache(path, (state, tuple([obs])))
+        chex.assert_trees_all_equal(restored, warmed)
+        # A differently shaped state is rejected rather than silently reused.
+        with pytest.raises(ValueError):
+            tu.load_warmup_cache(path, (state, tuple([obs[:-1]])))
+
+    def test_name_tracks_every_warmup_input(self, tmp_path):
+        key, env, obs, state, params = _make_log_wrapped_env()
+        directory = tmp_path
+        config = self._config(directory)
+        warmup_state = (key, state, tuple([obs]))
+        path = tu.warmup_cache_path(config, warmup_state, params, None)
+        assert path == tu.warmup_cache_path(config, warmup_state, params, None)
+        variants = [
+            (self._config(directory, ENV_WARMUP_STEPS=4), warmup_state, params),
+            (self._config(directory, path_heuristic="ksp_lf"), warmup_state, params),
+            (config, (jax.random.PRNGKey(1), state, tuple([obs])), params),
+            (config, warmup_state, params.replace(k_paths=params.k_paths + 1)),  # static field
+        ]
+        for variant_config, variant_state, variant_params in variants:
+            assert tu.warmup_cache_path(variant_config, variant_state, variant_params, None) != path
+        assert tu.warmup_cache_path(self._config(None), warmup_state, params, None) is None
+        # Run length (max_requests beyond the warmup) cannot change the warmup.
+        longer = params.replace(max_requests=params.max_requests + 100)
+        assert tu.warmup_cache_path(config, warmup_state, longer, None) == path
+        within = params.replace(max_requests=2)
+        assert tu.warmup_cache_path(config, warmup_state, within, None) != path
+
+
 class ScheduleStepUnitTest(chex.TestCase):
     @parameterized.named_parameters(
         ("per_update_loop", False),

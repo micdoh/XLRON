@@ -264,6 +264,14 @@ class Profiler:
         """
         return _ProfileSection(self, tag, frames)
 
+    def record(self, tag: str, elapsed: float, frames: int | None = None):
+        """Record and print a section timed elsewhere (e.g. overlapping other work)."""
+        self._record(tag, elapsed, frames)
+        msg = tag + (": Elapsed time=%.2fs" % elapsed)
+        if frames:
+            msg += ", FPS=%.2e" % (frames / elapsed)
+        print(msg)
+
     def _record(self, tag: str, elapsed: float, frames: int | None):
         if not self.enabled:
             return

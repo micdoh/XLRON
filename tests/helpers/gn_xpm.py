@@ -28,17 +28,19 @@ def inputs(n, seed=7):
     return tuple(jnp.asarray(x) for x in (power, frequency, bandwidth))
 
 
-def numpy_xpm64(power, frequency, bandwidth, **physics):
+def numpy_xpm64(power, frequency, bandwidth, total=None, **physics):
     """Independent float64 row-wise evaluation of the XPM equation, Ref. [1, Eq. (11)].
 
     No shared JAX helper or compiled kernel is used. This checks numerical
-    implementation accuracy, not the physical approximation itself.
+    implementation accuracy, not the physical approximation itself. total
+    overrides the total power of the Raman tilt (default: sum of power).
     """
     p, f, b = [np.asarray(x, dtype=np.float64) for x in (power, frequency, bandwidth)]
     a, abar = physics["a"], physics["a_bar"]
     ap = a + abar
     result = np.zeros_like(p)
-    tilt = (ap - f * np.sum(p) * physics["cr"]) ** 2
+    total = np.sum(p) if total is None else total
+    tilt = (ap - f * total * physics["cr"]) ** 2
     for i in range(len(p)):
         phase = (
             2
