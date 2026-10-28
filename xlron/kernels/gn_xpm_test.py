@@ -6,7 +6,12 @@ import numpy as np
 import pytest
 
 from tests.helpers.gn_xpm import PARAMS, inputs, kernel_physics, numpy_xpm64
-from xlron.environments.gn_model.isrs_gn_model import _xpm_compact, get_snr_fused, xpm_pairs
+from xlron.environments.gn_model.isrs_gn_model import (
+    _xpm_compact,
+    get_snr_fused,
+    xpm_after_insertion,
+    xpm_pairs,
+)
 from xlron.kernels.gn_xpm import xpm_pallas
 
 # PARAMS holds the SI truth for numpy_xpm64; the kernels take scaled dispersion.
@@ -98,3 +103,41 @@ def test_full_snr_pallas_backend_matches_jax_including_empty_links(coherent):
     actual = jax.jit(jax.vmap(lambda *x: get_snr_fused(*x, **physics, xpm_backend="pallas")))(*args)
     np.testing.assert_allclose(actual, expected, rtol=5e-5, atol=1e-5)
     np.testing.assert_array_equal(np.asarray(actual)[0], -1e5)
+
+
+class TestPolynomialXpm:
+    @staticmethod
+    @pytest.mark.parametrize("scale", [0.5, 1.0, 3.0])
+    def test_coefficients_give_the_xpm_at_any_total_power(scale):
+        p, f, b = (jnp.repeat(x, 3) for x in inputs(41))
+        s0, s1, s2 = jax.jit(lambda *x: xpm_pallas(*x, **KERNEL, polynomial=True))(p, f, b)
+        # At the arrays' own total power: the direct kernel. Elsewhere: the float64
+        # reference with that total (scaled powers change only the tilt's total).
+        total = jnp.sum(p)
+        direct = xpm_pallas(p, f, b, **KERNEL)
+        np.testing.assert_allclose(s0 + total * s1 + total**2 * s2, direct, rtol=3e-5, atol=1e-6)
+        expected = numpy_xpm64(p, f, b, **PARAMS, total=float(total) * scale)
+        moved = s0 + scale * total * s1 + (scale * total) ** 2 * s2
+        np.testing.assert_allclose(moved, expected, rtol=3e-5, atol=1e-6)
+
+    @staticmethod
+    @pytest.mark.parametrize("start, width", [(20, 3), (0, 1), (60, 4)])
+    def test_insertion_matches_a_full_re_solve(start, width):
+        p, f, b = (np.array(x) for x in inputs(64))
+        p[start : start + width] = b[start : start + width] = 0  # free spectrum
+        before = tuple(jnp.asarray(x) for x in (p, f, b))
+        coefficients = xpm_pallas(*before, **KERNEL, polynomial=True)
+        inside = (np.arange(64) >= start) & (np.arange(64) < start + width)
+        centre = f[start : start + width].mean()
+        after = (
+            jnp.where(inside, 2e-4, before[0]),
+            jnp.where(inside, centre, before[1]),
+            jnp.where(inside, 12.5e9, before[2]),
+        )
+        inserted = jax.jit(
+            lambda c, *x: xpm_after_insertion(
+                c, *x, jnp.asarray(inside), 2e-4, centre, 12.5e9, width, **KERNEL
+            )
+        )(coefficients, *after)
+        np.testing.assert_allclose(inserted, xpm_pallas(*after, **KERNEL), rtol=3e-5, atol=1e-6)
+        np.testing.assert_allclose(inserted, numpy_xpm64(*after, **PARAMS), rtol=3e-5, atol=1e-6)

@@ -11,6 +11,7 @@ import subprocess
 import time
 from functools import partial
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List
 
 import equinox as eqx
@@ -691,8 +692,6 @@ def train(argv: list[str], config: Dict[str, Any] = {}) -> None:
                 wandb.finish()
             setup_wandb(config, project_name, experiment_name)
 
-        start_time = time.time()
-        log_time = 0.0
         total_run_time = 0.0
         best_eval_metric = float("inf")
         first_save = True
@@ -700,21 +699,39 @@ def train(argv: list[str], config: Dict[str, Any] = {}) -> None:
         merged_out: Dict[str, Dict[str, jax.Array]] = {}
         processed_data: Dict[str, Dict[str, jax.Array]] = {}
         processed_data_all: Dict[str, Dict[str, jax.Array]] = {}
+        render_mode = str(config.RENDER_EVAL_MODE).lower()
+
+        def timed_increment(runner_state):
+            # A call returns only once its device loops have run (the host drives
+            # XLA while loops), so increments run on a worker thread to overlap logging.
+            start = time.perf_counter()
+            result = jax.tree_util.tree_map(
+                lambda x: x.block_until_ready() if hasattr(x, "block_until_ready") else x,
+                run_experiment(runner_state),
+            )  # Wait for all devices to finish
+            return result, time.perf_counter() - start
+
+        worker = ThreadPoolExecutor(max_workers=1)
+        pending = worker.submit(timed_increment, experiment_input)
         for i in range(config.NUM_INCREMENTS):
             print(f"\n---INCREMENT {i + 1}/{config.NUM_INCREMENTS}---")
-            # Run the increment
-            with profiler.section(
-                "EXECUTION", frames=config.STEPS_PER_INCREMENT * config.NUM_LEARNERS
-            ):
-                out = run_experiment(experiment_input)
-                out = jax.tree_util.tree_map(
-                    lambda x: x.block_until_ready() if hasattr(x, "block_until_ready") else x, out
-                )  # Wait for all devices to finish
-            prev_total = total_run_time
-            total_run_time = time.time() - start_time - log_time  # Update total first
-            increment_run_time = total_run_time - prev_total  # Increment = difference
-            log_start_time = time.time()
-            render_mode = str(config.RENDER_EVAL_MODE).lower()
+            # With pipelining this increment ran while the previous one was logged.
+            out, increment_run_time = pending.result()
+            profiler.record(
+                "EXECUTION", increment_run_time, config.STEPS_PER_INCREMENT * config.NUM_LEARNERS
+            )
+            total_run_time += increment_run_time
+            eval_now = (
+                config.EVAL_DURING_TRAINING
+                and not (config.EVAL_HEURISTIC or config.EVAL_MODEL)
+                and (i + 1) % config.EVAL_FREQUENCY == 0
+            )
+            # Run the next increment while this one is logged. Logging's few device
+            # operations interleave with the increment's host-driven launches.
+            # Evaluation and rendering run alone, as they time and size themselves.
+            pipeline = i + 1 < config.NUM_INCREMENTS and not eval_now and render_mode == "off"
+            if pipeline:
+                pending = worker.submit(timed_increment, out["runner_state"])
             if (config.EVAL_HEURISTIC or config.EVAL_MODEL) and render_mode != "off":
                 if render_mode in {"save", "human"}:
                     eval_state_for_render = (
@@ -783,11 +800,7 @@ def train(argv: list[str], config: Dict[str, Any] = {}) -> None:
             )
 
             # Run eval during training
-            if (
-                config.EVAL_DURING_TRAINING
-                and not (config.EVAL_HEURISTIC or config.EVAL_MODEL)
-                and (i + 1) % config.EVAL_FREQUENCY == 0
-            ):
+            if eval_now:
                 with profiler.section("EVAL"):
                     best_eval_metric, first_save = run_eval_during_training(
                         config,
@@ -799,9 +812,10 @@ def train(argv: list[str], config: Dict[str, Any] = {}) -> None:
                         first_save=first_save,
                     )
 
-            log_time += time.time() - log_start_time
             # Update the experiment input for the next increment
             experiment_input = out["runner_state"]  # TrainState, EnvState, Obs, key, key
+            if not pipeline and i + 1 < config.NUM_INCREMENTS:
+                pending = worker.submit(timed_increment, experiment_input)
             for metric in metrics:
                 if processed_data.get(metric):
                     if config.continuous_operation:
@@ -813,6 +827,7 @@ def train(argv: list[str], config: Dict[str, Any] = {}) -> None:
                             f"Episode end {metric}: {float(processed_data[metric]['episode_end_mean'][-1])} ± {float(processed_data[metric]['episode_end_std'][-1]):.3f}"
                         )
 
+        worker.shutdown()
         # END OF INCREMENTS FOR THIS LOAD
         # Build timing info from profiler records
         timing = {}

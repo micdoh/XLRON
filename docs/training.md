@@ -47,6 +47,18 @@ On GPU, the warmup (executed once) is compiled with library GEMMs and without ex
 
 `XLA_FLAGS` you set yourself are kept. XLRON only adds its defaults for flags you have not set, except that `--DETERMINISTIC_OPS` forces the deterministic flags.
 
+`--WARMUP_CACHE_DIR=<dir>` caches warmed-up environment states. The file name hashes
+everything the warmup depends on (environment parameters, reset states and keys,
+`ENV_WARMUP_STEPS`, the warmup heuristic or action type, the policy weights when the
+policy acts, and the xlron source code), so a later run with the same inputs loads the
+result instead of compiling and running the warmup, and any code change starts a new
+entry. The run length is excluded, so runs of different `TOTAL_TIMESTEPS` share one
+warmup. A full C+L+S RMSA-GN state for 32 environments is about 300 MB.
+
+Logging an increment overlaps the next one: increments run on a worker thread, and the
+reported increment time is its own wall time. Evaluation-during-training and rendering
+increments are not overlapped.
+
 A persistent JAX compilation cache is **opt-in**. Set `XLRON_COMPILATION_CACHE=1` to use `$XDG_CACHE_HOME/xlron/jax` (default `~/.cache/xlron/jax`, capped at 2 GiB), or set it to a directory path to use that directory. JAX's own `JAX_COMPILATION_CACHE_DIR`, `JAX_ENABLE_COMPILATION_CACHE` and threshold variables are respected. A cached program is reused only when JAX's computation, runtime, device and compiler-option keys all match.
 
 ### `--NUM_ENVS`
@@ -387,7 +399,7 @@ A transformer encoder that processes link-level tokens with graph-aware position
 | `--transformer_spectrum_encoder` | `dense`, or band-aware `conv` with local action features (`lifetime_snr` and aggregation 1 required) | `dense` |
 | `--gn_mask_mode` | RMSA-GN: `ff_lf`, `all_slots`, or `selected_slot`; unrestricted modes require aggregation 1 | `ff_lf` |
 | `--gn_mask_batch_size` | Candidates evaluated together in full physical masking; 1--64, tune against environment batch and memory | `8` |
-| `--gn_mask_env_batch_size` | Full masks per environment chunk; 0 vmaps all, 1--32 streams chunks while policy inference stays batched; hard dynamics only | `0` |
+| `--gn_mask_env_batch_size` | Environments per lockstep chunk of full masks; 0 = all environments in one chunk, 1 masks them one at a time; identical results for every value, policy inference stays batched | `0` |
 | `--gn_kernel_backend` | GN environments: `jax` (reference, differentiable) or `pallas` (GPU kernels plus endpoint screening in `all_slots` masks); see below | `jax` |
 | `--gn_mask_screen_batch_size` | Candidates per endpoint-screen batch with `pallas` and `all_slots`; 1--2048 | `512` |
 | `--transformer_modulation_features` | Small candidate scoring head using resolved modulation, required width and SNR threshold; RMSA-GN transformer, `all_slots`, aggregation 1 and fixed power | `False` |
@@ -488,25 +500,36 @@ observations) and, for `all_slots` masks, adds three exact accelerations:
   in batches of `gn_mask_screen_batch_size`. Candidates below threshold by more
   than `ENDPOINT_SCREEN_SLACK_DB` (0.01 dB, covering float32 evaluation order)
   skip the full solve; survivors are decided by it with unchanged thresholds.
-- **Predicate merging.** Existing-path checks repeated on every hop of a path are
-  merged at their strongest threshold.
-- **Disjoint-path reuse.** Existing paths sharing no link with the candidate keep
-  their baseline SNR; every other path is recomputed over all its hops.
+- **Polynomial XPM re-solve.** Total power enters each XPM pair only through the
+  Raman tilt, so every pair is quadratic in it. The baseline stores each link's
+  three interferer sums once per mask; a candidate's path links then get their
+  XPM at the new total power, plus the inserted channel's own pairs, in
+  O(slots) per link instead of a full interferer reduction.
+- **Changed-row checks.** Every existing lightpath whose SNR a candidate can
+  change crosses one of the candidate's links, so existing-path checks visit only
+  those link rows (recomputing each such path over all its hops). Paths sharing
+  no link with the candidate keep their baseline SNR, decided once per mask.
+  Without the endpoint screen, existing-path checks repeated on every hop of a
+  path are instead merged at their strongest threshold.
 
 Masks, resolved formats and admissions match the `jax` backend (tested on CPU in
 the Pallas interpreter, natively on GPU). Pallas kernels provide no reverse-mode
 derivatives, so `--differentiable` requires `jax`. Off-GPU the kernels run in the
 slow interpreter; use `pallas` only on a GPU in practice.
 
-`gn_mask_env_batch_size` applies a custom batching rule to physical masking only.
-Smaller chunks avoid running every environment's dynamic candidate loops to
-the busiest environment's count and bound candidate workspace. Neural-network
-and PPO batch sizes are unaffected. Tune this with `gn_mask_batch_size`; the
-full C+L+S benchmark favored candidate batch 64 and environment chunk 1. A
-chunk of 1 masks environments one at a time without any vmap, so the mask's
-data-dependent branches (skipped format passes, tail batches) really skip work;
-under a vmap they execute every branch. On an A100 with 16 environments, chunk
-1 ran 344 steps/s against 124 for chunk 16 or a full vmap.
+`gn_mask_env_batch_size` applies a custom batching rule to physical masking only;
+neural-network and PPO batch sizes are unaffected. A chunk of environments is
+masked in lockstep: its loops, switches and conds are shared (a plain vmap would
+execute every branch of every data-dependent `cond`), and with `pallas` the
+screen and full-check candidates of all its environments go through one queue,
+so each candidate batch is full however the candidates are spread over the
+environments. Batches then cover the chunk: `gn_mask_batch_size` and
+`gn_mask_screen_batch_size` are scaled by the chunk size, up to 256 and 2048.
+The default 0 puts all environments in one chunk; 1 masks them one at a time.
+First-fit heuristic masks (below) always mask environments one at a time, as
+each stops at its own first fit. Every value gives identical masks. On an A100
+with 16 full C+L+S environments at steady state, one chunk ran 1,994 steps/s
+against 745 for chunk 1 (see [GN performance](gn_model_performance.md)).
 
 The heuristics `ksp_ff` and `ff_ksp` only read each path's first valid start, so
 heuristic evaluation (and heuristic warmup) gives them a first-fit mask: it

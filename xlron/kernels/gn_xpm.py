@@ -21,7 +21,7 @@ import jax.numpy as jnp
 from jax.experimental import pallas as pl
 from jax.experimental.pallas import triton as plt
 
-from xlron.environments.gn_model.isrs_gn_model import xpm_pairs
+from xlron.environments.gn_model.isrs_gn_model import xpm_pair_coefficients, xpm_pairs
 from xlron.kernels import interpret_default
 from xlron.kernels.compact import compact_true_indices
 
@@ -56,9 +56,13 @@ def xpm_pallas(
     block_k=32,
     num_warps=4,
     persistent_rows=16,
+    polynomial=False,
     interpret=None,
 ):
     """XPM coefficient per channel of one link (before span accumulation).
+
+    With polynomial, return (3, N) coefficients (S0, S1, S2) instead, such that the
+    XPM at total power P is S0 + P * S1 + P**2 * S2 (see xpm_pair_coefficients).
 
     Args:
         power, frequency, bandwidth: float32 (N,) channel arrays [W, Hz, Hz].
@@ -117,6 +121,7 @@ def xpm_pallas(
             bi = plt.load(b_ref.at[selected], mask=valid, other=0.0)
 
             def accumulate(tile_k, acc):
+                """acc + this interferer tile's contributions (per coefficient)."""
                 k = tile_k * block_k + jnp.arange(block_k)
                 mask = k < col_count_ref[()]
                 chosen = plt.load(col_ref.at[k], mask=mask, other=0)
@@ -124,25 +129,24 @@ def xpm_pallas(
                 fk = plt.load(f_ref.at[chosen], mask=mask, other=0.0)
                 bk = plt.load(b_ref.at[chosen], mask=mask, other=0.0)
                 weight = plt.load(weight_ref.at[k], mask=mask, other=0.0)
-                pairs = xpm_pairs(
-                    pi[:, None],
-                    fi[:, None],
-                    bi[:, None],
-                    pk[None, :],
-                    fk[None, :],
-                    bk[None, :],
-                    total_ref[()],
-                    **coefficients,
+                operands = (pi[:, None], fi[:, None], bi[:, None], pk[None, :], fk[None, :])
+                if polynomial:
+                    terms = xpm_pair_coefficients(*operands, bk[None, :], **coefficients)
+                else:
+                    terms = (xpm_pairs(*operands, bk[None, :], total_ref[()], **coefficients),)
+                return tuple(
+                    partial_sum + jnp.sum(term * weight[None, :], axis=1)
+                    for partial_sum, term in zip(acc, terms)
                 )
-                return acc + jnp.sum(pairs * weight[None, :], axis=1)
 
             result = jax.lax.fori_loop(
                 0,
                 (col_count_ref[()] + block_k - 1) // block_k,
                 accumulate,
-                jnp.zeros(block_i, jnp.float32),
+                tuple(jnp.zeros(block_i, jnp.float32) for _ in range(3 if polynomial else 1)),
             )
-            plt.store(out_ref.at[positions], result, mask=positions < n)
+            for i, values in enumerate(result):
+                plt.store(out_ref.at[i, positions], values, mask=positions < n)
 
         if persistent_rows is None:
 
@@ -160,7 +164,7 @@ def xpm_pallas(
 
     packed = pl.pallas_call(
         kernel,
-        out_shape=jax.ShapeDtypeStruct(power.shape, jnp.float32),
+        out_shape=jax.ShapeDtypeStruct((3 if polynomial else 1, n), jnp.float32),
         grid=(programs,),
         compiler_params=plt.CompilerParams(num_warps=num_warps),
         interpret=interpret,
@@ -179,4 +183,5 @@ def xpm_pallas(
     )
     # Packed slot r holds the r-th run of output rows; unused tail slots are
     # never read because every output row maps to a run that was evaluated.
-    return jnp.where(outputs, packed[run], 0.0)
+    result = jnp.where(outputs, packed[:, run], 0.0)
+    return result if polynomial else result[0]

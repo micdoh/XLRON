@@ -320,7 +320,9 @@ Two traps on those hosts:
   `CUDA_VISIBLE_DEVICES=<n> XLA_PYTHON_CLIENT_PREALLOCATE=false
   XLA_PYTHON_CLIENT_MEM_FRACTION=0.25`. Run test files in separate processes
   with `XLA_FLAGS=--xla_gpu_force_compilation_parallelism=1`; one long pytest
-  process hits `LLVM ERROR: pthread_create failed`.
+  process hits `LLVM ERROR: pthread_create failed`. Keep that flag out of
+  training and benchmark runs: it compiles GPU kernels single-threaded, and the
+  RMSA-GN transformer's training step then took 291 s to compile instead of 26 s.
 
 GitHub-hosted GPU runners are not an option for this repo: they are limited to
 organisations on Team/Enterprise Cloud plans, are billed per minute even on

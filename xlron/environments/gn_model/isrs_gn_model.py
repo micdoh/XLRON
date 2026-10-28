@@ -426,6 +426,9 @@ def isrs_gn_model_uniform(
         )
     elif xpm_backend == "jax":
         xpm_single = _xpm(ch_pow, ch_pow.T, phi_ik, T_k, ch_bw, ch_bw.T, a.T, a_bar.T, gamma)
+    elif callable(xpm_backend):
+        # A precomputed XPM (e.g. xpm_after_insertion), before span accumulation.
+        xpm_single = xpm_backend(ch_pow, f, ch_bw)
     else:
         raise ValueError(f"Unknown XPM backend: {xpm_backend}")
     eta_xpm = xpm_single * num_spans
@@ -688,6 +691,42 @@ def _calculate_ase_with_isrs_gain(
     return jnp.squeeze(2 * N_sp * gain_minus_1 * h * (c / ref_lambda + ch_centre_i) * ch_bandwidth)
 
 
+def _ase_with_isrs_gain_at(
+    noise_figure,
+    attenuation_i,
+    length,
+    ref_lambda,
+    ch_centre_i,
+    ch_power_i,
+    raman_gain_slope_i,
+    span_lumped_loss_db,
+    at_centre,
+    at_bandwidth,
+    at_power,
+):
+    """_calculate_ase_with_isrs_gain at selected channels only.
+
+    The ISRS gain needs the whole spectrum (total power and the Raman-tilted
+    power sum); everything else is per channel, so it is evaluated only for the
+    channels given by at_* (with their noise_figure). Same expressions as
+    _calculate_ase_with_isrs_gain / calculate_amplifier_gain_isrs.
+    """
+    a = jnp.mean(attenuation_i)
+    cr = jnp.mean(raman_gain_slope_i)
+    leff = (1 - jnp.exp(-a * length)) / a
+    p_tot = jnp.sum(ch_power_i)
+    cr_leff_ptot = cr * leff * p_tot
+    psd_sum = jnp.maximum(jnp.sum(ch_power_i * jnp.exp(-ch_centre_i * cr_leff_ptot)), EPS)
+    gsrs_tilt = p_tot * jnp.exp(-at_centre * cr_leff_ptot) / psd_sum
+    total_loss_compensation = jnp.exp(length * a)
+    gain = jnp.where(at_power > 0, total_loss_compensation / gsrs_tilt, total_loss_compensation)
+    if span_lumped_loss_db is not None:
+        gain = gain * (10 ** (span_lumped_loss_db / 10))
+    gain_minus_1 = gain - 1
+    n_sp = (10 ** (noise_figure / 10) * gain) / (2.0 * gain_minus_1)
+    return 2 * n_sp * gain_minus_1 * h * (c / ref_lambda + at_centre) * at_bandwidth
+
+
 def _calculate_ase_with_fixed_gain(
     noise_figure,
     ref_lambda,
@@ -837,7 +876,9 @@ def get_snr(
     Compute the signal-to-noise ratio (SNR) of a WDM system.
 
     xpm_backend: "jax", or "pallas" for the XPM kernel (uniform spans without
-        modulation-format correction only; no reverse-mode derivatives).
+        modulation-format correction only; no reverse-mode derivatives), or a
+        callable (power, frequency, bandwidth) -> XPM per channel before span
+        accumulation, e.g. a precomputed result (same restrictions).
 
     Returns:
         snr: signal-to-noise ratio (linear units)
@@ -949,6 +990,100 @@ def xpm_pairs(
         * ((tilt - a**2) / a * atan_fn(phi * bi / a) + (ap**2 - tilt) / ap * atan_fn(phi * bi / ap))
     )
     return jnp.where(denom != 0, pairs, 0.0)
+
+
+def xpm_pair_coefficients(
+    pi,
+    fi,
+    bi,
+    pk,
+    fk,
+    bk,
+    *,
+    a,
+    a_bar,
+    gamma,
+    cr,
+    beta2,
+    beta3_s,
+    beta4_s,
+    atan_fn=jnp.arctan,
+):
+    """xpm_pairs as c0 + c1 * total + c2 * total**2, for any total power.
+
+    Total power enters a pair only through the Raman tilt (ap - fk * total * cr)**2,
+    so each pair is exactly quadratic in it. Summed over a link's interferers, the
+    coefficients give that link's XPM at any total power, e.g. after inserting a
+    channel (whose own pairs are then added separately).
+    """
+    fsi = fi * INV_FREQ_SCALE
+    fsk = fk * INV_FREQ_SCALE
+    phi = (
+        2
+        * jnp.pi**2
+        * FREQ_SCALE
+        * (fsi - fsk)
+        * (
+            beta2
+            + jnp.pi * beta3_s * (fsi + fsk)
+            + 2 / 3 * jnp.pi**2 * beta4_s * (fsi**2 + fsi * fsk + fsk**2)
+        )
+    )
+    ap = a + a_bar
+    denom = bk * phi * a_bar * (2 * a + a_bar)
+    ratio = (pk / jnp.maximum(pi, EPS)) ** 2
+    g = 32 / 27 * ratio * gamma**2 / jnp.where(denom != 0, denom, 1.0)
+    atan_a = atan_fn(phi * bi / a)
+    # (T - a^2)/a * atan_a + (ap^2 - T)/ap * atan_ap with T = ap^2 - 2 ap x + x^2,
+    # x = cr * fk * total.
+    d = g * (atan_a / a - atan_fn(phi * bi / ap) / ap)
+    coefficients = (g * atan_a * (ap**2 - a**2) / a, -2 * ap * cr * fk * d, cr**2 * fk**2 * d)
+    return tuple(jnp.where(denom != 0, c, 0.0) for c in coefficients)
+
+
+def xpm_after_insertion(
+    coefficients,
+    power,
+    frequency,
+    bandwidth,
+    inside,
+    new_power,
+    new_frequency,
+    new_bandwidth,
+    multiplicity,
+    **physics,
+):
+    """XPM per channel of one link after inserting a channel, in O(channels).
+
+    Args:
+        coefficients: (3, N) polynomial XPM coefficients of the link before the
+            insertion (xpm_pallas(..., polynomial=True)).
+        power, frequency, bandwidth: (N,) channel arrays after the insertion [W, Hz, Hz].
+        inside: (N,) True at the inserted channel's entries.
+        new_power, new_frequency, new_bandwidth: the inserted channel's entry values.
+        multiplicity: number of inserted entries.
+        physics: a, a_bar, gamma, cr, beta2, beta3_s, beta4_s as for xpm_pairs.
+
+    Equals the direct XPM of the new arrays up to float32 evaluation order: old
+    channels keep their interferer sums at the new total power and gain the new
+    channel's pairs; the new channel sums its pairs with every old channel.
+    """
+    total = jnp.sum(power)
+    existing = coefficients[0] + total * coefficients[1] + total**2 * coefficients[2]
+    existing = existing + multiplicity * xpm_pairs(
+        power, frequency, bandwidth, new_power, new_frequency, new_bandwidth, total, **physics
+    )
+    new = jnp.sum(
+        jnp.where(
+            inside,
+            0.0,
+            xpm_pairs(
+                new_power, new_frequency, new_bandwidth, power, frequency, bandwidth, total,
+                **physics,
+            ),
+        )
+    )  # fmt: skip
+    return jnp.where(bandwidth != 0, jnp.where(inside, new, existing), 0.0)
 
 
 def _xpm_pair_tile(pi, fi, bi, pk, fk, bk, total, **physics):

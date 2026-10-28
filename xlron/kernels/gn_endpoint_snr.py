@@ -4,7 +4,7 @@ The two endpoints of a proposed channel share its centre, bandwidth and power,
 so their SPM/XPM is evaluated once per changed link against every interfering
 slot; each endpoint keeps its own amplifier noise figure. The physics comes from
 the shared `isrs_gn_model` helpers (`xpm_pairs`, `_spm`, `_eps`,
-`_calculate_ase_with_isrs_gain`); this module only owns the insertion and the
+`_ase_with_isrs_gain_at`); this module only owns the insertion and the
 reduction. It is a screen: the full admission check still decides every
 surviving candidate, including all existing paths and fibre power.
 """
@@ -18,12 +18,18 @@ from xlron.environments.gn_model import isrs_gn_model as gn
 from xlron.kernels import interpret_default
 
 
-def endpoint_snr_pallas(state, params, links, start, end, power, centre, *, interpret=None):
+def endpoint_snr_pallas(
+    state, params, links, start, end, power, centre, *, env=None, interpret=None
+):
     """Optical SNR of both endpoints of the inserted channel on each changed link.
 
     Equals the generic uniform-span model (`get_snr_link_array`) at those two
     slots up to float32 reduction order. No candidate x links x spectrum arrays
     are materialized.
+
+    With env, the state's channel arrays are stacked over environments,
+    (E, L, S), and environment env is read in place; a vmap over candidates of
+    several environments then shares one copy of every environment's arrays.
     """
     if not params.uniform_spans or params.mod_format_correction or params.use_raman_amp:
         raise ValueError("Fused endpoint screening requires uncorrected uniform GN")
@@ -63,6 +69,16 @@ def endpoint_snr_pallas(state, params, links, start, end, power, centre, *, inte
     n = params.link_resources
     columns = pl.next_power_of_2(n)
     insertion = jnp.stack((start, end, power, centre)).astype(jnp.float32)
+    channels = (
+        state.channel_power_array,
+        state.channel_centre_freq_array,
+        state.channel_centre_bw_array,
+    )
+    if env is None:
+        offset = jnp.zeros((1,), jnp.int32)
+    else:
+        offset = jnp.reshape(env * params.num_links, (1,)).astype(jnp.int32)
+        channels = tuple(x.reshape((-1, n)) for x in channels)
     if interpret:
         # Native programs load these buffers at runtime. Prevent the CPU
         # interpreter from propagating caller constants through that boundary.
@@ -78,18 +94,20 @@ def endpoint_snr_pallas(state, params, links, start, end, power, centre, *, inte
         spans_ref,
         length_ref,
         nf_ref,
+        offset_ref,
         out_ref,
     ):
         row = pl.program_id(0)
         link = links_ref[row]
+        stacked_row = link + offset_ref[0]
 
         def calculate():
             start, end, new_power, new_centre = (insertion_ref[i] for i in range(4))
             k = jnp.arange(columns)
             inside = (k >= start) & (k <= end)
-            p = plt.load(p_ref.at[link, k], mask=k < n, other=0.0)
-            f = plt.load(f_ref.at[link, k], mask=k < n, other=0.0)
-            b = plt.load(b_ref.at[link, k], mask=k < n, other=0.0)
+            p = plt.load(p_ref.at[stacked_row, k], mask=k < n, other=0.0)
+            f = plt.load(f_ref.at[stacked_row, k], mask=k < n, other=0.0)
+            b = plt.load(b_ref.at[stacked_row, k], mask=k < n, other=0.0)
             p = jnp.where(inside, new_power, p)
             f = jnp.where(inside, new_centre, f) * 1e9
             b = jnp.where(inside, params.slot_size, b) * 1e9
@@ -112,17 +130,19 @@ def endpoint_snr_pallas(state, params, links, start, end, power, centre, *, inte
             count = spans_ref[link]
             spm = spm * count ** (1 + eps) / params.num_subchannels**2
             nli = new_power**3 * (spm + xpm * count)
-            # Per-slot ISRS-aware amplifier ASE over the full inserted spectrum, as in
-            # get_snr; both endpoints keep their own amplifier noise figure.
+            # ISRS-aware amplifier ASE as in get_snr: the gain depends on the full
+            # inserted spectrum, then only the two endpoints (each with its own
+            # amplifier noise figure) are evaluated.
             nf = plt.load(nf_ref.at[k], mask=k < n, other=0.0)
-            ase_all = count * gn._calculate_ase_with_isrs_gain(
-                nf, a, length_ref[link], wavelength, f, b, p, cr, params.span_lumped_loss_db
-            )
-            ase = jnp.where(
+            endpoint_nf = jnp.where(
                 jnp.arange(2) == 0,
-                jnp.sum(jnp.where(k == start, ase_all, 0.0)),
-                jnp.sum(jnp.where(k == end, ase_all, 0.0)),
+                jnp.sum(jnp.where(k == start, nf, 0.0)),
+                jnp.sum(jnp.where(k == end, nf, 0.0)),
             )
+            ase = count * gn._ase_with_isrs_gain_at(
+                endpoint_nf, a, length_ref[link], wavelength, f, p, cr,
+                params.span_lumped_loss_db, fi, bi, new_power,
+            )  # fmt: skip
             snr = jnp.where(new_power > 0, new_power / jnp.maximum(ase + nli, gn.EPS), -1e5)
             return snr
 
@@ -139,14 +159,13 @@ def endpoint_snr_pallas(state, params, links, start, end, power, centre, *, inte
         interpret=interpret,
         name="gn_endpoint_snr",
     )(
-        state.channel_power_array,
-        state.channel_centre_freq_array,
-        state.channel_centre_bw_array,
+        *channels,
         links,
         insertion,
         physics,
         spans,
         span_length,
         params.amplifier_noise_figure.val,
+        offset,
     )
     return jnp.nan_to_num(result, nan=1e-5)

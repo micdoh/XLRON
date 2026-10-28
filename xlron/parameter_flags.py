@@ -568,6 +568,11 @@ flags.DEFINE_boolean(
 )
 flags.DEFINE_integer("ENV_WARMUP_STEPS", 0, "Number of warmup steps before training or eval")
 flags.DEFINE_string(
+    "WARMUP_CACHE_DIR",
+    None,
+    "Directory caching warmed-up environment states: a run whose warmup inputs (environment, seed, warmup settings, policy if it acts, xlron source) match an earlier run loads that result instead of compiling and running the warmup.",
+)
+flags.DEFINE_string(
     "warmup_action_type",
     None,
     "Action selection method during warmup. None uses the default for the run mode "
@@ -907,7 +912,7 @@ flags.DEFINE_integer(
 flags.DEFINE_integer(
     "gn_mask_env_batch_size",
     0,
-    "Full physical masks per environment chunk; 0 vmaps all environments, 1--32 streams smaller chunks (hard dynamics only).",
+    "Environments per lockstep chunk of full physical all_slots masks under the environment vmap; 0 = all environments in one chunk (plain vmap for differentiable runs), 1--32 smaller chunks (1 masks environments one at a time). Chunks share candidate batches across environments; results are identical for every value.",
 )
 flags.DEFINE_boolean(
     "GNN_OUTPUT_LP",

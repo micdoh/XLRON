@@ -11,6 +11,10 @@ PERFORMANCE_XLA_FLAGS = (
     "--xla_gpu_triton_gemm_any=True",
     "--xla_gpu_enable_latency_hiding_scheduler=true",
     "--xla_gpu_enable_highest_priority_async_stream=true",
+    # Capture even single kernels between host synchronisations in CUDA graphs:
+    # +8% RMSA-GN transformer PPO, +9% ksp_ff evaluation on an A100. (Graph
+    # capture of while loops, +WHILE, stays off: it crashes on shared GPUs.)
+    "--xla_gpu_graph_min_graph_size=1",
 )
 
 
