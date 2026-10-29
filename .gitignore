@@ -28,3 +28,4 @@ xlron/data/topologies/ksp/*.npz
 archive
 misc
 *_results
+.jax_cache/
