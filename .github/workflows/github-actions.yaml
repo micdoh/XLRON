@@ -64,7 +64,8 @@ jobs:
           # LRU-evict entries for programs that no longer exist.
           JAX_COMPILATION_CACHE_MAX_SIZE: "1073741824"
         run: |
-          PYTHONPATH=. uv run pytest -n auto --cov xlron
+          # Serial: the 2-core, 7 GB runner is slower with two JAX workers.
+          PYTHONPATH=. uv run pytest --cov xlron
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v5
         env:

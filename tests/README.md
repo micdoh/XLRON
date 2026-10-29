@@ -21,6 +21,7 @@ The suite's time is almost all XLA compilation, so two things keep it fast:
 - `-n auto` (pytest-xdist) runs tests in one process per core, with work stealing
   so a long test does not hold up a worker's queue. `conftest.py` starts `slow`
   tests first so they do not finish last. Drop `-n` to debug a single test.
+  CI runs serially: GitHub's 2-core, 7 GB runner was slower with two workers.
 - `conftest.py` turns on JAX's persistent compilation cache in `.jax_cache/`, so
   a repeat run reuses every unchanged compiled program. Set
   `JAX_COMPILATION_CACHE_DIR` to move it or `JAX_ENABLE_COMPILATION_CACHE=false`
