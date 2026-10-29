@@ -52,8 +52,19 @@ jobs:
         run: uv python install ${{ matrix.python-version }}
       - name: Install dependencies
         run: uv sync --locked
+      - name: Restore JAX compilation cache
+        uses: actions/cache@v4
+        with:
+          path: .jax_cache
+          key: jax-cache-${{ runner.os }}-${{ hashFiles('uv.lock') }}-${{ github.run_id }}
+          restore-keys: |
+            jax-cache-${{ runner.os }}-${{ hashFiles('uv.lock') }}-
       - name: Test with chex
+        env:
+          # LRU-evict entries for programs that no longer exist.
+          JAX_COMPILATION_CACHE_MAX_SIZE: "1073741824"
         run: |
+          # Serial: the 2-core, 7 GB runner is slower with two JAX workers.
           PYTHONPATH=. uv run pytest --cov xlron
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v5

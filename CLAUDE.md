@@ -26,8 +26,8 @@ uv run python -m xlron.train.train --env_type=rmsa --topology_name=nsfnet_deeprm
 uv run python -m xlron.bounds.cutsets_bounds --topology_name=nsfnet_deeprmsa_directed --env_type=rmsa --link_resources=100 --k=50 --load=250 --continuous_operation --max_requests=100000 --num_trials=10 --CUTSET_EXHAUSTIVE --CUTSET_TOP_K=256
 uv run python xlron/bounds/reconfigurable_routing_bounds.py --topology_name=nsfnet_deeprmsa_directed --env_type=rmsa --link_resources=100 --k=50 --load=250 --continuous_operation --path_heuristic=ksp_ff --TOTAL_TIMESTEPS=13000 --NUM_ENVS=1 --COMPILE_RR_BOUNDS
 
-# Run tests
-uv run pytest .
+# Run tests (parallel; see tests/README.md for the compilation cache)
+uv run pytest -n auto
 
 # Run single test file
 uv run pytest xlron/environments/env_funcs_test.py -v
@@ -283,14 +283,14 @@ Integration tests belong in `tests/integration/test_<source_module>.py`.
 Put shared fixtures in `tests/helpers/`; do not import another test module.
 
 ```bash
-# Run all tests
-pytest . -v
+# Run all tests in parallel
+pytest -n auto
 
 # Run specific test
 pytest xlron/environments/env_funcs_test.py::test_function_name -v
 
 # Run with coverage
-pytest . --cov=xlron
+pytest -n auto --cov=xlron
 ```
 
 ### Testing on a GPU
