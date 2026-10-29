@@ -998,8 +998,7 @@ class ActorGNN(eqx.Module):
         )
         if self.normalise_by_link_length:
             edge_features = edge_features * (
-                params.link_length_array.val
-                / jnp.sum(params.link_length_array.val, promote_integers=False)
+                params.link_length_array / jnp.sum(params.link_length_array, promote_integers=False)
             )
 
         if params.__class__.__name__ == "VONEEnvParams":

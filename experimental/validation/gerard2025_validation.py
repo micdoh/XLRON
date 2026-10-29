@@ -221,8 +221,8 @@ def compute_snr_diagnostics(state, params):
             dispersion_coeff=jnp.array(params.dispersion_coeff),
             dispersion_slope=jnp.array(params.dispersion_slope),
             coherent=params.coherent,
-            amplifier_noise_figure=params.amplifier_noise_figure.val,
-            transceiver_snr=params.transceiver_snr.val,
+            amplifier_noise_figure=params.amplifier_noise_figure,
+            transceiver_snr=params.transceiver_snr,
             ch_power_w_i=ch_power_link,
             ch_centre_i=ch_centres_link * 1e9,
             ch_bandwidth_i=bw_link * 1e9,
@@ -235,11 +235,11 @@ def compute_snr_diagnostics(state, params):
         if params.use_raman_amp:
             snr, diagnostics = isrs_gn_model_dra.get_snr_dra(
                 **P,
-                fit_params_ij=params.raman_fit_params.val,
-                raman_pump_power_fw=params.raman_pump_power_fw.val,
-                raman_pump_power_bw=params.raman_pump_power_bw.val,
-                raman_pump_freq_fw=params.raman_pump_freq_fw.val,
-                raman_pump_freq_bw=params.raman_pump_freq_bw.val,
+                fit_params_ij=params.raman_fit_params,
+                raman_pump_power_fw=params.raman_pump_power_fw,
+                raman_pump_power_bw=params.raman_pump_power_bw,
+                raman_pump_freq_fw=params.raman_pump_freq_fw,
+                raman_pump_freq_bw=params.raman_pump_freq_bw,
             )
         else:
             snr, diagnostics = isrs_gn_model.get_snr(
@@ -278,9 +278,9 @@ def compute_path_diagnostics(diag, state, params):
         ch_centres_hz = state.channel_centre_freq_array[0] * 1e9
         ch_bw_hz = state.channel_centre_bw_array[0] * 1e9
         roadm_ase = isrs_gn_model.calculate_roadm_ase(
-            roadm_express_loss=params.roadm_express_loss.val,
-            roadm_add_drop_loss=params.roadm_add_drop_loss.val,
-            roadm_noise_figure=params.roadm_noise_figure.val,
+            roadm_express_loss=params.roadm_express_loss,
+            roadm_add_drop_loss=params.roadm_add_drop_loss,
+            roadm_noise_figure=params.roadm_noise_figure,
             num_roadm_express=1,
             ref_lambda=params.ref_lambda,
             ch_centre_i=ch_centres_hz,
@@ -903,7 +903,7 @@ def plot_raman_gain_profile(freqs, c_mask, l_mask, occ, params, out_dir):
         print("  Skipping Raman gain profile plot (Raman amplification disabled).")
         return
 
-    fit_params = np.array(params.raman_fit_params.val)
+    fit_params = np.array(params.raman_fit_params)
     if fit_params.ndim != 3 or fit_params.shape[0] < 6:
         print("  Skipping Raman gain profile plot (invalid Raman fit parameters).")
         return
@@ -933,9 +933,9 @@ def plot_raman_gain_profile(freqs, c_mask, l_mask, occ, params, out_dir):
     ref_freq_hz = speed_of_light / float(params.ref_lambda)
     rel_ch_freq_hz = np.array(freqs) * 1e12 - ref_freq_hz
 
-    pump_fw = np.array(params.raman_pump_freq_fw.val).reshape(-1)
-    pump_bw = np.array(params.raman_pump_freq_bw.val).reshape(-1)
-    pump_fw_pow = np.array(params.raman_pump_power_fw.val).reshape(-1)
+    pump_fw = np.array(params.raman_pump_freq_fw).reshape(-1)
+    pump_bw = np.array(params.raman_pump_freq_bw).reshape(-1)
+    pump_fw_pow = np.array(params.raman_pump_power_fw).reshape(-1)
     active_fw = pump_fw[pump_fw > 0.0]
     active_bw = pump_bw[pump_bw > 0.0]
     all_active = (
@@ -947,7 +947,7 @@ def plot_raman_gain_profile(freqs, c_mask, l_mask, occ, params, out_dir):
     delta_f = rel_ch_freq_hz - f_hat_hz
 
     # P_f matches the convention used during fitting (sum of channel powers + FW pumps).
-    slot_launch_powers = np.array(params.slot_launch_power_array.val).reshape(-1)
+    slot_launch_powers = np.array(params.slot_launch_power_array).reshape(-1)
     P_f = float(np.sum(slot_launch_powers)) + float(np.sum(pump_fw_pow[pump_fw > 0.0]))
     x_i = C_f * P_f * l_eff_f + C_b * l_eff_b
     # Full rho(L) divided by exp(-a_physical*L) to get Raman gain.
@@ -1004,7 +1004,7 @@ def plot_gain_budget(freqs, state, c_mask, l_mask, occ, params, out_dir):
         print("  Skipping gain budget plot (Raman amplification unavailable).")
         return
 
-    fit_params = np.array(params.raman_fit_params.val)
+    fit_params = np.array(params.raman_fit_params)
     if fit_params.ndim != 3 or fit_params.shape[0] < 6:
         print("  Skipping gain budget plot (invalid fit parameters).")
         return
@@ -1141,7 +1141,7 @@ def plot_power_evolution(freqs, state, c_mask, l_mask, occ, params, out_dir):
         print("  Skipping power evolution plot (Raman amplification unavailable).")
         return
 
-    fit_params_full = np.array(params.raman_fit_params.val)  # (6+, num_ch, max_spans)
+    fit_params_full = np.array(params.raman_fit_params)  # (6+, num_ch, max_spans)
     if fit_params_full.ndim != 3 or fit_params_full.shape[0] < 6:
         print("  Skipping power evolution plot (invalid fit parameters shape).")
         return
@@ -1157,9 +1157,9 @@ def plot_power_evolution(freqs, state, c_mask, l_mask, occ, params, out_dir):
     ch_power_w = np.array(state.channel_power_array[0])  # W
 
     # Pump arrays (filter sentinel zeros)
-    pump_pow_fw = np.array(params.raman_pump_power_fw.val).reshape(-1)
-    pump_freq_bw = np.array(params.raman_pump_freq_bw.val).reshape(-1)
-    pump_freq_fw = np.array(params.raman_pump_freq_fw.val).reshape(-1)
+    pump_pow_fw = np.array(params.raman_pump_power_fw).reshape(-1)
+    pump_freq_bw = np.array(params.raman_pump_freq_bw).reshape(-1)
+    pump_freq_fw = np.array(params.raman_pump_freq_fw).reshape(-1)
 
     active_bw = pump_freq_bw[pump_freq_bw > 0.0]
     active_fw = pump_freq_fw[pump_freq_fw > 0.0]
@@ -1270,7 +1270,7 @@ def plot_power_evolution_3d(freqs, state, c_mask, l_mask, occ, params, out_dir):
         print("  Skipping 3-D power evolution plot (Raman amplification unavailable).")
         return
 
-    fit_params_full = np.array(params.raman_fit_params.val)
+    fit_params_full = np.array(params.raman_fit_params)
     if fit_params_full.ndim != 3 or fit_params_full.shape[0] < 6:
         print("  Skipping 3-D power evolution plot (invalid fit parameters shape).")
         return
@@ -1284,9 +1284,9 @@ def plot_power_evolution_3d(freqs, state, c_mask, l_mask, occ, params, out_dir):
     ch_freq_abs_hz = ref_freq + ch_freq_rel_ghz * 1e9
     ch_power_w = np.array(state.channel_power_array[0])
 
-    pump_pow_fw = np.array(params.raman_pump_power_fw.val).reshape(-1)
-    pump_freq_bw = np.array(params.raman_pump_freq_bw.val).reshape(-1)
-    pump_freq_fw = np.array(params.raman_pump_freq_fw.val).reshape(-1)
+    pump_pow_fw = np.array(params.raman_pump_power_fw).reshape(-1)
+    pump_freq_bw = np.array(params.raman_pump_freq_bw).reshape(-1)
+    pump_freq_fw = np.array(params.raman_pump_freq_fw).reshape(-1)
 
     active_bw = pump_freq_bw[pump_freq_bw > 0.0]
     active_fw = pump_freq_fw[pump_freq_fw > 0.0]

@@ -1,4 +1,3 @@
-from jax.experimental.pallas.ops.tpu.megablox.gmm import partial
 import jax
 import jax.numpy as jnp
 import optax
@@ -14,13 +13,13 @@ from xlron.environments.diff_utils import *
 from xlron.train.train_utils import *
 
 
-@partial(jax.jit, static_argnames=("params",))
+@jax.jit
 def decombine_actions(actions, params):
     paths, slots = jax.vmap(process_path_action, in_axes=(None, None, 0))(None, params, actions)
     return jnp.vstack((paths, slots)).T
 
 
-@partial(jax.jit, static_argnames=("params",))
+@jax.jit
 def combine_actions(paths, slots, params):
     def combine(action, params):
         path, slot = action
@@ -46,7 +45,7 @@ def get_learner_fn(
         step_fn = lambda x, y: env.step(x, y, action, env_params)
         step_fn = jax.vmap(step_fn) if config.NUM_ENVS > 1 else step_fn
         obsv, env_state, reward, done, truncated, info = step_fn(step_key, env_state)
-        obsv = (env_state.env_state, env_params) if config.USE_GNN else tuple([obsv])
+        obsv = (env_state.env_state,) if config.USE_GNN else tuple([obsv])
         _runner_state = (_, env_state, obsv, rng_step, rng_epoch)
         return _runner_state, reward
 
@@ -70,7 +69,7 @@ def get_learner_fn(
         # Interpolate reward
         weighted_reward = (1 - weight) * floor_reward + weight * ceil_reward
         obsv, env_state, reward, done, truncated, info = step_fn(step_key, env_state, action)
-        obsv = (env_state.env_state, env_params) if config.USE_GNN else tuple([obsv])
+        obsv = (env_state.env_state,) if config.USE_GNN else tuple([obsv])
         _runner_state = (_, env_state, obsv, rng_step, rng_epoch)
         return _runner_state, weighted_reward
 
@@ -95,7 +94,7 @@ def get_learner_fn(
         weighted_reward = jnp.sum(weights * rewards)
 
         obsv, env_state, reward, done, truncated, info = step_fn(step_key, env_state, action)
-        obsv = (env_state.env_state, env_params) if config.USE_GNN else tuple([obsv])
+        obsv = (env_state.env_state,) if config.USE_GNN else tuple([obsv])
         _runner_state = (_, env_state, obsv, rng_step, rng_epoch)
         return _runner_state, weighted_reward
 
@@ -115,7 +114,7 @@ def get_learner_fn(
         step_fn = lambda x, y, z: env.step(x, y, z, env_params)
         step_fn = jax.vmap(step_fn) if config.NUM_ENVS > 1 else step_fn
         obsv, env_state, reward, done, truncated, info = step_fn(step_key, env_state, action)
-        obsv = (env_state.env_state, env_params) if config.USE_GNN else tuple([obsv])
+        obsv = (env_state.env_state,) if config.USE_GNN else tuple([obsv])
         _runner_state = (_train_state, env_state, obsv, rng_step, rng_epoch)
         return _runner_state, action
 

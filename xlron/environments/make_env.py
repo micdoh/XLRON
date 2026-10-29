@@ -1,3 +1,4 @@
+import dataclasses
 import math
 import pathlib
 import warnings
@@ -25,7 +26,6 @@ from xlron.environments import (
 from xlron.environments.dataclasses import (
     DeepRMSAEnvParams,
     EnvParams,
-    HashableArrayWrapper,
     RMSAGNModelEnvParams,
     RSAEnvParams,
     RSAGNModelEnvParams,
@@ -419,7 +419,8 @@ def make(config: Optional[Union[dict, FlagValues]], **kwargs) -> Tuple[RSAEnv | 
     guardband = config.get("guardband", 1)
     maximum_path_length_km = config.get("maximum_path_length_km", None)
     path_sort_criteria = config.get("path_sort_criteria", "spectral_resources")
-    remove_array_wrappers = config.get("remove_array_wrappers", False)
+    # Internal: build params only (the multi-topology loop below), no env object
+    params_only = config.get("params_only", False)
     # The deprecated misspelling "maximise_throughout" is resolved in process_config
     maximise_throughput = config.get("maximise_throughput", False)
     reward_type = config.get("reward_type", "service")
@@ -862,11 +863,7 @@ def make(config: Optional[Union[dict, FlagValues]], **kwargs) -> Tuple[RSAEnv | 
     use_transformer = config.get("USE_TRANSFORMER", False)
     if use_transformer:
         line_graph_spectral_features = get_line_graph_spectral_features(graph, num_wire_features)
-        line_graph_spectral_features = (
-            HashableArrayWrapper(line_graph_spectral_features)
-            if not remove_array_wrappers
-            else line_graph_spectral_features
-        )
+        line_graph_spectral_features = line_graph_spectral_features
     else:
         line_graph_spectral_features = None
 
@@ -916,24 +913,19 @@ def make(config: Optional[Union[dict, FlagValues]], **kwargs) -> Tuple[RSAEnv | 
         num_links=num_links,
         load=load,
         arrival_rate=arrival_rate,
-        path_link_array=HashableArrayWrapper(path_link_array)
-        if not remove_array_wrappers
-        else path_link_array,
+        path_link_array=path_link_array,
         incremental_loading=incremental_loading,
         end_first_blocking=end_first_blocking,
         terminate_on_episode_end=terminate_on_episode_end,
-        edges=HashableArrayWrapper(edges) if not remove_array_wrappers else edges,
+        edges=edges,
         random_traffic=random_traffic,
-        path_se_array=HashableArrayWrapper(path_se_array)
-        if not remove_array_wrappers
-        else path_se_array,
-        unique_se_values=HashableArrayWrapper(unique_se_values)
-        if not remove_array_wrappers
-        else unique_se_values,
-        link_length_array=HashableArrayWrapper(link_length_array)
-        if not remove_array_wrappers
-        else link_length_array,
+        path_se_array=path_se_array,
+        unique_se_values=unique_se_values,
+        link_length_array=link_length_array,
         max_slots=int(max_slots),
+        min_se=float(np.min(np.asarray(path_se_array))) if consider_modulation_format else 1.0,
+        min_bw=float(np.min(np.asarray(values_bw))),
+        max_bw=float(np.max(np.asarray(values_bw))),
         consider_modulation_format=consider_modulation_format,
         slot_size=slot_size,
         continuous_operation=continuous_operation,
@@ -943,13 +935,9 @@ def make(config: Optional[Union[dict, FlagValues]], **kwargs) -> Tuple[RSAEnv | 
         multiple_topologies=False,
         directed_graph=graph.is_directed(),
         maximise_throughput=maximise_throughput,
-        values_bw=HashableArrayWrapper(values_bw) if not remove_array_wrappers else values_bw,
-        values_bw_probs=HashableArrayWrapper(values_bw_probs)
-        if (values_bw_probs is not None and not remove_array_wrappers)
-        else values_bw_probs,
-        traffic_cdf=HashableArrayWrapper(traffic_cdf)
-        if (traffic_cdf is not None and not remove_array_wrappers)
-        else traffic_cdf,
+        values_bw=values_bw,
+        values_bw_probs=values_bw_probs,
+        traffic_cdf=traffic_cdf,
         reward_type=reward_type,
         truncate_holding_time=truncate_holding_time,
         log_actions=log_actions,
@@ -974,16 +962,8 @@ def make(config: Optional[Union[dict, FlagValues]], **kwargs) -> Tuple[RSAEnv | 
         render=str(config.get("RENDER_EVAL_MODE", "off")).lower() in {"save", "human"},
     )
 
-    gap_starts = (
-        HashableArrayWrapper(jnp.array(gap_start_slots))
-        if not remove_array_wrappers
-        else jnp.array(gap_start_slots)
-    )
-    gap_widths = (
-        HashableArrayWrapper(jnp.array(gap_width_slots))
-        if not remove_array_wrappers
-        else jnp.array(gap_width_slots)
-    )
+    gap_starts = jnp.array(gap_start_slots)
+    gap_widths = jnp.array(gap_width_slots)
 
     if env_type == "vone":
         env_params = VONEEnvParams
@@ -997,6 +977,11 @@ def make(config: Optional[Union[dict, FlagValues]], **kwargs) -> Tuple[RSAEnv | 
         env_params = DeepRMSAEnvParams
     elif env_type == "rwa_lightpath_reuse":
         env_params = RWALightpathReuseEnvParams
+        params_dict.update(
+            initial_path_capacity_array=init_path_capacity_array(
+                link_length_array, path_link_array, scale_factor=1.0
+            )
+        )
     elif env_type == "rsa_multiband":
         env_params = RSAMultibandEnvParams
         params_dict.update(gap_starts=gap_starts, gap_widths=gap_widths)
@@ -1009,16 +994,8 @@ def make(config: Optional[Union[dict, FlagValues]], **kwargs) -> Tuple[RSAEnv | 
             slot_centre_freq_arr = jnp.array(_band_layout["slot_centre_freq_array"])
             bso_ff = _band_layout["band_slot_order_ff"]
             bso_lf = _band_layout["band_slot_order_lf"]
-            band_slot_order_ff = (
-                HashableArrayWrapper(jnp.array(bso_ff))
-                if not remove_array_wrappers
-                else jnp.array(bso_ff)
-            )
-            band_slot_order_lf = (
-                HashableArrayWrapper(jnp.array(bso_lf))
-                if not remove_array_wrappers
-                else jnp.array(bso_lf)
-            )
+            band_slot_order_ff = jnp.array(bso_ff)
+            band_slot_order_lf = jnp.array(bso_lf)
         else:
             # Legacy uniform formula
             slot_centre_freq_arr = jnp.array(
@@ -1033,30 +1010,14 @@ def make(config: Optional[Union[dict, FlagValues]], **kwargs) -> Tuple[RSAEnv | 
                     band_preference,
                     config.get("band_data_filepath", None),
                 )
-                band_slot_order_ff = (
-                    HashableArrayWrapper(jnp.array(bso_ff))
-                    if not remove_array_wrappers
-                    else jnp.array(bso_ff)
-                )
-                band_slot_order_lf = (
-                    HashableArrayWrapper(jnp.array(bso_lf))
-                    if not remove_array_wrappers
-                    else jnp.array(bso_lf)
-                )
+                band_slot_order_ff = jnp.array(bso_ff)
+                band_slot_order_lf = jnp.array(bso_lf)
             else:
                 empty = jnp.array([], dtype=jnp.int32)
-                band_slot_order_ff = (
-                    HashableArrayWrapper(empty) if not remove_array_wrappers else empty
-                )
-                band_slot_order_lf = (
-                    HashableArrayWrapper(empty) if not remove_array_wrappers else empty
-                )
+                band_slot_order_ff = empty
+                band_slot_order_lf = empty
 
-        slot_centre_freq_array = (
-            HashableArrayWrapper(slot_centre_freq_arr)
-            if not remove_array_wrappers
-            else slot_centre_freq_arr
-        )
+        slot_centre_freq_array = slot_centre_freq_arr
 
         # Compute absolute slot frequencies for transceiver/amplifier noise mapping
         ref_freq_ghz = speed_of_light / ref_lambda / 1e9
@@ -1075,12 +1036,6 @@ def make(config: Optional[Union[dict, FlagValues]], **kwargs) -> Tuple[RSAEnv | 
             config.get("noise_data_filepath", None),
             slot_frequencies_ghz=slot_abs_freq_ghz,
         )
-        if not remove_array_wrappers:
-            transceiver_snr = HashableArrayWrapper(transceiver_snr)
-            amplifier_noise_figure = HashableArrayWrapper(amplifier_noise_figure)
-            roadm_express_loss = HashableArrayWrapper(roadm_express_loss)
-            roadm_add_drop_loss = HashableArrayWrapper(roadm_add_drop_loss)
-            roadm_noise_figure = HashableArrayWrapper(roadm_noise_figure)
 
         # Build per-slot launch power array
         # Priority (highest first): --launch_power_csv > --power_per_channel_per_band > --power_per_channel > default
@@ -1134,11 +1089,7 @@ def make(config: Optional[Union[dict, FlagValues]], **kwargs) -> Tuple[RSAEnv | 
             slot_launch_power_array = jnp.full(
                 (link_resources,), default_launch_power, dtype=dtype_config.LARGE_FLOAT_DTYPE
             )
-        slot_launch_power_array = (
-            HashableArrayWrapper(slot_launch_power_array)
-            if not remove_array_wrappers
-            else slot_launch_power_array
-        )
+        slot_launch_power_array = slot_launch_power_array
 
         # Sparse path layout for occupied-slot SNR accumulation and candidate link updates.
         # Keep the zero/dummy final row: path_index_array uses -1 for empty slots.
@@ -1158,12 +1109,8 @@ def make(config: Optional[Union[dict, FlagValues]], **kwargs) -> Tuple[RSAEnv | 
         )
 
         params_dict.update(
-            path_link_indices=HashableArrayWrapper(path_link_indices)
-            if not remove_array_wrappers
-            else path_link_indices,
-            path_length_array=HashableArrayWrapper(path_length_array)
-            if not remove_array_wrappers
-            else path_length_array,
+            path_link_indices=path_link_indices,
+            path_length_array=path_length_array,
             max_path_length=float(np.max(path_length_array)),
             max_path_hops=max_hops,
             ref_lambda=ref_lambda,
@@ -1273,29 +1220,19 @@ def make(config: Optional[Union[dict, FlagValues]], **kwargs) -> Tuple[RSAEnv | 
 
         params_dict.update(
             use_raman_amp=use_raman_amp,
-            raman_fit_params=HashableArrayWrapper(jnp.array(raman_fit_params))
-            if not remove_array_wrappers
-            else jnp.array(raman_fit_params),
-            raman_pump_power_fw=HashableArrayWrapper(jnp.array(pump_pow_fw_arr))
-            if not remove_array_wrappers
-            else jnp.array(pump_pow_fw_arr),
-            raman_pump_power_bw=HashableArrayWrapper(jnp.array(pump_pow_bw_arr))
-            if not remove_array_wrappers
-            else jnp.array(pump_pow_bw_arr),
-            raman_pump_freq_fw=HashableArrayWrapper(jnp.array(pump_freq_fw_arr))
-            if not remove_array_wrappers
-            else jnp.array(pump_freq_fw_arr),
-            raman_pump_freq_bw=HashableArrayWrapper(jnp.array(pump_freq_bw_arr))
-            if not remove_array_wrappers
-            else jnp.array(pump_freq_bw_arr),
+            raman_fit_params=jnp.array(raman_fit_params),
+            raman_pump_power_fw=jnp.array(pump_pow_fw_arr),
+            raman_pump_power_bw=jnp.array(pump_pow_bw_arr),
+            raman_pump_freq_fw=jnp.array(pump_freq_fw_arr),
+            raman_pump_freq_bw=jnp.array(pump_freq_bw_arr),
         )
 
         if env_type == "rmsa_gn_model":
             env_params = RMSAGNModelEnvParams
             params_dict.update(
-                modulations_array=HashableArrayWrapper(modulations_array)
-                if not remove_array_wrappers
-                else modulations_array,
+                modulations_array=modulations_array,
+                # GN resolves a physical format per start; any format may be the cheapest
+                min_se=float(np.min(np.asarray(modulations_array)[:, 1])),
                 fec_rate=config.get("fec_rate", 0.8),
                 gn_mask_mode=config.get("gn_mask_mode", "ff_lf"),
                 gn_mask_batch_size=config.get("gn_mask_batch_size", 8),
@@ -1313,12 +1250,8 @@ def make(config: Optional[Union[dict, FlagValues]], **kwargs) -> Tuple[RSAEnv | 
             if per_channel_power_w > 0
             else float("-inf")
         )
-        nf_vals = (
-            amplifier_noise_figure.val
-            if hasattr(amplifier_noise_figure, "val")
-            else amplifier_noise_figure
-        )
-        trx_vals = transceiver_snr.val if hasattr(transceiver_snr, "val") else transceiver_snr
+        nf_vals = amplifier_noise_figure
+        trx_vals = transceiver_snr
         print("\n" + "=" * 70)
         print("GN MODEL POWER BUDGET SUMMARY")
         print("=" * 70)
@@ -1332,15 +1265,9 @@ def make(config: Optional[Union[dict, FlagValues]], **kwargs) -> Tuple[RSAEnv | 
             f"  Per-channel launch power: {per_channel_power_dbm:.2f} dBm ({per_channel_power_w * 1e3:.4f} mW)"
         )
         print(f"  launch_power_type:        {launch_power_type}")
-        roadm_el_vals = (
-            roadm_express_loss.val if hasattr(roadm_express_loss, "val") else roadm_express_loss
-        )
-        roadm_ad_vals = (
-            roadm_add_drop_loss.val if hasattr(roadm_add_drop_loss, "val") else roadm_add_drop_loss
-        )
-        roadm_nf_vals = (
-            roadm_noise_figure.val if hasattr(roadm_noise_figure, "val") else roadm_noise_figure
-        )
+        roadm_el_vals = roadm_express_loss
+        roadm_ad_vals = roadm_add_drop_loss
+        roadm_nf_vals = roadm_noise_figure
         print(
             f"  ROADM express loss range: {float(jnp.min(roadm_el_vals)):.1f} - {float(jnp.max(roadm_el_vals)):.1f} dB"
         )
@@ -1422,32 +1349,42 @@ def make(config: Optional[Union[dict, FlagValues]], **kwargs) -> Tuple[RSAEnv | 
         params_list = []
         p = pathlib.Path(multiple_topologies_directory).glob("**/*")
         files = [x for x in p if x.is_file()]
-        config.update(multiple_topologies_directory=None, remove_array_wrappers=True)
+        config.update(multiple_topologies_directory=None, params_only=True)
         for file in files:
             # Get filename without extension
             config.update(topology_name=file.stem, topology_directory=file.parent)
             env, params = make(config)
             params = params.replace(multiple_topologies=True)
             params_list.append(params)
-        # for params in params_list, concatenate the field from each params into one array per field
-        # from https://stackoverflow.com/questions/73765064/jax-vmap-over-batch-of-dataclasses
+        # Stack each array field across topologies (padded to a common shape) so the
+        # batch of params can be vmapped over; from
+        # https://stackoverflow.com/questions/73765064/jax-vmap-over-batch-of-dataclasses
+        # Static fields must agree, except sizes, which take the largest (the padding).
         cls = type(params_list[0])
-        fields = params_list[0].__dict__.keys()
+        array_fields = {
+            f.name for f in dataclasses.fields(cls) if f.metadata.get("pytree_node", True)
+        }
         field_dict = {}
-        for k in fields:
+        for k in params_list[0].__dict__.keys():
             values = [getattr(v, k) for v in params_list]
-            # values = [list(v) if isinstance(v, Array) else v for v in values]
-            # Pad arrays to same shape
-            # Sparse path padding must remain an invalid link for every topology.
-            fill_value = max(v.num_links for v in params_list) if k == "path_link_indices" else 0
-            padded_values = HashableArrayWrapper(
-                jnp.array(pad_array(values, fill_value=fill_value))
-            )
-            field_dict[k] = padded_values
+            if k in array_fields:
+                if all(v is None for v in values):
+                    field_dict[k] = None
+                    continue
+                # Sparse path padding must remain an invalid link for every topology.
+                fill_value = (
+                    max(v.num_links for v in params_list) if k == "path_link_indices" else 0
+                )
+                field_dict[k] = jnp.array(pad_array(values, fill_value=fill_value))
+            elif all(v == values[0] for v in values[1:]):
+                field_dict[k] = values[0]
+            elif all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in values):
+                field_dict[k] = max(values)
+            else:
+                raise ValueError(f"Topologies disagree on static parameter {k}: {values}")
         params = cls(**field_dict)
 
-    if remove_array_wrappers:
-        # Only remove array wrappers if multiple_topologies=True for the inner files loop above
+    if params_only:
         env = None
     else:
         if env_type == "vone":

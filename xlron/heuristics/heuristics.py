@@ -1,4 +1,4 @@
-from functools import lru_cache, partial
+from functools import partial
 from typing import Tuple
 
 import jax
@@ -23,7 +23,6 @@ from xlron.environments.env_funcs import (
     get_affected_slots_mask,
     get_paths,
     get_paths_se,
-    init_path_capacity_array,
     mask_slots,
     mask_slots_rmsa_gn_model,
     mask_slots_rwalr,
@@ -41,7 +40,7 @@ from xlron.environments.wrappers import jit_profiler
 FIRST_FIT_MASKS = {"ksp_ff": "first_path", "ff_ksp": "every_path"}
 
 
-@partial(jax.jit, static_argnums=(1,))
+@jax.jit
 def ksp_ff(state: RSAEnvState, params: RSAEnvParams) -> Array:
     """Get the first available slot from the shortest available path
     Method: Go through action mask and find the first available slot, starting from shortest path
@@ -75,7 +74,7 @@ def ksp_ff_multiband(state: EnvState, params: RSAEnvParams) -> None:
     pass
 
 
-@partial(jax.jit, static_argnums=(1,))
+@jax.jit
 def ksp_lf(state: RSAEnvState, params: RSAEnvParams) -> Array:
     """Get the last available slot on the shortest available path
     Method: Go through action mask and find the last available slot, starting from shortest path
@@ -99,7 +98,7 @@ def ksp_lf(state: RSAEnvState, params: RSAEnvParams) -> Array:
     return action
 
 
-@partial(jax.jit, static_argnums=(1,))
+@jax.jit
 def ksp_ef(state: RSAEnvState, params: RSAEnvParams) -> Array:
     """K-Shortest Path, Exact-Fit. Only suitable for RSA/RMSA.
     On the shortest available path, allocate the first free block whose size exactly
@@ -128,7 +127,7 @@ def ksp_ef(state: RSAEnvState, params: RSAEnvParams) -> Array:
     return action
 
 
-@partial(jax.jit, static_argnums=(1,))
+@jax.jit
 def ksp_flf(state: RSAEnvState, params: RSAEnvParams) -> Array:
     """K-Shortest Path, First-Last-Fit.
     On the shortest available path, allocate small requests first-fit (from the low
@@ -153,7 +152,7 @@ def ksp_flf(state: RSAEnvState, params: RSAEnvParams) -> Array:
     return jnp.where(is_large, lf_action, ff_action)
 
 
-@partial(jax.jit, static_argnums=(1,))
+@jax.jit
 def flf_ksp(state: RSAEnvState, params: RSAEnvParams) -> Array:
     """First-Last-Fit across K-Shortest Paths.
     Small requests take the globally first available slot across all paths (ff_ksp);
@@ -173,7 +172,7 @@ def flf_ksp(state: RSAEnvState, params: RSAEnvParams) -> Array:
     return jnp.where(is_large, lf_action, ff_action)
 
 
-@partial(jax.jit, static_argnums=(1,))
+@jax.jit
 def ksp_flef(state: RSAEnvState, params: RSAEnvParams) -> Array:
     """K-Shortest Path, First-Last-Exact-Fit. Only suitable for RSA/RMSA.
     On the shortest available path: small requests take the lowest exactly-fitting
@@ -221,7 +220,7 @@ def _mscl_num_interfering_routes(params: RSAEnvParams) -> int:
     return int(min(n, params.k_paths))
 
 
-@partial(jax.jit, static_argnums=(1,))
+@jax.jit
 def ksp_mscl(state: RSAEnvState, params: RSAEnvParams) -> Array:
     """K-Shortest Path, Minimum Slot-continuity Capacity Loss (MSCL).
     Only suitable for RSA/RMSA.
@@ -269,7 +268,7 @@ def ksp_mscl(state: RSAEnvState, params: RSAEnvParams) -> Array:
     return action
 
 
-@partial(jax.jit, static_argnums=(1,))
+@jax.jit
 def mscl_ksp(state: RSAEnvState, params: RSAEnvParams) -> Array:
     """Minimum Slot-continuity Capacity Loss (MSCL) across K-Shortest Paths.
     Only suitable for RSA/RMSA.
@@ -311,7 +310,7 @@ def mscl_ksp(state: RSAEnvState, params: RSAEnvParams) -> Array:
     return action
 
 
-@partial(jax.jit, static_argnums=(1,))
+@jax.jit
 def ff_ksp(state: RSAEnvState, params: RSAEnvParams) -> Array:
     """Get the first available slot from all paths
     Method: Go through action mask and find the first available slot on all paths
@@ -332,7 +331,7 @@ def ff_ksp(state: RSAEnvState, params: RSAEnvParams) -> Array:
     return action
 
 
-@partial(jax.jit, static_argnums=(1,))
+@jax.jit
 def lf_ksp(state: EnvState, params: RSAEnvParams) -> Array:
     """Get the last available slot from all paths
     Method: Go through action mask and find the last available slot on all paths
@@ -358,7 +357,7 @@ def lf_ksp(state: EnvState, params: RSAEnvParams) -> Array:
     return action
 
 
-@partial(jax.jit, static_argnums=(1,))
+@jax.jit
 def ksp_bf(state: EnvState, params: RSAEnvParams) -> Array:
     """Get the first available slot from all k-shortest paths
     Method: Go through action mask and find the first available slot, starting from shortest path
@@ -379,7 +378,7 @@ def ksp_bf(state: EnvState, params: RSAEnvParams) -> Array:
     return action
 
 
-@partial(jax.jit, static_argnums=(1,))
+@jax.jit
 def bf_ksp(state: EnvState, params: RSAEnvParams) -> Array:
     """Get the first available slot from the first k-shortest paths
     Method: Go through action mask and find the first available slot on all paths
@@ -400,7 +399,7 @@ def bf_ksp(state: EnvState, params: RSAEnvParams) -> Array:
     return action
 
 
-@partial(jax.jit, static_argnums=(1, 2, 3))
+@partial(jax.jit, static_argnums=(2, 3))
 def ksp_mu(state: EnvState, params: RSAEnvParams, unique_lightpaths: bool, relative: bool) -> Array:
     """Get the most-used slot on the shortest available path.
     Method: Go through action mask and find the utilisation of available slots on each path.
@@ -430,7 +429,7 @@ def ksp_mu(state: EnvState, params: RSAEnvParams, unique_lightpaths: bool, relat
     return action
 
 
-@partial(jax.jit, static_argnums=(1, 2, 3))
+@partial(jax.jit, static_argnums=(2, 3))
 def mu_ksp(state: EnvState, params: RSAEnvParams, unique_lightpaths: bool, relative: bool) -> Array:
     """Use the most-used available slot on any path.
     The most-used slot is that which has the most unique lightpaths (if unique_lightpaths=True) or active lightpaths.
@@ -455,7 +454,7 @@ def mu_ksp(state: EnvState, params: RSAEnvParams, unique_lightpaths: bool, relat
     return action
 
 
-@partial(jax.jit, static_argnums=(1,))
+@jax.jit
 def kmc_ff(state: EnvState, params: RSAEnvParams) -> Array:
     """K-Minimum Cut. Only suitable for RSA/RMSA.
     Method:
@@ -514,7 +513,7 @@ def kmc_ff(state: EnvState, params: RSAEnvParams) -> Array:
     return action
 
 
-@partial(jax.jit, static_argnums=(1,))
+@jax.jit
 def kmf_ff(state: RSAEnvState, params: RSAEnvParams) -> Array:
     """K-Minimum Frag-size. Only suitable for RSA/RMSA.
     Method:
@@ -576,7 +575,7 @@ def kmf_ff(state: RSAEnvState, params: RSAEnvParams) -> Array:
     return action
 
 
-@partial(jax.jit, static_argnums=(1,))
+@jax.jit
 def kme_ff(state: EnvState, params: RSAEnvParams) -> Array:
     """K-Minimum Entropy. Only suitable for RSA/RMSA.
     Method:
@@ -639,7 +638,7 @@ def kme_ff(state: EnvState, params: RSAEnvParams) -> Array:
     return action
 
 
-@partial(jax.jit, static_argnums=(1,))
+@jax.jit
 def kca_ff(state: EnvState, params: RSAEnvParams) -> Array:
     """Congestion-aware First Fit. Only suitable for RSA/RMSA.
     Method:
@@ -678,7 +677,7 @@ def kca_ff(state: EnvState, params: RSAEnvParams) -> Array:
     return action
 
 
-@partial(jax.jit, static_argnums=(1,))
+@jax.jit
 def arbr_ff(state: EnvState, params: RSAEnvParams) -> Array:
     """Adaptive Routing with Back-to-back Regeneration (ARBR). Only suitable for RSA/RMSA.
     Ranks the k candidate paths by an adaptive metric combining the static resource
@@ -734,19 +733,6 @@ def arbr_ff(state: EnvState, params: RSAEnvParams) -> Array:
     return action
 
 
-@lru_cache(maxsize=8)
-def initial_path_capacity_array(params: RWALightpathReuseEnvParams) -> Array:
-    """Per-path capacity before any allocation, from the whole path table.
-
-    Evaluated eagerly once per params: inside a trace the path table is a runtime
-    argument, so computing this there would redo a full-table product every step.
-    """
-    with jax.ensure_compile_time_eval():
-        return init_path_capacity_array(
-            params.link_length_array.val, params.path_link_array.val, scale_factor=1.0
-        )
-
-
 def get_link_weights(state: EnvState, params: RSAEnvParams):
     """Get link weights based on occupancy for use in congestion-aware routing heuristics.
 
@@ -759,7 +745,7 @@ def get_link_weights(state: EnvState, params: RSAEnvParams):
     """
     if isinstance(params, RWALightpathReuseEnvParams):
         rwalr_state = cast(RWALightpathReuseEnvState, state)
-        initial_path_capacity = initial_path_capacity_array(params)
+        initial_path_capacity = params.initial_path_capacity_array
         initial_path_capacity = jnp.squeeze(
             jax.vmap(lambda x: initial_path_capacity[x])(rwalr_state.path_index_array)
         )
@@ -775,7 +761,7 @@ def get_link_weights(state: EnvState, params: RSAEnvParams):
     else:
         link_occupancy = jnp.count_nonzero(state.link_slot_array, axis=1)
     link_weights = jnp.multiply(
-        params.link_length_array.val.T, (1 / (1 - link_occupancy / (params.link_resources + 1)))
+        params.link_length_array.T, (1 / (1 - link_occupancy / (params.link_resources + 1)))
     )[0]
     return link_weights
 
@@ -905,8 +891,8 @@ def first_fit(state: EnvState, params: RSAEnvParams) -> Array:
 
 def _first_fit_from_mask(mask: Array, params: RSAEnvParams) -> Array:
     """Search a computed mask, retaining GN band preference and no-fit sentinels."""
-    if isinstance(params, GNModelEnvParams) and len(params.band_slot_order_ff.val) > 0:
-        order = params.band_slot_order_ff.val
+    if isinstance(params, GNModelEnvParams) and len(params.band_slot_order_ff) > 0:
+        order = params.band_slot_order_ff
         reordered = mask[:, order]
         reordered = jnp.concatenate((reordered, jnp.full((reordered.shape[0], 1), 1)), axis=1)
         idx = jnp.argmax(reordered, axis=1)
@@ -926,8 +912,8 @@ def last_fit(state: EnvState, params: RSAEnvParams) -> Array:
     slots are searched in band preference order (descending within each band).
     """
     mask = get_action_mask(state, params)
-    if isinstance(params, GNModelEnvParams) and len(params.band_slot_order_lf.val) > 0:
-        order = params.band_slot_order_lf.val
+    if isinstance(params, GNModelEnvParams) and len(params.band_slot_order_lf) > 0:
+        order = params.band_slot_order_lf
         reordered = mask[:, order]
         reordered = jnp.concatenate((reordered, jnp.full((reordered.shape[0], 1), 1)), axis=1)
         idx = jnp.argmax(reordered, axis=1)
@@ -946,7 +932,7 @@ def is_large_request(state: EnvState, params: RSAEnvParams) -> Array:
     datarate to the midpoint of the requestable datarate range. Used by the
     first-last-fit family to segregate request size classes at opposite spectrum ends."""
     _, requested_bw = read_rsa_request(state.request_array)
-    threshold = (jnp.min(params.values_bw.val) + jnp.max(params.values_bw.val)) / 2
+    threshold = (jnp.min(params.values_bw) + jnp.max(params.values_bw)) / 2
     return requested_bw > threshold
 
 
@@ -975,7 +961,7 @@ def get_action_mask_and_slots(state: EnvState, params: RSAEnvParams) -> Tuple[Ar
         updated = _gn_mask_state(state, params)
         formats = updated.mod_format_mask.reshape(params.k_paths, -1).astype(jnp.int32)
         mask = formats >= 0
-        efficiencies = params.modulations_array.val[jnp.maximum(formats, 0), 1]
+        efficiencies = params.modulations_array[jnp.maximum(formats, 0), 1]
         _, requested_bw = read_rsa_request(state.request_array)
         slots = required_slots(requested_bw, efficiencies, params.slot_size, params.guardband)
     else:
@@ -1151,17 +1137,9 @@ def capacity_loss(
     nodes_sd, _ = read_rsa_request(state.request_array)
     num_resources = params.link_resources
 
-    # Maximum future demand size (in slots, incl. guardband) to account capacity for.
-    # params fields are static under jit so this is computed at trace time.
-    values_bw = np.asarray(params.values_bw.val)
-    if isinstance(params, RMSAGNModelEnvParams):
-        # GN resolves a physical format per start; any format may be the cheapest.
-        min_se = float(np.min(np.asarray(params.modulations_array.val)[:, 1]))
-    elif params.consider_modulation_format:
-        min_se = float(np.min(np.asarray(params.path_se_array.val)))
-    else:
-        min_se = 1.0
-    w_cap = int(np.ceil(float(np.max(values_bw)) / (min_se * float(params.slot_size))))
+    # Maximum future demand size (in slots, incl. guardband) to account capacity for,
+    # from static params so it can size arrays under jit.
+    w_cap = int(np.ceil(params.max_bw / (params.min_se * float(params.slot_size))))
     w_cap = max(w_cap + int(params.guardband), 1)
 
     # Interfering route set: the first n stored paths of every node pair (rows of
@@ -1174,15 +1152,17 @@ def capacity_loss(
         )
     # GN appends one zero row for path_index_array == -1. It is not a
     # node-pair route, including when k_paths == 1 makes the shape divisible.
-    num_route_rows = params.path_link_array.val.shape[0] - int(isinstance(params, GNModelEnvParams))
-    pair_major_rows = np.arange(num_route_rows).reshape(-1, params.k_paths)[:, :n_int].reshape(-1)
-    # Gather eagerly so the result is a concrete array passed to the program, not a
-    # gather over the whole (runtime-argument) path table on every step.
-    with jax.ensure_compile_time_eval():
-        interfering_paths = params.path_link_array.val[pair_major_rows]
-        if params.pack_path_bits:
-            interfering_paths = jnp.unpackbits(interfering_paths, axis=1)[:, : params.num_links]
-        interfering_paths = jnp.asarray(interfering_paths, dtype=jnp.float32)
+    num_route_rows = params.path_link_array.shape[0] - int(isinstance(params, GNModelEnvParams))
+    if n_int == params.k_paths:
+        interfering_paths = params.path_link_array[:num_route_rows]
+    else:
+        pair_major_rows = (
+            np.arange(num_route_rows).reshape(-1, params.k_paths)[:, :n_int].reshape(-1)
+        )
+        interfering_paths = params.path_link_array[pair_major_rows]
+    if params.pack_path_bits:
+        interfering_paths = jnp.unpackbits(interfering_paths, axis=1)[:, : params.num_links]
+    interfering_paths = jnp.asarray(interfering_paths, dtype=jnp.float32)
     cand_paths = jnp.asarray(get_paths(params, nodes_sd), dtype=jnp.float32)
 
     def prep(paths):
@@ -1242,7 +1222,7 @@ def capacity_loss(
     return loss, mask
 
 
-@partial(jax.jit, static_argnums=(1, 2, 3))
+@partial(jax.jit, static_argnums=(2, 3))
 def most_used(state: EnvState, params: RSAEnvParams, unique_lightpaths, relative) -> Array:
     """Get the amount of utilised bandwidth on each lightpath.
     If RWA-LR environment, the utilisation of a slot is defined by either the count of unique active lightpahts on the
@@ -1264,7 +1244,7 @@ def most_used(state: EnvState, params: RSAEnvParams, unique_lightpaths, relative
     elif isinstance(params, RWALightpathReuseEnvParams) and not unique_lightpaths:
         rwalr_state = cast(RWALightpathReuseEnvState, state)
         # Get initial path capacity
-        initial_path_capacity = initial_path_capacity_array(params)
+        initial_path_capacity = params.initial_path_capacity_array
         initial_path_capacity = jnp.squeeze(
             jax.vmap(lambda x: initial_path_capacity[x])(rwalr_state.path_index_array)
         )

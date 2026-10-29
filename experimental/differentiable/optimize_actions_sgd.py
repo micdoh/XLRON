@@ -1,5 +1,4 @@
 from fsspec.config import conf
-from jax.experimental.pallas.ops.tpu.megablox.gmm import partial
 from optax.transforms import conditionally_mask
 import jax
 import jax.numpy as jnp
@@ -19,13 +18,13 @@ from xlron.environments.diff_utils import *
 from xlron.train.train_utils import *
 
 
-@partial(jax.jit, static_argnames=("params",))
+@jax.jit
 def decombine_actions(actions, params):
     paths, slots = jax.vmap(process_path_action, in_axes=(None, None, 0))(None, params, actions)
     return jnp.vstack((paths, slots)).T
 
 
-@partial(jax.jit, static_argnames=("params",))
+@jax.jit
 def combine_actions(paths, slots, params):
     def combine(action, params):
         path, slot = action

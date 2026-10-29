@@ -116,9 +116,7 @@ def run_eval_render(config: Box, eval_state: Any, run_name: str):
         key, reset_key = jax.random.split(key)
         obsv, env_state = env.reset(reset_key, env_params)
         last_obs = (
-            (env_state.env_state, env_params)
-            if config.USE_GNN or config.USE_TRANSFORMER
-            else tuple([obsv])
+            (env_state.env_state,) if config.USE_GNN or config.USE_TRANSFORMER else tuple([obsv])
         )
 
         run_type = (
@@ -274,7 +272,7 @@ def run_eval_render(config: Box, eval_state: Any, run_name: str):
                     frames.append(frame_np)
 
             last_obs = (
-                (env_state.env_state, env_params)
+                (env_state.env_state,)
                 if config.USE_GNN or config.USE_TRANSFORMER
                 else tuple([obsv])
             )

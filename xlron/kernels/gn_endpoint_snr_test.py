@@ -7,7 +7,6 @@ import pytest
 
 from tests.helpers.gn_model import setup
 from xlron.environments import env_funcs
-from xlron.environments.dataclasses import HashableArrayWrapper
 from xlron.kernels import gn_endpoint_snr
 
 
@@ -37,8 +36,8 @@ def test_endpoint_snr_matches_generic_model(coherent, subchannels, loss, slots):
         coherent=coherent,
         num_subchannels=subchannels,
         span_lumped_loss_db=loss,
-        amplifier_noise_figure=HashableArrayWrapper(jnp.linspace(4, 7, slots)),
-        transceiver_snr=HashableArrayWrapper(jnp.full((slots,), 30.0)),
+        amplifier_noise_figure=jnp.linspace(4, 7, slots),
+        transceiver_snr=jnp.full((slots,), 30.0),
     )
     span = 1000 if slots == 8 else 10000
     f = jnp.linspace(-span, span, slots)
@@ -92,12 +91,12 @@ def test_screen_slack_covers_screen_versus_full_solve_difference():
     p = p.replace(gn_mask_mode="all_slots", gn_kernel_backend="pallas")
     nodes, _ = env_funcs.read_rsa_request(s.request_array)
     path = env_funcs.get_paths(p, nodes)[0]
-    links = jnp.nonzero(path, size=p.path_link_indices.val.shape[1], fill_value=p.num_links)[0]
+    links = jnp.nonzero(path, size=p.path_link_indices.shape[1], fill_value=p.num_links)[0]
     worst = 0.0
     for start in range(0, p.link_resources - 1, 3):
         end = start + 1
         centre = env_funcs.get_centre_frequency(start, 2, p)
-        power = p.slot_launch_power_array.val[start]
+        power = p.slot_launch_power_array[start]
         sampled = gn_endpoint_snr.endpoint_snr_pallas(s, p, links, start, end, power, centre)
         inserted = _insert(s, p, links, start, end, power, centre)
         full = env_funcs.get_snr_link_array(inserted, p)

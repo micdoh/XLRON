@@ -76,11 +76,11 @@ The DRA (Distributed Raman Amplification) module extends the ISRS GN model with 
 
 ### Key Design Patterns
 
-1. **Flax Struct Dataclasses**: State and parameters use `@struct.dataclass` with `pytree_node=False` for static fields that shouldn't be traced by JAX.
+1. **Flax Struct Dataclasses**: State and parameters use `@struct.dataclass`. Params arrays are pytree leaves; scalars/strings/bools use `pytree_node=False` so they stay compile-time constants.
 
 2. **Functional Style**: All environment functions are pure functions that take state/params and return new state. No side effects.
 
-3. **JIT Compilation**: Functions use `@jax.jit` or `@partial(jax.jit, static_argnums=...)` for compilation. Static arguments must be hashable.
+3. **JIT Compilation**: Functions use `@jax.jit` or `@partial(jax.jit, static_argnums=...)` for compilation. Params are passed as traced arguments; static arguments (scalars, strings, bools) must be hashable.
 
 4. **Differentiable Operations**: `diff_utils.py` provides differentiable approximations using straight-through gradient estimators and temperature-controlled soft functions.
 
@@ -220,7 +220,7 @@ Functions available:
 ### Adding a New Parameter
 
 1. Add flag in `parameter_flags.py`
-2. Add field to appropriate dataclass in `dataclasses.py`
+2. Add field to appropriate dataclass in `dataclasses.py`: arrays as `pytree_node=True` leaves, scalars/strings/bools as `pytree_node=False`
 3. Wire config to params in `make_env.py`
 4. Use `params.field_name` in environment functions
 5. Add to the GUI: add default to `DEFAULTS` dict in `xlron/gui/widgets.py` and add a widget in the appropriate section function (e.g. `physical_layer_section()` for GN model params, `environment_section()` for env params)
@@ -239,11 +239,12 @@ Forgetting step 3 will cause metrics to not appear in wandb dashboards.
 
 ### Static vs Dynamic Arguments
 
-- Use `pytree_node=False` in dataclasses for values that don't change during training
-- Use `static_argnames` in JIT decorators for string/bool arguments
-- Never use traced values as static arguments (causes unhashable error)
-- `HashableArrayWrapper` (in `dataclasses.py`) wraps arrays that need to be static JIT args; its content hash is cached
-- `xlron/__init__.py` (and the root `conftest.py`) default `JAX_USE_SIMPLIFIED_JAXPR_CONSTANTS=1`, so closed-over device arrays such as `path_link_array` are passed to each compiled program as arguments instead of embedded as constants (issue #80). It only takes effect if set before `jax` is imported. Consequence: XLA no longer constant-folds expressions over whole tables, so a reduction over all paths inside a step runs every step. Precompute such quantities at env creation (e.g. GN `path_length_array`, `max_path_length`, `max_path_hops`) or evaluate them under `jax.ensure_compile_time_eval()`, and gather a path's row before `unpackbits`, never the whole table
+- Env params are a pytree passed to jitted functions as an ordinary (traced) argument, never in `static_argnums`. Array fields are leaves (`pytree_node=True`); Python scalars, strings and bools are `pytree_node=False`, so they still reach traced code as compile-time constants (shapes, Python `if`s, loop bounds) and a new value recompiles
+- Anything needed on the host while tracing (array sizes, Python control flow) must be a static scalar/tuple field computed in `make_env.py` (e.g. `min_bw`, `max_bw`, `min_se`, `max_path_length`, `max_path_hops`), not read from an array field with `np.asarray`/`float()`
+- Keep params out of observations and scan carries: graph policies get `(env_state,)` observations and the model is called via `model_inputs(obs, env_params, config)` (`train_utils.py`), otherwise a rollout scan or env vmap copies every table into every transition
+- Use `static_argnames`/`static_argnums` only for genuine Python scalars/strings/bools; never use traced values as static arguments (causes unhashable error)
+- `xlron/__init__.py` (and the root `conftest.py`) default `JAX_USE_SIMPLIFIED_JAXPR_CONSTANTS=1`, so device arrays closed over by a top-level program (e.g. `env_params` captured by the learner/eval closures in `train.py`) are passed as executable arguments instead of embedded as constants (issue #80). It only takes effect if set before `jax` is imported
+- Because tables are runtime arguments, XLA cannot constant-fold expressions over them: a reduction over all paths inside a step runs every step. Precompute such quantities at env creation (e.g. GN `path_length_array`, RWA-LR `initial_path_capacity_array`), and gather a path's row before `unpackbits`, never the whole table
 
 ### How the Training Loop Works
 

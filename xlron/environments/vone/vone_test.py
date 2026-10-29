@@ -199,9 +199,7 @@ class RemoveExpiredNodeRequestsTest(chex.TestCase):
         state = implement_node_action(self.state, s, d, sr, dr, n=n)
         state = finalise_vone_action(state)
         state = state.replace(current_time=10e4)
-        updated_state = self.variant(remove_expired_node_requests, static_argnums=(1,))(
-            state, self.params
-        )
+        updated_state = self.variant(remove_expired_node_requests)(state, self.params)
         chex.assert_trees_all_close(updated_state.node_capacity_array, expected)
 
     @chex.all_variants()
@@ -210,9 +208,7 @@ class RemoveExpiredNodeRequestsTest(chex.TestCase):
         state = implement_node_action(self.state, s, d, sr, dr, n=n)
         state = finalise_vone_action(state)
         state = state.replace(current_time=10e4)
-        updated_state = self.variant(remove_expired_node_requests, static_argnums=(1,))(
-            state, self.params
-        )
+        updated_state = self.variant(remove_expired_node_requests)(state, self.params)
         chex.assert_trees_all_close(updated_state.node_resource_array, expected)
 
     @chex.all_variants()
@@ -221,9 +217,7 @@ class RemoveExpiredNodeRequestsTest(chex.TestCase):
         state = implement_node_action(self.state, s, d, sr, dr, n=n)
         state = finalise_vone_action(state)
         state = state.replace(current_time=10e4)
-        updated_state = self.variant(remove_expired_node_requests, static_argnums=(1,))(
-            state, self.params
-        )
+        updated_state = self.variant(remove_expired_node_requests)(state, self.params)
         chex.assert_trees_all_close(updated_state.node_departure_array, expected)
 
 
@@ -549,7 +543,7 @@ class ImplementVoneActionTest(chex.TestCase):
         ),
     )
     def test_implement_vone_action_slots(self, action, total, remaining, expected):
-        updated_state = self.variant(implement_vone_action, static_argnums=(4,))(
+        updated_state = self.variant(implement_vone_action)(
             self.state, action, total, remaining, self.params
         )
         chex.assert_trees_all_close(updated_state.link_slot_array, expected)
@@ -587,7 +581,7 @@ class ImplementVoneActionTest(chex.TestCase):
     )
     def test_implement_vone_action_slots_departure(self, action, total, remaining, expected):
         state = self.state.replace(current_time=1, holding_time=1)
-        updated_state = self.variant(implement_vone_action, static_argnums=(4,))(
+        updated_state = self.variant(implement_vone_action)(
             state, action, total, remaining, self.params
         )
         chex.assert_trees_all_close(updated_state.link_slot_departure_array, expected)
@@ -600,7 +594,7 @@ class ImplementVoneActionTest(chex.TestCase):
         ("case_base_no_nodes", jnp.array([0, 0, 1]), 3, 1, jnp.array([4, 4, 4, 4])),
     )
     def test_implement_vone_action_nodes_capacity(self, action, total, remaining, expected):
-        updated_state = self.variant(implement_vone_action, static_argnums=(4,))(
+        updated_state = self.variant(implement_vone_action)(
             self.state, action, total, remaining, self.params
         )
         chex.assert_trees_all_close(updated_state.node_capacity_array, expected)
@@ -637,7 +631,7 @@ class ImplementVoneActionTest(chex.TestCase):
         ),
     )
     def test_implement_vone_action_nodes_resource(self, action, total, remaining, expected):
-        updated_state = self.variant(implement_vone_action, static_argnums=(4,))(
+        updated_state = self.variant(implement_vone_action)(
             self.state, action, total, remaining, self.params
         )
         chex.assert_trees_all_close(updated_state.node_resource_array, expected)
@@ -703,7 +697,7 @@ class ImplementVoneActionTest(chex.TestCase):
     )
     def test_implement_vone_action_nodes_departure(self, action, total, remaining, expected):
         state = self.state.replace(current_time=1, holding_time=1)
-        updated_state = self.variant(implement_vone_action, static_argnums=(4,))(
+        updated_state = self.variant(implement_vone_action)(
             state, action, total, remaining, self.params
         )
         chex.assert_trees_all_close(updated_state.node_departure_array, expected)
@@ -970,7 +964,7 @@ class CheckVoneActionTest(chex.TestCase):
             remaining_actions = jnp.squeeze(
                 jax.lax.dynamic_slice(self.state.action_counter, (2,), (1,))
             )
-            self.state = self.variant(implement_vone_action, static_argnums=(4,))(
+            self.state = self.variant(implement_vone_action)(
                 self.state, action, total_actions, remaining_actions, self.params
             )
             self.state = self.state.replace(
@@ -981,7 +975,7 @@ class CheckVoneActionTest(chex.TestCase):
             self.state = self.state.replace(
                 action_counter=decrease_last_element(self.state.action_counter)
             )
-        actual = self.variant(check_vone_action, static_argnums=(4,))(
+        actual = self.variant(check_vone_action)(
             self.state, last_action, remaining_actions, total_requested_nodes, self.params
         )
         chex.assert_trees_all_close(actual, expected)
@@ -1207,9 +1201,9 @@ class VoneStepTest(chex.TestCase):
     def test_vone_step_obs(self, actions, expected):
         obs: Array = jnp.array(0)
         for action in actions:
-            obs, self.state, reward, terminal, truncated, info = self.variant(
-                self.env.step, static_argnums=(3,)
-            )(self.key, self.state, action, self.params)
+            obs, self.state, reward, terminal, truncated, info = self.variant(self.env.step)(
+                self.key, self.state, action, self.params
+            )
         chex.assert_trees_all_close(obs, expected)
 
 
@@ -1263,7 +1257,7 @@ class VoneResetTest(chex.TestCase):
         ),
     )
     def test_vone_reset_obs(self, expected):
-        obs, self.state = self.variant(self.env.reset, static_argnums=(1,))(self.key, self.params)
+        obs, self.state = self.variant(self.env.reset)(self.key, self.params)
         chex.assert_trees_all_close(obs, expected)
 
 
@@ -1488,12 +1482,8 @@ class VoneActionMaskTest(chex.TestCase):
             request_array=request_array,
             link_slot_array=link_slot_array,
         )
-        state = self.variant(self.env.action_mask_nodes, static_argnums=(1,))(
-            self.state, self.params
-        )
-        state = self.variant(self.env.action_mask_slots, static_argnums=(1,))(
-            state, self.params, action
-        )
+        state = self.variant(self.env.action_mask_nodes)(self.state, self.params)
+        state = self.variant(self.env.action_mask_slots)(state, self.params, action)
         # Regression test: action_mask_slots must not leak the throwaway formatted
         # (source, slots, dest) request into the returned (carried) state
         chex.assert_trees_all_close(state.request_array, request_array)

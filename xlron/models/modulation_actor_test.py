@@ -61,7 +61,7 @@ def test_rollout_stores_fresh_features_and_reproduces_behaviour_log_probability(
     key = jax.random.PRNGKey(12)
     runner = (train, outer, (s, p), key, key)
     _, transition = _env_step(runner, None, env, p, c)
-    acting, _ = transition.obs
+    (acting,) = transition.obs
     assert isinstance(acting, RMSAGNModelEnvState)
     assert np.any(np.asarray(acting.mod_format_mask) >= 0)
     policy, _ = model(acting, p)

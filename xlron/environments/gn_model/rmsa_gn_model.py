@@ -109,13 +109,7 @@ class RMSAGNModelEnv(RSAEnv):
         )
         self.initial_state = state.replace(graph=init_graph_tuple(state, params, laplacian_matrix))
 
-    @partial(
-        jax.jit,
-        static_argnums=(
-            0,
-            2,
-        ),
-    )
+    @partial(jax.jit, static_argnums=(0,))
     def action_mask(self, state: RMSAGNModelEnvState, params: RMSAGNModelEnvParams):
         """Returns mask of valid actions.
 
@@ -129,13 +123,7 @@ class RMSAGNModelEnv(RSAEnv):
         state = mask_slots_rmsa_gn_model(state, params, state.request_array)
         return state.link_slot_mask, state.full_link_slot_mask, state.mod_format_mask
 
-    @partial(
-        jax.jit,
-        static_argnums=(
-            0,
-            2,
-        ),
-    )
+    @partial(jax.jit, static_argnums=(0,))
     def get_obs(self, state: RMSAGNModelEnvState, params: RMSAGNModelEnvParams) -> Array:
         return get_paths_obs_gn_model(state, params)
 

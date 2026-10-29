@@ -63,7 +63,7 @@ def endpoint_snr_pallas(
             )
         ]
     )
-    lengths = jnp.sum(params.link_length_array.val, axis=1)
+    lengths = jnp.sum(params.link_length_array, axis=1)
     spans = jnp.ceil(lengths / params.max_span_length).astype(jnp.int32)
     span_length = lengths / spans
     n = params.link_resources
@@ -165,7 +165,7 @@ def endpoint_snr_pallas(
         physics,
         spans,
         span_length,
-        params.amplifier_noise_figure.val,
+        params.amplifier_noise_figure,
         offset,
     )
     return jnp.nan_to_num(result, nan=1e-5)

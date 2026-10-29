@@ -124,7 +124,7 @@ def benchmark_gpu(state, params, request_array, N=100):
     jax.block_until_ready(path_indices)
     t0 = time.perf_counter()
     for _ in range(N):
-        paths = jnp.take(params.path_link_array.val, path_indices, axis=0)
+        paths = jnp.take(params.path_link_array, path_indices, axis=0)
     paths.block_until_ready()
     print(f"  jnp.take (paths): {(time.perf_counter() - t0) / N * 1000:.3f}ms")
 
@@ -132,7 +132,7 @@ def benchmark_gpu(state, params, request_array, N=100):
     jax.block_until_ready(paths)
     t0 = time.perf_counter()
     for _ in range(N):
-        paths_se = jnp.take(params.path_se_array.val, path_indices, axis=0)
+        paths_se = jnp.take(params.path_se_array, path_indices, axis=0)
     paths_se.block_until_ready()
     print(f"  jnp.take (SE): {(time.perf_counter() - t0) / N * 1000:.3f}ms")
 
@@ -160,7 +160,7 @@ def benchmark_gpu(state, params, request_array, N=100):
     print(f"  cumsum + padding: {(time.perf_counter() - t0) / N * 1000:.3f}ms")
 
     # 6. Window sum computation (if using cumsum approach)
-    all_se_values = params.unique_se_values.val
+    all_se_values = params.unique_se_values
     slot_indices = jnp.arange(params.link_resources)
     _, requested_datarate = read_rsa_request(request_array)
 
@@ -208,11 +208,11 @@ def benchmark_gpu_jitted(state, params, request_array, N=100):
 
     @jax.jit
     def bench_take_paths(indices):
-        return jnp.take(params.path_link_array.val, indices, axis=0)
+        return jnp.take(params.path_link_array, indices, axis=0)
 
     @jax.jit
     def bench_take_se(indices):
-        return jnp.take(params.path_se_array.val, indices, axis=0)
+        return jnp.take(params.path_se_array, indices, axis=0)
 
     @jax.jit
     def bench_occupied(paths, link_slot_array):
@@ -250,7 +250,7 @@ def benchmark_gpu_jitted(state, params, request_array, N=100):
     occupied = bench_occupied(paths, state.link_slot_array).block_until_ready()
     cumsum = bench_cumsum(occupied).block_until_ready()
 
-    all_se_values = params.unique_se_values.val
+    all_se_values = params.unique_se_values
     all_req_slots = jax.vmap(
         lambda se: required_slots(
             requested_datarate,
@@ -354,10 +354,10 @@ def benchmark_gpu_detailed(state, params, request_array, N=100):
 
     # Precompute for benchmarks
     path_indices = get_path_index_array(params, nodes_sd).astype(jnp.int32)
-    paths = jnp.take(params.path_link_array.val, path_indices, axis=0)
-    paths_se = jnp.take(params.path_se_array.val, path_indices, axis=0)
+    paths = jnp.take(params.path_link_array, path_indices, axis=0)
+    paths_se = jnp.take(params.path_se_array, path_indices, axis=0)
 
-    all_se_values = params.unique_se_values.val
+    all_se_values = params.unique_se_values
     all_req_slots = jax.vmap(
         lambda se: required_slots(
             requested_datarate,

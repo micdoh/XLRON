@@ -137,7 +137,7 @@ class RSAEnv(environment.Environment):
         self._render_matrix_base_pos = None
         self._render_last_lightpath_snr = None
 
-    @partial(jax.jit, static_argnums=(0, 4))
+    @partial(jax.jit, static_argnums=(0,))
     def step(
         self,
         key: chex.PRNGKey,
@@ -189,13 +189,7 @@ class RSAEnv(environment.Environment):
             info,
         )
 
-    @partial(
-        jax.jit,
-        static_argnums=(
-            0,
-            2,
-        ),
-    )
+    @partial(jax.jit, static_argnums=(0,))
     def reset(
         self,
         key: chex.PRNGKey,
@@ -447,7 +441,7 @@ class RSAEnv(environment.Environment):
     ):
         import networkx as nx
 
-        edges = self._to_numpy(params.edges.val).astype(int)
+        edges = self._to_numpy(params.edges).astype(int)
         context = render_context or {}
         graph_key = (
             params.num_nodes,
@@ -460,7 +454,7 @@ class RSAEnv(environment.Environment):
         if self._render_graph is not None and self._render_graph_key == graph_key:
             return self._render_graph, self._render_pos, self._render_edge_lookup
 
-        lengths = self._to_numpy(params.link_length_array.val).astype(float).reshape(-1)
+        lengths = self._to_numpy(params.link_length_array).astype(float).reshape(-1)
         g = nx.Graph()
         # make_graph normalises node ids to 0..N-1, so edges are always 0-based
         g.add_nodes_from(range(params.num_nodes))
@@ -609,7 +603,7 @@ class RSAEnv(environment.Environment):
         elif env_name == "DeepRMSAEnv":
             env_label = "RMSA"
         elif not params.consider_modulation_format:
-            vals = self._to_numpy(params.values_bw.val).reshape(-1)
+            vals = self._to_numpy(params.values_bw).reshape(-1)
             is_rwa = (
                 vals.size == 1
                 and abs(float(vals[0]) - float(params.slot_size)) < 1e-6
@@ -841,7 +835,7 @@ class RSAEnv(environment.Environment):
             ax_matrix.imshow(rgba, aspect="auto", interpolation="nearest", origin="lower")
         ax_matrix.set_xlabel("Slot Index")
         ax_matrix.set_ylabel("Link")
-        edges = self._to_numpy(params.edges.val).astype(int)
+        edges = self._to_numpy(params.edges).astype(int)
         num_links = rgba.shape[0]
         if edges.ndim == 2 and edges.shape[0] >= num_links:
             labels = [f"{int(u)}\u2192{int(v)}" for u, v in edges[:num_links]]
@@ -970,8 +964,8 @@ class RSAEnv(environment.Environment):
                     highlighted_edges.add(key)
         if not highlighted_edges and highlight_mask is not None:
             for link_idx in np.where(np.any(highlight_mask > 0.5, axis=1))[0].tolist():
-                if link_idx < self._to_numpy(params.edges.val).shape[0]:
-                    u, v = self._to_numpy(params.edges.val)[link_idx].astype(int).tolist()
+                if link_idx < self._to_numpy(params.edges).shape[0]:
+                    u, v = self._to_numpy(params.edges)[link_idx].astype(int).tolist()
                     highlighted_edges.add(tuple(sorted((int(u), int(v)))))
 
         if self._render_topology_highlight_artist is not None:
@@ -1137,7 +1131,7 @@ class RSAEnv(environment.Environment):
             self._render_matrix_base_pos = None
             self._render_last_lightpath_snr = None
 
-    @partial(jax.jit, static_argnums=(0, 2))
+    @partial(jax.jit, static_argnums=(0,))
     def reset_env(
         self,
         key: chex.PRNGKey,
@@ -1204,7 +1198,7 @@ class RSAEnv(environment.Environment):
                 candidate, info.path, info.initial_slot_index, info.num_slots, params
             )
             margin_failure = ~jnp.all(
-                endpoint >= params.modulations_array.val[modulation, 2] + params.snr_margin
+                endpoint >= params.modulations_array[modulation, 2] + params.snr_margin
             )
             checks = (spectrum, snr | margin_failure, power)
             return candidate, info, checks, ~jnp.any(jnp.stack(checks))
@@ -1219,7 +1213,7 @@ class RSAEnv(environment.Environment):
         # The sampled (nominal) format first, then every other format that fits
         # the spectrum, by descending SE. Spectrum fit needs no GN solve.
         nominal = state.mod_format_mask[flat].astype(jnp.int32)
-        order = jnp.argsort(-params.modulations_array.val[:, 1])
+        order = jnp.argsort(-params.modulations_array[:, 1])
         fits = jax.vmap(
             lambda mod: ~check_action_rsa_prestate(
                 state, self.process_action(with_format(mod), action, params), params
@@ -1291,7 +1285,7 @@ class RSAEnv(environment.Environment):
             mod_format_index = jax.lax.dynamic_slice(
                 rmsa_state.mod_format_mask, (full_res_action,), (1,)
             )[0].astype(dtype_config.LARGE_INT_DTYPE)
-            path_se = rmsa_params.modulations_array.val[mod_format_index, 1]
+            path_se = rmsa_params.modulations_array[mod_format_index, 1]
         else:
             path_se = path_se if params.consider_modulation_format else one
 
@@ -1326,7 +1320,7 @@ class RSAEnv(environment.Environment):
         )
         return action_info
 
-    @partial(jax.jit, static_argnums=(0, 2))
+    @partial(jax.jit, static_argnums=(0,))
     def action_mask(self, state: RSAEnvState, params: RSAEnvParams) -> Array:
         """Returns mask of valid actions.
         1. Check request for source and destination nodes
@@ -1343,7 +1337,7 @@ class RSAEnv(environment.Environment):
         action_mask = jit_profiler.call(params.profile, mask_slots, state, params)
         return action_mask
 
-    @partial(jax.jit, static_argnums=(0, 2))
+    @partial(jax.jit, static_argnums=(0,))
     def get_obs_unflat(self, state: RSAEnvState, params: RSAEnvParams) -> Tuple[Array, Array]:
         """Retrieves observation from state.
 
@@ -1359,7 +1353,7 @@ class RSAEnv(environment.Environment):
             state.link_slot_array,
         )
 
-    @partial(jax.jit, static_argnums=(0, 2))
+    @partial(jax.jit, static_argnums=(0,))
     def get_obs(self, state: RSAEnvState, params: RSAEnvParams) -> Array:
         """Retrieves observation from state and reshapes into single array.
 
@@ -1498,10 +1492,10 @@ class RSAEnv(environment.Environment):
         if params.reward_type == "service":
             pass
         elif params.reward_type == "bitrate":
-            reward = action_info.requested_datarate * reward / jnp.max(params.values_bw.val)
+            reward = action_info.requested_datarate * reward / jnp.max(params.values_bw)
         else:
             reward = (
-                reward * action_info.requested_datarate / jnp.max(params.values_bw.val)
+                reward * action_info.requested_datarate / jnp.max(params.values_bw)
                 if params.maximise_throughput
                 else reward
             )
@@ -1527,7 +1521,7 @@ class RSAEnv(environment.Environment):
         if params.reward_type != "service":
             reward = action_info.requested_datarate.astype(
                 dtype_config.LARGE_FLOAT_DTYPE
-            ) / jnp.max(params.values_bw.val)
+            ) / jnp.max(params.values_bw)
             if params.reward_type == "bitrate":
                 pass  # No additional calculation needed
             elif params.reward_type == "snr":

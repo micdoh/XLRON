@@ -109,13 +109,7 @@ class RSAGNModelEnv(RSAEnv):
         )
         self.initial_state = state.replace(graph=init_graph_tuple(state, params, laplacian_matrix))
 
-    @partial(
-        jax.jit,
-        static_argnums=(
-            0,
-            2,
-        ),
-    )
+    @partial(jax.jit, static_argnums=(0,))
     def get_obs(self, state: RSAGNModelEnvState, params: RSAGNModelEnvParams) -> Array:
         # Must match observation_space (4 + 7*k_paths features); a 0-d placeholder here
         # crashes any flat-obs model (e.g. LaunchPowerActorCriticMLP) at trace time.

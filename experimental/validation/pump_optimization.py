@@ -127,29 +127,29 @@ def make_throughput_objective(state, params, snr_variance_penalty=0.0):
     dispersion_c = float(params.dispersion_coeff)
     dispersion_s = float(params.dispersion_slope)
     coherent = params.coherent
-    amp_nf = params.amplifier_noise_figure.val  # (N,)
-    trx_snr = params.transceiver_snr.val  # (N,)
+    amp_nf = params.amplifier_noise_figure  # (N,)
+    trx_snr = params.transceiver_snr  # (N,)
     num_subchannels = params.num_subchannels
     slot_size_hz = params.slot_size * 1e9
     fec_threshold = params.fec_threshold
     min_snr = params.min_snr
     pack_bits = params.pack_path_bits
     link_resources = params.link_resources
-    link_lengths_all = params.link_length_array.val  # (num_links, max_spans) metres
-    ch_centre_freq_ghz = params.slot_centre_freq_array.val  # (N,) relative GHz
+    link_lengths_all = params.link_length_array  # (num_links, max_spans) metres
+    ch_centre_freq_ghz = params.slot_centre_freq_array  # (N,) relative GHz
     active_lps = state.active_lightpaths_array  # (M, 3)
-    path_link_arr = params.path_link_array.val
+    path_link_arr = params.path_link_array
     span_lumped_loss_db = params.span_lumped_loss_db
-    roadm_express_loss = params.roadm_express_loss.val  # (N,) dB
-    roadm_add_drop_loss = params.roadm_add_drop_loss.val  # (N,) dB
-    roadm_noise_figure = params.roadm_noise_figure.val  # (N,) dB
+    roadm_express_loss = params.roadm_express_loss  # (N,) dB
+    roadm_add_drop_loss = params.roadm_add_drop_loss  # (N,) dB
+    roadm_noise_figure = params.roadm_noise_figure  # (N,) dB
 
     # Baseline per-channel power per link, from the loaded state
     baseline_ch_pow = jnp.array(state.channel_power_array)  # (num_links, N) W
 
     # Initial per-slot launch powers used at env creation for the Raman fit.
     # Using the same array ensures the baseline fit matches the cached params.
-    _initial_launch_pow = jnp.array(params.slot_launch_power_array.val)  # (N,)
+    _initial_launch_pow = jnp.array(params.slot_launch_power_array)  # (N,)
 
     # Static mask: slots that are zero on ALL links are permanent gap/guard slots.
     # Multiplying launch_multiplier by this mask prevents NaN gradients from
@@ -161,14 +161,14 @@ def make_throughput_objective(state, params, snr_variance_penalty=0.0):
     # Nominal pump freqs/powers — take row [0] since pumps are uniform per-span.
     # pump arrays in params have shape (num_spans, num_pumps); we optimise the
     # single representative row and replicate to all spans inside get_snr_dra.
-    nominal_pump_freq_bw = jnp.array(params.raman_pump_freq_bw.val[0], dtype=jnp.float32)
-    nominal_pump_freq_fw = jnp.array(params.raman_pump_freq_fw.val[0], dtype=jnp.float32)
-    nominal_pump_pow_fw = jnp.array(params.raman_pump_power_fw.val[0], dtype=jnp.float32)
+    nominal_pump_freq_bw = jnp.array(params.raman_pump_freq_bw[0], dtype=jnp.float32)
+    nominal_pump_freq_fw = jnp.array(params.raman_pump_freq_fw[0], dtype=jnp.float32)
+    nominal_pump_pow_fw = jnp.array(params.raman_pump_power_fw[0], dtype=jnp.float32)
 
     # Static pump counts from nominal freqs — passed to fit_dra_params_jax to
     # avoid int(jnp.sum(traced_mask)) errors when throughput_fn is JIT-compiled.
-    _static_num_bw = int(np.sum(np.array(params.raman_pump_freq_bw.val[0]) > 0))
-    _static_num_fw = int(np.sum(np.array(params.raman_pump_freq_fw.val[0]) > 0))
+    _static_num_bw = int(np.sum(np.array(params.raman_pump_freq_bw[0]) > 0))
+    _static_num_fw = int(np.sum(np.array(params.raman_pump_freq_fw[0]) > 0))
 
     def throughput_fn(pump_params):
         # Optimised params are 1D (num_pumps,); get_snr_dra expects (max_spans, num_pumps).
@@ -473,15 +473,15 @@ def optimise_pump_powers(
     print("PUMP PARAMETER OPTIMISATION")
     print("=" * 70)
 
-    ch_centre_freq_ghz = np.array(params.slot_centre_freq_array.val)
+    ch_centre_freq_ghz = np.array(params.slot_centre_freq_array)
     num_channels = params.link_resources
 
     # --- Pump power parameterisation ---
-    initial_log_pump_bw = jnp.log(jnp.array(params.raman_pump_power_bw.val[0], dtype=jnp.float32))
-    initial_log_pump_fw = jnp.log(jnp.array(params.raman_pump_power_fw.val[0], dtype=jnp.float32))
+    initial_log_pump_bw = jnp.log(jnp.array(params.raman_pump_power_bw[0], dtype=jnp.float32))
+    initial_log_pump_fw = jnp.log(jnp.array(params.raman_pump_power_fw[0], dtype=jnp.float32))
 
     # For slope mode: normalise active BW pump frequencies to [-1, 1]
-    pump_freq_bw_np = np.array(params.raman_pump_freq_bw.val[0])
+    pump_freq_bw_np = np.array(params.raman_pump_freq_bw[0])
     active_bw_mask = pump_freq_bw_np > 0
     num_active_bw = int(np.sum(active_bw_mask))
     if num_active_bw > 0:
@@ -589,7 +589,7 @@ def optimise_pump_powers(
         print(
             f"\nInitial BW pump powers (mW): {np.exp(np.array(pump_params['log_pump_pow_bw'])) * 1e3}"
         )
-    print(f"Initial BW pump freqs (THz): {np.array(params.raman_pump_freq_bw.val[0]) / 1e12}")
+    print(f"Initial BW pump freqs (THz): {np.array(params.raman_pump_freq_bw[0]) / 1e12}")
     _lr_lp = lr_launch_power if lr_launch_power is not None else lr
     print(
         f"Steps: {steps}, LR (pump): {lr}, LR (launch power): {_lr_lp}, "
@@ -1042,7 +1042,7 @@ def optimise_pump_powers(
             print(f"Optimised per-channel power (dBm): {new_pow_dbm}")
             print(f"  (was: {init_pow_dbm})")
             # CSV output for --launch_power_csv
-            slot_freqs_ghz = np.array(params.slot_centre_freq_array.val)
+            slot_freqs_ghz = np.array(params.slot_centre_freq_array)
             print("\n--- Copy-paste CSV for --launch_power_csv ---")
             print("slot_index,freq_ghz,power_dbm")
             for si in range(num_channels):
@@ -1260,7 +1260,7 @@ def main():
         sys.exit(1)
 
     if args.equal_pump_power or args.pump_tilt is not None:
-        pump_bw = np.array(params.raman_pump_power_bw.val)  # shape (num_links, num_pumps)
+        pump_bw = np.array(params.raman_pump_power_bw)  # shape (num_links, num_pumps)
         num_links, num_pumps = pump_bw.shape
         # Work per-link: apply tilt/equal across the num_pumps dimension
         # Use first link as reference (all links have same pump config)
@@ -1285,8 +1285,7 @@ def main():
                       f"(total {total_power_per_link*1e3:.1f} mW per link preserved)")
             # Broadcast to all links
             new_powers = np.tile(new_link, (num_links, 1))
-            from xlron.environments.dataclasses import HashableArrayWrapper
-            params = params.replace(raman_pump_power_bw=HashableArrayWrapper(new_powers))
+            params = params.replace(raman_pump_power_bw=new_powers)
 
     best_params, history = optimise_pump_powers(
         state,

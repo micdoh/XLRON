@@ -94,7 +94,7 @@ class VONEEnv(environment.Environment):
             graph=init_graph_tuple(state, params, laplacian_matrix, exclude_source_dest=True)
         )
 
-    @partial(jax.jit, static_argnums=(0, 4))
+    @partial(jax.jit, static_argnums=(0,))
     def step(
         self,
         key: chex.PRNGKey,
@@ -121,13 +121,7 @@ class VONEEnv(environment.Environment):
             info,
         )
 
-    @partial(
-        jax.jit,
-        static_argnums=(
-            0,
-            2,
-        ),
-    )
+    @partial(jax.jit, static_argnums=(0,))
     def reset(
         self,
         key: chex.PRNGKey,
@@ -216,13 +210,7 @@ class VONEEnv(environment.Environment):
         info["_utilisation"] = jnp.count_nonzero(state.link_slot_array) / state.link_slot_array.size
         return self.get_obs(state), state, reward, terminal, truncated, info
 
-    @partial(
-        jax.jit,
-        static_argnums=(
-            0,
-            2,
-        ),
-    )
+    @partial(jax.jit, static_argnums=(0,))
     def reset_env(
         self,
         key: chex.PRNGKey,

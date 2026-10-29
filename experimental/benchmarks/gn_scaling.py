@@ -40,7 +40,7 @@ def loaded_state(state, params, seed=7, target_occupancy=0.25):
     if not 0 < target_occupancy <= 1:
         raise ValueError("Synthetic occupancy target must be in (0, 1]")
     rng = np.random.default_rng(seed)
-    paths = np.asarray(params.path_link_array.val)
+    paths = np.asarray(params.path_link_array)
     if params.pack_path_bits:
         paths = np.unpackbits(paths, axis=1)[:, : params.num_links]
     arrays = {
@@ -56,7 +56,7 @@ def loaded_state(state, params, seed=7, target_occupancy=0.25):
         )
         if hasattr(state, name)
     }
-    centres = np.asarray(params.slot_centre_freq_array.val)
+    centres = np.asarray(params.slot_centre_freq_array)
     placed = 0
     registry = []
     for _ in range(params.link_resources * 15):
@@ -337,8 +337,8 @@ def main():
         "platform": platform.platform(),
         "links": params.num_links,
         "resolved_slots": params.link_resources,
-        "paths": params.path_link_array.val.shape[0],
-        "modulations": params.modulations_array.val.shape[0]
+        "paths": params.path_link_array.shape[0],
+        "modulations": params.modulations_array.shape[0]
         if hasattr(params, "modulations_array")
         else None,
         "lightpaths": placed,

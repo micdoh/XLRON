@@ -33,7 +33,6 @@ from tests.helpers.rsa import (
 )
 from xlron.environments import env_funcs as ef
 from xlron.environments.dataclasses import *
-from xlron.environments.dataclasses import HashableArrayWrapper
 from xlron.environments.env_funcs import *
 from xlron.environments.env_funcs import (
     generate_request_rsa,
@@ -105,7 +104,7 @@ class GetPathsTest(chex.TestCase):
         ("case_switched", jnp.array([3, 0]), jnp.array([[0, 1, 0, 0], [1, 0, 1, 1]])),
     )
     def test_get_paths(self, nodes, expected):
-        paths = self.variant(get_paths, static_argnums=(0,))(self.params, nodes)
+        paths = self.variant(get_paths)(self.params, nodes)
         chex.assert_trees_all_close(paths, expected)
 
     @chex.all_variants()
@@ -139,7 +138,7 @@ class GetPathsTest(chex.TestCase):
     )
     def test_get_paths_nsfnet(self, nodes, expected):
         self.key, self.env, self.obs, self.state, self.params = rsa_nsfnet_16_test_setup()
-        paths = self.variant(get_paths, static_argnums=(0,))(self.params, nodes)
+        paths = self.variant(get_paths)(self.params, nodes)
         print(paths)
         chex.assert_trees_all_close(paths, expected)
 
@@ -467,9 +466,7 @@ class ImplementPathActionTest(chex.TestCase):
     )
     def test_implement_path_action(self, path, initial_slot_index, num_slots, expected):
         action_info = self._make_action_info(path, initial_slot_index, num_slots)
-        updated_state = self.variant(implement_path_action, static_argnums=(2,))(
-            self.state, action_info, self.params
-        )
+        updated_state = self.variant(implement_path_action)(self.state, action_info, self.params)
         chex.assert_trees_all_close(updated_state.link_slot_array, expected)
 
     @chex.all_variants()
@@ -485,9 +482,7 @@ class ImplementPathActionTest(chex.TestCase):
     def test_implement_path_action_departure(self, path, initial_slot_index, num_slots, expected):
         state = self.state.replace(current_time=1, holding_time=1)
         action_info = self._make_action_info(path, initial_slot_index, num_slots)
-        updated_state = self.variant(implement_path_action, static_argnums=(2,))(
-            state, action_info, self.params
-        )
+        updated_state = self.variant(implement_path_action)(state, action_info, self.params)
         chex.assert_trees_all_close(updated_state.link_slot_departure_array, expected)
 
 
@@ -520,9 +515,7 @@ class CheckNoSpectrumReuseTest(chex.TestCase):
     )
     def test_check_no_spectrum_reuse(self, path, initial_slot_index, num_slots, expected):
         action_info = self._make_action_info(self.state, path, initial_slot_index, num_slots)
-        updated_state = self.variant(implement_path_action, static_argnums=(2,))(
-            self.state, action_info, self.params
-        )
+        updated_state = self.variant(implement_path_action)(self.state, action_info, self.params)
         actual = self.variant(check_no_spectrum_reuse)(updated_state, action_info, self.params)
         chex.assert_trees_all_close(actual, expected)
 
@@ -533,12 +526,8 @@ class CheckNoSpectrumReuseTest(chex.TestCase):
     )
     def test_check_no_spectrum_reuse_fail(self, path, initial_slot_index, num_slots, expected):
         action_info = self._make_action_info(self.state, path, initial_slot_index, num_slots)
-        updated_state = self.variant(implement_path_action, static_argnums=(2,))(
-            self.state, action_info, self.params
-        )
-        updated_state = self.variant(implement_path_action, static_argnums=(2,))(
-            updated_state, action_info, self.params
-        )
+        updated_state = self.variant(implement_path_action)(self.state, action_info, self.params)
+        updated_state = self.variant(implement_path_action)(updated_state, action_info, self.params)
         actual = self.variant(check_no_spectrum_reuse)(updated_state, action_info, self.params)
         chex.assert_trees_all_close(actual, expected)
 
@@ -988,9 +977,9 @@ class MaskSlotsBitRateModFormat(chex.TestCase):
     def test_mask_slots_bit_rate_mod_format(self, request, link_slot_array, expected):
         self.state = self.state.replace(link_slot_array=link_slot_array, request_array=request)
         jax.debug.print("state.link_slot_mask {}", self.state.link_slot_mask, ordered=True)
-        link_slot_mask, full_link_slot_mask = self.variant(
-            self.env.action_mask, static_argnums=(1,)
-        )(self.state, self.params)
+        link_slot_mask, full_link_slot_mask = self.variant(self.env.action_mask)(
+            self.state, self.params
+        )
         # Strip trailing no-op action if present
         if link_slot_mask.shape[0] > expected.shape[0]:
             link_slot_mask = link_slot_mask[: expected.shape[0]]
@@ -1033,7 +1022,7 @@ class AggregateSlotsTest(chex.TestCase):
         ),
     )
     def test_aggregate_slots(self, mask, expected):
-        result = self.variant(aggregate_slots, static_argnums=(1,))(mask, self.params)
+        result = self.variant(aggregate_slots)(mask, self.params)
         chex.assert_trees_all_close(result, expected)
 
 
@@ -1059,7 +1048,7 @@ class ProcessPathActionTest(chex.TestCase):
     )
     def test_process_path_action(self, full_link_slot_mask, path_action, expected):
         state = self.state.replace(full_link_slot_mask=full_link_slot_mask)
-        result_path, result_slot = self.variant(process_path_action, static_argnums=(1,))(
+        result_path, result_slot = self.variant(process_path_action)(
             state, self.params, path_action
         )
         jax.debug.print("result path {}", result_path, ordered=True)
@@ -1211,8 +1200,8 @@ class MaskSlotsMatchesBruteForceTest(chex.TestCase):
         path_indices = np.asarray(get_path_index_array(params, jnp.array([source, dest]))).astype(
             int
         )
-        paths = np.asarray(params.path_link_array.val)[path_indices]
-        se_array = np.asarray(params.path_se_array.val)
+        paths = np.asarray(params.path_link_array)[path_indices]
+        se_array = np.asarray(params.path_se_array)
         paths_se = se_array[np.clip(path_indices, 0, se_array.shape[0] - 1)]
         occupied = np.asarray(state.link_slot_array) != 0
         num_slots = params.link_resources
@@ -1307,7 +1296,7 @@ class FragmentationLoggingTest(chex.TestCase):
         chex.assert_trees_all_close(
             log_state.fragmentation, jnp.array(0, dtype=log_state.fragmentation.dtype)
         )
-        step = jax.jit(env.step, static_argnums=(3,))
+        step = jax.jit(env.step)
         _, log_state, _, _, _, info = step(key, log_state, jnp.array(0), params)
         expected = calculate_fragmentation(log_state.env_state.link_slot_array)
         chex.assert_trees_all_close(info["fragmentation"], expected)
@@ -1429,7 +1418,7 @@ class DeterministicReplayOrderTest(chex.TestCase):
         env, params = make(settings, log_wrapper=False)
         key = jax.random.PRNGKey(0)
         obs, state = env.reset(key, params)
-        step = jax.jit(env.step, static_argnums=(3,))
+        step = jax.jit(env.step)
         served = [np.asarray(state.request_array, dtype=np.float32)]
         for _ in range(2):
             _, state, *_ = step(key, state, jnp.array(0), params)
@@ -1459,14 +1448,14 @@ class GenerateRequestBwProbsTest(chex.TestCase):
 
     def test_weighted_sampling_matches_probs(self):
         key, env, obs, state, params = rsa_nsfnet_16_test_setup(values_bw_probs="0.7,0.2,0.1")
-        chex.assert_trees_all_close(jnp.sum(params.values_bw_probs.val), 1.0)
+        chex.assert_trees_all_close(jnp.sum(params.values_bw_probs), 1.0)
         freqs = self._empirical_bw_freqs(state, params, [1, 2, 3])
         chex.assert_trees_all_close(freqs, jnp.array([0.7, 0.2, 0.1]), atol=0.02)
 
     def test_relative_weights_are_normalised(self):
         key, env, obs, state, params = rsa_nsfnet_16_test_setup(values_bw_probs="7,2,1")
         chex.assert_trees_all_close(
-            params.values_bw_probs.val, jnp.array([0.7, 0.2, 0.1], dtype=jnp.float32)
+            params.values_bw_probs, jnp.array([0.7, 0.2, 0.1], dtype=jnp.float32)
         )
 
     def test_length_mismatch_raises(self):
@@ -1572,15 +1561,15 @@ class MakeGraphUnknownTopologyTest(chex.TestCase):
 
 def fixture(mode):
     c, env, p, s = setup("rmsa_gn_model", "lifetime_snr")
-    mods = p.modulations_array.val.at[:, 2].set(-100.0)
-    p = p.replace(gn_mask_mode=mode, modulations_array=HashableArrayWrapper(mods))
+    mods = p.modulations_array.at[:, 2].set(-100.0)
+    p = p.replace(gn_mask_mode=mode, modulations_array=mods)
     return c, env, p, s
 
 
 def reference_mask(s, p):
     """Unpruned ordinary-JAX all_slots mask (every format evaluated at every start)."""
     jax_params = p.replace(gn_kernel_backend="jax")
-    return jax.jit(partial(ef._mask_slots_rmsa_gn_model, prune_formats=False), static_argnums=1)(
+    return jax.jit(partial(ef._mask_slots_rmsa_gn_model, prune_formats=False))(
         s, jax_params, s.request_array
     )
 
@@ -1614,7 +1603,7 @@ class TestGetExistingSnrRequirements:
             # Live lightpaths depart in the future (none is held for release).
             link_slot_departure_array=jnp.full_like(s.link_slot_departure_array, 100.0),
         )
-        threshold = p.modulations_array.val[0, 2]
+        threshold = p.modulations_array[0, 2]
         headroom = jnp.array([-1.0, 0.0, 0.2, 1.0, 3.0, 50.0, 0.5, 0.0])
         baseline = jnp.broadcast_to(threshold + headroom, s.channel_centre_bw_array.shape)
         actual = get_existing_snr_requirements(s, p, baseline)
@@ -1635,8 +1624,8 @@ class TestGetExistingSnrRequirements:
 def retained_reserve_fixture():
     _, env, p, s = setup("rmsa_gn_model", "lifetime_snr")
     p = p.replace(gn_mask_mode="all_slots", raman_gain_slope=0.0)
-    mods = p.modulations_array.val.at[:, 2].set(-100.0)
-    p = p.replace(modulations_array=HashableArrayWrapper(mods))
+    mods = p.modulations_array.at[:, 2].set(-100.0)
+    p = p.replace(modulations_array=mods)
     s = s.replace(request_array=jnp.array([0, 100, 1]))
     s = with_mask(env, p, s)
     s = env.step(jax.random.PRNGKey(2), s, jnp.int32(0), p)[1]
@@ -1648,7 +1637,7 @@ def retained_reserve_fixture():
     fresh = s.replace(link_snr_array=get_snr_link_array(s, p))
     baseline = get_lightpath_snr(fresh, p)
     old_snr = float(np.asarray(baseline)[np.asarray(active)].min())
-    p = p.replace(modulations_array=HashableArrayWrapper(mods.at[0, 2].set(old_snr - 0.1)))
+    p = p.replace(modulations_array=mods.at[0, 2].set(old_snr - 0.1))
     # The reserve must use fresh physics, even for a heuristic with a stale cache.
     s = s.replace(link_snr_array=jnp.full_like(s.link_snr_array, 1e8))
     return env, p, s
@@ -1671,8 +1660,8 @@ class TestMaskSlotsRmsaGnModel:
         assert before > after
         # Put the old format's physical threshold between its pre/post-insertion
         # SNR. The new service uses another format with an unchanged threshold.
-        mods = p.modulations_array.val.at[0, 2].set((before + after) / 2)
-        p = p.replace(modulations_array=HashableArrayWrapper(mods))
+        mods = p.modulations_array.at[0, 2].set((before + after) / 2)
+        p = p.replace(modulations_array=mods)
         physical = mask_slots_rmsa_gn_model(s, p, s.request_array)
         assert not physical.link_slot_mask[action]
         assert physical.link_slot_mask[8]  # A disjoint candidate remains feasible.
@@ -1698,8 +1687,8 @@ class TestMaskSlotsRmsaGnModel:
         assert rejected.accepted_services == s.accepted_services
         assert accepted.accepted_services == s.accepted_services + 1
         # A physically failing old connection is still rejected globally.
-        bad_mods = reserve_p.modulations_array.val.at[0, 2].add(0.2)
-        failing_p = reserve_p.replace(modulations_array=HashableArrayWrapper(bad_mods))
+        bad_mods = reserve_p.modulations_array.at[0, 2].add(0.2)
+        failing_p = reserve_p.replace(modulations_array=bad_mods)
         failing = mask_slots_rmsa_gn_model(s, failing_p, s.request_array)
         assert not failing.link_slot_mask.any()
 
@@ -1720,9 +1709,9 @@ class TestMaskSlotsRmsaGnModel:
         _, env, p, s = fixture("all_slots")
         # Keep tied efficiencies and force the last/highest format to fail. Both
         # traversal orders must select the first valid format on an SE tie.
-        mods = p.modulations_array.val.at[-1, 2].set(1000.0)
+        mods = p.modulations_array.at[-1, 2].set(1000.0)
         mods = mods.at[1, 1].set(mods[0, 1])
-        p = p.replace(gn_mask_batch_size=batch_size, modulations_array=HashableArrayWrapper(mods))
+        p = p.replace(gn_mask_batch_size=batch_size, modulations_array=mods)
         s = s.replace(link_slot_array=s.link_slot_array.at[:, 4].set(-1))
         reference = reference_mask(s, p)
         actual = mask_slots_rmsa_gn_model(s, p, s.request_array)
@@ -1749,7 +1738,7 @@ class TestMaskSlotsRmsaGnModel:
             action = np.flatnonzero(np.asarray(s.link_slot_mask))[0]
             s = env.step(jax.random.PRNGKey(key), s, jnp.int32(action), p)[1]
         s = with_mask(env, p, s)
-        num_mods = p.modulations_array.val.shape[0]
+        num_mods = p.modulations_array.shape[0]
         actions = jnp.arange(p.k_paths * p.link_resources)
 
         def admitted(action, mod):
@@ -1772,7 +1761,7 @@ class TestMaskSlotsRmsaGnModel:
         if margin > 0:
             return
         np.testing.assert_array_equal(mask, table.any(axis=1))
-        se = np.asarray(p.modulations_array.val[:, 1])
+        se = np.asarray(p.modulations_array[:, 1])
         for action in np.flatnonzero(mask):
             best = max(np.flatnonzero(table[action]), key=lambda m: (se[m], -m))
             assert int(s.mod_format_mask[action]) == best
@@ -1793,15 +1782,15 @@ class TestMaskSlotsRmsaGnModel:
     def test_screened_power_reuse_preserves_the_exact_power_limit(pruning):
         _, _, p, state = fixture("all_slots")
         p = p.replace(gn_mask_batch_size=3)
-        power = p.slot_launch_power_array.val[0]
+        power = p.slot_launch_power_array[0]
         # Include both sides of the exact one-channel limit and the boundary itself.
         for limit in (jnp.nextafter(power, jnp.float32(0)), power, jnp.nextafter(power, jnp.inf)):
             q = p.replace(max_power_per_fibre=float(limit))
             reference = reference_mask(state, q)
             kernel = q.replace(gn_kernel_backend="pallas")
-            actual = jax.jit(
-                partial(ef._mask_slots_rmsa_gn_model, prune_formats=pruning), static_argnums=1
-            )(state, kernel, state.request_array)
+            actual = jax.jit(partial(ef._mask_slots_rmsa_gn_model, prune_formats=pruning))(
+                state, kernel, state.request_array
+            )
             np.testing.assert_array_equal(actual.link_slot_mask, reference.link_slot_mask)
             np.testing.assert_array_equal(actual.mod_format_mask, reference.mod_format_mask)
 
@@ -1863,7 +1852,7 @@ class TestMaskSlotsRmsaGnModel:
         _, env, p, s = setup("rmsa_gn_model", "lifetime_snr")
         p = p.replace(gn_mask_mode="all_slots", gn_kernel_backend=backend)
         ff = p.replace(gn_mask_first_fit=first_fit)
-        order = np.asarray(p.band_slot_order_ff.val)
+        order = np.asarray(p.band_slot_order_ff)
         order = order if len(order) else np.arange(p.link_resources)
         for key in range(4):
             full = mask_slots_rmsa_gn_model(s, p, s.request_array)
@@ -1923,8 +1912,8 @@ class TestMaskSlotsRmsaGnModel:
     @staticmethod
     def test_selected_slot_falls_back_to_physically_valid_modulation():
         _, env, p, s = fixture("selected_slot")
-        mods = p.modulations_array.val.at[1:, 2].set(1000.0)
-        p = p.replace(modulations_array=HashableArrayWrapper(mods))
+        mods = p.modulations_array.at[1:, 2].set(1000.0)
+        p = p.replace(modulations_array=mods)
         s = with_mask(env, p, s)
         assert s.link_slot_mask[3]
         _, next_state, reward, *_ = env.step(jax.random.PRNGKey(8), s, jnp.array(3), p)
@@ -1937,8 +1926,8 @@ class TestMaskSlotsRmsaGnModel:
     def test_selected_slot_resolution_under_env_vmap():
         """Environments needing different numbers of fallback formats batch correctly."""
         _, env, p, s = fixture("selected_slot")
-        mods = p.modulations_array.val.at[1:, 2].set(1000.0)
-        p = p.replace(modulations_array=HashableArrayWrapper(mods))
+        mods = p.modulations_array.at[1:, 2].set(1000.0)
+        p = p.replace(modulations_array=mods)
         s = with_mask(env, p, s)
         actions = jnp.array([3, 5, 3])
         states = jax.tree.map(lambda x: jnp.stack([x, x, x]), s)
@@ -1954,8 +1943,8 @@ class TestMaskSlotsRmsaGnModel:
     @staticmethod
     def test_selected_slot_physical_rejection_rolls_back_and_counts_blocking():
         _, env, p, s = fixture("selected_slot")
-        mods = p.modulations_array.val.at[:, 2].set(1000.0)
-        p = p.replace(modulations_array=HashableArrayWrapper(mods))
+        mods = p.modulations_array.at[:, 2].set(1000.0)
+        p = p.replace(modulations_array=mods)
         s = with_mask(env, p, s)
         assert s.link_slot_mask[3]  # Physical feasibility is intentionally deferred.
         _, next_state, reward, *_ = env.step(jax.random.PRNGKey(9), s, jnp.array(3), p)
@@ -2008,7 +1997,7 @@ def departure_fixture(relative):
     survivor = (s.channel_centre_bw_array != 0) & (jnp.arange(16) < 8)[None, :]
     departing = (s.channel_centre_bw_array != 0) & ~survivor
     # The departing lightpath has its own format so its threshold can differ.
-    num_mods = p.modulations_array.val.shape[0]
+    num_mods = p.modulations_array.shape[0]
     s = s.replace(
         modulation_format_index_array=jnp.where(departing, num_mods - 1, 0).astype(
             s.modulation_format_index_array.dtype
@@ -2031,8 +2020,8 @@ def departure_fixture(relative):
     )
     # Survivor threshold between its SNR before and after the departure; the
     # departing lightpath's own threshold is unattainable (it no longer matters).
-    mods = p.modulations_array.val.at[0, 2].set((before + after) / 2).at[-1, 2].set(1000.0)
-    p = p.replace(incremental_loading=False, modulations_array=HashableArrayWrapper(mods))
+    mods = p.modulations_array.at[0, 2].set((before + after) / 2).at[-1, 2].set(1000.0)
+    p = p.replace(incremental_loading=False, modulations_array=mods)
     return env, p, s, survivor, departing, fresh_snr, (before, after)
 
 
@@ -2043,7 +2032,7 @@ class TestSafeReleaseDepartures:
         _, p, s, survivor, _, fresh_snr, _ = departure_fixture(relative)
         p = p.replace(departure_policy="immediate")
         nxt = generate_request_rsa(jax.random.PRNGKey(1), s, p)
-        threshold = float(p.modulations_array.val[0, 2])
+        threshold = float(p.modulations_array[0, 2])
         assert int(jnp.sum(nxt.channel_centre_bw_array != 0)) == int(jnp.sum(survivor))
         assert fresh_snr(nxt, p)[np.asarray(survivor)].min() < threshold
         # Outage: with fresh physics every later admission now fails the global check.
@@ -2056,7 +2045,7 @@ class TestSafeReleaseDepartures:
         env, p, s, survivor, departing, fresh_snr, (before, after) = departure_fixture(relative)
         safe = p.replace(departure_policy="safe_release")
         held = generate_request_rsa(jax.random.PRNGKey(1), s, safe)
-        threshold = float(safe.modulations_array.val[0, 2])
+        threshold = float(safe.modulations_array[0, 2])
         # The departing lightpath stays lit, so the survivor keeps its SNR.
         np.testing.assert_array_equal(held.channel_centre_bw_array != 0, survivor | departing)
         assert int(jnp.sum(held_lightpath_mask(held, safe))) == int(jnp.sum(departing))
@@ -2069,8 +2058,8 @@ class TestSafeReleaseDepartures:
         held_slots = np.flatnonzero(np.asarray(departing).any(axis=0))  # Path 0 actions.
         assert not np.asarray(mask)[held_slots].any() and np.asarray(mask)[8]
         # Once switching off is safe, the next arrival releases it.
-        relaxed_mods = safe.modulations_array.val.at[0, 2].set(after - 0.05)
-        relaxed = safe.replace(modulations_array=HashableArrayWrapper(relaxed_mods))
+        relaxed_mods = safe.modulations_array.at[0, 2].set(after - 0.05)
+        relaxed = safe.replace(modulations_array=relaxed_mods)
         released = generate_request_rsa(jax.random.PRNGKey(2), held, relaxed)
         np.testing.assert_array_equal(released.channel_centre_bw_array != 0, survivor)
         assert not bool(held_lightpath_mask(released, relaxed).any())

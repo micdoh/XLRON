@@ -319,7 +319,7 @@ def learner_setup(env, env_params, config):
     rng = jax.random.PRNGKey(config.SEED)
     rng, step_rng, reset_rng, network_key, warmup_key = jax.random.split(rng, 5)
 
-    @partial(jax.jit, static_argnums=(1,))
+    @jax.jit
     def init_obsv_and_state(_reset_rng, _env_params):
         obsv, env_state = env.reset(_reset_rng, _env_params)
         obsv = (env_state.env_state, env_params) if config.USE_GNN else tuple([obsv])

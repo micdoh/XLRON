@@ -93,7 +93,7 @@ class SpectrumLinkEncoder(eqx.Module):
         start, slots = self.num_wire_features, params.link_resources
         status = tokens[:, start : start + slots]
         quality = tokens[:, start + slots : start + 2 * slots]
-        frequency = params.slot_centre_freq_array.val
+        frequency = params.slot_centre_freq_array
         frequency = frequency / jnp.maximum(jnp.max(jnp.abs(frequency)), 1.0)
         raw = jnp.stack((status, quality, jnp.broadcast_to(frequency, status.shape)), axis=-1)
 

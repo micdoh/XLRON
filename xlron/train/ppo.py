@@ -25,6 +25,7 @@ from xlron.train.train_utils import (
     LossDiagnostics,
     TrainState,
     cast_model_for_compute,
+    model_inputs,
     select_action,
     steps_per_train_state_unit,
 )
@@ -184,9 +185,7 @@ def _env_step(
     # initial state's all-ones mask and valid_mass=1.0 in the stored transition.
     acting_state = env_state.env_state
     transition_obs = (
-        (acting_state, env_params)
-        if config.get("transformer_modulation_features", False)
-        else last_obs
+        (acting_state,) if config.get("transformer_modulation_features", False) else last_obs
     )
 
     obsv, env_state, reward, terminal, truncated, info = jit_profiler.call(
@@ -196,11 +195,7 @@ def _env_step(
     reward = reward * config.REWARD_SCALE
 
     # PROCESS OBS AND TRANSITION
-    obsv = (
-        (env_state.env_state, env_params)
-        if config.USE_GNN or config.USE_TRANSFORMER
-        else tuple([obsv])
-    )
+    obsv = (env_state.env_state,) if config.USE_GNN or config.USE_TRANSFORMER else tuple([obsv])
 
     # Create transition based on environment type
     if config.env_type.lower() == "vone":
@@ -455,17 +450,16 @@ def _env_rollout_advantages(
 
     # CALCULATE ADVANTAGE
     train_state, env_state, last_obs, _, rng_epoch = runner_state
-    last_obs = (
-        (env_state.env_state, env_params) if config.USE_GNN or config.USE_TRANSFORMER else last_obs
-    )
-    axes = (0, None) if config.USE_GNN or config.USE_TRANSFORMER else (0,)
+    last_obs = (env_state.env_state,) if config.USE_GNN or config.USE_TRANSFORMER else last_obs
     # With Equinox, the model is called directly
     model = eqx.combine(train_state.model_params, train_state.model_static)
     model = cast_model_for_compute(
         model
     )  # mixed-precision compute (no-op unless COMPUTE_DTYPE set)
     _, last_val = (
-        jax.vmap(model, in_axes=axes)(*last_obs) if (config.NUM_ENVS > 1) else model(*last_obs)
+        jax.vmap(lambda *obs: model(*model_inputs(obs, env_params, config)))(*last_obs)
+        if (config.NUM_ENVS > 1)
+        else model(*model_inputs(last_obs, env_params, config))
     )
 
     # Compute advantages here so they can be used to prioritize trajectories with high absolute advantage estimates
@@ -689,6 +683,7 @@ def _recompute_vtrace_advantages(
     traj_batch: RSATransition | VONETransition,
     last_val: Array,
     config: Box,
+    env_params: EnvParams | None = None,
 ) -> Tuple[Array, Array]:
     """Recompute VTrace advantages and value targets over the temporally-ordered rollout.
 
@@ -720,8 +715,7 @@ def _recompute_vtrace_advantages(
         if config.NUM_ENVS > 1
         else traj_batch
     )
-    axes = (0, None) if config.USE_GNN or config.USE_TRANSFORMER else (0,)
-    pi, _ = jax.vmap(model, in_axes=axes)(*flat_batch.obs)
+    pi, _ = jax.vmap(lambda *obs: model(*model_inputs(obs, env_params, config)))(*flat_batch.obs)
     log_prob, _, recenter_clip = _policy_log_prob_entropy(pi, flat_batch, config)
     ratio = _importance_ratio(log_prob, flat_batch, recenter_clip, config)
     # Restore time-major (ROLLOUT_LENGTH, NUM_ENVS) layout for the reverse-time scan
@@ -744,6 +738,7 @@ def _loss_fn(
     train_state: TrainState,
     batch_info: Tuple[RSATransition | VONETransition, Array, Array, Array],
     config: Box,
+    env_params: EnvParams | None = None,
 ) -> Tuple[
     Array,
     Tuple[Array, Array, Array, Array, Array, Array, Array, Array, LossDiagnostics],
@@ -756,8 +751,9 @@ def _loss_fn(
     # Mixed-precision compute: cast the (float32 master) weights to COMPUTE_DTYPE for the forward.
     # This is inside the differentiated region, so gradients flow back to the float32 master.
     model = cast_model_for_compute(model)
-    axes = (0, None) if config.USE_GNN or config.USE_TRANSFORMER else (0,)
-    pi, value = jax.vmap(model, in_axes=axes)(*traj_batch.obs)
+    pi, value = jax.vmap(lambda *obs: model(*model_inputs(obs, env_params, config)))(
+        *traj_batch.obs
+    )
 
     # HANDLE DIFFERENT ACTION TYPES FOR OPTICAL NETWORKS
     log_prob, entropy, recenter_clip = _policy_log_prob_entropy(pi, traj_batch, config, targets)
@@ -996,6 +992,7 @@ def _update_minibatch(
     train_state: TrainState,
     batch_info: Tuple[RSATransition | VONETransition, Array, Array, Array],
     config: Box,
+    env_params: EnvParams | None = None,
 ) -> Tuple[TrainState, Tuple[Array, ...]]:
     """Update on a single minibatch. Called via scan with closure wrapper."""
     model = eqx.combine(train_state.model_params, train_state.model_static)
@@ -1006,6 +1003,7 @@ def _update_minibatch(
         train_state,
         batch_info,
         config,
+        env_params,
     )
     train_state = train_state.apply_gradients(grads=grads)
     train_state = eqx.tree_at(
@@ -1024,6 +1022,7 @@ def _update_epoch(
     update_state: UpdateState,
     unused: Any,
     config: Box,
+    env_params: EnvParams | None = None,
 ) -> Tuple[UpdateState, Tuple[Array, ...]]:
     """Single epoch of minibatch updates. Called via scan with closure wrapper."""
     (train_state, traj_batch, adv, targets, last_val, rng_step, rng_epoch, priorities) = (
@@ -1039,7 +1038,13 @@ def _update_epoch(
     # adv/targets) so the carry structure/dtypes stay stable across epochs.
     if config.RHO_CLIP > 0 and config.C_CLIP > 0:
         adv_epoch, targets_epoch = jit_profiler.call(
-            config.PROFILE, _recompute_vtrace_advantages, train_state, traj_batch, last_val, config
+            config.PROFILE,
+            _recompute_vtrace_advantages,
+            train_state,
+            traj_batch,
+            last_val,
+            config,
+            env_params,
         )
     else:
         adv_epoch, targets_epoch = adv, targets
@@ -1058,7 +1063,9 @@ def _update_epoch(
 
     # Scan-compatible wrapper
     def _update_minibatch_wrapper(train_state, batch_info):
-        return jit_profiler.call(config.PROFILE, _update_minibatch, train_state, batch_info, config)
+        return jit_profiler.call(
+            config.PROFILE, _update_minibatch, train_state, batch_info, config, env_params
+        )
 
     train_state, total_loss = jax.lax.scan(_update_minibatch_wrapper, train_state, batch_info)
 
@@ -1105,7 +1112,9 @@ def _update_step(
     )
 
     def _update_epoch_wrapper(update_state, unused):
-        return jit_profiler.call(config.PROFILE, _update_epoch, update_state, unused, config)
+        return jit_profiler.call(
+            config.PROFILE, _update_epoch, update_state, unused, config, env_params
+        )
 
     update_state, loss_info_arrays = jax.lax.scan(
         _update_epoch_wrapper, update_state, None, config.UPDATE_EPOCHS

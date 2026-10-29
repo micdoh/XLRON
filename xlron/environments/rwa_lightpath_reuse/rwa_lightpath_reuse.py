@@ -88,13 +88,7 @@ class RWALightpathReuseEnv(RSAEnv):
         )
         self.initial_state = state.replace(graph=init_graph_tuple(state, params, laplacian_matrix))
 
-    @partial(
-        jax.jit,
-        static_argnums=(
-            0,
-            2,
-        ),
-    )
+    @partial(jax.jit, static_argnums=(0,))
     def action_mask(self, state: RSAEnvState, params: RSAEnvParams):
         """Returns mask of valid actions.
 

@@ -11,7 +11,7 @@ import numpy as np
 import pytest
 
 from xlron.environments import env_funcs
-from xlron.environments.dataclasses import HashableArrayWrapper, RMSAGNModelEnvParams
+from xlron.environments.dataclasses import RMSAGNModelEnvParams
 from xlron.environments.make_env import make
 
 ON_GPU = jax.default_backend() == "gpu"
@@ -48,7 +48,7 @@ def test_pallas_mask_matches_jax_with_snr_margin_power_and_existing_path_checks(
         state = state.replace(link_slot_mask=mask, mod_format_mask=mods)
         _, state, *_ = env.step(jax.random.PRNGKey(step), state, jnp.argmax(mask), params)
     assert np.any(np.asarray(state.channel_power_array) > 0)
-    mods = params.modulations_array.val
+    mods = params.modulations_array
     rejecting_thresholds = mods.at[:, 2].set(1000)
     existing_mod = int(
         np.asarray(state.modulation_format_index_array)[np.asarray(state.path_index_array) >= 0][0]
@@ -56,10 +56,10 @@ def test_pallas_mask_matches_jax_with_snr_margin_power_and_existing_path_checks(
     existing_thresholds = mods.at[:, 2].set(-1000).at[existing_mod, 2].set(1000)
     variants = [
         params,
-        params.replace(modulations_array=HashableArrayWrapper(rejecting_thresholds)),
+        params.replace(modulations_array=rejecting_thresholds),
         params.replace(snr_margin=1000),
         params.replace(max_power_per_fibre=0.0),
-        params.replace(modulations_array=HashableArrayWrapper(existing_thresholds)),
+        params.replace(modulations_array=existing_thresholds),
     ]
     expected = [tuple(np.asarray(x) for x in env.action_mask(state, p)) for p in variants]
     assert np.any(expected[0][0])
