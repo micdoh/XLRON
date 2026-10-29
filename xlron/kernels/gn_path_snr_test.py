@@ -11,7 +11,6 @@ import numpy as np
 import pytest
 
 from xlron.environments.dataclasses import (
-    HashableArrayWrapper,
     RMSAGNModelEnvParams,
 )
 from xlron.environments.env_funcs import (
@@ -37,7 +36,7 @@ def test_packed_old_path_still_rejects_degradation_on_another_shared_link(reuse)
     )
     params = cast(RMSAGNModelEnvParams, params)
     _, empty = env.reset(jax.random.PRNGKey(0), params)
-    paths = np.asarray(params.path_link_indices.val)
+    paths = np.asarray(params.path_link_indices)
     pid = int(np.flatnonzero(np.sum(paths < params.num_links, axis=1) >= 2)[0])
     links = jnp.asarray(paths[pid][paths[pid] < params.num_links])
     old_slot, new_slot = 3, 9
@@ -107,7 +106,7 @@ def test_unaffected_path_reuse_preserves_existing_rejection(bad_baseline):
     )
     params = cast(RMSAGNModelEnvParams, params)
     _, empty = env.reset(jax.random.PRNGKey(0), params)
-    paths = np.asarray(params.path_link_indices.val)
+    paths = np.asarray(params.path_link_indices)
     live_paths = [i for i, row in enumerate(paths) if np.sum(row < params.num_links) >= 2]
     old, new = next(
         (a, b)
@@ -135,7 +134,7 @@ def test_unaffected_path_reuse_preserves_existing_rejection(bad_baseline):
         channel_centre_bw_array=state.channel_centre_bw_array.at[new_links, 9].set(12.5),
     )
     affected = jnp.zeros_like(state.path_index_array, bool).at[new_links, 9].set(True)
-    overlap = jnp.any(jnp.isin(params.path_link_indices.val, new_links), axis=-1)
+    overlap = jnp.any(jnp.isin(params.path_link_indices, new_links), axis=-1)
     baseline = get_lightpath_snr(state, params)
     expected = get_candidate_snr_evidence(state, candidate, affected, params)
     actual = jax.jit(
@@ -170,16 +169,14 @@ def test_full_path_snr_with_roadm_and_transceivers(express_loss):
     if express_loss is not None:
         # 0 dB express loss divides by (G - 1) = 0 in both implementations.
         params = params.replace(
-            roadm_express_loss=HashableArrayWrapper(
-                jnp.full_like(params.roadm_express_loss.val, express_loss)
-            )
+            roadm_express_loss=jnp.full_like(params.roadm_express_loss, express_loss)
         )
     rng = np.random.default_rng(7)
     shape = state.link_snr_array.shape
     state = state.replace(
         link_snr_array=jnp.asarray(rng.uniform(1, 100, shape).astype(np.float32)),
         path_index_array=jnp.asarray(
-            rng.integers(-1, params.path_link_indices.val.shape[0] - 1, shape, dtype=np.int32)
+            rng.integers(-1, params.path_link_indices.shape[0] - 1, shape, dtype=np.int32)
         ),
         channel_power_array=jnp.full(shape, 1e-4),
         channel_centre_bw_array=jnp.full(shape, 12.5),
@@ -216,7 +213,7 @@ def test_reduced_candidate_evidence_keeps_all_original_predicates(mode, mask_dty
     affected[::2, :] = False  # Exercise completely empty tiles and padded tails.
     if mode == "empty":
         old_bw[:] = affected[:] = False
-    mods = params.modulations_array.val
+    mods = params.modulations_array
     thresholds = {
         "accept": -1000,
         "reject": 1000,
@@ -225,9 +222,7 @@ def test_reduced_candidate_evidence_keeps_all_original_predicates(mode, mask_dty
         "negative_inf": -jnp.inf,
     }
     if mode in thresholds:
-        params = params.replace(
-            modulations_array=HashableArrayWrapper(mods.at[:, 2].set(thresholds[mode]))
-        )
+        params = params.replace(modulations_array=mods.at[:, 2].set(thresholds[mode]))
     state = state.replace(
         # Every existing lightpath departs in the future (none is held for release).
         link_slot_departure_array=jnp.full(shape, 100.0, state.link_slot_departure_array.dtype),
@@ -239,7 +234,7 @@ def test_reduced_candidate_evidence_keeps_all_original_predicates(mode, mask_dty
     candidate = state.replace(
         link_snr_array=jnp.asarray(rng.uniform(1, 100, shape).astype(np.float32)).at[0, 0].set(0),
         path_index_array=jnp.asarray(
-            rng.integers(-1, params.path_link_indices.val.shape[0] - 1, shape, dtype=np.int32)
+            rng.integers(-1, params.path_link_indices.shape[0] - 1, shape, dtype=np.int32)
         ),
         channel_power_array=jnp.full(shape, 1e-4),
         channel_centre_bw_array=jnp.full(shape, 12.5),
@@ -278,7 +273,7 @@ def test_candidate_delta_matches_the_materialised_candidate(reuse):
     _, state = env.reset(jax.random.PRNGKey(0), params)
     shape = state.link_snr_array.shape
     num_links, slots = shape
-    paths = np.asarray(params.path_link_indices.val)
+    paths = np.asarray(params.path_link_indices)
     rng = np.random.default_rng(5)
     occupied = rng.random(shape) < 0.3
     state = state.replace(

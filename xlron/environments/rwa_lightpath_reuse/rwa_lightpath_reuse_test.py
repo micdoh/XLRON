@@ -172,7 +172,7 @@ class CheckLightpathAvailableAndExistingTest(chex.TestCase):
         state = self.state.replace(path_index_array=path_index_array, request_array=request)
         action_info = self.env.process_action(state, action, self.params)
         result_available, result_existing, curr_lightpath_capacity, lightpath_index = self.variant(
-            check_lightpath_available_and_existing, static_argnums=(2,)
+            check_lightpath_available_and_existing
         )(state, action_info, self.params)
         jax.debug.print("request_array {}", state.request_array, ordered=True)
         jax.debug.print("state.path_capacity_array {}", state.path_capacity_array, ordered=True)
@@ -568,9 +568,7 @@ class MaskSlotsRWALightpathReuseTest(chex.TestCase):
         state = self.state.replace(
             link_capacity_array=link_capacity_array, path_index_array=path_index_array
         )
-        link_slot_mask, _ = self.variant(mask_slots_rwalr, static_argnums=(1,))(
-            state, self.params, request
-        )
+        link_slot_mask, _ = self.variant(mask_slots_rwalr)(state, self.params, request)
         jax.debug.print("link_slot_mask {}", link_slot_mask, ordered=True)
         jax.debug.print("expected {}", expected, ordered=True)
         chex.assert_trees_all_close(link_slot_mask, expected)
@@ -641,9 +639,9 @@ class RWALightpathReuseTest(chex.TestCase):
             remaining_capacity = (
                 env_state.link_capacity_array
             )  # capture to avoid being reset to initial state
-            obsv, env_state, reward, terminal, truncated, info = self.variant(
-                self.env.step, static_argnums=(3)
-            )(rng_step, env_state, action, self.params)
+            obsv, env_state, reward, terminal, truncated, info = self.variant(self.env.step)(
+                rng_step, env_state, action, self.params
+            )
             jax.debug.print("action mask {}", env_state.link_slot_mask, ordered=True)
             jax.debug.print("action {}", action, ordered=True)
             jax.debug.print("reward {}", reward, ordered=True)
@@ -682,9 +680,7 @@ class AggregateSlotsMaskTest(chex.TestCase):
         self.assertTrue(bool(jnp.any(mask > 0)))
         state = state.replace(link_slot_mask=mask, full_link_slot_mask=full_mask)
         action = jnp.argmax(mask)  # first valid aggregated action
-        _, state, reward, terminal, _, _ = jax.jit(env.step, static_argnums=(3,))(
-            key, state, action, params
-        )
+        _, state, reward, terminal, _, _ = jax.jit(env.step)(key, state, action, params)
         # The step must implement a real (in-range) slot: exactly one lightpath placed
         self.assertTrue(bool(jnp.any(state.path_index_array >= 0)))
 
@@ -698,7 +694,7 @@ class OverCapacityRejectionTest(chex.TestCase):
 
     def test_repeated_action_stops_being_accepted_at_zero_capacity(self):
         key, env, obs, state, params = rwa_lightpath_reuse_4_nsfnet_test_setup()
-        step = jax.jit(env.step, static_argnums=(3,))
+        step = jax.jit(env.step)
         # Fix the request so every step asks for the same 100 on the same source-dest
         request = state.request_array
         action = jnp.array(0)  # first path, first slot
@@ -757,9 +753,7 @@ class MixedPrecisionCarryTest(chex.TestCase):
                 link_slot_mask=mask.astype(dtype_config.MASK_DTYPE),
                 full_link_slot_mask=full_mask.astype(dtype_config.MASK_DTYPE),
             )
-            _, state, *_ = jax.jit(env.step, static_argnums=(3,))(
-                key, state, jnp.argmax(mask), params
-            )
+            _, state, *_ = jax.jit(env.step)(key, state, jnp.argmax(mask), params)
             self.assertEqual(state.link_slot_array.dtype, init_dtype)
         finally:
             # initialize_dtypes mutates module globals; restore defaults for other tests
@@ -795,7 +789,7 @@ class DynamicExpiryCapacityRestoreTest(chex.TestCase):
         mask, full_mask = env.action_mask(state, params)
         self.assertTrue(bool(jnp.any(mask > 0)))
         state = state.replace(link_slot_mask=mask, full_link_slot_mask=full_mask)
-        _, state, *_ = jax.jit(env.step, static_argnums=(3,))(key, state, jnp.argmax(mask), params)
+        _, state, *_ = jax.jit(env.step)(key, state, jnp.argmax(mask), params)
         occupied = state.path_index_array != -1
         self.assertTrue(bool(jnp.any(occupied)))
         self.assertLess(float(state.link_capacity_array[occupied].min()), 1e6)

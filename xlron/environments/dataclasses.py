@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Any, Callable, Dict, Generic, Sequence, Tuple, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, Dict, Sequence, Tuple
 
 import chex
 import jraph
@@ -20,52 +20,6 @@ else:
 
 
 Shape = Sequence[int]
-T = TypeVar("T")  # Declare type variable
-
-
-class HashableArrayWrapper(Generic[T]):
-    """Wrapper for making arrays hashable.
-    In order to access pre-computed data, such as shortest paths between node-pairs or the constituent links of a path,
-    within a jitted function, we need to make the arrays containing this data hashable. By defining this wrapper, we can
-    define a __hash__ method that returns a hash of the array's bytes, thus making the array hashable.
-    From: https://github.com/google/jax/issues/4572#issuecomment-709677518
-    """
-
-    def __init__(self, val: Array):
-        self.val = val
-
-    def __getattribute__(self, prop):
-        if prop == "val" or prop == "__hash__" or prop == "__eq__":
-            return super(HashableArrayWrapper, self).__getattribute__(prop)
-        return getattr(self.val, prop)
-
-    def __getitem__(self, key):
-        return self.val[key]
-
-    def __setitem__(self, key, val):
-        self.val[key] = val
-        object.__getattribute__(self, "__dict__").pop("_hash", None)
-
-    def __hash__(self):
-        # Hashing copies the array to host, and every nested jit with static params
-        # rehashes it during tracing (950 MB for the USA100 k=70 path table), so cache.
-        cache = object.__getattribute__(self, "__dict__")
-        cached = cache.get("_hash")
-        if cached is None or cached[0] is not self.val:
-            cached = (self.val, hash(self.val.tobytes()))
-            cache["_hash"] = cached
-        return cached[1]
-
-    def __eq__(self, other):
-        if isinstance(other, HashableArrayWrapper):
-            return self.__hash__() == other.__hash__()
-        if other is None:
-            # Optional wrapper fields (e.g. values_bw_probs) compare against None
-            # during jit-cache equality checks of static params
-            return False
-
-        f = getattr(self.val, "__eq__")
-        return f(self, other)
 
 
 @struct.dataclass
@@ -140,17 +94,20 @@ class EnvParams(_StructBase):
     end_first_blocking: bool = struct.field(pytree_node=False)
     terminate_on_episode_end: bool = struct.field(pytree_node=False)
     continuous_operation: bool = struct.field(pytree_node=False)
-    edges: HashableArrayWrapper = struct.field(pytree_node=False)
+    edges: Array = struct.field(pytree_node=True)
     slot_size: int = struct.field(pytree_node=False)
     consider_modulation_format: bool = struct.field(pytree_node=False)
-    link_length_array: HashableArrayWrapper = struct.field(pytree_node=False)
+    link_length_array: Array = struct.field(pytree_node=True)
     aggregate_slots: int = struct.field(pytree_node=False)
     guardband: int = struct.field(pytree_node=False)
     directed_graph: bool = struct.field(pytree_node=False)
     maximise_throughput: bool = struct.field(pytree_node=False)
     reward_type: str = struct.field(pytree_node=False)
-    values_bw: HashableArrayWrapper = struct.field(pytree_node=False)
-    values_bw_probs: HashableArrayWrapper | None = struct.field(pytree_node=False)
+    values_bw: Array = struct.field(pytree_node=True)
+    # Smallest/largest bandwidth request, static for host-side sizing under jit
+    min_bw: float = struct.field(pytree_node=False)
+    max_bw: float = struct.field(pytree_node=False)
+    values_bw_probs: Array | None = struct.field(pytree_node=True)
     truncate_holding_time: bool = struct.field(pytree_node=False)
     traffic_array: bool = struct.field(pytree_node=False)
     pack_path_bits: bool = struct.field(pytree_node=False)
@@ -158,10 +115,10 @@ class EnvParams(_StructBase):
     temperature: float = struct.field(pytree_node=False)
     differentiable: bool = struct.field(pytree_node=False)
     num_spectral_features: int = struct.field(pytree_node=False)
-    line_graph_spectral_features: HashableArrayWrapper | None = struct.field(pytree_node=False)
-    path_link_array: HashableArrayWrapper = struct.field(pytree_node=False)
-    path_se_array: HashableArrayWrapper = struct.field(pytree_node=False)
-    unique_se_values: HashableArrayWrapper = struct.field(pytree_node=False)
+    line_graph_spectral_features: Array | None = struct.field(pytree_node=True)
+    path_link_array: Array = struct.field(pytree_node=True)
+    path_se_array: Array = struct.field(pytree_node=True)
+    unique_se_values: Array = struct.field(pytree_node=True)
     k_paths: int = struct.field(pytree_node=False)
     link_resources: int = struct.field(pytree_node=False)
     k_paths: int = struct.field(pytree_node=False)
@@ -177,7 +134,7 @@ class EnvParams(_StructBase):
     # Pre-computed CDF of the flattened traffic matrix for inverse-CDF source-dest
     # sampling in generate_request_rsa/_rwalr (avoids a per-step cumsum). None when
     # the matrix is not fixed across resets (random_traffic) or unused (traffic_array).
-    traffic_cdf: HashableArrayWrapper | None = struct.field(pytree_node=False)
+    traffic_cdf: Array | None = struct.field(pytree_node=True)
 
 
 @struct.dataclass
@@ -257,6 +214,8 @@ class RSAEnvParams(EnvParams):
     """
 
     max_slots: chex.Scalar = struct.field(pytree_node=False)
+    # Least spectral efficiency any request can be served at (1 without modulation)
+    min_se: float = struct.field(pytree_node=False)
     deterministic_requests: bool = struct.field(pytree_node=False)
     multiple_topologies: bool = struct.field(pytree_node=False)
     log_actions: bool = struct.field(pytree_node=False)
@@ -303,7 +262,8 @@ class RWALightpathReuseEnvState(RSAEnvState):
 
 @struct.dataclass
 class RWALightpathReuseEnvParams(RSAEnvParams):
-    pass
+    # Per-path capacity before any allocation (link-weight heuristics)
+    initial_path_capacity_array: Array = struct.field(pytree_node=True)
 
 
 @struct.dataclass
@@ -326,10 +286,10 @@ class GNModelEnvParams(RSAEnvParams):
     """Dataclass to hold environment state for GN model environments."""
 
     # Padded constituent link indices, (num_paths, max_path_hops); num_links is padding.
-    path_link_indices: HashableArrayWrapper = struct.field(pytree_node=False)
+    path_link_indices: Array = struct.field(pytree_node=True)
     # Per-path total length (metres) and its maxima, precomputed so that steps never
     # reduce over the whole path table (it is a runtime argument, not a folded constant).
-    path_length_array: HashableArrayWrapper = struct.field(pytree_node=False)
+    path_length_array: Array = struct.field(pytree_node=True)
     max_path_length: chex.Scalar = struct.field(pytree_node=False)
     max_path_hops: chex.Scalar = struct.field(pytree_node=False)
     ref_lambda: chex.Scalar = struct.field(pytree_node=False)
@@ -341,15 +301,15 @@ class GNModelEnvParams(RSAEnvParams):
     attenuation_bar: chex.Scalar = struct.field(pytree_node=False)
     dispersion_coeff: chex.Scalar = struct.field(pytree_node=False)
     dispersion_slope: chex.Scalar = struct.field(pytree_node=False)
-    transceiver_snr: HashableArrayWrapper = struct.field(pytree_node=False)
-    amplifier_noise_figure: HashableArrayWrapper = struct.field(pytree_node=False)
+    transceiver_snr: Array = struct.field(pytree_node=True)
+    amplifier_noise_figure: Array = struct.field(pytree_node=True)
     coherent: bool = struct.field(pytree_node=False)
     num_roadms: chex.Scalar = struct.field(pytree_node=False)
     roadm_loss: chex.Scalar = struct.field(pytree_node=False)
     span_lumped_loss_db: chex.Scalar | None = struct.field(pytree_node=False)
-    roadm_express_loss: HashableArrayWrapper = struct.field(pytree_node=False)
-    roadm_add_drop_loss: HashableArrayWrapper = struct.field(pytree_node=False)
-    roadm_noise_figure: HashableArrayWrapper = struct.field(pytree_node=False)
+    roadm_express_loss: Array = struct.field(pytree_node=True)
+    roadm_add_drop_loss: Array = struct.field(pytree_node=True)
+    roadm_noise_figure: Array = struct.field(pytree_node=True)
     num_spans: chex.Scalar = struct.field(pytree_node=False)
     launch_power_type: str = struct.field(pytree_node=False)
     snr_margin: chex.Scalar = struct.field(pytree_node=False)
@@ -361,41 +321,41 @@ class GNModelEnvParams(RSAEnvParams):
     max_power_per_fibre: chex.Scalar = struct.field(pytree_node=False)
     default_launch_power: chex.Scalar = struct.field(pytree_node=False)
     power_per_channel: chex.Scalar = struct.field(pytree_node=False)  # linear Watts
-    slot_launch_power_array: HashableArrayWrapper = struct.field(
-        pytree_node=False
+    slot_launch_power_array: Array = struct.field(
+        pytree_node=True
     )  # (link_resources,): per-slot launch power in linear Watts
     mod_format_correction: bool = struct.field(pytree_node=False)
-    gap_starts: HashableArrayWrapper = struct.field(pytree_node=False)
-    gap_widths: HashableArrayWrapper = struct.field(pytree_node=False)
+    gap_starts: Array = struct.field(pytree_node=True)
+    gap_widths: Array = struct.field(pytree_node=True)
     uniform_spans: bool = struct.field(pytree_node=False)
     min_snr: chex.Scalar = struct.field(pytree_node=False)
     fec_threshold: chex.Scalar = struct.field(pytree_node=False)
-    band_slot_order_ff: HashableArrayWrapper = struct.field(
-        pytree_node=False
+    band_slot_order_ff: Array = struct.field(
+        pytree_node=True
     )  # Slot permutation for band-preference first-fit (empty if unused)
-    band_slot_order_lf: HashableArrayWrapper = struct.field(
-        pytree_node=False
+    band_slot_order_lf: Array = struct.field(
+        pytree_node=True
     )  # Slot permutation for band-preference last-fit (empty if unused)
-    slot_centre_freq_array: HashableArrayWrapper = struct.field(
-        pytree_node=False
+    slot_centre_freq_array: Array = struct.field(
+        pytree_node=True
     )  # Per-slot centre frequencies in relative GHz offset from ref_lambda
     num_subchannels: int = struct.field(pytree_node=False)  # Nyquist subchannels per slot for SPM
     # Distributed Raman Amplification fields
     use_raman_amp: bool = struct.field(pytree_node=False)
-    raman_fit_params: HashableArrayWrapper = struct.field(
-        pytree_node=False
+    raman_fit_params: Array = struct.field(
+        pytree_node=True
     )  # (6, num_channels, max_spans) — [C_f, a_f, C_b, a_b, a, raman_gain] Neper-scale + linear
-    raman_pump_power_fw: HashableArrayWrapper = struct.field(
-        pytree_node=False
+    raman_pump_power_fw: Array = struct.field(
+        pytree_node=True
     )  # (max_spans, num_pumps_fw) — forward pump powers [W]
-    raman_pump_power_bw: HashableArrayWrapper = struct.field(
-        pytree_node=False
+    raman_pump_power_bw: Array = struct.field(
+        pytree_node=True
     )  # (max_spans, num_pumps_bw) — backward pump powers [W]
-    raman_pump_freq_fw: HashableArrayWrapper = struct.field(
-        pytree_node=False
+    raman_pump_freq_fw: Array = struct.field(
+        pytree_node=True
     )  # (max_spans, num_pumps_fw) — forward pump frequencies [Hz]
-    raman_pump_freq_bw: HashableArrayWrapper = struct.field(
-        pytree_node=False
+    raman_pump_freq_bw: Array = struct.field(
+        pytree_node=True
     )  # (max_spans, num_pumps_bw) — backward pump frequencies [Hz]
 
 
@@ -455,7 +415,7 @@ class RMSAGNModelEnvParams(GNModelEnvParams):
         link_snr_array (Array): Link SNR array
     """
 
-    modulations_array: HashableArrayWrapper = struct.field(pytree_node=False)
+    modulations_array: Array = struct.field(pytree_node=True)
     fec_rate: chex.Scalar = struct.field(pytree_node=False)
     gn_mask_mode: str = struct.field(pytree_node=False, default="ff_lf")
     gn_mask_batch_size: int = struct.field(pytree_node=False, default=8)
@@ -505,8 +465,8 @@ class RSAMultibandEnvState(RSAEnvState):
 class RSAMultibandEnvParams(RSAEnvParams):
     """Dataclass to hold environment parameters for MultiBandRSA (RBSA)."""
 
-    gap_starts: HashableArrayWrapper = struct.field(pytree_node=False)
-    gap_widths: HashableArrayWrapper = struct.field(pytree_node=False)
+    gap_starts: Array = struct.field(pytree_node=True)
+    gap_widths: Array = struct.field(pytree_node=True)
 
 
 @struct.dataclass

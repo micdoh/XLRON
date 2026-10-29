@@ -14,7 +14,7 @@ def candidate_modulation_features(state, params):
     """Small per-action features; no extra per-link observation channels."""
     indices = state.mod_format_mask.astype(jnp.int32)
     valid = indices >= 0
-    formats = params.modulations_array.val
+    formats = params.modulations_array
     selected = formats[jnp.maximum(indices, 0)]
     _, bandwidth = read_rsa_request(state.request_array)
     widths = jax.vmap(lambda se: required_slots(bandwidth, se, params.slot_size, params.guardband))(

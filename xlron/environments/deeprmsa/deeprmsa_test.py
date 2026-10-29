@@ -98,9 +98,7 @@ class CalculatePathStatsTest(chex.TestCase):
     )
     def test_calculate_path_stats(self, request, link_slot_array, expected):
         self.state = self.state.replace(link_slot_array=link_slot_array, request_array=request)
-        stats = self.variant(calculate_path_stats, static_argnums=(1,))(
-            self.state, self.params, request
-        )
+        stats = self.variant(calculate_path_stats)(self.state, self.params, request)
         jax.debug.print("stats {}", stats, ordered=True)
         jax.debug.print("expected {}", expected, ordered=True)
         chex.assert_trees_all_close(stats, expected)

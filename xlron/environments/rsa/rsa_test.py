@@ -86,9 +86,7 @@ class ImplementRsaActionTest(chex.TestCase):
     )
     def test_implement_action_rsa_slots(self, action, expected):
         action_info = self._action_info(self.state, action, self.params)
-        updated_state = self.variant(implement_action_rsa, static_argnums=(2,))(
-            self.state, action_info, self.params
-        )
+        updated_state = self.variant(implement_action_rsa)(self.state, action_info, self.params)
         chex.assert_trees_all_close(updated_state.link_slot_array, expected)
 
     @chex.all_variants()
@@ -127,9 +125,7 @@ class ImplementRsaActionTest(chex.TestCase):
     def test_implement_action_rsa_slots_nsfnet4(self, action, expected):
         key, env, obs, state, params = rsa_nsfnet_4_test_setup()
         action_info = self._action_info(state, action, params, env=env)
-        updated_state = self.variant(implement_action_rsa, static_argnums=(2,))(
-            state, action_info, params
-        )
+        updated_state = self.variant(implement_action_rsa)(state, action_info, params)
         chex.assert_trees_all_close(updated_state.link_slot_array, expected)
 
     @chex.all_variants()
@@ -148,9 +144,7 @@ class ImplementRsaActionTest(chex.TestCase):
     def test_implement_action_rsa_slots_departure(self, action, expected):
         state = self.state.replace(current_time=1, holding_time=1)
         action_info = self._action_info(state, action, self.params)
-        updated_state = self.variant(implement_action_rsa, static_argnums=(2,))(
-            state, action_info, self.params
-        )
+        updated_state = self.variant(implement_action_rsa)(state, action_info, self.params)
         chex.assert_trees_all_close(updated_state.link_slot_departure_array, expected)
 
 
@@ -363,9 +357,9 @@ class RsaStepTest(chex.TestCase):
         obs: Array = jnp.array(0)
         for action in actions:
             print(action)
-            obs, self.state, reward, done, truncated, info = self.variant(
-                self.env.step, static_argnums=(3,)
-            )(self.key, self.state, action, self.params)
+            obs, self.state, reward, done, truncated, info = self.variant(self.env.step)(
+                self.key, self.state, action, self.params
+            )
         chex.assert_trees_all_close(obs, expected)
 
 
@@ -404,7 +398,7 @@ class RsaResetTest(chex.TestCase):
         ),
     )
     def test_rsa_reset_obs(self, expected):
-        obs, self.state = self.variant(self.env.reset, static_argnums=(1,))(self.key, self.params)
+        obs, self.state = self.variant(self.env.reset)(self.key, self.params)
         chex.assert_trees_all_close(obs, expected)
 
 
@@ -476,9 +470,9 @@ class RsaActionMaskTest(chex.TestCase):
         self.state = self.state.replace(
             request_array=request_array, link_slot_array=link_slot_array
         )
-        link_slot_mask, full_link_slot_mask = self.variant(
-            self.env.action_mask, static_argnums=(1,)
-        )(self.state, self.params)
+        link_slot_mask, full_link_slot_mask = self.variant(self.env.action_mask)(
+            self.state, self.params
+        )
         chex.assert_trees_all_close(link_slot_mask, expected)
 
     # N.B. that requested bandwidth (middle number of request array) will lead to bw+1 slots allocated
@@ -584,9 +578,9 @@ class RsaActionMaskTest(chex.TestCase):
             request_array=request_array, link_slot_array=link_slot_array
         )
         self.params = self.params.replace(max_slots=3)
-        link_slot_mask, full_link_slot_mask = self.variant(
-            self.env.action_mask, static_argnums=(1,)
-        )(self.state, self.params)
+        link_slot_mask, full_link_slot_mask = self.variant(self.env.action_mask)(
+            self.state, self.params
+        )
         chex.assert_trees_all_close(link_slot_mask, expected)
 
     @chex.all_variants()
@@ -842,9 +836,9 @@ class RsaActionMaskTest(chex.TestCase):
         )
         jax.debug.print("request_array {}", request_array, ordered=True)
         self.params = self.params.replace(max_slots=3, consider_modulation_format=consider_mod)
-        link_slot_mask, full_link_slot_mask = self.variant(
-            self.env.action_mask, static_argnums=(1,)
-        )(self.state, self.params)
+        link_slot_mask, full_link_slot_mask = self.variant(self.env.action_mask)(
+            self.state, self.params
+        )
         chex.assert_trees_all_close(link_slot_mask, expected)
 
 
@@ -865,18 +859,18 @@ class RewardTypeBitrateTest(chex.TestCase):
     @chex.all_variants()
     def test_success_reward_is_normalised_bitrate(self):
         # values_bw=[3], so a successful placement gives 3 / max([3]) = 1.0
-        obs, state, reward, done, truncated, info = self.variant(
-            self.env.step, static_argnums=(3,)
-        )(self.key, self.state, jnp.array(0), self.params)
+        obs, state, reward, done, truncated, info = self.variant(self.env.step)(
+            self.key, self.state, jnp.array(0), self.params
+        )
         chex.assert_trees_all_close(reward, jnp.array(1.0, dtype=reward.dtype))
 
     @chex.all_variants()
     def test_failure_reward_is_negative_normalised_bitrate(self):
         # Force a blocked action by filling the network
         state = self.state.replace(link_slot_array=jnp.ones_like(self.state.link_slot_array))
-        obs, state, reward, done, truncated, info = self.variant(
-            self.env.step, static_argnums=(3,)
-        )(self.key, state, jnp.array(0), self.params)
+        obs, state, reward, done, truncated, info = self.variant(self.env.step)(
+            self.key, state, jnp.array(0), self.params
+        )
         chex.assert_trees_all_close(reward, jnp.array(-1.0, dtype=reward.dtype))
 
 
@@ -903,7 +897,7 @@ class EndFirstBlockingBitrateTest(chex.TestCase):
         self.obs, self.state = self.env.reset(self.key, self.params)
 
     def test_blocked_step_is_terminal(self):
-        step = jax.jit(self.env.step, static_argnums=(3,))
+        step = jax.jit(self.env.step)
         state = self.state
         rng = self.key
         bitrates = []
@@ -966,8 +960,8 @@ class RsaMultibandBandGapTest(chex.TestCase):
 
         Regression: an inverted conditional in make() discarded user-supplied values
         (yielding no gaps at all) and only ever applied the hardcoded defaults."""
-        chex.assert_trees_all_equal(self.params.gap_starts.val, jnp.array([8]))
-        chex.assert_trees_all_equal(self.params.gap_widths.val, jnp.array([2]))
+        chex.assert_trees_all_equal(self.params.gap_starts, jnp.array([8]))
+        chex.assert_trees_all_equal(self.params.gap_widths, jnp.array([2]))
         self.assertTrue(jnp.all(self.state.link_slot_array[:, 8:10] == -1))
         self.assertTrue(jnp.all(self.state.link_slot_array[:, :8] == 0))
         self.assertTrue(jnp.all(self.state.link_slot_array[:, 10:] == 0))
@@ -977,8 +971,8 @@ class RsaMultibandBandGapTest(chex.TestCase):
         _, _, _, _, params = rsa_multiband_4node_test_setup(
             interband_gap_width=None, interband_gap_start=None
         )
-        chex.assert_trees_all_equal(params.gap_starts.val, jnp.array([354, 674]))
-        chex.assert_trees_all_equal(params.gap_widths.val, jnp.array([16, 16]))
+        chex.assert_trees_all_equal(params.gap_starts, jnp.array([354, 674]))
+        chex.assert_trees_all_equal(params.gap_widths, jnp.array([16, 16]))
 
     def test_expiry_preserves_gap_sentinels(self):
         """remove_expired_services_rsa must clear expired services but keep -1 gaps.

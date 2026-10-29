@@ -18,7 +18,6 @@ from tests.helpers.rsa import (
 from tests.helpers.rwa_lightpath_reuse import (
     rwa_lightpath_reuse_4_nsfnet_test_setup,
 )
-from xlron.environments.dataclasses import HashableArrayWrapper
 from xlron.environments.make_env import make
 
 # from xlron.environments.vone import *
@@ -126,7 +125,7 @@ class KspffTest(chex.TestCase):
         self.state = self.state.replace(
             request_array=request_array, link_slot_array=link_slot_array
         )
-        action = self.variant(ksp_ff, static_argnums=(1,))(self.state, self.params)
+        action = self.variant(ksp_ff)(self.state, self.params)
         chex.assert_trees_all_close(action, expected)
 
     @chex.all_variants()
@@ -402,7 +401,7 @@ class KspffTest(chex.TestCase):
         self.state = self.state.replace(
             request_array=request_array, link_slot_array=link_slot_array
         )
-        action = self.variant(ksp_ff, static_argnums=(1,))(self.state, self.params)
+        action = self.variant(ksp_ff)(self.state, self.params)
         chex.assert_trees_all_close(action, expected)
 
 
@@ -483,7 +482,7 @@ class FfkspTest(chex.TestCase):
         self.state = self.state.replace(
             request_array=request_array, link_slot_array=link_slot_array
         )
-        action = self.variant(ff_ksp, static_argnums=(1,))(self.state, self.params)
+        action = self.variant(ff_ksp)(self.state, self.params)
         chex.assert_trees_all_close(action, expected)
 
     @chex.all_variants()
@@ -759,7 +758,7 @@ class FfkspTest(chex.TestCase):
         self.state = self.state.replace(
             request_array=request_array, link_slot_array=link_slot_array
         )
-        action = self.variant(ff_ksp, static_argnums=(1,))(self.state, self.params)
+        action = self.variant(ff_ksp)(self.state, self.params)
         chex.assert_trees_all_close(action, expected)
 
 
@@ -840,7 +839,7 @@ class KspBfTest(chex.TestCase):
         self.state = self.state.replace(
             request_array=request_array, link_slot_array=link_slot_array
         )
-        action = self.variant(ksp_bf, static_argnums=(1,))(self.state, self.params)
+        action = self.variant(ksp_bf)(self.state, self.params)
         chex.assert_trees_all_close(action, expected)
 
     @chex.all_variants()
@@ -866,7 +865,7 @@ class KspBfTest(chex.TestCase):
         self.state = self.state.replace(
             request_array=request_array, link_slot_array=link_slot_array
         )
-        action = self.variant(ksp_bf, static_argnums=(1,))(self.state, self.params)
+        action = self.variant(ksp_bf)(self.state, self.params)
         chex.assert_trees_all_close(action, expected)
 
     @chex.all_variants()
@@ -2902,7 +2901,7 @@ class KspBfTest(chex.TestCase):
         self.state = self.state.replace(
             request_array=request_array, link_slot_array=link_slot_array
         )
-        action = self.variant(ksp_bf, static_argnums=(1,))(self.state, self.params)
+        action = self.variant(ksp_bf)(self.state, self.params)
         chex.assert_trees_all_close(action, expected)
 
 
@@ -2983,7 +2982,7 @@ class BfKspTest(chex.TestCase):
         self.state = self.state.replace(
             request_array=request_array, link_slot_array=link_slot_array
         )
-        action = self.variant(bf_ksp, static_argnums=(1,))(self.state, self.params)
+        action = self.variant(bf_ksp)(self.state, self.params)
         chex.assert_trees_all_close(action, expected)
 
     @chex.all_variants()
@@ -5019,7 +5018,7 @@ class BfKspTest(chex.TestCase):
         self.state = self.state.replace(
             request_array=request_array, link_slot_array=link_slot_array
         )
-        action = self.variant(bf_ksp, static_argnums=(1,))(self.state, self.params)
+        action = self.variant(bf_ksp)(self.state, self.params)
         chex.assert_trees_all_close(action, expected)
 
 
@@ -5100,7 +5099,7 @@ class KmcffTest(chex.TestCase):
         self.state = self.state.replace(
             request_array=request_array, link_slot_array=link_slot_array
         )
-        action = self.variant(kmc_ff, static_argnums=(1,))(self.state, self.params)
+        action = self.variant(kmc_ff)(self.state, self.params)
         chex.assert_trees_all_close(action, expected)
 
     @chex.all_variants()
@@ -7541,7 +7540,7 @@ class KmcffTest(chex.TestCase):
         self.state = self.state.replace(
             request_array=request_array, link_slot_array=link_slot_array
         )
-        action = self.variant(kmc_ff, static_argnums=(1,))(self.state, self.params)
+        action = self.variant(kmc_ff)(self.state, self.params)
         chex.assert_trees_all_close(action, expected)
 
 
@@ -7622,7 +7621,7 @@ class KmfffTest(chex.TestCase):
         self.state = self.state.replace(
             request_array=request_array, link_slot_array=link_slot_array
         )
-        action = self.variant(kmf_ff, static_argnums=(1,))(self.state, self.params)
+        action = self.variant(kmf_ff)(self.state, self.params)
         chex.assert_trees_all_close(action, expected)
 
     @chex.all_variants()
@@ -7788,7 +7787,7 @@ class KmfffTest(chex.TestCase):
         self.state = self.state.replace(
             request_array=request_array, link_slot_array=link_slot_array
         )
-        action = self.variant(kmf_ff, static_argnums=(1,))(self.state, self.params)
+        action = self.variant(kmf_ff)(self.state, self.params)
         chex.assert_trees_all_close(action, expected)
 
 
@@ -8817,11 +8816,11 @@ class FfkspTestRWALightpathReuse(chex.TestCase):
         jax.debug.print(
             "link_capacity_array initial {}", self.state.link_capacity_array, ordered=True
         )
-        action = self.variant(ff_ksp, static_argnums=(1,))(self.state, self.params)
+        action = self.variant(ff_ksp)(self.state, self.params)
         # step env
-        obs, self.state, reward, done, truncated, info = self.variant(
-            self.env.step, static_argnums=(3,)
-        )(self.key, self.state, action, self.params)
+        obs, self.state, reward, done, truncated, info = self.variant(self.env.step)(
+            self.key, self.state, action, self.params
+        )
         jax.debug.print("path_index_array after {}", self.state.path_index_array, ordered=True)
         jax.debug.print(
             "link_capacity_array after {}", self.state.link_capacity_array, ordered=True
@@ -9854,11 +9853,11 @@ class KspFFTestRWALightpathReuse(chex.TestCase):
         jax.debug.print(
             "link_capacity_array initial {}", self.state.link_capacity_array, ordered=True
         )
-        action = self.variant(ksp_ff, static_argnums=(1,))(self.state, self.params)
+        action = self.variant(ksp_ff)(self.state, self.params)
         # step env
-        obs, self.state, reward, done, truncated, info = self.variant(
-            self.env.step, static_argnums=(3,)
-        )(self.key, self.state, action, self.params)
+        obs, self.state, reward, done, truncated, info = self.variant(self.env.step)(
+            self.key, self.state, action, self.params
+        )
         jax.debug.print("path_index_array after {}", self.state.path_index_array, ordered=True)
         jax.debug.print(
             "link_capacity_array after {}", self.state.link_capacity_array, ordered=True
@@ -11416,13 +11415,13 @@ class KspMUTest(chex.TestCase):
         jax.debug.print(
             "link_capacity_array initial {}", self.state.link_capacity_array, ordered=True
         )
-        action = self.variant(ksp_mu, static_argnums=(1, 2, 3))(
+        action = self.variant(ksp_mu, static_argnums=(2, 3))(
             self.state, self.params, unique_lightpaths, relative
         )
         # step env
-        obs, self.state, reward, done, truncated, info = self.variant(
-            self.env.step, static_argnums=(3,)
-        )(self.key, self.state, action, self.params)
+        obs, self.state, reward, done, truncated, info = self.variant(self.env.step)(
+            self.key, self.state, action, self.params
+        )
         jax.debug.print("path_index_array after {}", self.state.path_index_array, ordered=True)
         jax.debug.print(
             "link_capacity_array after {}", self.state.link_capacity_array, ordered=True
@@ -11472,7 +11471,7 @@ class KspMUTest(chex.TestCase):
         self.state = self.state.replace(
             request_array=request_array, link_slot_array=link_slot_array
         )
-        action = self.variant(ksp_mu, static_argnums=(1, 2, 3))(
+        action = self.variant(ksp_mu, static_argnums=(2, 3))(
             self.state, self.params, unique_lightpaths, relative
         )
         chex.assert_trees_all_close(action, expected)
@@ -13028,13 +13027,13 @@ class MUKspTest(chex.TestCase):
         jax.debug.print(
             "link_capacity_array initial {}", self.state.link_capacity_array, ordered=True
         )
-        action = self.variant(mu_ksp, static_argnums=(1, 2, 3))(
+        action = self.variant(mu_ksp, static_argnums=(2, 3))(
             self.state, self.params, unique_lightpaths, relative
         )
         # step env
-        obs, self.state, reward, done, truncated, info = self.variant(
-            self.env.step, static_argnums=(3,)
-        )(self.key, self.state, action, self.params)
+        obs, self.state, reward, done, truncated, info = self.variant(self.env.step)(
+            self.key, self.state, action, self.params
+        )
         jax.debug.print("path_index_array after {}", self.state.path_index_array, ordered=True)
         jax.debug.print(
             "link_capacity_array after {}", self.state.link_capacity_array, ordered=True
@@ -13084,7 +13083,7 @@ class MUKspTest(chex.TestCase):
         self.state = self.state.replace(
             request_array=request_array, link_slot_array=link_slot_array
         )
-        action = self.variant(mu_ksp, static_argnums=(1, 2, 3))(
+        action = self.variant(mu_ksp, static_argnums=(2, 3))(
             self.state, self.params, unique_lightpaths, relative
         )
         chex.assert_trees_all_close(action, expected)
@@ -13182,7 +13181,7 @@ class KcaFfTest(chex.TestCase):
         self.state = self.state.replace(
             request_array=request_array, link_slot_array=link_slot_array
         )
-        action = self.variant(kca_ff, static_argnums=(1,))(self.state, self.params)
+        action = self.variant(kca_ff)(self.state, self.params)
         chex.assert_trees_all_close(action, expected)
 
     @chex.all_variants()
@@ -13224,7 +13223,7 @@ class KcaFfTest(chex.TestCase):
         self.state = self.state.replace(
             request_array=request_array, link_slot_array=link_slot_array
         )
-        action = self.variant(kca_ff, static_argnums=(1,))(self.state, self.params)
+        action = self.variant(kca_ff)(self.state, self.params)
         chex.assert_trees_all_close(action, expected)
 
     @chex.all_variants()
@@ -13748,11 +13747,11 @@ class KcaFfTest(chex.TestCase):
         jax.debug.print(
             "link_capacity_array initial {}", self.state.link_capacity_array, ordered=True
         )
-        action = self.variant(kca_ff, static_argnums=(1,))(self.state, self.params)
+        action = self.variant(kca_ff)(self.state, self.params)
         # step env
-        obs, self.state, reward, done, truncated, info = self.variant(
-            self.env.step, static_argnums=(3,)
-        )(self.key, self.state, action, self.params)
+        obs, self.state, reward, done, truncated, info = self.variant(self.env.step)(
+            self.key, self.state, action, self.params
+        )
         jax.debug.print("path_index_array after {}", self.state.path_index_array, ordered=True)
         jax.debug.print(
             "link_capacity_array after {}", self.state.link_capacity_array, ordered=True
@@ -13864,7 +13863,7 @@ class KsplfTest(chex.TestCase):
         self.state = self.state.replace(
             request_array=request_array, link_slot_array=link_slot_array
         )
-        action = self.variant(ksp_lf, static_argnums=(1,))(self.state, self.params)
+        action = self.variant(ksp_lf)(self.state, self.params)
         chex.assert_trees_all_close(action, expected)
 
     @chex.all_variants()
@@ -14140,7 +14139,7 @@ class KsplfTest(chex.TestCase):
         self.state = self.state.replace(
             request_array=request_array, link_slot_array=link_slot_array
         )
-        action = self.variant(ksp_lf, static_argnums=(1,))(self.state, self.params)
+        action = self.variant(ksp_lf)(self.state, self.params)
         chex.assert_trees_all_close(action, expected)
 
 
@@ -14211,7 +14210,7 @@ class LfKspTest(chex.TestCase):
         self.state = self.state.replace(
             request_array=request_array, link_slot_array=link_slot_array
         )
-        action = self.variant(lf_ksp, static_argnums=(1,))(self.state, self.params)
+        action = self.variant(lf_ksp)(self.state, self.params)
         chex.assert_trees_all_close(action, expected)
 
 
@@ -14284,7 +14283,7 @@ class KmeFfTest(chex.TestCase):
         self.state = self.state.replace(
             request_array=request_array, link_slot_array=link_slot_array
         )
-        action = self.variant(kme_ff, static_argnums=(1,))(self.state, self.params)
+        action = self.variant(kme_ff)(self.state, self.params)
         chex.assert_trees_all_close(action, expected)
 
 
@@ -14311,7 +14310,7 @@ class KspLfFallthroughTest(chex.TestCase):
         self.state = self.state.replace(
             request_array=request_array, link_slot_array=link_slot_array
         )
-        action = self.variant(ksp_lf, static_argnums=(1,))(self.state, self.params)
+        action = self.variant(ksp_lf)(self.state, self.params)
         # Path 1, last slot: action = 1 * 4 + 3 = 7
         chex.assert_trees_all_close(action, jnp.array(7))
 
@@ -14380,7 +14379,7 @@ class KspEfTest(chex.TestCase):
         self.state = self.state.replace(
             request_array=request_array, link_slot_array=link_slot_array
         )
-        action = self.variant(ksp_ef, static_argnums=(1,))(self.state, self.params)
+        action = self.variant(ksp_ef)(self.state, self.params)
         chex.assert_trees_all_close(action, expected)
 
 
@@ -14418,7 +14417,7 @@ class KspFlfTest(chex.TestCase):
         self.state = self.state.replace(
             request_array=request_array, link_slot_array=link_slot_array
         )
-        action = self.variant(ksp_flf, static_argnums=(1,))(self.state, self.params)
+        action = self.variant(ksp_flf)(self.state, self.params)
         chex.assert_trees_all_close(action, expected)
 
     @chex.all_variants()
@@ -14433,7 +14432,7 @@ class KspFlfTest(chex.TestCase):
         self.state = self.state.replace(
             request_array=request_array, link_slot_array=link_slot_array
         )
-        action = self.variant(flf_ksp, static_argnums=(1,))(self.state, self.params)
+        action = self.variant(flf_ksp)(self.state, self.params)
         chex.assert_trees_all_close(action, expected)
 
 
@@ -14511,7 +14510,7 @@ class KspFlefTest(chex.TestCase):
         self.state = self.state.replace(
             request_array=request_array, link_slot_array=link_slot_array
         )
-        action = self.variant(ksp_flef, static_argnums=(1,))(self.state, self.params)
+        action = self.variant(ksp_flef)(self.state, self.params)
         chex.assert_trees_all_close(action, expected)
 
 
@@ -14563,7 +14562,7 @@ class MsclTest(chex.TestCase):
         self.state = self.state.replace(
             request_array=request_array, link_slot_array=link_slot_array
         )
-        action = self.variant(ksp_mscl, static_argnums=(1,))(self.state, self.params)
+        action = self.variant(ksp_mscl)(self.state, self.params)
         chex.assert_trees_all_close(action, expected)
 
     @chex.all_variants()
@@ -14587,7 +14586,7 @@ class MsclTest(chex.TestCase):
         self.state = self.state.replace(
             request_array=request_array, link_slot_array=link_slot_array
         )
-        action = self.variant(mscl_ksp, static_argnums=(1,))(self.state, self.params)
+        action = self.variant(mscl_ksp)(self.state, self.params)
         chex.assert_trees_all_close(action, expected)
 
 
@@ -14615,7 +14614,7 @@ def _bruteforce_capacity_loss(
     mask = np.asarray(get_action_mask(state, params) if candidate_mask is None else candidate_mask)
     S = params.link_resources
     lsa_occ = np.asarray(state.link_slot_array) != 0
-    path_link_array = np.asarray(params.path_link_array.val)
+    path_link_array = np.asarray(params.path_link_array)
     if isinstance(params, GNModelEnvParams):
         path_link_array = path_link_array[:-1]
     if params.pack_path_bits:
@@ -14626,11 +14625,11 @@ def _bruteforce_capacity_loss(
     nodes_sd, _ = read_rsa_request(state.request_array)
     cand_paths = np.asarray(get_paths(params, nodes_sd))
 
-    values_bw = np.asarray(params.values_bw.val)
+    values_bw = np.asarray(params.values_bw)
     min_se = (
-        float(np.min(np.asarray(params.modulations_array.val)[:, 1]))
+        float(np.min(np.asarray(params.modulations_array)[:, 1]))
         if isinstance(params, RMSAGNModelEnvParams)
-        else float(np.min(np.asarray(params.path_se_array.val)))
+        else float(np.min(np.asarray(params.path_se_array)))
         if params.consider_modulation_format
         else 1.0
     )
@@ -14803,7 +14802,7 @@ class MsclMultirouteTest(chex.TestCase):
         self.state = self.state.replace(
             request_array=request_array, link_slot_array=link_slot_array
         )
-        action = self.variant(ksp_mscl, static_argnums=(1,))(self.state, self.params_multi)
+        action = self.variant(ksp_mscl)(self.state, self.params_multi)
         chex.assert_trees_all_close(action, expected)
 
     @chex.all_variants()
@@ -14826,7 +14825,7 @@ class MsclMultirouteTest(chex.TestCase):
         self.state = self.state.replace(
             request_array=request_array, link_slot_array=link_slot_array
         )
-        action = self.variant(mscl_ksp, static_argnums=(1,))(self.state, self.params_multi)
+        action = self.variant(mscl_ksp)(self.state, self.params_multi)
         chex.assert_trees_all_close(action, expected)
 
     def _random_state(self, seed, occupancy=0.4):
@@ -14989,7 +14988,7 @@ class ArbrFfTest(chex.TestCase):
         self.state = self.state.replace(
             request_array=request_array, link_slot_array=link_slot_array
         )
-        action = self.variant(arbr_ff, static_argnums=(1,))(self.state, self.params)
+        action = self.variant(arbr_ff)(self.state, self.params)
         chex.assert_trees_all_close(action, expected)
 
 
@@ -15033,7 +15032,7 @@ class ArbrFfAlphaZeroTest(chex.TestCase):
         self.state = self.state.replace(
             request_array=request_array, link_slot_array=link_slot_array
         )
-        action = self.variant(arbr_ff, static_argnums=(1,))(self.state, self.params)
+        action = self.variant(arbr_ff)(self.state, self.params)
         chex.assert_trees_all_close(action, expected)
 
 
@@ -15077,7 +15076,7 @@ class ArbrFfAlphaOneTest(chex.TestCase):
         self.state = self.state.replace(
             request_array=request_array, link_slot_array=link_slot_array
         )
-        action = self.variant(arbr_ff, static_argnums=(1,))(self.state, self.params)
+        action = self.variant(arbr_ff)(self.state, self.params)
         chex.assert_trees_all_close(action, expected)
 
 
@@ -15098,7 +15097,7 @@ class ArbrFfNsfnetTest(chex.TestCase):
             request_array=jnp.array([0, 100, 7]),
             link_slot_array=jnp.zeros((22, 16)),
         )
-        action = self.variant(arbr_ff, static_argnums=(1,))(self.state, self.params)
+        action = self.variant(arbr_ff)(self.state, self.params)
         chex.assert_trees_all_close(action, jnp.array(0))
 
     @chex.all_variants()
@@ -15112,7 +15111,7 @@ class ArbrFfNsfnetTest(chex.TestCase):
             request_array=jnp.array([0, 100, 7]),
             link_slot_array=link_slot_array,
         )
-        action = self.variant(arbr_ff, static_argnums=(1,))(self.state, self.params)
+        action = self.variant(arbr_ff)(self.state, self.params)
         chex.assert_trees_all_close(action, jnp.array(16))
 
 
@@ -15149,9 +15148,9 @@ def test_mscl_ignores_gn_sentinel_and_preserves_capacity(packed, k):
     mask = get_action_mask(state, params)
     ordinary = RSAEnvParams(**{f.name: getattr(params, f.name) for f in fields(RSAEnvParams)})
     ordinary = ordinary.replace(
-        path_link_array=HashableArrayWrapper(params.path_link_array.val[:-1]),
+        path_link_array=params.path_link_array[:-1],
         # Match GN's future demand cap, which includes low-SE physical formats.
-        path_se_array=HashableArrayWrapper(jnp.ones_like(params.path_se_array.val)),
+        path_se_array=jnp.ones_like(params.path_se_array),
     )
     # Isolate the sentinel-row regression from GN's separately resolved widths.
     from xlron.heuristics.heuristics import get_request_num_slots
@@ -15174,8 +15173,8 @@ def test_arbr_uses_physical_width_at_band_preferred_first_fit(monkeypatch, compi
     _, _, params, state = setup("rmsa_gn_model", "occupancy_snr")
     params = params.replace(
         arbr_alpha=0.0,
-        path_se_array=HashableArrayWrapper(jnp.full_like(params.path_se_array.val, 4)),
-        band_slot_order_ff=HashableArrayWrapper(jnp.array([4, 5, 6, 7, 0, 1, 2, 3])),
+        path_se_array=jnp.full_like(params.path_se_array, 4),
+        band_slot_order_ff=jnp.array([4, 5, 6, 7, 0, 1, 2, 3]),
     )
     state = state.replace(request_array=jnp.array([0, 100, 1]))
     formats = jnp.full((2, 8), -1.0).at[0, 0].set(3).at[0, 4].set(0).at[1, 4].set(3)
@@ -15203,14 +15202,12 @@ def test_mscl_physical_widths_match_independent_spectrum_recount(monkeypatch, in
     from xlron.heuristics import heuristics
 
     _, _, params, state = setup("rmsa_gn_model", "occupancy_snr")
-    params = params.replace(
-        path_se_array=HashableArrayWrapper(jnp.full_like(params.path_se_array.val, 4))
-    )
+    params = params.replace(path_se_array=jnp.full_like(params.path_se_array, 4))
     state = state.replace(request_array=jnp.array([0, 100, 1]))
     # Adjacent feasible starts on each path require different physical formats.
     formats = np.array([[0, 1, 3, 2, 0, -1, 3, 3], [3, 0, 1, 2, 0, -1, 3, 3]])
     mask = formats >= 0
-    se = np.asarray(params.modulations_array.val)[np.maximum(formats, 0), 1]
+    se = np.asarray(params.modulations_array)[np.maximum(formats, 0), 1]
     widths = np.ceil(100 / (se * 25)).astype(int)
     monkeypatch.setattr(
         heuristics,
@@ -15277,13 +15274,13 @@ def test_first_fit_gn_mask_selects_the_full_mask_action(name, backend, scenario)
     params = params.replace(gn_mask_mode="all_slots", gn_kernel_backend=backend)
     if scenario == "band_order":
         order = jnp.roll(jnp.arange(params.link_resources), 3)
-        params = params.replace(band_slot_order_ff=HashableArrayWrapper(order))
+        params = params.replace(band_slot_order_ff=order)
     if scenario == "varied_snr":
-        thresholds = np.asarray(params.modulations_array.val[:, 2])
+        thresholds = np.asarray(params.modulations_array[:, 2])
         trx = np.random.default_rng(0).uniform(
             thresholds.min() - 1, thresholds.max() + 2, params.link_resources
         )
-        params = params.replace(transceiver_snr=HashableArrayWrapper(jnp.asarray(trx, jnp.float32)))
+        params = params.replace(transceiver_snr=jnp.asarray(trx, jnp.float32))
     heuristic = getattr(heuristics, name)
     first_fit = params.replace(gn_mask_first_fit=heuristics.FIRST_FIT_MASKS[name])
     reuse = params.replace(heuristic_mask_from_state=True)

@@ -42,7 +42,7 @@ def _get_select_action(name: str) -> Callable:
         ) from None
 
 
-@partial(jax.jit, static_argnums=(1, 3))
+@partial(jax.jit, static_argnums=(1,))
 def generate_request_list(
     rng: jnp.ndarray, num_requests: int, state: EnvState, params: EnvParams
 ) -> jnp.ndarray:
@@ -78,7 +78,7 @@ def generate_request_list(
     return requests
 
 
-@partial(jax.jit, static_argnums=(1,))
+@jax.jit
 def sort_requests(requests: jnp.ndarray, params: EnvParams) -> jnp.ndarray:
     # Sort by required_slots x number of hops for shortest path
     def get_required_resources_sp(request):
@@ -490,7 +490,7 @@ def get_eval_fn(config, env, env_params, compile_defrag=False) -> Callable:
         return None, run_defragmentation
 
 
-@partial(jax.jit, static_argnums=(1, 3, 4))
+@partial(jax.jit, static_argnums=(1, 4))
 def step_env(rng, raw_env, env_state, env_params, profile=False):
     """Step through the environment using raw step_env (no auto-reset).
 

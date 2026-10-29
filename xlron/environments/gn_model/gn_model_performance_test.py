@@ -8,7 +8,6 @@ import numpy as np
 import pytest
 
 from xlron.environments import env_funcs as ef
-from xlron.environments.dataclasses import HashableArrayWrapper
 from xlron.environments.gn_model import isrs_gn_model
 from xlron.environments.make_env import make
 
@@ -48,7 +47,7 @@ def exhaustive_mask(state, params):
     """
     nodes, datarate = ef.read_rsa_request(state.request_array)
     paths = ef.get_paths(params, nodes)
-    mods = np.asarray(params.modulations_array.val)
+    mods = np.asarray(params.modulations_array)
     mask = np.zeros((params.k_paths, params.link_resources), dtype=np.float32)
     mod_mask = np.full(mask.shape, -1, dtype=np.float32)
     best_se = np.full(mask.shape, -np.inf)
@@ -75,7 +74,7 @@ def exhaustive_mask(state, params):
             for start in sorted({starts[0], starts[-1]}):
                 affected = ef.get_affected_slots_mask(start, width, path, params)
                 pid = ef.get_lightpath_index(params, nodes, path_idx)
-                power = params.slot_launch_power_array.val[start]
+                power = params.slot_launch_power_array[start]
                 temp = state.replace(
                     channel_power_array=ef.set_path_links(
                         state.channel_power_array.copy(), affected, power
@@ -124,7 +123,7 @@ def test_selected_link_snr_matches_full_refresh(mode):
     _, params, state = setup(mode)
     rng = np.random.default_rng(0)
     power = jnp.asarray(rng.uniform(1e-4, 8e-4, state.channel_power_array.shape), dtype=jnp.float32)
-    freqs = jnp.broadcast_to(params.slot_centre_freq_array.val, power.shape)
+    freqs = jnp.broadcast_to(params.slot_centre_freq_array, power.shape)
     state = state.replace(
         channel_power_array=power,
         channel_centre_bw_array=jnp.full_like(power, 25),
@@ -162,7 +161,7 @@ def test_streamed_mask_matches_full_network_oracle_with_stale_snr(mode, slots):
 @pytest.mark.parametrize("packed", [False, True])
 def test_sparse_paths_match_per_path_reference(packed):
     _, params, state = setup(packed=packed)
-    paths = params.path_link_array.val
+    paths = params.path_link_array
     if packed:
         paths = jnp.unpackbits(paths, axis=1)[:, : params.num_links]
     rng = np.random.default_rng(5)
@@ -199,7 +198,7 @@ def test_single_slot_sparse_snr_keeps_shape():
         "roadm_add_drop_loss",
         "roadm_noise_figure",
     ]:
-        params = params.replace(**{name: HashableArrayWrapper(getattr(params, name).val[:1])})
+        params = params.replace(**{name: getattr(params, name)[:1]})
     result = ef.get_lightpath_snr(state, params)
     assert result.shape == (params.num_links, 1)
     assert bool(jnp.all(jnp.isfinite(result)))
@@ -224,8 +223,8 @@ def test_candidate_groups_preserve_physics_keys(include_mod, expected_count):
 
 def test_reused_footprint_keeps_distinct_modulation_thresholds():
     env, params, state = setup(slots=140)
-    mods = params.modulations_array.val.at[:, 2].set(1000).at[1, 2].set(-1000)
-    params = params.replace(modulations_array=HashableArrayWrapper(mods))
+    mods = params.modulations_array.at[:, 2].set(1000).at[1, 2].set(-1000)
+    params = params.replace(modulations_array=mods)
     expected_mask, expected_mods = exhaustive_mask(state, params)
     mask, _, selected = env.action_mask(state, params)
     np.testing.assert_array_equal(mask, expected_mask)
@@ -282,8 +281,8 @@ def test_compact_xpm_full_snr_matches_dense_with_different_live_counts():
             num_spans=3,
             span_length=80_000,
             num_channels=140,
-            amplifier_noise_figure=params.amplifier_noise_figure.val,
-            transceiver_snr=params.transceiver_snr.val,
+            amplifier_noise_figure=params.amplifier_noise_figure,
+            transceiver_snr=params.transceiver_snr,
             compact_xpm=compact,
             **physics,
         )

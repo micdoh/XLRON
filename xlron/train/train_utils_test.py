@@ -366,7 +366,7 @@ class ResetWarmupMetricCountersTest(absltest.TestCase):
         env, params = make(settings)  # LogWrapper-wrapped
         key = jax.random.PRNGKey(0)
         obs, state = env.reset(key, params)
-        step = jax.jit(env.step, static_argnums=(3,))
+        step = jax.jit(env.step)
         for _ in range(5):
             key, step_key = jax.random.split(key)
             obs, state, reward, terminal, truncated, info = step(

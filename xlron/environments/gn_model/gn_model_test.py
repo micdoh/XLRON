@@ -250,9 +250,9 @@ class RSAGNModelTest(chex.TestCase):
                 [path_action.reshape((1,)), power_action.reshape((1,))], axis=0
             )
             # step env
-            obsv, env_state, reward, done, truncated, info = self.variant(
-                self.env.step, static_argnums=(3)
-            )(rng_step, env_state, action, self.params)
+            obsv, env_state, reward, done, truncated, info = self.variant(self.env.step)(
+                rng_step, env_state, action, self.params
+            )
             jax.debug.print("action mask {}", env_state.link_slot_mask, ordered=True)
             jax.debug.print("action {}", action, ordered=True)
             jax.debug.print("reward {}", reward, ordered=True)
@@ -465,7 +465,7 @@ class RMSAGNModelMaskTest(chex.TestCase):
     def test_mod_format_mask_values(self):
         """mod_format_mask should contain -1 (invalid) or valid mod format indices."""
         _, _, mfm = self.env.action_mask(self.state, self.params)
-        num_mods = self.params.modulations_array.val.shape[0]
+        num_mods = self.params.modulations_array.shape[0]
         # All entries should be >= -1 and < num_mods
         self.assertTrue(jnp.all(mfm >= -1.0))
         self.assertTrue(jnp.all(mfm < num_mods))
@@ -606,8 +606,8 @@ class EnforceBandGapsTest(chex.TestCase):
     def test_band_gaps_present_in_initial_state(self):
         """Band gap slots should be -1 in the initial link_slot_array."""
         lsa = self.state.link_slot_array
-        gap_starts = self.params.gap_starts.val
-        gap_widths = self.params.gap_widths.val
+        gap_starts = self.params.gap_starts
+        gap_widths = self.params.gap_widths
         # There should be at least one gap
         self.assertGreater(len(gap_starts), 0, "enforce_band_gaps should produce gaps")
         # All gap slots should be -1 on every link
@@ -623,8 +623,8 @@ class EnforceBandGapsTest(chex.TestCase):
     def test_mask_does_not_propose_gap_slots(self):
         """Action mask should be zero for any slot inside a band gap."""
         mask, _, _ = self.env.action_mask(self.state, self.params)
-        gap_starts = self.params.gap_starts.val
-        gap_widths = self.params.gap_widths.val
+        gap_starts = self.params.gap_starts
+        gap_widths = self.params.gap_widths
         for i in range(len(gap_starts)):
             start = int(gap_starts[i])
             width = int(gap_widths[i])
@@ -648,8 +648,8 @@ class EnforceBandGapsTest(chex.TestCase):
         _, new_state, _, _, _, _ = self.env.step(rng_step, state, action, self.params)
         # Gaps must still be -1
         lsa = new_state.link_slot_array
-        gap_starts = self.params.gap_starts.val
-        gap_widths = self.params.gap_widths.val
+        gap_starts = self.params.gap_starts
+        gap_widths = self.params.gap_widths
         for i in range(len(gap_starts)):
             start = int(gap_starts[i])
             width = int(gap_widths[i])
@@ -685,8 +685,8 @@ class BandGapExpiryTest(chex.TestCase):
     def _assert_gaps_survive(self, new_state, params):
         self.assertEqual(float(new_state.link_slot_array[0, 0]), 0.0)
         self.assertTrue(jnp.all(new_state.link_slot_departure_array == 0))
-        gap_starts = params.gap_starts.val
-        gap_widths = params.gap_widths.val
+        gap_starts = params.gap_starts
+        gap_widths = params.gap_widths
         self.assertGreater(len(gap_starts), 0)
         for i in range(len(gap_starts)):
             start = int(gap_starts[i])
@@ -798,8 +798,8 @@ class BandPreferenceTest(chex.TestCase):
     def test_band_slot_order_is_valid_permutation(self):
         """band_slot_order arrays should be permutations of [0, link_resources)."""
         _, _, _, _, params = rsa_gn_model_band_preference_test_setup("C,L")
-        order_ff = params.band_slot_order_ff.val
-        order_lf = params.band_slot_order_lf.val
+        order_ff = params.band_slot_order_ff
+        order_lf = params.band_slot_order_lf
         self.assertEqual(len(order_ff), params.link_resources)
         self.assertEqual(len(order_lf), params.link_resources)
         self.assertEqual(sorted(order_ff.tolist()), list(range(params.link_resources)))
@@ -1250,9 +1250,7 @@ class RMSAGNAggregateSlotsTest(chex.TestCase):
         self.assertGreaterEqual(float(expected_format), 0)
         path_index, initial_slot = decoded[best]
 
-        _, state, reward, terminal, _, _ = jax.jit(env.step, static_argnums=(3,))(
-            key, state, action, params
-        )
+        _, state, reward, terminal, _, _ = jax.jit(env.step)(key, state, action, params)
         # Accepted on an empty network: the implemented format at the decoded slot must equal
         # the full-resolution mask entry
         implemented = jnp.max(state.modulation_format_index_array[:, int(initial_slot)])
@@ -1329,7 +1327,7 @@ class ActiveLightpathRegistryTest(chex.TestCase):
         env, params = self._dynamic_env()
         key = jax.random.PRNGKey(3)  # short-path first request that passes SNR checks
         obs, state = env.reset(key, params)
-        step = jax.jit(env.step, static_argnums=(3,))
+        step = jax.jit(env.step)
 
         # --- Two accepted placements -> two fully-populated live rows ---
         for i in range(2):
@@ -1441,16 +1439,16 @@ class ScaledLaunchPowerTest(chex.TestCase):
             params.num_nodes,
             directed=params.directed_graph,
         ).astype(jnp.int32)
-        link_lengths = jnp.sum(params.link_length_array.val, axis=1)
-        pla = params.path_link_array.val.astype(link_lengths.dtype)
-        expected = params.slot_launch_power_array.val[0] * (  # ty: ignore[unresolved-attribute]
+        link_lengths = jnp.sum(params.link_length_array, axis=1)
+        pla = params.path_link_array.astype(link_lengths.dtype)
+        expected = params.slot_launch_power_array[0] * (  # ty: ignore[unresolved-attribute]
             (pla[i] @ link_lengths) / jnp.max(pla @ link_lengths)
         )
         chex.assert_trees_all_close(jnp.squeeze(power), jnp.squeeze(expected), rtol=1e-5)
         self.assertGreater(float(jnp.squeeze(power)), 0.0)
         self.assertLessEqual(
             float(jnp.squeeze(power)),
-            float(params.slot_launch_power_array.val[0]),  # ty: ignore[unresolved-attribute]
+            float(params.slot_launch_power_array[0]),  # ty: ignore[unresolved-attribute]
         )
 
 
@@ -1694,7 +1692,7 @@ class BlockedRequestLinkSnrRestoreTest(chex.TestCase):
 
     def test_blocked_step_restores_link_snr(self):
         key, env, obs, state, params = rmsa_gn_model_test_setup()
-        step = jax.jit(env.step, static_argnums=(3,))
+        step = jax.jit(env.step)
         request0 = state.request_array
 
         # --- Accepted placement ---
@@ -1786,11 +1784,9 @@ class RoadmAseInLoggedSnrTest(chex.TestCase):
         global_path_index, slot_index = self._global_path_index(state, params, path_action)
         action = jnp.concatenate([path_action.reshape((1,)), jnp.zeros((1,))])
         key, akey = jax.random.split(key)
-        _, state1, _, _, _, _ = jax.jit(raw_env.step, static_argnums=(3,))(
-            akey, state, action, params
-        )
+        _, state1, _, _, _, _ = jax.jit(raw_env.step)(akey, state, action, params)
         self.assertEqual(int(state1.accepted_services), 1)
-        path = params.path_link_array.val[int(global_path_index)]
+        path = params.path_link_array[int(global_path_index)]
         snr_with_state = get_snr_for_path(path, state1.link_snr_array, params, state1)
         snr_without_state = get_snr_for_path(path, state1.link_snr_array, params)
         slot = int(slot_index)
@@ -1805,14 +1801,12 @@ class RoadmAseInLoggedSnrTest(chex.TestCase):
         path_action = jnp.argmax(mask)
         action = jnp.concatenate([path_action.reshape((1,)), jnp.zeros((1,))])
         key, akey = jax.random.split(key)
-        _, log_state1, _, _, _, info = jax.jit(env.step, static_argnums=(3,))(
-            akey, log_state, action, params
-        )
+        _, log_state1, _, _, _, info = jax.jit(env.step)(akey, log_state, action, params)
         env_state = log_state1.env_state
         # Recompute expected SNR exactly as the wrapper does (post-step state and
         # global path index), WITH the state argument
         expected = get_snr_for_path(
-            params.path_link_array.val[jnp.asarray(info["path_index"], dtype=jnp.int32)],
+            params.path_link_array[jnp.asarray(info["path_index"], dtype=jnp.int32)],
             env_state.link_snr_array,
             params,
             env_state,
@@ -1830,7 +1824,7 @@ class LoggedInfoPreStepRequestTest(chex.TestCase):
     def test_logged_request_fields_are_prestep(self):
         key, env, log_state, params = _gn_log_actions_wrapped_env(seed=7)
         raw_env = env._env
-        step = jax.jit(env.step, static_argnums=(3,))
+        step = jax.jit(env.step)
         saw_request_change = False
         for _ in range(8):
             state = log_state.env_state
@@ -2119,7 +2113,7 @@ class LogWrapperActionLoggingTest(chex.TestCase):
             step_key, self.state, action, params
         )
 
-        expected_path = params.path_link_array.val[i + k_index]
+        expected_path = params.path_link_array[i + k_index]
         # Post-step state passed so the expected SNR includes path-level ROADM ASE,
         # matching the wrapper (and the masking/acceptance checks)
         expected_snr = get_snr_for_path(
@@ -2142,7 +2136,7 @@ class GetLightpathSnrMatmulTest(chex.TestCase):
     def _reference_lightpath_snr(self, state, params):
         # Brute-force per-path formulation (the pre-matmul implementation)
         path_snr_array = jax.vmap(get_snr_for_path, in_axes=(0, None, None, None))(
-            params.path_link_array.val, state.link_snr_array, params, state
+            params.path_link_array, state.link_snr_array, params, state
         )
         slot_indices = jnp.arange(params.link_resources)
         return jax.vmap(
@@ -2161,7 +2155,7 @@ class GetLightpathSnrMatmulTest(chex.TestCase):
         rng = np.random.default_rng(0)
         num_links = self.params.num_links
         num_slots = self.params.link_resources
-        num_paths = self.params.path_link_array.val.shape[0]
+        num_paths = self.params.path_link_array.shape[0]
         for _ in range(3):
             # Linear SNR values with the -1e5 sentinel for empty slots (as get_snr returns)
             # and exact zeros (as left behind by lightpath removal before an SNR refresh)
@@ -2199,7 +2193,7 @@ class GetLightpathSnrMatmulTest(chex.TestCase):
         # Populate the network with masked steps, then compare on the resulting state
         rng = self.key
         state = self.state
-        step = jax.jit(self.env.step, static_argnums=(3,))
+        step = jax.jit(self.env.step)
         for _ in range(5):
             mask, _, mod_format_mask = self.env.action_mask(state, self.params)
             state = state.replace(link_slot_mask=mask, mod_format_mask=mod_format_mask)
@@ -2240,8 +2234,8 @@ class GetPathsObsGNModelVmapTest(chex.TestCase):
                 directed=params.directed_graph,
             )
         )
-        plink = np.asarray(params.path_link_array.val, dtype=np.float64)
-        lengths = np.asarray(jnp.sum(params.link_length_array.val, axis=1), dtype=np.float64)
+        plink = np.asarray(params.path_link_array, dtype=np.float64)
+        lengths = np.asarray(jnp.sum(params.link_length_array, axis=1), dtype=np.float64)
         lp_snr = np.asarray(get_lightpath_snr(state, params), dtype=np.float64)
         ch_power = np.asarray(state.channel_power_array, dtype=np.float64)
         max_length = (plink @ lengths).max()
@@ -2268,7 +2262,7 @@ class GetPathsObsGNModelVmapTest(chex.TestCase):
         params = self.params
         num_links = params.num_links
         num_slots = params.link_resources
-        num_paths = params.path_link_array.val.shape[0]
+        num_paths = params.path_link_array.shape[0]
         for _ in range(3):
             ch_power = np.where(
                 rng.random((num_links, num_slots)) < 0.5,
@@ -2347,17 +2341,17 @@ class BlockingCauseCountersTest(chex.TestCase):
         # placement, so this connection fails it while spectrum and power checks pass.
         state, action = self._masked_state_and_action(self.state, self.params)
         params = self.params
-        paths = params.path_link_array.val
+        paths = params.path_link_array
         if params.pack_path_bits:
             paths = jnp.unpackbits(paths, axis=1)[:, : params.num_links]
         path_through_link0 = int(np.argmax(np.asarray(paths)[:, 0] > 0))
-        num_mods = params.modulations_array.val.shape[0]
+        num_mods = params.modulations_array.shape[0]
         slot = params.link_resources - 1
         state = state.replace(
             channel_centre_bw_array=state.channel_centre_bw_array.at[0, slot].set(params.slot_size),
             channel_power_array=state.channel_power_array.at[0, slot].set(1e-12),
             channel_centre_freq_array=state.channel_centre_freq_array.at[0, slot].set(
-                params.slot_centre_freq_array.val[slot]
+                params.slot_centre_freq_array[slot]
             ),
             path_index_array=state.path_index_array.at[0, slot].set(path_through_link0),
             modulation_format_index_array=state.modulation_format_index_array.at[0, slot].set(
@@ -2635,7 +2629,7 @@ class XpmChannelInterfererBroadcastTest(chex.TestCase):
             channel_power_array=jnp.asarray(power, jnp.float32),
             channel_centre_bw_array=jnp.asarray(bw, jnp.float32),
             channel_centre_freq_array=jnp.asarray(
-                np.where(live, getattr(params, "slot_centre_freq_array").val[None, :], 0.0),
+                np.where(live, getattr(params, "slot_centre_freq_array")[None, :], 0.0),
                 jnp.float32,
             ),
             path_index_array=jnp.where(jnp.asarray(live), 0, -1).astype(
@@ -3015,7 +3009,7 @@ class DispersionFloat32UnderflowTest(chex.TestCase):
                     live,
                     np.where(live, 10 ** (rng.uniform(-13, -7, live.shape) / 10), 0.0),
                     np.where(live, rng.choice([12.5, 25.0], live.shape), 0.0),
-                    np.where(live, getattr(params, "slot_centre_freq_array").val[None, :], 0.0),
+                    np.where(live, getattr(params, "slot_centre_freq_array")[None, :], 0.0),
                 )
             live, power, bandwidth, centre = arrays
             state = state.replace(

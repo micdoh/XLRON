@@ -100,13 +100,7 @@ class DeepRMSAEnv(RSAEnv):
         action = jnp.round((action + slot_index) * params.link_resources).astype(jnp.int32)
         return super().step_env(key, state, action, params)
 
-    @partial(
-        jax.jit,
-        static_argnums=(
-            0,
-            2,
-        ),
-    )
+    @partial(jax.jit, static_argnums=(0,))
     def action_mask(self, state: DeepRMSAEnvState, params: RSAEnvParams):
         """Returns mask of valid actions.
 
@@ -131,13 +125,7 @@ class DeepRMSAEnv(RSAEnv):
         """Number of actions possible in environment."""
         return params.k_paths
 
-    @partial(
-        jax.jit,
-        static_argnums=(
-            0,
-            2,
-        ),
-    )
+    @partial(jax.jit, static_argnums=(0,))
     def get_obs(self, state: DeepRMSAEnvState, params: RSAEnvParams) -> Array:
         """Applies observation function to state."""
         request = state.request_array

@@ -25,7 +25,7 @@ from optax import Schedule
 
 import wandb
 from xlron import dtype_config
-from xlron.environments.dataclasses import EnvState, HashableArrayWrapper, RMSAGNModelEnvParams
+from xlron.environments.dataclasses import EnvState, RMSAGNModelEnvParams
 from xlron.environments.env_funcs import (
     calculate_fragmentation,
     calculate_utilisation,
@@ -342,8 +342,6 @@ def print_experiment_summary(config: Box, env_params=None) -> None:
     warmup = config.get("ENV_WARMUP_STEPS", 0)
     reward_type = env_params.reward_type if env_params else config.get("reward_type", "service")
     values_bw = env_params.values_bw if env_params else config.get("values_bw", None)
-    if hasattr(values_bw, "val"):
-        values_bw = values_bw.val
     truncate_ht = (
         env_params.truncate_holding_time
         if env_params
@@ -1025,7 +1023,7 @@ def experiment_data_setup(
         else env.reset(reset_key, env_params)
     )
     if config.USE_GNN or config.USE_TRANSFORMER:
-        obsv = (env_state.env_state, env_params)
+        obsv = (env_state.env_state,)
     elif config.EVAL_HEURISTIC:
         # Heuristics never read the observation: carry a placeholder so get_obs is
         # DCE'd from the compiled eval/warmup step (see heuristic_eval_obs_placeholder)
@@ -1142,8 +1140,6 @@ def experiment_data_setup(
 def _fingerprint(digest, value) -> None:
     """Feed value's content into a hashlib digest: arrays by dtype, shape and bytes,
     dataclasses (environment params and states, including static fields) by field."""
-    if isinstance(value, HashableArrayWrapper):
-        value = value.val
     if dataclasses.is_dataclass(value) and not isinstance(value, type):
         digest.update(type(value).__name__.encode())
         for field in dataclasses.fields(value):
@@ -1258,6 +1254,16 @@ def _as_launch_power_array(power_action: Array, env_params) -> Array:
     )
 
 
+def model_inputs(obs, env_params, config):
+    """Policy call arguments: graph policies read the env params beside the state.
+
+    Observations never carry the params (they are pytrees of arrays, which a rollout
+    scan or env vmap would otherwise copy into every transition), so they are
+    appended here at call time.
+    """
+    return (*obs, env_params) if config.USE_GNN or config.USE_TRANSFORMER else tuple(obs)
+
+
 def select_action(select_action_state, env, env_params, train_state, config):
     """Select an action from the policy.
     If using VONE, the action is a tuple of (source, path, destination).
@@ -1276,7 +1282,7 @@ def select_action(select_action_state, env, env_params, train_state, config):
     """
     action_key, env_state, last_obs = select_action_state
     if config.USE_GNN or config.USE_TRANSFORMER:
-        last_obs = (env_state.env_state, env_params)
+        last_obs = (env_state.env_state,)
     model = eqx.combine(train_state.model_params, train_state.model_static)
     model = cast_model_for_compute(model)
     # This opt-in head reads the freshly resolved format/width at each candidate.
@@ -1297,7 +1303,7 @@ def select_action(select_action_state, env, env_params, train_state, config):
         )
         pi, value = model(model_state, env_params)
     else:
-        pi, value = model(*last_obs)
+        pi, value = model(*model_inputs(last_obs, env_params, config))
 
     # Always do action masking with VONE
     if config.env_type.lower() == "vone":
@@ -1622,7 +1628,7 @@ def get_warmup_fn(warmup_state, env, params, train_state, config) -> Callable[[T
             # training with warmup_action_type='heuristic' the returned obs seeds the RL
             # rollout carry, so it must stay a real observation there.
             if config.USE_GNN or config.USE_TRANSFORMER:
-                obsv = (_state.env_state, params)
+                obsv = (_state.env_state,)
             elif config.EVAL_HEURISTIC:
                 # Match the placeholder carry from experiment_data_setup: heuristic
                 # eval never reads the obs (see heuristic_eval_obs_placeholder)
@@ -2270,12 +2276,12 @@ def log_actions(merged_out, processed_data, config):
     graph = make_graph(topology_name, topology_directory=config.topology_directory)
     link_length_array = init_link_length_array(graph)
     # Get path, path lengths, number of hops
-    paths = jnp.take(params.path_link_array.val, path_indices, axis=0)
+    paths = jnp.take(params.path_link_array, path_indices, axis=0)
     path_lengths = jax.vmap(lambda x: jnp.dot(x, link_length_array), in_axes=(0))(paths)
     num_hops = jnp.sum(paths, axis=-1)
 
     # Vectorized spectral efficiency and required slots
-    spectral_efficiencies = params.path_se_array.val[path_indices]
+    spectral_efficiencies = params.path_se_array[path_indices]
     required_slots = jnp.ceil(
         request_data_rate / (spectral_efficiencies * params.slot_size)
     ).astype(jnp.int32)
@@ -2359,11 +2365,11 @@ def log_actions(merged_out, processed_data, config):
         slot_indices = jnp.squeeze(merged_out["slot_index"])
 
         # Compare the available paths
-        df_path_links = pd.DataFrame(params.path_link_array.val).reset_index(drop=True)
+        df_path_links = pd.DataFrame(params.path_link_array).reset_index(drop=True)
         # Set config.weight = "weight" to use the length of the path for ordering else no. of hops
         config.weight = "weight" if not config.weight else None
         env, params = make(config)
-        df_path_links_alt = pd.DataFrame(params.path_link_array.val).reset_index(drop=True)
+        df_path_links_alt = pd.DataFrame(params.path_link_array).reset_index(drop=True)
         # Find rows that are unique to each dataframe
         # First, make a unique identifer for each row
         df_path_id = df_path_links.apply(lambda x: hash(tuple(x)), axis=1).reset_index(drop=True)

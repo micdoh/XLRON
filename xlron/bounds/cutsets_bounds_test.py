@@ -11,7 +11,6 @@ from xlron.bounds.cutsets_bounds import (
     find_congested_cuts_exhaustive,
     run_single_trial,
 )
-from xlron.environments.dataclasses import HashableArrayWrapper
 from xlron.environments.make_env import make
 
 
@@ -47,10 +46,10 @@ class ExhaustiveCutsetCoverageTest(absltest.TestCase):
 
         graph = nx.cycle_graph(num_nodes)
         edges = sorted(graph.edges())
-        adj_matrix_haw = HashableArrayWrapper(jnp.array(nx.adjacency_matrix(graph).todense()))
-        traffic_matrix_haw = HashableArrayWrapper(jnp.ones((num_nodes, num_nodes)))
-        source_nodes_haw = HashableArrayWrapper(jnp.array([e[0] for e in edges]))
-        dest_nodes_haw = HashableArrayWrapper(jnp.array([e[1] for e in edges]))
+        adj_matrix_arr = jnp.array(nx.adjacency_matrix(graph).todense())
+        traffic_matrix_arr = jnp.ones((num_nodes, num_nodes))
+        source_nodes_arr = jnp.array([e[0] for e in edges])
+        dest_nodes_arr = jnp.array([e[1] for e in edges])
 
         starts = compute_exhaustive_starts(parallel_processes, iterations_per_process)
         evaluated = []
@@ -59,13 +58,13 @@ class ExhaustiveCutsetCoverageTest(absltest.TestCase):
                 start,
                 iterations_per_process,
                 batches_per_iteration,
-                adj_matrix_haw,
-                traffic_matrix_haw,
+                adj_matrix_arr,
+                traffic_matrix_arr,
                 num_nodes,
                 top_k,
                 batch_size,
-                source_nodes_haw,
-                dest_nodes_haw,
+                source_nodes_arr,
+                dest_nodes_arr,
                 False,
             )
             evaluated.extend(_masks_to_indices(np.asarray(partition1)))

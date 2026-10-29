@@ -44,7 +44,7 @@ def build_table(topology, k):
     t0 = time.perf_counter()
     _, params = make(config, log_wrapper=False)
     build_s = time.perf_counter() - t0
-    dense = np.asarray(params.path_link_array.val).astype(np.int8)
+    dense = np.asarray(params.path_link_array).astype(np.int8)
     return dense, params.num_links, params.num_nodes, build_s
 
 

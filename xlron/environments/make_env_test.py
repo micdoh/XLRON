@@ -305,25 +305,30 @@ def test_snr_observations_reject_non_gn_environments():
 
 
 class TestRouteTableStorage:
-    """Path tables are runtime arguments of compiled programs, not constants (#80)."""
+    """Params arrays are traced arguments of compiled programs, never constants (#80)."""
 
-    def test_path_table_is_passed_to_programs_not_embedded(self):
+    def test_path_table_is_a_program_argument(self):
         from xlron.environments.env_funcs import mask_slots
 
-        assert jax.config.jax_use_simplified_jaxpr_constants
         env, params = make(
             {"env_type": "rmsa", "topology_name": "nsfnet_deeprmsa_directed", "k": 5},
             log_wrapper=False,
         )
         _, state = env.reset(jax.random.PRNGKey(0), params)
-        lowered = jax.jit(mask_slots, static_argnums=(1,)).lower(state, params)
-        const_ids = {id(c) for c in lowered._lowering.const_args}
-        assert id(params.path_link_array.val) in const_ids
-        # ... as an argument of the program's entry point, so its elements are not
-        # spelled out in the program
-        rows, cols = params.path_link_array.val.shape
+        lowered = jax.jit(mask_slots).lower(state, params)
+        assert not lowered._lowering.const_args
+        rows, cols = params.path_link_array.shape
         main = next(line for line in lowered.as_text().splitlines() if "@main(" in line)
-        assert f"tensor<{rows}x{cols}xi" in main and "jax.const = true" in main
+        assert f"tensor<{rows}x{cols}xi" in main and "jax.const" not in main
+
+    def test_params_are_a_pytree_of_arrays(self):
+        _, params = make(
+            {"env_type": "rmsa", "topology_name": "nsfnet_deeprmsa_directed", "k": 5},
+            log_wrapper=False,
+        )
+        leaves = jax.tree.leaves(params)
+        assert any(leaf is params.path_link_array for leaf in leaves)
+        assert all(isinstance(leaf, (jax.Array, np.ndarray)) for leaf in leaves)
 
     def test_gn_path_lengths_match_incidence_product(self):
         env, params = make(
@@ -337,8 +342,8 @@ class TestRouteTableStorage:
             log_wrapper=False,
         )
         assert isinstance(params, GNModelEnvParams)
-        paths = np.asarray(params.path_link_array.val, dtype=np.float64)
-        lengths = paths @ np.asarray(params.link_length_array.val, dtype=np.float64).sum(axis=1)
-        np.testing.assert_allclose(np.asarray(params.path_length_array.val), lengths, rtol=1e-6)
+        paths = np.asarray(params.path_link_array, dtype=np.float64)
+        lengths = paths @ np.asarray(params.link_length_array, dtype=np.float64).sum(axis=1)
+        np.testing.assert_allclose(np.asarray(params.path_length_array), lengths, rtol=1e-6)
         assert params.max_path_length == pytest.approx(lengths.max(), rel=1e-6)
         assert params.max_path_hops == int(paths.sum(axis=1).max())

@@ -31,7 +31,7 @@ def test_compact_lifetime_status_and_unsaturated_snr():
         link_snr_array=s.link_snr_array.at[0, 2:5].set(jnp.array([0.1, 1e3, 1e4])),
     )
     x = get_obs_transformer(s, p)
-    i = p.line_graph_spectral_features.val.shape[1]
+    i = p.line_graph_spectral_features.shape[1]
     np.testing.assert_allclose(x[0, i : i + 5], [-1, 0, 1, 1 + np.log(2), 1 + np.log(4)], rtol=1e-6)
     q = x[0, i + p.link_resources : i + p.link_resources + 5]
     assert q[2] < 0 and q[4] > q[3] > 0

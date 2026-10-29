@@ -13,7 +13,6 @@ import networkx as nx
 import numpy as np
 from absl import app, flags
 
-from xlron.environments.dataclasses import HashableArrayWrapper
 from xlron.environments.env_funcs import (
     generate_request_rsa,
     make_graph,
@@ -34,7 +33,7 @@ def get_weighted_traffic_matrix(graph, params):
 
     # path_se_array is flat with one SE per path, grouped in blocks of k.
     # We want the SE of the first (shortest) path for each (s,d) pair.
-    se_array = np.asarray(params.path_se_array.val)
+    se_array = np.asarray(params.path_se_array)
     k = params.k_paths
 
     # Upper-triangular (s < d) pairs in row-major order
@@ -65,19 +64,19 @@ def get_weighted_traffic_matrix(graph, params):
     return jnp.array(traffic_matrix)
 
 
-@partial(jax.jit, static_argnums=(1,))
+@jax.jit
 def make_complete_subgraph(path_adj_matrix, adj_matrix):
     active = (path_adj_matrix.sum(axis=0) + path_adj_matrix.sum(axis=1)) > 0
-    result = jnp.outer(active, active) * adj_matrix.val
+    result = jnp.outer(active, active) * adj_matrix
     return result
 
 
-@partial(jax.jit, static_argnums=(1, 2, 3, 4))
+@partial(jax.jit, static_argnums=(3, 4))
 def edges_to_adjacency(path_array, source_nodes, dest_nodes, num_nodes, directed=False):
     adjacency = jnp.zeros((num_nodes, num_nodes))
 
     def update_adj(idx, adj):
-        s, d = source_nodes.val[idx], dest_nodes.val[idx]
+        s, d = source_nodes[idx], dest_nodes[idx]
         update_val = jnp.array([[1.0]]) * path_array[idx]
         adj = jax.lax.dynamic_update_slice(adj, update_val, (s, d))
         if not directed:
@@ -88,13 +87,13 @@ def edges_to_adjacency(path_array, source_nodes, dest_nodes, num_nodes, directed
     return adjacency
 
 
-@partial(jax.jit, static_argnums=(1, 2, 3, 4))
+@partial(jax.jit, static_argnums=(4,))
 def get_cutset_from_path(path_array, adjacency, source_nodes, dest_nodes, directed=False):
-    num_nodes = adjacency.val.shape[0]
+    num_nodes = adjacency.shape[0]
     path_adjacency = edges_to_adjacency(path_array, source_nodes, dest_nodes, num_nodes, directed)
     subgraph_adjacency = make_complete_subgraph(path_adjacency, adjacency)
     cutset_adjacency = find_cutset_adj(subgraph_adjacency, adjacency)
-    remaining_graph = adjacency.val * (1 - cutset_adjacency)
+    remaining_graph = adjacency * (1 - cutset_adjacency)
 
     reachable = jnp.zeros(num_nodes)
     reachable = reachable.at[0].set(1)
@@ -109,34 +108,32 @@ def get_cutset_from_path(path_array, adjacency, source_nodes, dest_nodes, direct
     return partition1, partition2
 
 
-@partial(jax.jit, static_argnums=(2, 3))
+@jax.jit
 def find_cutset_edges(p1, p2, source_nodes, dest_nodes):
-    offset = -jnp.min(jnp.concatenate([source_nodes.val, dest_nodes.val]))
+    offset = -jnp.min(jnp.concatenate([source_nodes, dest_nodes]))
 
     # Edge crosses cut if its endpoints are in different partitions
     def is_cut_edge(edge):
         u, v = edge
         return jnp.logical_or(jnp.logical_and(p1[u], p2[v]), jnp.logical_and(p1[v], p2[u]))
 
-    cut_set = jax.vmap(is_cut_edge)(
-        jnp.stack([source_nodes.val + offset, dest_nodes.val + offset], axis=1)
-    )
+    cut_set = jax.vmap(is_cut_edge)(jnp.stack([source_nodes + offset, dest_nodes + offset], axis=1))
     return cut_set.astype(jnp.int32)
 
 
-@partial(jax.jit, static_argnums=(1,))
+@jax.jit
 def find_cutset_adj(subgraph_matrix, full_matrix):
     in_subgraph = (subgraph_matrix.sum(axis=0) + subgraph_matrix.sum(axis=1)) > 0
     inside = in_subgraph.reshape(-1, 1)
     outside = ~in_subgraph.reshape(1, -1)
     cutset = jnp.logical_and(
-        full_matrix.val,
+        full_matrix,
         jnp.logical_or(jnp.logical_and(inside, outside), jnp.logical_and(outside.T, inside.T)),
     )
     return cutset
 
 
-@partial(jax.jit, static_argnums=(1, 2, 3, 4, 5))
+@partial(jax.jit, static_argnums=(5,))
 def calculate_congestion(
     partition_mask, adjacency_matrix, traffic_matrix, source_nodes, dest_nodes, directed=False
 ):
@@ -152,10 +149,10 @@ def calculate_congestion(
     cross_mask = partition1[:, None] * partition2[None, :]
     if directed:
         cross_mask = cross_mask + partition2[:, None] * partition1[None, :]
-    traffic_across_cut = jnp.sum(traffic_matrix.val * cross_mask)
+    traffic_across_cut = jnp.sum(traffic_matrix * cross_mask)
     congestion = jnp.where(cut_size > 0, traffic_across_cut / cut_size, 0.0)
 
-    partitioned_adj = adjacency_matrix.val - cut_matrix
+    partitioned_adj = adjacency_matrix - cut_matrix
     masked1 = jnp.where(jnp.outer(partition1, partition1) > 0, partitioned_adj, 0)
     masked2 = jnp.where(jnp.outer(partition2, partition2) > 0, partitioned_adj, 0)
     check1 = jnp.where(partition1 > 0, jnp.sum(masked1, axis=0) > 0, True)
@@ -181,7 +178,7 @@ def generate_gray_code_masks(n_nodes: int, max_batch_size: int, start: int):
     return masks
 
 
-@partial(jax.jit, static_argnums=(1, 2, 3, 4, 5), donate_argnums=(0,))
+@partial(jax.jit, static_argnums=(5,), donate_argnums=(0,))
 def calculate_congestion_batch(
     partition_masks_batch,
     adjacency_matrix,
@@ -270,7 +267,7 @@ def find_congested_cuts_simple(
     directed=False,
 ):
     def compute_single(i):
-        path = path_link_array.val[i]
+        path = path_link_array[i]
         p1, p2 = get_cutset_from_path(path, adjacency_matrix, source_nodes, dest_nodes, directed)
         congestion = calculate_congestion(
             p1, adjacency_matrix, traffic_matrix, source_nodes, dest_nodes, directed
@@ -279,7 +276,7 @@ def find_congested_cuts_simple(
 
     path_indices = jnp.arange(path_link_array.shape[0])
     num_paths = path_link_array.shape[0]
-    num_nodes = adjacency_matrix.val.shape[0]
+    num_nodes = adjacency_matrix.shape[0]
 
     # Estimate peak vmap memory: num_paths * num_nodes^2 * 4 bytes (int32)
     _GPU_VMAP_MEMORY_LIMIT = 2 * 1024**3  # 2 GiB
@@ -375,8 +372,8 @@ def precompute_cutset_data(heavy_cut_sets, num_links, source_nodes=None, dest_no
 
     # Build directional masks for directed graphs
     if source_nodes is not None and dest_nodes is not None:
-        src = np.asarray(source_nodes.val)
-        dst = np.asarray(dest_nodes.val)
+        src = np.asarray(source_nodes)
+        dst = np.asarray(dest_nodes)
         p1 = np.asarray(partition1)  # (num_cutsets, num_nodes)
         p2 = np.asarray(partition2)
 
@@ -427,8 +424,8 @@ def build_best_se_matrix(params):
     # Reshape to (num_pairs, k) and take max over k to get best SE per pair.
     # IMPORTANT: Only consider paths that actually have links (non-empty).
     # Empty/padded paths can have bogus SE values that would inflate the bound.
-    se_array = np.asarray(params.path_se_array.val)
-    link_array = np.asarray(params.path_link_array.val)
+    se_array = np.asarray(params.path_se_array)
+    link_array = np.asarray(params.path_link_array)
     k = params.k_paths
     num_pairs = se_array.shape[0] // k
     se_reshaped = se_array.reshape(num_pairs, k)
@@ -923,15 +920,15 @@ def run_capacity_bound_simulation(
         num_trials: int, trials per load.
         seed: int, base random seed.
         max_services: int — size of service tracking table for departures.
-        source_nodes: HashableArrayWrapper — source node per link (for directional capacity).
-        dest_nodes: HashableArrayWrapper — dest node per link (for directional capacity).
+        source_nodes: Array — source node per link (for directional capacity).
+        dest_nodes: Array — dest node per link (for directional capacity).
 
     Returns:
         results: dict mapping load -> {accepted, blocked, always_accepted, blocking_prob}
     """
     num_links = params.num_links
     mean_service_holding_time = params.mean_service_holding_time
-    values_bw = jnp.array(params.values_bw.val, dtype=jnp.float32)
+    values_bw = jnp.array(params.values_bw, dtype=jnp.float32)
 
     # Precompute cut-set data (with directional sizes for directed graphs)
     cs_data = precompute_cutset_data(heavy_cut_sets, num_links, source_nodes, dest_nodes)
@@ -1114,10 +1111,10 @@ def main(argv):
     traffic_matrix_weighted = get_weighted_traffic_matrix(graph, params)
     print("  Done.")
     traffic_matrix_weighted = normalise_traffic_matrix(traffic_matrix_weighted)
-    traffic_matrix_haw = HashableArrayWrapper(traffic_matrix_weighted)
-    adj_matrix_haw = HashableArrayWrapper(jnp.array(adj_matrix))
-    source_nodes_haw = HashableArrayWrapper(source_nodes_np)
-    destination_nodes_haw = HashableArrayWrapper(destination_nodes_np)
+    traffic_matrix_arr = traffic_matrix_weighted
+    adj_matrix_arr = jnp.array(adj_matrix)
+    source_nodes_arr = source_nodes_np
+    destination_nodes_arr = destination_nodes_np
     top_k = FLAGS.CUTSET_TOP_K
 
     # --- Find congested cut-sets ---
@@ -1156,13 +1153,13 @@ def main(argv):
                     start,
                     iterations_per_process,
                     batches_per_iteration,
-                    adj_matrix_haw,
-                    traffic_matrix_haw,
+                    adj_matrix_arr,
+                    traffic_matrix_arr,
                     params.num_nodes,
                     top_k,
                     batch_size,
-                    source_nodes_haw,
-                    destination_nodes_haw,
+                    source_nodes_arr,
+                    destination_nodes_arr,
                     params.directed_graph,
                 )
                 for start in starts
@@ -1176,52 +1173,64 @@ def main(argv):
                             find_congested_cuts_exhaustive,
                             in_axes=(0, None, None, None, None, None, None, None, None, None, None),
                         ),
-                        static_argnums=(1, 2, 3, 4, 5, 6, 7, 8, 9, 10),
+                        static_argnums=(1, 2, 5, 6, 7, 10),
                     )
                     .lower(
                         starts,
                         iterations_per_process,
                         batches_per_iteration,
-                        adj_matrix_haw,
-                        traffic_matrix_haw,
+                        adj_matrix_arr,
+                        traffic_matrix_arr,
                         params.num_nodes,
                         top_k,
                         batch_size,
-                        source_nodes_haw,
-                        destination_nodes_haw,
+                        source_nodes_arr,
+                        destination_nodes_arr,
                         params.directed_graph,
                     )
                     .compile()
                 )
             with TimeIt("CUT-SET EXECUTION:", frames=total_combinations):
-                heavy_cut_sets_raw = func(starts)
+                heavy_cut_sets_raw = func(
+                    starts,
+                    adj_matrix_arr,
+                    traffic_matrix_arr,
+                    source_nodes_arr,
+                    destination_nodes_arr,
+                )
                 heavy_cut_sets_raw[0].block_until_ready()
     else:
         if FLAGS.DISABLE_JIT:
             heavy_cut_sets_raw = find_congested_cuts_simple(
                 params.path_link_array,
-                source_nodes_haw,
-                destination_nodes_haw,
-                adj_matrix_haw,
-                traffic_matrix_haw,
+                source_nodes_arr,
+                destination_nodes_arr,
+                adj_matrix_arr,
+                traffic_matrix_arr,
                 params.directed_graph,
             )
         else:
             with TimeIt("CUT-SET COMPILATION:"):
                 func = (
-                    jax.jit(find_congested_cuts_simple, static_argnums=(0, 1, 2, 3, 4, 5))
+                    jax.jit(find_congested_cuts_simple, static_argnums=(5,))
                     .lower(
                         params.path_link_array,
-                        source_nodes_haw,
-                        destination_nodes_haw,
-                        adj_matrix_haw,
-                        traffic_matrix_haw,
+                        source_nodes_arr,
+                        destination_nodes_arr,
+                        adj_matrix_arr,
+                        traffic_matrix_arr,
                         params.directed_graph,
                     )
                     .compile()
                 )
             with TimeIt("CUT-SET EXECUTION:"):
-                heavy_cut_sets_raw = func()
+                heavy_cut_sets_raw = func(
+                    params.path_link_array,
+                    source_nodes_arr,
+                    destination_nodes_arr,
+                    adj_matrix_arr,
+                    traffic_matrix_arr,
+                )
                 heavy_cut_sets_raw[0].block_until_ready()
 
     # Post-process: reshape, deduplicate, select top-k
@@ -1232,7 +1241,7 @@ def main(argv):
     partition2 = jnp.reshape(heavy_cut_sets_raw[2], (-1, params.num_nodes))
     print("  Finding cutset edges...")
     cutset_edges = jax.vmap(find_cutset_edges, in_axes=(0, 0, None, None))(
-        partition1, partition2, source_nodes_haw, destination_nodes_haw
+        partition1, partition2, source_nodes_arr, destination_nodes_arr
     )
 
     # Deduplicate and filter on CPU (avoids slow jnp.unique on GPU)
@@ -1310,8 +1319,8 @@ def main(argv):
         num_trials=FLAGS.num_trials,
         seed=FLAGS.SEED,
         max_services=max_services,
-        source_nodes=source_nodes_haw if params.directed_graph else None,
-        dest_nodes=destination_nodes_haw if params.directed_graph else None,
+        source_nodes=source_nodes_arr if params.directed_graph else None,
+        dest_nodes=destination_nodes_arr if params.directed_graph else None,
     )
 
     print_results_table(results)

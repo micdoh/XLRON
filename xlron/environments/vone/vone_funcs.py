@@ -196,7 +196,7 @@ def update_selected_node_departure(node_row, node_selected, first_inf_index, val
     )
 
 
-@partial(jax.jit, static_argnums=(0,))
+@jax.jit
 def init_action_history(params: VONEEnvParams):
     """Initialize action history"""
     return jnp.full(params.max_edges * 2 + 1, -1, dtype=dtype_config.LARGE_FLOAT_DTYPE)
@@ -263,7 +263,7 @@ def update_node_array(node_indices, array, node, request):
     return jnp.where(node_indices == node, array - request, array)
 
 
-@partial(jax.jit, static_argnums=(0,))
+@jax.jit
 def init_vone_request_array(params: VONEEnvParams):
     """Initialize request array either with uniform resources"""
     return jnp.zeros(
@@ -275,7 +275,7 @@ def init_vone_request_array(params: VONEEnvParams):
     )
 
 
-@partial(jax.jit, static_argnums=(0,))
+@jax.jit
 def init_node_capacity_array(params: VONEEnvParams):
     """Initialize node array with uniform resources.
 
@@ -296,12 +296,12 @@ def init_node_capacity_array(params: VONEEnvParams):
     )
 
 
-@partial(jax.jit, static_argnums=(0,))
+@jax.jit
 def init_node_departure_array(params: VONEEnvParams):
     return jnp.full((params.num_nodes, params.node_resources), jnp.inf)
 
 
-@partial(jax.jit, static_argnums=(0,))
+@jax.jit
 def init_node_resource_array(params: VONEEnvParams):
     """Array to track node resources occupied by virtual nodes"""
     return jnp.zeros(
@@ -329,7 +329,7 @@ def check_unique_nodes(node_departure_array: Array) -> bool:
     )
 
 
-@partial(jax.jit, static_argnums=(2,))
+@jax.jit
 def generate_vone_request(key: chex.PRNGKey, state: VONEEnvState, params: VONEEnvParams):
     """Generate a new request for the VONE environment.
     The request has two rows. The first row shows the node and slot values.
@@ -344,7 +344,7 @@ def generate_vone_request(key: chex.PRNGKey, state: VONEEnvState, params: VONEEn
     action_counter = jax.lax.dynamic_slice(pattern, (0,), (3,))
     topology_pattern = jax.lax.dynamic_slice(pattern, (3,), (pattern.shape[0] - 3,))
     selected_node_values = jax.random.choice(key_node, state.values_nodes, shape=(shape,))
-    selected_bw_values = jax.random.choice(key_slot, params.values_bw.val, shape=(shape,))
+    selected_bw_values = jax.random.choice(key_slot, params.values_bw, shape=(shape,))
     # Create a mask for odd and even indices
     mask = jnp.tile(jnp.array([0, 1]), (shape + 1) // 2)[:shape]
     # Vectorized conditional replacement using mask
@@ -408,7 +408,7 @@ def undo_link_action_vone(state: VONEEnvState) -> VONEEnvState:
     return state
 
 
-@partial(jax.jit, static_argnums=(4,))
+@jax.jit
 def implement_vone_action(
     state: VONEEnvState,
     action: Array,
@@ -652,7 +652,7 @@ def decrement_action_counter(state):
     return state
 
 
-@partial(jax.jit, static_argnums=(0,))
+@jax.jit
 def init_node_mask(params: VONEEnvParams):
     """Initialize node mask"""
     return jnp.ones(params.num_nodes, dtype=dtype_config.LARGE_FLOAT_DTYPE)
@@ -809,7 +809,7 @@ def undo_node_action(state: VONEEnvState) -> VONEEnvState:
     return state
 
 
-@partial(jax.jit, static_argnums=(1,))
+@jax.jit
 def remove_expired_node_requests(state: VONEEnvState, params: VONEEnvParams) -> VONEEnvState:
     """Check for values in node_departure_array that are less than the current time but greater than zero
     (negative time indicates the request is not yet finalised).

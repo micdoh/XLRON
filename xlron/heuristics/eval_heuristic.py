@@ -111,7 +111,7 @@ def get_eval_fn(
             )
 
             if config.USE_GNN or config.USE_TRANSFORMER:
-                obsv = (env_state.env_state, env_params)
+                obsv = (env_state.env_state,)
             elif config.EVAL_HEURISTIC:
                 # Heuristic eval never reads the obs: carry the placeholder so the
                 # ~4.4k-element get_obs concat inside env.step becomes dead code

@@ -184,7 +184,7 @@ class LogWrapper(GymnaxWrapper):
                 if is_gn_params:
                     # Index with the global path row (node-pair offset + k-index),
                     # unpacking bits if the path-link array is bit-packed
-                    path = params.path_link_array.val[(i + path_index).astype(jnp.int32)]
+                    path = params.path_link_array[(i + path_index).astype(jnp.int32)]
                     if params.pack_path_bits:
                         path = jnp.unpackbits(path)[: params.num_links]
                     # Post-step link_snr_array so the placement is reflected; pass the
