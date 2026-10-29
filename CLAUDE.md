@@ -242,7 +242,8 @@ Forgetting step 3 will cause metrics to not appear in wandb dashboards.
 - Use `pytree_node=False` in dataclasses for values that don't change during training
 - Use `static_argnames` in JIT decorators for string/bool arguments
 - Never use traced values as static arguments (causes unhashable error)
-- `HashableArrayWrapper` (in `dataclasses.py`) wraps arrays that need to be static JIT args
+- `HashableArrayWrapper` (in `dataclasses.py`) wraps arrays that need to be static JIT args; its content hash is cached
+- `xlron/__init__.py` (and the root `conftest.py`) default `JAX_USE_SIMPLIFIED_JAXPR_CONSTANTS=1`, so closed-over device arrays such as `path_link_array` are passed to each compiled program as arguments instead of embedded as constants (issue #80). It only takes effect if set before `jax` is imported. Consequence: XLA no longer constant-folds expressions over whole tables, so a reduction over all paths inside a step runs every step. Precompute such quantities at env creation (e.g. GN `path_length_array`, `max_path_length`, `max_path_hops`) or evaluate them under `jax.ensure_compile_time_eval()`, and gather a path's row before `unpackbits`, never the whole table
 
 ### How the Training Loop Works
 
