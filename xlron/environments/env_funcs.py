@@ -4076,10 +4076,12 @@ def get_centre_frequency(
 #   channel_centre_bw_array its signal width (GHz) on every signal slot, and both
 #   are zero on guard slots.
 #
-# The GN model sees one entry per channel (`channel_physics_rows`): power and
-# width on the channel's first signal slot, zero elsewhere. Its per-entry SNR is
-# then copied back to every signal slot of the channel (`broadcast_channel_values`),
-# so per-slot consumers keep their (links, slots) shape.
+# The GN model sees one entry per channel: `channel_entries` gathers each
+# channel's power, width and centre from its first signal slot
+# (`channel_physics_rows`) into at most `max_channels_per_link` entries, and maps
+# the per-channel SNR back to every signal slot of the channel, so per-slot
+# consumers keep their (links, slots) shape. Admission checks read a channel at
+# its first signal slot (`live_lightpath_mask`).
 
 
 def signal_slot_count(num_slots: Array, params: RSAGNModelEnvParams) -> Array:
@@ -4150,26 +4152,56 @@ def channel_physics_rows(bandwidth: Array, power: Array, centre: Array):
     )
 
 
-def broadcast_channel_values(
-    values: Array, bandwidth: Array, centre: Array, first: Array, params: RSAGNModelEnvParams
-) -> Array:
-    """Copy each channel's value from its first signal slot to all its signal slots.
+def max_channels_per_link(params: RSAGNModelEnvParams) -> int:
+    """Static bound on the channels of one link: each takes a signal slot and its guard band."""
+    return -(-int(params.link_resources) // (1 + max(int(params.guardband), 0)))
 
-    bandwidth and centre are the per-slot channel rows and first comes from
-    channel_physics_rows; entries off signal slots keep their own value (e.g. the
-    GN model's empty-slot sentinel). A channel of n signal slots is centred
-    (n - 1) / 2 slots above its first slot, and its slots are evenly spaced by
-    slot_size (they never straddle a band gap), so each slot's offset from its
-    first slot follows elementwise from the slot centres: one gather, no scan.
+
+def channel_entries(
+    bandwidth: Array, power: Array, centre: Array, capacity: int, pallas: bool = False
+):
+    """Compact one link's per-slot channel row to one GN entry per channel.
+
+    Returns (take, expand): take(x, fill) gathers a per-slot array x (..., slots)
+    at each channel's first signal slot, giving (..., capacity) entries in slot
+    order, with fill beyond the last channel; expand(values, broadcast, fill)
+    maps (capacity,) per-channel values back to slots: to every signal slot of
+    the channel with broadcast, else to its first signal slot only, and fill on
+    the other slots. capacity must bound the link's channels
+    (max_channels_per_link); the GN model then evaluates capacity entries
+    instead of one per slot, and the gather from the compact result is also the
+    broadcast to the channel's slots. With pallas, the index and owner come from
+    one compaction kernel (kernels.compact) instead of a scan and a search.
     """
-    slots = jnp.arange(values.shape[-1], dtype=dtype_config.INDEX_DTYPE)
-    offset = jnp.round(
-        (params.slot_centre_freq_array - centre) / params.slot_size
-        + (bandwidth / params.slot_size - 1) / 2
-    ).astype(dtype_config.INDEX_DTYPE)
-    owner = jnp.clip(slots - offset, 0, values.shape[-1] - 1)
-    gathered = jnp.take_along_axis(values, jnp.broadcast_to(owner, values.shape), axis=-1)
-    return jnp.where((bandwidth != 0) & ~first, gathered, values)
+    from xlron.kernels.compact import MAX_ELEMENTS
+
+    _, _, first, signal = channel_physics_rows(bandwidth, power, centre)
+    slots = bandwidth.shape[-1]
+    if pallas and slots <= MAX_ELEMENTS:
+        from xlron.kernels.compact import compact_true_indices
+
+        index, total, owner = compact_true_indices(first, ranks=True)
+        index = index[:capacity]
+        valid = jnp.arange(capacity) < total
+    else:
+        count = jnp.cumsum(first.astype(jnp.int32))  # channels starting at or before each slot
+        owner = count - 1
+        index = jnp.searchsorted(
+            count, jnp.arange(1, capacity + 1, dtype=jnp.int32), side="left", method="scan_unrolled"
+        )
+        valid = index < slots
+        index = jnp.minimum(index, slots - 1)
+
+    def take(x, fill=None):
+        entries = jnp.take(x, index, axis=-1)
+        return entries if fill is None else jnp.where(valid, entries, jnp.asarray(fill, x.dtype))
+
+    def expand(values, broadcast=True, fill=-1e5):
+        keep = signal if broadcast else first
+        entry = values[jnp.clip(owner, 0, capacity - 1)]
+        return jnp.where(keep, entry, jnp.asarray(fill, values.dtype))
+
+    return take, expand
 
 
 @jax.jit
@@ -4515,8 +4547,15 @@ def link_snr_cache_is_fresh(params: GNModelEnvParams) -> bool:
 
 
 def live_lightpath_mask(state: GNModelEnvState, params: GNModelEnvParams) -> Array:
-    """Occupied cells whose lightpath carries traffic and so must meet its SNR threshold."""
-    return (state.channel_centre_bw_array != 0) & ~held_lightpath_mask(state, params)
+    """Cells whose lightpath carries traffic and so must meet its SNR threshold.
+
+    A channel has one SNR, so only its first signal slot on each link is checked
+    (channel_physics_rows); the GN masks rely on this to skip the SNR broadcast.
+    """
+    _, _, first, _ = channel_physics_rows(
+        state.channel_centre_bw_array, state.channel_power_array, state.channel_centre_freq_array
+    )
+    return first & ~held_lightpath_mask(state, params)
 
 
 def lightpath_representatives(state: GNModelEnvState, params: GNModelEnvParams) -> Array:
@@ -4705,8 +4744,12 @@ def check_snr_sufficient(
     params: RMSAGNModelEnvParams,
     *,
     existing_required: Array | None = None,
+    live: Array | None = None,
 ) -> Array:
     """Check if SNR is sufficient for all active connections.
+
+    live optionally supplies live_lightpath_mask(state) (e.g. a baseline mask
+    plus one inserted channel) to avoid recomputing it.
     Args:
         state (EnvState): Environment state
         params (EnvParams): Environment parameters
@@ -4720,7 +4763,7 @@ def check_snr_sufficient(
         required_snr_array = jnp.maximum(required_snr_array, existing_required)
     lightpath_snr_array = get_lightpath_snr(state, params)
     # Only check slots that are actually occupied (have nonzero channel bandwidth)
-    is_occupied = live_lightpath_mask(state, params)
+    is_occupied = live_lightpath_mask(state, params) if live is None else live
     snr_insufficient = jnp.where(lightpath_snr_array >= required_snr_array, 0, 1)
     snr_insufficient = jnp.where(is_occupied, snr_insufficient, 0)
     return jnp.any(snr_insufficient)
@@ -4793,12 +4836,13 @@ def inserted_link_xpm(coefficients, rows, start, power, centre, width, params) -
     return jax.vmap(link)(coefficients, bandwidth, link_power, rows[2])
 
 
-@jax.jit
+@partial(jax.jit, static_argnames=("broadcast",))
 def get_snr_link_array(
     state: GNModelEnvState,
     params: GNModelEnvParams,
     link_indices: Array | None = None,
     rows: tuple[Array, Array, Array, Array] | None = None,
+    broadcast: bool = True,
 ) -> Array:
     """Get SNR per link
     Args:
@@ -4809,6 +4853,10 @@ def get_snr_link_array(
             link_indices, replacing the state's (e.g. a candidate insertion). A fifth
             entry, the rows' XPM before span accumulation (Pallas backend only),
             replaces the XPM calculation (see inserted_link_xpm).
+        broadcast: copy each channel's SNR to all its signal slots. Without it only
+            each channel's first signal slot holds its SNR (the other signal slots
+            hold the empty-slot sentinel), which is all the admission checks read
+            (live_lightpath_mask); the GN masks skip the copy for speed.
     Returns:
         jnp.array: SNR per link
     """
@@ -4819,31 +4867,38 @@ def get_snr_link_array(
         else "jax"
     )
 
+    slots = params.link_resources
+    capacity = max_channels_per_link(params)
+
     def get_link_snr(link_index, row):
         # Get channel power, channel centre, bandwidth, and noise figure
         link_lengths = params.link_length_array[link_index, :]  # in metres
         num_spans = jnp.ceil(jnp.sum(link_lengths) / params.max_span_length).astype(
             dtype_config.LARGE_INT_DTYPE
         )
-        slot_bw_link, ch_power_link, ch_centres_link, mod_format_link, *xpm_link = row
-        # One GN entry per channel; its SNR is broadcast to the channel's slots below.
-        bw_link, ch_power_link, first, _ = channel_physics_rows(
-            slot_bw_link, ch_power_link, ch_centres_link
+        slot_bw_link, slot_power_link, slot_centres_link, mod_format_link, *xpm_link = row
+        # The GN model evaluates one entry per channel (channel_entries); its SNR
+        # is mapped back to the channel's slots below.
+        take, expand = channel_entries(
+            slot_bw_link, slot_power_link, slot_centres_link, capacity, xpm_backend == "pallas"
         )
+        bw_link, ch_power_link = take(slot_bw_link, 0), take(slot_power_link, 0)
+        ch_centres_link = take(slot_centres_link)
         if xpm_link:
             if xpm_backend != "pallas":
                 raise ValueError("Precomputed XPM rows require the Pallas XPM backend")
-            backend = lambda *_: xpm_link[0]
+            xpm_entries = take(xpm_link[0], 0)
+            backend = lambda *_: xpm_entries
         else:
             backend = xpm_backend
         if params.mod_format_correction:
-            kurtosis_link = get_required_snr_se_kurtosis_on_link(mod_format_link, 4, params)
+            kurtosis_link = take(get_required_snr_se_kurtosis_on_link(mod_format_link, 4, params))
         else:
-            kurtosis_link = jnp.zeros(params.link_resources).astype(jnp.float32)
+            kurtosis_link = jnp.zeros(capacity).astype(jnp.float32)
 
         # Calculate SNR
         P = dict(
-            num_channels=params.link_resources,
+            num_channels=capacity,
             num_spans=num_spans,
             max_spans=params.max_spans,
             ref_lambda=params.ref_lambda,
@@ -4855,8 +4910,8 @@ def get_snr_link_array(
             dispersion_coeff=jnp.array(params.dispersion_coeff),
             dispersion_slope=jnp.array(params.dispersion_slope),
             coherent=params.coherent,
-            amplifier_noise_figure=params.amplifier_noise_figure,
-            transceiver_snr=params.transceiver_snr,
+            amplifier_noise_figure=take(jnp.broadcast_to(params.amplifier_noise_figure, (slots,))),
+            transceiver_snr=take(jnp.broadcast_to(params.transceiver_snr, (slots,))),
             ch_power_w_i=ch_power_link,
             ch_centre_i=ch_centres_link * 1e9,
             ch_bandwidth_i=bw_link * 1e9,
@@ -4868,7 +4923,9 @@ def get_snr_link_array(
         if params.use_raman_amp:
             snr = isrs_gn_model_dra.get_snr_dra(
                 **P,
-                fit_params_ij=params.raman_fit_params,
+                fit_params_ij=take(jnp.moveaxis(params.raman_fit_params, 1, -1)).swapaxes(1, -1)
+                if params.raman_fit_params.shape[1] == slots
+                else params.raman_fit_params,
                 raman_pump_power_fw=params.raman_pump_power_fw,
                 raman_pump_power_bw=params.raman_pump_power_bw,
                 raman_pump_freq_fw=params.raman_pump_freq_fw,
@@ -4883,7 +4940,7 @@ def get_snr_link_array(
                 xpm_backend=backend,
             )[0]
 
-        return broadcast_channel_values(snr, slot_bw_link, ch_centres_link, first, params)
+        return expand(snr, broadcast)
 
     if link_indices is None:
         link_indices = jnp.arange(params.num_links)
@@ -4907,9 +4964,12 @@ def get_snr_link_array(
     return link_snr_array
 
 
-@jax.jit
+@partial(jax.jit, static_argnames=("broadcast",))
 def get_snr_link_array_fused(
-    state: GNModelEnvState, params: GNModelEnvParams, link_indices: Array | None = None
+    state: GNModelEnvState,
+    params: GNModelEnvParams,
+    link_indices: Array | None = None,
+    broadcast: bool = True,
 ) -> Array:
     """Get SNR per link using fused computation (uniform spans, no mod_format_correction).
 
@@ -4918,7 +4978,7 @@ def get_snr_link_array_fused(
     """
     # Raman amplification has per-span varying fit_params — fused uniform-span path doesn't apply
     if params.use_raman_amp:
-        return get_snr_link_array(state, params, link_indices)
+        return get_snr_link_array(state, params, link_indices, broadcast=broadcast)
 
     # Precompute per-link num_spans and span_length from static link_length_array
     # link_length_array is (L, max_spans) in metres
@@ -4934,27 +4994,24 @@ def get_snr_link_array_fused(
         jnp.float32
     )  # (L,) in metres
 
-    # Per-link channel data from state, one GN entry per channel: (L, N)
-    centres = state.channel_centre_freq_array[link_indices]
-    slot_bw = state.channel_centre_bw_array[link_indices]
-    bw_all, ch_power_all, first, _ = channel_physics_rows(
-        slot_bw, state.channel_power_array[link_indices], centres
-    )
-    ch_centres_hz = centres * 1e9  # (L, N) GHz -> Hz
-    bw_hz = bw_all * 1e9  # (L, N)
+    # Per-link per-slot channel rows: (L, N)
+    slots = params.link_resources
+    capacity = max_channels_per_link(params)
+    amp_nf = jnp.broadcast_to(params.amplifier_noise_figure, (slots,))
+    trx_snr = jnp.broadcast_to(params.transceiver_snr, (slots,))
 
-    # Tile amplifier noise figure and transceiver SNR to (L, N) for vmap
-    amp_nf = jnp.broadcast_to(params.amplifier_noise_figure, ch_power_all.shape)
-    trx_snr = jnp.broadcast_to(params.transceiver_snr, ch_power_all.shape)
-
-    def _link_snr_fused(ch_pow, ch_centre, ch_bw, n_spans, s_length, amp_nf_link, trx_snr_link):
-        return isrs_gn_model.get_snr_fused(
-            ch_power_w_i=ch_pow,
-            ch_centre_i=ch_centre,
-            ch_bandwidth_i=ch_bw,
+    def _link_snr_fused(slot_bw, slot_pow, slot_centre, n_spans, s_length):
+        # One GN entry per channel (channel_entries), mapped back to its slots.
+        take, expand = channel_entries(
+            slot_bw, slot_pow, slot_centre, capacity, uses_pallas_kernels(params)
+        )
+        snr = isrs_gn_model.get_snr_fused(
+            ch_power_w_i=take(slot_pow, 0),
+            ch_centre_i=take(slot_centre) * 1e9,
+            ch_bandwidth_i=take(slot_bw, 0) * 1e9,
             num_spans=n_spans,
             span_length=s_length,
-            num_channels=params.link_resources,
+            num_channels=capacity,
             ref_lambda=params.ref_lambda,
             attenuation=params.attenuation,
             attenuation_bar=params.attenuation_bar,
@@ -4962,8 +5019,8 @@ def get_snr_link_array_fused(
             raman_gain_slope=params.raman_gain_slope,
             dispersion_coeff=params.dispersion_coeff,
             dispersion_slope=params.dispersion_slope,
-            amplifier_noise_figure=amp_nf_link,
-            transceiver_snr=trx_snr_link,
+            amplifier_noise_figure=take(amp_nf),
+            transceiver_snr=take(trx_snr),
             roadm_loss=params.roadm_loss,
             num_roadms=params.num_roadms,
             coherent=params.coherent,
@@ -4971,20 +5028,18 @@ def get_snr_link_array_fused(
             span_lumped_loss_db=params.span_lumped_loss_db,
             # Compaction wins in the measured 420/1376-slot workloads. Preserve
             # dense fusion for smaller spectra and reverse-mode AD callers.
-            compact_xpm=not params.differentiable and params.link_resources >= 420,
+            compact_xpm=not params.differentiable and capacity >= 420,
             xpm_backend="pallas" if uses_pallas_kernels(params) else "jax",
         )
+        return expand(snr, broadcast)
 
     link_snr_array = jax.vmap(_link_snr_fused)(
-        ch_power_all,
-        ch_centres_hz,
-        bw_hz,
+        state.channel_centre_bw_array[link_indices],
+        state.channel_power_array[link_indices],
+        state.channel_centre_freq_array[link_indices],
         num_spans_per_link,
         span_length_per_link,
-        amp_nf,
-        trx_snr,
     )
-    link_snr_array = broadcast_channel_values(link_snr_array, slot_bw, centres, first, params)
     link_snr_array = jnp.nan_to_num(link_snr_array, nan=1e-5)
     return link_snr_array
 
@@ -5913,13 +5968,17 @@ def _mask_slots_rmsa_gn_model(
     # Refresh once: departures can leave cached SNR stale on otherwise unchanged
     # links, and heuristics may pass a stale cache. Each candidate subsequently
     # recalculates only its own path links.
-    snr_fn = (
+    # Admission reads each channel's SNR at its first signal slot only (the new
+    # channel's below, existing ones via live_lightpath_mask), so the per-slot
+    # broadcast is skipped: it cost the jax masks about a quarter of their time.
+    snr_fn = partial(
         get_snr_link_array_fused
         if params.uniform_spans
         and not params.mod_format_correction
         and params.gn_mask_mode != "all_slots"
         and params.existing_snr_margin == 0
-        else get_snr_link_array
+        else get_snr_link_array,
+        broadcast=False,
     )
     baseline_snr = snr_fn(state, params)
     baseline_path_snr = path_overlaps = None
@@ -5970,6 +6029,8 @@ def _mask_slots_rmsa_gn_model(
             get_existing_snr_requirements(state, params, baseline_path_snr),
             params.path_link_indices.shape[0],
         )
+
+    baseline_live = live_lightpath_mask(state, params)
 
     def evaluate_one_candidate(
         ch_bw,
@@ -6058,7 +6119,15 @@ def _mask_slots_rmsa_gn_model(
 
         if not compact_candidates:
             return (new_snr >= req_snr_val).astype(jnp.float32) * (
-                1.0 - check_snr_sufficient(temp_state, params, existing_required=old_required)
+                1.0
+                - check_snr_sufficient(
+                    temp_state,
+                    params,
+                    existing_required=old_required,
+                    # Insertion leaves existing cells unchanged: the baseline live
+                    # cells plus the new channel's first slot on its links.
+                    live=baseline_live | (affected > 0),
+                )
             )
 
         # Separate old connections from the new one so identical footprints can
@@ -6111,7 +6180,8 @@ def _mask_slots_rmsa_gn_model(
                 all_req_snr_flat[i],
                 all_paths[i],
                 all_has_candidate[i],
-                signal,
+                # The new channel's SNR, at its first slot (unbroadcast rows).
+                mask * (slot_indices == all_slot_indices[i]).astype(mask.dtype),
                 path_idx_all[i],
             )
 
@@ -6131,8 +6201,7 @@ def _mask_slots_rmsa_gn_model(
         links = params.path_link_indices[all_lightpath_indices[i]]
         footprint = (slot_indices >= slot_idx) & (slot_indices <= slot_idx + req_slots_val - 1)
         signal = channel_slot_mask(slot_idx, req_slots_val, params)
-        signal_count, width, centre = get_channel_values(slot_idx, req_slots_val, params)
-        last = slot_idx + signal_count - 1  # last signal slot
+        _, width, centre = get_channel_values(slot_idx, req_slots_val, params)
         power = all_launch_powers[i]
         values = (width, power, centre, mod_idx_all[i])
         arrays = (
@@ -6175,7 +6244,7 @@ def _mask_slots_rmsa_gn_model(
             delta=(
                 links.astype(jnp.int32),
                 changed_snr.astype(jnp.float32),
-                jnp.stack((slot_idx, last, all_lightpath_indices[i])).astype(jnp.int32),
+                jnp.stack((slot_idx, slot_idx, all_lightpath_indices[i])).astype(jnp.int32),
                 jnp.stack((power, centre, width)).astype(jnp.float32),
             ),
         )
@@ -6493,16 +6562,15 @@ def _mask_slots_rmsa_gn_model(
                 links = params.path_link_indices[ctx["lightpath"][env, i]]
                 footprint = (slot_indices >= slot) & (slot_indices <= slot + req - 1)
                 signal = channel_slot_mask(slot, req, params)
-                count, width, centre = get_channel_values(slot, req, params)
-                last = slot + count - 1  # last signal slot
-                return path, mod, slot, last, path_vec, links, signal, footprint, centre, width
+                _, width, centre = get_channel_values(slot, req, params)
+                return path, mod, slot, path_vec, links, signal, footprint, centre, width
 
             def channel_values(env, i, centre, width):
                 return ctx["launch"][env, i][None], width[None], centre[None]
 
             def endpoint_ok(env, i, screen_threshold):
                 """new_endpoint_ok for candidate i of environment env."""
-                _, _, slot, _, path_vec, links, _, _, centre, width = decode(env, i)
+                _, _, slot, path_vec, links, _, _, centre, width = decode(env, i)
                 launch = ctx["launch"][env, i]
                 # As in new_endpoint_ok: one more channel on each path link.
                 totals = ctx["fibre_power"][env, jnp.minimum(links, params.num_links - 1)] + launch
@@ -6541,7 +6609,7 @@ def _mask_slots_rmsa_gn_model(
 
             def delta_row(env, i, link):
                 """Re-solved link SNR of one path link of candidate i of environment env."""
-                _, mod, slot, _, _, _, signal, footprint, centre, width = decode(env, i)
+                _, mod, slot, _, _, signal, footprint, centre, width = decode(env, i)
                 launch = ctx["launch"][env, i]
                 values = (width, launch, centre, mod)
                 rows = tuple(
@@ -6567,7 +6635,7 @@ def _mask_slots_rmsa_gn_model(
                 real on NSFNET k=5), so the link re-solves of the whole batch are
                 packed first and padding rows, which nothing reads, are skipped.
                 """
-                links = jax.vmap(lambda e, i: decode(e, i)[5])(env, candidate)
+                links = jax.vmap(lambda e, i: decode(e, i)[4])(env, candidate)
                 lanes, hops = links.shape
                 flat = links.reshape(-1)
                 pair_env, pair_candidate = jnp.repeat(env, hops), jnp.repeat(candidate, hops)
@@ -6599,7 +6667,7 @@ def _mask_slots_rmsa_gn_model(
             def delta_finish(env, i, changed_snr):
                 """evaluate_candidate_delta for candidate i of environment env, given
                 its path links' re-solved SNR."""
-                path, mod, slot, last, path_vec, links, _, _, centre, width = decode(env, i)
+                path, mod, slot, path_vec, links, _, _, centre, width = decode(env, i)
                 launch = ctx["launch"][env, i]
                 endpoints = slot[None]
                 endpoint_snr = (
@@ -6635,7 +6703,7 @@ def _mask_slots_rmsa_gn_model(
                     delta=(
                         links.astype(jnp.int32),
                         changed_snr.astype(jnp.float32),
-                        jnp.stack((slot, last, ctx["lightpath"][env, i])).astype(jnp.int32),
+                        jnp.stack((slot, slot, ctx["lightpath"][env, i])).astype(jnp.int32),
                         jnp.stack((launch, centre, width)).astype(jnp.float32),
                     ),
                     env=env,

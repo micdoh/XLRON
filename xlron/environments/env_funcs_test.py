@@ -1601,6 +1601,11 @@ class TestGetExistingSnrRequirements:
         p = p.replace(snr_margin=1.0, existing_snr_margin=1.0)
         s = s.replace(
             channel_centre_bw_array=jnp.ones_like(s.channel_centre_bw_array).at[:, -1].set(0),
+            # Distinct centres: every lit slot is its own single-slot channel.
+            channel_centre_freq_array=jnp.broadcast_to(
+                jnp.arange(s.channel_centre_freq_array.shape[1], dtype=jnp.float32),
+                s.channel_centre_freq_array.shape,
+            ),
             modulation_format_index_array=jnp.zeros_like(s.modulation_format_index_array),
             # Live lightpaths depart in the future (none is held for release).
             link_slot_departure_array=jnp.full_like(s.link_slot_departure_array, 100.0),

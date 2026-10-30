@@ -441,7 +441,7 @@ Slots 5 and 6 carry the signal and slot 7 is the dark guard band. With a referen
 Key observations:
 
 - **The footprint** (`link_slot_array`, `path_index_array`, `channel_centre_freq_array`, departures and modulation format) covers all three slots. Power and bandwidth cover only the signal slots, so the guard band is dark.
-- **The GN model sees one 200 GHz channel of power P.** Before evaluating it, `env_funcs.channel_physics_rows` keeps power and bandwidth only on the first signal slot of each channel (a run of signal slots with one centre frequency). The model's output for that entry is the channel's SNR, which `broadcast_channel_values` copies to slots 5 and 6. The guard slot gets the empty-slot sentinel.
+- **The GN model sees one 200 GHz channel of power P.** A channel is a run of signal slots with one centre frequency. Before evaluating a link, `env_funcs.channel_entries` gathers one entry per channel from its first signal slot, at most `max_channels_per_link = ceil(link_resources / (1 + guardband))` of them, so the model evaluates channels rather than slots (with a guard band, at most half as many entries, and a quarter of the XPM pairs). The model's output for that entry is the channel's SNR, which is copied back to slots 5 and 6. The guard slot gets the empty-slot sentinel. Admission checks read each channel at its first signal slot (`live_lightpath_mask`), so the action masks skip the copy (`broadcast=False`).
 - **Total power** (fibre limit and ISRS tilt) counts `P` once.
 
 With `num_subchannels=8`, the GN model computes the channel's SPM as if its 200 GHz bandwidth were divided into 8 x 25 GHz subchannels (`B_eff = 25 GHz`), with `eta_spm` scaled by `1/64`. XPM with other channels uses the physical 200 GHz bandwidth, unchanged.
