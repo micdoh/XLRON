@@ -22,7 +22,7 @@ import numpy as np
 import pytest
 from absl.testing import absltest, parameterized
 
-from tests.helpers.gn_model import setup
+from tests.helpers.gn_model import make_gn_env, place_channel, setup
 from tests.helpers.rsa import (
     rsa_4node_3_slot_request_test_setup,
     rsa_nsfnet_16_mod_test_setup,
@@ -35,6 +35,8 @@ from xlron.environments import env_funcs as ef
 from xlron.environments.dataclasses import *
 from xlron.environments.env_funcs import *
 from xlron.environments.env_funcs import (
+    channel_physics_rows,
+    compute_total_power_per_link,
     generate_request_rsa,
     get_obs_transformer,
     get_snr_link_array,
@@ -2269,6 +2271,166 @@ class TestInitTransceiverAmplifierNoiseArrays:
         # Legacy default/JAX scalars round the CSV bound to float32 before comparing.
         expected = [0] * 5 if source == "numpy" else [2, 1, 3, 4, 5]
         np.testing.assert_array_equal(np.stack(actual, axis=1), [expected])
+
+
+class TestChannelLevelPhysics:
+    """Multi-slot lightpaths are single GN channels on the slot grid (issue #86)."""
+
+    @staticmethod
+    def _channels(slot_size, signal_slots, backend, slots_per_channel_grid):
+        """Three channels of signal_slots slots (guard band 1) at slots 0, 2n, 4n.
+
+        slots_per_channel_grid (n) is the grid spacing in channel footprints; the
+        link has 8 * n slots, so a grid of n-slot channels and one of single-slot
+        channels n times wider have the same slot centres at the channel centres.
+        The reference launch power is 1 mW per 12.5 GHz of signal bandwidth.
+        """
+        env, params, state = make_gn_env(
+            link_resources=8 * slots_per_channel_grid,
+            slot_size=slot_size,
+            guardband=1,
+            values_bw=[signal_slots * slot_size],
+            power_per_channel=10 * np.log10(slot_size / 12.5),
+            gn_kernel_backend=backend,
+        )
+        for slot in (0, 2 * slots_per_channel_grid, 4 * slots_per_channel_grid):
+            state, info = place_channel(env, params, state, slot, signal_slots * slot_size)
+        link = int(jnp.argmax(info.path))
+        return params, state, link
+
+    @staticmethod
+    def _nli(params, state, link):
+        """(channel power, NLI power) per slot of one link from get_snr_link_array."""
+        snr = get_snr_link_array(state, params)[link]
+        ase_only = get_snr_link_array(state, params.replace(nonlinear_coeff=0.0))[link]
+        # Optical SNR only (TRX and ROADM noise are path-level), so power / SNR is
+        # ASE + NLI and the gamma = 0 run isolates the ASE.
+        _, power, first, _ = channel_physics_rows(
+            state.channel_centre_bw_array[link],
+            state.channel_power_array[link],
+            state.channel_centre_freq_array[link],
+        )
+        power = power[first]
+        return power, power / snr[first] - power / ase_only[first]
+
+    @staticmethod
+    @pytest.mark.parametrize("backend", ["jax", "pallas"])
+    @pytest.mark.parametrize(
+        "slot_size,signal_slots", [(12.5, 2), (12.5, 4), (12.5, 8), (50.0, 2), (50.0, 4)]
+    )
+    def test_multi_slot_channel_nli_matches_full_width_channel(backend, slot_size, signal_slots):
+        # n-slot channels on the fine grid, and the same channels as single slots
+        # of the full width on a grid n times coarser: equal power and width, so
+        # equal PSD, at the same centre frequencies.
+        n = signal_slots
+        fine = TestChannelLevelPhysics._channels(slot_size, n, backend, n)
+        coarse = TestChannelLevelPhysics._channels(slot_size * n, 1, backend, 1)
+        np.testing.assert_allclose(
+            fine[1].channel_centre_freq_array[fine[2], jnp.array([0, 2 * n, 4 * n])],
+            coarse[1].channel_centre_freq_array[coarse[2], jnp.array([0, 2, 4])],
+        )
+        fine_power, fine_nli = TestChannelLevelPhysics._nli(*fine)
+        coarse_power, coarse_nli = TestChannelLevelPhysics._nli(*coarse)
+        # 1 mW per 12.5 GHz of signal bandwidth on both grids.
+        np.testing.assert_allclose(fine_power, jnp.full(3, n * slot_size / 12.5e3), rtol=1e-6)
+        np.testing.assert_allclose(coarse_power, fine_power, rtol=1e-6)
+        assert np.all(np.asarray(fine_nli) > 0)
+        delta_db = 10 * np.log10(np.asarray(fine_nli) / np.asarray(coarse_nli))
+        assert np.max(np.abs(delta_db)) < 0.05, delta_db
+
+    @staticmethod
+    def test_link_power_is_the_sum_of_channel_powers_and_guard_slots_are_dark():
+        env, params, state = make_gn_env(
+            link_resources=24, slot_size=12.5, guardband=1, values_bw=[25, 50], power_per_channel=-3
+        )
+        placements = ((0, 25.0), (5, 50.0), (11, 25.0), (14, 12.5))
+        footprints = []
+        for slot, datarate in placements:
+            state, info = place_channel(env, params, state, slot, datarate)
+            footprints.append((slot, int(info.num_slots)))
+        link = int(jnp.argmax(info.path))
+        power = state.channel_power_array[link]
+        bandwidth = state.channel_centre_bw_array[link]
+        reference = float(params.slot_launch_power_array[0])
+        expected_total = 0.0
+        for slot, num_slots in footprints:
+            signal = num_slots - params.guardband
+            channel = slice(slot, slot + signal)
+            np.testing.assert_allclose(power[channel], signal * reference, rtol=1e-6)
+            np.testing.assert_allclose(bandwidth[channel], signal * params.slot_size)
+            # The guard slot belongs to the lightpath but carries no signal.
+            guard = slot + signal
+            assert power[guard] == 0 and bandwidth[guard] == 0
+            assert state.path_index_array[link, guard] == state.path_index_array[link, slot]
+            expected_total += signal * reference
+        total = compute_total_power_per_link(
+            state.channel_power_array, state.path_index_array, state.channel_centre_freq_array
+        )
+        np.testing.assert_allclose(total[link], expected_total, rtol=1e-6)
+        # The ISRS tilt sums the GN entries' powers: one entry per channel.
+        _, entries, _, _ = channel_physics_rows(
+            bandwidth, power, state.channel_centre_freq_array[link]
+        )
+        np.testing.assert_allclose(jnp.sum(entries), total[link], rtol=1e-6)
+
+    @staticmethod
+    @pytest.mark.parametrize("backend", ["jax", "pallas"])
+    def test_all_slots_of_a_channel_receive_the_same_snr(backend):
+        env, params, state = make_gn_env(
+            link_resources=24,
+            slot_size=12.5,
+            guardband=1,
+            values_bw=[50],
+            power_per_channel=0.0,
+            gn_kernel_backend=backend,
+        )
+        for slot in (0, 5, 10):
+            state, info = place_channel(env, params, state, slot, 50.0)
+        link = int(jnp.argmax(info.path))
+        snr_fns = [get_snr_link_array]
+        if backend == "jax":
+            snr_fns.append(ef.get_snr_link_array_fused)
+        for snr_fn in snr_fns:
+            snr = np.asarray(snr_fn(state, params)[link])
+            for slot in (0, 5, 10):
+                np.testing.assert_array_equal(snr[slot : slot + 4], snr[slot])
+                assert snr[slot] > 0
+                assert snr[slot + 4] < 0  # The dark guard slot has no SNR.
+        state = state.replace(link_snr_array=get_snr_link_array(state, params))
+        path_snr = np.asarray(ef.get_lightpath_snr(state, params))
+        for slot in (0, 5, 10):
+            np.testing.assert_allclose(path_snr[link, slot : slot + 4], path_snr[link, slot])
+
+    @staticmethod
+    def test_rmsa_masks_admit_multi_slot_channels_with_a_guard_band():
+        env, params, state = make_gn_env(
+            "rmsa_gn_model",
+            link_resources=16,
+            slot_size=12.5,
+            guardband=1,
+            values_bw=[50],
+            power_per_channel=-3,
+            gn_mask_mode="all_slots",
+            gn_mask_batch_size=3,
+            gn_mask_screen_batch_size=8,
+        )
+        kernel = params.replace(gn_kernel_backend="pallas")
+        for seed in (5, 6, 7):
+            expected = mask_slots_rmsa_gn_model(state, params, state.request_array)
+            actual = mask_slots_rmsa_gn_model(state, kernel, state.request_array)
+            np.testing.assert_array_equal(actual.link_slot_mask, expected.link_slot_mask)
+            np.testing.assert_array_equal(actual.mod_format_mask, expected.mod_format_mask)
+            assert actual.link_slot_mask.any()
+            before = int(state.accepted_services)
+            _, state, reward, *_ = env.step(
+                jax.random.PRNGKey(seed), actual, jnp.argmax(actual.link_slot_mask), kernel
+            )
+            assert reward >= 0 and int(state.accepted_services) == before + 1
+        # Every accepted channel: dark guard slot, equal SNR on its signal slots.
+        signal = state.channel_centre_bw_array != 0
+        assert np.all(np.asarray(state.channel_power_array)[~np.asarray(signal)] == 0)
+        lit = np.asarray(state.link_snr_array)[np.asarray(signal)]
+        assert lit.size and np.all(lit > 0)
 
 
 if __name__ == "__main__":

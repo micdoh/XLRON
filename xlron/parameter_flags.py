@@ -793,18 +793,21 @@ flags.DEFINE_float("max_power_per_fibre", 23.0, "Max launch power per fibre [dBm
 flags.DEFINE_float(
     "power_per_channel",
     None,
-    "Per-channel launch power [dBm]. If None, defaults to max_power_per_fibre divided equally among slots.",
+    "Reference launch power per slot of signal bandwidth [dBm]: a channel of n signal "
+    "slots (guard band excluded) launches n times this, i.e. equal PSD. If None, "
+    "defaults to max_power_per_fibre divided equally among slots.",
 )
 flags.DEFINE_string(
     "power_per_channel_per_band",
     None,
-    "Comma-separated per-channel launch power values [dBm], one per band in "
-    "band_preference order (e.g. '2.3,2.5' for C,L). Overrides --power_per_channel.",
+    "Comma-separated reference launch powers per slot of signal bandwidth [dBm], one "
+    "per band in band_preference order (e.g. '2.3,2.5' for C,L). Overrides --power_per_channel.",
 )
 flags.DEFINE_string(
     "launch_power_csv",
     None,
-    "Path to a CSV file specifying per-slot launch power. "
+    "Path to a CSV file specifying per-slot reference launch power (a channel launches "
+    "its first slot's value times its signal slots). "
     "Expected columns: slot_index (int), freq_ghz (float), power_dbm (float). "
     "Slots not present in the file keep the default launch power. "
     "Overrides --power_per_channel and --power_per_channel_per_band.",
@@ -969,11 +972,10 @@ flags.DEFINE_boolean(
 flags.DEFINE_integer(
     "num_subchannels",
     1,
-    "Number of Nyquist subchannels per frequency slot for GN model NLI calculation. "
-    "Divides each slot's bandwidth into N subchannels with effective baud rate "
-    "B_eff = slot_size / num_subchannels, reducing SPM. XPM and ASE are unchanged. "
-    "Best used with slot_size equal to the desired channel bandwidth "
-    "(e.g. slot_size=100, num_subchannels=8 models 8x12.5 GHz subcarriers).",
+    "Number of Nyquist subchannels per channel for GN model NLI calculation. "
+    "Divides each channel's signal bandwidth B into N subchannels with effective baud "
+    "rate B_eff = B / num_subchannels, reducing SPM. XPM and ASE are unchanged "
+    "(e.g. a 100 GHz channel with num_subchannels=8 models 8x12.5 GHz subcarriers).",
 )
 # Distributed Raman Amplification parameters
 flags.DEFINE_boolean(
