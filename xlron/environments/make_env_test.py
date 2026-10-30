@@ -347,3 +347,57 @@ class TestRouteTableStorage:
         np.testing.assert_allclose(np.asarray(params.path_length_array), lengths, rtol=1e-6)
         assert params.max_path_length == pytest.approx(lengths.max(), rel=1e-6)
         assert params.max_path_hops == int(paths.sum(axis=1).max())
+
+
+class TestGsnrThreshold:
+    """_gsnr_threshold_db must invert the BER formulas exactly (issue #84: the
+    erfcinv term was not squared, making thresholds 1.4-2.1 dB too lenient)."""
+
+    @staticmethod
+    def _ber(snr_lin, m_prime):
+        from scipy.special import erfc
+
+        M = 2**m_prime
+        if m_prime in (1, 2):
+            return 0.5 * erfc(np.sqrt(snr_lin / m_prime))
+        # Square M-QAM (Gray-coded nearest-neighbour approximation)
+        return (
+            (2.0 / m_prime)
+            * (1.0 - 1.0 / np.sqrt(M))
+            * erfc(np.sqrt(3.0 * snr_lin / (2.0 * (M - 1.0))))
+        )
+
+    @pytest.mark.parametrize("m_prime", [1, 2, 4, 6])
+    @pytest.mark.parametrize("beta_fec", [1e-3, 3.8e-3, 1.5e-2, 2.86e-2])
+    def test_threshold_round_trips_through_ber(self, m_prime, beta_fec):
+        from xlron.environments.make_env import _gsnr_threshold_db
+
+        snr_lin = 10.0 ** (_gsnr_threshold_db(beta_fec, m_prime) / 10.0)
+        assert self._ber(snr_lin, m_prime) == pytest.approx(beta_fec, rel=1e-9)
+
+    def test_8qam_round_trips_through_its_approximation(self):
+        from scipy.special import erfc
+
+        from xlron.environments.make_env import _gsnr_threshold_db
+
+        beta_fec = 1.5e-2
+        snr_lin = 10.0 ** (_gsnr_threshold_db(beta_fec, 3) / 10.0)
+        ber = (2.0 / 3.0) * erfc(np.sqrt(3.0 * snr_lin / 14.0))
+        assert ber == pytest.approx(beta_fec, rel=1e-9)
+
+    @pytest.mark.parametrize(
+        "m_prime, expected_db",
+        [(1, 3.72), (2, 6.73), (3, 10.85), (4, 13.24), (5, 16.16), (6, 19.01)],
+    )
+    def test_default_beta_fec_threshold_values(self, m_prime, expected_db):
+        from xlron.environments.make_env import _gsnr_threshold_db
+
+        assert _gsnr_threshold_db(1.5e-2, m_prime) == pytest.approx(expected_db, abs=5e-3)
+
+    def test_calc_modulations_osnr_overwrites_min_osnr_column(self):
+        from xlron.environments.make_env import _calc_modulations_osnr, _gsnr_threshold_db
+
+        mods = np.array([[4000.0, 1.0, 0.0], [2000.0, 2.0, 0.0], [700.0, 4.0, 0.0]])
+        out = _calc_modulations_osnr(mods.copy(), 1.5e-2)
+        np.testing.assert_allclose(out[:, 2], [_gsnr_threshold_db(1.5e-2, m) for m in (1, 2, 4)])
+        np.testing.assert_allclose(out[:, 2], [3.72, 6.73, 13.24], atol=5e-3)
