@@ -336,17 +336,17 @@ Default formats for the GN model environments (from `modulations_gn_model.csv`):
 
 ### Calculating SNR Thresholds from Spectral Efficiency
 
-Instead of using pre-specified `minimum_osnr` values from the CSV, the GSNR threshold can be calculated analytically from the modulation order using the `--calc_minimum_osnr` flag. When enabled, the `minimum_osnr` column is overwritten with values computed from:
+Instead of using pre-specified `minimum_osnr` values from the CSV, the GSNR threshold can be calculated analytically from the modulation order using the `--calc_minimum_osnr` flag (enabled by default). When enabled, the `minimum_osnr` column is overwritten with values computed from:
 
 ```
-GSNR_th(m') = f(m') * erfc_inv(g(m', beta_FEC))
+GSNR_th(m') = f(m') * erfc_inv(g(m', beta_FEC))^2
 ```
 
-where `m' = spectral_efficiency` is the modulation level (so that `M = 2^m'`), `beta_FEC` is the pre-FEC BER target (`--beta_fec`, default 1.5e-2), and `erfc_inv` is the inverse complementary error function. The formula has three cases:
+where `m' = spectral_efficiency` is the modulation level (so that `M = 2^m'`), `beta_FEC` is the pre-FEC BER target (`--beta_fec`, default 1.5e-2), and `erfc_inv` is the inverse complementary error function. Each case inverts a BER expression of the form `BER = c * erfc(sqrt(GSNR / k))`, which gives `GSNR = k * erfc_inv(BER / c)^2`. The formula has three cases:
 
-- **m' in {1, 2}** (BPSK, QPSK): `GSNR_th = m' * erfc_inv(2 * beta_FEC)`
-- **m' = 3** (8QAM): `GSNR_th = (2(M-1)/3) * erfc_inv(1.5 * beta_FEC)`
-- **m' in {4, 5, 6}** (16QAM, 32QAM, 64QAM): `GSNR_th = (2(M-1)/3) * erfc_inv(m' * beta_FEC / (2(1 - 1/sqrt(M))))`
+- **m' in {1, 2}** (BPSK, QPSK): `GSNR_th = m' * erfc_inv(2 * beta_FEC)^2`, from `BER = 0.5 * erfc(sqrt(GSNR / m'))`
+- **m' = 3** (8QAM): `GSNR_th = (2(M-1)/3) * erfc_inv(1.5 * beta_FEC)^2`, from the approximation `BER = (2/3) * erfc(sqrt(3 * GSNR / (2(M-1))))`
+- **m' in {4, 5, 6}** (16QAM, 32QAM, 64QAM): `GSNR_th = (2(M-1)/3) * erfc_inv(m' * beta_FEC / (2(1 - 1/sqrt(M))))^2`, from `BER = (2/m') * (1 - 1/sqrt(M)) * erfc(sqrt(3 * GSNR / (2(M-1))))`
 
 The result is converted to dB: `GSNR_th_dB = 10 * log10(GSNR_th)`.
 
@@ -354,12 +354,15 @@ With the default `beta_fec=1.5e-2`, the calculated thresholds are:
 
 | Format | SE | Calculated GSNR threshold |
 |---|---|---|
-| BPSK | 1 | 1.9 dB |
-| QPSK | 2 | 4.9 dB |
-| 8QAM | 3 | 8.8 dB |
-| 16QAM | 4 | 11.6 dB |
-| 32QAM | 5 | 14.7 dB |
-| 64QAM | 6 | 17.6 dB |
+| BPSK | 1 | 3.72 dB |
+| QPSK | 2 | 6.73 dB |
+| 8QAM | 3 | 10.85 dB |
+| 16QAM | 4 | 13.24 dB |
+| 32QAM | 5 | 16.16 dB |
+| 64QAM | 6 | 19.01 dB |
+
+!!! warning "Thresholds before the fix for issue #84"
+    Earlier versions of XLRON left the `erfc_inv` term unsquared, so the thresholds were 1.4 to 2.1 dB too lenient (about 1.6 to 1.9 dB for BPSK, QPSK and 16QAM) (BPSK 1.86 dB, QPSK 4.87 dB, 8QAM 8.77 dB, 16QAM 11.62 dB, 32QAM 14.66 dB, 64QAM 17.62 dB). Because `--calc_minimum_osnr` is on by default, any GN-model results produced before this fix, with the flag left at its default, used those lenient thresholds and will overstate throughput and understate blocking.
 
 
 ## Path-Level SNR Computation
@@ -811,7 +814,7 @@ The per-channel Raman gain varies across the spectrum (typically higher for L-ba
 | `--existing_snr_margin` | 0 | dB | Target reserve preserved on existing lightpaths; capped by their fresh pre-admission headroom and never below their modulation minimum |
 | `--mod_format_correction` | False | -- | Enable modulation-format-dependent NLI correction |
 | `--modulations_csv_filepath` | (built-in) | -- | Path to modulation formats CSV file |
-| `--calc_minimum_osnr` | False | -- | Calculate `minimum_osnr` from spectral efficiency using GSNR threshold formula (ignores CSV values) |
+| `--calc_minimum_osnr` | True | -- | Calculate `minimum_osnr` from spectral efficiency using GSNR threshold formula (ignores CSV values) |
 | `--beta_fec` | 1.5e-2 | -- | Pre-FEC BER target for GSNR threshold calculation (used with `--calc_minimum_osnr`) |
 | `--fec_rate` | 0.8 | -- | FEC code rate applied to accepted bitrate in `rmsa_gn_model` (`effective_bitrate = requested * fec_rate`) |
 | `--fec_threshold` | 0.28 | -- | FEC overhead fraction (28%) for throughput calculation in `rsa_gn_model` |

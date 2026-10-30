@@ -81,16 +81,25 @@ def _gsnr_threshold_db(beta_fec: float, m_prime: int) -> float:
     -------
     float
         GSNR threshold in dB.
+
+    Notes
+    -----
+    Each case inverts a BER expression of the form ``BER = c * erfc(sqrt(SNR / k))``,
+    so ``SNR = k * erfcinv(BER / c) ** 2``; the erfcinv term must be squared:
+
+    - BPSK/QPSK: ``BER = 0.5 * erfc(sqrt(SNR / m'))``
+    - 8QAM (approximation): ``BER = (2/3) * erfc(sqrt(3 * SNR / (2 * (M - 1))))``
+    - square M-QAM: ``BER = (2/m') * (1 - 1/sqrt(M)) * erfc(sqrt(3 * SNR / (2 * (M - 1))))``
     """
     M = 2**m_prime
     if m_prime in (1, 2):
-        gsnr_lin = float(m_prime * erfcinv(2.0 * beta_fec))
+        gsnr_lin = float(m_prime * erfcinv(2.0 * beta_fec) ** 2)
     elif m_prime == 3:
-        gsnr_lin = float((2.0 * (M - 1.0) / 3.0) * erfcinv(1.5 * beta_fec))
+        gsnr_lin = float((2.0 * (M - 1.0) / 3.0) * erfcinv(1.5 * beta_fec) ** 2)
     else:  # m_prime in {4, 5, 6}
         denom = 2.0 * (1.0 - np.sqrt(1.0 / M))
         arg = (m_prime * beta_fec) / denom
-        gsnr_lin = float((2.0 * (M - 1.0) / 3.0) * erfcinv(arg))
+        gsnr_lin = float((2.0 * (M - 1.0) / 3.0) * erfcinv(arg) ** 2)
     return 10.0 * np.log10(gsnr_lin)
 
 
