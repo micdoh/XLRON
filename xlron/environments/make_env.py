@@ -1271,7 +1271,8 @@ def make(config: Optional[Union[dict, FlagValues]], **kwargs) -> Tuple[RSAEnv | 
         print(f"  link_resources (slots):   {link_resources}")
         print(f"  slot_size:                {slot_size} GHz")
         print(
-            f"  Per-channel launch power: {per_channel_power_dbm:.2f} dBm ({per_channel_power_w * 1e3:.4f} mW)"
+            f"  Launch power per slot:    {per_channel_power_dbm:.2f} dBm ({per_channel_power_w * 1e3:.4f} mW)"
+            " (channels: x signal slots)"
         )
         print(f"  launch_power_type:        {launch_power_type}")
         roadm_el_vals = roadm_express_loss

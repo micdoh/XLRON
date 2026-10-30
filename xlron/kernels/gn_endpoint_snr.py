@@ -1,12 +1,14 @@
-"""Candidate endpoint GN screen with an in-kernel channel insertion.
+"""Candidate channel GN screen with an in-kernel channel insertion.
 
-The two endpoints of a proposed channel share its centre, bandwidth and power,
-so their SPM/XPM is evaluated once per changed link against every interfering
-slot; each endpoint keeps its own amplifier noise figure. The physics comes from
-the shared `isrs_gn_model` helpers (`xpm_pairs`, `_spm`, `_eps`,
-`_ase_with_isrs_gain_at`); this module only owns the insertion and the
-reduction. It is a screen: the full admission check still decides every
-surviving candidate, including all existing paths and fibre power.
+A proposed channel is one GN entry (issue #86): its SPM/XPM is evaluated once per
+changed link against every interfering channel, and its ASE uses the amplifier
+noise figure of its first slot, as `get_snr_link_array` does. The state's per-slot
+channel rows are reduced to one entry per channel in the kernel, as
+`env_funcs.channel_physics_rows` does. The physics comes from the shared
+`isrs_gn_model` helpers (`xpm_pairs`, `_spm`, `_eps`, `_ase_with_isrs_gain_at`);
+this module only owns the insertion and the reduction. It is a screen: the full
+admission check still decides every surviving candidate, including all existing
+paths and fibre power.
 """
 
 import jax
@@ -19,13 +21,14 @@ from xlron.kernels import interpret_default
 
 
 def endpoint_snr_pallas(
-    state, params, links, start, end, power, centre, *, env=None, interpret=None
+    state, params, links, start, power, centre, width, *, env=None, interpret=None
 ):
-    """Optical SNR of both endpoints of the inserted channel on each changed link.
+    """Optical SNR (H,) of the inserted channel on each changed link.
 
-    Equals the generic uniform-span model (`get_snr_link_array`) at those two
-    slots up to float32 reduction order. No candidate x links x spectrum arrays
-    are materialized.
+    The channel starts at slot start with launch power [W], centre and signal
+    width [GHz]; its other slots are free in the state. Equals the generic
+    uniform-span model (`get_snr_link_array`) at the channel's slots up to float32
+    reduction order. No candidate x links x spectrum arrays are materialized.
 
     With env, the state's channel arrays are stacked over environments,
     (E, L, S), and environment env is read in place; a vmap over candidates of
@@ -68,7 +71,7 @@ def endpoint_snr_pallas(
     span_length = lengths / spans
     n = params.link_resources
     columns = pl.next_power_of_2(n)
-    insertion = jnp.stack((start, end, power, centre)).astype(jnp.float32)
+    insertion = jnp.stack((start, power, centre, width)).astype(jnp.float32)
     channels = (
         state.channel_power_array,
         state.channel_centre_freq_array,
@@ -102,17 +105,25 @@ def endpoint_snr_pallas(
         stacked_row = link + offset_ref[0]
 
         def calculate():
-            start, end, new_power, new_centre = (insertion_ref[i] for i in range(4))
+            start, new_power, new_centre, new_width = (insertion_ref[i] for i in range(4))
             k = jnp.arange(columns)
-            inside = (k >= start) & (k <= end)
-            p = plt.load(p_ref.at[stacked_row, k], mask=k < n, other=0.0)
-            f = plt.load(f_ref.at[stacked_row, k], mask=k < n, other=0.0)
-            b = plt.load(b_ref.at[stacked_row, k], mask=k < n, other=0.0)
-            p = jnp.where(inside, new_power, p)
-            f = jnp.where(inside, new_centre, f) * 1e9
-            b = jnp.where(inside, params.slot_size, b) * 1e9
+            in_range = k < n
+            p = plt.load(p_ref.at[stacked_row, k], mask=in_range, other=0.0)
+            f = plt.load(f_ref.at[stacked_row, k], mask=in_range, other=0.0)
+            b = plt.load(b_ref.at[stacked_row, k], mask=in_range, other=0.0)
+            # One entry per channel (env_funcs.channel_physics_rows): keep power and
+            # bandwidth on the first signal slot of each run of one centre frequency.
+            previous = jnp.maximum(k - 1, 0)
+            has_previous = (k > 0) & in_range
+            previous_b = plt.load(b_ref.at[stacked_row, previous], mask=has_previous, other=0.0)
+            previous_f = plt.load(f_ref.at[stacked_row, previous], mask=has_previous, other=0.0)
+            first = (b != 0) & ~((previous_b != 0) & (previous_f == f))
+            inserted = k == start
+            p = jnp.where(inserted, new_power, jnp.where(first, p, 0.0))
+            f = jnp.where(inserted, new_centre, f) * 1e9
+            b = jnp.where(inserted, new_width, jnp.where(first, b, 0.0)) * 1e9
             fi = new_centre * 1e9
-            bi = jnp.float32(params.slot_size) * 1e9
+            bi = new_width * 1e9
             a, ab, gamma, cr, b2, b3_s, b4_s = (physics_ref[i] for i in range(7))
             total = jnp.sum(p)
             # XPM on the new channel (power new_power, bandwidth bi) from every channel.
@@ -131,29 +142,23 @@ def endpoint_snr_pallas(
             spm = spm * count ** (1 + eps) / params.num_subchannels**2
             nli = new_power**3 * (spm + xpm * count)
             # ISRS-aware amplifier ASE as in get_snr: the gain depends on the full
-            # inserted spectrum, then only the two endpoints (each with its own
-            # amplifier noise figure) are evaluated.
-            nf = plt.load(nf_ref.at[k], mask=k < n, other=0.0)
-            endpoint_nf = jnp.where(
-                jnp.arange(2) == 0,
-                jnp.sum(jnp.where(k == start, nf, 0.0)),
-                jnp.sum(jnp.where(k == end, nf, 0.0)),
-            )
+            # inserted spectrum, then only the new channel (with the amplifier
+            # noise figure of its first slot) is evaluated.
+            nf = plt.load(nf_ref.at[k], mask=in_range, other=0.0)
+            channel_nf = jnp.sum(jnp.where(inserted, nf, 0.0))
             ase = count * gn._ase_with_isrs_gain_at(
-                endpoint_nf, a, length_ref[link], wavelength, f, p, cr,
+                channel_nf, a, length_ref[link], wavelength, f, p, cr,
                 params.span_lumped_loss_db, fi, bi, new_power,
             )  # fmt: skip
             snr = jnp.where(new_power > 0, new_power / jnp.maximum(ase + nli, gn.EPS), -1e5)
             return snr
 
-        result = jax.lax.cond(
-            link < params.num_links, calculate, lambda: jnp.ones((2,), jnp.float32)
-        )
-        plt.store(out_ref.at[row, jnp.arange(2)], result)
+        result = jax.lax.cond(link < params.num_links, calculate, lambda: jnp.ones((), jnp.float32))
+        plt.store(out_ref.at[row], result)
 
     result = pl.pallas_call(
         kernel,
-        out_shape=jax.ShapeDtypeStruct((links.size, 2), jnp.float32),
+        out_shape=jax.ShapeDtypeStruct((links.size,), jnp.float32),
         grid=(links.size,),
         compiler_params=plt.CompilerParams(num_warps=4),
         interpret=interpret,

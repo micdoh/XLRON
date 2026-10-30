@@ -10,12 +10,25 @@ from xlron.environments import env_funcs
 from xlron.kernels import gn_endpoint_snr
 
 
-def _insert(state, params, links, start, end, power, centre):
-    """Full-network state with the candidate channel on the given links."""
+def _signal(params, start, count):
     columns = jnp.arange(params.link_resources)
-    inside = (columns >= start) & (columns <= end)
-    live = links < params.num_links
-    rows = links[live]
+    return (columns >= start) & (columns < start + count)
+
+
+def _clear(state, params, start, count):
+    """The state with the candidate's slots free on every link."""
+    inside = _signal(params, start, count)
+    return state.replace(
+        channel_power_array=jnp.where(inside, 0.0, state.channel_power_array),
+        channel_centre_freq_array=jnp.where(inside, 0.0, state.channel_centre_freq_array),
+        channel_centre_bw_array=jnp.where(inside, 0.0, state.channel_centre_bw_array),
+    )
+
+
+def _insert(state, params, links, start, count, power, centre):
+    """Full-network state with a channel of count signal slots on the given links."""
+    inside = _signal(params, start, count)
+    rows = links[links < params.num_links]
 
     def put(array, value):
         return array.at[rows].set(jnp.where(inside, value, array[rows]))
@@ -23,7 +36,7 @@ def _insert(state, params, links, start, end, power, centre):
     return state.replace(
         channel_power_array=put(state.channel_power_array, power),
         channel_centre_freq_array=put(state.channel_centre_freq_array, centre),
-        channel_centre_bw_array=put(state.channel_centre_bw_array, params.slot_size),
+        channel_centre_bw_array=put(state.channel_centre_bw_array, count * params.slot_size),
     )
 
 
@@ -38,6 +51,7 @@ def test_endpoint_snr_matches_generic_model(coherent, subchannels, loss, slots):
         span_lumped_loss_db=loss,
         amplifier_noise_figure=jnp.linspace(4, 7, slots),
         transceiver_snr=jnp.full((slots,), 30.0),
+        slot_centre_freq_array=(jnp.arange(slots) - (slots - 1) / 2) * p.slot_size,
     )
     span = 1000 if slots == 8 else 10000
     f = jnp.linspace(-span, span, slots)
@@ -50,22 +64,30 @@ def test_endpoint_snr_matches_generic_model(coherent, subchannels, loss, slots):
         channel_centre_bw_array=jnp.full(shape, 25.0),
     )
     links = jnp.array([3, 1, p.num_links])  # The padded entry returns ones.
-    for start, end, centre in [(0, 0, -975.0), (2, 4, 120.0), (slots - 2, slots - 1, 990.0)]:
-        inserted = _insert(s, p, links, start, end, 1.5e-4, centre)
-        expected = env_funcs.get_snr_link_array(inserted, p, links[:-1])[:, [start, end]]
+    for start, count in [(0, 1), (2, 3), (slots - 2, 2)]:
+        # Channels are centred on their signal slots of the slot grid.
+        centre = float(env_funcs.get_centre_frequency(start, count, p))
+        free = _clear(s, p, start, count)
+        inserted = _insert(free, p, links, start, count, 1.5e-4, centre)
+        full = env_funcs.get_snr_link_array(inserted, p, links[:-1])
+        expected = full[:, start]
+        # The channel's SNR is broadcast to all its signal slots.
+        np.testing.assert_array_equal(
+            full[:, start : start + count], jnp.broadcast_to(expected[:, None], (2, count))
+        )
         actual = jax.jit(
-            lambda s, start=start, end=end, centre=centre: gn_endpoint_snr.endpoint_snr_pallas(
+            lambda s, start=start, count=count, centre=centre: gn_endpoint_snr.endpoint_snr_pallas(
                 s,
                 p,
                 links,
                 jnp.int32(start),
-                jnp.int32(end),
                 jnp.float32(1.5e-4),
                 jnp.float32(centre),
+                jnp.float32(count * p.slot_size),
             )
-        )(s)
+        )(free)
         np.testing.assert_allclose(actual[:-1], expected, rtol=1e-5, atol=1e-5)
-        np.testing.assert_array_equal(actual[-1], jnp.ones(2))
+        np.testing.assert_array_equal(actual[-1], 1.0)
 
 
 def test_pallas_full_mask_matches_reference_and_is_admitted():
@@ -94,14 +116,15 @@ def test_screen_slack_covers_screen_versus_full_solve_difference():
     links = jnp.nonzero(path, size=p.path_link_indices.shape[1], fill_value=p.num_links)[0]
     worst = 0.0
     for start in range(0, p.link_resources - 1, 3):
-        end = start + 1
-        centre = env_funcs.get_centre_frequency(start, 2, p)
-        power = p.slot_launch_power_array[start]
-        sampled = gn_endpoint_snr.endpoint_snr_pallas(s, p, links, start, end, power, centre)
-        inserted = _insert(s, p, links, start, end, power, centre)
+        count, width, centre = env_funcs.get_channel_values(start, 2 + p.guardband, p)
+        power = p.slot_launch_power_array[start] * count
+        sampled = gn_endpoint_snr.endpoint_snr_pallas(s, p, links, start, power, centre, width)
+        inserted = _insert(s, p, links, start, int(count), power, centre)
         full = env_funcs.get_snr_link_array(inserted, p)
-        screened_db = 10 * np.log10(np.asarray(sampled[links < p.num_links]))
-        full_db = 10 * np.log10(np.asarray(full[links[links < p.num_links]][:, [start, end]]))
+        screened_db = 10 * np.log10(np.asarray(sampled[links < p.num_links]))[:, None]
+        full_db = 10 * np.log10(
+            np.asarray(full[links[links < p.num_links]][:, start : start + int(count)])
+        )
         worst = max(worst, float(np.max(np.abs(screened_db - full_db))))
     print(f"max |screen - full| = {worst:.2e} dB")
     assert worst < env_funcs.ENDPOINT_SCREEN_SLACK_DB / 10

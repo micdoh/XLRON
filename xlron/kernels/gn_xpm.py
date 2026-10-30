@@ -5,10 +5,14 @@ and sums it over interferers, without materialising the channel-pair matrix.
 Two exact reductions make wide, mostly-empty or multi-slot spectra cheap:
 
 - interferers: only live (power and bandwidth nonzero) channels are visited,
-  and a run of identical consecutive (power, frequency, bandwidth) entries, as
-  produced by one multi-slot lightpath, is evaluated once with its multiplicity;
+  and a run of identical consecutive (power, frequency, bandwidth) entries is
+  evaluated once with its multiplicity;
 - outputs: rows with zero bandwidth have zero XPM, and a run of identical rows
   shares one result.
+
+The environment passes one entry per channel (`env_funcs.channel_physics_rows`,
+issue #86), so a multi-slot lightpath is already a single live entry; the run
+reductions still apply to other callers.
 
 Total power for the Raman tilt always uses every input entry. The only
 arithmetic difference from ordinary JAX is float32 evaluation/reduction order.

@@ -656,7 +656,8 @@ xlron.parameter_flags:
     (int32 recommended)
   --[no]last_fit: Use KSP-FF for path_action, else KSP-LF
     (default: 'false')
-  --launch_power_csv: Path to a CSV file specifying per-slot launch power.
+  --launch_power_csv: Path to a CSV file specifying per-slot reference launch
+    power (a channel launches its first slot's value times its signal slots).
     Expected columns: slot_index (int), freq_ghz (float), power_dbm (float).
     Slots not present in the file keep the default launch power. Overrides
     --power_per_channel and --power_per_channel_per_band.
@@ -802,12 +803,11 @@ xlron.parameter_flags:
   --num_spectral_features: No. of spectral features
     (default: '8')
     (an integer)
-  --num_subchannels: Number of Nyquist subchannels per frequency slot for GN
-    model NLI calculation. Divides each slot's bandwidth into N subchannels with
-    effective baud rate B_eff = slot_size / num_subchannels, reducing SPM. XPM
-    and ASE are unchanged. Best used with slot_size equal to the desired channel
-    bandwidth (e.g. slot_size=100, num_subchannels=8 models 8x12.5 GHz
-    subcarriers).
+  --num_subchannels: Number of Nyquist subchannels per channel for GN model NLI
+    calculation. Divides each channel's signal bandwidth B into N subchannels
+    with effective baud rate B_eff = B / num_subchannels, reducing SPM. XPM and
+    ASE are unchanged (e.g. a 100 GHz channel with num_subchannels=8 models
+    8x12.5 GHz subcarriers).
     (default: '1')
     (an integer)
   --num_trials: Number of independent random-seed trials for capacity bound
@@ -832,12 +832,14 @@ xlron.parameter_flags:
     'spectral_resources' (default), 'hops', 'distance', 'hops_distance',
     'capacity' (for RWA-LR only)
     (default: 'spectral_resources')
-  --power_per_channel: Per-channel launch power [dBm]. If None, defaults to
-    max_power_per_fibre divided equally among slots.
+  --power_per_channel: Reference launch power per slot of signal bandwidth
+    [dBm]: a channel of n signal slots (guard band excluded) launches n times
+    this, i.e. equal PSD. If None, defaults to max_power_per_fibre divided
+    equally among slots.
     (a number)
-  --power_per_channel_per_band: Comma-separated per-channel launch power values
-    [dBm], one per band in band_preference order (e.g. '2.3,2.5' for C,L).
-    Overrides --power_per_channel.
+  --power_per_channel_per_band: Comma-separated reference launch powers per slot
+    of signal bandwidth [dBm], one per band in band_preference order (e.g.
+    '2.3,2.5' for C,L). Overrides --power_per_channel.
   --raman_gain_slope: Raman gain slope [1/(W*m*Hz)]. Typical value ~0.028
     1/(W*km*THz) = 2.8e-17 in SI.
     (default: '2.8e-17')

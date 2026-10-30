@@ -102,6 +102,8 @@ P_NLI_i = P_i^3 * eta_n_i
 
 where `eta_n_i = eta_SPM_i + eta_XPM_i` is the NLI efficiency coefficient, which depends on fibre parameters (gamma, beta_2, beta_3, alpha), channel spacing, channel bandwidths, and channel powers.
 
+**Channels, not slots**: the spectrum is a grid of slots, but the GN model works per channel (per lightpath). A lightpath of `n` signal slots is one channel with one centre frequency (the centre of its signal slots), one bandwidth `n * slot_size`, and one launch power. Its guard slots are dark. SPM uses the full channel bandwidth, XPM is summed over pairs of channels, and the ASE noise bandwidth is the channel's signal bandwidth. Each channel's SNR is copied to all of its signal slots, so per-slot consumers (masks, departures, path SNR) keep the `(links, slots)` shape. See [Worked Example](#worked-example-per-slot-state-arrays) for the state layout.
+
 **ISRS correction**: The model incorporates the effect of stimulated Raman scattering on NLI. The Raman gain slope `C_r` modifies the effective attenuation seen by each channel, which in turn affects NLI efficiency. This means that NLI is not just a function of local channel properties but also depends on the total power and frequency distribution of all channels on the link.
 
 **Coherent vs incoherent accumulation**: NLI from successive spans can accumulate either coherently (phased) or incoherently (power-summed), controlled by the `--coherent` flag. The coherence factor epsilon determines the scaling:
@@ -188,7 +190,17 @@ The total optical power on each fibre link is constrained by `max_power_per_fibr
 - **During masking**: candidate placements that would exceed the power limit are masked out
 - **During action checking**: the power constraint is verified after tentative placement
 
-The per-channel launch power is set by `power_per_channel` (in dBm). If not specified, it defaults to `max_power_per_fibre` divided equally among all slots. For example, with `max_power_per_fibre=21` dBm (125.9 mW) and `link_resources=100`, the default per-channel power is approximately 1.26 mW (1.0 dBm).
+### Power convention
+
+Launch power is a per-channel quantity, configured as a power spectral density:
+
+- `power_per_channel` (in dBm), `--power_per_channel_per_band`, `--launch_power_csv`, and tabular or RL launch powers are all **reference powers per slot of signal bandwidth**.
+- A lightpath of `n` signal slots (its slots minus `guardband`) launches `n` times the reference power of its first slot, so channels of every width share one PSD. This matches GNpy's PSD equalisation, where a reference channel power scales with the baud rate. A single-slot channel launches exactly the reference power.
+- If `power_per_channel` is not specified, the reference defaults to `max_power_per_fibre / link_resources`. A fibre whose slots were all lit at that PSD would carry exactly `max_power_per_fibre`; guard slots are dark, so a full fibre carries somewhat less. For example, with `max_power_per_fibre=21` dBm (125.9 mW) and `link_resources=100`, the reference is about 1.26 mW (1.0 dBm) per slot, and a 4-slot channel with a 1-slot guard band launches about 3.8 mW (5.8 dBm), using 3 signal slots.
+- The fibre power limit, the ISRS tilt (total power `P_tot`) and the observation features all use the same channel powers. Each channel counts once and guard slots carry none.
+
+!!! warning "GN results before the fix for issue #86"
+    Earlier versions modelled each slot of a multi-slot lightpath as an independent slot-wide channel at the lightpath's centre frequency, each carrying the full launch power (guard slot included). The slots of one channel had no NLI with each other, because the XPM term vanishes for a shared centre frequency, and each kept only a slot-wide SPM term. NLI was therefore underestimated by 2 to 10 dB relative to one full-width channel at equal PSD. That is about -5 dB for 25 GHz channels and -10 dB for 100 GHz channels on a 12.5 GHz grid, and -2 to -3 dB for 2 to 4 slot channels on a 50 GHz grid. At the NLI-optimal launch power this made GSNR roughly 0.8 to 1.5 dB optimistic. Power accounting was also inconsistent: the fibre limit counted one power per channel, but the ISRS tilt summed every slot. **SNR, throughput and blocking results produced with `rsa_gn_model` / `rmsa_gn_model` before this fix are affected, with optimistic GSNR on fine grids.** Single-slot channels (e.g. one channel per 50-100 GHz slot) were affected only through the guard band's power and the centre-frequency offset. `TestChannelLevelPhysics` in `env_funcs_test.py` checks that an n-slot channel's NLI matches a single full-width channel at equal PSD to within 0.05 dB.
 
 
 ### Learned launch power
@@ -382,18 +394,18 @@ This path-level SNR is what gets compared against modulation format thresholds.
 
 A wideband optical channel (e.g. 100 GHz / 100 GBd) can be implemented as multiple narrower Nyquist subchannels (e.g. 8 x 12.5 GHz / 12.5 GBd subcarriers). The lower effective baud rate per subchannel reduces the self-phase modulation (SPM) nonlinear interference, because SPM depends on the square of the channel bandwidth through the `arcsinh` term in the GN model formula.
 
-Without `num_subchannels`, the only way to model this effect would be to set `slot_size=12.5` and use 8 slots per channel. But this inflates the number of frequency slots per link, the action space, and the O(N^2) XPM computation. The `--num_subchannels` parameter avoids this cost by analytically correcting the SPM term.
+A multi-slot lightpath is one channel (see [Nonlinear Interference](#nonlinear-interference-nli)), so finer slots do not by themselves model subcarriers. The `--num_subchannels` parameter models them by analytically correcting the SPM term.
 
 ### How It Works
 
-The `--num_subchannels` flag (default 1) divides each slot's bandwidth into N Nyquist subchannels for the purpose of SPM calculation only:
+The `--num_subchannels` flag (default 1) divides each channel's signal bandwidth `B` into N Nyquist subchannels for the purpose of SPM calculation only:
 
-- **Effective bandwidth**: `B_eff = slot_size / num_subchannels`
-- **SPM eta** is computed using `B_eff` in place of `slot_size` in the GN model formula (both in the main `arcsinh` terms and in the coherence factor epsilon)
+- **Effective bandwidth**: `B_eff = B / num_subchannels`
+- **SPM eta** is computed using `B_eff` in place of `B` in the GN model formula (both in the main `arcsinh` terms and in the coherence factor epsilon)
 - **Power scaling**: Each subchannel carries `P/N` power, so total NLI from N subchannels is `N * (P/N)^3 * eta(B_eff) = P^3 * eta(B_eff) / N^2`. The SPM efficiency is therefore divided by `num_subchannels^2`.
-- **XPM**: Unchanged. Cross-phase modulation between different frequency slots uses the physical slot bandwidth.
-- **ASE**: Unchanged. The noise bandwidth is the physical slot bandwidth.
-- **Backward compatible**: `num_subchannels=1` gives `B_eff = slot_size` and scaling = 1, producing identical results to the default.
+- **XPM**: Unchanged. Cross-phase modulation between channels uses the physical channel bandwidth.
+- **ASE**: Unchanged. The noise bandwidth is the physical channel bandwidth.
+- **Backward compatible**: `num_subchannels=1` gives `B_eff = B` and scaling = 1, producing identical results to the default.
 
 ### Best Practice
 
@@ -416,30 +428,30 @@ Consider a 400 Gbps request with spectral efficiency 2 b/s/Hz, `slot_size=100` G
 
 The number of required slots is `ceil(400 / (2 * 100)) + guardband = 2 + 1 = 3`. Suppose the request is placed at initial slot index 5 on a link, occupying slots 5, 6, and 7.
 
-The per-slot state arrays on that link are updated as follows:
+Slots 5 and 6 carry the signal and slot 7 is the dark guard band. With a reference launch power `p` per slot, the channel launches `P = 2p`. The per-slot state arrays on that link are updated as follows:
 
-| Array | Slot 5 | Slot 6 | Slot 7 | Notes |
+| Array | Slot 5 | Slot 6 | Slot 7 (guard) | Notes |
 |---|---|---|---|---|
 | `link_slot_array` | 1 | 1 | 1 | Occupied (was 0) |
-| `channel_centre_bw_array` | 100 | 100 | 100 | Always `slot_size` in GHz |
-| `channel_power_array` | P | P | P | Launch power in watts (same for all slots in the channel) |
-| `channel_centre_freq_array` | f_c | f_c | f_c | Centre frequency of the 3-slot block in GHz (midpoint of slot 5 and slot 7) |
+| `channel_centre_bw_array` | 200 | 200 | 0 | Channel signal bandwidth in GHz on its signal slots |
+| `channel_power_array` | P | P | 0 | Channel launch power in watts on its signal slots |
+| `channel_centre_freq_array` | f_c | f_c | f_c | Centre of the signal slots (midpoint of slots 5 and 6) in GHz |
 | `path_index_array` | idx | idx | idx | Lightpath index identifying the path |
 
 Key observations:
 
-- **`channel_centre_bw_array`** stores `slot_size` (100 GHz) for every occupied slot, not the total channel bandwidth (300 GHz). The GN model sees 3 independent 100 GHz channels.
-- **`channel_centre_freq_array`** stores the same centre frequency for all 3 slots -- the midpoint of the block. This is used for XPM calculations between different channels.
-- **`channel_power_array`** stores the per-channel launch power. Each slot is treated as an independent channel with full launch power.
+- **The footprint** (`link_slot_array`, `path_index_array`, `channel_centre_freq_array`, departures and modulation format) covers all three slots. Power and bandwidth cover only the signal slots, so the guard band is dark.
+- **The GN model sees one 200 GHz channel of power P.** A channel is a run of signal slots with one centre frequency. Before evaluating a link, `env_funcs.channel_entries` gathers one entry per channel from its first signal slot, at most `max_channels_per_link = ceil(link_resources / (1 + guardband))` of them, so the model evaluates channels rather than slots (with a guard band, at most half as many entries, and a quarter of the XPM pairs). The model's output for that entry is the channel's SNR, which is copied back to slots 5 and 6. The guard slot gets the empty-slot sentinel. Admission checks read each channel at its first signal slot (`live_lightpath_mask`), so the action masks skip the copy (`broadcast=False`).
+- **Total power** (fibre limit and ISRS tilt) counts `P` once.
 
-With `num_subchannels=8`, the GN model computes SPM for each slot as if its 100 GHz bandwidth were divided into 8 x 12.5 GHz subchannels (`B_eff = 12.5 GHz`), with `eta_spm` scaled by `1/64`. XPM between the three slots (and between these slots and other channels on the link) is computed using the physical 100 GHz bandwidth, unchanged.
+With `num_subchannels=8`, the GN model computes the channel's SPM as if its 200 GHz bandwidth were divided into 8 x 25 GHz subchannels (`B_eff = 25 GHz`), with `eta_spm` scaled by `1/64`. XPM with other channels uses the physical 200 GHz bandwidth, unchanged.
 
 ### Centre Frequency Caching
 
 The `channel_centre_freq_array` is maintained as part of the environment state to avoid recomputing centre frequencies on every SNR calculation. It is:
 
 - **Initialised** to zeros on environment reset
-- **Set** when a lightpath is placed (same value written to all slots in the channel)
+- **Set** when a lightpath is placed (same value written to all slots of its footprint, guard band included)
 - **Cleared** when a lightpath expires (multiplied by the expiry mask, same pattern as other per-slot arrays)
 - **Restored** from a previous snapshot (`channel_centre_freq_array_prev`) if an action is rolled back due to a failed SNR or power check
 
@@ -802,7 +814,7 @@ The per-channel Raman gain varies across the spectrum (typically higher for L-ba
 | Flag | Default | Units | Description |
 |---|---|---|---|
 | `--max_power_per_fibre` | 21.0 | dBm | Maximum total launch power per fibre link |
-| `--power_per_channel` | None | dBm | Per-channel launch power. If None, defaults to `max_power_per_fibre / link_resources` |
+| `--power_per_channel` | None | dBm | Reference launch power per slot of signal bandwidth; a channel of `n` signal slots launches `n` times this (see [Power convention](#power-convention)). If None, defaults to `max_power_per_fibre / link_resources` |
 | `--launch_power_type` | fixed | -- | Power assignment strategy: `fixed`, `tabular`, `rl`, or `scaled` |
 
 ### SNR and Modulation Parameters
@@ -818,7 +830,7 @@ The per-channel Raman gain varies across the spectrum (typically higher for L-ba
 | `--beta_fec` | 1.5e-2 | -- | Pre-FEC BER target for GSNR threshold calculation (used with `--calc_minimum_osnr`) |
 | `--fec_rate` | 0.8 | -- | FEC code rate applied to accepted bitrate in `rmsa_gn_model` (`effective_bitrate = requested * fec_rate`) |
 | `--fec_threshold` | 0.28 | -- | FEC overhead fraction (28%) for throughput calculation in `rsa_gn_model` |
-| `--num_subchannels` | 1 | -- | Nyquist subchannels per slot. Divides slot bandwidth by N for SPM; XPM and ASE unchanged. See [Nyquist Subchannel Modelling](#nyquist-subchannel-modelling-num_subchannels). |
+| `--num_subchannels` | 1 | -- | Nyquist subchannels per channel. Divides the channel bandwidth by N for SPM; XPM and ASE unchanged. See [Nyquist Subchannel Modelling](#nyquist-subchannel-modelling-num_subchannels). |
 | `--max_snr` | 50.0 | dB | Upper SNR clamp for observations |
 | `--min_snr` | 7.0 | dB | Lower SNR limit for throughput calculation |
 
