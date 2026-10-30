@@ -1,0 +1,103 @@
+{
+  "args": {
+    "slots": 100,
+    "k": 5,
+    "envs": 1,
+    "topology": "nsfnet_deeprmsa_directed",
+    "mode": "nonuniform",
+    "kernels": [
+      "link",
+      "lightpath",
+      "mask",
+      "rollout"
+    ],
+    "iterations": 10,
+    "steps": 16,
+    "warmup_steps": 0,
+    "output": "/tmp/xlron-gn-perf-20261024/optimized-nonuniform-100.json",
+    "snapshot": "/tmp/xlron-gn-perf-20261024/optimized-nonuniform-100.npz",
+    "reference": "/tmp/xlron-gn-perf-20261024/baseline-nonuniform-100.npz",
+    "matmul_precision": "highest"
+  },
+  "jax": "0.12.0.1",
+  "device": "cuda:0",
+  "device_kind": "NVIDIA A100 80GB PCIe",
+  "platform": "Linux-5.14.0-611.55.1.el9_7.0.3.x86_64-x86_64-with-glibc2.34",
+  "links": 44,
+  "paths": 911,
+  "modulations": 4,
+  "lightpaths": 88,
+  "occupancy": 0.2506818175315857,
+  "metrics": {
+    "link": {
+      "compile_s": 0.38270741514861584,
+      "median_ms": 0.7428843528032303,
+      "min_ms": 0.36467425525188446,
+      "argument_bytes": 52800,
+      "output_bytes": 17600,
+      "temp_bytes": 72232,
+      "alias_bytes": 0
+    },
+    "lightpath": {
+      "compile_s": 0.22298847511410713,
+      "median_ms": 0.24696532636880875,
+      "min_ms": 0.23940205574035645,
+      "argument_bytes": 88000,
+      "output_bytes": 17600,
+      "temp_bytes": 158528,
+      "alias_bytes": 0
+    },
+    "mask": {
+      "compile_s": 2.6250532027333975,
+      "median_ms": 1.6671307384967804,
+      "min_ms": 1.5876684337854385,
+      "argument_bytes": 105612,
+      "output_bytes": 3024,
+      "temp_bytes": 1376136,
+      "alias_bytes": 0
+    },
+    "rollout": {
+      "compile_s": 3.721352620050311,
+      "median_ms": 25.279995054006577,
+      "min_ms": 24.878881871700287,
+      "argument_bytes": 286400,
+      "output_bytes": 286824,
+      "temp_bytes": 1313040,
+      "alias_bytes": 0,
+      "steps_per_s": 632.9115162332356,
+      "accepted_services": [
+        14
+      ]
+    }
+  },
+  "accuracy": {
+    "link_0": {
+      "exact": true,
+      "max_abs_error": 0.0
+    },
+    "lightpath_0": {
+      "exact": true,
+      "max_abs_error": 0.0
+    },
+    "mask_0": {
+      "exact": true,
+      "max_abs_error": 0.0
+    },
+    "mask_1": {
+      "exact": true,
+      "max_abs_error": 0.0
+    },
+    "mask_2": {
+      "exact": true,
+      "max_abs_error": 0.0
+    },
+    "rollout_rewards": {
+      "exact": true,
+      "max_abs_error": 0.0
+    },
+    "rollout_occupancy": {
+      "exact": true,
+      "max_abs_error": 0.0
+    }
+  }
+}

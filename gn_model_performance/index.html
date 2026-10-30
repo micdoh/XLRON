@@ -1,0 +1,2931 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+        <link rel="canonical" href="https://micdoh.github.io/XLRON/gn_model_performance/">
+      
+      
+        <link rel="prev" href="../gn_model/">
+      
+      
+        <link rel="next" href="../differentiable_dra/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.8.0">
+    
+    
+      
+        <title>GN Model Performance - XLRON - Accelerated Learning and Resource Allocation for Optical Networks</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.57a0d79d.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.fb2fffe2.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/_mkdocstrings.css">
+    
+      <link rel="stylesheet" href="../stylesheets/xlron.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="teal">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#gn-simulation-performance-investigation-24-october-2026" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="XLRON - Accelerated Learning and Resource Allocation for Optical Networks" class="md-header__button md-logo" aria-label="XLRON - Accelerated Learning and Resource Allocation for Optical Networks" data-md-component="logo">
+      
+  <img src="../images/xlron_nobackground.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            XLRON - Accelerated Learning and Resource Allocation for Optical Networks
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              GN Model Performance
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+    
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="XLRON - Accelerated Learning and Resource Allocation for Optical Networks" class="md-nav__button md-logo" aria-label="XLRON - Accelerated Learning and Resource Allocation for Optical Networks" data-md-component="logo">
+      
+  <img src="../images/xlron_nobackground.png" alt="logo">
+
+    </a>
+    XLRON - Accelerated Learning and Resource Allocation for Optical Networks
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Why XLRON
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Why XLRON
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../features/speed/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Comparisons & Speed
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../features/physical_layer/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Physical Layer Model
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../features/differentiable/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Differentiable Simulation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../features/transformer/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Graph Transformer for RMSA
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../features/topologies/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Topologies
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../features/gui/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Graphical User Interface
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../understanding_xlron/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Understanding XLRON
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../gn_model/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GN Model Physical Layer
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GN Model Performance
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GN Model Performance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#repository-and-pr-status" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Repository and PR status
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#implemented-architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Implemented architecture
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Implemented architecture">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#masking-semantics-retained-by-the-optimization" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Masking semantics retained by the optimization
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#occupied-path-snr-accumulation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Occupied-path SNR accumulation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#shared-baseline-and-selective-link-refresh" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Shared baseline and selective link refresh
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bounded-candidate-batches-first-optimization-stage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bounded candidate batches (first optimization stage)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#measurements" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Measurements
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Measurements">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#code-changes-isolated-from-dependency-changes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Code changes isolated from dependency changes
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#final-runtime-and-small-spectrum-policy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Final runtime and small-spectrum policy
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#parallel-rollouts-and-ppo-training" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Parallel rollouts and PPO training
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rsa-gn-variant" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        RSA GN variant
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#further-reductions-in-wasted-work" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Further reductions in wasted work
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Further reductions in wasted work">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#compact-feasible-candidates-and-reuse-physical-footprints" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Compact feasible candidates and reuse physical footprints
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#skip-zero-interfering-channels-in-uniform-span-xpm" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Skip zero interfering channels in uniform-span XPM
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#pallas-kernel-backend" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pallas kernel backend
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#mask-throughput-27-october-2026" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Mask throughput, 27 October 2026
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#xla-device-side-while-loops" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        XLA device-side while loops
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#pooled-environment-masks-and-ppo-28-october-2026" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pooled environment masks and PPO, 28 October 2026
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#dependencies-and-gymnax" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dependencies and Gymnax
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#verification-and-accuracy-limits" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Verification and accuracy limits
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#further-architecture-opportunities" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Further architecture opportunities
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reproduction-and-artifacts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reproduction and artifacts
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../differentiable_dra/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Differentiable DRA Pipeline
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../training/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Training with PPO
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../heuristic_evaluation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Heuristic Evaluation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../capacity_bounds/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Capacity Bound Estimation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../flags_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Command-line options
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Function reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reproducing the Papers
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reproducing the Papers
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../papers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview & papers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reproduce_jocn2024/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hype or Hope? (JOCN 2025)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reproduce_rwalr/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    RWA-LR (ONDM 2025)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reproduce_ecoc2026/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Capacity bounds comparison (ECOC 2026 submitted)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reproduce_jocn_xlron/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    XLRON framework (in prep.)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reproduce_jocn_transformer/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Graph Transformer (in prep.)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    About
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    About
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../license/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    License and Support
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#repository-and-pr-status" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Repository and PR status
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#implemented-architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Implemented architecture
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Implemented architecture">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#masking-semantics-retained-by-the-optimization" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Masking semantics retained by the optimization
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#occupied-path-snr-accumulation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Occupied-path SNR accumulation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#shared-baseline-and-selective-link-refresh" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Shared baseline and selective link refresh
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bounded-candidate-batches-first-optimization-stage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bounded candidate batches (first optimization stage)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#measurements" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Measurements
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Measurements">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#code-changes-isolated-from-dependency-changes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Code changes isolated from dependency changes
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#final-runtime-and-small-spectrum-policy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Final runtime and small-spectrum policy
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#parallel-rollouts-and-ppo-training" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Parallel rollouts and PPO training
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rsa-gn-variant" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        RSA GN variant
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#further-reductions-in-wasted-work" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Further reductions in wasted work
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Further reductions in wasted work">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#compact-feasible-candidates-and-reuse-physical-footprints" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Compact feasible candidates and reuse physical footprints
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#skip-zero-interfering-channels-in-uniform-span-xpm" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Skip zero interfering channels in uniform-span XPM
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#pallas-kernel-backend" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pallas kernel backend
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#mask-throughput-27-october-2026" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Mask throughput, 27 October 2026
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#xla-device-side-while-loops" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        XLA device-side while loops
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#pooled-environment-masks-and-ppo-28-october-2026" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pooled environment masks and PPO, 28 October 2026
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#dependencies-and-gymnax" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dependencies and Gymnax
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#verification-and-accuracy-limits" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Verification and accuracy limits
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#further-architecture-opportunities" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Further architecture opportunities
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reproduction-and-artifacts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reproduction and artifacts
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="gn-simulation-performance-investigation-24-october-2026">GN simulation performance investigation — 24 October 2026</h1>
+<p>The implemented changes reduce repeated GN calculations and bound candidate-state
+memory while retaining the existing admission checks. On directed NSFNET with 420
+slots, code changes alone made a 16-step RMSA rollout <strong>4.44× faster</strong> and reduced
+action-mask temporary buffers <strong>24.48×</strong>. Further ordinary-JAX work removes infeasible/duplicate candidate evaluations and
+zero-interferer arithmetic. Against the first optimized version, a 1,376-slot
+16-environment rollout improves another <strong>2.15×</strong>, reaching <strong>619 requests/s</strong>
+with real admitted warmup traffic and full SNR checks.</p>
+<p>These are performance and implementation-equivalence results. The independent
+formula audit below identifies pre-existing discrepancies that need physical-model
+validation before making stronger multiband accuracy claims.</p>
+<h2 id="repository-and-pr-status">Repository and PR status</h2>
+<p>The local workspace initially contained only <code>.venv</code>. The checkout was restored
+from <code>https://github.com/micdoh/XLRON.git</code>, and the performance branch was based on
+remote <code>main</code>, commit <code>2256456</code> (<code>Bump version to 1.6.0</code>). A subsequent fetch confirmed
+the same remote head. During final validation, PR #61 landed on main as <code>dce10f9</code>;
+the performance branch was rebased onto that commit. Performance changes are on
+<code>perf/gn-multiband</code>, published as draft <a href="https://github.com/micdoh/XLRON/pull/62">PR #62</a>.
+Its first commit, <code>804c53a</code>, passed all GitHub checks; the further work below
+is recorded separately from those initial results.</p>
+<p>One PR was open: <a href="https://github.com/micdoh/XLRON/pull/61">#61, Add ARBR adaptive-routing heuristic</a>.
+It combines static path resource cost with quantized maximum link utilization,
+exposes <code>arbr_alpha</code> (default 0.8), and uses first-fit spectrum assignment. Its
+single-fibre adaptation omits the original algorithm's constrained-transceiver and
+regeneration terms. It also changes comparison plots and figure styling. GitHub
+initially reported it mergeable, with the Python 3.12 build passing and pre-commit
+failing. A separate checkout reproduced the failure: Ruff reformatted one expression
+in <code>wrappers.py</code>, while environment setup refreshed stale lockfile metadata. Commit
+<code>3bf64db</code> fixes both and makes CI dependency synchronization require the committed
+lockfile. It was pushed only to the public PR branch, <code>arbr-heuristic</code>.</p>
+<p>All six original PR commits and the fix were checked for changes to the withheld
+DRA implementation. They retain the public stub. A new GitHub public-release check
+examines every incoming commit, requires the approved stub, and rejects additional
+DRA-named Python/notebook source files. Its six regression tests include a change
+that adds private content and removes it in a later commit. This guard cannot
+identify private code copied under unrelated names. Existing public DRA
+documentation is retained at the user's request; the private GitLab checkout was
+not changed. Local PR validation passed all pre-commit hooks and 666 heuristic and
+dispatch tests (157 skipped), separately from the GN test results below.
+GitHub CI on that commit passed pre-commit, public-release and build checks; the
+build reported <strong>2,328 passed, 498 skipped</strong>. The PR subsequently merged as
+<code>dce10f9</code>; its DRA guard also passes on the rebased performance branch.</p>
+<h2 id="implemented-architecture">Implemented architecture</h2>
+<h3 id="masking-semantics-retained-by-the-optimization">Masking semantics retained by the optimization</h3>
+<p><code>rsa_gn_model</code> inherits the spectrum-only RSA mask and accepts requests based on
+spectrum availability. GN SNR is evaluated separately for its throughput objective;
+it does not enforce per-request SNR or fibre-power admission checks. A misleading
+comment claiming otherwise has been corrected.</p>
+<p><code>rmsa_gn_model</code> computes a separate footprint and required SNR for every path and
+modulation format. It tests first-fit and last-fit placements for each pair, not
+every interior placement. Each tested candidate must satisfy spectrum and power
+constraints, the new connection's SNR threshold plus admission margin, and existing
+connections' stored modulation thresholds. The existing-connection check uses the
+base thresholds without reapplying the admission margin. If several formats pass
+at the same path/start slot, the mask stores the highest-SE format. The step reads
+that stored format and uses its SE to determine the allocated width. Modulation
+correction, when enabled, also uses the hypothetical candidate's format.</p>
+<p>This is implicit format selection. An agent that explicitly chooses modulation
+needs a joint or conditional mask that retains that dimension. A compact list of
+physically evaluated <code>(path, format, placement)</code> candidates could expose format
+choice without expanding to every path/format/slot combination. A conditional
+policy alone does not remove the cost of checking whether its earlier choices
+have any physically valid completion.</p>
+<h3 id="occupied-path-snr-accumulation">Occupied-path SNR accumulation</h3>
+<p>Previously, <code>get_lightpath_snr</code> formed SNR arrays for every possible route and every
+slot, then gathered values for the paths actually referenced by the state. Directed
+NSFNET with <code>k=5</code> has 911 route rows, including the dummy row, and 44 links.</p>
+<p>Environment creation now precomputes a padded <code>(paths, maximum_hops)</code> table of
+constituent link indices. SNR accumulation gathers only the links of each path
+referenced by the <code>(links, slots)</code> state. Its intermediate work scales with
+<code>links × slots × maximum_hops</code>, independent of the number of unused route rows.
+This also avoids zero-times-infinity contamination from off-path zero SNR entries.
+ROADM and transceiver noise retain their path-level treatment. Empty paths, packed
+path bits and single-slot shapes have regression coverage.</p>
+<h3 id="shared-baseline-and-selective-link-refresh">Shared baseline and selective link refresh</h3>
+<p>RMSA masking evaluates first-fit and last-fit placements for each route/modulation
+pair: 40 candidates for five routes and four formats. Previously each candidate
+recomputed link SNR over the whole network.</p>
+<p>Masking now refreshes the current network once, then each candidate recalculates
+only the links on its route. Unchanged links reuse that shared baseline. Importantly,
+the baseline is recomputed rather than trusting <code>state.link_snr_array</code>: departures
+can leave that cache stale. Both generic and fused link-SNR helpers accept selected
+link indices, retaining their ordering and duplicates.</p>
+<p>Existing lightpaths are still checked across their complete routes. Selective GN
+refresh does not mean that disruption checks inspect only the new lightpath.</p>
+<h3 id="bounded-candidate-batches-first-optimization-stage">Bounded candidate batches (first optimization stage)</h3>
+<p>Candidate states are constructed inside <code>jax.lax.map</code>, rather than materializing
+every hypothetical network simultaneously. The measured default is up to 40
+candidates per batch for at most 128 slots, and eight for wider spectra. Batching
+one candidate at a time substantially reduced memory but slowed small workloads;
+32- and 40-candidate experiments motivated the small-spectrum policy.</p>
+<p>Invalid candidates remain masked. A batched <code>lax.cond</code> may execute invalid lanes,
+so this change does <strong>not</strong> claim that every invalid candidate avoids GN work.
+The storage bound comes from batching. See the <a href="https://docs.jax.dev/en/latest/_autosummary/jax.lax.map.html">JAX map documentation</a>.</p>
+<h2 id="measurements">Measurements</h2>
+<p>Runs used Turin's NVIDIA A100 80 GB PCIe GPUs, with JAX preallocation disabled.
+GPUs 2 and 3 were available; jobs on GPUs 0 and 1 were left alone. Each result
+separates compilation from synchronized execution, performs three warmups, and
+reports the median of 7–20 measurements. Rollouts contain 16 actual environment
+steps. Measurements exclude neural-network training, compilation and host logging.</p>
+<p><strong>Memory columns are XLA compiled temporary-buffer estimates, not total VRAM or
+process peak memory.</strong> Arguments, outputs, constants and allocator/compiler memory
+are additional. Small timings near the dispatch floor show noise and should not be
+interpreted as precise microsecond-level comparisons.</p>
+<h3 id="code-changes-isolated-from-dependency-changes">Code changes isolated from dependency changes</h3>
+<p>These two 420-slot runs both use JAX 0.9.1, directed NSFNET, <code>k=5</code>, four modulation
+formats, 12.5 GHz slots and approximately 25% synthetic occupancy.</p>
+<table>
+<thead>
+<tr>
+<th>Measurement</th>
+<th style="text-align: right;">Original</th>
+<th style="text-align: right;">Eight-candidate wideband path</th>
+<th style="text-align: right;">Improvement</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Action mask</td>
+<td style="text-align: right;">4.320 ms</td>
+<td style="text-align: right;">1.151 ms</td>
+<td style="text-align: right;">3.75×</td>
+</tr>
+<tr>
+<td>16-step rollout</td>
+<td style="text-align: right;">77.073 ms</td>
+<td style="text-align: right;">17.362 ms</td>
+<td style="text-align: right;">4.44×</td>
+</tr>
+<tr>
+<td>Mask temporary buffers</td>
+<td style="text-align: right;">126.505 MiB</td>
+<td style="text-align: right;">5.168 MiB</td>
+<td style="text-align: right;">24.48× smaller</td>
+</tr>
+<tr>
+<td>Rollout temporary buffers</td>
+<td style="text-align: right;">126.413 MiB</td>
+<td style="text-align: right;">5.086 MiB</td>
+<td style="text-align: right;">24.86× smaller</td>
+</tr>
+<tr>
+<td>Standalone mask compilation</td>
+<td style="text-align: right;">866.33 s</td>
+<td style="text-align: right;">4.35 s</td>
+<td style="text-align: right;">About 199× in this case</td>
+</tr>
+</tbody>
+</table>
+<p>The compilation pathology was an NVIDIA <code>ptxas</code> invocation for an input-reduction
+fusion. The original source under JAX 0.12.0.1 also failed to finish mask compilation
+within a 240-second cap. Its result file contains only the completed link/path
+measurements; there is no inferred runtime for the missing mask or rollout.</p>
+<h3 id="final-runtime-and-small-spectrum-policy">Final runtime and small-spectrum policy</h3>
+<p>The following small-spectrum comparisons all use JAX 0.12.0.1, full-precision
+matrix accumulation and 100 slots. The optimized column uses batches of 40.</p>
+<table>
+<thead>
+<tr>
+<th>Execution mode</th>
+<th style="text-align: right;">Original 16 steps</th>
+<th style="text-align: right;">Optimized 16 steps</th>
+<th style="text-align: right;">Original mask temporaries</th>
+<th style="text-align: right;">Optimized mask temporaries</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Uniform spans</td>
+<td style="text-align: right;">8.828 ms</td>
+<td style="text-align: right;">5.783 ms</td>
+<td style="text-align: right;">33.18 MiB</td>
+<td style="text-align: right;">8.25 MiB</td>
+</tr>
+<tr>
+<td>Modulation correction</td>
+<td style="text-align: right;">11.019 ms</td>
+<td style="text-align: right;">6.680 ms</td>
+<td style="text-align: right;">75.40 MiB</td>
+<td style="text-align: right;">8.92 MiB</td>
+</tr>
+<tr>
+<td>Non-uniform span execution</td>
+<td style="text-align: right;">15.104 ms</td>
+<td style="text-align: right;">13.792 ms</td>
+<td style="text-align: right;">35.18 MiB</td>
+<td style="text-align: right;">8.93 MiB</td>
+</tr>
+</tbody>
+</table>
+<p>The non-uniform benchmark exercises the span-scan implementation; the factory's
+topology-derived spans remain equal within each link. Separate regression tests
+cover span padding and non-uniform inputs.</p>
+<p>Wider final-runtime results:</p>
+<table>
+<thead>
+<tr>
+<th>Configuration</th>
+<th style="text-align: right;">16-step time</th>
+<th style="text-align: right;">Aggregate requests/s</th>
+<th style="text-align: right;">Mask temporaries</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>420 slots, one environment, synthetic occupancy</td>
+<td style="text-align: right;">16.882 ms</td>
+<td style="text-align: right;">948</td>
+<td style="text-align: right;">5.34 MiB</td>
+</tr>
+<tr>
+<td>420 slots, 16 environments, synthetic occupancy</td>
+<td style="text-align: right;">135.158 ms</td>
+<td style="text-align: right;">1,894</td>
+<td style="text-align: right;">73.98 MiB</td>
+</tr>
+<tr>
+<td>1,376 slots, one environment, 128 real warmup steps</td>
+<td style="text-align: right;">79.076 ms</td>
+<td style="text-align: right;">202</td>
+<td style="text-align: right;">16.03 MiB</td>
+</tr>
+</tbody>
+</table>
+<p>The real-warmup 1,376-slot state had 5.33% occupancy and 128 accepted requests;
+the following 16 requests were accepted. This demonstrates a functioning 17.2 THz
+calculation with admission and disruption checks, not near-saturation performance
+or validation of the model's accuracy over 17.2 THz. The synthetic 25% wideband
+stress state includes physically unvalidated placements and rejects all 16 subsequent
+requests; its timing is recorded separately and is not an admitted-traffic result.</p>
+<p>Those initial parallel comparisons use replicated initial states and common traffic
+to make before/after comparisons reproducible. The independent-stream results below
+measure different traffic in each environment.</p>
+<h3 id="parallel-rollouts-and-ppo-training">Parallel rollouts and PPO training</h3>
+<p>These additional runs use independent reset/traffic keys, 128 real warmup admissions
+per environment, uniform spans, no modulation correction, and the final JAX runtime.
+The physics and admission checks run for every tested placement. These are not
+near-saturation traffic experiments: initial mean occupancy is about 9–10% at 420
+slots and 4–5% at 1,376 slots. Times are synchronized medians of five 16-step rollouts.</p>
+<table>
+<thead>
+<tr>
+<th style="text-align: right;">Slots</th>
+<th style="text-align: right;">Parallel environments</th>
+<th style="text-align: right;">Aggregate steps/s</th>
+<th style="text-align: right;">Rollout temporary buffers</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: right;">420</td>
+<td style="text-align: right;">1</td>
+<td style="text-align: right;">944</td>
+<td style="text-align: right;">5.10 MiB</td>
+</tr>
+<tr>
+<td style="text-align: right;">420</td>
+<td style="text-align: right;">16</td>
+<td style="text-align: right;">1,907</td>
+<td style="text-align: right;">72.45 MiB</td>
+</tr>
+<tr>
+<td style="text-align: right;">420</td>
+<td style="text-align: right;">64</td>
+<td style="text-align: right;">2,430</td>
+<td style="text-align: right;">360.99 MiB</td>
+</tr>
+<tr>
+<td style="text-align: right;">420</td>
+<td style="text-align: right;">256</td>
+<td style="text-align: right;">2,521</td>
+<td style="text-align: right;">1,732.70 MiB</td>
+</tr>
+<tr>
+<td style="text-align: right;">1,376</td>
+<td style="text-align: right;">1</td>
+<td style="text-align: right;">201</td>
+<td style="text-align: right;">15.25 MiB</td>
+</tr>
+<tr>
+<td style="text-align: right;">1,376</td>
+<td style="text-align: right;">16</td>
+<td style="text-align: right;">288</td>
+<td style="text-align: right;">295.64 MiB</td>
+</tr>
+<tr>
+<td style="text-align: right;">1,376</td>
+<td style="text-align: right;">64</td>
+<td style="text-align: right;">306</td>
+<td style="text-align: right;">1,064.31 MiB</td>
+</tr>
+</tbody>
+</table>
+<p>The 420-slot workload gains only about 4% throughput from 64 to 256 environments.
+The wider workload gains about 6% from 16 to 64. Larger batches fit, but are not
+automatically useful: there is already parallel work across links, channel pairs
+and candidate placements within one environment. More environments add independent
+GN work; they do not make that work reusable.</p>
+<p>An Nsight Systems node-level CUDA graph trace of one warmed-up 64-environment,
+420-slot mask recorded 148 kernels with 22.65 ms of summed kernel time in a
+22.69 ms kernel window. The union of kernel intervals occupies 99.8% of that
+window. Host launch gaps are therefore small in this case. The largest fusion,
+<code>input_scatter_fusion</code>, takes 63.6% of kernel time. Its optimized HLO includes the
+candidate GN SNR computation, including XPM <code>atan</code> arithmetic, fused into the
+selected-link scatter; its name does not mean the time is just array scattering.</p>
+<p>This establishes a GPU execution bottleneck, not whether arithmetic throughput,
+instruction latency, cache traffic or HBM bandwidth dominates that fusion. Nsight
+Compute counter collection failed with a driver-resource-unavailable error; a DCGM
+profiling-field read also failed. Neither tool's failed counter collection provides
+evidence of bandwidth saturation. Dense slot-pair arithmetic (including empty slots)
+and repeated candidate evaluations remain the strongest algorithmic targets. The
+<a href="../benchmarks/gn_20261024/nsys-node-mask-420-env64_cuda_gpu_kern_sum.csv">kernel summary</a>
+and <a href="../benchmarks/gn_20261024/nsys-node-mask-420-env64_cuda_api_sum.csv">CUDA API summary</a>
+are saved; the full trace and HLO remain on Turin. See NVIDIA's
+<a href="https://docs.nvidia.com/nsight-compute/ProfilingGuide/">profiling guide</a> for the
+distinction between timing traces and utilization/roofline counters.</p>
+<p>Real MLP routing-policy PPO runs also completed with fixed launch power, policy
+warmup, 16-step rollouts, four minibatches and four update epochs:</p>
+<p><strong>Subsequent correction:</strong> these initial fixed-power MLP runs used a single actor
+logit broadcast over the path-slot mask. The GN environment's reported action
+dimension has since been corrected, and the transformer warmup/PPO path is now
+tested too. Retain the table below as historical execution evidence; see
+<a href="#pallas-kernel-backend">Pallas kernel backend</a> for current full-mask throughput.</p>
+<table>
+<thead>
+<tr>
+<th style="text-align: right;">Slots</th>
+<th style="text-align: right;">Environments</th>
+<th style="text-align: right;">Training steps</th>
+<th style="text-align: right;">Compiled training steps/s</th>
+<th style="text-align: right;">Compilation</th>
+<th style="text-align: right;">Sampled process VRAM</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: right;">420</td>
+<td style="text-align: right;">64</td>
+<td style="text-align: right;">8,192</td>
+<td style="text-align: right;">2,367</td>
+<td style="text-align: right;">30.13 s</td>
+<td style="text-align: right;">1,250 MiB</td>
+</tr>
+<tr>
+<td style="text-align: right;">1,376</td>
+<td style="text-align: right;">16</td>
+<td style="text-align: right;">4,096</td>
+<td style="text-align: right;">286</td>
+<td style="text-align: right;">49.47 s</td>
+<td style="text-align: right;">2,134 MiB</td>
+</tr>
+</tbody>
+</table>
+<p>Training throughput includes policy inference, environment stepping and PPO
+optimization; it excludes compilation, warmup and metric logging. Process VRAM is
+the largest <code>nvidia-smi</code> reading sampled once per second, not an exact high-water
+mark. It is a different measurement from XLA's temporary-buffer estimate above.
+These short runs verify execution and measure throughput, not learning convergence.
+The raw <code>ppo-*-execution.json</code> files record commands, exit status, sampling and wall
+time; the corresponding JSONL files contain the training timing/metrics.</p>
+<p>The first fixed-power MLP trial exposed an obsolete warmup guard that raised an
+exception for this supported routing-policy configuration. Removing that guard
+allows both GN variants to complete parallel PPO updates. New end-to-end regression
+tests cover both variants with two independent environments and policy warmup.</p>
+<h3 id="rsa-gn-variant">RSA GN variant</h3>
+<p>At 420 slots on JAX 0.12.0.1, RSA GN rollouts measured 6.563 ms before and 6.554 ms
+after: essentially unchanged. Standalone path-SNR temporaries fell from 3.06 MiB to
+0.21 MiB. Its Shannon-throughput calculation measured approximately 0.41 ms on both
+versions with unchanged temporary storage.</p>
+<p><code>rsa_gn_model</code> intentionally defers physical-layer refresh/capacity evaluation in
+places where <code>rmsa_gn_model</code> performs admission checks. These modes should not be
+treated as equivalent measurements of per-request physical feasibility. The shared
+path-SNR change benefits both, while the candidate rearchitecture primarily targets
+RMSA GN masking. The RSA capacity routine remains a possible subsequent optimization.</p>
+<h2 id="further-reductions-in-wasted-work">Further reductions in wasted work</h2>
+<p>These follow-up changes build on <code>804c53a</code>. Comparisons in this section use that
+first optimized version as the baseline, with the same JAX 0.12.0.1 runtime and
+benchmark harness. They must not be multiplied into the earlier 4.44× comparison:
+the traffic, occupancy, parallelism and runtime differ.</p>
+<h3 id="compact-feasible-candidates-and-reuse-physical-footprints">Compact feasible candidates and reuse physical footprints</h3>
+<p>For non-differentiable spectra wider than 128 slots, availability and fibre-power
+checks run before GN. A fixed-capacity index buffer packs the feasible candidates;
+a dynamic loop evaluates only the live batches of eight. Identical placements
+share SNR evidence when their route, start, width and launch power match. The key
+also includes modulation when modulation correction or Raman amplification is
+enabled, so format-dependent physics is not shared incorrectly.</p>
+<p>The evidence records endpoint SNR, minimum SNR on newly assigned slots, and whether
+all old connections pass. Each candidate then applies its own modulation threshold
+and margin. Equal-width formats therefore retain different admission requirements.
+Small spectra and differentiable mode keep the previous static traversal. A first
+attempt added about 6% rollout overhead at 100 slots; keeping the original validity
+calculation on that path recovered essentially unchanged performance.</p>
+<p>Under an outer environment <code>vmap</code>, the dynamic loop still runs to the largest live
+candidate count in the batch. Padding in its final batch may execute. This removes
+whole unused batches; it does not guarantee zero work for every invalid lane.</p>
+<p>Candidate compaction alone on synthetic states at approximately 46% occupancy:</p>
+<table>
+<thead>
+<tr>
+<th>Slots / environments</th>
+<th style="text-align: right;">First optimized mask</th>
+<th style="text-align: right;">Compacted mask</th>
+<th style="text-align: right;">First optimized rollout</th>
+<th style="text-align: right;">Compacted rollout</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>420 / 64</td>
+<td style="text-align: right;">22.198 ms</td>
+<td style="text-align: right;">6.922 ms</td>
+<td style="text-align: right;">427.737 ms</td>
+<td style="text-align: right;">244.093 ms</td>
+</tr>
+<tr>
+<td>1,376 / 16</td>
+<td style="text-align: right;">44.746 ms</td>
+<td style="text-align: right;">20.972 ms</td>
+<td style="text-align: right;">902.457 ms</td>
+<td style="text-align: right;">610.502 ms</td>
+</tr>
+</tbody>
+</table>
+<p>These placements are physically unvalidated synthetic workloads, not admitted
+near-saturation traffic. All 16 requests are rejected in the wider case; the
+420-slot case accepts 12. Masks, rewards and occupancy match exactly. Raw files
+are <code>optimized-crowded*.json</code> and <code>reduced-crowded*.json</code>.</p>
+<h3 id="skip-zero-interfering-channels-in-uniform-span-xpm">Skip zero interfering channels in uniform-span XPM</h3>
+<p>The uniform-span, no-modulation-correction fused model now packs interferers with
+nonzero power and bandwidth, and traverses them in 128-column tiles using ordinary
+JAX. All output slots remain. The reduction uses the original total power for
+Raman tilt; repeated-centre occupied slots remain separate contributions. Only
+exactly zero pair contributions are removed. This is not channel aggregation or a
+physical approximation, and the existing physical formulas are unchanged.</p>
+<p>The default enables this at 420 slots and above, the measured wide-spectrum range,
+and retains dense fusion below that threshold and for differentiable environments.
+Generic/non-uniform and modulation-corrected GN calculations keep their previous
+physical kernels. Active counts may differ per link; a vmapped JAX loop stops at
+the largest live count in the mapped batch. Reduction order can change float32
+rounding, so equivalence is numerical rather than bitwise for SNR.</p>
+<p>Both ordinary-JAX follow-ups together, synchronized medians of seven samples:</p>
+<table>
+<thead>
+<tr>
+<th>Slots / environments / state</th>
+<th style="text-align: right;">First optimized mask</th>
+<th style="text-align: right;">Final mask</th>
+<th style="text-align: right;">First optimized 16-step rollout</th>
+<th style="text-align: right;">Final rollout</th>
+<th style="text-align: right;">Final requests/s</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>100 / 1 / real warmup</td>
+<td style="text-align: right;">0.353 ms</td>
+<td style="text-align: right;">0.357 ms</td>
+<td style="text-align: right;">5.951 ms</td>
+<td style="text-align: right;">5.736 ms</td>
+<td style="text-align: right;">2,789</td>
+</tr>
+<tr>
+<td>420 / 64 / independent real warmup</td>
+<td style="text-align: right;">23.424 ms</td>
+<td style="text-align: right;">21.087 ms</td>
+<td style="text-align: right;">422.405 ms</td>
+<td style="text-align: right;">390.717 ms</td>
+<td style="text-align: right;">2,621</td>
+</tr>
+<tr>
+<td>1,376 / 16 / independent real warmup</td>
+<td style="text-align: right;">47.304 ms</td>
+<td style="text-align: right;">17.022 ms</td>
+<td style="text-align: right;">890.309 ms</td>
+<td style="text-align: right;">413.241 ms</td>
+<td style="text-align: right;">619</td>
+</tr>
+<tr>
+<td>1,376 / 16 / synthetic 46% occupancy</td>
+<td style="text-align: right;">44.784 ms</td>
+<td style="text-align: right;">20.837 ms</td>
+<td style="text-align: right;">901.299 ms</td>
+<td style="text-align: right;">565.166 ms</td>
+<td style="text-align: right;">453</td>
+</tr>
+</tbody>
+</table>
+<p>The real-warmup cases use 128 admitted warmup steps, initial occupancy 36.5%, 10.1%
+and 4.65% respectively, and the same independent streams as their baselines. The
+last row is the physically unvalidated synthetic case described above. The final
+wide-spectrum rollout gain is 2.15× in the real-admission workload and 1.59× in the
+synthetic case. The small-spectrum difference is within a few percent; no small
+workload speedup is claimed. All recorded masks, modulation choices, rewards and
+occupancy match exactly. Raw <code>optimized-waste-*.json</code> / <code>reduced-waste-*.json</code> files
+contain the settings, assertions and memory estimates.</p>
+<p>These are environment rollout results. The earlier full PPO measurements precede
+this follow-up; a proportional PPO gain has not been measured. A custom Pallas
+XPM experiment is kept on the separate <code>perf/gn-kernel-poc</code> branch/worktree and is
+not included in PR #62.</p>
+<p>The expanded GN suite passes <strong>92 tests, six skipped</strong>, including full-network
+candidate oracles at both 12 and 140 slots for uniform, corrected and non-uniform
+modes, unequal modulation thresholds on reused footprints, different batched live
+counts, and full dense-versus-packed SNR with empty, sparse and dense links.</p>
+<h2 id="pallas-kernel-backend">Pallas kernel backend</h2>
+<p><code>--gn_kernel_backend=pallas</code> (see <a href="../training/">training</a>) was measured against the
+ordinary-JAX reference on an A100 80GB. The GPU was shared with another job at
+roughly 98% utilisation, so absolute rates are conservative. The workload is
+NSFNET directed, full C+L+S (1,668 slots), k=5, <code>all_slots</code> masks, load 5,000,
+coherent NLI, 4 independent environments, candidate batch 64 and environment
+chunk 1. Every arm starts from the same saved state (256 requests admitted per
+environment by a Pallas warmup) and replays the same traffic:</p>
+<div class="highlight"><pre><span></span><code>python<span class="w"> </span>-m<span class="w"> </span>experimental.benchmarks.gn_scaling<span class="w"> </span>--gn-kernel-backend<span class="w"> </span>pallas<span class="w"> </span>--slots<span class="w"> </span><span class="m">1668</span><span class="w"> </span>--envs<span class="w"> </span><span class="m">4</span><span class="w"> </span>--k<span class="w"> </span><span class="m">5</span><span class="w"> </span>--load<span class="w"> </span><span class="m">5000</span><span class="w"> </span>--coherent<span class="w"> </span>--band-preference<span class="w"> </span>C,L,S<span class="w"> </span>--gn-mask-mode<span class="w"> </span>all_slots<span class="w"> </span>--gn-mask-batch-size<span class="w"> </span><span class="m">64</span><span class="w"> </span>--gn-mask-env-batch-size<span class="w"> </span><span class="m">1</span><span class="w"> </span>--independent-streams<span class="w"> </span>--kernels<span class="w"> </span>mask<span class="w"> </span>rollout<span class="w"> </span>--steps<span class="w"> </span><span class="m">4</span><span class="w"> </span>--iterations<span class="w"> </span><span class="m">3</span><span class="w"> </span>--state-input<span class="w"> </span>state.npz
+</code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Arm</th>
+<th style="text-align: right;">Mask, 4 envs (median)</th>
+<th style="text-align: right;">4-step rollout (median)</th>
+<th style="text-align: right;">Environment transitions/s</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>jax</code> (reference)</td>
+<td style="text-align: right;">13.15 s</td>
+<td style="text-align: right;">50.70 s</td>
+<td style="text-align: right;">0.32</td>
+</tr>
+<tr>
+<td><code>pallas</code></td>
+<td style="text-align: right;"><strong>0.71 s</strong></td>
+<td style="text-align: right;"><strong>2.62 s</strong></td>
+<td style="text-align: right;"><strong>6.12</strong> (19×)</td>
+</tr>
+<tr>
+<td>#65 code, best flags (archived)</td>
+<td style="text-align: right;">0.67 s</td>
+<td style="text-align: right;">2.58 s</td>
+<td style="text-align: right;">6.20</td>
+</tr>
+</tbody>
+</table>
+<p>All arms produce identical valid-action counts and admissions. The #65 control
+used the pre-#66 XPM broadcast. Its kernels are not faster for that reason: in
+this state every channel has the same launch power, so the two formulas agree.</p>
+<h2 id="mask-throughput-27-october-2026">Mask throughput, 27 October 2026</h2>
+<p>A second pass on the Pallas <code>all_slots</code> workload: NSFNET directed, full C+L+S
+(1,668 slots), k=5, load 5,000, coherent NLI, <code>safe_release</code>, candidate batch 64,
+environment chunk 1, 16 environments replaying the same saved steady state
+(about 6,000 admitted lightpaths each), on a dedicated A100 80GB with default XLA
+flags:</p>
+<div class="highlight"><pre><span></span><code>python<span class="w"> </span>-m<span class="w"> </span>experimental.benchmarks.gn_scaling<span class="w"> </span>--gn-kernel-backend<span class="w"> </span>pallas<span class="w"> </span>--slots<span class="w"> </span><span class="m">1668</span><span class="w"> </span>--envs<span class="w"> </span><span class="m">16</span><span class="w"> </span>--k<span class="w"> </span><span class="m">5</span><span class="w"> </span>--load<span class="w"> </span><span class="m">5000</span><span class="w"> </span>--coherent<span class="w"> </span>--band-preference<span class="w"> </span>C,L,S<span class="w"> </span>--gn-mask-mode<span class="w"> </span>all_slots<span class="w"> </span>--gn-mask-batch-size<span class="w"> </span><span class="m">64</span><span class="w"> </span>--gn-mask-env-batch-size<span class="w"> </span><span class="m">1</span><span class="w"> </span>--independent-streams<span class="w"> </span>--state-input<span class="w"> </span>ss16.npz<span class="w"> </span>--kernels<span class="w"> </span>rollout<span class="w"> </span>--steps<span class="w"> </span><span class="m">16</span><span class="w"> </span>--iterations<span class="w"> </span><span class="m">3</span><span class="w"> </span><span class="o">[</span>--heuristic<span class="w"> </span>NAME<span class="o">]</span>
+</code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Workload</th>
+<th style="text-align: right;">Before</th>
+<th style="text-align: right;">After</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Full mask, 16 environments (median)</td>
+<td style="text-align: right;">41.4 ms</td>
+<td style="text-align: right;">23.4 ms</td>
+</tr>
+<tr>
+<td>Environment steps/s (all_slots mask, first valid action)</td>
+<td style="text-align: right;">321</td>
+<td style="text-align: right;">600</td>
+</tr>
+<tr>
+<td><code>ksp_ff</code> steps/s</td>
+<td style="text-align: right;">167</td>
+<td style="text-align: right;">1,474</td>
+</tr>
+<tr>
+<td><code>arbr_ff</code> steps/s</td>
+<td style="text-align: right;">167</td>
+<td style="text-align: right;">588</td>
+</tr>
+<tr>
+<td><code>kca_ff</code> steps/s</td>
+<td style="text-align: right;">167</td>
+<td style="text-align: right;">592</td>
+</tr>
+<tr>
+<td><code>ksp_ff</code> warmup from empty, 2,000 steps x 16 environments</td>
+<td style="text-align: right;">984 s</td>
+<td style="text-align: right;">23 s</td>
+</tr>
+</tbody>
+</table>
+<p>The warmup "before" was measured with the other changes already in place; the
+first-fit mask alone accounts for it.</p>
+<p>Full-mask valid-action counts and admissions are identical across the changes,
+and first-fit masks select the same actions as the full mask (tested). Changes:</p>
+<ul>
+<li><strong>Unbatched environment chunks.</strong> <code>lax.map(batch_size=1)</code> vmaps a batch of
+  one, which turns every data-dependent <code>cond</code>/<code>switch</code> in the mask into a
+  select of all branches and gives every while loop a batched predicate. Chunk 1
+  is now a plain scan.</li>
+<li><strong>Delta evaluation of screened candidates.</strong> Each candidate batch
+  materialised five (batch, links, slots) network copies for the evidence kernel.
+  Candidates now re-solve only their path links from explicit rows, and the
+  evidence kernel applies the insertion to the shared baseline arrays on the fly
+  (<code>delta=</code> in <code>path_snr_pallas</code>).</li>
+<li><strong>Tail batches.</strong> Most passes leave a handful of candidates. Each loop
+  iteration uses the smallest power-of-two fraction of the batch (down to 1/16)
+  that finishes the remainder; passes with nothing available, or no screen
+  survivor, are skipped.</li>
+<li><strong>Single-kernel compaction.</strong> <code>jnp.nonzero</code> lowers to a blocked cumulative
+  sum, a scatter and a broadcast; <code>xlron/kernels/compact.py</code> does it in one
+  Pallas program, for mask repacks and for the three per-link compactions in the
+  XPM wrapper (a full link-SNR refresh fell from 0.74 to 0.46 ms).</li>
+<li><strong>Heuristics reuse the mask.</strong> <code>select_action_eval</code> computes the physical mask
+  once; heuristics recomputed it two or three times (<code>heuristic_mask_from_state</code>).</li>
+<li><strong>First-fit masks.</strong> <code>ksp_ff</code> reads only the first path with a valid start,
+  and <code>ff_ksp</code> each path's first fit, so they get a mask
+  (<code>gn_mask_first_fit</code>) that scans (path, start, format) candidates per path in
+  band-preference order, jumps past each path once it settles, and for <code>ksp_ff</code>
+  stops at the first feasible path. Screen blocks grow while the scan continues.
+  In a nearly empty or half-filled network almost every start is spectrum-free,
+  and the full mask verifies all of them; this dominated heuristic warmup, which
+  RL training also uses. <code>ff_ksp</code> gains less (about 300 steps/s mid-fill), as it
+  must settle every path.</li>
+<li><strong>Exact link-SNR cache under <code>safe_release</code>.</strong> Link SNR depends only on that
+  link's own channels, and every change re-solves exactly the links it touches,
+  so admission re-solves only the new path's links and SNR observations skip
+  their full refresh. The mask still refreshes once, as heuristics may pass a
+  stale cache.</li>
+</ul>
+<p>Tile sizes of the evidence and XPM kernels were swept (128 to 1,024 slots per
+evidence tile; XPM row/column tiles and persistent programs); all settings were
+within noise of the defaults. Environment vmapping remains slower (124 steps/s
+for chunk 16 or a full vmap), as each environment's loops run to the busiest.</p>
+<p>XLA's device-side while loops are not enabled; see the next section.</p>
+<h2 id="xla-device-side-while-loops">XLA device-side while loops</h2>
+<p>On GPU, XLA runs a <code>while</code> loop from the host: each iteration copies the loop
+predicate back to the CPU, waits for it, and launches the body again.
+<code>--xla_gpu_enable_command_buffer=+WHILE</code> records the loop as a CUDA graph with
+conditional nodes instead, so the GPU evaluates the predicate itself and the host
+launches the whole loop once. The GN masks and departure releases are made of
+data-dependent loops with small bodies (<code>_tiered_batches</code>, candidate evidence,
+the first-fit scan, <code>safe_release</code> passes), so this host round trip is a large
+part of their cost. In JAX 0.12, <code>CONDITIONAL</code> is already in XLA's default
+command-buffer set; adding <code>+CONDITIONAL</code> changes nothing, and <code>WHILE</code> is the
+only switch.</p>
+<p><strong>It crashes the CUDA driver on shared A100s, so it stays off.</strong> With the
+departure-load sweep configuration (<code>arbr_ff</code>, load 4,500, <code>immediate</code>
+departures, 15,000 warmup steps; <code>experimental/benchmarks/device_loop_check.py</code>),
+processes sharing an A100 segfaulted inside <code>libcuda</code> (driver 595.71.05). Neither
+the CUDA 13 build nor the JAX nightly helps:</p>
+<table>
+<thead>
+<tr>
+<th>Configuration (A100-SXM4 unless stated)</th>
+<th>Crashed</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Three processes per GPU, <code>+WHILE</code>, JAX 0.12.0.1 cuda12</td>
+<td>7 of 9</td>
+</tr>
+<tr>
+<td>The same with <code>XLA_PYTHON_CLIENT_PREALLOCATE=true</code></td>
+<td>2 of 3</td>
+</tr>
+<tr>
+<td>Three processes per GPU, <code>+WHILE</code>, JAX 0.12.0.1 cuda13</td>
+<td>2 of 3</td>
+</tr>
+<tr>
+<td>Three processes per GPU, <code>+WHILE</code>, JAX nightly 0.12.1.dev20261026</td>
+<td>3 of 3</td>
+</tr>
+<tr>
+<td>Two processes per GPU, <code>+WHILE</code>, JAX 0.12.0.1 cuda12 (previous lock; this code and the code before #75)</td>
+<td>2 of 2</td>
+</tr>
+<tr>
+<td>One process plus two of an unrelated JAX matmul loop, <code>+WHILE</code></td>
+<td>4 of 4</td>
+</tr>
+<tr>
+<td>One process plus two of a plain CUDA busy loop (no JAX), <code>+WHILE</code></td>
+<td>4 of 4</td>
+</tr>
+<tr>
+<td>One process per GPU, <code>+WHILE</code></td>
+<td>0 of 6</td>
+</tr>
+<tr>
+<td>Three processes per GPU, default flags</td>
+<td>0 of 3</td>
+</tr>
+<tr>
+<td>H100 NVL, three processes per GPU, <code>+WHILE</code> (release and nightly)</td>
+<td>0 of 6</td>
+</tr>
+</tbody>
+</table>
+<p>Any other CUDA process on the GPU triggers it, not only other XLRON runs. The
+survivors of a three-process round may simply have finished alone after the
+others died. Reported upstream as
+<a href="https://github.com/openxla/xla/issues/51747">openxla/xla#51747</a>; small JAX
+programs with the same loop structure (an outer <code>scan</code> over data-dependent
+<code>while_loop</code>s with <code>switch</code> branches, nested loops and a Pallas kernel) did not
+reproduce it.</p>
+<p>The same bug shows under compute-sanitizer as invalid global reads "inside the
+nearest allocation" in kernels launched from command buffers: XLA fusions (whose
+indices are clamped), and masked Pallas kernels, a different kernel each time,
+ending in <code>CUDA_ERROR_ILLEGAL_ADDRESS</code>. Those kernels cannot index out of
+bounds themselves; the buffer addresses in the graph are wrong. An early
+comparison found nothing because it only exercised a saved 25%-occupancy state
+on idle GPUs. Preallocating GPU memory did not prevent it, and command-buffer
+VA remapping is not exposed as a flag in this build.</p>
+<p>The speed it would buy is real but mostly a contention effect: on an idle A100
+the rollouts below are about 10% faster, and with a second process on the same
+GPU several times faster, because every host round trip then also waits for a
+scheduling slice. That is exactly the configuration that crashes. After
+upgrading JAX, CUDA or the driver, re-run <code>device_loop_check.py</code> on an otherwise
+idle A100: it starts three processes on the GPU together (about ten minutes per
+round) and reports each exit code.</p>
+<p>Median rollout time, 16 environments x 16 steps, 1,668 slots, C+L+S, all_slots
+masks, Pallas kernels, saved mid-fill state; mean of three runs on one A100
+(geneva), JAX 0.12.0.1. "Shared" adds a second process running back-to-back
+4,096 x 4,096 matmuls on the same GPU:</p>
+<table>
+<thead>
+<tr>
+<th>Workload</th>
+<th style="text-align: right;">cuda12</th>
+<th style="text-align: right;">cuda13</th>
+<th style="text-align: right;">cuda12 <code>+WHILE</code></th>
+<th style="text-align: right;">Shared cuda12</th>
+<th style="text-align: right;">Shared cuda12 <code>+WHILE</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ksp_ff</code></td>
+<td style="text-align: right;">227 ms</td>
+<td style="text-align: right;">228 ms</td>
+<td style="text-align: right;">211 ms (1.08x)</td>
+<td style="text-align: right;">2,058 ms</td>
+<td style="text-align: right;">357 ms (5.8x)</td>
+</tr>
+<tr>
+<td>Full mask</td>
+<td style="text-align: right;">449 ms</td>
+<td style="text-align: right;">446 ms</td>
+<td style="text-align: right;">410 ms (1.10x)</td>
+<td style="text-align: right;">6,843 ms</td>
+<td style="text-align: right;">690 ms (9.9x)</td>
+</tr>
+</tbody>
+</table>
+<p>Results are identical with and without the flag. The CUDA 13 plugin is no faster
+than CUDA 12, so the <code>gpu</code> group stays on <code>jax[cuda12]</code>.</p>
+<h2 id="pooled-environment-masks-and-ppo-28-october-2026">Pooled environment masks and PPO, 28 October 2026</h2>
+<p>A third pass, aimed at transformer PPO and heuristic evaluation on the full C+L+S
+workload (NSFNET directed, 1,668 slots, k=5, load 5,000, coherent NLI,
+<code>safe_release</code>, <code>all_slots</code>, Pallas). Masks, formats, rewards and occupancy are
+identical to the previous code in every comparison below (<code>gn_scaling
+--reference</code>, max abs error 0). Measured on an A100-SXM4-80GB.</p>
+<table>
+<thead>
+<tr>
+<th>Workload, 16 environments at steady state (about 6,200 lightpaths each)</th>
+<th style="text-align: right;">Before</th>
+<th style="text-align: right;">After</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Full mask, all environments</td>
+<td style="text-align: right;">27.4 ms</td>
+<td style="text-align: right;">5.1 ms</td>
+</tr>
+<tr>
+<td>Steps/s with full masks (RL policies, <code>arbr_ff</code>, <code>kca_ff</code>, ...)</td>
+<td style="text-align: right;">575</td>
+<td style="text-align: right;">2,872</td>
+</tr>
+<tr>
+<td><code>ksp_ff</code> steps/s</td>
+<td style="text-align: right;">1,130</td>
+<td style="text-align: right;">2,963</td>
+</tr>
+<tr>
+<td><code>ff_ksp</code> steps/s</td>
+<td style="text-align: right;">1,115</td>
+<td style="text-align: right;">2,720</td>
+</tr>
+</tbody>
+</table>
+<p>The "after" rollout figures use <code>--xla_gpu_graph_min_graph_size=1</code>, which
+<code>train.py</code> now sets by default (<code>gn_scaling</code> itself sets no XLA flags).</p>
+<p>Transformer PPO with the GN sweep scripts' settings (32 environments, rollout 128,
+8 minibatches, 4 epochs, <code>occupancy_snr</code> tokens, modulation features, 25,000
+<code>ksp_ff</code> warmup steps), same seed:</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th style="text-align: right;">Before</th>
+<th style="text-align: right;">After</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Training steps/s</td>
+<td style="text-align: right;">607</td>
+<td style="text-align: right;">2,530</td>
+</tr>
+<tr>
+<td>Warmup, 25,000 steps x 32 environments</td>
+<td style="text-align: right;">483 s</td>
+<td style="text-align: right;">163 s (0.5 s from <code>--WARMUP_CACHE_DIR</code>)</td>
+</tr>
+<tr>
+<td>Training compile, <code>--xla_gpu_force_compilation_parallelism=1</code></td>
+<td style="text-align: right;">273 s</td>
+<td style="text-align: right;">291 s</td>
+</tr>
+<tr>
+<td>Training compile, default XLA flags</td>
+<td style="text-align: right;">23 s</td>
+<td style="text-align: right;">27 s</td>
+</tr>
+<tr>
+<td>Estimated 4.2M-step run, default flags</td>
+<td style="text-align: right;">2.1 h</td>
+<td style="text-align: right;">31 min (28 min with a cached warmup)</td>
+</tr>
+</tbody>
+</table>
+<p>The single-threaded compilation flag used for long pytest runs (see <code>CLAUDE.md</code>)
+adds about four minutes to every training run; leave it out of launch scripts.
+GPU PPO training is not bitwise reproducible between runs (two runs of the same
+code and seed differ in their third significant figure), so training comparisons
+are of throughput only; the environment comparisons above are exact.</p>
+<p>What changed, in order of effect:</p>
+<ul>
+<li><strong>Pooled environment chunks.</strong> A serial per-environment mask is latency-bound:
+  about 266 kernels of a few microseconds and 19 host synchronisations per
+  environment, leaving the GPU idle half the time. Masking a chunk in lockstep
+  (<code>vmap</code> with a named axis whose control-flow predicates are reduced over the
+  chunk) shares the loops and branches, but on its own pads every environment to
+  the busiest one: the GN work grew 13x and the mask slowed to 102 ms. So the
+  per-environment inputs are gathered (<code>all_gather</code>, free inside the vmap) and
+  every environment's screen and full-check candidates go through one queue; the
+  endpoint and evidence kernels read each lane's environment from the stacked
+  arrays in place (<code>env=</code>), with no per-lane copies. Batches then cover the
+  chunk, so <code>gn_mask_batch_size</code> and <code>gn_mask_screen_batch_size</code> are scaled by
+  the chunk size up to 256 and 2048, where mask time plateaued. The default
+  <code>gn_mask_env_batch_size=0</code> is now one chunk of all environments (it was a
+  plain vmap, which executes every branch: 124 steps/s).</li>
+<li><strong>Pooled first fit.</strong> First-fit masks keep each environment's own scan (block
+  growth, settled paths, early stop); each round screens the next block of every
+  unfinished environment through one queue, then checks pending survivors with
+  per-environment allowances that double while checks continue.</li>
+<li><strong>Polynomial XPM re-solve.</strong> Total power enters every XPM pair only through the
+  Raman tilt <code>(ap - fk * P * cr)^2</code>, so each pair is exactly <code>c0 + c1 P + c2 P^2</code>
+  (<code>xpm_pair_coefficients</code>). The kernel's <code>polynomial=True</code> mode stores each
+  link's three sums once per mask; a candidate's path links then get their XPM
+  at the new total power plus the inserted channel's own pairs
+  (<code>xpm_after_insertion</code>) in O(slots) per link, instead of a full reduction.</li>
+<li><strong>Changed-row evidence.</strong> Every existing lightpath whose SNR an insertion can
+  change crosses one of the candidate's own links, so the evidence kernel visits
+  only those rows (<code>changed_rows_only</code>, 5 instead of 44 here) with per-cell
+  thresholds. Lightpaths sharing no link with the candidate path are decided once
+  per mask from their baseline SNR. This also removes the predicate-packing
+  kernel from these masks.</li>
+<li>
+<p><strong>Unrolled transformer layers.</strong> The encoder's <code>lax.scan</code> over layers stacked
+  every layer's backward residuals into <code>(layers, batch, ...)</code> buffers: 73 copies
+  and 65 GB of device copies per PPO update. Unrolled, a 512-sample minibatch's
+  forward/backward pass fell from 14.3 to 11.1 ms (<code>policy_update_bench.py</code>).</p>
+</li>
+<li>
+<p><strong>Single-kernel CUDA graphs.</strong> <code>--xla_gpu_graph_min_graph_size=1</code> (now in
+  <code>train.py</code>'s default XLA flags) lets XLA capture even single kernels between
+  host synchronisations in CUDA graphs: +8% PPO, +9% <code>ksp_ff</code>. Adding custom
+  calls to command buffers was slower; device-side while loops stay off.</p>
+</li>
+<li><strong>No scatter for small <code>nonzero</code>.</strong> <code>release_departures_safely</code> picked held
+  lightpaths with <code>jnp.nonzero(size=32)</code> over all 73k cells, which lowers to a
+  scatter of every cell (0.8 ms per 16-environment step);
+  <code>first_true_indices</code> searches the running count instead. Candidate path links
+  come from <code>path_link_indices</code> rather than a per-lane <code>nonzero</code>, and
+  <code>searchsorted</code> over short arrays uses <code>compare_all</code> (the default <code>scan</code> is a
+  loop of launches).</li>
+<li><strong>Endpoint-only amplifier ASE.</strong> The endpoint screen evaluated the ISRS-aware
+  ASE at every slot and kept two (<code>_ase_with_isrs_gain_at</code>).</li>
+<li><strong>Additive fibre power.</strong> A candidate fills free slots, so it adds exactly one
+  channel to its links' total power; the screen adds its launch power to the
+  baseline totals instead of re-reducing the spectrum (equal up to float32
+  summation order).</li>
+<li><strong>Packed hop rows.</strong> Paths are padded to the longest one's six hops (3.7 real
+  on average here). The pooled full check re-solves only real (lane, hop) link
+  rows, in a buffer of three quarters of the padded size with a full fallback.</li>
+<li><strong>Overlapped logging and cached warmups.</strong> Increments run on a worker thread
+  while the previous one is logged (3.5% of wall time with W&amp;B off), and
+  <code>--WARMUP_CACHE_DIR</code> reuses warmed-up states (see <a href="../training/">training</a>).</li>
+</ul>
+<p>Measured and not adopted: peeling the first iteration of the candidate loops
+into device-side conds (no change; the step is GPU-bound now), <code>bfloat16</code>
+compute for the transformer (<code>--compute_dtype=bfloat16</code>, +5% end to end, changes
+numerics), and trusting the <code>safe_release</code> link-SNR cache instead of the mask's
+baseline refresh (about 3%, but the cache differs from a fresh solve by float32
+rounding, so masks would change). 64 environments ran 9% faster than 32 (2,769
+steps/s), with a larger PPO batch.</p>
+<p>Fixed on the way: <code>every_path</code> first-fit masks (<code>ff_ksp</code>) lost later paths'
+first fits whenever an earlier path settled inside the same screen block, as the
+survivor loop stopped at the first settled survivor. It now skips to the next
+survivor whose path is unsettled.</p>
+<p>Profiles after these changes. A 16-environment full-mask step is GPU-bound
+(5.9 ms of kernels in about 6 ms): the mask's XLA fusions (2.9 ms, led by the
+inserted rows' SNR) and its Pallas kernels (endpoint screen 1.1 ms, XPM 0.5 ms,
+evidence 0.4 ms), departures and request generation 0.5 ms. In training, the
+rollout is about three quarters of the time and the PPO update most of the
+rest; the policy's rollout forward pass is 0.75 ms per 32-environment step. The
+update's forward/backward pass is memory-bound with no dominant kernel (the
+largest, the token embedding GEMM, is 8%).</p>
+<div class="highlight"><pre><span></span><code>python<span class="w"> </span>-m<span class="w"> </span>experimental.benchmarks.gn_scaling<span class="w"> </span>--gn-kernel-backend<span class="w"> </span>pallas<span class="w"> </span>--slots<span class="w"> </span><span class="m">1668</span><span class="w"> </span>--envs<span class="w"> </span><span class="m">16</span><span class="w"> </span>--k<span class="w"> </span><span class="m">5</span><span class="w"> </span>--load<span class="w"> </span><span class="m">5000</span><span class="w"> </span>--coherent<span class="w"> </span>--band-preference<span class="w"> </span>C,L,S<span class="w"> </span>--gn-mask-mode<span class="w"> </span>all_slots<span class="w"> </span>--gn-mask-batch-size<span class="w"> </span><span class="m">64</span><span class="w"> </span>--gn-mask-env-batch-size<span class="w"> </span><span class="m">16</span><span class="w"> </span>--independent-streams<span class="w"> </span>--state-input<span class="w"> </span>ss16.npz<span class="w"> </span>--kernels<span class="w"> </span>mask<span class="w"> </span>rollout<span class="w"> </span>--steps<span class="w"> </span><span class="m">16</span><span class="w"> </span>--iterations<span class="w"> </span><span class="m">3</span><span class="w"> </span><span class="o">[</span>--heuristic<span class="w"> </span>NAME<span class="o">]</span><span class="w"> </span><span class="o">[</span>--reference<span class="w"> </span>chunk1.npz<span class="o">]</span>
+python<span class="w"> </span>-m<span class="w"> </span>experimental.benchmarks.policy_update_bench<span class="w"> </span>--minibatch<span class="w"> </span><span class="m">512</span><span class="w"> </span><span class="o">[</span>--forward-only<span class="o">]</span>
+</code></pre></div>
+<h2 id="dependencies-and-gymnax">Dependencies and Gymnax</h2>
+<p><code>uv.lock</code> was refreshed: 159 package versions changed, 20 packages were added and
+14 removed. Important final versions are JAX/JAXlib 0.12.0.1, Gymnax 1.0.1, Equinox
+0.13.8, Flax 0.12.10, Distrax 0.1.9, NumPy 2.5.4, SciPy 1.18.1 and Optax 0.2.8.
+The <a href="../benchmarks/gn_20261024/dependency_updates.json">complete version changes</a> are saved.</p>
+<p>Gymnax is retained. Its 1.0.1 release declares <code>jax&lt;0.12</code> to bound advertised support
+to combinations covered by CI, according to its <a href="https://github.com/RobertTLange/gymnax/blob/main/CHANGELOG.md">changelog</a>.
+<code>pyproject.toml</code> uses a package/version-specific uv override for that JAX requirement.
+Other Gymnax dependencies and the JAX CUDA extras remain resolved normally. The
+scoped override requires uv 0.13.5 or newer; uv was updated locally and on the
+benchmark host. The existing department project's Python environment was preserved.</p>
+<p>The override is a tested XLRON configuration, not a claim that all Gymnax built-in
+environments support JAX 0.12. Future Gymnax versions are deliberately outside this
+version-specific override and must be evaluated normally.</p>
+<p>The upgraded ty version makes warning-only diagnostics fail by default. The explicit
+<code>tool.ty.terminal.error-on-warning = false</code> setting retains the project's existing
+non-blocking warning policy while errors still fail. Warnings are still reported;
+see the <a href="https://docs.astral.sh/ty/rules/">official rule-level documentation</a>.
+The upgraded pre-commit also needs a modern Git: the local default Git 2.22 lacks
+the <code>ls-files --deduplicate</code> option it uses. Final hook validation passed using the
+already installed bundled Git 2.53, without changing the system Git installation.</p>
+<h2 id="verification-and-accuracy-limits">Verification and accuracy limits</h2>
+<ul>
+<li>Full upgraded-stack suite: <strong>2,290 passed, 488 skipped</strong>.</li>
+<li>GN suite after the final batching adjustment: <strong>84 passed, six skipped</strong>.</li>
+<li>Subsequent parallel fixed-power PPO smoke tests: <strong>two passed</strong>; training utility
+  tests after the warmup fix: <strong>27 passed</strong>. These extend the original suite result
+  above; the whole suite was not rerun after this small warmup change.</li>
+<li>After rebasing onto main with ARBR: <strong>54 GN/factory/training-utility tests passed</strong>,
+  plus <strong>40 ARBR tests passed, ten skipped</strong>. All pre-commit hooks and the public
+  DRA guard passed; the guard's six regression tests also passed.</li>
+<li>Independent small-network candidate oracle checks full-network recomputation,
+  stale cached SNR and successive actual steps for all three execution modes.</li>
+<li>Selected-link results are compared with full-network results, including repeated
+  and reordered indices. Sparse-path tests cover packed paths and zero SNR.</li>
+<li>Recorded mask, reward and occupancy arrays match exactly in the compared cases.
+  Full-precision SNR accumulation differs at ordinary float32 rounding levels
+  (about 2e-6 dB in the 100-slot comparison).</li>
+<li>The original default GPU matrix arithmetic differs from full-precision sparse
+  accumulation by up to 0.00153 dB in the recorded 420-slot case. Its masks and
+  rollout outcomes still agree exactly. New benchmark defaults request <code>highest</code>
+  matrix precision to make numerical comparisons meaningful.</li>
+<li>Type checking has warnings but no errors. The changed core files have no added
+  Ruff diagnostics relative to the baseline; existing lint diagnostics remain.</li>
+<li>Documentation builds successfully; existing API-docstring warnings remain.</li>
+<li>All final pre-commit hooks pass, including type checking, with the upgraded
+  environment and Git 2.53.</li>
+</ul>
+<p>Equivalence tests establish preservation of the implemented model. They do not
+establish agreement with an independent physical propagation model.</p>
+<p>The <a href="../benchmarks/gn_20261024/accuracy_audit.json">independent coefficient audit</a> follows
+the grouping and channel axes of the <a href="https://github.com/dsemrau/ISRSGNmodel/blob/master/Functions/Python/ISRSGNmodel.py">cited Semrau implementation</a>,
+retaining XLRON's beta4 expression. It exposes two pre-existing discrepancies:</p>
+<ol>
+<li><code>_spm</code> and its uniform/fused inlined forms apply the leading coefficient to
+   only the first of the two bracketed contributions. The reference applies it to
+   their sum. The eight-channel diagnostic differs by about 1.06% in SPM efficiency.</li>
+<li>The generic <code>_xpm</code> receives one-dimensional channel power/bandwidth inputs from
+   the environment; their <code>.T</code> operations do not create channel-of-interest and
+   interferer axes. The fused implementation uses explicit axes. The heterogeneous
+   eight-channel diagnostic differs by up to 121% in XPM efficiency.</li>
+</ol>
+<p>These percentages concern the diagnostic coefficients, not total SNR error or all
+operating points. The production formulas were preserved so performance and physics
+changes can be reviewed independently. Multislot channel-versus-slot power accounting
+also deserves an independent validation case: the fibre power-budget helper deduplicates
+channel blocks, while the GN tilt sums the per-slot power array.</p>
+<p>The public DRA module is a <code>NotImplementedError</code> stub pending publication. DRA timing
+and physical regression checks need the actual implementation. Also, the base model
+documents a linear Raman-slope approximation with C+L applicability; a wider numerical
+stress run alone cannot validate S-band or broader multiband accuracy.</p>
+<h2 id="further-architecture-opportunities">Further architecture opportunities</h2>
+<p>These are proposals inferred from the code and measurements, not implemented or
+benchmarked speedup claims:</p>
+<ol>
+<li><strong>Validate and unify the physical kernels first.</strong> Add independent SPM/XPM,
+   heterogeneous power, multislot and broad-spectrum references before combining
+   generic/fused execution or changing channel representations.</li>
+<li><strong>Aggregate repeated occupied centres with explicit weights.</strong> This PR now
+   skips zero interferers in the wide uniform-span path, but every occupied slot
+   still contributes separately. Weighted channel aggregation could reduce pair
+   calculations further. Weights must preserve the intended power/PSD accounting;
+   simply dropping duplicate slots changes the current result.</li>
+<li><strong>Cache frequency-dependent pair kernels.</strong> The Raman term
+   <code>(a + abar - f * total_power * Cr)^2</code> is quadratic in total power. On a fixed
+   frequency/bandwidth grid, static pair coefficients could turn repeated
+   transcendental calculations into weighted reductions/matrix products. Variable
+   channel centres, bandwidths and modulation corrections require separate handling.</li>
+<li><strong>Extend reuse across related candidates and steps.</strong> Feasible-candidate
+   compaction and identical-footprint reuse are now implemented. More reuse must
+   respect power changes, departures, modulation-dependent physics and stale caches.
+   Differentiable execution retains static traversal.</li>
+<li><strong>Validate a supported custom-kernel backend.</strong> The ordinary-JAX tiled reduction
+   is implemented here; the Pallas POC is isolated in a separate worktree. Backend
+   support, register use, differentiation and generic/corrected modes need their
+   own validation before production adoption.</li>
+<li><strong>Rework RSA's registry-based capacity accumulation if it becomes dominant.</strong>
+   It still evaluates registry rows across all slots and performs path ownership
+   reductions. The present 420-slot measurement does not justify claiming a gain.</li>
+</ol>
+<p>Exact XPM remains quadratic in the number of interacting channels for the current
+direct formulation. The original masking adds candidate and network-link factors;
+this change removes much redundant link/path work but does not eliminate channel
+pair interactions. The limited scaling from one to 16 environments shows that
+arithmetic and device data movement become important after allocation pressure is
+reduced.</p>
+<p>My assessment is that there is <strong>no demonstrated need for a C rewrite</strong>. JAX's
+<a href="https://docs.jax.dev/en/latest/jit-compilation.html">JIT compilation</a> already removes
+Python interpretation from these compiled loops. Algorithmic reuse, channel
+representation, fusion and compiler behavior are the immediate opportunities.
+Custom native code would need to improve those same kernels and data flows; changing
+the implementation language alone would not remove quadratic physical interactions
+or improve the model's validity.</p>
+<h2 id="reproduction-and-artifacts">Reproduction and artifacts</h2>
+<p>The benchmark is <code>experimental/benchmarks/gn_scaling.py</code>. On a GPU host:</p>
+<div class="highlight"><pre><span></span><code>uv<span class="w"> </span>self<span class="w"> </span>update
+uv<span class="w"> </span>sync<span class="w"> </span>--locked<span class="w"> </span>--group<span class="w"> </span>gpu
+<span class="nv">CUDA_VISIBLE_DEVICES</span><span class="o">=</span><span class="m">2</span><span class="w"> </span><span class="nv">XLA_PYTHON_CLIENT_PREALLOCATE</span><span class="o">=</span><span class="nb">false</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>uv<span class="w"> </span>run<span class="w"> </span>--locked<span class="w"> </span>python<span class="w"> </span>-m<span class="w"> </span>experimental.benchmarks.gn_scaling<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--slots<span class="w"> </span><span class="m">420</span><span class="w"> </span>--k<span class="w"> </span><span class="m">5</span><span class="w"> </span>--iterations<span class="w"> </span><span class="m">15</span><span class="w"> </span>--kernels<span class="w"> </span>link<span class="w"> </span>lightpath<span class="w"> </span>mask<span class="w"> </span>rollout<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--output<span class="w"> </span>/tmp/gn-420.json<span class="w"> </span>--snapshot<span class="w"> </span>/tmp/gn-420.npz
+
+<span class="nv">CUDA_VISIBLE_DEVICES</span><span class="o">=</span><span class="m">2</span><span class="w"> </span><span class="nv">XLA_PYTHON_CLIENT_PREALLOCATE</span><span class="o">=</span><span class="nb">false</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>uv<span class="w"> </span>run<span class="w"> </span>--locked<span class="w"> </span>python<span class="w"> </span>-m<span class="w"> </span>experimental.benchmarks.gn_scaling<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--slots<span class="w"> </span><span class="m">1376</span><span class="w"> </span>--k<span class="w"> </span><span class="m">5</span><span class="w"> </span>--warmup-steps<span class="w"> </span><span class="m">128</span><span class="w"> </span>--iterations<span class="w"> </span><span class="m">10</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--kernels<span class="w"> </span>link<span class="w"> </span>lightpath<span class="w"> </span>mask<span class="w"> </span>rollout<span class="w"> </span>--output<span class="w"> </span>/tmp/gn-wide.json
+
+uv<span class="w"> </span>run<span class="w"> </span>python<span class="w"> </span>-m<span class="w"> </span>experimental.benchmarks.gn_accuracy_audit<span class="w"> </span>--output<span class="w"> </span>/tmp/gn-audit.json
+</code></pre></div>
+<p>Other options include <code>--mode corrected</code>, <code>--mode nonuniform</code>, <code>--envs 16</code>, and
+<code>--env-type rsa_gn_model --kernels link lightpath throughput rollout</code>.
+<code>--occupancy 0.9</code> raises the synthetic target; the achieved occupancy is reported
+and can be substantially lower because placement attempts are bounded. Use
+<code>--reference /tmp/original.npz</code> for numerical/outcome assertions. Baseline and
+optimized runs should use the same script, precision setting and runtime when
+isolating code changes. To reproduce the original source, export commit <code>2256456</code>,
+copy the benchmark script into it, and execute from that directory using the chosen
+environment's absolute Python path.</p>
+<p>Raw result JSON files are in <code>docs/benchmarks/gn_20261024</code>, including the
+<a href="../benchmarks/gn_20261024/baseline-420.json">original 420-slot result</a> and the
+<a href="../benchmarks/gn_20261024/batch8-420.json">same-runtime optimized result</a>.
+<code>baseline-*</code> uses the original source; <code>optimized-*</code> uses the restructured source;
+<code>batch8-*</code>, <code>batch32-*</code>, <code>batch40-*</code> and <code>serial-candidates-*</code> record batching
+experiments. Some batching experiments precede the final adaptive default; their
+implementation labels explain this. The partial <code>baseline-latest-420.json</code> is marked
+as timed out. Numerical comparison details are in
+<a href="../benchmarks/gn_20261024/validation.json">validation.json</a>.</p>
+<p>The isolated department copies, Python environment, logs and binary snapshots were
+left at <code>/tmp/xlron-gn-perf-20261024</code> on Turin for inspection. Benchmark processes
+have exited. The existing checkout at <code>~/git/XLRON</code> was not changed.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["content.tabs.link", "search.suggest"], "search": "../assets/javascripts/workers/search.a7633da7.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.c21346df.min.js"></script>
+      
+        <script src="../javascripts/mathjax.js"></script>
+      
+        <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+      
+    
+  </body>
+</html>

@@ -1,0 +1,82 @@
+{
+  "args": {
+    "slots": 100,
+    "env_type": "rmsa_gn_model",
+    "k": 5,
+    "envs": 1,
+    "occupancy": 0.25,
+    "independent_streams": true,
+    "topology": "nsfnet_deeprmsa_directed",
+    "mode": "uniform",
+    "kernels": [
+      "mask",
+      "rollout"
+    ],
+    "iterations": 7,
+    "steps": 16,
+    "warmup_steps": 128,
+    "output": "/tmp/xlron-gn-perf-20261024/reduced-small-fallback.json",
+    "snapshot": "/tmp/xlron-gn-perf-20261024/reduced-small-fallback.npz",
+    "reference": "/tmp/xlron-gn-perf-20261024/optimized-small-fallback.npz",
+    "matmul_precision": "highest"
+  },
+  "jax": "0.12.0.1",
+  "device": "cuda:0",
+  "device_kind": "NVIDIA A100 80GB PCIe",
+  "platform": "Linux-5.14.0-611.55.1.el9_7.0.3.x86_64-x86_64-with-glibc2.34",
+  "links": 44,
+  "paths": 911,
+  "modulations": 4,
+  "lightpaths": 128,
+  "occupancy": 0.36454546451568604,
+  "initial_accepted_services": [
+    128
+  ],
+  "metrics": {
+    "mask": {
+      "compile_s": 1.5413202159106731,
+      "median_ms": 0.39058923721313477,
+      "min_ms": 0.3778059035539627,
+      "argument_bytes": 105612,
+      "output_bytes": 3024,
+      "temp_bytes": 8838984,
+      "alias_bytes": 0
+    },
+    "rollout": {
+      "compile_s": 3.8551908545196056,
+      "median_ms": 6.107283756136894,
+      "min_ms": 5.741652101278305,
+      "argument_bytes": 286408,
+      "output_bytes": 286824,
+      "temp_bytes": 8806416,
+      "alias_bytes": 0,
+      "steps_per_s": 2619.822598536121,
+      "accepted_services": [
+        143
+      ],
+      "distinct_final_requests": 1
+    }
+  },
+  "accuracy": {
+    "mask_0": {
+      "exact": true,
+      "max_abs_error": 0.0
+    },
+    "mask_1": {
+      "exact": true,
+      "max_abs_error": 0.0
+    },
+    "mask_2": {
+      "exact": true,
+      "max_abs_error": 0.0
+    },
+    "rollout_rewards": {
+      "exact": true,
+      "max_abs_error": 0.0
+    },
+    "rollout_occupancy": {
+      "exact": true,
+      "max_abs_error": 0.0
+    }
+  }
+}

@@ -1,0 +1,53 @@
+{
+  "args": {
+    "slots": 100,
+    "k": 5,
+    "envs": 1,
+    "topology": "nsfnet_deeprmsa_directed",
+    "mode": "nonuniform",
+    "kernels": [
+      "mask",
+      "rollout"
+    ],
+    "iterations": 15,
+    "steps": 16,
+    "warmup_steps": 0,
+    "output": "/tmp/xlron-gn-perf-20261024/batch32-nonuniform-100.json",
+    "snapshot": "/tmp/xlron-gn-perf-20261024/batch32-nonuniform-100.npz",
+    "reference": null,
+    "matmul_precision": "highest"
+  },
+  "jax": "0.12.0.1",
+  "device": "cuda:0",
+  "device_kind": "NVIDIA A100 80GB PCIe",
+  "platform": "Linux-5.14.0-611.55.1.el9_7.0.3.x86_64-x86_64-with-glibc2.34",
+  "links": 44,
+  "paths": 911,
+  "modulations": 4,
+  "lightpaths": 88,
+  "occupancy": 0.2506818175315857,
+  "metrics": {
+    "mask": {
+      "compile_s": 3.4623507764190435,
+      "median_ms": 0.9465720504522324,
+      "min_ms": 0.8623041212558746,
+      "argument_bytes": 105612,
+      "output_bytes": 3024,
+      "temp_bytes": 7515976,
+      "alias_bytes": 0
+    },
+    "rollout": {
+      "compile_s": 4.842466985806823,
+      "median_ms": 16.884449869394302,
+      "min_ms": 16.62970706820488,
+      "argument_bytes": 286400,
+      "output_bytes": 286824,
+      "temp_bytes": 7475728,
+      "alias_bytes": 0,
+      "steps_per_s": 947.6174896881002,
+      "accepted_services": [
+        14
+      ]
+    }
+  }
+}

@@ -1,0 +1,88 @@
+{
+  "args": {
+    "slots": 420,
+    "k": 5,
+    "envs": 16,
+    "topology": "nsfnet_deeprmsa_directed",
+    "mode": "uniform",
+    "kernels": [
+      "link",
+      "lightpath",
+      "mask",
+      "rollout"
+    ],
+    "iterations": 7,
+    "steps": 16,
+    "warmup_steps": 0,
+    "output": "/tmp/xlron-gn-perf-20261024/optimized-env16-420.json",
+    "snapshot": "/tmp/xlron-gn-perf-20261024/optimized-env16-420.npz",
+    "reference": null,
+    "matmul_precision": "highest"
+  },
+  "jax": "0.12.0.1",
+  "device": "cuda:0",
+  "device_kind": "NVIDIA A100 80GB PCIe",
+  "platform": "Linux-5.14.0-611.55.1.el9_7.0.3.x86_64-x86_64-with-glibc2.34",
+  "links": 44,
+  "paths": 911,
+  "modulations": 4,
+  "lightpaths": 352,
+  "occupancy": 0.2501623332500458,
+  "metrics": {
+    "link": {
+      "compile_s": 0.3677301909774542,
+      "median_ms": 1.5465058386325836,
+      "min_ms": 1.5092063695192337,
+      "argument_bytes": 3548160,
+      "output_bytes": 1182720,
+      "temp_bytes": 5919272,
+      "alias_bytes": 0
+    },
+    "lightpath": {
+      "compile_s": 0.3608126640319824,
+      "median_ms": 0.2455003559589386,
+      "min_ms": 0.23694150149822235,
+      "argument_bytes": 5913600,
+      "output_bytes": 1182720,
+      "temp_bytes": 3548160,
+      "alias_bytes": 0
+    },
+    "mask": {
+      "compile_s": 2.9070165436714888,
+      "median_ms": 8.093968033790588,
+      "min_ms": 8.068708702921867,
+      "argument_bytes": 7096512,
+      "output_bytes": 201624,
+      "temp_bytes": 77578888,
+      "alias_bytes": 0
+    },
+    "rollout": {
+      "compile_s": 4.9812723360955715,
+      "median_ms": 135.15822403132915,
+      "min_ms": 134.98656451702118,
+      "argument_bytes": 19153920,
+      "output_bytes": 19155424,
+      "temp_bytes": 75965968,
+      "alias_bytes": 0,
+      "steps_per_s": 1894.0763822160034,
+      "accepted_services": [
+        16,
+        16,
+        16,
+        16,
+        16,
+        16,
+        16,
+        16,
+        16,
+        16,
+        16,
+        16,
+        16,
+        16,
+        16,
+        16
+      ]
+    }
+  }
+}
